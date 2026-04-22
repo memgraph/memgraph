@@ -74,8 +74,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 #if USE_JEMALLOC
       db_arena_(std::make_unique<memory::DbArena>(&db_memory_tracker_)),
 #endif
-      trigger_store_(
-          std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers", BaseArenaIdx())),
+      trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
       after_commit_trigger_pool_{1,
 #if USE_JEMALLOC
                                  // After-commit triggers run on this dedicated DB worker.

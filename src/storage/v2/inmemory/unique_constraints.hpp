@@ -66,7 +66,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   // a status is needed to not drop the constraint before it gets validated
   // new writes can't happen during this time due to read only access
   struct IndividualConstraint {
-    explicit IndividualConstraint([[maybe_unused]] unsigned arena_idx = 0) : skiplist{} {}
+    explicit IndividualConstraint() : skiplist{} {}
 
     ~IndividualConstraint();
     void Publish(uint64_t commit_timestamp);

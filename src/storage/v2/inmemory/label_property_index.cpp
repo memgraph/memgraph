@@ -449,8 +449,7 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
       return false;
     }
     auto helper = PropertiesPermutationHelper{properties};
-    auto [it3, _2] =
-        properties_map.emplace(properties, std::make_shared<IndividualIndex>(std::move(helper), arena_idx_));
+    auto [it3, _2] = properties_map.emplace(properties, std::make_shared<IndividualIndex>(std::move(helper)));
     all_indices_.WithLock([&](auto &all_indexes) {
       auto new_all_indexes = *all_indexes;
       new_all_indexes.emplace_back(it3->second, label, properties);

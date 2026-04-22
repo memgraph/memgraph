@@ -55,7 +55,7 @@ bool InMemoryLabelIndex::RegisterIndex(LabelId label, ActiveIndicesUpdater const
     }
 
     auto new_index = std::make_shared<IndexContainer>(indices);
-    auto [new_it, _] = new_index->try_emplace(label, std::make_shared<IndividualIndex>(arena_idx_));
+    auto [new_it, _] = new_index->try_emplace(label, std::make_shared<IndividualIndex>());
 
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
 

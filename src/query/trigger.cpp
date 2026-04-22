@@ -340,7 +340,7 @@ bool MigrateTriggerData(nlohmann::json &json_data, uint64_t version) {
 }
 }  // namespace
 
-TriggerStore::TriggerStore(std::filesystem::path directory, [[maybe_unused]] unsigned arena_idx)
+TriggerStore::TriggerStore(std::filesystem::path directory)
     : storage_{std::move(directory)}, before_commit_triggers_{}, after_commit_triggers_{} {}
 
 void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,

@@ -161,7 +161,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
  private:
   struct IndividualIndex {
-    explicit IndividualIndex([[maybe_unused]] unsigned arena_idx = 0) : skip_list_{} {}
+    explicit IndividualIndex() : skip_list_{} {}
 
     ~IndividualIndex();
     void Publish(uint64_t commit_timestamp);

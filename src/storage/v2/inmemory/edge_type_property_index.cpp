@@ -172,8 +172,7 @@ bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, Property
     }
 
     auto new_container = std::make_shared<IndexContainer>(*index_container);
-    auto [new_it, _] =
-        new_container->emplace(std::make_pair(edge_type, property), std::make_shared<IndividualIndex>(arena_idx_));
+    auto [new_it, _] = new_container->emplace(std::make_pair(edge_type, property), std::make_shared<IndividualIndex>());
 
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
     // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)

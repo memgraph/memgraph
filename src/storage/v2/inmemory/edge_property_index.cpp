@@ -199,7 +199,7 @@ bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property, ActiveIndices
     utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
     // Register
     auto new_container = std::make_shared<IndicesContainer>(*indices_container);
-    auto [new_it, _] = new_container->indices_.emplace(property, std::make_shared<IndividualIndex>(arena_idx_));
+    auto [new_it, _] = new_container->indices_.emplace(property, std::make_shared<IndividualIndex>());
     // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
     all_indices_.WithLock([&](auto &all_indices) {
       auto new_all_indices = *all_indices;

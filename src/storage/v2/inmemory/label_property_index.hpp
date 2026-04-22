@@ -45,7 +45,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
  public:
   struct IndividualIndex {
-    explicit IndividualIndex(PropertiesPermutationHelper permutations_helper, [[maybe_unused]] unsigned arena_idx = 0)
+    explicit IndividualIndex(PropertiesPermutationHelper permutations_helper)
         : permutations_helper(std::move(permutations_helper)), skiplist{} {}
 
     ~IndividualIndex();

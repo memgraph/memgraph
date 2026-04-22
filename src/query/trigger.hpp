@@ -95,7 +95,7 @@ struct Trigger {
 enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
 
 struct TriggerStore {
-  explicit TriggerStore(std::filesystem::path directory, [[maybe_unused]] unsigned arena_idx = 0);
+  explicit TriggerStore(std::filesystem::path directory);
 
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                        const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
