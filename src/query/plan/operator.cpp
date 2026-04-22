@@ -6627,8 +6627,8 @@ class AggregateCursor : public Cursor {
     }
   }
 
-  VirtualNode BuildDerivedNode(const VertexAccessor &vertex, const char *labels_key, const char *props_key,
-                               const TypedValue::TMap &options, VirtualNode::allocator_type alloc) const {
+  VirtualNode BuildDerivedNode(const char *labels_key, const char *props_key, const TypedValue::TMap &options,
+                               VirtualNode::allocator_type alloc) const {
     VirtualNode::label_list labels{alloc};
     if (const auto labels_it = options.find(labels_key);
         labels_it != options.end() && labels_it->second.type() == TypedValue::Type::List) {
@@ -6640,7 +6640,7 @@ class AggregateCursor : public Cursor {
     ApplyPropertyMap(options, props_key, [&](storage::PropertyId id, storage::PropertyValue pv) {
       properties.insert_or_assign(id, std::move(pv));
     });
-    return {vertex.Gid(), std::move(labels), std::move(properties), alloc};
+    return {std::move(labels), std::move(properties), alloc};
   }
 
   // Collapses the path to a single synthetic edge between its endpoints. Intermediate vertices
@@ -6674,12 +6674,12 @@ class AggregateCursor : public Cursor {
 
     const auto alloc = projected_graph.get_allocator();
     const auto &stored_from = projected_graph.InsertOrGetNode(
-        BuildDerivedNode(path_vertices.front(), kSourceLabels, kSourceProperties, options, alloc));
+        path_vertices.front().Gid(), BuildDerivedNode(kSourceLabels, kSourceProperties, options, alloc));
 
     if (path_vertices.size() < 2) return;
 
     const auto &stored_to = projected_graph.InsertOrGetNode(
-        BuildDerivedNode(path_vertices.back(), kTargetLabels, kTargetProperties, options, alloc));
+        path_vertices.back().Gid(), BuildDerivedNode(kTargetLabels, kTargetProperties, options, alloc));
 
     VirtualEdge ve(stored_from,
                    stored_to,

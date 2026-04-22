@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <memory>
 #include <unordered_set>
 
 #include "disk_test_utils.hpp"
@@ -32,13 +31,8 @@ class VirtualEdgeTest : public ::testing::Test {
 };
 
 TEST_F(VirtualEdgeTest, AccessorsAndIdentity) {
-  auto acc = db->Access(memgraph::storage::WRITE);
-  auto sv1 = acc->CreateVertex();
-  auto sv2 = acc->CreateVertex();
-  acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-
-  memgraph::query::VirtualNode vn1(sv1.Gid(), {"L1"}, {});
-  memgraph::query::VirtualNode vn2(sv2.Gid(), {"L2"}, {});
+  memgraph::query::VirtualNode vn1({"L1"}, {});
+  memgraph::query::VirtualNode vn2({"L2"}, {});
 
   memgraph::query::VirtualEdge ve1(vn1, vn2, "RELATES_TO");
   memgraph::query::VirtualEdge ve2(vn1, vn2, "RELATES_TO");
@@ -62,7 +56,6 @@ TEST_F(VirtualEdgeTest, AccessorsAndIdentity) {
   memgraph::query::VirtualEdge ve_reversed(vn2, vn1, "RELATES_TO");
   EXPECT_NE(ve1, ve_reversed);
 
-  // Unordered-set dedups by the (from, to, type) triple.
   std::unordered_set<memgraph::query::VirtualEdge> set;
   set.insert(ve1);
   set.insert(ve2);  // same triple as ve1 → not inserted
@@ -81,16 +74,14 @@ TEST_F(VirtualEdgeTest, GraphStoresVirtualEdgesSeparately) {
   const auto v1 = memgraph::query::VertexAccessor(sv1);
   const auto v2 = memgraph::query::VertexAccessor(sv2);
 
-  // real edges live on Graph
   memgraph::query::Graph graph(memgraph::utils::NewDeleteResource());
   graph.InsertVertex(v1);
   graph.InsertVertex(v2);
   graph.InsertEdge(memgraph::query::EdgeAccessor(*se));
 
-  // virtual edges live on VirtualGraph
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
-  const auto &vn1 = vg.InsertOrGetNode(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
-  const auto &vn2 = vg.InsertOrGetNode(memgraph::query::VirtualNode(sv2.Gid(), {}, {}));
+  const auto &vn1 = vg.InsertOrGetNode(sv1.Gid(), memgraph::query::VirtualNode({}, {}));
+  const auto &vn2 = vg.InsertOrGetNode(sv2.Gid(), memgraph::query::VirtualNode({}, {}));
   memgraph::query::VirtualEdge ve(vn1, vn2, "VIRTUAL");
   EXPECT_TRUE(vg.InsertEdgeIfNew(ve));
   EXPECT_FALSE(vg.InsertEdgeIfNew(ve));
@@ -108,21 +99,16 @@ TEST_F(VirtualEdgeTest, VirtualGraphFiltersEdgesByVertex) {
   acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
 
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
-  const auto &vn1 = vg.InsertOrGetNode(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
-  const auto &vn2 = vg.InsertOrGetNode(memgraph::query::VirtualNode(sv2.Gid(), {}, {}));
-  const auto &vn3 = vg.InsertOrGetNode(memgraph::query::VirtualNode(sv3.Gid(), {}, {}));
+  const auto &vn1 = vg.InsertOrGetNode(sv1.Gid(), memgraph::query::VirtualNode({}, {}));
+  const auto &vn2 = vg.InsertOrGetNode(sv2.Gid(), memgraph::query::VirtualNode({}, {}));
+  const auto &vn3 = vg.InsertOrGetNode(sv3.Gid(), memgraph::query::VirtualNode({}, {}));
 
-  // v1->v2, v1->v3, v2->v3
   vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn2, "A"));
   vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn3, "B"));
   vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn2, vn3, "C"));
 
-  // edge store is indexed by synthetic VirtualNode Gid
-  // vn1 has 2 out, 0 in
   EXPECT_EQ(vg.OutEdges(vn1.Gid()).size(), 2);
   EXPECT_EQ(vg.InEdges(vn1.Gid()).size(), 0);
-
-  // vn3 has 0 out, 2 in
   EXPECT_EQ(vg.OutEdges(vn3.Gid()).size(), 0);
   EXPECT_EQ(vg.InEdges(vn3.Gid()).size(), 2);
 }
@@ -133,10 +119,9 @@ TEST_F(VirtualEdgeTest, SelfLoopAppearsInBothDirections) {
   acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
 
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
-  const auto &vn1 = vg.InsertOrGetNode(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
+  const auto &vn1 = vg.InsertOrGetNode(sv1.Gid(), memgraph::query::VirtualNode({}, {}));
   vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn1, "SELF"));
 
-  // edge store is indexed by synthetic VirtualNode Gid
   EXPECT_EQ(vg.OutEdges(vn1.Gid()).size(), 1);
   EXPECT_EQ(vg.InEdges(vn1.Gid()).size(), 1);
 }
@@ -150,20 +135,25 @@ TEST_F(VirtualEdgeTest, MergePreservesCanonicalAndAliasesOtherSynth) {
   memgraph::query::VirtualGraph main(memgraph::utils::NewDeleteResource());
   memgraph::query::VirtualGraph other(memgraph::utils::NewDeleteResource());
 
-  const auto main_synth = main.InsertOrGetNode(memgraph::query::VirtualNode(shared_gid, {"main"}, {})).Gid();
-  const auto other_synth = other.InsertOrGetNode(memgraph::query::VirtualNode(shared_gid, {"other"}, {})).Gid();
-  const auto other_only_synth = other.InsertOrGetNode(memgraph::query::VirtualNode(other_only_gid, {}, {})).Gid();
+  const auto main_synth = main.InsertOrGetNode(shared_gid, memgraph::query::VirtualNode({"main"}, {})).Gid();
+  const auto other_synth = other.InsertOrGetNode(shared_gid, memgraph::query::VirtualNode({"other"}, {})).Gid();
+  const auto other_only_synth = other.InsertOrGetNode(other_only_gid, memgraph::query::VirtualNode({}, {})).Gid();
 
   main.Merge(other);
 
-  const auto *canonical = main.FindNode(shared_gid);
+  const auto *canonical = main.FindNodeByRealGid(shared_gid);
   ASSERT_NE(canonical, nullptr);
   EXPECT_EQ(canonical->Gid(), main_synth);
   ASSERT_EQ(canonical->Labels().size(), 1);
   EXPECT_EQ(canonical->Labels()[0], "main");
-  EXPECT_EQ(main.FindNodeBySyntheticGid(main_synth), canonical);
-  EXPECT_EQ(main.FindNodeBySyntheticGid(other_synth), canonical);
-  ASSERT_NE(main.FindNodeBySyntheticGid(other_only_synth), nullptr);
+  EXPECT_EQ(main.FindNode(main_synth), canonical);
+  // other's synth gid for the shared vertex doesn't exist as a key in main's node map —
+  // the alias resolution happens via real_to_virtual_ and rewriting edges during Merge.
+  EXPECT_EQ(main.FindNode(other_synth), nullptr);
+  // other_only_synth was carried over (other had a node there; main now has the same node
+  // at the same synth gid).
+  ASSERT_NE(main.FindNode(other_only_synth), nullptr);
+  EXPECT_EQ(main.FindNodeByRealGid(other_only_gid)->Gid(), other_only_synth);
   EXPECT_EQ(main.node_count(), 2);
 }
 
@@ -174,8 +164,8 @@ TEST_F(VirtualEdgeTest, InsertIfNewDedupsDistinctEdgeGidsByTriple) {
   acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
 
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
-  const auto &vn1 = vg.InsertOrGetNode(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
-  const auto &vn2 = vg.InsertOrGetNode(memgraph::query::VirtualNode(sv2.Gid(), {}, {}));
+  const auto &vn1 = vg.InsertOrGetNode(sv1.Gid(), memgraph::query::VirtualNode({}, {}));
+  const auto &vn2 = vg.InsertOrGetNode(sv2.Gid(), memgraph::query::VirtualNode({}, {}));
 
   EXPECT_TRUE(vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn2, "X")));
   EXPECT_FALSE(vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn2, "X")));

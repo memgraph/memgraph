@@ -30,29 +30,24 @@ inline storage::Gid NextSyntheticGid() {
   return storage::Gid::FromUint(counter.fetch_sub(1, std::memory_order_relaxed));
 }
 
+// Standalone graph node. Carries its own synthetic identity (gid), labels, and
+// properties; no provenance back to any real vertex. Callers that need to link
+// a VirtualNode to a real vertex maintain the correspondence externally — for
+// derive() that is VirtualGraph::real_to_virtual_, populated by InsertOrGetNode.
 class VirtualNode final {
  public:
   using allocator_type = utils::Allocator<VirtualNode>;
   using label_list = utils::pmr::vector<utils::pmr::string>;
   using property_map = utils::pmr::unordered_map<storage::PropertyId, storage::PropertyValue>;
 
-  VirtualNode(storage::Gid original_gid, label_list labels, property_map properties, allocator_type alloc = {})
-      : gid_(NextSyntheticGid()),
-        original_gid_(original_gid),
-        labels_(std::move(labels), alloc),
-        properties_(std::move(properties), alloc) {}
+  VirtualNode(label_list labels, property_map properties, allocator_type alloc = {})
+      : gid_(NextSyntheticGid()), labels_(std::move(labels), alloc), properties_(std::move(properties), alloc) {}
 
   VirtualNode(const VirtualNode &other, allocator_type alloc)
-      : gid_(other.gid_),
-        original_gid_(other.original_gid_),
-        labels_(other.labels_, alloc),
-        properties_(other.properties_, alloc) {}
+      : gid_(other.gid_), labels_(other.labels_, alloc), properties_(other.properties_, alloc) {}
 
   VirtualNode(VirtualNode &&other, allocator_type alloc)
-      : gid_(other.gid_),
-        original_gid_(other.original_gid_),
-        labels_(std::move(other.labels_), alloc),
-        properties_(std::move(other.properties_), alloc) {}
+      : gid_(other.gid_), labels_(std::move(other.labels_), alloc), properties_(std::move(other.properties_), alloc) {}
 
   VirtualNode(const VirtualNode &other) : VirtualNode(other, other.labels_.get_allocator()) {}
 
@@ -64,8 +59,6 @@ class VirtualNode final {
   ~VirtualNode() = default;
 
   [[nodiscard]] auto Gid() const noexcept -> storage::Gid { return gid_; }
-
-  [[nodiscard]] auto OriginalGid() const noexcept -> storage::Gid { return original_gid_; }
 
   [[nodiscard]] auto CypherId() const noexcept -> int64_t { return gid_.AsInt(); }
 
@@ -82,13 +75,13 @@ class VirtualNode final {
 
   [[nodiscard]] auto Properties() const noexcept -> const property_map & { return properties_; }
 
-  // Identity via synthetic gid. Two VirtualNodes representing the same underlying vertex but
-  // constructed separately compare unequal; use OriginalGid() to test "same real vertex".
+  // Identity via synthetic gid. Two VirtualNodes derived from the same underlying real vertex
+  // but constructed separately compare unequal; callers tracking real-vertex correspondence
+  // handle that resolution externally (VirtualGraph::real_to_virtual_).
   bool operator==(const VirtualNode &other) const noexcept { return gid_ == other.gid_; }
 
  private:
   storage::Gid gid_;
-  storage::Gid original_gid_;
   label_list labels_;
   property_map properties_;
 };

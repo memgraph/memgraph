@@ -3438,7 +3438,7 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
       [graph, id, memory]() -> mgp_vertex * {
         const auto gid = memgraph::storage::Gid::FromInt(id.as_int);
         if (graph->IsVirtual()) {
-          if (const auto *vn = graph->VirtualGraphPtr()->FindNodeBySyntheticGid(gid)) {
+          if (const auto *vn = graph->VirtualGraphPtr()->FindNode(gid)) {
             return NewRawMgpObject<mgp_vertex>(memory, *vn, graph);
           }
           return nullptr;

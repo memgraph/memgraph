@@ -23,7 +23,7 @@ EdgeRefView MakeView(std::span<const VirtualEdge *const> ptrs) {
 
 VirtualGraph::VirtualGraph(const VirtualGraph &other, allocator_type alloc)
     : nodes_ptr_(std::make_shared<node_map>(*other.nodes_ptr_, alloc)),
-      synthetic_to_original_(other.synthetic_to_original_, alloc),
+      real_to_virtual_(other.real_to_virtual_, alloc),
       edges_(alloc),
       out_index_(alloc),
       in_index_(alloc) {
@@ -31,10 +31,7 @@ VirtualGraph::VirtualGraph(const VirtualGraph &other, allocator_type alloc)
 }
 
 VirtualGraph::VirtualGraph(VirtualGraph &&other, allocator_type alloc)
-    : synthetic_to_original_(std::move(other.synthetic_to_original_), alloc),
-      edges_(alloc),
-      out_index_(alloc),
-      in_index_(alloc) {
+    : real_to_virtual_(std::move(other.real_to_virtual_), alloc), edges_(alloc), out_index_(alloc), in_index_(alloc) {
   if (alloc == other.nodes_ptr_->get_allocator()) {
     // Same allocator: steal the shared_ptr, the edge set, and the indexes outright.
     nodes_ptr_ = std::move(other.nodes_ptr_);
@@ -66,34 +63,34 @@ void VirtualGraph::CopyEdgesRebound(const edge_set &source, allocator_type alloc
   // the edge directly and insert instead.
   VirtualEdge::allocator_type edge_alloc(alloc.resource());
   for (const auto &edge : source) {
-    const auto it_from = nodes_ptr_->find(edge.From().OriginalGid());
-    const auto it_to = nodes_ptr_->find(edge.To().OriginalGid());
+    const auto it_from = nodes_ptr_->find(edge.FromGid());
+    const auto it_to = nodes_ptr_->find(edge.ToGid());
     DMG_ASSERT(it_from != nodes_ptr_->end() && it_to != nodes_ptr_->end(),
-               "VirtualEdge references a node absent from the source graph's node map");
+               "VirtualEdge references a synthetic gid absent from the source graph's node map");
     edges_.insert(VirtualEdge(edge, it_from->second, it_to->second, nodes_ptr_, edge_alloc));
   }
   RebuildEdgeIndexes();
 }
 
-const VirtualNode &VirtualGraph::InsertOrGetNode(VirtualNode node) {
-  const auto original_gid = node.OriginalGid();
-  const auto synthetic_gid = node.Gid();
-  auto [it, inserted] = nodes_ptr_->try_emplace(original_gid, std::move(node));
-  if (inserted) {
-    synthetic_to_original_[synthetic_gid] = original_gid;
+const VirtualNode &VirtualGraph::InsertOrGetNode(storage::Gid real_gid, VirtualNode node) {
+  if (const auto it = real_to_virtual_.find(real_gid); it != real_to_virtual_.end()) {
+    // Already have a canonical VirtualNode for this real vertex; hand it back.
+    return nodes_ptr_->at(it->second);
   }
+  const auto synthetic_gid = node.Gid();
+  auto [it, inserted] = nodes_ptr_->try_emplace(synthetic_gid, std::move(node));
+  DMG_ASSERT(inserted, "NextSyntheticGid counter collision: synthetic gid not unique");
+  real_to_virtual_[real_gid] = synthetic_gid;
   return it->second;
 }
 
-const VirtualNode *VirtualGraph::FindNode(storage::Gid original_gid) const {
-  if (const auto it = nodes_ptr_->find(original_gid); it != nodes_ptr_->end()) return &it->second;
+const VirtualNode *VirtualGraph::FindNode(storage::Gid synthetic_gid) const {
+  if (const auto it = nodes_ptr_->find(synthetic_gid); it != nodes_ptr_->end()) return &it->second;
   return nullptr;
 }
 
-const VirtualNode *VirtualGraph::FindNodeBySyntheticGid(storage::Gid synthetic_gid) const {
-  if (const auto it = synthetic_to_original_.find(synthetic_gid); it != synthetic_to_original_.end()) {
-    return FindNode(it->second);
-  }
+const VirtualNode *VirtualGraph::FindNodeByRealGid(storage::Gid real_gid) const {
+  if (const auto it = real_to_virtual_.find(real_gid); it != real_to_virtual_.end()) return FindNode(it->second);
   return nullptr;
 }
 
@@ -114,38 +111,60 @@ EdgeRefView VirtualGraph::InEdges(storage::Gid vertex_gid) const {
   return MakeView({});
 }
 
-void VirtualGraph::Merge(const VirtualGraph &other) {
-  // Keep this graph's canonical node for any original_gid it already holds; record every
-  // incoming synthetic gid as an alias so edges built in other's synth space remain resolvable.
-  for (const auto &[original_gid, node] : *other.nodes_ptr_) {
-    nodes_ptr_->try_emplace(original_gid, node);
-    synthetic_to_original_[node.Gid()] = original_gid;
+namespace {
+// Fold `other`'s real→virtual mapping into `main`'s, producing a translation from
+// other's synthetic gids → main's canonical synthetic gids (for each real vertex,
+// the first-seen synth wins). Nodes that are new to main get inserted; aliased
+// nodes reuse the canonical entry.
+utils::pmr::unordered_map<storage::Gid, storage::Gid> MergeNodesAndBuildAliasMap(
+    VirtualGraph::node_map &main_nodes, utils::pmr::unordered_map<storage::Gid, storage::Gid> &main_real_to_virtual,
+    const VirtualGraph::node_map &other_nodes,
+    const utils::pmr::unordered_map<storage::Gid, storage::Gid> &other_real_to_virtual,
+    utils::Allocator<VirtualNode> alloc) {
+  utils::pmr::unordered_map<storage::Gid, storage::Gid> other_synth_to_main_synth(alloc.resource());
+  for (const auto &[real_gid, other_synth] : other_real_to_virtual) {
+    auto [it, inserted] = main_real_to_virtual.try_emplace(real_gid, other_synth);
+    if (inserted) {
+      // new real vertex for main: copy over other's node under its own synth gid.
+      if (const auto node_it = other_nodes.find(other_synth); node_it != other_nodes.end()) {
+        main_nodes.try_emplace(other_synth, node_it->second);
+      }
+    }
+    // whether inserted or not, other's synth gid now maps to the canonical one in main.
+    other_synth_to_main_synth[other_synth] = it->second;
   }
-  // Edges from other still point into other.nodes_ptr_; their anchor keeps that map alive.
-  // We insert copies here (anchor propagates via the copy ctor).
+  return other_synth_to_main_synth;
+}
+}  // namespace
+
+void VirtualGraph::Merge(const VirtualGraph &other) {
+  const auto alias_map = MergeNodesAndBuildAliasMap(*nodes_ptr_,
+                                                    real_to_virtual_,
+                                                    *other.nodes_ptr_,
+                                                    other.real_to_virtual_,
+                                                    utils::Allocator<VirtualNode>(get_allocator().resource()));
+  // Rewrite each edge from other to point at main's canonical nodes, preserving the
+  // edge's identity (gid, type, props).
+  VirtualEdge::allocator_type edge_alloc(get_allocator().resource());
   for (const auto &edge : other.edges_) {
-    InsertEdgeIfNew(edge);
+    const auto canonical_from = alias_map.at(edge.FromGid());
+    const auto canonical_to = alias_map.at(edge.ToGid());
+    const auto *from_node = FindNode(canonical_from);
+    const auto *to_node = FindNode(canonical_to);
+    DMG_ASSERT(from_node && to_node, "merge alias resolution failed");
+    VirtualEdge rebound(edge, *from_node, *to_node, nodes_ptr_, edge_alloc);
+    for (const auto &[k, v] : edge.Properties()) rebound.SetProperty(k, v);
+    InsertEdgeIfNew(std::move(rebound));
   }
 }
 
 void VirtualGraph::Merge(VirtualGraph &&other) {
-  for (const auto &[original_gid, node] : *other.nodes_ptr_) {
-    synthetic_to_original_[node.Gid()] = original_gid;
-  }
-  if (nodes_ptr_->get_allocator() == other.nodes_ptr_->get_allocator()) {
-    // Matching allocators: unordered_map::merge transfers node handles for keys we don't
-    // already hold; conflicting nodes are left in other (discarded when other goes away).
-    nodes_ptr_->merge(*other.nodes_ptr_);
-  } else {
-    for (auto &[original_gid, node] : *other.nodes_ptr_) {
-      nodes_ptr_->try_emplace(original_gid, std::move(node));
-    }
-  }
-  // edges_ yields const references (unordered_set stores keys immutably), so the inner
-  // copy can't be avoided.
-  for (const auto &edge : other.edges_) {
-    InsertEdgeIfNew(edge);
-  }
+  // rvalue form doesn't simplify much: the rewrite path still needs to walk each edge
+  // individually (edges_ yields const references because unordered_set keys are immutable),
+  // and node aliasing may require preserving other's nodes under their synth gids —
+  // which try_emplace handles by copying when appropriate. Fall through to the lvalue
+  // path for a single implementation.
+  Merge(static_cast<const VirtualGraph &>(other));
 }
 
 }  // namespace memgraph::query
