@@ -710,8 +710,7 @@ struct mgp_vertex {
   // Identity via Gid: real Gids count up from 0, synthetic count down from UINT64_MAX,
   // so mixed real/virtual naturally compares false without a special case.
   bool operator==(const mgp_vertex &other) const noexcept {
-    return std::visit([](const auto &impl) { return impl.Gid(); }, impl) ==
-           std::visit([](const auto &impl) { return impl.Gid(); }, other.impl);
+    return std::visit([](const auto &a, const auto &b) { return a.Gid() == b.Gid(); }, impl, other.impl);
   }
 
   bool operator!=(const mgp_vertex &other) const noexcept { return !(*this == other); };
@@ -765,20 +764,24 @@ struct mgp_edge {
   mgp_edge(mgp_edge &&other)
       : alloc(other.alloc), impl(std::move(other.impl)), from(std::move(other.from)), to(std::move(other.to)) {}
 
+  bool IsVirtual() const noexcept { return std::holds_alternative<memgraph::query::VirtualEdge>(impl); }
+
+  // Identity via Gid: as with mgp_vertex, real/synthetic gid spaces are disjoint so
+  // mixed real/virtual naturally compares false.
+  bool operator==(const mgp_edge &other) const noexcept {
+    return std::visit([](const auto &a, const auto &b) { return a.Gid() == b.Gid(); }, impl, other.impl);
+  }
+
+  bool operator!=(const mgp_edge &other) const noexcept { return !(*this == other); };
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
+
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_edge(const mgp_edge &) = delete;
 
   mgp_edge &operator=(const mgp_edge &) = delete;
   mgp_edge &operator=(mgp_edge &&) = delete;
   ~mgp_edge() = default;
-
-  bool operator==(const mgp_edge &other) const noexcept { return this->impl == other.impl; }
-
-  bool operator!=(const mgp_edge &other) const noexcept { return !(*this == other); };
-
-  bool IsVirtual() const noexcept { return std::holds_alternative<memgraph::query::VirtualEdge>(impl); }
-
-  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
 
   allocator_type alloc;
   EdgeImpl impl;

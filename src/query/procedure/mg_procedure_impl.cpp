@@ -2311,10 +2311,7 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property
 
 mgp_error mgp_vertex_get_id(mgp_vertex *v, mgp_vertex_id *result) {
   return WrapExceptions(
-      [v] {
-        if (v->IsVirtual()) return mgp_vertex_id{.as_int = v->GetVirtualNode().Gid().AsInt()};
-        return mgp_vertex_id{.as_int = v->VisitReal([](const auto &impl) { return impl.Gid().AsInt(); })};
-      },
+      [v] { return mgp_vertex_id{.as_int = std::visit([](const auto &impl) { return impl.Gid().AsInt(); }, v->impl)}; },
       result);
 }
 
@@ -2322,8 +2319,9 @@ mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         if (v->IsVirtual()) {
-          if (auto *vg = v->graph->VirtualGraphPtr()) return vg->InEdges(v->GetVirtualNode().Gid()).size();
-          return 0;
+          auto *vg = v->graph->VirtualGraphPtr();
+          DMG_ASSERT(vg != nullptr, "VirtualNode present but VirtualGraphPtr is null");
+          return vg->InEdges(v->GetVirtualNode().Gid()).size();
         }
         auto maybe_in_degree = v->VisitReal([v](const auto &impl) { return impl.InDegree(v->graph->view); });
         if (!maybe_in_degree) {
@@ -2347,8 +2345,9 @@ mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         if (v->IsVirtual()) {
-          if (auto *vg = v->graph->VirtualGraphPtr()) return vg->OutEdges(v->GetVirtualNode().Gid()).size();
-          return 0;
+          auto *vg = v->graph->VirtualGraphPtr();
+          DMG_ASSERT(vg != nullptr, "VirtualNode present but VirtualGraphPtr is null");
+          return vg->OutEdges(v->GetVirtualNode().Gid()).size();
         }
         auto maybe_out_degree = v->VisitReal([v](const auto &impl) { return impl.OutDegree(v->graph->view); });
         if (!maybe_out_degree) {
