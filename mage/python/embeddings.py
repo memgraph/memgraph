@@ -200,7 +200,7 @@ def cpu_compute(
     batch_size: int = 2000,
     return_embeddings: bool = False,
     dimension: int = None,
-) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
     model = _get_or_load_model(model_name, "cpu")
     vertex_input = isinstance(embedding_property, str)
     if vertex_input:
@@ -242,7 +242,7 @@ def single_gpu_compute(
     device: int = 0,
     return_embeddings: bool = False,
     dimension: int = None,
-) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
     vertex_input = isinstance(embedding_property, str)
     try:
         model = _get_or_load_model(model_name, f"cuda:{device}")
@@ -305,7 +305,7 @@ def multi_gpu_compute(
     gpus: List[int] = [0],
     return_embeddings: bool = False,
     dimension: int = None,
-) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
     vertex_input = isinstance(embedding_property, str)
 
     try:
@@ -473,7 +473,7 @@ def remote_compute(
     cfg: mgp.Map,
     dimension: int,
     resolved,
-) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
     """LiteLLM-routed remote embedding path.
 
     Fans chunks across a small thread pool, preserves input order, and
@@ -869,7 +869,7 @@ def node_sentence(
     ctx: mgp.ProcCtx,
     input_nodes: mgp.Nullable[mgp.List[mgp.Vertex]] = None,
     configuration: mgp.Map = {},
-) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
     logger.info(f"compute_embeddings: starting (py_exec={sys.executable}, py_ver={sys.version.split()[0]})")
 
     configuration = validate_configuration(configuration)
@@ -886,7 +886,7 @@ def text(
     ctx: mgp.ProcCtx,
     input_strings: mgp.List[str],
     configuration: mgp.Map = {},
-) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
     logger.info(f"embed: starting (py_exec={sys.executable}, py_ver={sys.version.split()[0]})")
 
     # hard code embedding_property to None for string input
