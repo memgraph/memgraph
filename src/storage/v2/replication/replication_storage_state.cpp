@@ -25,7 +25,7 @@ std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaStat
   return replication_storage_clients_.WithReadLock(
       [&](auto const &clients) -> std::optional<replication::ReplicaState> {
         auto const name_matches = [=](ReplicationStorageClientPtr const &client) { return client->Name() == name; };
-        auto const client_it = std::find_if(clients.cbegin(), clients.cend(), name_matches);
+        auto const client_it = std::ranges::find_if(clients, name_matches);
         if (client_it == clients.cend()) {
           return std::nullopt;
         }

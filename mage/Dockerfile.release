@@ -15,7 +15,6 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   fi && \
   apt-get update && apt-get install -y \
   python3 libpython3.12 python3-pip adduser curl \
-  python3-dev gcc libkrb5-dev \
   --no-install-recommends && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
@@ -35,6 +34,7 @@ RUN cd $HOME && \
     if [ "$TARGETARCH" = "arm64" ]; then \
       pip install --no-cache-dir /tmp/wheels/pymgclient-*.whl --break-system-packages; \
     fi && \
+    pip install --no-cache-dir /tmp/wheels/gssapi-*.whl --break-system-packages && \
     chmod +x /home/memgraph/install_python_requirements.sh && \
     ./install_python_requirements.sh --arch ${TARGETARCH} --ci --cuda ${CUDA} --cache-present ${CACHE_PRESENT} --wheel-cache-dir /tmp/wheels && \
     rm /home/memgraph/install_python_requirements.sh && \

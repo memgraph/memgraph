@@ -302,14 +302,13 @@ void EnsureMainInstance(InterpreterContext *interpreter_context, const std::stri
 
 template <typename T, typename K>
 void Sort(std::vector<T, K> &vec) {
-  std::sort(vec.begin(), vec.end());
+  std::ranges::sort(vec);
 }
 
 template <typename K>
 void Sort(std::vector<TypedValue, K> &vec) {
-  std::sort(vec.begin(), vec.end(), [](const TypedValue &lv, const TypedValue &rv) {
-    return lv.ValueString() < rv.ValueString();
-  });
+  std::ranges::sort(vec,
+                    [](const TypedValue &lv, const TypedValue &rv) { return lv.ValueString() < rv.ValueString(); });
 }
 
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
@@ -2284,7 +2283,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         auto const db_lag_data_to_tv = [](coordination::ReplicaDBLagData orig) {
           auto info = std::map<std::string, TypedValue>{};
           info.emplace("num_committed_txns", TypedValue{static_cast<int64_t>(orig.num_committed_txns_)});
-          info.emplace("num_txns_behind_main", TypedValue{static_cast<int64_t>(orig.num_txns_behind_main_)});
+          info.emplace("num_txns_behind_main", TypedValue{orig.num_txns_behind_main_});
           return TypedValue{std::move(info)};
         };
 
@@ -3885,7 +3884,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_stats.size() + label_property_stats.size());
 
-  std::for_each(label_stats.begin(), label_stats.end(), [execution_db_accessor, &results](const auto &stat_entry) {
+  std::ranges::for_each(label_stats, [execution_db_accessor, &results](const auto &stat_entry) {
     std::vector<TypedValue> result;
     result.reserve(kComputeStatisticsNumResults);
 
@@ -3903,7 +3902,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     return PropertyPathToName(execution_db_accessor, property_path);
   };
 
-  std::for_each(label_property_stats.begin(), label_property_stats.end(), [&](const auto &stat_entry) {
+  std::ranges::for_each(label_property_stats, [&](const auto &stat_entry) {
     std::vector<TypedValue> result;
     result.reserve(kComputeStatisticsNumResults);
     result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
@@ -5626,7 +5625,7 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
 
 bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   bool exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
-    return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
+    return std::ranges::any_of(interpreters_, [](const auto &interpreter) {
       return interpreter->transaction_status_.load() != TransactionStatus::IDLE;
     });
   });
@@ -7565,22 +7564,15 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     std::vector<std::vector<TypedValue>> status;
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
-      Sort(denied);
 
       status.reserve(all.size());
       for (const auto &name : all) {
         status.push_back({TypedValue(name)});
       }
 
-      // No denied databases (no need to filter them out)
-      if (denied.empty()) return;
-
-      auto denied_itr = denied.begin();
-      auto iter = std::remove_if(status.begin(), status.end(), [&denied_itr, &denied](auto &in) -> bool {
-        while (denied_itr != denied.end() && denied_itr->ValueString() < in[0].ValueString()) ++denied_itr;
-        return (denied_itr != denied.end() && denied_itr->ValueString() == in[0].ValueString());
+      std::erase_if(status, [&](auto const &row) {
+        return std::ranges::any_of(denied, [&](auto const &d) { return d.ValueString() == row[0].ValueString(); });
       });
-      status.erase(iter, status.end());
     };
 
     if (!user_or_role || !*user_or_role) {
@@ -9240,9 +9232,8 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
 std::vector<TypedValue> Interpreter::GetQueries() {
   auto typed_queries = std::vector<TypedValue>();
   transaction_queries_.WithLock([&typed_queries](const auto &transaction_queries) {
-    std::for_each(transaction_queries.begin(), transaction_queries.end(), [&typed_queries](const auto &query) {
-      typed_queries.emplace_back(query);
-    });
+    std::ranges::for_each(transaction_queries,
+                          [&typed_queries](const auto &query) { typed_queries.emplace_back(query); });
   });
   return typed_queries;
 }

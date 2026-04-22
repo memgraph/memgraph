@@ -344,7 +344,7 @@ class TriggerContextCollector {
       return edge_registry_;
     } else {
       static_assert(utils::always_false<TAccessor>, "Should be VertexAccessor/EdgeAccessor");
-      __builtin_unreachable();  // C++23 std::unreachable
+      std::unreachable();
     }
   }
 
@@ -356,7 +356,7 @@ class TriggerContextCollector {
       return edge_registry_;
     } else {
       static_assert(utils::always_false<TAccessor>, "Should be VertexAccessor/EdgeAccessor");
-      __builtin_unreachable();  // C++23 std::unreachable
+      std::unreachable();
     }
   }
 

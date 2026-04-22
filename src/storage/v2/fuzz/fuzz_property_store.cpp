@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,11 +31,11 @@ bool shouldBeEqual(PropertyValue const &val) {
     }
     case PropertyValueType::List: {
       auto const &l = val.ValueList();
-      return std::all_of(l.begin(), l.end(), [](auto const &v) { return shouldBeEqual(v); });
+      return std::ranges::all_of(l, [](auto const &v) { return shouldBeEqual(v); });
     }
     case PropertyValueType::Map: {
       auto const &m = val.ValueMap();
-      return std::all_of(m.begin(), m.end(), [](auto const &v) { return shouldBeEqual(v.second); });
+      return std::ranges::all_of(m, [](auto const &v) { return shouldBeEqual(v.second); });
     }
     case PropertyValueType::Null:
     case PropertyValueType::Bool:

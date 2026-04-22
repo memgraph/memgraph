@@ -70,6 +70,10 @@ fi
   ${MGBUILD_ARGS[*]} \
   build-mage
 
+./release/package/mgbuild.sh \
+  ${MGBUILD_ARGS[*]} \
+  build-gssapi
+
 if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
   ./release/package/mgbuild.sh \
     ${MGBUILD_ARGS[*]} \

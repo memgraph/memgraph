@@ -433,7 +433,7 @@ void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, P
       canonical_eclass_ids.push_back(canonical_eclass(union_find_, enode_id).value_of());
     }
     // deduplicate
-    std::sort(canonical_eclass_ids.begin(), canonical_eclass_ids.end());
+    std::ranges::sort(canonical_eclass_ids);
     canonical_eclass_ids.erase(std::unique(canonical_eclass_ids.begin(), canonical_eclass_ids.end()),
                                canonical_eclass_ids.end());
     if (canonical_eclass_ids.size() > 1) {
