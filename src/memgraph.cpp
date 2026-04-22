@@ -444,16 +444,14 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   // Audit log
-  auto const audit_log_file = FLAGS_audit_log_file.empty() ? (data_directory / "audit" / "audit.log")
-                                                           : std::filesystem::path{FLAGS_audit_log_file};
   auto const audit_timestamp_format = memgraph::utils::ToLowerCase(FLAGS_audit_log_timestamp_format) == "iso8601"
                                           ? memgraph::audit::TimestampFormat::ISO8601
                                           : memgraph::audit::TimestampFormat::Epoch;
   memgraph::audit::Log audit_log{
-      audit_log_file, FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms, audit_timestamp_format};
-  // Start the log if enabled.
-  if (FLAGS_audit_enabled) {
-    MG_ASSERT(audit_log.Start(), "Failed to open audit file {}", audit_log_file);
+      FLAGS_audit_log_file, FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms, audit_timestamp_format};
+  // Start the log only if enabled and a path was provided (mirrors --log-file semantics).
+  if (FLAGS_audit_enabled && !FLAGS_audit_log_file.empty()) {
+    MG_ASSERT(audit_log.Start(), "Failed to open audit file {}", FLAGS_audit_log_file);
   }
   // Setup SIGUSR2 to be used for reopening audit log files, when e.g. logrotate
   // rotates our audit logs.
