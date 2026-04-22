@@ -461,14 +461,6 @@ jobs:
           path: tests/stress/stress_logs/
           if-no-files-found: warn
 
-      - name: Upload monitoring diagnostics
-        if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
-        with:
-          name: monitoring-diagnostics-eks-ha
-          path: build/monitoring/
-          if-no-files-found: warn
-
       - name: Cleanup EKS and monitoring (best effort)
         if: always()
         run: |
