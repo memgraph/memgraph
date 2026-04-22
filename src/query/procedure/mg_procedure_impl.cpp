@@ -226,9 +226,9 @@ template <typename TFunc, typename... Args>
 
 // Graph mutations
 bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
-  // a virtual-only scope (derive() arg) is read-only: the virtual store is query-scoped
+  // a virtual graph (derive() arg) is read-only: the virtual store is query-scoped
   // and there is no sanctioned path to write into the underlying real DB.
-  return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr && !graph.IsVirtualOnly();
+  return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr && !graph.IsVirtual();
 }
 
 bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
@@ -3010,20 +3010,6 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
         }
 #endif
 
-        // populate virtual in-edges from the virtual graph (if present)
-        if (auto *vg = v->graph->VirtualGraphPtr()) {
-          // edge store is indexed by synthetic VirtualNode Gid; resolve real gids through the node store
-          const auto lookup_gid = v->VisitReal([&vg](const auto &acc) -> std::optional<memgraph::storage::Gid> {
-            if (const auto *vn = vg->node_store().Find(acc.Gid())) return vn->Gid();
-            return std::nullopt;
-          });
-          if (lookup_gid) {
-            it->virtual_in_ = vg->edge_store().InEdges(*lookup_gid);
-            it->virtual_in_it_ = it->virtual_in_.begin();
-          }
-        }
-
-        // Position current_e at the first edge: prefer real edges, fall back to virtual
         if (*it->in_it != it->in->end()) {
           std::visit(
               memgraph::utils::Overloaded{
@@ -3040,8 +3026,6 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
                                           it->GetMemoryResource());
                   }},
               v->graph->impl);
-        } else if (!it->virtual_in_.empty() && it->virtual_in_it_ != it->virtual_in_.end()) {
-          it->current_e.emplace(*it->virtual_in_it_, v->graph, it->GetMemoryResource());
         }
 
         return it.release();
@@ -3095,20 +3079,6 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         }
 #endif
 
-        // populate virtual out-edges from the virtual graph (if present)
-        if (auto *vg = v->graph->VirtualGraphPtr()) {
-          // edge store is indexed by synthetic VirtualNode Gid; resolve real gids through the node store
-          const auto lookup_gid = v->VisitReal([&vg](const auto &acc) -> std::optional<memgraph::storage::Gid> {
-            if (const auto *vn = vg->node_store().Find(acc.Gid())) return vn->Gid();
-            return std::nullopt;
-          });
-          if (lookup_gid) {
-            it->virtual_out_ = vg->edge_store().OutEdges(*lookup_gid);
-            it->virtual_out_it_ = it->virtual_out_.begin();
-          }
-        }
-
-        // Position current_e at the first edge: prefer real edges, fall back to virtual
         if (*it->out_it != it->out->end()) {
           std::visit(
               memgraph::utils::Overloaded{
@@ -3125,8 +3095,6 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
                                           it->GetMemoryResource());
                   }},
               v->graph->impl);
-        } else if (!it->virtual_out_.empty() && it->virtual_out_it_ != it->virtual_out_.end()) {
-          it->current_e.emplace(*it->virtual_out_it_, v->graph, it->GetMemoryResource());
         }
 
         return it.release();
@@ -3151,39 +3119,30 @@ mgp_error mgp_edges_iterator_get(mgp_edges_iterator *it, mgp_edge **result) {
 
 mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
   return WrapExceptions(
-      [it] {
-        auto emit_virtual = [it](bool for_in) -> mgp_edge * {
-          const auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
-          const auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
-          if (virt.empty() || virt_it == virt.end()) {
-            it->current_e = std::nullopt;
-            return nullptr;
-          }
-          it->current_e.emplace(*virt_it, it->source_vertex.graph, it->GetMemoryResource());
-          return &*it->current_e;
-        };
-
-        auto next_virtual = [it, &emit_virtual](bool for_in) -> mgp_edge * {
-          const auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
-          auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
+      [it]() -> mgp_edge * {
+        // source is a VirtualNode: walk the virtual span
+        if (!it->in && !it->out) {
+          auto &virt = it->virtual_in_.empty() ? it->virtual_out_ : it->virtual_in_;
+          auto &virt_it = it->virtual_in_.empty() ? it->virtual_out_it_ : it->virtual_in_it_;
           if (virt.empty() || virt_it == virt.end()) {
             it->current_e = std::nullopt;
             return nullptr;
           }
           ++virt_it;
-          return emit_virtual(for_in);
-        };
-
-        // source is a VirtualNode: no real edges to walk, advance the virtual span
-        if (!it->in && !it->out) {
-          return next_virtual(!it->virtual_in_.empty());
+          if (virt_it == virt.end()) {
+            it->current_e = std::nullopt;
+            return nullptr;
+          }
+          it->current_e.emplace(*virt_it, it->source_vertex.graph, it->GetMemoryResource());
+          return &*it->current_e;
         }
 
-        auto next = [it, &next_virtual, &emit_virtual](bool for_in) -> mgp_edge * {
+        auto next = [it](bool for_in) -> mgp_edge * {
           auto &impl_it = for_in ? it->in_it : it->out_it;
           const auto end = for_in ? it->in->end() : it->out->end();
           if (*impl_it == end) {
-            return next_virtual(for_in);
+            it->current_e = std::nullopt;
+            return nullptr;
           }
 
           ++*impl_it;
@@ -3195,8 +3154,8 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
 #endif
 
           if (*impl_it == end) {
-            // real edges exhausted — emit the first virtual edge without advancing
-            return emit_virtual(for_in);
+            it->current_e = std::nullopt;
+            return nullptr;
           }
           std::visit(memgraph::utils::Overloaded{
                          [&](memgraph::query::DbAccessor *) {
@@ -3479,7 +3438,7 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
         const auto gid = memgraph::storage::Gid::FromInt(id.as_int);
-        if (graph->IsVirtualOnly()) {
+        if (graph->IsVirtual()) {
           if (const auto *vn = graph->VirtualGraphPtr()->node_store().FindBySyntheticGid(gid)) {
             return NewRawMgpObject<mgp_vertex>(memory, *vn, graph);
           }
@@ -4857,9 +4816,9 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
     : alloc(alloc),
       graph(graph),
       vertices(std::visit([graph](auto *impl) { return impl->Vertices(graph->view); }, graph->impl)),
-      current_it(graph->IsVirtualOnly() ? vertices.end() : vertices.begin()) {
+      current_it(graph->IsVirtual() ? vertices.end() : vertices.begin()) {
 #ifdef MG_ENTERPRISE
-  if (!graph->IsVirtualOnly() && memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+  if (!graph->IsVirtual() && memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     NextPermitted(*this);
   }
 #endif
@@ -4894,23 +4853,21 @@ mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vert
 
 mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
-    if (graph->IsVirtualOnly()) {
+    if (graph->IsVirtual()) {
       *result = graph->VirtualGraphPtr()->node_store().size();
       return;
     }
     *result = graph->getImpl()->VerticesCount();
-    if (auto *vg = graph->VirtualGraphPtr()) *result += vg->node_store().size();
   });
 }
 
 mgp_error mgp_graph_approximate_edge_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
-    if (graph->IsVirtualOnly()) {
+    if (graph->IsVirtual()) {
       *result = graph->VirtualGraphPtr()->edge_store().size();
       return;
     }
     *result = graph->getImpl()->EdgesCount();
-    if (auto *vg = graph->VirtualGraphPtr()) *result += vg->edge_store().size();
   });
 }
 
@@ -4962,11 +4919,6 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
         }
 #endif
         if (it->current_it == it->vertices.end()) {
-          // real vertices exhausted — transition to virtual nodes
-          if (it->has_virtual_nodes_ && it->virtual_node_it_ != it->virtual_node_end_) {
-            it->current_v.emplace(it->virtual_node_it_->second, it->graph, it->GetMemoryResource());
-            return &*it->current_v;
-          }
           it->current_v = std::nullopt;
           return nullptr;
         }

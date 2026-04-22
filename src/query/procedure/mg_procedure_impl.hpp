@@ -821,10 +821,9 @@ struct mgp_graph {
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
 
-  // virtual_only == true hides real storage from read APIs; engaged optional implies non-null graph.
+  // Engaged means the graph is virtual-only: real-storage reads are hidden, writes are refused.
   struct VirtualOverlay {
     memgraph::query::VirtualGraph *graph;
-    bool virtual_only;
   };
 
   std::optional<VirtualOverlay> virtual_overlay{};
@@ -833,7 +832,7 @@ struct mgp_graph {
     return virtual_overlay ? virtual_overlay->graph : nullptr;
   }
 
-  [[nodiscard]] bool IsVirtualOnly() const noexcept { return virtual_overlay && virtual_overlay->virtual_only; }
+  [[nodiscard]] bool IsVirtual() const noexcept { return virtual_overlay.has_value(); }
 
   memgraph::query::DbAccessor *getImpl() const {
     return std::visit(
