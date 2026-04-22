@@ -332,6 +332,8 @@ class TTL final {
 
   void SetUserCheck(std::function<bool()>) {}
 
+  void SetAcquireArenaFn(std::function<unsigned()>) {}
+
   bool Restore() { return false; }
 };
 
