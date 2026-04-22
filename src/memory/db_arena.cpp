@@ -120,7 +120,7 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
   };
 }
 
-bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_view error_context) {
+static bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_view error_context) {
   const std::string arena_key = "arena." + std::to_string(arena_idx);
   const std::string hooks_key = arena_key + ".extent_hooks";
 
@@ -208,7 +208,7 @@ unsigned DbArena::idx() const noexcept { return first_arena_idx_; }
 unsigned DbArena::AcquireThreadArena() {
   const auto tid = std::this_thread::get_id();
 
-  std::lock_guard<std::mutex> lock(arena_map_mux_);
+  const std::lock_guard<std::mutex> lock(arena_map_mux_);
   if (auto it = thread_arena_map_.find(tid); it != thread_arena_map_.end()) {
     return it->second;
   }

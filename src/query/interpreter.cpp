@@ -6873,7 +6873,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           const auto db_peak_memory = static_cast<double>(db->DbPeakMemoryUsage());
           const auto tenant_limit = db->TenantMemoryLimit();
 
-          std::vector<std::vector<TypedValue>> results{
+          const std::vector<std::vector<TypedValue>> results{
               {TypedValue("name"), TypedValue(storage->name())},
               {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
               {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))},
@@ -6909,7 +6909,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
           const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
           const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
-          std::vector<std::vector<TypedValue>> results{
+          const std::vector<std::vector<TypedValue>> results{
               {TypedValue("name"), TypedValue(storage->name())},
               {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
               {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
@@ -7705,7 +7705,8 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 #endif
 }
 
-PreparedQuery PrepareShowMemoryInfoQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context) {
+PreparedQuery PrepareShowMemoryInfoQuery([[maybe_unused]] ParsedQuery parsed_query,
+                                         [[maybe_unused]] InterpreterContext *interpreter_context) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException(
@@ -8277,8 +8278,9 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       .rw_type = RWType::R};
 }  // namespace memgraph::query
 
-PreparedQuery PrepareTenantProfileQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                        Interpreter *interpreter) {
+PreparedQuery PrepareTenantProfileQuery([[maybe_unused]] ParsedQuery parsed_query,
+                                        [[maybe_unused]] InterpreterContext *interpreter_context,
+                                        [[maybe_unused]] Interpreter *interpreter) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException("Tenant profiles require a valid enterprise license.");
@@ -9582,7 +9584,7 @@ void Interpreter::Abort() {
 #if USE_JEMALLOC
   // Route Abort-path deallocations/cleanup to this DB's arena.
   // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
-  const memory::DbArenaScope db_arena_scope{current_db_.db_acc_ ? current_db_.db_acc_->get()->BaseArenaIdx() : 0u};
+  const memory::DbArenaScope db_arena_scope{current_db_.db_acc_ ? current_db_.db_acc_->get()->BaseArenaIdx() : 0U};
 #endif
 
   // Data tx

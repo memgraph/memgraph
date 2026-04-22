@@ -18,7 +18,7 @@
 #include "utils/query_memory_tracker.hpp"
 
 TEST(MemoryTrackerTest, ExceptionEnabler) {
-#ifdef USE_JEMALLOC
+#if USE_JEMALLOC
   memgraph::memory::SetHooks();
   memgraph::utils::QueryMemoryTracker qmt;
   qmt.SetQueryLimit(memgraph::memory::UNLIMITED_MEMORY);
@@ -37,7 +37,7 @@ TEST(MemoryTrackerTest, ExceptionEnabler) {
 }
 
 TEST(MemoryTrackerTest, CrossThreadTrackingRestoresPreviousThreadState) {
-#ifdef USE_JEMALLOC
+#if USE_JEMALLOC
   memgraph::memory::SetHooks();
   memgraph::utils::QueryMemoryTracker parent_tracker;
   memgraph::utils::QueryMemoryTracker worker_tracker;
