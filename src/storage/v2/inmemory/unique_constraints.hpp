@@ -113,7 +113,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     ContainerPtr container_;
   };
 
-  explicit InMemoryUniqueConstraints(unsigned arena_idx = 0) : arena_idx_(arena_idx) {}
+  InMemoryUniqueConstraints() = default;
 
   /// Creates an ActiveConstraints snapshot for transaction use.
   auto GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> override;
@@ -160,7 +160,6 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
  private:
   auto GetIndividualConstraint(const LabelId label, const std::set<PropertyId> &properties) const
       -> IndividualConstraintPtr;
-  unsigned arena_idx_{0};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

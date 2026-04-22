@@ -711,24 +711,24 @@ TEST_F(DbMemoryTrackingTest, ArenaRegistration_BaseArenaIdxVsAcquireThreadArena)
 
   memgraph::memory::ArenaRegistration arena_registration{&db->Arena()};
 
-  // BaseArenaIdx returns a valid, stable arena index (for backwards compat)
+  // BaseArenaIdx returns the DB's stable base arena.
   unsigned base_arena = arena_registration.BaseArenaIdx();
   EXPECT_NE(base_arena, 0u) << "BaseArenaIdx should return a valid arena";
   unsigned base_arena2 = arena_registration.BaseArenaIdx();
   EXPECT_EQ(base_arena, base_arena2) << "BaseArenaIdx should be stable across calls";
 
-  // AcquireThreadArena returns a valid arena for the test thread
+  // AcquireThreadArena returns a valid arena for the test thread.
   unsigned thread_arena = arena_registration.AcquireThreadArena();
   EXPECT_NE(thread_arena, 0u) << "AcquireThreadArena should return a valid arena";
 
-  // AcquireThreadArena is idempotent on the same thread
+  // AcquireThreadArena is idempotent on the same thread.
   unsigned thread_arena2 = arena_registration.AcquireThreadArena();
   EXPECT_EQ(thread_arena, thread_arena2) << "AcquireThreadArena should be idempotent on same thread";
 
   // BaseArenaIdx and AcquireThreadArena on a non-constructor thread are
-  // intentionally different: BaseArenaIdx is the constructor-created arena,
+  // intentionally different: BaseArenaIdx is the DB bootstrap arena, while
   // AcquireThreadArena creates a new per-thread arena for contention isolation.
-  EXPECT_NE(base_arena, thread_arena) << "BaseArenaIdx (constructor arena) and AcquireThreadArena (per-thread arena) "
+  EXPECT_NE(base_arena, thread_arena) << "BaseArenaIdx (DB base arena) and AcquireThreadArena (per-thread arena) "
                                       << "should differ on non-constructor threads by design";
 
   // Verify ArenaRegistration bool operator
@@ -930,42 +930,14 @@ TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
 }
 
 // ---------------------------------------------------------------------------
-// 20. ArenaRegistration after Database destruction (Storage lifetime)
+// 20. ArenaRegistration lifetime is owned by Database/Storage ordering.
 // ---------------------------------------------------------------------------
-TEST_F(DbMemoryTrackingTest, ArenaRegistration_AfterDatabaseDestruction) {
-  unsigned captured_base_arena = 0;
-  memgraph::memory::ArenaRegistration captured_reg;
-
-  {
-    auto dir = data_dir_ / "db_lifetime";
-    std::filesystem::create_directories(dir);
-
-    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
-    auto acc = db_gk.access();
-    ASSERT_TRUE(acc);
-    auto *db = acc->get();
-
-    // Capture ArenaRegistration while Database is alive
-    captured_reg = memgraph::memory::ArenaRegistration{&db->Arena()};
-    captured_base_arena = captured_reg.BaseArenaIdx();
-
-    EXPECT_TRUE(captured_reg) << "ArenaRegistration should be valid while DB is alive";
-    EXPECT_NE(captured_base_arena, 0u) << "Base arena should be valid";
-  }
-
-  // After Database destruction, ArenaRegistration still "works" but returns 0
-  // (the pointer is dangling, but the stub implementation returns 0)
-  // NOTE: This is technically UB, but in practice the pointer dangles to freed memory
-  // which may or may not return 0. We test that the methods don't crash.
-  // In real code, Storage is always destroyed before Database.
-
-  // We can't safely test this because the ArenaRegistration holds a raw pointer
-  // to DbArena which is destroyed when Database is destroyed. Accessing it is UB.
-  // The lifetime guarantee is enforced by member declaration order in Database.
-}
+// There is no executable regression here because using ArenaRegistration after
+// Database destruction would be undefined behavior. The lifetime guarantee is
+// enforced by Database's member declaration order instead.
 
 // ---------------------------------------------------------------------------
-// 20. Mixed allocation paths: explicit DB scope + DbAwareAllocator consistency
+// 21. Mixed allocation paths: explicit DB scope + DbAwareAllocator consistency
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, MixedAllocators_ConsistentAttribution) {
   auto dir = data_dir_ / "db_mixed_alloc";

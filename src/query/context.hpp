@@ -130,8 +130,8 @@ struct ExecutionContext {
   utils::PriorityThreadPool *worker_pool{nullptr};
   // Base jemalloc arena index for the database owning this query. 0 means no
   // DB arena is available, for example in non-jemalloc builds.
-  // Kept in the execution context so parallel query workers can restore the
-  // parent DB arena when work leaves the main query thread.
+  // Parallel query workers restore this base arena when work leaves the main
+  // query thread, so TLS-scoped allocations still attribute to the parent DB.
   unsigned db_arena_idx{0};
 
   auto commit_args() -> storage::CommitArgs;

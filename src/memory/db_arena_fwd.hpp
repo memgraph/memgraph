@@ -73,6 +73,9 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
   void do_deallocate(void *p, std::size_t bytes, std::size_t alignment) noexcept override {
     // Jemalloc tracks the owning arena per extent, so deallocation does not
     // depend on the current thread's DB arena TLS.
+#if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
+    AssertPointerBelongsToArena(p, arena_idx_, "ArenaMemoryResource");
+#endif
     DbDeallocateBytes(p, bytes, alignment);
   }
 

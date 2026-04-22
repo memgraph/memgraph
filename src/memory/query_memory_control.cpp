@@ -182,7 +182,7 @@ void CrossThreadMemoryTracking::StopTracking() {
   GetUserTracker() = prev_user_tracker_;
   prev_query_tracker_ = nullptr;
   prev_user_tracker_ = nullptr;
-  if (prev_arena_) {
+  if (prev_arena_.has_value()) {
     memory::tls_db_arena_state.arena = *prev_arena_;
     prev_arena_.reset();
   }
@@ -225,7 +225,7 @@ void CrossThreadMemoryTracking::StartTracking() {
 
 void CrossThreadMemoryTracking::StopTracking() {
   if (!started_) return;
-  if (prev_arena_) {
+  if (prev_arena_.has_value()) {
     memory::tls_db_arena_state.arena = *prev_arena_;
     prev_arena_.reset();
   }

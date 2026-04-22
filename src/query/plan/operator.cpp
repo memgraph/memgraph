@@ -10262,6 +10262,9 @@ class ParallelBranchCursor : public Cursor {
                      frame_size = frame.elems().size(),
                      main_thread = std::this_thread::get_id(),
                      post_pull_func,
+                     // Parallel branches are short-lived task scopes, so they intentionally
+                     // reuse the query's DB base arena instead of acquiring a distinct
+                     // per-worker arena.
                      mem_tracking = memgraph::memory::CrossThreadMemoryTracking(context.db_arena_idx)](
                         utils::Priority /*unused*/) mutable {
         const OOMExceptionEnabler oom_exception;

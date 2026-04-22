@@ -83,3 +83,16 @@ TEST(MemoryTrackerTest, CrossThreadTrackingRestoresPreviousDbArena) {
 
   memgraph::memory::tls_db_arena_state.arena = 0;
 }
+
+TEST(MemoryTrackerTest, CrossThreadTrackingRestoresZeroDbArena) {
+  constexpr unsigned kCapturedArena = 23;
+
+  memgraph::memory::tls_db_arena_state.arena = 0;
+  auto cross_thread_tracking = memgraph::memory::CrossThreadMemoryTracking{kCapturedArena};
+
+  cross_thread_tracking.StartTracking();
+  EXPECT_EQ(memgraph::memory::tls_db_arena_state.arena, kCapturedArena);
+
+  cross_thread_tracking.StopTracking();
+  EXPECT_EQ(memgraph::memory::tls_db_arena_state.arena, 0u);
+}

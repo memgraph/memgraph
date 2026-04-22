@@ -76,6 +76,9 @@ struct ThreadTrackingBlocker {
 struct CrossThreadMemoryTracking {
   utils::QueryMemoryTracker *query_tracker{nullptr};
   utils::UserResources *user_tracker{nullptr};
+  // DB arena index captured from the query execution context. Parallel worker
+  // threads restore this arena for the duration of their task so TLS-scoped
+  // DB allocations land in the same DB arena as the parent query.
   unsigned db_arena_idx{0};
 
   explicit CrossThreadMemoryTracking(unsigned arena_idx = 0);

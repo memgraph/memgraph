@@ -271,6 +271,11 @@ TEST_F(TestPrivilegeExtractor, UserProfile) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::PROFILE_RESTRICTION));
 }
 
+TEST_F(TestPrivilegeExtractor, TenantProfile) {
+  auto *query = storage.Create<TenantProfileQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::PROFILE_RESTRICTION));
+}
+
 TEST_F(TestPrivilegeExtractor, ParallelQuery) {
   auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
   EXPECT_THAT(GetRequiredPrivileges(query),

@@ -218,7 +218,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     std::shared_ptr<IndicesContainer const> index_container_;
   };
 
-  explicit InMemoryEdgeTypeIndex(unsigned arena_idx = 0) : arena_idx_(arena_idx) {}
+  InMemoryEdgeTypeIndex() = default;
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type,
@@ -250,7 +250,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   void CleanupAllIndices();
   auto GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex>;
 
-  unsigned arena_idx_{0};
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer const>()};
 

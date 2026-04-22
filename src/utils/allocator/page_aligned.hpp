@@ -46,6 +46,11 @@ struct PageAlignedAllocator {
   void deallocate(T *p, std::size_t n) const noexcept {
     // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
     // free query-thread allocations regardless of which thread calls deallocate.
+    // In debug arena-verification builds, make sure the pointer still belongs to
+    // the explicit arena captured by this allocator.
+#if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
+    memory::AssertPointerBelongsToArena(static_cast<void *>(p), arena_idx_, "PageAlignedAllocator");
+#endif
     // Recalculate the actual allocated size (mirroring allocate) for sized deallocation.
     auto size = std::max(n * sizeof(T), PAGE_SIZE);
     size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
@@ -56,6 +61,7 @@ struct PageAlignedAllocator {
     return lhs.arena_idx_ == rhs.arena_idx_;
   }
 
+ private:
   unsigned arena_idx_{0};
 };
 

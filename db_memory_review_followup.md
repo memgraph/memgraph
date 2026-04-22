@@ -1,6 +1,6 @@
 # DB Memory Review Follow-Up
 
-This note consolidates the original review issues, the work that has already landed, the new architectural questions you added afterward, and the next steps that would tighten the implementation further.
+This note consolidates the original review issues, the work that has already landed, the new architectural questions you added afterward, and the small amount of cleanup that remains now that the core audit is complete.
 
 It is meant to replace the old working table as the active narrative for the branch while keeping the detailed history in `review_issue_table.md` locally.
 
@@ -32,7 +32,7 @@ If we read the table as a migration log, the branch has already crossed the main
 
 ## What your new notes are really asking
 
-Your follow-up comments narrow the remaining work into a few concrete questions.
+Your follow-up comments narrowed the remaining work into a few concrete questions. Most of those questions have now been answered by the implementation audit.
 
 ### 1. What happens to arenas on database drop?
 
@@ -90,7 +90,7 @@ That is different from storing one concrete arena everywhere and expecting it to
 
 Your note is clear: yes.
 
-The stateful `ArenaAwareAllocator` should be removed, and the codebase should converge on `DbAwareAllocator` as the default allocator for DB-scoped transient work.
+The stateful `ArenaAwareAllocator` has been removed from the active code path, and the codebase converges on `DbAwareAllocator` as the default allocator for DB-scoped transient work.
 
 The remaining explicit arena-capturing logic should stay only where ownership is genuinely long-lived or cross-thread by design.
 
@@ -129,23 +129,25 @@ The branch should be checked for places where the code assumes “the thread alr
 
 ## Current risk assessment
 
-My read is that the branch is in a better state than the raw notes suggest, but there are still a few real risks:
+My read is that the branch is now in the final cleanup phase rather than the active risk-discovery phase.
 
-1. Arena-drop behavior is a lifecycle policy gap, not just an implementation detail.
-2. The allocator migration to `DbAwareAllocator` only is still incomplete if any `ArenaAwareAllocator` use remains.
-3. Query execution and background workers still need a final scope-placement audit to ensure TLS is established at the exact point allocations may happen.
-4. Cross-thread tracking and thread-initializer-based workers need to be audited specifically for “pool first, concrete arena later” behavior.
-5. The tenant-profile model is mostly verified, but its durable KV payload should still be checked against the branch’s final data model.
-6. The current review tracker is no longer the best place to keep active work; it should be retired once the follow-up items are captured elsewhere.
+1. Arena-drop behavior is verified as a reusable free-list policy.
+2. The allocator migration to `DbAwareAllocator` is complete in production paths.
+3. Query execution and background worker scope placement were audited, with one real bug found and fixed in cross-thread arena restoration.
+4. Cross-thread tracking and thread-initializer-based workers now follow the “pool first, concrete arena later” model.
+5. The tenant-profile model is verified as durable.
+6. The remaining work is mostly test wording, doc alignment, and keeping the plan file current.
 
 ## Recommended next steps
 
-### P0: finish the arena-pool lifecycle policy
+The remaining steps are now mostly polish and guardrail work rather than architectural uncertainty.
 
-1. Decide and document the DB-drop behavior for arena pools.
-2. Define the exact fallback behavior for arena acquisition and hook installation failures after DB creation.
-3. Make the first arena creation path a hard requirement in database creation and keep later failures degradable.
-4. Confirm whether thread-id reuse still preserves correctness under the new pool model.
+### P0: keep the arena-pool policy documented
+
+1. Preserve the DB-drop free-list policy in the plan and comments.
+2. Preserve the first-arena mandatory bootstrap behavior in database creation.
+3. Keep the later-acquisition fallback-to-base-arena behavior documented near the pool implementation.
+4. Avoid reintroducing a destroy-on-drop policy unless a new requirement explicitly asks for it.
 
 Acceptance criteria:
 
@@ -153,12 +155,12 @@ Acceptance criteria:
 2. The create path fails cleanly when the first arena cannot be established.
 3. Later arena failures do not break existing DB execution and fall back to the base arena as intended.
 
-### P0: finish the allocator simplification
+### P0: keep the allocator simplification intact
 
-1. Remove `ArenaAwareAllocator` and any associated tests, call sites, and comments.
-2. Standardize transient DB-scoped allocations on `DbAwareAllocator`.
-3. Keep explicit arena-capturing helpers only where ownership is long-lived or cross-thread.
-4. Add the short comment above `DbAwareAllocator` noting that a stateful allocator is possible but intentionally not the default design.
+1. Keep transient DB-scoped allocations on `DbAwareAllocator`.
+2. Keep explicit arena-capturing helpers only where ownership is long-lived or cross-thread.
+3. Keep the short comment above `DbAwareAllocator` noting that a stateful allocator is possible but intentionally not the default design.
+4. Remove any leftover comments or tests that imply the retired allocator split.
 
 Acceptance criteria:
 
@@ -166,12 +168,12 @@ Acceptance criteria:
 2. Tests and comments match the new single-default allocator model.
 3. Ownership-sensitive code still has a deliberate explicit-arena path where needed.
 
-### P0: audit the TLS scope placement end to end
+### P0: keep the TLS scope audit results current
 
-1. Walk the communication, session, interpreter, and query execution flow from DB selection through `Pull`, `Commit`, `Abort`, and cleanup.
-2. Verify every storage/DB allocation and deallocation happens under a valid `DbArenaScope` or an explicit arena-capturing owner.
-3. Audit `CrossThreadMemoryTracking` so it captures the DB pool and resolves the concrete arena at execution time inside the worker lambda.
-4. Audit stream and trigger initializers so they obtain a separate arena from the pool and then install the RAII scope correctly.
+1. Keep the communication, session, interpreter, and query execution flow documented as scope-safe.
+2. Keep the `CrossThreadMemoryTracking` arena-0 fix and its regression test.
+3. Keep stream and trigger initializer notes aligned with the pool-to-thread-arena model.
+4. Re-run targeted checks if future refactors touch the affected paths.
 
 Acceptance criteria:
 
@@ -179,10 +181,10 @@ Acceptance criteria:
 2. Cross-thread workers do not depend on stale TLS state from the parent thread.
 3. Initializer-based workers own their arena setup explicitly and predictably.
 
-### P1: re-check debug assertions and ownership checks
+### P1: keep debug assertions aligned
 
-1. Verify debug checks match the pool-versus-arena abstraction at each call site.
-2. Ensure deallocation checks do not incorrectly require current TLS when cross-thread frees are valid.
+1. Keep debug checks matched to the pool-versus-arena abstraction at each call site.
+2. Keep deallocation checks from requiring current TLS when cross-thread frees are valid.
 3. Keep the checks focused on the cases where the allocator or owner actually has enough information to validate.
 
 Acceptance criteria:
@@ -190,22 +192,22 @@ Acceptance criteria:
 1. Debug checks catch real mismatches without producing false positives on legitimate cross-thread cleanup.
 2. Pool-aware code validates pool ownership, not incidental thread state.
 
-### P1: finish the remaining subsystem audit
+### P1: keep the remaining subsystem notes in sync
 
-1. Review compression and property buffer cleanup.
-2. Reconfirm durability recovery, snapshot, WAL recovery, and forced GC.
-3. Recheck indices, constraints, vector indexes, and any async update paths.
-4. Confirm replication and storage client paths still use the intended DB-aware ownership model.
+1. Review compression and property buffer cleanup if those paths change again.
+2. Reconfirm durability recovery, snapshot, WAL recovery, and forced GC when touching storage lifecycle code.
+3. Recheck indices, constraints, vector indexes, and any async update paths if they are modified.
+4. Confirm replication and storage client paths still use the intended DB-aware ownership model if refactored.
 
 Acceptance criteria:
 
 1. No DB-facing cleanup path is left outside the intended scope model.
 2. The audit result is documented in a way that survives future refactors.
 
-### P1: verify tenant profile durability and privileges one last time
+### P1: keep tenant profile durability and privileges verified
 
-1. Confirm the durable KV payload contains everything required to reconstruct tenant-profile state.
-2. Verify the privilege choice remains correct for future query-routing changes.
+1. Preserve the durable KV payload shape that reconstructs tenant-profile state.
+2. Keep the privilege choice aligned with future query-routing changes.
 3. Keep the enterprise/license checks and replication behavior consistent with the final query model.
 
 Acceptance criteria:
@@ -216,7 +218,7 @@ Acceptance criteria:
 ### P2: update the tests and retire the old review table
 
 1. Review the added tests against the final architecture and prune anything that now encodes the wrong assumption.
-2. Add a narrow regression where a DB-aware worker falls back to the base arena after a controlled acquisition failure, if that behavior is intended to remain.
+2. Keep the narrow regression around `CrossThreadMemoryTracking` restoration of arena `0`.
 3. Remove `review_issue_table.md` from git while keeping your local copy if you still want it as reference.
 
 Acceptance criteria:

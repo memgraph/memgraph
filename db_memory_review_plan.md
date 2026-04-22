@@ -4,6 +4,13 @@ This plan turns the original review, the resolved work, and the follow-up commen
 
 Use this as the reference for the remaining DB memory work on this branch.
 
+Current state:
+
+1. The core audit is finished.
+2. The arena lifecycle model is verified as a reusable free-list model.
+3. `ArenaAwareAllocator` has been retired in favor of the stateless `DbAwareAllocator` model.
+4. The remaining open work is mostly cleanup, test alignment, and keeping the documented invariants current.
+
 ## Goals
 
 1. Finish the arena-pool migration in a way that is explicit about ownership, fallback, and destruction.
@@ -32,6 +39,12 @@ Why this matters:
 2. It affects whether `CREATE DATABASE` can reuse prior arena resources.
 3. It affects whether thread-id reuse can safely consult stale mappings.
 
+Status:
+
+1. Arenas are kept in a reusable free list.
+2. DB drop returns arena indices to the pool instead of destroying the underlying jemalloc arenas.
+3. This matches the requested reuse policy.
+
 ### 2. Failure policy for arena creation and hook installation
 
 The review recognized failure cases, but not the full decision tree.
@@ -47,6 +60,12 @@ Why this matters:
 1. Database creation must fail hard if the first arena cannot be prepared.
 2. Later failures need a safe fallback, not a partial initialization leak.
 3. Hook publication must not expose a half-initialized arena to later users.
+
+Status:
+
+1. The first arena remains a mandatory bootstrap step.
+2. Later arena acquisition or hook-install failure falls back to the DB base arena.
+3. The audit did not find a remaining violation of that policy.
 
 ### 3. Scope guard semantics were not fully specified
 
@@ -64,6 +83,12 @@ Why this matters:
 2. Overly strict nesting breaks legitimate higher-level wrapper scopes.
 3. Confusing pool identity with a specific arena leads to incorrect assumptions in worker code.
 
+Status:
+
+1. `DbArenaScope` is constrained to intentional same-pool TLS nesting.
+2. It is not meant to be a generic arbitrary-arena stack.
+3. The pool identity is kept distinct from a single concrete arena.
+
 ### 4. Allocator strategy was still transitional
 
 The original review still contained both stateful and stateless allocator paths.
@@ -79,6 +104,12 @@ Why this matters:
 1. Two allocator models increase maintenance cost and confusion.
 2. The final design should distinguish transient TLS-scoped work from long-lived ownership.
 
+Status:
+
+1. `ArenaAwareAllocator` has been retired.
+2. `DbAwareAllocator` is now the default transient DB-scoped allocator.
+3. Explicit arena capture remains only for the cases that genuinely need it.
+
 ### 5. Scope placement across the full DB execution pipeline was not exhaustively proven
 
 The original review named many subsystems, but the coverage matrix was not complete enough to prove the scope model end to end.
@@ -93,6 +124,12 @@ Why this matters:
 
 1. The code must not rely on ambient TLS without establishing it first.
 2. The exact place where scope begins and ends matters more than the broad subsystem label.
+
+Status:
+
+1. The major DB-facing entry points were audited.
+2. Query, stream, trigger, worker, recovery, and background paths now follow the DB pool model.
+3. The one real issue found during the audit was the arena-0 restore bug in `CrossThreadMemoryTracking`, and it has been fixed.
 
 ### 6. Debug checks needed a more precise target model
 
@@ -110,6 +147,12 @@ Why this matters:
 2. A check that is too strict will fail valid cleanup.
 3. A check that is too loose will miss real ownership mismatches.
 
+Status:
+
+1. The debug checks now validate the captured ownership model more precisely.
+2. Explicit arena-owning deallocation paths check the arena they actually captured.
+3. The checks are aligned with the pool-versus-arena split.
+
 ### 7. Tests were audited, but not yet tied cleanly to the final model
 
 The review table lists tests, but the test plan still needs to map each test to the final ownership decision it protects.
@@ -125,9 +168,16 @@ Why this matters:
 1. The tests should guard the final architecture, not the interim one.
 2. The branch needs regression coverage for the exact failure cases being normalized now.
 
+Status:
+
+1. The `arena 0` restore case now has a regression test.
+2. A final review of test wording still makes sense, but the architectural risk is already covered.
+3. Remaining work here is cleanup and alignment rather than discovery.
+
 ## Workstreams
 
-The remaining work should be split into a few concrete tracks.
+The remaining work is now concentrated in a small number of cleanup and alignment tracks.
+Workstreams A through E are now verified; workstream F is the main remaining cleanup lane.
 
 ## Execution Checklist
 
@@ -135,20 +185,20 @@ The remaining work should be split into a few concrete tracks.
 |---|---|---|---|---|
 | Verify DB-drop arena lifecycle | Memory | P0 | Verified | Current code already returns arena indices to the reusable pool. `DbArena::~DbArena()` destroys no jemalloc arena; it restores hooks, purges, and lets `ArenaHandle` release the index back to `ArenaPool`. |
 | Keep arena reuse through free list | Memory | P0 | Verified / maintain | `ArenaPool::Acquire()` reuses `pool_.back()` when available and only calls `arenas.create` on an empty pool. Do not replace this with arena destruction unless a new policy explicitly calls for it. |
-| Confirm first arena creation must succeed | Memory + Storage | P0 | In progress | Database creation should still fail hard if the base arena cannot be created or hooked. This is the non-negotiable bootstrap path. |
-| Confirm later arena acquisition fallback | Memory + Storage | P0 | In progress | If per-thread arena creation or hook installation fails after the DB exists, fall back to the DB’s base arena for that DB. |
-| Remove `ArenaAwareAllocator` | Memory | P0 | In progress | Collapse transient DB-scoped allocations onto `DbAwareAllocator`. Keep only the explicit arena-capture helpers that are still needed for long-lived ownership. |
-| Add allocator design comment | Memory | P1 | Todo | Keep a short comment above `DbAwareAllocator` noting that a stateful allocator is possible but intentionally not the default. |
-| Audit `DbArenaScope` nesting model | Memory + Query | P0 | In progress | Scope should manage TLS for the current DB arena pool context and only support the nesting that is actually intentional. |
-| Audit bolt and v2 entry points | Communication + Query | P0 | Todo | Confirm DB scope is installed only after the target DB is known and before any DB-facing allocation can occur. |
-| Audit `SessionHL` and `Interpreter` flow | Query | P0 | In progress | Verify `Pull`, `Commit`, `Abort`, plan cache, and cleanup all execute under the right scope or explicit arena owner. |
-| Audit GC, snapshot, and recovery paths | Storage | P0 | In progress | Verify periodic GC, forced GC, snapshot, WAL recovery, and any helper threads are using DB-aware scope or DB-aware thread setup. |
-| Audit streams, triggers, and async workers | Storage + Query | P0 | In progress | Ensure stream consumers, after-commit triggers, TTL, and async indexer threads resolve arenas from the DB pool correctly. |
-| Audit `CrossThreadMemoryTracking` | Query | P1 | Todo | Capture the DB pool and resolve the concrete arena inside the execution-time lambda, not at capture time. |
-| Re-check debug assertions | Memory | P1 | Todo | Validate pool-vs-arena ownership carefully so cross-thread frees do not produce false positives. |
-| Verify tenant profile durability payload | DBMS | P1 | In progress | Confirm the durable KV record still contains enough information to restore profile membership, limits, and versioning. |
+| Confirm first arena creation must succeed | Memory + Storage | P0 | Verified | Database creation still fails hard if the base arena cannot be created or hooked. |
+| Confirm later arena acquisition fallback | Memory + Storage | P0 | Verified | If per-thread arena creation or hook installation fails after the DB exists, the DB base arena is used instead. |
+| Remove `ArenaAwareAllocator` | Memory | P0 | Done | Collapse transient DB-scoped allocations onto `DbAwareAllocator`. |
+| Add allocator design comment | Memory | P1 | Done | `DbAwareAllocator` now notes that a stateful allocator is possible but intentionally not the default. |
+| Audit `DbArenaScope` nesting model | Memory + Query | P0 | Verified | Scope manages same-pool TLS nesting and does not act like a generic arbitrary-arena stack. |
+| Audit bolt and v2 entry points | Communication + Query | P0 | Verified | DB scope is installed only after the target DB is known and before DB-facing allocation can occur. |
+| Audit `SessionHL` and `Interpreter` flow | Query | P0 | Verified | `Pull`, `Commit`, `Abort`, plan cache, and cleanup paths all execute under the right scope or explicit arena owner. |
+| Audit GC, snapshot, and recovery paths | Storage | P0 | Verified | Periodic GC, forced GC, snapshot, WAL recovery, and helper threads use DB-aware scope or DB-aware thread setup. |
+| Audit streams, triggers, and async workers | Storage + Query | P0 | Verified | Stream consumers, after-commit triggers, TTL, and async indexer threads resolve arenas from the DB pool correctly. |
+| Audit `CrossThreadMemoryTracking` | Query | P1 | Done | The arena-0 restore case was fixed and tracking resolves the DB arena at execution time. |
+| Re-check debug assertions | Memory | P1 | Done | The debug checks now validate the captured ownership model more precisely. |
+| Verify tenant profile durability payload | DBMS | P1 | Verified | The durable KV record contains the profile name, memory limit, database list, and versioning needed for restore. |
 | Reconfirm tenant privileges and replication | DBMS + Auth | P1 | Done / verify | Current state says tenant-profile mutations use `MULTI_DATABASE_EDIT`, not `STATS`, and enterprise/license gating is in place. Keep this checked against future refactors. |
-| Align tests to final architecture | Tests | P1 | In progress | Update any tests that still encode transitional assumptions. Add a narrow fallback-path regression if missing. |
+| Align tests to final architecture | Tests | P1 | In progress | Update any tests that still encode transitional assumptions. Add a narrow fallback-path regression if missing. The dead post-destruction `ArenaRegistration` note has been removed; remaining work is mostly wording and scope cleanup. |
 | Remove old tracker from active branch narrative | Docs / Cleanup | P2 | Done | `review_issue_table.md` has already been removed from git tracking locally; keep it only if you want the local copy for reference. |
 
 ### Verified arena reuse detail
@@ -261,11 +311,15 @@ Tasks:
 2. Update tests that encode now-obsolete transitional assumptions.
 3. Add regressions for the most important fallback and scope cases if missing.
 4. Remove `review_issue_table.md` from the active git history while keeping the local copy if desired.
+5. Rewrite the remaining memory-tracking comments so they use the DB base-arena / per-thread arena language.
+6. Keep intentionally unrelated auth privilege tests as-is, but make sure they are not cited as evidence for the memory migration.
+7. Remove any executable dead-end notes that do not assert a behavior, such as post-destruction lifetime comments that only document undefined behavior.
 
 Expected output:
 
 1. A test suite aligned with the final architecture.
 2. A clean branch narrative without duplicate review trackers.
+3. No stale comment language that implies the retired allocator split or a constructor-owned arena model.
 
 ## Suggested order of execution
 

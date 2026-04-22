@@ -120,7 +120,9 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
   };
 }
 
-static bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_view error_context) {
+namespace {
+
+bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_view error_context) {
   const std::string arena_key = "arena." + std::to_string(arena_idx);
   const std::string hooks_key = arena_key + ".extent_hooks";
 
@@ -145,6 +147,8 @@ static bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::st
 
   return true;
 }
+
+}  // namespace
 
 DbArena::DbArena(utils::MemoryTracker *tracker) {
   // Create the first arena for backwards compatibility

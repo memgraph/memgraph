@@ -209,7 +209,7 @@ class InMemoryLabelIndex : public LabelIndex {
     std::shared_ptr<IndexContainer const> index_container_;
   };
 
-  explicit InMemoryLabelIndex(unsigned arena_idx = 0) : arena_idx_(arena_idx) {}
+  InMemoryLabelIndex() = default;
 
   auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;
 
@@ -237,8 +237,6 @@ class InMemoryLabelIndex : public LabelIndex {
  private:
   auto CleanupAllIndices() -> void;
   auto GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex>;
-
-  unsigned arena_idx_{0};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};
