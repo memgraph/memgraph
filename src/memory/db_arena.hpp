@@ -56,10 +56,10 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
 // long-running multi-tenant processes this causes unbounded jemalloc metadata growth.
 //
 // Thread-safe: arena creation/destruction is not a hot path so a plain mutex is fine.
-class ArenaPool {
+class GlobalArenaPool {
  public:
-  static ArenaPool &Instance() noexcept {
-    static ArenaPool instance;
+  static GlobalArenaPool &Instance() noexcept {
+    static GlobalArenaPool instance;
     return instance;
   }
 
@@ -114,7 +114,7 @@ class ArenaPool {
   std::vector<unsigned> pool_;
 };
 
-// Move-only RAII handle for a jemalloc arena index obtained from ArenaPool.
+// Move-only RAII handle for a jemalloc arena index obtained from GlobalArenaPool.
 // Releases the index back to the pool on destruction. Moved-from handles hold
 // the sentinel value 0 (no arena) and release nothing.
 class ArenaHandle {
@@ -123,13 +123,13 @@ class ArenaHandle {
 
   explicit ArenaHandle(unsigned idx) noexcept : idx_(idx) {}
 
-  ~ArenaHandle() { ArenaPool::Instance().Release(idx_); }
+  ~ArenaHandle() { GlobalArenaPool::Instance().Release(idx_); }
 
   ArenaHandle(ArenaHandle &&o) noexcept : idx_(std::exchange(o.idx_, 0)) {}
 
   ArenaHandle &operator=(ArenaHandle &&o) noexcept {
     if (this != &o) {
-      ArenaPool::Instance().Release(idx_);
+      GlobalArenaPool::Instance().Release(idx_);
       idx_ = std::exchange(o.idx_, 0);
     }
     return *this;

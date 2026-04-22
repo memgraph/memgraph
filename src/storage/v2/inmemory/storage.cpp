@@ -83,6 +83,7 @@ extern const Event GCSkiplistCleanupLatency_us;
 
 namespace memgraph::storage {
 namespace {
+
 constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> durability::StorageMetadataOperation {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define add_case(E)              \
@@ -314,11 +315,10 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override,
                                  PlanInvalidatorPtr invalidator,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
-                                 memgraph::memory::ArenaRegistration arena_registration,
-                                 utils::MemoryTracker *db_embedding_memory_tracker)
-    : Storage(config, config.salient.storage_mode, std::move(invalidator), arena_registration.BaseArenaIdx(),
+                                 memgraph::memory::DbArena *db_arena, utils::MemoryTracker *db_embedding_memory_tracker)
+    : Storage(config, config.salient.storage_mode, std::move(invalidator), memory::DbArenaBaseIdx(db_arena),
               db_embedding_memory_tracker, std::move(database_protector_factory)),
-      arena_registration_(arena_registration),
+      db_arena_(db_arena),
       vertices_{},
       edges_{},
       edges_metadata_{},
@@ -330,8 +330,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
 #if USE_JEMALLOC
-  ttl_.SetAcquireArenaFn([this] { return arena_registration_.AcquireThreadArena(); });
-  async_indexer_.SetAcquireArenaFn([this] { return arena_registration_.AcquireThreadArena(); });
+  ttl_.SetAcquireArenaFn([this] { return memory::DbArenaAcquireThreadArena(db_arena_); });
 #endif
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
@@ -479,7 +478,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // TODO: move out of storage have one global gc_runner_
     gc_runner_.SetInterval(config_.gc.interval);
     gc_runner_.Run("Storage GC", [this] {
-      const memory::DbArenaScope db_arena_scope{arena_registration_.AcquireThreadArena()};
+      const memory::DbArenaScope db_arena_scope{memory::DbArenaAcquireThreadArena(db_arena_)};
       this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
     });
   }
@@ -3180,7 +3179,7 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
   }
 
   if (!wal_file_) {
-    wal_file_ = memory::MakeArenaAwareUnique<durability::WalFile>(arena_registration_.BaseArenaIdx(),
+    wal_file_ = memory::MakeArenaAwareUnique<durability::WalFile>(memory::DbArenaBaseIdx(db_arena_),
                                                                   recovery_.wal_directory_,
                                                                   uuid(),
                                                                   epoch_id,
@@ -4220,7 +4219,7 @@ void InMemoryStorage::CreateSnapshotHandler(
   }
   snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
-    const memory::DbArenaScope db_arena_scope{arena_registration_.AcquireThreadArena()};
+    const memory::DbArenaScope db_arena_scope{memory::DbArenaAcquireThreadArena(db_arena_)};
     if (!token.stop_requested()) {
       this->create_snapshot_handler();
     }

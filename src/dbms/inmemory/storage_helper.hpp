@@ -21,8 +21,7 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::Config config,
     storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
-    memgraph::memory::ArenaRegistration arena_registration = {},
-    utils::MemoryTracker *db_embedding_memory_tracker = nullptr) {
+    memgraph::memory::DbArena *db_arena = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr) {
   const bool is_coordinator = config.is_coordinator;
 
   // Use default safe factory from Storage constructor for basic usage
@@ -30,7 +29,7 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
                                                             std::nullopt,
                                                             std::move(invalidator),
                                                             std::move(database_protector_factory),
-                                                            arena_registration,
+                                                            db_arena,
                                                             db_embedding_memory_tracker);
 
   if (!is_coordinator) {

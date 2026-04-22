@@ -12,7 +12,6 @@
 #pragma once
 
 #include <condition_variable>
-#include <functional>
 #include <mutex>
 #include <variant>
 #include "memory/db_arena_fwd.hpp"
@@ -54,11 +53,6 @@ struct AsyncIndexer {
 
   void Shutdown();
 
-  // Provide a callable that returns the arena index for the indexer thread.
-  // When set, the thread calls it on first run to acquire a per-thread arena.
-  // Falls back to storage BaseArenaIdx() if not set.
-  void SetAcquireArenaFn(std::function<unsigned()> fn) { acquire_arena_fn_ = std::move(fn); }
-
   void CompleteRemaining();
 
  private:
@@ -70,8 +64,6 @@ struct AsyncIndexer {
 
     friend auto operator<=>(LabelProperties const &, LabelProperties const &) = default;
   };
-
-  std::function<unsigned()> acquire_arena_fn_{};
 
   // Label, EdgeType, Composite, Edge Property
   utils::SkipList<std::variant<LabelId, EdgeTypeId, LabelProperties, PropertyId>> request_queue_{};

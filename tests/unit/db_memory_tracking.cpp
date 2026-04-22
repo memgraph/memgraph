@@ -437,7 +437,7 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
 //    - DbArenaScope (query, trigger, stream, replication, GC, snapshot, TTL)
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
-  memgraph::memory::ArenaPool::Instance().Drain();
+  memgraph::memory::GlobalArenaPool::Instance().Drain();
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt);
@@ -629,7 +629,7 @@ TEST_F(DbMemoryTrackingTest, WalOnlyRecoveryPreservesDbMemoryTracking) {
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
   // Drain recycled arena indices so this test gets a fresh jemalloc arena.
-  memgraph::memory::ArenaPool::Instance().Drain();
+  memgraph::memory::GlobalArenaPool::Instance().Drain();
 
   auto cfg = MakeConfig(data_dir_);
   cfg.gc.type = memgraph::storage::Config::Gc::Type::PERIODIC;
@@ -696,9 +696,9 @@ TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
 }
 
 // ---------------------------------------------------------------------------
-// 14. ArenaRegistration API: BaseArenaIdx vs AcquireThreadArena semantics
+// 14. DbArena API: Base arena vs AcquireThreadArena semantics
 // ---------------------------------------------------------------------------
-TEST_F(DbMemoryTrackingTest, ArenaRegistration_BaseArenaIdxVsAcquireThreadArena) {
+TEST_F(DbMemoryTrackingTest, DbArena_BaseArenaIdxVsAcquireThreadArena) {
   auto dir = data_dir_ / "db_arena_reg";
   std::filesystem::create_directories(dir);
 
@@ -707,20 +707,18 @@ TEST_F(DbMemoryTrackingTest, ArenaRegistration_BaseArenaIdxVsAcquireThreadArena)
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
-  memgraph::memory::ArenaRegistration arena_registration{&db->Arena()};
-
   // BaseArenaIdx returns the DB's stable base arena.
-  unsigned base_arena = arena_registration.BaseArenaIdx();
+  unsigned base_arena = db->Arena().idx();
   EXPECT_NE(base_arena, 0u) << "BaseArenaIdx should return a valid arena";
-  unsigned base_arena2 = arena_registration.BaseArenaIdx();
+  unsigned base_arena2 = db->Arena().idx();
   EXPECT_EQ(base_arena, base_arena2) << "BaseArenaIdx should be stable across calls";
 
   // AcquireThreadArena returns a valid arena for the test thread.
-  unsigned thread_arena = arena_registration.AcquireThreadArena();
+  unsigned thread_arena = db->Arena().AcquireThreadArena();
   EXPECT_NE(thread_arena, 0u) << "AcquireThreadArena should return a valid arena";
 
   // AcquireThreadArena is idempotent on the same thread.
-  unsigned thread_arena2 = arena_registration.AcquireThreadArena();
+  unsigned thread_arena2 = db->Arena().AcquireThreadArena();
   EXPECT_EQ(thread_arena, thread_arena2) << "AcquireThreadArena should be idempotent on same thread";
 
   // BaseArenaIdx and AcquireThreadArena on a non-constructor thread are
@@ -728,30 +726,13 @@ TEST_F(DbMemoryTrackingTest, ArenaRegistration_BaseArenaIdxVsAcquireThreadArena)
   // AcquireThreadArena creates a new per-thread arena for contention isolation.
   EXPECT_NE(base_arena, thread_arena) << "BaseArenaIdx (DB base arena) and AcquireThreadArena (per-thread arena) "
                                       << "should differ on non-constructor threads by design";
-
-  // Verify ArenaRegistration bool operator
-  EXPECT_TRUE(arena_registration) << "Valid ArenaRegistration should evaluate to true";
 }
 
 // ---------------------------------------------------------------------------
-// 15. ArenaRegistration: Empty/default construction behavior
+// 15. Arena reuse restores hooks before returning the arena index to the pool
 // ---------------------------------------------------------------------------
-TEST_F(DbMemoryTrackingTest, ArenaRegistration_EmptyBehavior) {
-  memgraph::memory::ArenaRegistration empty_reg;
-
-  // Empty registration should evaluate to false
-  EXPECT_FALSE(empty_reg) << "Default-constructed ArenaRegistration should be false";
-
-  // Empty registration should return 0 for both methods
-  EXPECT_EQ(empty_reg.BaseArenaIdx(), 0u) << "Empty BaseArenaIdx should return 0";
-  EXPECT_EQ(empty_reg.AcquireThreadArena(), 0u) << "Empty AcquireThreadArena should return 0";
-}
-
-// ---------------------------------------------------------------------------
-// 16. Arena reuse restores hooks before returning the arena index to the pool
-// ---------------------------------------------------------------------------
-TEST_F(DbMemoryTrackingTest, ArenaPool_ReusedArenaUsesNewTrackerHooks) {
-  memgraph::memory::ArenaPool::Instance().Drain();
+TEST_F(DbMemoryTrackingTest, GlobalArenaPool_ReusedArenaUsesNewTrackerHooks) {
+  memgraph::memory::GlobalArenaPool::Instance().Drain();
 
   memgraph::utils::MemoryTracker tracker1;
   memgraph::utils::MemoryTracker tracker2;
@@ -793,7 +774,7 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_ReusedArenaUsesNewTrackerHooks) {
   const auto tracker1_after_release = tracker1.Amount();
   {
     memgraph::memory::DbArena arena{&tracker2};
-    ASSERT_EQ(arena.idx(), released_arena_idx) << "ArenaPool should recycle the just-released arena index";
+    ASSERT_EQ(arena.idx(), released_arena_idx) << "GlobalArenaPool should recycle the just-released arena index";
 
     const auto tracker2_before = tracker2.Amount();
     auto ptrs = allocate_and_touch(arena.idx());
@@ -906,19 +887,16 @@ TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
-  memgraph::memory::ArenaRegistration arena_registration{&db->Arena()};
-  unsigned base_arena = arena_registration.BaseArenaIdx();
+  unsigned base_arena = db->Arena().idx();
   ASSERT_NE(base_arena, 0u);
 
   unsigned bg_thread_arena = 0;
   std::thread bg_thread([&]() {
     // Simulate what GC/snapshot/TTL threads do
-    if (arena_registration) {
-      unsigned arena = arena_registration.AcquireThreadArena();
-      {
-        const memgraph::memory::DbArenaScope scope{arena};
-        bg_thread_arena = arena;
-      }
+    unsigned arena = db->Arena().AcquireThreadArena();
+    {
+      const memgraph::memory::DbArenaScope scope{arena};
+      bg_thread_arena = arena;
     }
   });
   bg_thread.join();
@@ -926,13 +904,6 @@ TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
   EXPECT_NE(bg_thread_arena, 0u) << "Background thread should acquire an arena";
   EXPECT_NE(bg_thread_arena, base_arena) << "Background thread should get its own arena, different from base arena";
 }
-
-// ---------------------------------------------------------------------------
-// 20. ArenaRegistration lifetime is owned by Database/Storage ordering.
-// ---------------------------------------------------------------------------
-// There is no executable regression here because using ArenaRegistration after
-// Database destruction would be undefined behavior. The lifetime guarantee is
-// enforced by Database's member declaration order instead.
 
 // ---------------------------------------------------------------------------
 // 21. Mixed allocation paths: explicit DB scope + DbAwareAllocator consistency

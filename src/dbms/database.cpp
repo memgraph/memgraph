@@ -92,11 +92,6 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   const memory::DbArenaScope db_arena_scope{BaseArenaIdx()};
 
 #if USE_JEMALLOC
-  auto arena_registration = memgraph::memory::ArenaRegistration{db_arena_.get()};
-#else
-  auto arena_registration = memgraph::memory::ArenaRegistration{};
-#endif
-#if USE_JEMALLOC
   streams()->SetAcquireArenaFn([this] { return db_arena_->AcquireThreadArena(); });
 #endif
 
@@ -112,7 +107,11 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     storage_ = dbms::CreateInMemoryStorage(std::move(config),
                                            std::move(invalidator),
                                            database_protector_factory,
-                                           arena_registration,
+#if USE_JEMALLOC
+                                           db_arena_.get(),
+#else
+                                           nullptr,
+#endif
                                            &db_embedding_memory_tracker_);
   }
 }

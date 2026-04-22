@@ -150,10 +150,9 @@ bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_vi
 
 }  // namespace
 
-// TODO: Rename DbArenaPool
 DbArena::DbArena(utils::MemoryTracker *tracker) {
   // Create the first arena for backwards compatibility
-  arena_handles_.emplace_back(ArenaPool::Instance().Acquire());
+  arena_handles_.emplace_back(GlobalArenaPool::Instance().Acquire());
   first_arena_idx_ = arena_handles_.back().idx();
   const unsigned arena_idx = first_arena_idx_;
 
@@ -223,7 +222,7 @@ unsigned DbArena::AcquireThreadArena() {
   arena_handles_.reserve(arena_handles_.size() + 1);
   thread_arena_map_.reserve(thread_arena_map_.size() + 1);
 
-  ArenaHandle handle{ArenaPool::Instance().Acquire()};
+  ArenaHandle handle{GlobalArenaPool::Instance().Acquire()};
   auto [it, inserted] = thread_arena_map_.try_emplace(tid, 0);
   DMG_ASSERT(inserted, "Thread arena mapping must not be inserted by another caller while holding the DB arena lock");
 
@@ -253,18 +252,20 @@ void JeFree(void *ptr, std::size_t size, int flags) noexcept;
 
 namespace memgraph::memory {
 
-unsigned ArenaRegistration::BaseArenaIdx() const noexcept {
+unsigned DbArenaBaseIdx(DbArena *arena) noexcept {
 #if USE_JEMALLOC
-  return arena_ ? arena_->idx() : 0;
+  return arena ? arena->idx() : 0;
 #else
+  (void)arena;
   return 0;
 #endif
 }
 
-unsigned ArenaRegistration::AcquireThreadArena() const noexcept {
+unsigned DbArenaAcquireThreadArena(DbArena *arena) noexcept {
 #if USE_JEMALLOC
-  return arena_ ? arena_->AcquireThreadArena() : 0;
+  return arena ? arena->AcquireThreadArena() : 0;
 #else
+  (void)arena;
   return 0;
 #endif
 }

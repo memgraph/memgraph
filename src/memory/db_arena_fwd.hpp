@@ -27,33 +27,10 @@ namespace memgraph::memory {
 
 class DbArena;
 
-// Lightweight handle for Storage to interact with Database's per-thread arena pool.
-// This decouples Storage from Database while allowing Storage to:
-// 1. Acquire per-thread arenas for background threads
-// 2. Access the base arena index for allocator construction
-//
-// IMPORTANT: Database must outlive Storage (Storage holds a pointer to Database's DbArena).
-// This is guaranteed by Database's member declaration order (db_arena_ declared after storage_).
-class ArenaRegistration {
- public:
-  ArenaRegistration() noexcept = default;
-
-  explicit ArenaRegistration(DbArena *arena) noexcept : arena_(arena) {}
-
-  // Get the base arena index (for backwards compatibility with allocator construction).
-  // Returns 0 if no arena is registered (non-jemalloc builds or unit tests).
-  unsigned BaseArenaIdx() const noexcept;
-
-  // Acquire (or create) the arena for the current thread.
-  // First call per thread creates a new arena; subsequent calls return the cached arena.
-  // Returns 0 if no arena is registered.
-  unsigned AcquireThreadArena() const noexcept;
-
-  explicit operator bool() const noexcept { return arena_ != nullptr; }
-
- private:
-  DbArena *arena_{nullptr};
-};
+// Lightweight helpers for code that only needs to talk to an optional
+// Database-owned DbArena without including the heavy jemalloc header.
+unsigned DbArenaBaseIdx(DbArena *arena) noexcept;
+unsigned DbArenaAcquireThreadArena(DbArena *arena) noexcept;
 
 // A std::pmr::memory_resource that routes allocations to a specific jemalloc
 // arena. Used as the upstream for PageSlabMemoryResource so that Delta slab
@@ -152,11 +129,15 @@ class ArenaPageSlabMemoryResource {
 //
 // Thread types and their correct setup:
 //
-//   Long-lived dedicated DB threads (TTL, GC, AsyncIndexer, trigger pool):
+//   Long-lived dedicated DB threads (TTL, GC, trigger pool):
 //     Call AcquireThreadArena() once on first run to get a per-thread arena,
 //     then install that arena in TLS for the thread lifetime. Use SetAcquireArenaFn()
 //     injection so the thread can call AcquireThreadArena() lazily without
-//     a direct ArenaRegistration dependency.
+//     carrying arena indices across thread boundaries.
+//
+//   AsyncIndexer:
+//     Uses DbAwareThread with the owning storage's BaseArenaIdx(); the thread
+//     body should not install an additional DbArenaScope.
 //
 //   Short-lived thread-pool tasks (replication, plan cache):
 //     Use DbArenaScope{BaseArenaIdx()} for the task duration. BaseArenaIdx()
