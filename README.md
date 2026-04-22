@@ -14,6 +14,9 @@
   <a href="https://github.com/memgraph/memgraph/blob/master/licenses/MEL.pdf" alt="Documentation">
     <img src="https://img.shields.io/badge/license-MEL-yellow" alt="license" title="license"/>
   </a>
+  <a href="https://gitcgr.com/memgraph/memgraph" target="_blank" rel="noopener noreferrer">
+    <img src="https://gitcgr.com/badge/memgraph/memgraph.svg" alt="gitcgr" />
+  </a>
 </p>
 
 <p align="center">
