@@ -123,7 +123,7 @@ jobs:
           MONITORING_SERVER_HOST="$MONITORING_HOST" \
           MONITORING_USERNAME="$MONITORING_USERNAME" \
           MONITORING_PASSWORD="$MONITORING_PASSWORD" \
-          CLUSTER_ID="diff-jepsen-${{ github.run_id }}" \
+          CLUSTER_ID="${{ github.run_id }}-${{ github.job }}" \
           CLUSTER_ENV="ci-jepsen" \
           SERVICE_NAME="jepsen-habank" \
           ./tools/ci/monitoring/start_jepsen_monitoring.sh

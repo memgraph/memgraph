@@ -1142,8 +1142,8 @@ jobs:
           MONITORING_SERVER_HOST="$MONITORING_HOST" \
           MONITORING_USERNAME="$MONITORING_USERNAME" \
           MONITORING_PASSWORD="$MONITORING_PASSWORD" \
-          CLUSTER_ID="release-jepsen-${{ github.run_id }}" \
-          CLUSTER_ENV="ci-jepsen" \
+          CLUSTER_ID="${{ github.run_id }}-${{ github.job }}" \
+          CLUSTER_ENV="ci-release-tests" \
           SERVICE_NAME="jepsen-habank" \
           ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
