@@ -164,7 +164,7 @@ DbArenaScope::DbArenaScope(memgraph::dbms::Database *db)
 #else
 namespace memgraph::memory {
 
-DbArenaScope::DbArenaScope(memgraph::dbms::Database * /*db*/) : DbArenaScope(0) {}
+DbArenaScope::DbArenaScope(memgraph::dbms::Database * /*db*/) : DbArenaScope(0U) {}
 
 }  // namespace memgraph::memory
 #endif
