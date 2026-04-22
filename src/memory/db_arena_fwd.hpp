@@ -177,6 +177,9 @@ class ArenaPageSlabMemoryResource {
 // the previous value on destruction keeps shared worker threads and task
 // stealing paths from leaking arena state across work items.
 struct DbArenaScope {
+  // Default to global arenas
+  DbArenaScope() noexcept;
+
   // Acquire per-thread arena from the database.
   explicit DbArenaScope(memgraph::dbms::Database *db);
 
@@ -205,6 +208,11 @@ class DbAwareThread {
   template <typename F, typename... Args>
     requires(std::is_invocable_v<std::decay_t<F>, std::decay_t<Args>...> ||
              std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>)
+
+  // TODO:
+  // this uses the main thread's arena. this is safe, but slow.
+  // if the thread was granted a new arena, that would be faster, but the arena would need to be associated to the
+  // database even after the thread was destroyed.
   explicit DbAwareThread(F &&f, Args &&...args)
       : DbAwareThread(tls_db_arena_state.arena, std::forward<F>(f), std::forward<Args>(args)...) {}
 

@@ -210,6 +210,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
   auto &db_acc = *db_acc_;
+  const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
   switch (acc_type) {
     case storage::StorageAccessType::READ:
@@ -3033,10 +3034,6 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  // Update the TLS arena index used to route allocations to the correct database arena.
-  // The previous arena is restored on scope exit so pool threads are unaffected.
-  const memory::DbArenaScope db_arena_scope{ctx_.db_arena_idx};
-
   auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
   // Single query memory limit
   memory_tracker.SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
@@ -3370,12 +3367,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       &*current_db
             .execution_db_accessor_;  // todo pass the full current_db into planner...make plan optimisation optional
 
-#if USE_JEMALLOC
-  // PlanCache_t uses DbAwareAllocator, so prepare-time cache insertions must run
-  // with the owning DB arena installed in TLS for correct per-DB attribution.
-  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->BaseArenaIdx()};
-#endif
-
   const auto is_cacheable = parsed_query.is_cacheable;
   auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
 
@@ -3493,11 +3484,6 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   MG_ASSERT(current_db.execution_db_accessor_, "Explain query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-#if USE_JEMALLOC
-  // EXPLAIN populates the inner query's cached plan during prepare.
-  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->BaseArenaIdx()};
-#endif
-
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
 
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
@@ -3604,11 +3590,6 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
-
-#if USE_JEMALLOC
-  // PROFILE also parses/plans an inner Cypher query and may populate the DB-owned plan cache.
-  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->BaseArenaIdx()};
-#endif
 
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
@@ -9028,6 +9009,10 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
+  std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
+  if (current_db_.db_acc_) {
+    plan_cache_db_arena_scope.emplace(current_db_.db_acc_->get());
+  }
   if (std::holds_alternative<TransactionQuery>(parse_res)) {
     const auto tx_query_enum = std::get<TransactionQuery>(parse_res);
     if (tx_query_enum == TransactionQuery::BEGIN) {
@@ -9557,6 +9542,10 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
+  // Route Abort-path deallocations/cleanup to this DB's arena.
+  // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
+  const memory::DbArenaScope db_arena_scope{current_db_.db_acc_ ? current_db_.db_acc_->get() : nullptr};
+
 #ifdef MG_ENTERPRISE
   // Note: if the storage layer already aborted the transaction internally (e.g. PeriodicCommit
   // constraint violation), CleanupDBTransaction(false) will have been called first, nulling the
@@ -9580,12 +9569,6 @@ void Interpreter::Abort() {
   // System tx
   // TODO Implement system transaction scope and the ability to abort
   system_transaction_.reset();
-
-#if USE_JEMALLOC
-  // Route Abort-path deallocations/cleanup to this DB's arena.
-  // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
-  const memory::DbArenaScope db_arena_scope{current_db_.db_acc_ ? current_db_.db_acc_->get()->BaseArenaIdx() : 0U};
-#endif
 
   // Data tx
   // CAS ACTIVE → STARTED_ROLLBACK. Also accept TERMINATED and IDLE (already dead/cleaned up).
@@ -9775,6 +9758,10 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }  // namespace
 
 void Interpreter::Commit() {
+  // Route Abort-path deallocations/cleanup to this DB's arena.
+  // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
+  const memory::DbArenaScope db_arena_scope{current_db_.db_acc_ ? current_db_.db_acc_->get() : nullptr};
+
 #ifdef MG_ENTERPRISE
   if (user_resource_ && current_db_.db_transactional_accessor_) {
     const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker().Amount();
@@ -9849,11 +9836,6 @@ void Interpreter::Commit() {
     return;
   }
   auto *db = current_db_.db_acc_->get();
-#if USE_JEMALLOC
-  // Route Commit-path allocations (before-commit triggers, delta cleanup, plan cache updates)
-  // to this DB's arena. System-tx path returned early above, so this is always a data transaction.
-  const memory::DbArenaScope db_arena_scope{db->BaseArenaIdx()};
-#endif
 
   /*
   At this point we must check that the transaction is alive to start committing. The only other possible state is

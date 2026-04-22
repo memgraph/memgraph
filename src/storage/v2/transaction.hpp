@@ -106,12 +106,11 @@ struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
               ActiveIndicesPtr active_indices, ActiveConstraints active_constraints,
-              AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt,
-              unsigned arena_idx = 0)
+              AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
-        deltas(arena_idx),
+        deltas(),
         md_deltas(utils::NewDeleteResource()),
         has_serialization_error(false),
         isolation_level(isolation_level),

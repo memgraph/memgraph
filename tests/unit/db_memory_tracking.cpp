@@ -228,41 +228,37 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
     accessor->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
   }
 
-  auto unique_acc = db1->UniqueAccess();
-
-  const int64_t db1_before = db1->DbEmbeddingMemoryUsage();
-  const int64_t db2_before = db2->DbEmbeddingMemoryUsage();
-  const int64_t db1_total_before = db1->DbMemoryUsage();
-
-  memgraph::storage::VectorIndexSpec spec{
-      .index_name = "db1_embedding_index",
-      .label_id = label,
-      .property = property,
-      .metric_kind = unum::usearch::metric_kind_t::cos_k,
-      .dimension = 256,
-      .resize_coefficient = 2,
-      .capacity = 4096,
-      .scalar_kind = unum::usearch::scalar_kind_t::f32_k,
-  };
-
-  // Pin arena for vector index creation (uses DbAwareAllocator internally)
   {
     memgraph::memory::DbArenaScope db_arena_scope{db1->BaseArenaIdx()};
+    auto unique_acc = db1->UniqueAccess();
+
+    const int64_t db1_before = db1->DbEmbeddingMemoryUsage();
+    const int64_t db2_before = db2->DbEmbeddingMemoryUsage();
+    const int64_t db1_total_before = db1->DbMemoryUsage();
+
+    memgraph::storage::VectorIndexSpec spec{
+        .index_name = "db1_embedding_index",
+        .label_id = label,
+        .property = property,
+        .metric_kind = unum::usearch::metric_kind_t::cos_k,
+        .dimension = 256,
+        .resize_coefficient = 2,
+        .capacity = 4096,
+        .scalar_kind = unum::usearch::scalar_kind_t::f32_k,
+    };
+
     ASSERT_NO_ERROR(unique_acc->CreateVectorIndex(spec));
-  }
 
-  const int64_t db1_delta = db1->DbEmbeddingMemoryUsage() - db1_before;
-  const int64_t db1_total_delta = db1->DbMemoryUsage() - db1_total_before;
+    const int64_t db1_delta = db1->DbEmbeddingMemoryUsage() - db1_before;
+    const int64_t db1_total_delta = db1->DbMemoryUsage() - db1_total_before;
 
-  EXPECT_GT(db1_delta, static_cast<int64_t>(256 * 1024)) << "Vector index should attribute embedding memory to DB1";
-  EXPECT_EQ(db2->DbEmbeddingMemoryUsage(), db2_before) << "DB2 embedding tracker must not grow";
-  EXPECT_GE(db1_total_delta, db1_delta) << "db_total should include embedding delta";
+    EXPECT_GT(db1_delta, static_cast<int64_t>(256 * 1024)) << "Vector index should attribute embedding memory to DB1";
+    EXPECT_EQ(db2->DbEmbeddingMemoryUsage(), db2_before) << "DB2 embedding tracker must not grow";
+    EXPECT_GE(db1_total_delta, db1_delta) << "db_total should include embedding delta";
 
-  {
-    memgraph::memory::DbArenaScope db_arena_scope{db1->BaseArenaIdx()};
     ASSERT_NO_ERROR(unique_acc->DropVectorIndex(spec.index_name));
+    EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_before) << "Dropping index should release embedding memory";
   }
-  EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_before) << "Dropping index should release embedding memory";
 
   auto edge_type = db1->storage()->NameToEdgeType("EMBEDDED_EDGE");
   auto edge_property = db1->storage()->NameToProperty("edge_embedding");
@@ -300,6 +296,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
 
   {
     memgraph::memory::DbArenaScope db_arena_scope{db1->BaseArenaIdx()};
+    auto unique_acc = db1->UniqueAccess();
     ASSERT_NO_ERROR(unique_acc->CreateVectorEdgeIndex(edge_spec));
   }
 
@@ -313,6 +310,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
 
   {
     memgraph::memory::DbArenaScope db_arena_scope{db1->BaseArenaIdx()};
+    auto unique_acc = db1->UniqueAccess();
     ASSERT_NO_ERROR(unique_acc->DropVectorIndex(edge_spec.index_name));
   }
   EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_edge_before) << "Dropping edge index should release embedding memory";
@@ -379,6 +377,7 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
 
   const unsigned arena_idx = db->BaseArenaIdx();
   ASSERT_NE(arena_idx, 0U);
+  memgraph::memory::DbArenaScope scope{arena_idx};
 
   auto label = db->storage()->NameToLabel("IdxNode");
   auto prop = db->storage()->NameToProperty("val");
@@ -386,7 +385,6 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
 
   // Create 2000 nodes with label+property, and 1000 edges.
   {
-    memgraph::memory::DbArenaScope scope{arena_idx};
     auto acc = db->Access();
     std::vector<memgraph::storage::VertexAccessor> verts;
     verts.reserve(2000);

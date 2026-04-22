@@ -150,6 +150,7 @@ bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_vi
 
 }  // namespace
 
+// TODO: Rename DbArenaPool
 DbArena::DbArena(utils::MemoryTracker *tracker) {
   // Create the first arena for backwards compatibility
   arena_handles_.emplace_back(ArenaPool::Instance().Acquire());
@@ -237,6 +238,10 @@ unsigned DbArena::AcquireThreadArena() {
   return arena_idx;
 }
 
+// TODO:
+// Do we actually need the thread id map? Couldn't we just reserve one arena and if there isn't an empty one, we create?
+// Add release thread arena if we go with vector implementation
+
 }  // namespace memgraph::memory
 
 #endif  // USE_JEMALLOC
@@ -301,8 +306,15 @@ void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexce
 #endif
 }
 
+// TODO Add nested arena check. NOTE: Same arena pool is fine (not sure how to check it)
+DbArenaScope::DbArenaScope() noexcept : prev_arena_(tls_db_arena_state.arena) {
+  tls_db_arena_state.arena = 0U;
+  DMG_ASSERT(prev_arena_ == 0U, "Erasing DB scope!");
+}
+
 DbArenaScope::DbArenaScope(unsigned arena_idx) noexcept : prev_arena_(tls_db_arena_state.arena) {
   tls_db_arena_state.arena = arena_idx;
+  DMG_ASSERT(prev_arena_ == 0U || prev_arena_ == arena_idx, "Crashing into a different DB scope!");
 }
 
 DbArenaScope::~DbArenaScope() noexcept {

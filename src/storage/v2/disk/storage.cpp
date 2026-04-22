@@ -2474,8 +2474,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           std::move(active_indices),
           *std::move(active_constraints),
           {},
-          std::nullopt,
-          BaseArenaIdx()};
+          std::nullopt};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }

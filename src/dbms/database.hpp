@@ -236,7 +236,7 @@ class Database {
   // Enforcement-only: caps total per-DB memory (tenant profile limit).
   // No parent — does not roll up to any global. Per-DB domain trackers list this
   // as their second parent so every allocation is counted here AND in the domain global.
-  utils::MemoryTracker db_total_memory_tracker_{};
+  utils::MemoryTracker db_total_memory_tracker_;
   // Domain trackers: parent1 = global domain aggregator (for AI_PLATFORM license limits),
   //                  parent2 = db_total_memory_tracker_ (for tenant limit enforcement).
   utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker, &db_total_memory_tracker_};

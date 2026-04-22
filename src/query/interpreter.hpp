@@ -12,9 +12,11 @@
 #pragma once
 
 #include <gflags/gflags.h>
+#include <optional>
 
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/query_logger.hpp"
@@ -590,6 +592,12 @@ class Interpreter final {
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
+  // Update the TLS arena index used to route allocations to the correct database arena.
+  // The previous arena is restored on scope exit so pool threads are unaffected.
+  std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
+  if (current_db_.db_acc_) {
+    plan_cache_db_arena_scope.emplace(current_db_.db_acc_->get());
+  }
   MG_ASSERT(in_explicit_transaction_ || !qid, "qid can be only used in explicit transaction!");
 
   const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);

@@ -2550,8 +2550,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           std::move(active_indices),
           *std::move(active_constraints),
           std::move(async_index_helper),
-          last_durable_ts,
-          arena_registration_.BaseArenaIdx()};
+          last_durable_ts};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {

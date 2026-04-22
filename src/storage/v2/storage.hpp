@@ -1030,10 +1030,7 @@ class Storage {
 
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
 
-  void FreeMemory() {
-    const memory::DbArenaScope db_arena_scope{BaseArenaIdx()};
-    FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, false);
-  }
+  void FreeMemory() { FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, false); }
 
   virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,

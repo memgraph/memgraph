@@ -20,10 +20,9 @@
 namespace memgraph::utils {
 
 // custom allocator, ensures all allocations are page aligned.
-// When arena_idx != 0 (jemalloc builds only), allocations are routed to that
-// jemalloc arena so they are attributed to the owning DB's MemoryTracker.
-// In non-jemalloc builds arena_idx is stored but ignored (DbAllocateBytes
-// routes to ::operator new when idx == 0).
+// Allocations follow the DB arena currently pinned in TLS, so callers must
+// establish DbArenaScope / DbAwareThread before using containers that rely on
+// this allocator.
 template <typename T>
 struct PageAlignedAllocator {
   static constexpr std::size_t PAGE_SIZE = 4096;
@@ -31,41 +30,30 @@ struct PageAlignedAllocator {
 
   PageAlignedAllocator() = default;
 
-  explicit PageAlignedAllocator(unsigned arena_idx) noexcept : arena_idx_(arena_idx) {}
-
   template <class U>
-  explicit PageAlignedAllocator(const PageAlignedAllocator<U> &other) noexcept : arena_idx_(other.arena_idx_) {}
+  explicit PageAlignedAllocator(const PageAlignedAllocator<U> & /*other*/) noexcept {}
 
   auto allocate(std::size_t n) -> T * {
     auto size = std::max(n * sizeof(T), PAGE_SIZE);
     // Round up to the nearest multiple of PAGE_SIZE
     size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
-    return static_cast<T *>(memory::DbAllocateBytes(size, arena_idx_, PAGE_SIZE));
+    return static_cast<T *>(memory::DbAllocateBytes(size, memory::tls_db_arena_state.arena, PAGE_SIZE));
   }
 
   void deallocate(T *p, std::size_t n) const noexcept {
     // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
     // free query-thread allocations regardless of which thread calls deallocate.
-    // In debug arena-verification builds, make sure the pointer still belongs to
-    // the explicit arena captured by this allocator.
-#if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
-    memory::AssertPointerBelongsToArena(static_cast<void *>(p), arena_idx_, "PageAlignedAllocator");
-#endif
     // Recalculate the actual allocated size (mirroring allocate) for sized deallocation.
     auto size = std::max(n * sizeof(T), PAGE_SIZE);
     size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
     memory::DbDeallocateBytes(static_cast<void *>(p), size, PAGE_SIZE);
   }
 
-  friend bool operator==(PageAlignedAllocator const &lhs, PageAlignedAllocator const &rhs) noexcept {
-    return lhs.arena_idx_ == rhs.arena_idx_;
+  friend bool operator==(PageAlignedAllocator const &, PageAlignedAllocator const &) noexcept { return true; }
+
+  friend bool operator!=(PageAlignedAllocator const &lhs, PageAlignedAllocator const &rhs) noexcept {
+    return !(lhs == rhs);
   }
-
- private:
-  template <typename U>
-  friend struct PageAlignedAllocator;
-
-  unsigned arena_idx_{0};
 };
 
 }  // namespace memgraph::utils
