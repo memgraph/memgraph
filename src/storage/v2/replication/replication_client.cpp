@@ -516,8 +516,7 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
 
 auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
                                                               std::optional<ReplicaStream> &&replica_stream,
-                                                              uint64_t durability_commit_timestamp,
-                                                              unsigned arena_idx) const
+                                                              uint64_t durability_commit_timestamp) const
     -> std::expected<void, io::network::ClientCommunicationError> {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
@@ -553,6 +552,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   }
 
   bool const is_async = client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC;
+  auto const arena_idx = replica_stream->DbArenaIdx();
   auto task = [this,
                protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
@@ -913,6 +913,8 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replic
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }
+
+auto ReplicaStream::DbArenaIdx() const -> unsigned { return storage_->BaseArenaIdx(); }
 
 void ReplicaStream::AppendDelta(const Delta &delta, Vertex *vertex, uint64_t const final_commit_timestamp,
                                 Storage *storage) {

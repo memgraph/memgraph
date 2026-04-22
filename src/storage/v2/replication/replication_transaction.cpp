@@ -76,8 +76,8 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
       // RPC stream gets destroyed => RPC lock released.
       if (!should_run_2pc) {
         // NOLINTNEXTLINE
-        auto const res = client->FinalizeTransactionReplication(
-            db_acc, std::move(replica_stream), durability_commit_timestamp, arena_idx_);
+        auto const res =
+            client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
         // Even if fails, we don't care, it's ASYNC
         if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
           return {};
@@ -132,8 +132,7 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       if (decision) {
         // NOLINTNEXTLINE(bugprone-unused-return-value)
-        client->FinalizeTransactionReplication(
-            protector, std::move(replica_stream), durability_commit_timestamp, arena_idx_);
+        client->FinalizeTransactionReplication(protector, std::move(replica_stream), durability_commit_timestamp);
       } else if (replica_stream) {
         // Reconnect needed because we optimistically prepared PrepareCommitReq message already.
         // We should only do this if we own the RPC lock.
@@ -173,7 +172,7 @@ void TransactionReplication::UpdateCommitTsInfo(std::function<CommitTsInfo(Commi
 
 TransactionReplication::TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage,
                                                CommitArgs const &commit_args, ReplicationStorageClientList &clients)
-    : locked_clients{clients.ReadLock()}, arena_idx_{storage->BaseArenaIdx()} {
+    : locked_clients{clients.ReadLock()} {
   if (!locked_clients->empty()) {
     streams.reserve(locked_clients->size());
     auto const &db_acc = commit_args.database_protector();

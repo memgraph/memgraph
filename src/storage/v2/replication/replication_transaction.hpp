@@ -103,7 +103,6 @@ class TransactionReplication {
   std::vector<ReplicaFailure> finalize_failures_;
   // Union of all failed replica names, built by CollectAllFailures.
   std::unordered_set<std::string> failed_replicas_;
-  unsigned arena_idx_ = 0;
 };
 
 }  // namespace memgraph::storage
