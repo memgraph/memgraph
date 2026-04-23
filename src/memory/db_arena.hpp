@@ -13,8 +13,6 @@
 
 #include <mutex>
 #include <stdexcept>
-#include <thread>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -46,7 +44,7 @@ struct DbArenaHooks {
 //   je_mallctl("arena.N.extent_hooks", nullptr, nullptr, &p, sizeof(p));
 void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hooks_t *base_hooks);
 
-// Singleton pool that recycles jemalloc arena indices across DbArena lifetimes.
+// Singleton pool that recycles jemalloc arena indices across database ArenaPool lifetimes.
 //
 // These are extra explicit arenas created with arenas.create for DB-scoped
 // allocations. They do not replace jemalloc's normal startup arenas configured
@@ -88,7 +86,7 @@ class GlobalArenaPool {
 
   // Return `idx` to the pool so a future Acquire() can reuse it.
   // Must only be called after extent hooks are restored to the default and the
-  // arena is fully purged (DbArena destructor guarantees this ordering).
+  // arena is fully purged (ArenaPool destructor guarantees this ordering).
   void Release(unsigned idx) {
     if (idx == 0) return;
     std::lock_guard<std::mutex> lock(mux_);
@@ -114,79 +112,57 @@ class GlobalArenaPool {
   std::vector<unsigned> pool_;
 };
 
-// Move-only RAII handle for a jemalloc arena index obtained from GlobalArenaPool.
-// Releases the index back to the pool on destruction. Moved-from handles hold
-// the sentinel value 0 (no arena) and release nothing.
-class ArenaHandle {
- public:
-  ArenaHandle() noexcept = default;
-
-  explicit ArenaHandle(unsigned idx) noexcept : idx_(idx) {}
-
-  ~ArenaHandle() { GlobalArenaPool::Instance().Release(idx_); }
-
-  ArenaHandle(ArenaHandle &&o) noexcept : idx_(std::exchange(o.idx_, 0)) {}
-
-  ArenaHandle &operator=(ArenaHandle &&o) noexcept {
-    if (this != &o) {
-      GlobalArenaPool::Instance().Release(idx_);
-      idx_ = std::exchange(o.idx_, 0);
-    }
-    return *this;
-  }
-
-  ArenaHandle(const ArenaHandle &) = delete;
-  ArenaHandle &operator=(const ArenaHandle &) = delete;
-
-  unsigned idx() const noexcept { return idx_; }
-
-  explicit operator bool() const noexcept { return idx_ != 0; }
-
- private:
-  unsigned idx_{0};
-};
-
 // Owns DB-specific jemalloc arenas with custom extent hooks that report
 // committed OS pages to a `utils::MemoryTracker` owned by the caller.
-// Active DB-owned threads get arenas keyed by thread id to reduce allocator
-// contention; thread-id reuse may also reuse an existing DB arena.
-class DbArena {
+// Active DB-owned threads can acquire additional arenas to reduce allocator
+// contention. Acquired arenas are owned for the ArenaPool lifetime.
+class ArenaPool {
  public:
-  explicit DbArena(utils::MemoryTracker *tracker);
-  ~DbArena();
+  explicit ArenaPool(utils::MemoryTracker *tracker);
+  ~ArenaPool();
 
-  DbArena(const DbArena &) = delete;
-  DbArena &operator=(const DbArena &) = delete;
-  DbArena(DbArena &&) = delete;
-  DbArena &operator=(DbArena &&) = delete;
+  ArenaPool(const ArenaPool &) = delete;
+  ArenaPool &operator=(const ArenaPool &) = delete;
+  ArenaPool(ArenaPool &&) = delete;
+  ArenaPool &operator=(ArenaPool &&) = delete;
 
   // Returns the constructor-created base arena used by long-lived arena-aware
   // owners and short-lived DB-scoped work.
   unsigned idx() const noexcept;
 
-  // Acquire or create the arena assigned to this thread for this DB.
-  // The first call for a thread installs DB hooks before publishing the arena
-  // into thread_arena_map_.
-  //
-  // Mappings live for the DbArena lifetime. If the OS later reuses a thread id,
-  // the new thread may receive the existing arena, but that arena is still owned
-  // by this same DB and still has this DB's hooks installed. This is safe for
-  // memory attribution; it only means thread-id reuse may also reuse a DB arena.
-  unsigned AcquireThreadArena();
+  // Acquire an arena for DB-owned thread work.
+  unsigned Acquire();
+
+  // Return an arena acquired from this pool so a future Acquire() can reuse it.
+  void Release(unsigned arena_idx);
 
  private:
   DbArenaHooks hooks_{};
 
-  // Protects thread_arena_map_ and arena_handles_.
-  std::mutex arena_map_mux_;
-  // Maps thread_id -> arena_index for this database
-  std::unordered_map<std::thread::id, unsigned> thread_arena_map_;
-  // Per-thread arena handles (for cleanup in destructor)
-  std::vector<ArenaHandle> arena_handles_;
+  // Protects arenas_, free_count_, and first_arena_use_count_.
+  std::mutex arena_mux_;
+  // Arena indices owned by this database. The range [0, free_count_) is free;
+  // the range [free_count_, arenas_.size()) is in use.
+  std::vector<unsigned> arenas_;
+  std::size_t free_count_{0};
 
   // Cache of the first arena for backwards compatibility
   unsigned first_arena_idx_{0};
+
+  unsigned first_arena_use_count_{0};
 };
+
+namespace testing {
+
+enum class ArenaPoolFailureInjection {
+  None,
+  ConstructorPublish,
+  AcquireArenaCreate,
+};
+
+void SetArenaPoolFailureInjection(ArenaPoolFailureInjection failure);
+
+}  // namespace testing
 
 #endif  // USE_JEMALLOC
 

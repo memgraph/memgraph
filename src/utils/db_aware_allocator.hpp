@@ -13,7 +13,7 @@
 
 // Thin header intentionally placed in utils/ to break the utils <-> memory
 // circular dependency.  db_arena.hpp (in memory/) includes this file and adds
-// the heavier DbArena / DbArenaScope / DbAwareThread machinery.  SkipList
+// the heavier ArenaPool / DbArenaScope / DbAwareThread machinery.  SkipList
 // (in utils/) only needs tls_db_arena_state.arena and DbAwareAllocator.
 
 #include <cstddef>

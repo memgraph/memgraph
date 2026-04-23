@@ -25,12 +25,11 @@ class Database;
 
 namespace memgraph::memory {
 
-class DbArena;
+class ArenaPool;
 
 // Lightweight helpers for code that only needs to talk to an optional
-// Database-owned DbArena without including the heavy jemalloc header.
-unsigned DbArenaBaseIdx(DbArena *arena) noexcept;
-unsigned DbArenaAcquireThreadArena(DbArena *arena) noexcept;
+// Database-owned ArenaPool without including the heavy jemalloc header.
+unsigned ArenaPoolBaseIdx(ArenaPool *arena) noexcept;
 
 // A std::pmr::memory_resource that routes allocations to a specific jemalloc
 // arena. Used as the upstream for PageSlabMemoryResource so that Delta slab
@@ -130,9 +129,9 @@ class ArenaPageSlabMemoryResource {
 // Thread types and their correct setup:
 //
 //   Long-lived dedicated DB threads (TTL, GC, trigger pool):
-//     Call AcquireThreadArena() once on first run to get a per-thread arena,
+//     Call Acquire() once on first run to get a per-thread arena,
 //     then install that arena in TLS for the thread lifetime. Use SetAcquireArenaFn()
-//     injection so the thread can call AcquireThreadArena() lazily without
+//     injection so the thread can call Acquire() lazily without
 //     carrying arena indices across thread boundaries.
 //
 //   AsyncIndexer:
@@ -164,6 +163,9 @@ struct DbArenaScope {
   // Acquire per-thread arena from the database.
   explicit DbArenaScope(memgraph::dbms::Database *db);
 
+  // Acquire from and release back to a DB arena pool.
+  explicit DbArenaScope(ArenaPool *arena_pool);
+
   // Legacy constructor: direct arena index.
   explicit DbArenaScope(unsigned arena_idx) noexcept;
 
@@ -175,6 +177,8 @@ struct DbArenaScope {
   DbArenaScope &operator=(DbArenaScope &&) = delete;
 
  private:
+  ArenaPool *arena_pool_{nullptr};
+  unsigned arena_idx_{0};
   unsigned prev_arena_{0};
 };
 

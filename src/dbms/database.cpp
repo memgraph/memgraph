@@ -66,20 +66,20 @@ unsigned Database::BaseArenaIdx() const noexcept {
 }
 
 #if USE_JEMALLOC
-memory::DbArena &Database::Arena() noexcept { return *db_arena_; }
+memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
 #endif
 
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     :
 #if USE_JEMALLOC
-      db_arena_(std::make_unique<memory::DbArena>(&db_memory_tracker_)),
+      db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
 #endif
       trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
       after_commit_trigger_pool_{1,
 #if USE_JEMALLOC
                                  // After-commit triggers run on this dedicated DB worker.
-                                 // Acquire a DB-owned per-thread arena once for the worker lifetime.
-                                 [this] { memory::tls_db_arena_state.arena = db_arena_->AcquireThreadArena(); }
+                                 // Use the base DB arena for the worker lifetime.
+                                 [this] { memory::tls_db_arena_state.arena = db_arena_->idx(); }
 #else
                                  {}
 #endif
@@ -92,7 +92,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   const memory::DbArenaScope db_arena_scope{BaseArenaIdx()};
 
 #if USE_JEMALLOC
-  streams()->SetAcquireArenaFn([this] { return db_arena_->AcquireThreadArena(); });
+  streams()->SetAcquireArenaFn([this] { return db_arena_->idx(); });
 #endif
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
@@ -155,8 +155,7 @@ void Database::SwitchToOnDisk() {
 #if USE_JEMALLOC
 namespace memgraph::memory {
 
-DbArenaScope::DbArenaScope(memgraph::dbms::Database *db)
-    : DbArenaScope(db != nullptr ? db->Arena().AcquireThreadArena() : 0) {}
+DbArenaScope::DbArenaScope(memgraph::dbms::Database *db) : DbArenaScope(db != nullptr ? &db->Arena() : nullptr) {}
 
 }  // namespace memgraph::memory
 #else

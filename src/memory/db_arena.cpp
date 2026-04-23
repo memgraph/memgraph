@@ -11,6 +11,7 @@
 
 #include "db_arena.hpp"
 
+#include <atomic>
 #include <stdexcept>
 
 #include "utils/logging.hpp"
@@ -19,7 +20,23 @@
 
 namespace memgraph::memory {
 
+namespace testing {
+
 namespace {
+std::atomic<ArenaPoolFailureInjection> arena_pool_failure_injection{ArenaPoolFailureInjection::None};
+}
+
+void SetArenaPoolFailureInjection(ArenaPoolFailureInjection failure) { arena_pool_failure_injection.store(failure); }
+
+}  // namespace testing
+
+namespace {
+
+bool ConsumeFailureInjection(testing::ArenaPoolFailureInjection failure) {
+  auto expected = failure;
+  return testing::arena_pool_failure_injection.compare_exchange_strong(expected,
+                                                                       testing::ArenaPoolFailureInjection::None);
+}
 
 // ---------------------------------------------------------------------------
 // Extent hook callbacks for per-DB arenas.
@@ -148,13 +165,54 @@ bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_vi
   return true;
 }
 
+class PendingArena {
+ public:
+  explicit PendingArena(unsigned arena_idx) noexcept : arena_idx_(arena_idx) {}
+
+  ~PendingArena() {
+    if (arena_idx_ == 0) return;
+
+    if (hooks_installed_) {
+      const std::string hooks_key = "arena." + std::to_string(arena_idx_) + ".extent_hooks";
+      const extent_hooks_t *base = base_hooks_;
+      const int err = je_mallctl(hooks_key.c_str(),
+                                 nullptr,
+                                 nullptr,
+                                 static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
+                                 sizeof(extent_hooks_t *));
+      if (err != 0) {
+        spdlog::error(
+            "ArenaPool {}: failed to restore default hooks during construction cleanup (err={})", arena_idx_, err);
+      }
+    }
+
+    GlobalArenaPool::Instance().Release(arena_idx_);
+  }
+
+  PendingArena(const PendingArena &) = delete;
+  PendingArena &operator=(const PendingArena &) = delete;
+  PendingArena(PendingArena &&) = delete;
+  PendingArena &operator=(PendingArena &&) = delete;
+
+  void MarkHooksInstalled() noexcept { hooks_installed_ = true; }
+
+  void SetBaseHooks(extent_hooks_t *base_hooks) noexcept { base_hooks_ = base_hooks; }
+
+  void Commit() noexcept { arena_idx_ = 0; }
+
+ private:
+  unsigned arena_idx_{0};
+  extent_hooks_t *base_hooks_{nullptr};
+  bool hooks_installed_{false};
+};
+
 }  // namespace
 
-DbArena::DbArena(utils::MemoryTracker *tracker) {
+ArenaPool::ArenaPool(utils::MemoryTracker *tracker) {
   // Create the first arena for backwards compatibility
-  arena_handles_.emplace_back(GlobalArenaPool::Instance().Acquire());
-  first_arena_idx_ = arena_handles_.back().idx();
+  first_arena_idx_ = GlobalArenaPool::Instance().Acquire();
   const unsigned arena_idx = first_arena_idx_;
+  PendingArena pending_arena{arena_idx};
 
   const std::string arena_key = "arena." + std::to_string(arena_idx);
 
@@ -166,6 +224,7 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
   if (err != 0 || base_hooks == nullptr) {
     throw std::runtime_error(fmt::format("Failed to read default hooks for DB arena {} (err={})", arena_idx, err));
   }
+  pending_arena.SetBaseHooks(base_hooks);
 
   // Populate and install our custom hooks.
   InitDbArenaHooks(hooks_, tracker, base_hooks);
@@ -178,19 +237,29 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
   if (err != 0) {
     throw std::runtime_error(fmt::format("Failed to install custom hooks on DB arena {} (err={})", arena_idx, err));
   }
+  pending_arena.MarkHooksInstalled();
+
+  if (ConsumeFailureInjection(testing::ArenaPoolFailureInjection::ConstructorPublish)) {
+    throw std::runtime_error("Injected ArenaPool constructor publish failure");
+  }
+
+  arenas_.push_back(arena_idx);
+  free_count_ = arenas_.size();
+  pending_arena.Commit();
 }
 
-DbArena::~DbArena() {
-  // Purge all per-thread arenas and restore their hooks
-  for (auto &handle : arena_handles_) {
-    if (!handle) continue;
-    const unsigned arena_idx = handle.idx();
+ArenaPool::~ArenaPool() {
+  DMG_ASSERT(free_count_ == arenas_.size(), "Destroying DB ArenaPool while some arenas are still in use");
+  DMG_ASSERT(first_arena_use_count_ == 0, "Destroying DB ArenaPool while the first arena is still in use");
+
+  for (const auto arena_idx : arenas_) {
     const std::string arena_key = "arena." + std::to_string(arena_idx);
 
     // Purge all dirty/muzzy pages back to the OS FIRST, while our custom hooks are
     // still installed.
     if (int perr = je_mallctl((arena_key + ".purge").c_str(), nullptr, nullptr, nullptr, 0); perr != 0) {
-      spdlog::error("DbArena {}: purge failed (err={}); MemoryTracker may drift before hook restore", arena_idx, perr);
+      spdlog::error(
+          "ArenaPool {}: purge failed (err={}); MemoryTracker may drift before hook restore", arena_idx, perr);
     }
 
     // Restore the default hooks AFTER purging
@@ -201,45 +270,75 @@ DbArena::~DbArena() {
                          static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
                          sizeof(extent_hooks_t *));
     if (err != 0) {
-      spdlog::error("DbArena {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx, err);
+      spdlog::error("ArenaPool {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx, err);
     }
+
+    GlobalArenaPool::Instance().Release(arena_idx);
   }
-  // arena_handles_ destructor will release indices to pool.
 }
 
-unsigned DbArena::idx() const noexcept { return first_arena_idx_; }
+unsigned ArenaPool::idx() const noexcept { return first_arena_idx_; }
 
-unsigned DbArena::AcquireThreadArena() {
-  const auto tid = std::this_thread::get_id();
+unsigned ArenaPool::Acquire() {
+  const std::lock_guard<std::mutex> lock(arena_mux_);
 
-  const std::lock_guard<std::mutex> lock(arena_map_mux_);
-  if (auto it = thread_arena_map_.find(tid); it != thread_arena_map_.end()) {
-    return it->second;
+  if (free_count_ != 0) {
+    --free_count_;
+    if (arenas_[free_count_] == first_arena_idx_) {
+      ++first_arena_use_count_;
+    }
+    return arenas_[free_count_];
   }
 
   // Reserve before hook installation so publishing the installed arena cannot
   // throw and return a hooked arena to the reusable pool without restoration.
-  arena_handles_.reserve(arena_handles_.size() + 1);
-  thread_arena_map_.reserve(thread_arena_map_.size() + 1);
+  arenas_.reserve(arenas_.size() + 1);
 
-  ArenaHandle handle{GlobalArenaPool::Instance().Acquire()};
-  auto [it, inserted] = thread_arena_map_.try_emplace(tid, 0);
-  DMG_ASSERT(inserted, "Thread arena mapping must not be inserted by another caller while holding the DB arena lock");
-
-  const unsigned arena_idx = handle.idx();
-  if (!InstallDbArenaHooks(arena_idx, hooks_, "per-thread DB")) {
-    thread_arena_map_.erase(it);
+  unsigned arena_idx = 0;
+  try {
+    if (ConsumeFailureInjection(testing::ArenaPoolFailureInjection::AcquireArenaCreate)) {
+      throw std::runtime_error("Injected ArenaPool arena create failure");
+    }
+    arena_idx = GlobalArenaPool::Instance().Acquire();
+  } catch (const std::exception &e) {
+    spdlog::error("ArenaPool: failed to acquire per-thread DB arena ({}); falling back to base arena {}",
+                  e.what(),
+                  first_arena_idx_);
+    ++first_arena_use_count_;
     return first_arena_idx_;
   }
 
-  arena_handles_.push_back(std::move(handle));
-  it->second = arena_idx;
+  if (!InstallDbArenaHooks(arena_idx, hooks_, "per-thread DB")) {
+    GlobalArenaPool::Instance().Release(arena_idx);
+    ++first_arena_use_count_;
+    return first_arena_idx_;
+  }
+
+  arenas_.push_back(arena_idx);
   return arena_idx;
 }
 
-// TODO:
-// Do we actually need the thread id map? Couldn't we just reserve one arena and if there isn't an empty one, we create?
-// Add release thread arena if we go with vector implementation
+void ArenaPool::Release(unsigned arena_idx) {
+  if (arena_idx == 0) return;
+  const std::lock_guard<std::mutex> lock(arena_mux_);
+  if (arena_idx == first_arena_idx_) {
+    if (first_arena_use_count_ == 0) {
+      DMG_ASSERT(false, "Attempting to release the first arena when it is not in use");
+      return;
+    }
+    --first_arena_use_count_;
+    if (first_arena_use_count_ != 0) return;
+  }
+  for (auto i = free_count_; i < arenas_.size(); ++i) {
+    if (arenas_[i] == arena_idx) {
+      std::swap(arenas_[i], arenas_[free_count_]);
+      ++free_count_;
+      return;
+    }
+  }
+  // Only the first arena can be reused by multiple threads
+  DMG_ASSERT(arena_idx == first_arena_idx_, "Attempting to release an arena that is not in use by this ArenaPool");
+}
 
 }  // namespace memgraph::memory
 
@@ -252,18 +351,9 @@ void JeFree(void *ptr, std::size_t size, int flags) noexcept;
 
 namespace memgraph::memory {
 
-unsigned DbArenaBaseIdx(DbArena *arena) noexcept {
+unsigned ArenaPoolBaseIdx(ArenaPool *arena) noexcept {
 #if USE_JEMALLOC
   return arena ? arena->idx() : 0;
-#else
-  (void)arena;
-  return 0;
-#endif
-}
-
-unsigned DbArenaAcquireThreadArena(DbArena *arena) noexcept {
-#if USE_JEMALLOC
-  return arena ? arena->AcquireThreadArena() : 0;
 #else
   (void)arena;
   return 0;
@@ -313,7 +403,20 @@ DbArenaScope::DbArenaScope() noexcept : prev_arena_(tls_db_arena_state.arena) {
   DMG_ASSERT(prev_arena_ == 0U, "Erasing DB scope!");
 }
 
+DbArenaScope::DbArenaScope(ArenaPool *arena_pool) : arena_pool_(arena_pool), prev_arena_(tls_db_arena_state.arena) {
+#if USE_JEMALLOC
+  arena_idx_ = arena_pool_ ? arena_pool_->Acquire() : 0U;
+  tls_db_arena_state.arena = arena_idx_;
+  DMG_ASSERT(prev_arena_ == 0U || prev_arena_ == arena_idx_, "Crashing into a different DB scope!");
+#else
+  (void)arena_pool;
+  tls_db_arena_state.arena = 0U;
+  DMG_ASSERT(prev_arena_ == 0U, "Erasing DB scope!");
+#endif
+}
+
 DbArenaScope::DbArenaScope(unsigned arena_idx) noexcept : prev_arena_(tls_db_arena_state.arena) {
+  arena_idx_ = arena_idx;
   tls_db_arena_state.arena = arena_idx;
   DMG_ASSERT(prev_arena_ == 0U || prev_arena_ == arena_idx, "Crashing into a different DB scope!");
 }
@@ -321,6 +424,11 @@ DbArenaScope::DbArenaScope(unsigned arena_idx) noexcept : prev_arena_(tls_db_are
 DbArenaScope::~DbArenaScope() noexcept {
   // Restore previous arena
   tls_db_arena_state.arena = prev_arena_;
+#if USE_JEMALLOC
+  if (arena_pool_) {
+    arena_pool_->Release(arena_idx_);
+  }
+#endif
 }
 
 }  // namespace memgraph::memory

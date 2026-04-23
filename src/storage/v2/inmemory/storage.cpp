@@ -315,8 +315,9 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override,
                                  PlanInvalidatorPtr invalidator,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
-                                 memgraph::memory::DbArena *db_arena, utils::MemoryTracker *db_embedding_memory_tracker)
-    : Storage(config, config.salient.storage_mode, std::move(invalidator), memory::DbArenaBaseIdx(db_arena),
+                                 memgraph::memory::ArenaPool *db_arena,
+                                 utils::MemoryTracker *db_embedding_memory_tracker)
+    : Storage(config, config.salient.storage_mode, std::move(invalidator), memory::ArenaPoolBaseIdx(db_arena),
               db_embedding_memory_tracker, std::move(database_protector_factory)),
       db_arena_(db_arena),
       vertices_{},
@@ -330,7 +331,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
 #if USE_JEMALLOC
-  ttl_.SetAcquireArenaFn([this] { return memory::DbArenaAcquireThreadArena(db_arena_); });
+  ttl_.SetAcquireArenaFn([this] { return memory::ArenaPoolBaseIdx(db_arena_); });
 #endif
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
@@ -478,7 +479,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // TODO: move out of storage have one global gc_runner_
     gc_runner_.SetInterval(config_.gc.interval);
     gc_runner_.Run("Storage GC", [this] {
-      const memory::DbArenaScope db_arena_scope{memory::DbArenaAcquireThreadArena(db_arena_)};
+      const memory::DbArenaScope db_arena_scope{db_arena_};
       this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
     });
   }
@@ -3179,7 +3180,7 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
   }
 
   if (!wal_file_) {
-    wal_file_ = memory::MakeArenaAwareUnique<durability::WalFile>(memory::DbArenaBaseIdx(db_arena_),
+    wal_file_ = memory::MakeArenaAwareUnique<durability::WalFile>(memory::ArenaPoolBaseIdx(db_arena_),
                                                                   recovery_.wal_directory_,
                                                                   uuid(),
                                                                   epoch_id,
@@ -4219,7 +4220,7 @@ void InMemoryStorage::CreateSnapshotHandler(
   }
   snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
-    const memory::DbArenaScope db_arena_scope{memory::DbArenaAcquireThreadArena(db_arena_)};
+    const memory::DbArenaScope db_arena_scope{db_arena_};
     if (!token.stop_requested()) {
       this->create_snapshot_handler();
     }

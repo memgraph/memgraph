@@ -45,6 +45,15 @@ memgraph::storage::Config MakeConfig(const std::filesystem::path &dir) {
   return config;
 }
 
+#if USE_JEMALLOC
+unsigned JemallocArenaCount() {
+  unsigned count = 0;
+  size_t count_size = sizeof(count);
+  EXPECT_EQ(je_mallctl("arenas.narenas", &count, &count_size, nullptr, 0), 0);
+  return count;
+}
+#endif
+
 }  // namespace
 
 class DbMemoryTrackingTest : public ::testing::Test {
@@ -696,9 +705,9 @@ TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
 }
 
 // ---------------------------------------------------------------------------
-// 14. DbArena API: Base arena vs AcquireThreadArena semantics
+// 14. ArenaPool API: Base arena vs Acquire/Release semantics
 // ---------------------------------------------------------------------------
-TEST_F(DbMemoryTrackingTest, DbArena_BaseArenaIdxVsAcquireThreadArena) {
+TEST_F(DbMemoryTrackingTest, ArenaPool_BaseArenaIdxVsAcquireRelease) {
   auto dir = data_dir_ / "db_arena_reg";
   std::filesystem::create_directories(dir);
 
@@ -713,23 +722,78 @@ TEST_F(DbMemoryTrackingTest, DbArena_BaseArenaIdxVsAcquireThreadArena) {
   unsigned base_arena2 = db->Arena().idx();
   EXPECT_EQ(base_arena, base_arena2) << "BaseArenaIdx should be stable across calls";
 
-  // AcquireThreadArena returns a valid arena for the test thread.
-  unsigned thread_arena = db->Arena().AcquireThreadArena();
-  EXPECT_NE(thread_arena, 0u) << "AcquireThreadArena should return a valid arena";
+  // Acquire returns a valid arena for DB-owned thread work.
+  unsigned thread_arena = db->Arena().Acquire();
+  EXPECT_NE(thread_arena, 0u) << "Acquire should return a valid arena";
 
-  // AcquireThreadArena is idempotent on the same thread.
-  unsigned thread_arena2 = db->Arena().AcquireThreadArena();
-  EXPECT_EQ(thread_arena, thread_arena2) << "AcquireThreadArena should be idempotent on same thread";
+  // Acquire does not keep a thread-id map; each call obtains an arena owned by
+  // this DB arena pool unless Release returned one to the free list.
+  unsigned thread_arena2 = db->Arena().Acquire();
+  EXPECT_NE(thread_arena, thread_arena2) << "Acquire should not be idempotent on same thread";
 
-  // BaseArenaIdx and AcquireThreadArena on a non-constructor thread are
-  // intentionally different: BaseArenaIdx is the DB bootstrap arena, while
-  // AcquireThreadArena creates a new per-thread arena for contention isolation.
-  EXPECT_NE(base_arena, thread_arena) << "BaseArenaIdx (DB base arena) and AcquireThreadArena (per-thread arena) "
-                                      << "should differ on non-constructor threads by design";
+  db->Arena().Release(thread_arena);
+  unsigned reused_arena = db->Arena().Acquire();
+  EXPECT_EQ(thread_arena, reused_arena) << "Release should return arenas to the pool free list";
+  db->Arena().Release(thread_arena2);
+  db->Arena().Release(reused_arena);
+
+  // The constructor-created base arena participates in the same free/in-use
+  // split as every other arena, so Acquire may return it.
+  EXPECT_EQ(base_arena, thread_arena) << "The base arena should be available through Acquire";
 }
 
 // ---------------------------------------------------------------------------
-// 15. Arena reuse restores hooks before returning the arena index to the pool
+// 15. ArenaPool failure paths
+// ---------------------------------------------------------------------------
+TEST_F(DbMemoryTrackingTest, ArenaPool_ConstructorFailureReleasesPendingArena) {
+  memgraph::memory::GlobalArenaPool::Instance().Drain();
+
+  memgraph::utils::MemoryTracker tracker1;
+  memgraph::utils::MemoryTracker tracker2;
+
+  const auto arena_count_before = JemallocArenaCount();
+  memgraph::memory::testing::SetArenaPoolFailureInjection(
+      memgraph::memory::testing::ArenaPoolFailureInjection::ConstructorPublish);
+  EXPECT_THROW((memgraph::memory::ArenaPool{&tracker1}), std::runtime_error);
+
+  const auto arena_count_after_failure = JemallocArenaCount();
+  EXPECT_EQ(arena_count_after_failure, arena_count_before + 1);
+
+  {
+    memgraph::memory::ArenaPool arena{&tracker2};
+    EXPECT_EQ(JemallocArenaCount(), arena_count_after_failure)
+        << "Successful construction should reuse the arena released by failed construction";
+  }
+}
+
+TEST_F(DbMemoryTrackingTest, ArenaPool_SharedFirstArenaFallbackNotFreedUntilLastRelease) {
+  auto dir = data_dir_ / "db_arena_shared_first";
+  std::filesystem::create_directories(dir);
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
+  auto acc = db_gk.access();
+  ASSERT_TRUE(acc);
+  auto *db = acc->get();
+
+  const auto base_arena = db->Arena().idx();
+  const auto first_arena = db->Arena().Acquire();
+  ASSERT_EQ(first_arena, base_arena);
+
+  memgraph::memory::testing::SetArenaPoolFailureInjection(
+      memgraph::memory::testing::ArenaPoolFailureInjection::AcquireArenaCreate);
+  const auto fallback_arena = db->Arena().Acquire();
+  ASSERT_EQ(fallback_arena, base_arena);
+
+  db->Arena().Release(fallback_arena);
+  const auto next_arena = db->Arena().Acquire();
+  EXPECT_NE(next_arena, base_arena) << "The first arena should stay in use until all shared users release it";
+
+  db->Arena().Release(next_arena);
+  db->Arena().Release(first_arena);
+}
+
+// ---------------------------------------------------------------------------
+// 16. Arena reuse restores hooks before returning the arena index to the pool
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, GlobalArenaPool_ReusedArenaUsesNewTrackerHooks) {
   memgraph::memory::GlobalArenaPool::Instance().Drain();
@@ -761,7 +825,7 @@ TEST_F(DbMemoryTrackingTest, GlobalArenaPool_ReusedArenaUsesNewTrackerHooks) {
 
   unsigned released_arena_idx = 0;
   {
-    memgraph::memory::DbArena arena{&tracker1};
+    memgraph::memory::ArenaPool arena{&tracker1};
     released_arena_idx = arena.idx();
     ASSERT_NE(released_arena_idx, 0u);
 
@@ -773,7 +837,7 @@ TEST_F(DbMemoryTrackingTest, GlobalArenaPool_ReusedArenaUsesNewTrackerHooks) {
 
   const auto tracker1_after_release = tracker1.Amount();
   {
-    memgraph::memory::DbArena arena{&tracker2};
+    memgraph::memory::ArenaPool arena{&tracker2};
     ASSERT_EQ(arena.idx(), released_arena_idx) << "GlobalArenaPool should recycle the just-released arena index";
 
     const auto tracker2_before = tracker2.Amount();
@@ -786,9 +850,9 @@ TEST_F(DbMemoryTrackingTest, GlobalArenaPool_ReusedArenaUsesNewTrackerHooks) {
 }
 
 // ---------------------------------------------------------------------------
-// 17. Concurrent AcquireThreadArena: All threads get unique arenas
+// 17. Concurrent Acquire: All threads get unique arenas
 // ---------------------------------------------------------------------------
-TEST_F(DbMemoryTrackingTest, ConcurrentAcquireThreadArena_AllUniqueArenas) {
+TEST_F(DbMemoryTrackingTest, ConcurrentAcquire_AllUniqueArenas) {
   auto dir = data_dir_ / "db_concurrent";
   std::filesystem::create_directories(dir);
 
@@ -803,14 +867,14 @@ TEST_F(DbMemoryTrackingTest, ConcurrentAcquireThreadArena_AllUniqueArenas) {
   std::atomic<int> ready_count{0};
   std::atomic<bool> start{false};
 
-  // Launch threads that all wait for a signal, then simultaneously call AcquireThreadArena
+  // Launch threads that all wait for a signal, then simultaneously call Acquire.
   for (int i = 0; i < kNumThreads; ++i) {
     threads.emplace_back([&, i]() {
       ready_count.fetch_add(1);
       while (!start.load()) {
         std::this_thread::yield();
       }
-      arenas[i] = db->Arena().AcquireThreadArena();
+      arenas[i] = db->Arena().Acquire();
     });
   }
 
@@ -833,6 +897,9 @@ TEST_F(DbMemoryTrackingTest, ConcurrentAcquireThreadArena_AllUniqueArenas) {
   std::set<unsigned> unique_arenas(arenas.begin(), arenas.end());
   EXPECT_EQ(unique_arenas.size(), kNumThreads)
       << "All " << kNumThreads << " threads should have unique arenas, got " << unique_arenas.size();
+  for (const auto arena : arenas) {
+    db->Arena().Release(arena);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -840,8 +907,8 @@ TEST_F(DbMemoryTrackingTest, ConcurrentAcquireThreadArena_AllUniqueArenas) {
 // ---------------------------------------------------------------------------
 // Note: We test CONCURRENT threads, not sequential threads. Sequential threads
 // may get the same arena if the OS reuses thread IDs (which is OS-dependent).
-// The implementation stores arena-to-thread mappings indefinitely (no cleanup
-// on thread death), so thread ID reuse leads to arena reuse.
+// The implementation does not use thread-id mappings; it creates or reuses
+// arenas through the pool free list.
 TEST_F(DbMemoryTrackingTest, ConcurrentThreads_GetDifferentArenas) {
   auto dir = data_dir_ / "db_concurrent_arenas";
   std::filesystem::create_directories(dir);
@@ -859,11 +926,11 @@ TEST_F(DbMemoryTrackingTest, ConcurrentThreads_GetDifferentArenas) {
 
   std::thread t1([&]() {
     while (!start.load()) std::this_thread::yield();
-    arena1 = db->Arena().AcquireThreadArena();
+    arena1 = db->Arena().Acquire();
   });
   std::thread t2([&]() {
     while (!start.load()) std::this_thread::yield();
-    arena2 = db->Arena().AcquireThreadArena();
+    arena2 = db->Arena().Acquire();
   });
 
   start.store(true);
@@ -873,6 +940,8 @@ TEST_F(DbMemoryTrackingTest, ConcurrentThreads_GetDifferentArenas) {
   ASSERT_NE(arena1, 0u) << "Thread 1 should have a valid arena";
   ASSERT_NE(arena2, 0u) << "Thread 2 should have a valid arena";
   EXPECT_NE(arena1, arena2) << "Concurrent threads should get different arenas";
+  db->Arena().Release(arena1);
+  db->Arena().Release(arena2);
 }
 
 // ---------------------------------------------------------------------------
@@ -893,7 +962,7 @@ TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
   unsigned bg_thread_arena = 0;
   std::thread bg_thread([&]() {
     // Simulate what GC/snapshot/TTL threads do
-    unsigned arena = db->Arena().AcquireThreadArena();
+    unsigned arena = db->Arena().Acquire();
     {
       const memgraph::memory::DbArenaScope scope{arena};
       bg_thread_arena = arena;
@@ -902,7 +971,7 @@ TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
   bg_thread.join();
 
   EXPECT_NE(bg_thread_arena, 0u) << "Background thread should acquire an arena";
-  EXPECT_NE(bg_thread_arena, base_arena) << "Background thread should get its own arena, different from base arena";
+  db->Arena().Release(bg_thread_arena);
 }
 
 // ---------------------------------------------------------------------------

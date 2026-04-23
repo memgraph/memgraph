@@ -156,7 +156,7 @@ class InMemoryStorage final : public Storage {
   explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
                            PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
                            std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
-                           memgraph::memory::DbArena *db_arena = nullptr,
+                           memgraph::memory::ArenaPool *db_arena = nullptr,
                            utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
 
   InMemoryStorage(const InMemoryStorage &) = delete;
@@ -795,9 +795,9 @@ class InMemoryStorage final : public Storage {
 
   EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
-  // Database-owned arena for per-thread arena management.
+  // Database-owned arena pool for per-thread arena management.
   // Database must outlive Storage; Database member declaration order guarantees that.
-  memgraph::memory::DbArena *db_arena_{nullptr};
+  memgraph::memory::ArenaPool *db_arena_{nullptr};
 
   // Main object storage — DbAwareAllocator routes node allocations through the
   // current DB TLS scope, while long-lived DB work establishes that scope at
