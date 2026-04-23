@@ -185,7 +185,10 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   from_json(data, status.info);
 }
 
-Streams::Streams(std::filesystem::path directory) : storage_(std::move(directory)) { RegisterProcedures(); }
+Streams::Streams(std::filesystem::path directory, memory::ArenaPool *arena_pool)
+    : storage_(std::move(directory)), arena_pool_(arena_pool) {
+  RegisterProcedures();
+}
 
 void Streams::RegisterProcedures() {
   RegisterKafkaProcedures();
@@ -603,12 +606,9 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
                                           std::move(ownername),
                                           std::move(rolenames),
                                           std::make_unique<SynchronizedStreamSource<TStream>>(
-                                              stream_name, std::move(stream_info), std::move(consumer_function))});
+                                              stream_name, std::move(stream_info), std::move(consumer_function),
+                                              arena_pool_)});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
-  if (arena_pool_) {
-    std::visit([this](const auto &stream_data) { stream_data.stream_source->Lock()->SetArenaPool(arena_pool_); },
-               insert_result.first->second);
-  }
   return insert_result.first;
 }
 

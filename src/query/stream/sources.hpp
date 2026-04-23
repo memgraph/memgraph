@@ -44,7 +44,8 @@ struct KafkaStream {
   using Message = integrations::kafka::Message;
 
   KafkaStream(std::string stream_name, StreamInfo stream_info,
-              ConsumerFunction<integrations::kafka::Message> consumer_function);
+              ConsumerFunction<integrations::kafka::Message> consumer_function,
+              memory::ArenaPool *arena_pool = nullptr);
 
   StreamInfo Info(std::string transformation_name) const;
 
@@ -58,13 +59,9 @@ struct KafkaStream {
 
   std::expected<void, std::string> SetStreamOffset(int64_t offset);
 
- public:
-  void SetArenaPool(memory::ArenaPool *arena_pool);
-
  private:
   using Consumer = integrations::kafka::Consumer;
   std::optional<Consumer> consumer_;
-  memory::ArenaPool *arena_pool_{nullptr};
 };
 
 void to_json(nlohmann::json &data, KafkaStream::StreamInfo &&info);
@@ -84,7 +81,8 @@ struct PulsarStream {
 
   using Message = integrations::pulsar::Message;
 
-  PulsarStream(std::string stream_name, StreamInfo stream_info, ConsumerFunction<Message> consumer_function);
+  PulsarStream(std::string stream_name, StreamInfo stream_info, ConsumerFunction<Message> consumer_function,
+               memory::ArenaPool *arena_pool = nullptr);
 
   StreamInfo Info(std::string transformation_name) const;
 
@@ -96,13 +94,9 @@ struct PulsarStream {
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
              ConsumerFunction<Message> consumer_function) const;
 
- public:
-  void SetArenaPool(memory::ArenaPool *arena_pool);
-
  private:
   using Consumer = integrations::pulsar::Consumer;
   std::optional<Consumer> consumer_;
-  memory::ArenaPool *arena_pool_{nullptr};
 };
 
 void to_json(nlohmann::json &data, PulsarStream::StreamInfo &&info);

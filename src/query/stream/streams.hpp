@@ -88,9 +88,7 @@ class Streams final {
   ///
   /// @param interpreter_context context to use to run the result of transformations
   /// @param directory a directory path to store the persisted streams metadata
-  explicit Streams(std::filesystem::path directory);
-
-  void SetArenaPool(memory::ArenaPool *arena_pool) noexcept { arena_pool_ = arena_pool; }
+  explicit Streams(std::filesystem::path directory, memory::ArenaPool *arena_pool = nullptr);
 
   /// Restores the streams from the persisted metadata.
   /// The restoration is done in a best effort manner, therefore no exception is thrown on failure, but the error is

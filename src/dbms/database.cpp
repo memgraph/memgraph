@@ -80,7 +80,13 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                  {}
 #endif
       },
-      streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
+      streams_(std::make_unique<query::stream::Streams>(
+          config.durability.storage_directory / "streams"
+#if USE_JEMALLOC
+          ,
+          db_arena_.get()
+#endif
+          )),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
   const memory::DbArenaScope db_arena_scope{this, memory::DbArenaScope::Type::FORCE};
@@ -88,10 +94,6 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   // Postpone creation after the scope has been created
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
-
-#if USE_JEMALLOC
-  streams()->SetArenaPool(db_arena_.get());
-#endif
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
