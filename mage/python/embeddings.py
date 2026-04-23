@@ -618,7 +618,7 @@ def _redacted_config(cfg):
     return {**cfg, "api_base": re.sub(r"(://)[^/@\s]+:[^/@\s]+@", r"\1<redacted>@", api_base)}
 
 
-def compute_embeddings(
+def compute_embeddings(  # noqa: C901
     input_items: mgp.Any,
     configuration: mgp.Map,
 ) -> mgp.Any:
