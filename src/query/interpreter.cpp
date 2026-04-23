@@ -4101,7 +4101,7 @@ std::optional<storage::IndexOrder> ResolveIndexConfigOrder(std::unordered_map<Ex
                                                            Parameters const &parameters) {
   if (config.empty()) return std::nullopt;
 
-  EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+  EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   std::optional<storage::IndexOrder> order;

@@ -1651,7 +1651,7 @@ std::string ScanAllByLabelProperties::ToString() const {
                               }) |
                               ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
-  auto const suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
+  std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
   return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}}){3}",
                      output_symbol_.name(),
                      dba_->LabelToName(label_),
@@ -9764,7 +9764,7 @@ std::string ScanParallelByLabelProperties::ToString() const {
                               }) |
                               ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
-  auto const suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
+  std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
   return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {{{2}}}){3}",
                      num_threads_,
                      dba_->LabelToName(label_),
