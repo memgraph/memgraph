@@ -6218,12 +6218,16 @@ class AggregateCursor : public Cursor {
   // each aggregation in this LogicalOp.
   struct CompactAggregationValue {
     using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
+    // Per-slot real-vertex-gid → canonical-synthetic-gid map for DERIVE aggregation.
+    // Empty for non-DERIVE slots.
+    using DeriveDedup = utils::pmr::unordered_map<storage::Gid, storage::Gid>;
 
     // Pointers to the start of our arrays within the single memory block
     int64_t *counts_ = nullptr;
     TypedValue *values_ = nullptr;
     TypedValue *remember_ = nullptr;
     TSet *unique_values_ = nullptr;
+    DeriveDedup *derive_dedup_ = nullptr;
 
     // We store the allocation details to free it later
     utils::MemoryResource *mem_resource_;
@@ -6246,6 +6250,7 @@ class AggregateCursor : public Cursor {
           values_(std::exchange(other.values_, nullptr)),
           remember_(std::exchange(other.remember_, nullptr)),
           unique_values_(std::exchange(other.unique_values_, nullptr)),
+          derive_dedup_(std::exchange(other.derive_dedup_, nullptr)),
           mem_resource_(other.mem_resource_),
           raw_block_(std::exchange(other.raw_block_, nullptr)),
           total_alloc_size_(other.total_alloc_size_),
@@ -6263,6 +6268,7 @@ class AggregateCursor : public Cursor {
         values_ = std::exchange(other.values_, nullptr);
         remember_ = std::exchange(other.remember_, nullptr);
         unique_values_ = std::exchange(other.unique_values_, nullptr);
+        derive_dedup_ = std::exchange(other.derive_dedup_, nullptr);
 
         mem_resource_ = other.mem_resource_;
         raw_block_ = std::exchange(other.raw_block_, nullptr);
@@ -6295,6 +6301,10 @@ class AggregateCursor : public Cursor {
       offset = align_forward(offset, alignof(TSet));
       const size_t offset_unique = offset;
       offset += sizeof(TSet) * num_aggs_;
+      // Derive dedup maps (DeriveDedup)
+      offset = align_forward(offset, alignof(DeriveDedup));
+      const size_t offset_dedup = offset;
+      offset += sizeof(DeriveDedup) * num_aggs_;
 
       // Allocate ONE block
       total_alloc_size_ = offset;
@@ -6306,6 +6316,7 @@ class AggregateCursor : public Cursor {
       values_ = reinterpret_cast<TypedValue *>(base + offset_values);
       remember_ = reinterpret_cast<TypedValue *>(base + offset_remember);
       unique_values_ = reinterpret_cast<TSet *>(base + offset_unique);
+      derive_dedup_ = reinterpret_cast<DeriveDedup *>(base + offset_dedup);
 
       // Construct Objects (Placement New)
       // Initialize counts to 0
@@ -6315,16 +6326,20 @@ class AggregateCursor : public Cursor {
       for (size_t i = 0UZ; i < num_rem_; ++i) new (&remember_[i]) TypedValue(mem);
       // Construct Sets (Must pass the allocator!)
       for (size_t i = 0UZ; i < num_aggs_; ++i) new (&unique_values_[i]) TSet(mem);
+      // Construct dedup maps (per-slot, empty; only DERIVE slots populate).
+      for (size_t i = 0UZ; i < num_aggs_; ++i) new (&derive_dedup_[i]) DeriveDedup(mem);
     }
 
     ~CompactAggregationValue() { free_resources(); }
 
    private:
-    static constexpr size_t max_align = std::max({alignof(int64_t), alignof(TypedValue), alignof(TSet)});
+    static constexpr size_t max_align =
+        std::max({alignof(int64_t), alignof(TypedValue), alignof(TSet), alignof(DeriveDedup)});
 
     void free_resources() {
       if (!raw_block_) return;
       // Destruct objects in reverse order
+      for (size_t i = 0UZ; i < num_aggs_; ++i) derive_dedup_[i].~DeriveDedup();
       for (size_t i = 0UZ; i < num_aggs_; ++i) unique_values_[i].~TSet();
       for (size_t i = 0UZ; i < num_rem_; ++i) remember_[i].~TypedValue();
       for (size_t i = 0UZ; i < num_aggs_; ++i) values_[i].~TypedValue();
@@ -6520,8 +6535,10 @@ class AggregateCursor : public Cursor {
             break;
           }
           case Aggregation::Op::DERIVE: {
-            ProjectPathWithOptions(
-                input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueVirtualGraph());
+            ProjectPathWithOptions(input_value,
+                                   agg_elem.arg2->Accept(*evaluator),
+                                   agg_value->values_[pos].ValueVirtualGraph(),
+                                   agg_value->derive_dedup_[pos]);
             break;
           }
           case Aggregation::Op::COLLECT_MAP:
@@ -6585,8 +6602,10 @@ class AggregateCursor : public Cursor {
           break;
         }
         case Aggregation::Op::DERIVE: {
-          ProjectPathWithOptions(
-              input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueVirtualGraph());
+          ProjectPathWithOptions(input_value,
+                                 agg_elem.arg2->Accept(*evaluator),
+                                 agg_value->values_[pos].ValueVirtualGraph(),
+                                 agg_value->derive_dedup_[pos]);
           break;
         }
         case Aggregation::Op::COLLECT_MAP:
@@ -6618,7 +6637,7 @@ class AggregateCursor : public Cursor {
 
   // Walks options[key] as a map of (name -> value) and invokes setter(prop_id, pv) for each entry.
   template <typename Setter>
-  void ApplyPropertyMap(const TypedValue::TMap &options, const char *key, Setter &&setter) const {
+  void ApplyPropertyMap(const TypedValue::TMap &options, std::string_view key, Setter &&setter) const {
     const auto it = options.find(key);
     if (it == options.end() || it->second.type() != TypedValue::Type::Map || !db_accessor_) return;
     auto *name_id_mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
@@ -6627,7 +6646,7 @@ class AggregateCursor : public Cursor {
     }
   }
 
-  VirtualNode BuildDerivedNode(const char *labels_key, const char *props_key, const TypedValue::TMap &options,
+  VirtualNode BuildDerivedNode(std::string_view labels_key, std::string_view props_key, const TypedValue::TMap &options,
                                VirtualNode::allocator_type alloc) const {
     VirtualNode::label_list labels{alloc};
     if (const auto labels_it = options.find(labels_key);
@@ -6646,8 +6665,12 @@ class AggregateCursor : public Cursor {
   // Collapses the path to a single synthetic edge between its endpoints. Intermediate vertices
   // on the path are ignored by design — derive() is for producing compressed overlay edges
   // (e.g. shortest-path distillation), not for replicating the path structurally.
+  //
+  // `dedup` is the real-vertex-gid → canonical-synthetic-gid map owned by the aggregation slot.
+  // If a path endpoint's real gid is already present, we reuse the canonical VirtualNode; only
+  // the first occurrence inserts a new one into `projected_graph`.
   void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value,
-                              VirtualGraph &projected_graph) {
+                              VirtualGraph &projected_graph, CompactAggregationValue::DeriveDedup &dedup) {
     static constexpr auto kVirtualEdgeType = "virtualEdgeType";
     static constexpr auto kSourceLabels = "sourceNodeLabels";
     static constexpr auto kSourceProperties = "sourceNodeProperties";
@@ -6673,13 +6696,23 @@ class AggregateCursor : public Cursor {
     if (path_vertices.empty()) return;
 
     const auto alloc = projected_graph.get_allocator();
-    const auto &stored_from = projected_graph.InsertOrGetNode(
-        path_vertices.front().Gid(), BuildDerivedNode(kSourceLabels, kSourceProperties, options, alloc));
+    auto canonical = [&](const VertexAccessor &real_vertex,
+                         std::string_view labels_key,
+                         std::string_view props_key) -> const VirtualNode & {
+      const auto real_gid = real_vertex.Gid();
+      if (const auto it = dedup.find(real_gid); it != dedup.end()) {
+        return *projected_graph.FindNode(it->second);
+      }
+      auto new_node = BuildDerivedNode(labels_key, props_key, options, alloc);
+      dedup[real_gid] = new_node.Gid();
+      return projected_graph.InsertNode(std::move(new_node));
+    };
+
+    const auto &stored_from = canonical(path_vertices.front(), kSourceLabels, kSourceProperties);
 
     if (path_vertices.size() < 2) return;
 
-    const auto &stored_to = projected_graph.InsertOrGetNode(
-        path_vertices.back().Gid(), BuildDerivedNode(kTargetLabels, kTargetProperties, options, alloc));
+    const auto &stored_to = canonical(path_vertices.back(), kTargetLabels, kTargetProperties);
 
     VirtualEdge ve(stored_from,
                    stored_to,
@@ -10593,6 +10626,20 @@ class ParallelBranchCursor : public Cursor {
 };
 
 namespace {
+// Merge a DERIVE aggregation slot across two parallel branches. Each branch holds a VirtualGraph
+// and a real_gid → synth_gid dedup map. For real vertices that both branches saw, the first-seen
+// synth gid wins and other's synth gid is recorded as an alias so edges referencing it in other
+// get rewritten to the canonical node during VirtualGraph::Merge.
+template <typename Dedup>
+void MergeDeriveSlot(VirtualGraph &main_vg, Dedup &main_dedup, const VirtualGraph &other_vg, const Dedup &other_dedup) {
+  VirtualGraphAliasMap aliases(main_dedup.get_allocator().resource());
+  for (const auto &[real_gid, other_synth] : other_dedup) {
+    auto [it, inserted] = main_dedup.try_emplace(real_gid, other_synth);
+    if (!inserted) aliases.try_emplace(other_synth, it->second);
+  }
+  main_vg.Merge(other_vg, aliases);
+}
+
 void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const auto &aggregations) {
   for (auto other_itr = other_aggregation.begin(); other_itr != other_aggregation.end();) {
     auto node = other_aggregation.extract(other_itr++);
@@ -10734,7 +10781,10 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             break;
           }
           case Aggregation::Op::DERIVE: {
-            main_value.ValueVirtualGraph().Merge(other_value.ValueVirtualGraph());
+            MergeDeriveSlot(main_value.ValueVirtualGraph(),
+                            main_agg_value.derive_dedup_[pos],
+                            other_value.ValueVirtualGraph(),
+                            other_agg_value.derive_dedup_[pos]);
             break;
           }
         }
@@ -10820,7 +10870,10 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::DERIVE: {
-          main_value.ValueVirtualGraph().Merge(other_value.ValueVirtualGraph());
+          MergeDeriveSlot(main_value.ValueVirtualGraph(),
+                          main_agg_value.derive_dedup_[pos],
+                          other_value.ValueVirtualGraph(),
+                          other_agg_value.derive_dedup_[pos]);
           break;
         }
         default:

@@ -23,7 +23,6 @@ EdgeRefView MakeView(std::span<const VirtualEdge *const> ptrs) {
 
 VirtualGraph::VirtualGraph(const VirtualGraph &other, allocator_type alloc)
     : nodes_ptr_(std::make_shared<node_map>(*other.nodes_ptr_, alloc)),
-      real_to_virtual_(other.real_to_virtual_, alloc),
       edges_(alloc),
       out_index_(alloc),
       in_index_(alloc) {
@@ -31,7 +30,7 @@ VirtualGraph::VirtualGraph(const VirtualGraph &other, allocator_type alloc)
 }
 
 VirtualGraph::VirtualGraph(VirtualGraph &&other, allocator_type alloc)
-    : real_to_virtual_(std::move(other.real_to_virtual_), alloc), edges_(alloc), out_index_(alloc), in_index_(alloc) {
+    : edges_(alloc), out_index_(alloc), in_index_(alloc) {
   if (alloc == other.nodes_ptr_->get_allocator()) {
     nodes_ptr_ = std::move(other.nodes_ptr_);
     edges_ = std::move(other.edges_);
@@ -67,24 +66,15 @@ void VirtualGraph::CopyEdgesRebound(const edge_set &source, allocator_type alloc
   RebuildEdgeIndexes();
 }
 
-const VirtualNode &VirtualGraph::InsertOrGetNode(storage::Gid real_gid, VirtualNode node) {
-  if (const auto it = real_to_virtual_.find(real_gid); it != real_to_virtual_.end()) {
-    return nodes_ptr_->at(it->second);
-  }
+const VirtualNode &VirtualGraph::InsertNode(VirtualNode node) {
   const auto synthetic_gid = node.Gid();
   const auto [it, inserted] = nodes_ptr_->try_emplace(synthetic_gid, std::move(node));
   DMG_ASSERT(inserted, "NextSyntheticGid counter collision: synthetic gid not unique");
-  real_to_virtual_[real_gid] = synthetic_gid;
   return it->second;
 }
 
 const VirtualNode *VirtualGraph::FindNode(storage::Gid synthetic_gid) const {
   if (const auto it = nodes_ptr_->find(synthetic_gid); it != nodes_ptr_->end()) return &it->second;
-  return nullptr;
-}
-
-const VirtualNode *VirtualGraph::FindNodeByRealGid(storage::Gid real_gid) const {
-  if (const auto it = real_to_virtual_.find(real_gid); it != real_to_virtual_.end()) return FindNode(it->second);
   return nullptr;
 }
 
@@ -105,37 +95,20 @@ EdgeRefView VirtualGraph::InEdges(storage::Gid vertex_gid) const {
   return MakeView({});
 }
 
-namespace {
-// Fold other's real→virtual mapping into main's and return other_synth → main_canonical_synth.
-// For each real vertex, the first-seen synth wins; new nodes are copied into main under their
-// own synth gid, aliased nodes reuse the canonical entry.
-utils::pmr::unordered_map<storage::Gid, storage::Gid> MergeNodesAndBuildAliasMap(
-    VirtualGraph::node_map &main_nodes, utils::pmr::unordered_map<storage::Gid, storage::Gid> &main_real_to_virtual,
-    const VirtualGraph::node_map &other_nodes,
-    const utils::pmr::unordered_map<storage::Gid, storage::Gid> &other_real_to_virtual, utils::MemoryResource *memory) {
-  utils::pmr::unordered_map<storage::Gid, storage::Gid> alias(memory);
-  for (const auto &[real_gid, other_synth] : other_real_to_virtual) {
-    auto [it, inserted] = main_real_to_virtual.try_emplace(real_gid, other_synth);
-    if (inserted) {
-      if (const auto node_it = other_nodes.find(other_synth); node_it != other_nodes.end()) {
-        main_nodes.try_emplace(other_synth, node_it->second);
-      }
-    }
-    alias[other_synth] = it->second;
+void VirtualGraph::Merge(const VirtualGraph &other, const VirtualGraphAliasMap &aliases) {
+  for (const auto &[synth_gid, node] : *other.nodes_ptr_) {
+    if (aliases.contains(synth_gid)) continue;  // aliased to an existing canonical; skip
+    nodes_ptr_->try_emplace(synth_gid, node);
   }
-  return alias;
-}
-}  // namespace
-
-void VirtualGraph::Merge(const VirtualGraph &other) {
-  const auto alias_map = MergeNodesAndBuildAliasMap(
-      *nodes_ptr_, real_to_virtual_, *other.nodes_ptr_, other.real_to_virtual_, get_allocator().resource());
+  const auto resolve = [&aliases](storage::Gid g) {
+    if (const auto it = aliases.find(g); it != aliases.end()) return it->second;
+    return g;
+  };
   const VirtualEdge::allocator_type edge_alloc(get_allocator().resource());
   for (const auto &edge : other.edges_) {
-    const auto *from_node = FindNode(alias_map.at(edge.FromGid()));
-    const auto *to_node = FindNode(alias_map.at(edge.ToGid()));
+    const auto *from_node = FindNode(resolve(edge.FromGid()));
+    const auto *to_node = FindNode(resolve(edge.ToGid()));
     DMG_ASSERT(from_node && to_node, "merge alias resolution failed");
-    // Rebound-copy ctor preserves gid/type/props; only the endpoints change.
     InsertEdgeIfNew(VirtualEdge(edge, *from_node, *to_node, nodes_ptr_, edge_alloc));
   }
 }

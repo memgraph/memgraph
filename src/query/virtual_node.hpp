@@ -32,7 +32,7 @@ inline storage::Gid NextSyntheticGid() {
 
 // Standalone graph node with no provenance back to any real vertex. Callers
 // that need the real-vertex correspondence keep it externally — for derive()
-// that's VirtualGraph::real_to_virtual_, populated by InsertOrGetNode.
+// that's the aggregator's per-slot dedup map.
 class VirtualNode final {
  public:
   using allocator_type = utils::Allocator<VirtualNode>;
@@ -76,7 +76,7 @@ class VirtualNode final {
 
   // Identity is the synthetic gid. Two VirtualNodes derived from the same real vertex
   // but constructed separately compare unequal — real-vertex correspondence is
-  // tracked externally (VirtualGraph::real_to_virtual_).
+  // tracked externally (by the aggregator during derive()).
   bool operator==(const VirtualNode &other) const noexcept { return gid_ == other.gid_; }
 
  private:

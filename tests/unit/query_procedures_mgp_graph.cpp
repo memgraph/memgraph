@@ -705,27 +705,24 @@ TYPED_TEST(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
 
 TYPED_TEST(MgpGraphTest, VirtualGraphNodeIntegration) {
   auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
-  auto v1 = dba.InsertVertex();
-  auto v2 = dba.InsertVertex();
-
   const auto score_id = dba.NameToProperty("score");
-  memgraph::query::VirtualNode vn1({"Expert", "Analyst"}, {{score_id, memgraph::storage::PropertyValue(99)}});
-  memgraph::query::VirtualNode vn2({"Novice"}, {});
 
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
-  vg.InsertOrGetNode(v1.Gid(), std::move(vn1));
-  vg.InsertOrGetNode(v2.Gid(), std::move(vn2));
+  const auto vn1_gid = vg.InsertNode(memgraph::query::VirtualNode({"Expert", "Analyst"},
+                                                                  {{score_id, memgraph::storage::PropertyValue(99)}}))
+                           .Gid();
+  const auto vn2_gid = vg.InsertNode(memgraph::query::VirtualNode({"Novice"}, {})).Gid();
 
   EXPECT_EQ(vg.nodes().size(), 2);
 
-  const auto *found = vg.FindNodeByRealGid(v1.Gid());
+  const auto *found = vg.FindNode(vn1_gid);
   ASSERT_NE(found, nullptr);
   EXPECT_EQ(found->Labels().size(), 2);
   EXPECT_EQ(found->Labels()[0], "Expert");
   EXPECT_EQ(found->Labels()[1], "Analyst");
   EXPECT_EQ(found->GetProperty(score_id), memgraph::storage::PropertyValue(99));
 
-  const auto *found2 = vg.FindNodeByRealGid(v2.Gid());
+  const auto *found2 = vg.FindNode(vn2_gid);
   ASSERT_NE(found2, nullptr);
   EXPECT_EQ(found2->Labels().size(), 1);
   EXPECT_TRUE(found2->GetProperty(score_id).IsNull());
@@ -737,10 +734,8 @@ TYPED_TEST(MgpGraphTest, VertexIteratorYieldsVirtualNodes) {
   memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto score_id = dba.NameToProperty("score");
-  vg.InsertOrGetNode(memgraph::storage::Gid::FromUint(1),
-                     memgraph::query::VirtualNode({"A"}, {{score_id, memgraph::storage::PropertyValue(10)}}));
-  vg.InsertOrGetNode(memgraph::storage::Gid::FromUint(2),
-                     memgraph::query::VirtualNode({"B"}, {{score_id, memgraph::storage::PropertyValue(20)}}));
+  vg.InsertNode(memgraph::query::VirtualNode({"A"}, {{score_id, memgraph::storage::PropertyValue(10)}}));
+  vg.InsertNode(memgraph::query::VirtualNode({"B"}, {{score_id, memgraph::storage::PropertyValue(20)}}));
 
   memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
   auto graph = mgp_graph{
@@ -771,8 +766,7 @@ TYPED_TEST(MgpGraphTest, VirtualOnlyScopeHidesRealVerticesAndEdges) {
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("REAL")).has_value());
 
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
-  const auto synth_gid =
-      vg.InsertOrGetNode(memgraph::storage::Gid::FromUint(7), memgraph::query::VirtualNode({"V"}, {})).Gid();
+  const auto synth_gid = vg.InsertNode(memgraph::query::VirtualNode({"V"}, {})).Gid();
 
   auto graph =
       mgp_graph{&dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
@@ -804,8 +798,7 @@ TYPED_TEST(MgpGraphTest, VirtualOnlyScopeHidesRealVerticesAndEdges) {
 TYPED_TEST(MgpGraphTest, VirtualNodeRejectsPropertyWrites) {
   auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
-  const auto synth_gid =
-      vg.InsertOrGetNode(memgraph::storage::Gid::FromUint(7), memgraph::query::VirtualNode({}, {})).Gid();
+  const auto synth_gid = vg.InsertNode(memgraph::query::VirtualNode({}, {})).Gid();
 
   auto graph =
       mgp_graph{&dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
