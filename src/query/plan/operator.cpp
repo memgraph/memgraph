@@ -6636,10 +6636,15 @@ class AggregateCursor : public Cursor {
   }
 
   // Walks options[key] as a map of (name -> value) and invokes setter(prop_id, pv) for each entry.
+  // Key absent is a no-op. Key present with a non-map value, or entries that can't be converted
+  // to PropertyValue, throw — derive()'s contract is strict about option types.
   template <typename Setter>
   void ApplyPropertyMap(const TypedValue::TMap &options, std::string_view key, Setter &&setter) const {
     const auto it = options.find(key);
-    if (it == options.end() || it->second.type() != TypedValue::Type::Map || !db_accessor_) return;
+    if (it == options.end() || !db_accessor_) return;
+    if (it->second.type() != TypedValue::Type::Map) {
+      throw QueryRuntimeException("derive() option '{}' must be a map of property names to values.", key);
+    }
     auto *name_id_mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
     for (const auto &[name, val] : it->second.ValueMap()) {
       setter(db_accessor_->NameToProperty(name), val.ToPropertyValue(name_id_mapper));
@@ -6649,10 +6654,15 @@ class AggregateCursor : public Cursor {
   VirtualNode BuildDerivedNode(std::string_view labels_key, std::string_view props_key, const TypedValue::TMap &options,
                                VirtualNode::allocator_type alloc) const {
     VirtualNode::label_list labels{alloc};
-    if (const auto labels_it = options.find(labels_key);
-        labels_it != options.end() && labels_it->second.type() == TypedValue::Type::List) {
+    if (const auto labels_it = options.find(labels_key); labels_it != options.end()) {
+      if (labels_it->second.type() != TypedValue::Type::List) {
+        throw QueryRuntimeException("derive() option '{}' must be a list of label strings.", labels_key);
+      }
       for (const auto &label : labels_it->second.ValueList()) {
-        if (label.type() == TypedValue::Type::String) labels.emplace_back(label.ValueString());
+        if (label.type() != TypedValue::Type::String) {
+          throw QueryRuntimeException("derive() option '{}' must contain only strings.", labels_key);
+        }
+        labels.emplace_back(label.ValueString());
       }
     }
     VirtualNode::property_map properties{alloc};
