@@ -825,7 +825,9 @@ struct mgp_path {
 };
 
 struct mgp_graph {
-  std::variant<memgraph::query::DbAccessor *, memgraph::query::SubgraphDbAccessor *> impl;
+  std::variant<memgraph::query::DbAccessor *, memgraph::query::SubgraphDbAccessor *,
+               memgraph::query::VirtualGraphDbAccessor *>
+      impl;
   memgraph::storage::View view;
   // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
   // `ctx` field is out of place here.
@@ -833,6 +835,8 @@ struct mgp_graph {
   memgraph::storage::StorageMode storage_mode;
 
   // Non-null means the graph is virtual-only: real-storage reads are hidden, writes are refused.
+  // Retained temporarily during the migration to VirtualGraphDbAccessor; will be removed
+  // once all call sites dispatch via the `impl` variant.
   memgraph::query::VirtualGraph *virtual_graph{nullptr};
 
   [[nodiscard]] memgraph::query::VirtualGraph *VirtualGraphPtr() const noexcept { return virtual_graph; }
@@ -842,7 +846,8 @@ struct mgp_graph {
   memgraph::query::DbAccessor *getImpl() const {
     return std::visit(
         memgraph::utils::Overloaded{[](memgraph::query::DbAccessor *impl) { return impl; },
-                                    [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor(); }},
+                                    [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor(); },
+                                    [](memgraph::query::VirtualGraphDbAccessor *impl) { return impl->GetAccessor(); }},
         this->impl);
   }
 
