@@ -555,6 +555,10 @@ class Interpreter final {
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
 
+  // The query string of the most recently parsed query; used to report the
+  // originating query when a Pull failure occurs.
+  std::string current_query_string_;
+
   InterpreterContext *interpreter_context_;
 
   std::optional<FrameChangeCollector> frame_change_collector_;
@@ -660,6 +664,13 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPull);
+    if (interpreter_context_->failed_query_log) {
+      interpreter_context_->failed_query_log->Record(session_info_.uuid,
+                                                     session_info_.username,
+                                                     current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
+                                                     current_query_string_,
+                                                     e.what());
+    }
     // PeriodicCommitException means the storage layer already aborted the transaction internally.
     // Null the accessor first so AbortCommand does not call Abort() a second time.
     if (dynamic_cast<const PeriodicCommitException *>(&e)) {

@@ -21,6 +21,7 @@
 
 #include "parameters/parameters.hpp"
 #include "query/config.hpp"
+#include "query/failed_query_log.hpp"
 #include "query/replication_query_handler.hpp"
 #include "query/typed_value.hpp"
 #include "replication/state.hpp"
@@ -89,6 +90,8 @@ struct InterpreterContext {
   // Used to check active transactions
   // TODO: Have a way to read the current database
   utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
+
+  std::optional<FailedQueryLog> failed_query_log;
 
   struct {
     auto next() -> uint64_t { return transaction_id++; }
