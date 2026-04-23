@@ -11129,6 +11129,7 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   // check we have not exceeded the limit before pulling
+  if (!shared_quota_) return false;
   if (shared_quota_->Decrement() == 0) {
     shared_quota_.reset();  // Important to release any remaining resource for other threads
     return false;
