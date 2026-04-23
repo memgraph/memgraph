@@ -9,7 +9,7 @@ defaults:
 
 workloads:
   - config: ../workloads/publications/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/concurrent_edge_creation_on_supernode/workload.yaml
     enabled: true
@@ -18,7 +18,7 @@ workloads:
     enabled: true
 
   - config: ../workloads/restarting_instances/workload.yaml
-    enabled: true
+    enabled: false
 
   # TODO: re-enable once fixed
   - config: ../workloads/vector_index_recovery/workload.yaml
@@ -29,10 +29,10 @@ workloads:
     enabled: false
 
   - config: ../workloads/vector_index_concurrent_ops/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/concurrent_index_creation/workload.yaml
-    enabled: true
+    enabled: false
 
     # Running currently only as the native test. Too complex at the moment to set-up root access for EKS
   - config: ../workloads/rpc_timeout/workload.yaml

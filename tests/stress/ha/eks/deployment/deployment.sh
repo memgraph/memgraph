@@ -18,6 +18,7 @@ CLUSTER_CONFIG_FILE="${SCRIPT_DIR}/cluster.yaml"
 # Helm configuration
 HELM_RELEASE_NAME="${HELM_RELEASE_NAME:-mem-ha-test}"
 HELM_CHART_PATH="${HELM_CHART_PATH:-memgraph/memgraph-high-availability}"
+HELM_CHART_VERSION="${HELM_CHART_VERSION:-0.2.18}"
 HELM_REPO_NAME="memgraph"
 HELM_REPO_URL="https://memgraph.github.io/helm-charts"
 
@@ -307,6 +308,12 @@ install_memgraph_ha() {
     # Build helm install command with values file
     local helm_cmd="helm install $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE --timeout 15m"
 
+    # Pin chart version if HELM_CHART_VERSION is set
+    if [[ -n "$HELM_CHART_VERSION" ]]; then
+        helm_cmd+=" --version $HELM_CHART_VERSION"
+        log_info "Using Helm chart version: $HELM_CHART_VERSION"
+    fi
+
     # Override full image (repo:tag) if MEMGRAPH_IMAGE is set
     if [[ -n "${MEMGRAPH_IMAGE:-}" ]]; then
         local img_repo="${MEMGRAPH_IMAGE%:*}"
@@ -341,7 +348,21 @@ install_memgraph_ha() {
         exit 1
     fi
 
+    log_chart_version
     log_info "Memgraph HA Helm release installed"
+}
+
+log_chart_version() {
+    local chart_info
+    chart_info=$(helm list -o json 2>/dev/null | \
+        jq -r --arg name "$HELM_RELEASE_NAME" \
+        '.[] | select(.name==$name) | "\(.chart) (app_version=\(.app_version))"' 2>/dev/null)
+
+    if [[ -n "$chart_info" ]]; then
+        log_info "Helm chart: $chart_info"
+    else
+        log_warn "Could not determine Helm chart version"
+    fi
 }
 
 wait_for_pods() {
@@ -523,6 +544,13 @@ print_deployment_summary() {
     log_info "Cluster: $CLUSTER_NAME"
     log_info "Region:  $CLUSTER_REGION"
     log_info "Release: $HELM_RELEASE_NAME"
+    local chart_info
+    chart_info=$(helm list -o json 2>/dev/null | \
+        jq -r --arg name "$HELM_RELEASE_NAME" \
+        '.[] | select(.name==$name) | "\(.chart) (app_version=\(.app_version))"' 2>/dev/null)
+    if [[ -n "$chart_info" ]]; then
+        log_info "Chart:   $chart_info"
+    fi
     echo ""
 
     log_info "Services:"
@@ -673,6 +701,12 @@ upgrade_memgraph() {
     # Build helm upgrade command with values file
     local helm_cmd="helm upgrade $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE --timeout 15m"
 
+    # Pin chart version if HELM_CHART_VERSION is set
+    if [[ -n "$HELM_CHART_VERSION" ]]; then
+        helm_cmd+=" --version $HELM_CHART_VERSION"
+        log_info "Using Helm chart version: $HELM_CHART_VERSION"
+    fi
+
     # Override full image (repo:tag) if MEMGRAPH_IMAGE is set
     if [[ -n "${MEMGRAPH_IMAGE:-}" ]]; then
         local img_repo="${MEMGRAPH_IMAGE%:*}"
@@ -701,6 +735,7 @@ upgrade_memgraph() {
     log_info "Running: helm upgrade $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE [+ overrides]"
     eval "$helm_cmd"
 
+    log_chart_version
     wait_for_pods
 }
 
@@ -1095,6 +1130,7 @@ print_usage() {
     echo "  CLUSTER_REGION                - AWS region (default: eu-west-1)"
     echo "  HELM_RELEASE_NAME             - Helm release name (default: mem-ha-test)"
     echo "  HELM_CHART_PATH               - Path to Helm chart (default: memgraph/memgraph-high-availability)"
+    echo "  HELM_CHART_VERSION            - Pin Helm chart version (default: 0.2.18)"
     echo "  POD_READY_TIMEOUT             - Timeout for pods to be ready in seconds (default: 600)"
     echo "  ENABLE_MONITORING             - Install kube-prometheus-stack (default: true)"
     echo ""

@@ -24,6 +24,24 @@ storage:
     coreDumpsStorageClassName:
     coreDumpsStorageSize: 10Gi
     coreDumpsMountPath: /var/core/memgraph
+    # Supports Helm templating (e.g. {{ .Release.Name }})
+    extraVolumes: []
+    # extraVolumes:
+    #   - name: bolt-certs
+    #     secret:
+    #       secretName: bolt-ssl-certificates-tls
+    #       items:
+    #         - key: tls.crt
+    #           path: tls.crt
+    #         - key: tls.key
+    #           path: tls.key
+    extraVolumeMounts: []
+    # Example:
+    # extraVolumeMounts:
+    #   - name: bolt-certs
+    #     mountPath: /etc/memgraph/ssl
+    #     readOnly: true
+
   coordinators:
     libPVCSize: "5Gi"
     libStorageAccessMode: "ReadWriteOnce"
@@ -38,22 +56,53 @@ storage:
     coreDumpsStorageClassName:
     coreDumpsStorageSize: 10Gi
     coreDumpsMountPath: /var/core/memgraph
+    # Supports Helm templating (e.g. {{ .Release.Name }})
+    extraVolumes: []
+    # Example:
+    # extraVolumes:
+    #   - name: bolt-certs
+    #     secret:
+    #       secretName: bolt-ssl-certificates-tls
+    #       items:
+    #         - key: tls.crt
+    #           path: tls.crt
+    #         - key: tls.key
+    #           path: tls.key
+    extraVolumeMounts: []
+    # Example:
+    # extraVolumeMounts:
+    #   - name: bolt-certs
+    #     mountPath: /etc/memgraph/ssl
+    #     readOnly: true
 
 ports:
   boltPort: 7687   # If you change this value, change it also in probes definition
   managementPort: 10000
   replicationPort: 20000
   coordinatorPort: 12000  # If you change this value, change it also in probes definition
+  metricsPort: 9091
 
 externalAccessConfig:
   dataInstance:
     # Empty = no external access service will be created
     serviceType: "LoadBalancer"
-    annotations: {}
+    annotations: {} # Set of annotations applied to all data instances' services
+    # Example:
+    # annotations:
+      # external-dns.alpha.kubernetes.io/hostname: "coordinators.memgraph.example.com"
   coordinator:
     # Empty = no external access service will be created
     serviceType: "LoadBalancer"
+    annotations: {} # Set of annotations applied to all coordinators' services
+  gateway:
+    enabled: false
+    gatewayClassName: "" # Required when creating a new Gateway. Name of a pre-existing GatewayClass (e.g., "eg" for Envoy Gateway)
+    existingGatewayName: "" # If set, skip Gateway creation and attach routes to this existing Gateway
+    existingGatewayNamespace: "" # Namespace of the existing Gateway. Defaults to release namespace if empty
     annotations: {}
+    labels: {}
+    dataPortBase: 9000 # Data instance ports: dataPortBase + array index (9000, 9001, ...)
+    coordinatorPortBase: 9010 # Coordinator ports: coordinatorPortBase + coordinator id (9011, 9012, ...)
 
 headlessService:
   enabled: false  # If set to true, each data and coordinator instance will use headless service
@@ -112,6 +161,8 @@ labels:
 
 container:
   data:
+    terminationGracePeriodSeconds: 30 # Make sure to increase this value if --storage-snapshot-on-exit=true so that snapshot can be successfully created on exit. The concrete value depends
+    # on the amount of data in your database
     readinessProbe:
       tcpSocket:
         port: 7687  # If you change bolt port, change this also
@@ -132,6 +183,8 @@ container:
       timeoutSeconds: 10
       periodSeconds: 5
   coordinators:
+    terminationGracePeriodSeconds: 30 # Make sure to increase this value if --storage-snapshot-on-exit=true so that snapshot can be successfully created on exit. The concrete value depends
+    # on the amount of data in your databas
     readinessProbe:
       tcpSocket:
         port: 12000  # If you change coordinator port, change this also
@@ -161,7 +214,7 @@ updateStrategy:
 
 prometheus:
   enabled: true
-  namespace: monitoring  # Namespace where K8s resources from mg-exporter.yaml will be installed and where your kube-prometheus-stack chart is installed
+  namespace: monitoring  # Namespace where K8s resources from mg-exporter.yaml will be installed and where your kube-prometheus-stack chart is installed, can be left empty to use release namespace.
   memgraphExporter:
     port: 9115
     pullFrequencySeconds: 5
@@ -171,6 +224,49 @@ prometheus:
     enabled: true
     kubePrometheusStackReleaseName: kube-prometheus-stack
     interval: 15s
+
+## Optional: vmagent for remote monitoring cluster – scrapes the Prometheus exporter and remote-writes to VictoriaMetrics (or any Prometheus remote-write endpoint).
+## Requires prometheus.enabled so that mg-exporter is deployed.
+## If vmagentRemote.enabled=true and you only need remote_write, set prometheus.serviceMonitor.enabled=false
+## to avoid duplicate scraping of mg-exporter by both vmagent and kube-prometheus.
+vmagentRemote:
+  enabled: false
+  namespace: ""  # Defaults to prometheus.namespace when empty
+  image:
+    repository: victoriametrics/vmagent
+    tag: v1.139.0
+    pullPolicy: IfNotPresent
+  remoteWrite:
+    url: ""  # e.g. http://vmsingle.monitoring.svc.cluster.local:8428/api/v1/write
+    basicAuth:
+      secretName: ""
+      usernameKey: username
+      passwordKey: password
+  scrapeInterval: 15s
+  externalLabels: {}
+  resources: {}
+  httpPort: 8429  # vmagent local HTTP listen port (metrics/debug); remote write target is remoteWrite.url
+## Optional: Vector sidecar for remote monitoring cluster – exports Memgraph logs via websocket to VictoriaLogs (Loki-compatible API) or any Loki endpoint.
+## Add to data and/or coordinator pods. Ensure Memgraph instance args include monitoring flags:
+## --monitoring-port=<vectorRemote.websocketPort> and --monitoring-address=0.0.0.0.
+vectorRemote:
+  enabled: false
+  # Add Vector sidecar to data instance pods
+  data: true
+  # Add Vector sidecar to coordinator pods
+  coordinators: true
+  websocketPort: 7444  # Memgraph monitoring websocket port used by both chart args and Vector sidecars
+  image:
+    repository: timberio/vector
+    tag: 0.49.0-debian
+    pullPolicy: IfNotPresent
+  logsEndpoint: ""
+  auth:
+    secretName: ""
+    usernameKey: username
+    passwordKey: password
+  extraLabels: {}  # e.g. cluster_id, service_name, cluster_env; role is set per pod type (data/coordinator)
+  resources: {}
 
 extraEnv:
   data: []
@@ -206,80 +302,99 @@ initContainers:
 # Setting the Memgraph's memory limit to more than the available resources can trigger pod eviction and restarts before Memgraph can make a query exception and continue running
 # the pod.
 data:
-- id: "0"
-  restoreDataFromSnapshot: false
-  volumeSnapshotName: data-0-snap  # Used only if restoreDataFromSnapshot is set to true
-  args:
-  - "--management-port=10000"
-  - "--bolt-port=7687"
-  - "--also-log-to-stderr"
-  - "--log-level=TRACE"
-  - "--logger-type=async"
-  - "--log-file=/var/log/memgraph/memgraph.log"
-  - "--data-directory=/var/lib/memgraph/mg_data"
-  - "--storage-snapshot-on-exit=false"
-  - "--telemetry-enabled=false"
+  - id: "0"
+    restoreDataFromSnapshot: false
+    volumeSnapshotName: data-0-snap # Used only if restoreDataFromSnapshot is set to true
+    externalAccessAnnotations: {} # Per-instance annotations for external access service (merged with externalAccessConfig.dataInstance.annotations, per-instance takes precedence)
+    # Example
+    # externalAccessAnnotations:
+      # external-dns.alpha.kubernetes.io/hostname: "data-0.memgraph.example.com"
+    # If vectorRemote.enabled=true, add the following args for each data instance:
+    #   - "--monitoring-port=<vectorRemote.websocketPort>"
+    #   - "--monitoring-address=0.0.0.0"
+    args:
+    - "--management-port=10000"
+    - "--bolt-port=7687"
+    - "--also-log-to-stderr"
+    - "--log-level=TRACE"
+    - "--logger-type=async"
+    - "--log-file=/var/log/memgraph/memgraph.log"
+    - "--data-directory=/var/lib/memgraph/mg_data" # Don't remove this flag, instance won't start without it
+    - "--storage-snapshot-on-exit=false"
+    - "--telemetry-enabled=false"
 
-
-- id: "1"
-  restoreDataFromSnapshot: false
-  volumeSnapshotName: data-1-snap  # Used only if restoreDataFromSnapshot is set to true
-  args:
-  - "--management-port=10000"
-  - "--bolt-port=7687"
-  - "--also-log-to-stderr"
-  - "--log-level=TRACE"
-  - "--logger-type=async"
-  - "--log-file=/var/log/memgraph/memgraph.log"
-  - "--data-directory=/var/lib/memgraph/mg_data"
-  - "--storage-snapshot-on-exit=false"
-  - "--telemetry-enabled=false"
+  - id: "1"
+    restoreDataFromSnapshot: false
+    volumeSnapshotName: data-1-snap  # Used only if restoreDataFromSnapshot is set to true
+    externalAccessAnnotations: {}
+    args:
+    - "--management-port=10000"
+    - "--bolt-port=7687"
+    - "--also-log-to-stderr"
+    - "--log-level=TRACE"
+    - "--logger-type=async"
+    - "--log-file=/var/log/memgraph/memgraph.log"
+    - "--data-directory=/var/lib/memgraph/mg_data" # Don't remove this flag, instance won't start without it
+    - "--storage-snapshot-on-exit=false"
+    - "--telemetry-enabled=false"
 
 coordinators:
-- id: "1"
-  restoreDataFromSnapshot: false
-  volumeSnapshotName: coord-1-snap  # Used only if restoreDataFromSnapshot is set to true
-  args:
-  - "--coordinator-id=1"
-  - "--coordinator-port=12000"
-  - "--management-port=10000"
-  - "--bolt-port=7687"
-  - "--also-log-to-stderr"
-  - "--log-level=TRACE"
-  - "--coordinator-hostname=memgraph-coordinator-1.default.svc.cluster.local"
-  - "--log-file=/var/log/memgraph/memgraph.log"
-  - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
-  - "--data-directory=/var/lib/memgraph/mg_data"
+  - id: "1"
+    restoreDataFromSnapshot: false
+    volumeSnapshotName: coord-1-snap  # Used only if restoreDataFromSnapshot is set to true
+    externalAccessAnnotations: {} # Per-instance annotations for external access service (merged with externalAccessConfig.coordinator.annotations, per-instance takes precedence)
+    # If vectorRemote.enabled=true, add the following args for each coordinator:
+    #   - "--monitoring-port=<vectorRemote.websocketPort>"
+    #   - "--monitoring-address=0.0.0.0"
+    args:
+    - "--coordinator-id=1"
+    - "--coordinator-port=12000"
+    - "--management-port=10000"
+    - "--bolt-port=7687"
+    - "--also-log-to-stderr"
+    - "--log-level=TRACE"
+    - "--coordinator-hostname=memgraph-coordinator-1.default.svc.cluster.local" # Change 'default' to your namespace if you are using some other namespace
+    - "--log-file=/var/log/memgraph/memgraph.log"
+    - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
+    - "--data-directory=/var/lib/memgraph/mg_data" # Don't remove this flag, instance won't start without it
+    - "--query_modules_directory="
+    - "--storage-snapshot-on-exit=false"
 
-- id: "2"
-  restoreDataFromSnapshot: false
-  volumeSnapshotName: coord-2-snap  # Used only if restoreDataFromSnapshot is set to true
-  args:
-  - "--coordinator-id=2"
-  - "--coordinator-port=12000"
-  - "--management-port=10000"
-  - "--bolt-port=7687"
-  - "--also-log-to-stderr"
-  - "--log-level=TRACE"
-  - "--coordinator-hostname=memgraph-coordinator-2.default.svc.cluster.local"
-  - "--log-file=/var/log/memgraph/memgraph.log"
-  - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
-  - "--data-directory=/var/lib/memgraph/mg_data"
+  - id: "2"
+    restoreDataFromSnapshot: false
+    volumeSnapshotName: coord-2-snap  # Used only if restoreDataFromSnapshot is set to true
+    externalAccessAnnotations: {}
+    args:
+    - "--coordinator-id=2"
+    - "--coordinator-port=12000"
+    - "--management-port=10000"
+    - "--bolt-port=7687"
+    - "--also-log-to-stderr"
+    - "--log-level=TRACE"
+    - "--coordinator-hostname=memgraph-coordinator-2.default.svc.cluster.local" # Change 'default' to your namespace if you are using some other namespace
+    - "--log-file=/var/log/memgraph/memgraph.log"
+    - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
+    - "--data-directory=/var/lib/memgraph/mg_data" # Don't remove this flag, instance won't start without it
+    - "--query_modules_directory="
+    - "--storage-snapshot-on-exit=false"
 
-- id: "3"
-  restoreDataFromSnapshot: false
-  volumeSnapshotName: coord-3-snap  # Used only if restoreDataFromSnapshot is set to true
-  args:
-  - "--coordinator-id=3"
-  - "--coordinator-port=12000"
-  - "--management-port=10000"
-  - "--bolt-port=7687"
-  - "--also-log-to-stderr"
-  - "--log-level=TRACE"
-  - "--coordinator-hostname=memgraph-coordinator-3.default.svc.cluster.local"
-  - "--log-file=/var/log/memgraph/memgraph.log"
-  - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
-  - "--data-directory=/var/lib/memgraph/mg_data"
+  - id: "3"
+    restoreDataFromSnapshot: false
+    volumeSnapshotName: coord-3-snap  # Used only if restoreDataFromSnapshot is set to true
+    externalAccessAnnotations: {}
+    args:
+    - "--coordinator-id=3"
+    - "--coordinator-port=12000"
+    - "--management-port=10000"
+    - "--bolt-port=7687"
+    - "--also-log-to-stderr"
+    - "--log-level=TRACE"
+    - "--coordinator-hostname=memgraph-coordinator-3.default.svc.cluster.local" # Change 'default' to your namespace if you are using some other namespace
+    - "--log-file=/var/log/memgraph/memgraph.log"
+    - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
+    - "--data-directory=/var/lib/memgraph/mg_data" # Don't remove this flag, instance won't start without it
+    - "--query_modules_directory="
+    - "--storage-snapshot-on-exit=false"
 
 
 userContainers:
@@ -290,3 +405,33 @@ userContainers:
   #  - name: my-debugger
   #    image: busybox
   #    command: ["sh", "-c", "echo hi; sleep 10000"]
+
+coreDumpUploader:
+  enabled: false
+  image:
+    repository: amazon/aws-cli
+    tag: 2.33.28
+    pullPolicy: IfNotPresent
+  s3BucketName: "memgraph-ha-cluster"
+  s3Prefix: "core-dumps"
+  awsRegion: "eu-west-1"
+  pollIntervalSeconds: 30
+  # Name of the K8s Secret containing AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+  secretName: "aws-s3-credentials"
+  accessKeySecretKey: "AWS_ACCESS_KEY_ID"
+  secretAccessKeySecretKey: "AWS_SECRET_ACCESS_KEY"
+tolerations:
+  data: []
+  # Example:
+  # data:
+  #   - key: "key2"
+  #     operator: "Equal"
+  #     value: "value2"
+  #     effect: "NoSchedule"
+  coordinators: []
+  # Example:
+  # coordinators:
+  #   - key: "key1"
+  #     operator: "Equal"
+  #     value: "value1"
+  #     effect: "NoSchedule"
