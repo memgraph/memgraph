@@ -112,7 +112,7 @@ void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, E
   tx.active_indices_->edge_type_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
 }
 
-Indices::Indices(const Config &config, StorageMode storage_mode, unsigned /*db_arena_idx*/,
+Indices::Indices(const Config &config, StorageMode storage_mode,
                  utils::MemoryTracker *db_embedding_memory_tracker)
     : text_index_(config.durability.storage_directory),
       text_edge_index_(config.durability.storage_directory),

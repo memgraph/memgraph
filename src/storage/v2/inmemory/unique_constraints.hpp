@@ -45,8 +45,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   };
 
   struct MultipleThreadsConstraintValidation {
-    auto operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+                    utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
@@ -55,8 +55,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   };
 
   struct SingleThreadConstraintValidation {
-    auto operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+                    utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
@@ -71,7 +71,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     ~IndividualConstraint();
     void Publish(uint64_t commit_timestamp);
 
-    utils::SkipList<Entry, memory::DbAwareAllocator<char>> skiplist;
+    utils::SkipListDb<Entry> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
   };
 
@@ -128,7 +128,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
   auto CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
-                        const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+                        const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
                         const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt)
       -> std::expected<CreationStatus, ConstraintViolation>;

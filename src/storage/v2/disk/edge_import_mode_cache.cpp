@@ -77,11 +77,11 @@ bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
 
 bool EdgeImportModeCache::AllVerticesScanned() const { return scanned_all_vertices_; }
 
-utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor EdgeImportModeCache::AccessToVertices() {
+utils::SkipListDb<Vertex>::Accessor EdgeImportModeCache::AccessToVertices() {
   return vertices_.access();
 }
 
-utils::SkipList<Edge, memory::DbAwareAllocator<char>>::Accessor EdgeImportModeCache::AccessToEdges() {
+utils::SkipListDb<Edge>::Accessor EdgeImportModeCache::AccessToEdges() {
   return edges_.access();
 }
 

@@ -18,36 +18,12 @@
 
 #include <cstddef>
 #include <memory>
-#include <new>
 #include <type_traits>
 #include <utility>
-
-// Debug arena verification support
-#if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
-#include "utils/logging.hpp"
-#endif
 
 namespace memgraph::memory {
 
 class ArenaPool;
-
-#if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
-// Get the arena index for a pointer using jemalloc's arenas.lookup
-// Returns 0 if pointer is not a jemalloc allocation (e.g., system malloc)
-unsigned GetPointerArena(void *ptr);
-
-inline void AssertPointerBelongsToArena(void *ptr, unsigned expected_arena, const char *context) {
-  if (!ptr || expected_arena == 0) return;
-  const unsigned ptr_arena = GetPointerArena(ptr);
-  MG_ASSERT(ptr_arena == 0 || ptr_arena == expected_arena,
-            "{}: pointer belongs to jemalloc arena {}, expected arena {}",
-            context,
-            ptr_arena,
-            expected_arena);
-}
-#else
-inline void AssertPointerBelongsToArena(void * /*ptr*/, unsigned /*expected_arena*/, const char * /*context*/) {}
-#endif
 
 // Thread-local state for the currently active database arena.
 // arena = 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
@@ -97,32 +73,31 @@ void DbDeallocate(T *p, std::size_t n) noexcept {
 // (je_sdallocx + MALLOCX_TCACHE_NONE) so the hook fires immediately.
 template <typename T>
 struct ArenaAwareDeleter {
-  explicit ArenaAwareDeleter(unsigned arena_idx = 0) noexcept : arena_idx_(arena_idx) {}
+  explicit ArenaAwareDeleter() noexcept {}
 
   void operator()(T *p) const noexcept {
-    if (!p) return;
-    AssertPointerBelongsToArena(p, arena_idx_, "ArenaAwareDeleter");
+    if (p == nullptr) {
+      return;
+    }
     std::destroy_at(p);
     DbDeallocateBytes(static_cast<void *>(p), sizeof(T), alignof(T));
   }
-
- private:
-  unsigned arena_idx_{0};
 };
 
 template <typename T>
 using ArenaAwareUniquePtr = std::unique_ptr<T, ArenaAwareDeleter<T>>;
 
 template <typename T, typename... Args>
-ArenaAwareUniquePtr<T> MakeArenaAwareUnique(unsigned arena_idx, Args &&...args) {
-  auto *raw = static_cast<T *>(DbAllocateBytes(sizeof(T), arena_idx, alignof(T)));
+ArenaAwareUniquePtr<T> MakeDbAwareUnique(Args &&...args) {
+  // Use currently active arena
+  auto *raw = static_cast<T *>(DbAllocateBytes(sizeof(T), tls_db_arena_state.arena, alignof(T)));
   try {
     std::construct_at(raw, std::forward<Args>(args)...);
   } catch (...) {
     DbDeallocateBytes(static_cast<void *>(raw), sizeof(T), alignof(T));
     throw;
   }
-  return ArenaAwareUniquePtr<T>{raw, ArenaAwareDeleter<T>{arena_idx}};
+  return ArenaAwareUniquePtr<T>{raw, ArenaAwareDeleter<T>{}};
 }
 
 // Allocate `n` elements of type T, attributed to arena `idx`.
@@ -161,12 +136,6 @@ struct DbAwareAllocator {
   explicit DbAwareAllocator(DbAwareAllocator<U> const & /*unused*/) noexcept {}
 
   [[nodiscard]] T *allocate(std::size_t n) {
-#ifdef DEBUG_ARENA_VERIFICATION
-    // CRITICAL: Catch "forgot to pin TLS" bugs at allocation time
-    MG_ASSERT(tls_db_arena_state.arena != 0,
-              "DbAwareAllocator::allocate called with no DB arena pinned - "
-              "allocation would go to untracked default arena");
-#endif
     const unsigned idx = tls_db_arena_state.arena;
     return DbAllocate<T>(n, idx);
   }
@@ -177,6 +146,13 @@ struct DbAwareAllocator {
     // MALLOCX_TCACHE_NONE matches the allocation style and lets decay=0 arenas return pages promptly.
     DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
   }
+
+  [[nodiscard]] void *allocate_bytes(std::size_t n, std::size_t align) {
+    const unsigned idx = tls_db_arena_state.arena;
+    return DbAllocateBytes(n, idx, align);
+  }
+
+  void deallocate_bytes(void *p, std::size_t n, std::size_t align) noexcept { DbDeallocateBytes(p, n, align); }
 
   template <typename U>
   friend bool operator==(DbAwareAllocator<T> const & /*lhs*/, DbAwareAllocator<U> const & /*rhs*/) noexcept {

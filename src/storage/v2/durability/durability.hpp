@@ -101,7 +101,7 @@ bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry);
 // recovery process.
 /// @throw RecoveryFailure
 void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
-                            utils::SkipList<Vertex, memory::DbAwareAllocator<char>> *vertices,
+                            utils::SkipListDb<Vertex> *vertices,
                             NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
                             std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
@@ -112,12 +112,12 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
 // recovery process.
 /// @throw RecoveryFailure
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                        Constraints *constraints, utils::SkipList<Vertex, memory::DbAwareAllocator<char>> *vertices,
+                        Constraints *constraints, utils::SkipListDb<Vertex> *vertices,
                         NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex, memory::DbAwareAllocator<char>> *vertices,
+void RecoverIndicesStatsAndConstraints(utils::SkipListDb<Vertex> *vertices,
                                        NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints,
                                        Config const &config, RecoveryInfo const &recovery_info,
                                        memory::ArenaPool *db_arena_pool,
@@ -129,16 +129,16 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
                                                                   memory::ArenaPool *db_arena_pool);
 
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
-                                 utils::SkipList<Vertex, memory::DbAwareAllocator<char>> *, NameIdMapper *,
+                                 utils::SkipListDb<Vertex> *, NameIdMapper *,
                                  const std::optional<ParallelizedSchemaCreationInfo> &,
                                  std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
-                              utils::SkipList<Vertex, memory::DbAwareAllocator<char>> *, NameIdMapper *,
+                              utils::SkipListDb<Vertex> *, NameIdMapper *,
                               const std::optional<ParallelizedSchemaCreationInfo> &,
                               std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
-                            utils::SkipList<Vertex, memory::DbAwareAllocator<char>> *,
+                            utils::SkipListDb<Vertex> *,
                             const std::optional<ParallelizedSchemaCreationInfo> &,
                             std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
@@ -149,9 +149,9 @@ struct Recovery {
   /// @throw std::bad_alloc
   std::optional<RecoveryInfo> RecoverData(
       utils::UUID &uuid, ReplicationStorageState &repl_storage_state,
-      utils::SkipList<Vertex, memory::DbAwareAllocator<char>> *vertices,
-      utils::SkipList<Edge, memory::DbAwareAllocator<char>> *edges,
-      utils::SkipList<EdgeMetadata, memory::DbAwareAllocator<char>> *edges_metadata, std::atomic<uint64_t> *edge_count,
+      utils::SkipListDb<Vertex> *vertices,
+      utils::SkipListDb<Edge> *edges,
+      utils::SkipListDb<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
       NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
       memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
       std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,

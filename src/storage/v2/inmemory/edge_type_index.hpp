@@ -52,14 +52,14 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
  public:
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
-             utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
-             utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
+    Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+             utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+             utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
              View view, Storage *storage, Transaction *transaction);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Iterator index_iterator);
+      Iterator(Iterable *self, utils::SkipListDb<Entry>::Iterator index_iterator);
 
       EdgeAccessor const &operator*() const { return current_accessor_; }
 
@@ -73,7 +73,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Iterator index_iterator_;
+      utils::SkipListDb<Entry>::Iterator index_iterator_;
       EdgeRef current_edge_{nullptr};
       EdgeAccessor current_accessor_;
     };
@@ -83,9 +83,9 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
-    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_edge_;
-    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_vertex_;
-    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor_;
+    utils::SkipListDb<Edge>::ConstAccessor pin_accessor_edge_;
+    utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_vertex_;
+    utils::SkipListDb<Entry>::Accessor index_accessor_;
     [[maybe_unused]] EdgeTypeId edge_type_;
     View view_;
     Storage *storage_;
@@ -94,15 +94,15 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   class ChunkedIterable {
    public:
-    ChunkedIterable(utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
-                    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
-                    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor,
+    ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+                    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                    utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
                     EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction, size_t num_chunks);
 
     class Iterator {
      public:
       Iterator(ChunkedIterable *self,
-               utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkedIterator index_iterator)
+               utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
           : self_(self),
             index_iterator_(index_iterator),
             current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId{}, nullptr, nullptr, self_->storage_,
@@ -126,7 +126,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
       void AdvanceUntilValid();
 
       ChunkedIterable *self_;
-      utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkedIterator index_iterator_;
+      utils::SkipListDb<Entry>::ChunkedIterator index_iterator_;
       EdgeAccessor current_edge_accessor_;
       EdgeRef current_edge_{nullptr};
     };
@@ -136,7 +136,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
       Iterator end_;
 
      public:
-      Chunk(ChunkedIterable *self, utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Chunk &chunk)
+      Chunk(ChunkedIterable *self, utils::SkipListDb<Entry>::Chunk &chunk)
           : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
 
       Iterator begin() { return begin_; }
@@ -149,14 +149,14 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     size_t size() const { return chunks_.size(); }
 
    private:
-    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_edge_;
-    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_vertex_;
-    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor_;
+    utils::SkipListDb<Edge>::ConstAccessor pin_accessor_edge_;
+    utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_vertex_;
+    utils::SkipListDb<Entry>::Accessor index_accessor_;
     EdgeTypeId edge_type_;
     View view_;
     Storage *storage_;
     Transaction *transaction_;
-    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkCollection chunks_;
+    utils::SkipListDb<Entry>::ChunkCollection chunks_;
   };
 
  private:
@@ -166,7 +166,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     ~IndividualIndex();
     void Publish(uint64_t commit_timestamp);
 
-    utils::SkipList<Entry, memory::DbAwareAllocator<char>> skip_list_;
+    utils::SkipListDb<Entry> skip_list_;
     IndexStatus status_{};
   };
 
@@ -205,13 +205,13 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     auto GetAbortProcessor() const -> AbortProcessor override;
 
     Iterable Edges(EdgeTypeId edge_type,
-                   utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_acc,
-                   utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_acc, View view,
+                   utils::SkipListDb<Vertex>::ConstAccessor vertex_acc,
+                   utils::SkipListDb<Edge>::ConstAccessor edge_acc, View view,
                    Storage *storage, Transaction *transaction);
 
     ChunkedIterable ChunkedEdges(EdgeTypeId edge_type,
-                                 utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
-                                 utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor,
+                                 utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                                 utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
                                  View view, Storage *storage, Transaction *transaction, size_t num_chunks);
 
    private:
@@ -222,12 +222,12 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type,
-                          utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
+                          utils::SkipListDb<Vertex>::Accessor vertices,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   bool RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater);
-  auto PopulateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
+  auto PopulateIndex(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)

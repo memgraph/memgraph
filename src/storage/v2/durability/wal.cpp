@@ -1165,8 +1165,8 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
 
 std::optional<RecoveryInfo> LoadWal(
     const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
-    const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipList<Vertex> *vertices,
-    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+    const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipListDb<Vertex> *vertices,
+    utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
     memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store) {

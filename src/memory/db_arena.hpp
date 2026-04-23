@@ -34,6 +34,7 @@ struct DbArenaHooks {
   extent_hooks_t hooks;           // must be first
   utils::MemoryTracker *tracker;  // per-DB tracker, fed by extent events
   extent_hooks_t *base_hooks;     // default jemalloc hooks (called through)
+  // TODO: Think about a failsafe in case unhooking failed
 };
 
 // Populate a DbArenaHooks struct so it can be installed on any jemalloc arena.

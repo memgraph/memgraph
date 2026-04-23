@@ -76,22 +76,26 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 #if USE_JEMALLOC
       db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
 #endif
-      trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
       after_commit_trigger_pool_{1,
 #if USE_JEMALLOC
                                  // After-commit triggers run on this dedicated DB worker.
                                  // Use the base DB arena for the worker lifetime.
-                                 [this] { memory::tls_db_arena_state.arena = db_arena_->idx(); }
+                                 [this] {
+                                   memory::tls_db_arena_state.arena_pool = db_arena_.get();
+                                   memory::tls_db_arena_state.arena = db_arena_->idx();
+                                 }
 #else
                                  {}
 #endif
       },
       streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
-  std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
-
   // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
   const memory::DbArenaScope db_arena_scope{this, memory::DbArenaScope::Type::FORCE};
+
+  // Postpone creation after the scope has been created
+  trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
+  std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
 #if USE_JEMALLOC
   streams()->SetArenaPool(db_arena_.get());
@@ -103,7 +107,6 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
                                                       std::move(invalidator),
                                                       database_protector_factory,
-                                                      BaseArenaIdx(),
 #if USE_JEMALLOC
                                                       db_arena_.get(),
 #else
@@ -150,7 +153,6 @@ void Database::SwitchToOnDisk() {
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
                                                               std::make_unique<storage::PlanInvalidatorDefault>(),
                                                               preserved_factory,
-                                                              BaseArenaIdx(),
 #if USE_JEMALLOC
                                                               db_arena_.get(),
 #else

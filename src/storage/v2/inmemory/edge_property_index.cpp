@@ -177,7 +177,7 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
 }  // namespace
 
 bool InMemoryEdgePropertyIndex::CreateIndexOnePass(
-    PropertyId property, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
+    PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(property, updater);
   if (!res) return false;
@@ -214,7 +214,7 @@ bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property, ActiveIndices
 }
 
 auto InMemoryEdgePropertyIndex::PopulateIndex(
-    PropertyId property, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
+    PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info,
     Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(property);
@@ -411,9 +411,9 @@ void InMemoryEdgePropertyIndex::DropGraphClearIndices() {
 }
 
 InMemoryEdgePropertyIndex::Iterable::Iterable(
-    utils::SkipList<InMemoryEdgePropertyIndex::Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
-    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor, PropertyId property,
+    utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Accessor index_accessor,
+    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, PropertyId property,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction)
@@ -430,7 +430,7 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(
 
 InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self,
-    utils::SkipList<InMemoryEdgePropertyIndex::Entry, memory::DbAwareAllocator<char>>::Iterator index_iterator)
+    utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_edge_(nullptr),
@@ -469,8 +469,8 @@ void InMemoryEdgePropertyIndex::RunGC() {
 }
 
 InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Edges(
-    PropertyId property, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor,
+    PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
@@ -488,8 +488,8 @@ InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Ed
 }
 
 InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndices::ChunkedEdges(
-    PropertyId property, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor,
+    PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
@@ -550,9 +550,9 @@ void InMemoryEdgePropertyIndex::CleanupAllIndicies() {
 }
 
 InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
-    utils::SkipList<InMemoryEdgePropertyIndex::Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
-    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor, PropertyId property,
+    utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Accessor index_accessor,
+    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, PropertyId property,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks)
@@ -573,7 +573,7 @@ InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
   chunks_ = index_accessor_.create_chunks(num_chunks, lower_bound_pv, upper_bound_pv);
 
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
-  RechunkIndex<utils::SkipList<Entry, memory::DbAwareAllocator<char>>>(
+  RechunkIndex<utils::SkipListDb<Entry>>(
       chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge && a.value == b.value; });
 }
 
@@ -582,7 +582,7 @@ void InMemoryEdgePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
   // The higher level != end will still be correct
   AdvanceUntilValid_(
       index_iterator_,
-      utils::SkipList<InMemoryEdgePropertyIndex::Entry, memory::DbAwareAllocator<char>>::ChunkedIterator{},
+      utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::ChunkedIterator{},
       current_edge_,
       current_edge_accessor_,
       self_->storage_,

@@ -89,7 +89,7 @@ struct PointIndexStorage {
   // TODO: consider passkey idiom
 
   // Query (modify index set)
-  bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+  bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   bool DropPointIndex(LabelId label, PropertyId property);
 

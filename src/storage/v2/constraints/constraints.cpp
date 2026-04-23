@@ -16,7 +16,7 @@
 
 namespace memgraph::storage {
 
-Constraints::Constraints(const Config &config, StorageMode storage_mode, unsigned /*db_arena_idx*/) {
+Constraints::Constraints(const Config &config, StorageMode storage_mode) {
   std::invoke([this, config, storage_mode]() {
     existence_constraints_ = std::make_unique<ExistenceConstraints>();
     type_constraints_ = std::make_unique<TypeConstraints>();

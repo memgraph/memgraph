@@ -32,7 +32,7 @@ namespace memgraph::storage {
 class ExistenceConstraints {
  public:
   struct MultipleThreadsConstraintValidation {
-    auto operator()(const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
 
@@ -40,7 +40,7 @@ class ExistenceConstraints {
   };
 
   struct SingleThreadConstraintValidation {
-    auto operator()(const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
   };
@@ -108,7 +108,7 @@ class ExistenceConstraints {
 
   /// Create/Recover time validation
   [[nodiscard]] static auto ValidateVerticesOnConstraint(
-      utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
+      utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
       const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt)
       -> std::expected<void, ConstraintViolation>;

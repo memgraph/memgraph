@@ -3620,9 +3620,9 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
 
   config.durability.recover_on_startup = true;
   config.durability.snapshot_on_exit = false;
-  memgraph::utils::SkipList<memgraph::storage::Vertex> vertices;
-  memgraph::utils::SkipList<memgraph::storage::Edge> edges;
-  memgraph::utils::SkipList<memgraph::storage::EdgeMetadata> edges_metadata;
+  memgraph::utils::SkipListDb<memgraph::storage::Vertex> vertices;
+  memgraph::utils::SkipListDb<memgraph::storage::Edge> edges;
+  memgraph::utils::SkipListDb<memgraph::storage::EdgeMetadata> edges_metadata;
   std::unique_ptr<memgraph::storage::NameIdMapper> name_id_mapper = std::make_unique<memgraph::storage::NameIdMapper>();
   std::atomic<uint64_t> edge_count{0};
   uint64_t wal_seq_num{0};
@@ -3649,7 +3649,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       &indices,
       &constraints,
       config,
-      0 /* db_arena_idx */,
+      nullptr /* db_arena_pool */,
       &wal_seq_num,
       &enum_store,
       nullptr /* schema_info */,

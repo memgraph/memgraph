@@ -184,7 +184,7 @@ ExistenceConstraints::GetCreationFunction(
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::ValidateVerticesOnConstraint(
-    utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
+    utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto calling_existence_validation_function = GetCreationFunction(parallel_exec_info);
@@ -194,7 +194,7 @@ ExistenceConstraints::GetCreationFunction(
 }
 
 std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
     std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
@@ -229,7 +229,7 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
 }
 
 std::expected<void, ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
     std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   for (const Vertex &vertex : vertices) {
     if (auto validation_result = ValidateVertexOnConstraint(vertex, label, property); !validation_result.has_value()) {

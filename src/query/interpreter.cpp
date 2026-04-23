@@ -9019,9 +9019,9 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
-  std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
+  std::optional<memory::DbArenaScope> db_arena_scope;
   if (current_db_.db_acc_) {
-    plan_cache_db_arena_scope.emplace(current_db_.db_acc_->get());
+    db_arena_scope.emplace(current_db_.db_acc_->get());
   }
   if (std::holds_alternative<TransactionQuery>(parse_res)) {
     const auto tx_query_enum = std::get<TransactionQuery>(parse_res);
@@ -9552,13 +9552,6 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
-  // Route Abort-path deallocations/cleanup to this DB's arena.
-  // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
-  std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
-  if (current_db_.db_acc_) {
-    plan_cache_db_arena_scope.emplace(current_db_.db_acc_->get());
-  }
-
 #ifdef MG_ENTERPRISE
   // Note: if the storage layer already aborted the transaction internally (e.g. PeriodicCommit
   // constraint violation), CleanupDBTransaction(false) will have been called first, nulling the
@@ -9626,6 +9619,13 @@ void Interpreter::Abort() {
   if (decrement) {
     // Decrement only if the transaction was active when we started to Abort
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  }
+
+  // Route Abort-path deallocations/cleanup to this DB's arena.
+  // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
+  std::optional<memory::DbArenaScope> db_arena_scope;
+  if (current_db_.db_acc_) {
+    db_arena_scope.emplace(current_db_.db_acc_->get());
   }
 
   // if (!current_db_.db_transactional_accessor_) return;
@@ -9771,13 +9771,6 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }  // namespace
 
 void Interpreter::Commit() {
-  // Route Abort-path deallocations/cleanup to this DB's arena.
-  // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
-  std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
-  if (current_db_.db_acc_) {
-    plan_cache_db_arena_scope.emplace(current_db_.db_acc_->get());
-  }
-
 #ifdef MG_ENTERPRISE
   if (user_resource_ && current_db_.db_transactional_accessor_) {
     const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker().Amount();
@@ -9852,6 +9845,10 @@ void Interpreter::Commit() {
     return;
   }
   auto *db = current_db_.db_acc_->get();
+
+  // Route Abort-path deallocations/cleanup to this DB's arena.
+  // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
+  const memory::DbArenaScope db_arena_scope(db);
 
   /*
   At this point we must check that the transaction is alive to start committing. The only other possible state is

@@ -528,8 +528,8 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
                                .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
   }
 
-  memgraph::utils::SkipList<Vertex> vertices_;
-  memgraph::utils::SkipList<Edge> edges_;
+  memgraph::utils::SkipListDb<Vertex> vertices_;
+  memgraph::utils::SkipListDb<Edge> edges_;
   VectorEdgeIndex vector_edge_index_;
   NameIdMapper name_id_mapper_;
 };

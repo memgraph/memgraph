@@ -27,13 +27,6 @@ namespace memgraph::memory {
 
 class ArenaPool;
 
-// Returns the base jemalloc arena index for a pool.
-// Use ONLY at low-level jemalloc allocator boundaries (e.g. ArenaMemoryResource,
-// MakeArenaAwareUnique, Storage construction) where a raw unsigned index is
-// required by the jemalloc API. Prefer DbArenaScope(ArenaPool*)
-// for all scope/attribution uses.
-unsigned ArenaPoolBaseIdx(ArenaPool *arena) noexcept;
-
 // A std::pmr::memory_resource that routes allocations to a specific jemalloc
 // arena. Used as the upstream for PageSlabMemoryResource so that Delta slab
 // pages are attributed to the owning DB's MemoryTracker.
@@ -50,11 +43,6 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
   }
 
   void do_deallocate(void *p, std::size_t bytes, std::size_t alignment) noexcept override {
-    // Jemalloc tracks the owning arena per extent, so deallocation does not
-    // depend on the current thread's DB arena TLS.
-#if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
-    AssertPointerBelongsToArena(p, arena_idx_, "ArenaMemoryResource");
-#endif
     DbDeallocateBytes(p, bytes, alignment);
   }
 

@@ -317,8 +317,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
                                  memgraph::memory::ArenaPool *db_arena,
                                  utils::MemoryTracker *db_embedding_memory_tracker)
-    : Storage(config, config.salient.storage_mode, std::move(invalidator), memory::ArenaPoolBaseIdx(db_arena), db_arena,
-              db_embedding_memory_tracker, std::move(database_protector_factory)),
+    : Storage(config, config.salient.storage_mode, std::move(invalidator), db_arena, db_embedding_memory_tracker,
+              std::move(database_protector_factory)),
       db_arena_(db_arena),
       vertices_{},
       edges_{},
@@ -683,8 +683,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   // It's important to destruct accessors after we unlock the vertices to avoid expensive skip list gc while we hold the
   // locks
-  std::optional<utils::SkipList<Edge>::Accessor> edge_acc;
-  std::optional<utils::SkipList<EdgeMetadata>::Accessor> edge_metadata_acc;
+  std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
+  std::optional<utils::SkipListDb<EdgeMetadata>::Accessor> edge_metadata_acc;
 
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
@@ -810,8 +810,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
   // It's important to destruct accessors after we unlock the vertices to avoid expensive skip list gc while we hold the
   // locks
-  std::optional<utils::SkipList<Edge>::Accessor> edge_acc;
-  std::optional<utils::SkipList<EdgeMetadata>::Accessor> edge_metadata_acc;
+  std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
+  std::optional<utils::SkipListDb<EdgeMetadata>::Accessor> edge_metadata_acc;
 
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
@@ -3177,14 +3177,13 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
   }
 
   if (!wal_file_) {
-    wal_file_ = memory::MakeArenaAwareUnique<durability::WalFile>(memory::ArenaPoolBaseIdx(db_arena_),
-                                                                  recovery_.wal_directory_,
-                                                                  uuid(),
-                                                                  epoch_id,
-                                                                  config_.salient.items,
-                                                                  name_id_mapper_.get(),
-                                                                  wal_seq_num_++,
-                                                                  &file_retainer_);
+    wal_file_ = memory::MakeDbAwareUnique<durability::WalFile>(recovery_.wal_directory_,
+                                                               uuid(),
+                                                               epoch_id,
+                                                               config_.salient.items,
+                                                               name_id_mapper_.get(),
+                                                               wal_seq_num_++,
+                                                               &file_retainer_);
   }
 
   return true;

@@ -34,7 +34,7 @@ class MemoryTracker;
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(const Config &config, StorageMode storage_mode, unsigned db_arena_idx = 0,
+  Indices(const Config &config, StorageMode storage_mode,
           utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
 
   Indices(const Indices &) = delete;

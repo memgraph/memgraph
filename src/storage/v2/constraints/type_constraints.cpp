@@ -114,7 +114,7 @@ auto TypeConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveCons
 
 // --- TypeConstraints methods ---
 
-[[nodiscard]] auto TypeConstraints::ValidateAllVertices(utils::SkipList<Vertex>::Accessor vertices,
+[[nodiscard]] auto TypeConstraints::ValidateAllVertices(utils::SkipListDb<Vertex>::Accessor vertices,
                                                         std::optional<SnapshotObserverInfo> const &snapshot_info) const
     -> std::expected<void, ConstraintViolation> {
   auto container = container_.ReadCopy();
@@ -133,7 +133,7 @@ auto TypeConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveCons
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
-    utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type) {
+    utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type) {
   auto validator = TypeConstraintsValidator{};
   auto constraint = absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}};
   validator.add(label, constraint);

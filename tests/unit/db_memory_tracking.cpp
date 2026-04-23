@@ -227,6 +227,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   auto property = db1->storage()->NameToProperty("embedding");
 
   {
+    memgraph::memory::DbArenaScope db_arena_scope{&db1->Arena()};
     auto accessor = db1->Access();
     for (int i = 0; i < 1024; ++i) {
       auto vertex = accessor->CreateVertex();
@@ -674,6 +675,7 @@ TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
 
   // Delete all nodes.
   {
+    memgraph::memory::DbArenaScope scope{&db->Arena()};
     auto acc = db->Access();
     std::vector<memgraph::storage::Gid> gids;
     for (auto v : acc->Vertices(memgraph::storage::View::NEW)) gids.push_back(v.Gid());
@@ -789,6 +791,111 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_SharedFirstArenaFallbackNotFreedUntilLast
 
   db->Arena().Release(next_arena);
   db->Arena().Release(first_arena);
+}
+
+TEST_F(DbMemoryTrackingTest, ArenaPool_FailedAcquireSharedFirstArenaRemainsOwnedAcrossReleases) {
+  memgraph::utils::MemoryTracker tracker;
+  memgraph::memory::ArenaPool pool{&tracker};
+
+  const auto base_arena = pool.idx();
+  ASSERT_NE(base_arena, 0U);
+  EXPECT_TRUE(pool.Owns(base_arena));
+
+  const auto first_arena = pool.Acquire();
+  ASSERT_EQ(first_arena, base_arena);
+  EXPECT_TRUE(pool.Owns(base_arena));
+
+  const auto second_arena = pool.Acquire();
+  const auto third_arena = pool.Acquire();
+  ASSERT_NE(second_arena, 0U);
+  ASSERT_NE(third_arena, 0U);
+  EXPECT_NE(second_arena, base_arena);
+  EXPECT_NE(third_arena, base_arena);
+  EXPECT_NE(second_arena, third_arena);
+
+  memgraph::memory::testing::SetArenaPoolFailureInjection(
+      memgraph::memory::testing::ArenaPoolFailureInjection::AcquireArenaCreate);
+  const auto first_fallback = pool.Acquire();
+  EXPECT_EQ(first_fallback, base_arena);
+
+  memgraph::memory::testing::SetArenaPoolFailureInjection(
+      memgraph::memory::testing::ArenaPoolFailureInjection::AcquireArenaCreate);
+  const auto second_fallback = pool.Acquire();
+  EXPECT_EQ(second_fallback, base_arena);
+
+  pool.Release(first_fallback);
+  EXPECT_TRUE(pool.Owns(base_arena)) << "The pool must still own the shared first arena after one fallback release";
+
+  pool.Release(second_fallback);
+  EXPECT_TRUE(pool.Owns(base_arena)) << "The pool must still own the shared first arena while the original user holds it";
+
+  const auto next_arena = pool.Acquire();
+  EXPECT_NE(next_arena, base_arena)
+      << "The shared first arena should not enter the free split until its last user releases it";
+  EXPECT_TRUE(pool.Owns(base_arena));
+
+  pool.Release(next_arena);
+  pool.Release(third_arena);
+  pool.Release(second_arena);
+  EXPECT_TRUE(pool.Owns(base_arena));
+
+  pool.Release(first_arena);
+  EXPECT_TRUE(pool.Owns(base_arena)) << "Releasing the last shared user must not drop ownership of the base arena";
+
+  const auto reused_base_arena = pool.Acquire();
+  EXPECT_EQ(reused_base_arena, base_arena);
+  EXPECT_TRUE(pool.Owns(base_arena));
+  pool.Release(reused_base_arena);
+}
+
+TEST_F(DbMemoryTrackingTest, ArenaPool_SingleBaseArenaAcquireReleaseKeepsOwnership) {
+  memgraph::utils::MemoryTracker tracker;
+  memgraph::memory::ArenaPool pool{&tracker};
+
+  const auto base_arena = pool.idx();
+  ASSERT_NE(base_arena, 0U);
+  ASSERT_TRUE(pool.Owns(base_arena));
+
+  const auto acquired_arena = pool.Acquire();
+  EXPECT_EQ(acquired_arena, base_arena);
+  EXPECT_TRUE(pool.Owns(base_arena));
+
+  pool.Release(acquired_arena);
+  EXPECT_TRUE(pool.Owns(base_arena)) << "The base arena should remain owned after returning to the free split";
+
+  const auto reacquired_arena = pool.Acquire();
+  EXPECT_EQ(reacquired_arena, base_arena);
+  EXPECT_TRUE(pool.Owns(base_arena));
+  pool.Release(reacquired_arena);
+}
+
+TEST_F(DbMemoryTrackingTest, ArenaPool_FreedBaseArenaIsReturnedFromFreeSet) {
+  memgraph::utils::MemoryTracker tracker;
+  memgraph::memory::ArenaPool pool{&tracker};
+
+  const auto base_arena = pool.idx();
+  ASSERT_NE(base_arena, 0U);
+
+  const auto first_arena = pool.Acquire();
+  ASSERT_EQ(first_arena, base_arena);
+
+  const auto second_arena = pool.Acquire();
+  const auto third_arena = pool.Acquire();
+  ASSERT_NE(second_arena, base_arena);
+  ASSERT_NE(third_arena, base_arena);
+  ASSERT_NE(second_arena, third_arena);
+
+  pool.Release(second_arena);
+  pool.Release(third_arena);
+  pool.Release(first_arena);
+  ASSERT_TRUE(pool.Owns(base_arena));
+
+  const auto reacquired_arena = pool.Acquire();
+  EXPECT_EQ(reacquired_arena, base_arena)
+      << "Once the first arena is released, normal Acquire should return it from the free set";
+  EXPECT_TRUE(pool.Owns(base_arena));
+
+  pool.Release(reacquired_arena);
 }
 
 TEST_F(DbMemoryTrackingTest, ArenaPoolScope_NestedSamePoolBorrowsExistingArena) {

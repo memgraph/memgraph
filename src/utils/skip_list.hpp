@@ -116,6 +116,24 @@ struct SkipListNode_base {
     return static_cast<uint8_t>(__builtin_ffs(value));
   }
 };
+
+template <typename Alloc>
+void *allocate_bytes(Alloc &alloc, size_t size, size_t align) {
+  if constexpr (requires { alloc.allocate_bytes(size, align); }) {
+    return alloc.allocate_bytes(size, align);
+  } else {
+    return alloc.resource()->allocate(size, align);
+  }
+}
+
+template <typename Alloc>
+void deallocate_bytes(Alloc &alloc, void *ptr, size_t size, size_t align) {
+  if constexpr (requires { alloc.deallocate_bytes(ptr, size, align); }) {
+    alloc.deallocate_bytes(ptr, size, align);
+  } else {
+    alloc.resource()->deallocate(ptr, size, align);
+  }
+}
 }  // namespace detail
 
 /// This is the Node object that represents each element stored in the list. The
@@ -245,7 +263,7 @@ constexpr uint64_t ExpectedSizeAtLayer(const uint64_t N, const uint8_t k) {
 /// collection is blocking is when the structure of the doubly-linked list has
 /// to be changed (eg. a new Block has to be allocated and linked into the
 /// structure).
-template <typename TObj, typename Alloc = memory::DbAwareAllocator<char>>
+template <typename TObj, typename Alloc = utils::Allocator<char>>
 class SkipListGc final {
  private:
   using TNode = SkipListNode<TObj>;
@@ -410,7 +428,7 @@ class SkipListGc final {
                      [this](const TDeleted &item) {
                        size_t bytes = SkipListNodeSize(*item.second);
                        item.second->~TNode();
-                       alloc_.deallocate(reinterpret_cast<char *>(item.second), bytes);
+                       detail::deallocate_bytes(alloc_, item.second, bytes, SkipListNodeAlign<TObj>());
                      });
   }
 
@@ -433,7 +451,7 @@ class SkipListGc final {
       while ((item = deleted_.Pop())) {
         size_t bytes = SkipListNodeSize(*item->second);
         item->second->~TNode();
-        alloc_.deallocate(reinterpret_cast<char *>(item->second), bytes);
+        detail::deallocate_bytes(alloc_, item->second, bytes, SkipListNodeAlign<TObj>());
       }
     }
 
@@ -618,7 +636,7 @@ class SkipListGc final {
 /// change must be implemented thread-safe inside the object.
 ///
 /// @tparam TObj object type that is stored in the list
-template <typename TObj, typename Alloc = memory::DbAwareAllocator<char>>
+template <typename TObj, typename Alloc = utils::Allocator<char>>
 class SkipList final : detail::SkipListNode_base {
  private:
   using TNode = SkipListNode<TObj>;
@@ -1163,7 +1181,7 @@ class SkipList final : detail::SkipListNode_base {
 
   explicit SkipList(Alloc alloc) : gc_(alloc) {
     static_assert(kSkipListMaxHeight <= 32, "The SkipList height must be less or equal to 32!");
-    char *ptr = alloc.allocate(MaxSkipListNodeSize<TObj>());
+    void *ptr = detail::allocate_bytes(alloc, MaxSkipListNodeSize<TObj>(), SkipListNodeAlign<TObj>());
     // `calloc` would be faster, but the API has no such call.
     memset(ptr, 0, MaxSkipListNodeSize<TObj>());
     // Here we don't call the `SkipListNode` constructor so that the `TObj`
@@ -1188,7 +1206,7 @@ class SkipList final : detail::SkipListNode_base {
       TNode *succ = head->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*head);
       head->~TNode();
-      alloc.deallocate(reinterpret_cast<char *>(head), bytes);
+      detail::deallocate_bytes(alloc, head, bytes, SkipListNodeAlign<TObj>());
       head = succ;
     }
     head_ = other.head_;
@@ -1209,7 +1227,8 @@ class SkipList final : detail::SkipListNode_base {
       // constructor (see the note in the `SkipList` constructor). We mustn't
       // call the `TObj` destructor because we didn't call its constructor.
       head_->lock.~SpinLock();
-      gc_.get_allocator().deallocate(reinterpret_cast<char *>(head_), SkipListNodeSize(*head_));
+      auto alloc = gc_.get_allocator();
+      detail::deallocate_bytes(alloc, head_, SkipListNodeSize(*head_), SkipListNodeAlign<TObj>());
     }
   }
 
@@ -1235,7 +1254,7 @@ class SkipList final : detail::SkipListNode_base {
       TNode *succ = curr->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*curr);
       curr->~TNode();
-      alloc.deallocate(reinterpret_cast<char *>(curr), bytes);
+      detail::deallocate_bytes(alloc, curr, bytes, SkipListNodeAlign<TObj>());
       curr = succ;
     }
     for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
@@ -1342,12 +1361,15 @@ class SkipList final : detail::SkipListNode_base {
         if (!valid) continue;
 
         size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
-
-        // TODO: Update allocator to accept alignment. Think about all the other versions that might be needed: number +
-        // size, align, etc
-        char *raw = gc_.get_allocator().allocate(node_bytes);
+        auto alloc = gc_.get_allocator();
+        void *raw = detail::allocate_bytes(alloc, node_bytes, SkipListNodeAlign<TObj>());
         new_node = reinterpret_cast<TNode *>(raw);
-        new (new_node) TNode(top_layer, std::forward<TObjUniv>(object));
+
+        // Construct through allocator traits so it propagates if needed.
+        using TNodeAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<TNode>;
+        TNodeAlloc node_allocator(alloc);
+        std::allocator_traits<TNodeAlloc>::construct(node_allocator, new_node, top_layer,
+                                                     std::forward<TObjUniv>(object));
 
         // The paper is also wrong here. It states that the loop should go up to
         // `top_layer` which is wrong.
@@ -1810,4 +1832,9 @@ class SkipList final : detail::SkipListNode_base {
   std::atomic<uint64_t> size_{0};
 };
 
+template <typename TObj>
+using SkipListDb = SkipList<TObj, memory::DbAwareAllocator<char>>;
+
+template <typename TObj>
+using SkipListGcDb = SkipListGc<TObj, memory::DbAwareAllocator<char>>;
 }  // namespace memgraph::utils

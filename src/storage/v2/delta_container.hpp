@@ -33,9 +33,6 @@ class DbArenaMemoryResource final : public std::pmr::memory_resource {
 
  private:
   void *do_allocate(std::size_t bytes, std::size_t alignment) override {
-#if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
-    MG_ASSERT(memory::tls_db_arena_state.arena != 0, "DbArenaMemoryResource::allocate called with no DB arena pinned");
-#endif
     return memory::DbAllocateBytes(bytes, memory::tls_db_arena_state.arena, alignment);
   }
 

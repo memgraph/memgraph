@@ -98,7 +98,7 @@ auto update_internal(index_container_t const &src, TrackedChanges const &tracked
 }
 }  // namespace
 
-bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // indexes_ protected by unique storage access
   auto &indexes = *indexes_;

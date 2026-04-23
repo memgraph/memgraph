@@ -802,9 +802,9 @@ class InMemoryStorage final : public Storage {
   // Main object storage — DbAwareAllocator routes node allocations through the
   // current DB TLS scope, while long-lived DB work establishes that scope at
   // the appropriate execution boundary.
-  utils::SkipList<Vertex, memory::DbAwareAllocator<char>> vertices_;
-  utils::SkipList<Edge, memory::DbAwareAllocator<char>> edges_;
-  utils::SkipList<EdgeMetadata, memory::DbAwareAllocator<char>> edges_metadata_;
+  utils::SkipListDb<Vertex> vertices_;
+  utils::SkipListDb<Edge> edges_;
+  utils::SkipListDb<EdgeMetadata> edges_metadata_;
 
   // Durability
   durability::Recovery recovery_;

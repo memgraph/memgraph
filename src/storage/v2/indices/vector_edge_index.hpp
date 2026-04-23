@@ -64,7 +64,7 @@ struct VectorEdgeIndexRecoveryInfo {
 struct VectorEdgeIndexRecovery {
   static void UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                 std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
-                                utils::SkipList<Vertex>::Accessor &vertices);
+                                utils::SkipListDb<Vertex>::Accessor &vertices);
 
   static void UpdateOnSetEdgeProperty(PropertyId property, const PropertyValue &value, const Edge *edge,
                                       std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec);
@@ -115,12 +115,12 @@ class VectorEdgeIndex {
   VectorEdgeIndex &operator=(VectorEdgeIndex &&) noexcept;
 
   /// @brief Creates a new index based on the provided specification.
-  bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+  bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices,
                    NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Recovers a vector edge index based on recovery info.
-  void RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
+  void RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
                     NameIdMapper *name_id_mapper,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 

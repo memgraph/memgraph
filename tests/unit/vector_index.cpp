@@ -624,7 +624,7 @@ class VectorIndexRecoveryTest : public testing::Test {
   }
 
   std::unique_ptr<InMemoryStorage> storage_;
-  memgraph::utils::SkipList<Vertex> vertices_;
+  memgraph::utils::SkipListDb<Vertex> vertices_;
   VectorIndex vector_index_;
 };
 

@@ -52,7 +52,7 @@ VectorIndex::VectorIndex(utils::MemoryTracker *memory_tracker)
 
 VectorIndex::~VectorIndex() = default;
 
-bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
+bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
                               NameIdMapper *name_id_mapper, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
     auto index_id = SetupIndex(spec, name_id_mapper);
@@ -105,7 +105,7 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
   return inserted ? std::optional<uint64_t>{index_id} : std::nullopt;
 }
 
-void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
+void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
                                Indices *indices, NameIdMapper *name_id_mapper,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &spec = recovery_info.spec;
@@ -635,7 +635,7 @@ utils::small_vector<float> VectorIndexRecovery::ExtractVectorForRecovery(
 
 void VectorIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                             std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
-                                            utils::SkipList<Vertex>::Accessor &vertices) {
+                                            utils::SkipListDb<Vertex>::Accessor &vertices) {
   for (auto &recovery_info : recovery_info_vec) {
     if (recovery_info.spec.index_name == index_name) {
       for (auto &[gid, vector] : recovery_info.index_entries) {

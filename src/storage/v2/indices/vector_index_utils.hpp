@@ -459,7 +459,7 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
 /// @param process The function to call for each vertex (thread_id is std::nullopt).
 template <typename ProcessFunc>
   requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
-void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
+void PopulateVectorIndexSingleThreaded(utils::SkipListDb<Vertex>::Accessor &vertices, ProcessFunc &&process) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   for (auto &vertex : vertices) {
     std::forward<ProcessFunc>(process)(vertex, std::nullopt);
@@ -472,7 +472,7 @@ void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertic
 /// @param process The function to call for each vertex (thread_id is the chunk index).
 template <typename ProcessFunc>
   requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
-void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
+void PopulateVectorIndexMultiThreaded(utils::SkipListDb<Vertex>::Accessor &vertices, ProcessFunc &&process) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto vertices_chunks = vertices.create_chunks(FLAGS_storage_recovery_thread_count);
   const auto actual_chunk_count = vertices_chunks.size();

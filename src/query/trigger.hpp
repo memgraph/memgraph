@@ -138,8 +138,8 @@ struct TriggerStore {
   utils::SpinLock store_lock_;
   kvstore::KVStore storage_;
 
-  utils::SkipList<Trigger, memory::DbAwareAllocator<char>> before_commit_triggers_;
-  utils::SkipList<Trigger, memory::DbAwareAllocator<char>> after_commit_triggers_;
+  utils::SkipListDb<Trigger> before_commit_triggers_;
+  utils::SkipListDb<Trigger> after_commit_triggers_;
 };
 
 }  // namespace memgraph::query

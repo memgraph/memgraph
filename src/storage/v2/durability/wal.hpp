@@ -589,8 +589,8 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
 /// @throw RecoveryFailure
 std::optional<RecoveryInfo> LoadWal(
     std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
-    std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipList<Vertex> *vertices,
-    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+    std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipListDb<Vertex> *vertices,
+    utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
     memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store);
