@@ -297,56 +297,73 @@ int main(int argc, char **argv) {
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
 
-  // Initialize Python
-  auto *program_name = Py_DecodeLocale(argv[0], nullptr);
-  MG_ASSERT(program_name);
-  // Set program name, so Python can find its way to runtime libraries relative
-  // to executable.
-  Py_SetProgramName(program_name);
-  PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
-  Py_InitializeEx(0 /* = initsigs */);
-  Py_BEGIN_ALLOW_THREADS;
+#ifdef MG_ENTERPRISE
+  memgraph::flags::SetFinalCoordinationSetup();
+  auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
+  bool const is_coordinator_instance = coordination_setup.management_port && coordination_setup.coordinator_port &&
+                                       coordination_setup.coordinator_id &&
+                                       !coordination_setup.coordinator_hostname.empty();
 
-  // Add our Python modules to sys.path
-  try {
-    auto exe_path = memgraph::utils::GetExecutablePath();
-    auto py_support_dir = exe_path.parent_path() / "python_support";
-    if (std::filesystem::is_directory(py_support_dir)) {
-      auto gil = memgraph::py::EnsureGIL();
-      auto maybe_exc = memgraph::py::AppendToSysPath(py_support_dir.c_str());
-      if (maybe_exc) {
-        spdlog::error(memgraph::utils::MessageWithLink(
-            "Unable to load support for embedded Python: {}.", *maybe_exc, "https://memgr.ph/python"));
-      } else {
-        // Change how we load dynamic libraries on Python by using RTLD_NOW flag.
-        // This solves an issue with using the wrong version of libstdc++.
+#else
+  bool const is_coordinator_instance = false;
+#endif
+
+  std::optional<memgraph::utils::Scheduler> python_gc_scheduler{std::nullopt};
+  wchar_t *program_name{nullptr};
+  PyThreadState *python_thread_state{nullptr};
+
+  if (!is_coordinator_instance) {
+    // Initialize Python
+    program_name = Py_DecodeLocale(argv[0], nullptr);
+    MG_ASSERT(program_name);
+    // Set program name, so Python can find its way to runtime libraries relative
+    // to executable.
+    Py_SetProgramName(program_name);
+    PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
+    Py_InitializeEx(0 /* = initsigs */);
+    python_thread_state = PyEval_SaveThread();
+
+    // Add our Python modules to sys.path
+    try {
+      auto exe_path = memgraph::utils::GetExecutablePath();
+      auto py_support_dir = exe_path.parent_path() / "python_support";
+      if (std::filesystem::is_directory(py_support_dir)) {
         auto gil = memgraph::py::EnsureGIL();
-        // NOLINTNEXTLINE(hicpp-signed-bitwise)
-        auto *flag = PyLong_FromLong(RTLD_NOW);
-        auto *setdl = PySys_GetObject("setdlopenflags");
-        MG_ASSERT(setdl);
-        auto *arg = PyTuple_New(1);
-        MG_ASSERT(arg);
-        MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);
-        PyObject_CallObject(setdl, arg);
-        Py_DECREF(flag);
-        Py_DECREF(setdl);
-        Py_DECREF(arg);
+        auto maybe_exc = memgraph::py::AppendToSysPath(py_support_dir.c_str());
+        if (maybe_exc) {
+          spdlog::error(memgraph::utils::MessageWithLink(
+              "Unable to load support for embedded Python: {}.", *maybe_exc, "https://memgr.ph/python"));
+        } else {
+          // Change how we load dynamic libraries on Python by using RTLD_NOW flag.
+          // This solves an issue with using the wrong version of libstdc++.
+          auto gil = memgraph::py::EnsureGIL();
+          // NOLINTNEXTLINE(hicpp-signed-bitwise)
+          auto *flag = PyLong_FromLong(RTLD_NOW);
+          auto *setdl = PySys_GetObject("setdlopenflags");
+          MG_ASSERT(setdl);
+          auto *arg = PyTuple_New(1);
+          MG_ASSERT(arg);
+          MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);
+          PyObject_CallObject(setdl, arg);
+          Py_DECREF(flag);
+          Py_DECREF(setdl);
+          Py_DECREF(arg);
+        }
+      } else {
+        spdlog::error(
+            memgraph::utils::MessageWithLink("Unable to load support for embedded Python: missing directory {}.",
+                                             py_support_dir,
+                                             "https://memgr.ph/python"));
       }
-    } else {
-      spdlog::error(
-          memgraph::utils::MessageWithLink("Unable to load support for embedded Python: missing directory {}.",
-                                           py_support_dir,
-                                           "https://memgr.ph/python"));
+    } catch (const std::filesystem::filesystem_error &e) {
+      spdlog::error(memgraph::utils::MessageWithLink(
+          "Unable to load support for embedded Python: {}.", e.what(), "https://memgr.ph/python"));
     }
-  } catch (const std::filesystem::filesystem_error &e) {
-    spdlog::error(memgraph::utils::MessageWithLink(
-        "Unable to load support for embedded Python: {}.", e.what(), "https://memgr.ph/python"));
-  }
 
-  memgraph::utils::Scheduler python_gc_scheduler;
-  python_gc_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
-  python_gc_scheduler.Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
+    python_gc_scheduler.emplace();
+    python_gc_scheduler->SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
+    python_gc_scheduler->Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
+  }
 
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
@@ -551,8 +568,6 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
-  memgraph::flags::SetFinalCoordinationSetup();
-  auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
   if (coordination_setup.IsDataInstanceManagedByCoordinator() &&
       db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     MG_ASSERT(db_config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL,
@@ -560,9 +575,6 @@ int main(int argc, char **argv) {
               "--storage-wal-enabled=true. One of the flags used for setting up snapshots "
               "--storage-snapshot-interval-sec or --storage-snapshot-interval also needs to be set.");
   }
-  auto const is_coordinator_instance = coordination_setup.management_port && coordination_setup.coordinator_port &&
-                                       coordination_setup.coordinator_id &&
-                                       !coordination_setup.coordinator_hostname.empty();
 
   if (is_coordinator_instance) {
     MG_ASSERT(
@@ -581,11 +593,6 @@ int main(int argc, char **argv) {
               "flag.");
   }
 
-#else
-  bool const is_coordinator_instance = false;
-#endif
-
-#ifdef MG_ENTERPRISE
   if (std::chrono::seconds(FLAGS_instance_down_timeout_sec) <
       std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)) {
     LOG_FATAL(
@@ -778,10 +785,11 @@ int main(int argc, char **argv) {
     // procedures during parallel execution.
     // NOTE: We should also register cleanup, but since threads exist until the end of the program,
     //       everyhting will be cleaned up anyway at program exit.
-    auto python_thread_init = []() { memgraph::query::procedure::RegisterPyThread(); };
-    worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
+
+    worker_pool_.emplace(/* low priority */
+                         static_cast<uint16_t>(FLAGS_bolt_num_workers),
                          /* high priority */ 1U,
-                         python_thread_init);
+                         is_coordinator_instance ? []() {} : []() { memgraph::query::procedure::RegisterPyThread(); });
     io_n_threads = 1U;
   }
 
@@ -818,12 +826,12 @@ int main(int argc, char **argv) {
   auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
   if (!is_coordinator_instance) {
     MG_ASSERT(db_acc.has_value(), "Failed to access the main database");
-  }
 
-  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
-                                                                  FLAGS_data_directory);
-  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-  memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
+    memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
+                                                                    FLAGS_data_directory);
+    memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
+    memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
+  }
 
   // TODO Make multi-tenant
   // No need to check here if coordinator instance because we check above that --init-file is not set on coordinator
@@ -1066,16 +1074,19 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   metrics_server.AwaitShutdown();
 #endif
-  try {
-    memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
-  } catch (memgraph::query::QueryException &) {
-    spdlog::warn("Failed to unload query modules while shutting down.");
+
+  if (!is_coordinator_instance) {
+    try {
+      memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
+    } catch (memgraph::query::QueryException &) {
+      spdlog::warn("Failed to unload query modules while shutting down.");
+    }
+    python_gc_scheduler->Stop();
+    PyEval_RestoreThread(python_thread_state);
+    // Shutdown Python
+    Py_Finalize();
+    PyMem_RawFree(program_name);
   }
-  python_gc_scheduler.Stop();
-  Py_END_ALLOW_THREADS;
-  // Shutdown Python
-  Py_Finalize();
-  PyMem_RawFree(program_name);
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();
   return 0;
