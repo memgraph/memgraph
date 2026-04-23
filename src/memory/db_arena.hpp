@@ -120,7 +120,7 @@ class GlobalArenaPool {
 class ArenaPool {
  public:
   explicit ArenaPool(utils::MemoryTracker *tracker);
-  ~ArenaPool();
+  ~ArenaPool() noexcept;
 
   ArenaPool(const ArenaPool &) = delete;
   ArenaPool &operator=(const ArenaPool &) = delete;

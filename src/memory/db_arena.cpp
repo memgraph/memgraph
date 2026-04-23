@@ -11,6 +11,7 @@
 
 #include "db_arena.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <stdexcept>
@@ -142,6 +143,14 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
 
 namespace {
 
+void LogDestructorCleanupFailure(std::string_view owner, unsigned arena_idx, std::string_view operation,
+                                 std::string_view error) noexcept {
+  try {
+    spdlog::error("{} {}: {} failed during destructor cleanup: {}", owner, arena_idx, operation, error);
+  } catch (...) {
+  }
+}
+
 bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_view error_context) {
   const std::string arena_key = "arena." + std::to_string(arena_idx);
   const std::string hooks_key = arena_key + ".extent_hooks";
@@ -176,19 +185,25 @@ class PendingArena {
  public:
   explicit PendingArena(unsigned arena_idx) noexcept : arena_idx_(arena_idx) {}
 
-  ~PendingArena() {
-    if (arena_idx_ == 0) return;
+  ~PendingArena() noexcept {
+    try {
+      if (arena_idx_ == 0) return;
 
-    if (hooks_installed_ && base_hooks_) {
-      const std::string hooks_key = "arena." + std::to_string(arena_idx_) + ".extent_hooks";
-      const extent_hooks_t *base = base_hooks_;
-      je_mallctl(hooks_key.c_str(),
-                 nullptr,
-                 nullptr,
-                 static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
-                 sizeof(extent_hooks_t *));
+      if (hooks_installed_ && base_hooks_) {
+        const std::string hooks_key = "arena." + std::to_string(arena_idx_) + ".extent_hooks";
+        const extent_hooks_t *base = base_hooks_;
+        je_mallctl(hooks_key.c_str(),
+                   nullptr,
+                   nullptr,
+                   static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
+                   sizeof(extent_hooks_t *));
+      }
+      GlobalArenaPool::Instance().Release(arena_idx_);
+    } catch (const std::exception &e) {
+      LogDestructorCleanupFailure("PendingArena", arena_idx_, "release", e.what());
+    } catch (...) {
+      LogDestructorCleanupFailure("PendingArena", arena_idx_, "release", "unknown exception");
     }
-    GlobalArenaPool::Instance().Release(arena_idx_);
   }
 
   void MarkHooksInstalled(extent_hooks_t *base) noexcept {
@@ -244,32 +259,45 @@ ArenaPool::ArenaPool(utils::MemoryTracker *tracker) {
   pending.Commit();
 }
 
-ArenaPool::~ArenaPool() {
-  DMG_ASSERT(free_count_ == arenas_.size(), "Destroying DB ArenaPool while some arenas are still in use");
-  DMG_ASSERT(first_arena_use_count_ == 0, "Destroying DB ArenaPool while the first arena is still in use");
+ArenaPool::~ArenaPool() noexcept {
+  try {
+    DMG_ASSERT(free_count_ == arenas_.size(), "Destroying DB ArenaPool while some arenas are still in use");
+    DMG_ASSERT(first_arena_use_count_ == 0, "Destroying DB ArenaPool while the first arena is still in use");
 
-  for (const auto arena_idx : arenas_) {
-    const std::string arena_key = "arena." + std::to_string(arena_idx);
+    for (const auto arena_idx : arenas_) {
+      const std::string arena_key = "arena." + std::to_string(arena_idx);
 
-    // Purge all dirty/muzzy pages back to the OS FIRST, while our custom hooks are
-    // still installed.
-    if (int perr = je_mallctl((arena_key + ".purge").c_str(), nullptr, nullptr, nullptr, 0); perr != 0) {
-      spdlog::error(
-          "ArenaPool {}: purge failed (err={}); MemoryTracker may drift before hook restore", arena_idx, perr);
+      // Purge all dirty/muzzy pages back to the OS FIRST, while our custom hooks are
+      // still installed.
+      if (int perr = je_mallctl((arena_key + ".purge").c_str(), nullptr, nullptr, nullptr, 0); perr != 0) {
+        spdlog::error(
+            "ArenaPool {}: purge failed (err={}); MemoryTracker may drift before hook restore", arena_idx, perr);
+      }
+
+      // Restore the default hooks AFTER purging
+      const extent_hooks_t *base = hooks_.base_hooks;
+      int err = je_mallctl((arena_key + ".extent_hooks").c_str(),
+                           nullptr,
+                           nullptr,
+                           static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
+                           sizeof(extent_hooks_t *));
+      if (err != 0) {
+        spdlog::error("ArenaPool {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx,
+                      err);
+      }
+
+      try {
+        GlobalArenaPool::Instance().Release(arena_idx);
+      } catch (const std::exception &e) {
+        LogDestructorCleanupFailure("ArenaPool", arena_idx, "release", e.what());
+      } catch (...) {
+        LogDestructorCleanupFailure("ArenaPool", arena_idx, "release", "unknown exception");
+      }
     }
-
-    // Restore the default hooks AFTER purging
-    const extent_hooks_t *base = hooks_.base_hooks;
-    int err = je_mallctl((arena_key + ".extent_hooks").c_str(),
-                         nullptr,
-                         nullptr,
-                         static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
-                         sizeof(extent_hooks_t *));
-    if (err != 0) {
-      spdlog::error("ArenaPool {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx, err);
-    }
-
-    GlobalArenaPool::Instance().Release(arena_idx);
+  } catch (const std::exception &e) {
+    LogDestructorCleanupFailure("ArenaPool", first_arena_idx_, "cleanup", e.what());
+  } catch (...) {
+    LogDestructorCleanupFailure("ArenaPool", first_arena_idx_, "cleanup", "unknown exception");
   }
 }
 
@@ -280,7 +308,7 @@ unsigned ArenaPool::Acquire() {
 
   // 1. Reuse existing arena
   if (free_count_ != 0) {
-    unsigned idx = arenas_[--free_count_];
+    const unsigned idx = arenas_[--free_count_];
     if (idx == first_arena_idx_) {
       ++first_arena_use_count_;
     }
@@ -339,10 +367,7 @@ void ArenaPool::Release(unsigned arena_idx) {
 bool ArenaPool::Owns(unsigned arena_idx) const {
   if (arena_idx == 0) return false;
   const std::lock_guard<std::mutex> lock(arena_mux_);
-  for (const auto id : arenas_) {
-    if (id == arena_idx) return true;
-  }
-  return false;
+  return std::ranges::any_of(arenas_, [arena_idx](const auto id) { return id == arena_idx; });
 }
 
 }  // namespace memgraph::memory
