@@ -6,7 +6,12 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 from typing import List
 
 import huggingface_hub  # noqa: F401
+import litellm
 import mgp
+
+# Suppress LiteLLM's "Provider List: ..." banner that fires on every
+# get_llm_provider() miss — we probe deliberately for local names.
+litellm.suppress_debug_info = True
 
 # We need to import huggingface_hub, otherwise sentence_transformers will fail to load the model.
 
@@ -407,24 +412,6 @@ def multi_gpu_compute(
     )
 
 
-_litellm_configured = False
-
-
-def _ensure_litellm_configured():
-    # Silence LiteLLM's "Provider List: ..." banner that fires on every
-    # get_llm_provider() miss — we probe deliberately for local names.
-    global _litellm_configured
-    if _litellm_configured:
-        return
-    try:
-        import litellm
-
-        litellm.suppress_debug_info = True
-    except ImportError:
-        return
-    _litellm_configured = True
-
-
 def resolve_remote_model(model_name):
     """Ask LiteLLM whether ``model_name`` belongs to one of its providers.
 
@@ -435,12 +422,7 @@ def resolve_remote_model(model_name):
     if not isinstance(model_name, str) or not model_name:
         return None
     try:
-        from litellm import get_llm_provider
-    except ImportError:
-        return None
-    _ensure_litellm_configured()
-    try:
-        model, provider, _dynamic_key, default_api_base = get_llm_provider(model_name)
+        model, provider, _dynamic_key, default_api_base = litellm.get_llm_provider(model_name)
     except Exception:
         return None
     return model, provider, default_api_base
@@ -481,7 +463,6 @@ def remote_compute(
     matches the local sentence_transformers path. Raises on permanent failure
     — the caller catches and converts to ``success=False``.
     """
-    from litellm import embedding as litellm_embedding
 
     _model, provider, default_api_base = resolved
     vertex_input = isinstance(cfg["embedding_property"], str)
@@ -514,7 +495,7 @@ def remote_compute(
         base_kwargs["dimensions"] = cfg["dimensions"]
 
     def _call(chunk_texts):
-        resp = litellm_embedding(input=chunk_texts, **base_kwargs)
+        resp = litellm.embedding(input=chunk_texts, **base_kwargs)
         return [d["embedding"] for d in resp["data"]]
 
     results = [None] * len(chunks)
@@ -813,8 +794,6 @@ def _remote_model_info(configuration, resolved):
     if cached is not None:
         return cached
 
-    from litellm import embedding as litellm_embedding
-
     kwargs = {
         "model": configuration["model_name"],
         "input": ["probe"],
@@ -826,7 +805,7 @@ def _remote_model_info(configuration, resolved):
     if configuration.get("dimensions"):
         kwargs["dimensions"] = configuration["dimensions"]
 
-    resp = litellm_embedding(**kwargs)
+    resp = litellm.embedding(**kwargs)
     dim = len(resp["data"][0]["embedding"])
     info = {
         "model_name": configuration["model_name"],
