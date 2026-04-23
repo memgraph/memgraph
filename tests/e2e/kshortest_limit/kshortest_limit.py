@@ -15,11 +15,12 @@ Simple test script to verify kshortest path limit functionality.
 This script can be run independently to test the feature.
 """
 
+import os
 import sys
 
 from neo4j import GraphDatabase
 
-URI = "bolt://localhost:7687"
+URI = f"bolt://localhost:{os.getenv('MEMGRAPH_BOLT_PORT', '7687')}"
 AUTH = ("", "")
 
 
