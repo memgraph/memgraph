@@ -1196,12 +1196,10 @@ class VirtualGraphDbAccessor final {
 
   [[nodiscard]] const VirtualNode *FindNode(storage::Gid synthetic_gid) const;
 
-  // Returns an empty iterable of real vertices. Used by mgp_vertices_iterator's ctor,
-  // which pre-initializes `vertices` for all variant arms but immediately points its
-  // cursor past-end on virtual graphs (virtual-node iteration uses a separate cursor).
+  // empty real-vertex iterable; virtual-node iteration uses a separate cursor.
   VerticesIterable Vertices(storage::View);
 
-  VirtualGraph *getGraph();
+  [[nodiscard]] VirtualGraph *getGraph() const;
 
   storage::StorageMode GetStorageMode() const noexcept;
 

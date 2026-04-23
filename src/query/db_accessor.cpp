@@ -164,15 +164,13 @@ const VirtualNode *VirtualGraphDbAccessor::FindNode(storage::Gid synthetic_gid) 
 }
 
 VerticesIterable VirtualGraphDbAccessor::Vertices(storage::View) {
-  // Empty real-vertex iteration; the caller is expected to drive virtual-node iteration
-  // via VirtualGraphDbAccessor::getGraph()->nodes() directly.
   using Set = std::
       unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>, utils::Allocator<VertexAccessor>>;
   static Set empty{utils::NewDeleteResource()};
   return VerticesIterable(&empty);
 }
 
-VirtualGraph *VirtualGraphDbAccessor::getGraph() { return graph_; }
+VirtualGraph *VirtualGraphDbAccessor::getGraph() const { return graph_; }
 
 storage::StorageMode VirtualGraphDbAccessor::GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
 

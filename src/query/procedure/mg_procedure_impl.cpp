@@ -226,8 +226,8 @@ template <typename TFunc, typename... Args>
 
 // Graph mutations
 bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
-  // A virtual graph (derive() arg) is read-only: the virtual store is query-scoped
-  // and there is no sanctioned path to write into the underlying real DB.
+  // a virtual graph (derive() arg) is read-only; the virtual store is query-scoped
+  // and has no sanctioned write path into the underlying real DB.
   return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr &&
          !std::holds_alternative<memgraph::query::VirtualGraphDbAccessor *>(graph.impl);
 }
@@ -236,12 +236,9 @@ bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*ve
 
 bool MgpEdgeIsMutable(const mgp_edge &edge) { return MgpVertexIsMutable(edge.from); }
 
-// Helper for std::visit arms over mgp_graph::impl that are logically unreachable
-// on the VirtualGraphDbAccessor branch (gated by IsVirtual() / MgpGraphIsMutable upstream).
-// Using a templated factory lets the caller name the expected return type without
-// repeating the throw-with-message boilerplate at every site.
+// unreachable on the VirtualGraphDbAccessor arm; gated upstream by MgpGraphIsMutable.
 template <typename R>
-constexpr auto VirtualGraphUnreachable(std::string_view fn) {
+auto VirtualGraphUnreachable(std::string_view fn) {
   return [fn](memgraph::query::VirtualGraphDbAccessor *) -> R {
     throw std::logic_error{"unreachable on virtual graph in " + std::string{fn}};
   };
