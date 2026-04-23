@@ -2347,8 +2347,7 @@ mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         if (v->IsVirtual()) {
-          auto *vg = v->graph->VirtualGraphPtr();
-          DMG_ASSERT(vg != nullptr, "VirtualNode present but VirtualGraphPtr is null");
+          auto *vg = std::get<memgraph::query::VirtualGraphDbAccessor *>(v->graph->impl)->getGraph();
           return vg->InEdges(v->GetVirtualNode().Gid()).size();
         }
         auto maybe_in_degree = v->VisitReal([v](const auto &impl) { return impl.InDegree(v->graph->view); });
@@ -2373,8 +2372,7 @@ mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         if (v->IsVirtual()) {
-          auto *vg = v->graph->VirtualGraphPtr();
-          DMG_ASSERT(vg != nullptr, "VirtualNode present but VirtualGraphPtr is null");
+          auto *vg = std::get<memgraph::query::VirtualGraphDbAccessor *>(v->graph->impl)->getGraph();
           return vg->OutEdges(v->GetVirtualNode().Gid()).size();
         }
         auto maybe_out_degree = v->VisitReal([v](const auto &impl) { return impl.OutDegree(v->graph->view); });
@@ -3000,11 +2998,12 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
 
         // virtual nodes have no real edges — only virtual in-edges from the subgraph
         if (v->IsVirtual()) {
-          auto *vg = v->graph->VirtualGraphPtr();
-          if (!vg) {
+          auto *vg_acc = std::get_if<memgraph::query::VirtualGraphDbAccessor *>(&v->graph->impl);
+          if (!vg_acc) {
             throw memgraph::query::QueryRuntimeException(
                 "Cannot iterate in-edges: virtual node has no associated virtual graph context.");
           }
+          auto *vg = (*vg_acc)->getGraph();
           it->virtual_in_ = vg->InEdges(v->GetVirtualNode().Gid());
           it->virtual_in_it_ = it->virtual_in_.begin();
           if (!it->virtual_in_.empty()) {
@@ -3070,11 +3069,12 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         MG_ASSERT(it != nullptr);
         // virtual nodes have no real edges — only virtual out-edges from the subgraph
         if (v->IsVirtual()) {
-          auto *vg = v->graph->VirtualGraphPtr();
-          if (!vg) {
+          auto *vg_acc = std::get_if<memgraph::query::VirtualGraphDbAccessor *>(&v->graph->impl);
+          if (!vg_acc) {
             throw memgraph::query::QueryRuntimeException(
                 "Cannot iterate out-edges: virtual node has no associated virtual graph context.");
           }
+          auto *vg = (*vg_acc)->getGraph();
           it->virtual_out_ = vg->OutEdges(v->GetVirtualNode().Gid());
           it->virtual_out_it_ = it->virtual_out_.begin();
           if (!it->virtual_out_.empty()) {
