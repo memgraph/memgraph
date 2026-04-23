@@ -24,6 +24,7 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/label_property_index_entry.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -99,7 +100,7 @@ class EdgeAccessor;
 // TODO: list status Populating/Ready
 struct IndicesInfo {
   std::vector<LabelId> label;
-  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> label_properties;
+  std::vector<LabelPropertyIndexEntry> label_properties;
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<PropertyId> edge_property;
@@ -281,9 +282,10 @@ class Storage {
     virtual VerticesIterable Vertices(LabelId label, View view) = 0;
 
     virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
-                                      std::span<storage::PropertyValueRange const> property_ranges, View view) = 0;
+                                      std::span<storage::PropertyValueRange const> property_ranges, View view,
+                                      IndexOrder order = IndexOrder::ASC) = 0;
 
-    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
+    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
       return Vertices(
           label, properties, std::vector(properties.size(), storage::PropertyValueRange::IsNotNull()), view);
     };
@@ -294,7 +296,8 @@ class Storage {
 
     virtual VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                                     std::span<storage::PropertyValueRange const> property_ranges,
-                                                    View view, size_t num_chunks) = 0;
+                                                    View view, size_t num_chunks,
+                                                    IndexOrder order = IndexOrder::ASC) = 0;
 
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
@@ -517,6 +520,7 @@ class Storage {
                                                                          CheckCancelFunction cancel_check) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
+                                                                         IndexOrder order,
                                                                          CheckCancelFunction cancel_check) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
@@ -533,8 +537,9 @@ class Storage {
       return CreateIndex(label, neverCancel);
     }
 
-    auto CreateIndex(LabelId label, PropertiesPaths properties) -> std::expected<void, StorageIndexDefinitionError> {
-      return CreateIndex(label, std::move(properties), neverCancel);
+    auto CreateIndex(LabelId label, PropertiesPaths properties, IndexOrder order = IndexOrder::ASC)
+        -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(label, std::move(properties), order, neverCancel);
     }
 
     auto CreateIndex(EdgeTypeId edge_type) -> std::expected<void, StorageIndexDefinitionError> {
@@ -552,7 +557,8 @@ class Storage {
     virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) = 0;
+        LabelId label, std::vector<storage::PropertyPath> &&properties,
+        std::optional<IndexOrder> order = std::nullopt) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) = 0;
 

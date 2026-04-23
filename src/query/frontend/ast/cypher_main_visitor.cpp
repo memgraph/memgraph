@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <any>
 #include <cstring>
+#include <functional>
 #include <iterator>
 #include <range/v3/all.hpp>
 #include <ranges>
@@ -458,6 +459,13 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
     throw SemanticException("Properties cannot be repeated in a composite index.");
   }
 
+  if (auto *config_ctx = ctx->configsMap) {
+    if (index_query->properties_.empty()) {
+      throw SemanticException("WITH CONFIG is not supported for label-only indices.");
+    }
+    index_query->config_ = std::any_cast<ConfigMap>(config_ctx->accept(this));
+  }
+
   return index_query;
 }
 
@@ -466,6 +474,12 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   index_query->action_ = IndexQuery::Action::DROP;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   index_query->properties_ = get_index_properties(ctx->nestedPropertyKeyNames(), *this);
+  if (auto *config_ctx = ctx->configsMap) {
+    if (index_query->properties_.empty()) {
+      throw SemanticException("WITH CONFIG is not supported for label-only indices.");
+    }
+    index_query->config_ = std::any_cast<ConfigMap>(config_ctx->accept(this));
+  }
 
   return index_query;
 }

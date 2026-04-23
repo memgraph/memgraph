@@ -94,8 +94,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(LABEL_INDEX_STATS_CLEAR);
     add_case(LABEL_INDEX_DROP);
     add_case(LABEL_PROPERTIES_INDEX_CREATE);
-    add_case(LABEL_PROPERTIES_INDEX_STATS_SET);
     add_case(LABEL_PROPERTIES_INDEX_DROP);
+    add_case(LABEL_PROPERTIES_INDEX_STATS_SET);
     add_case(LABEL_PROPERTIES_INDEX_STATS_CLEAR);
     add_case(EDGE_INDEX_CREATE);
     add_case(EDGE_INDEX_DROP);
@@ -1778,7 +1778,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   return {};
 }
 
-auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties,
+auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties, IndexOrder order,
                                                     CheckCancelFunction cancel_check)
     -> std::expected<void, StorageIndexDefinitionError> {
   // UNIQUE access will be done only through schema.assert
@@ -1788,7 +1788,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  if (!mem_label_property_index->RegisterIndex(label, properties, updater)) {
+  if (!mem_label_property_index->RegisterIndex(label, properties, updater, order)) {
     return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
   DowngradeToReadIfValid();
@@ -1799,6 +1799,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
                            std::nullopt,
                            updater,
                            std::nullopt,
+                           order,
                            &transaction_,
                            std::move(cancel_check))
            .has_value()) {
@@ -1806,11 +1807,11 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
-    return mem_label_property_index->PublishIndex(label, properties, commit_timestamp);
+    return mem_label_property_index->PublishIndex(label, properties, commit_timestamp, order);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties), order);
   // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
@@ -1939,7 +1940,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping label-property index requires a unique or read access to the storage!");
@@ -1948,14 +1949,27 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
 
-  // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto was_dropped = storage_->invalidator_->invalidate_now(
-      [&] { return mem_label_property_index->DropIndex(label, properties, updater); });
-  if (!was_dropped) {
+  LabelPropertyIndex::DropResult drop_result;
+  storage_->invalidator_->invalidate_now([&] {
+    drop_result = mem_label_property_index->DropIndex(label, properties, updater, order);
+    return static_cast<bool>(drop_result);
+  });
+  if (!drop_result) {
     return std::unexpected{IndexDefinitionError{}};
   }
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
+  if (drop_result.dropped_asc) {
+    transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop,
+                                        label,
+                                        std::vector<storage::PropertyPath>(properties),
+                                        IndexOrder::ASC);
+  }
+  if (drop_result.dropped_desc) {
+    transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop,
+                                        label,
+                                        std::vector<storage::PropertyPath>(properties),
+                                        IndexOrder::DESC);
+  }
   // We don't care if there is a replication error because on main node the change will go through
 
   return {};
@@ -2256,10 +2270,15 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, std::span<storage::PropertyPath const> properties,
-    std::span<storage::PropertyValueRange const> property_ranges, View view) {
+    std::span<storage::PropertyValueRange const> property_ranges, View view, IndexOrder order) {
   auto *active_indices =
       static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
-  return VerticesIterable(active_indices->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
+  if (order == IndexOrder::DESC) {
+    return VerticesIterable(active_indices->Vertices<InMemoryLabelPropertyIndex::DescEntry>(
+        label, properties, property_ranges, view, storage_, &transaction_));
+  }
+  return VerticesIterable(active_indices->Vertices<InMemoryLabelPropertyIndex::Entry>(
+      label, properties, property_ranges, view, storage_, &transaction_));
 }
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(View view, size_t num_chunks) {
@@ -2278,11 +2297,15 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(Label
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
     LabelId label, std::span<storage::PropertyPath const> properties,
-    std::span<storage::PropertyValueRange const> property_ranges, View view, size_t num_chunks) {
+    std::span<storage::PropertyValueRange const> property_ranges, View view, size_t num_chunks, IndexOrder order) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto *active_indices =
       static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
-  return VerticesChunkedIterable(active_indices->ChunkedVertices(
+  if (order == IndexOrder::DESC) {
+    return VerticesChunkedIterable(active_indices->ChunkedVertices<InMemoryLabelPropertyIndex::DescEntry>(
+        label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
+  }
+  return VerticesChunkedIterable(active_indices->ChunkedVertices<InMemoryLabelPropertyIndex::Entry>(
       label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
 }
 
@@ -3275,6 +3298,7 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
                                 *mem_storage->name_id_mapper_,
                                 md_delta.label_ordered_properties.label,
                                 md_delta.label_ordered_properties.properties);
+          encoder.WriteUint(static_cast<uint64_t>(md_delta.label_ordered_properties.order));
         });
         break;
       }
@@ -4338,8 +4362,8 @@ void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
     [[maybe_unused]] auto maybe_error = DropIndex(label_id);
   }
 
-  for (auto &[label_id, properties] : indices_info.label_properties) {
-    [[maybe_unused]] auto maybe_error = DropIndex(label_id, std::move(properties));
+  for (auto &entry : indices_info.label_properties) {
+    [[maybe_unused]] auto maybe_error = DropIndex(entry.label, std::move(entry.properties));
   }
 
   for (const auto &edge_type_id : indices_info.edge_type) {

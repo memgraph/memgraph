@@ -631,7 +631,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     } else {
       info.offset_ttl = SnapshotInfo::kInvalidOffset;
     }
-    if (*version >= kDescriptionSupport) {
+    if (*version >= kDescriptionAndDescIndexSupport) {
       info.offset_descriptions = read_offset();
     } else {
       info.offset_descriptions = SnapshotInfo::kInvalidOffset;
@@ -10289,6 +10289,22 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       spdlog::info("Metadata of label+property indices are recovered.");
     }
 
+    // Recover DESC label+property indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of DESC label properties indices.");
+      spdlog::info("Recovering metadata of {} DESC label+properties indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for DESC label properties index.");
+        auto property_paths = get_property_paths("DESC label properties index");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties_desc,
+                                    {get_label_from_id(*label), property_paths},
+                                    "The DESC label+property index already exists!");
+      }
+      spdlog::info("Metadata of DESC label+property indices are recovered.");
+    }
+
     // Recover label+property indices statistics.
     {
       auto size = snapshot.ReadUint();
@@ -11585,11 +11601,12 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
     }
 
-    // Write label+properties indices.
-    {
-      auto label_property = transaction->active_indices_->label_properties_->ListIndices(transaction->start_timestamp);
+    auto *inmem_active_indices =
+        static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction->active_indices_->label_properties_.get());
+
+    auto const write_label_property_indices = [&](auto const &label_property) {
       snapshot.WriteUint(label_property.size());
-      for (const auto &[label, property_paths] : label_property) {
+      for (const auto &[label, property_paths, order] : label_property) {
         write_mapping(label);
         snapshot.WriteUint(property_paths.size());
         for (const auto &property_path : property_paths) {
@@ -11599,48 +11616,70 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
           }
         }
       }
-      if (snapshot_aborted()) {
-        return std::nullopt;
-      }
-    }
+    };
 
-    // Write label+property indices statistics.
-    {
-      // NOTE: On-disk does not support snapshots
+    auto const write_label_property_stats = [&](auto const &asc, auto const &desc) {
       auto *inmem_index = static_cast<InMemoryLabelPropertyIndex *>(storage->indices_.label_property_index_.get());
-      auto label_property_path_pair =
-          transaction->active_indices_->label_properties_->ListIndices(transaction->start_timestamp);
       const auto size_pos = snapshot.GetPosition();
-      snapshot.WriteUint(0);  // Just a place holder
+      snapshot.WriteUint(0);  // placeholder — not every index has stats
       unsigned i = 0;
-      for (const auto &item : label_property_path_pair) {
-        auto stats = inmem_index->GetIndexStats(item);
-        if (stats) {
-          snapshot.WriteUint(item.first.AsUint());
-          snapshot.WriteUint(item.second.size());
-          for (const auto &property_path : item.second) {
-            snapshot.WriteUint(property_path.size());
-            for (const auto &property : property_path) {
-              snapshot.WriteUint(property.AsUint());
+      std::set<std::pair<LabelId, PropertiesPaths>> written;
+
+      auto write_stats_for = [&](auto const &indices) {
+        for (const auto &item : indices) {
+          auto key = std::make_pair(item.label, item.properties);
+          if (written.contains(key)) continue;
+          auto stats = inmem_index->GetIndexStats({item.label, item.properties});
+          if (stats) {
+            written.insert(std::move(key));
+            write_mapping(item.label);
+            snapshot.WriteUint(item.properties.size());
+            for (const auto &property_path : item.properties) {
+              snapshot.WriteUint(property_path.size());
+              for (const auto &property : property_path) {
+                write_mapping(property);
+              }
             }
+            snapshot.WriteUint(stats->count);
+            snapshot.WriteUint(stats->distinct_values_count);
+            snapshot.WriteDouble(stats->statistic);
+            snapshot.WriteDouble(stats->avg_group_size);
+            snapshot.WriteDouble(stats->avg_degree);
+            ++i;
           }
-          snapshot.WriteUint(stats->count);
-          snapshot.WriteUint(stats->distinct_values_count);
-          snapshot.WriteDouble(stats->statistic);
-          snapshot.WriteDouble(stats->avg_group_size);
-          snapshot.WriteDouble(stats->avg_degree);
-          ++i;
         }
-      }
+      };
+
+      write_stats_for(asc);
+      write_stats_for(desc);
+
       if (i != 0) {
         const auto last_pos = snapshot.GetPosition();
         snapshot.SetPosition(size_pos);
-        snapshot.WriteUint(i);  // Write real size
+        snapshot.WriteUint(i);  // write real size
         snapshot.SetPosition(last_pos);
       }
-      if (snapshot_aborted()) {
-        return std::nullopt;
-      }
+    };
+
+    auto asc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
+    auto desc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
+
+    // Write ASC label+properties indices.
+    {
+      write_label_property_indices(asc_indices);
+      if (snapshot_aborted()) return std::nullopt;
+    }
+
+    // Write DESC label+properties indices.
+    {
+      write_label_property_indices(desc_indices);
+      if (snapshot_aborted()) return std::nullopt;
+    }
+
+    // Write label+property index statistics — covers both ASC and DESC indices, deduplicated.
+    {
+      write_label_property_stats(asc_indices, desc_indices);
+      if (snapshot_aborted()) return std::nullopt;
     }
 
     // Write edge-type indices.

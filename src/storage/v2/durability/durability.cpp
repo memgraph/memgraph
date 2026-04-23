@@ -282,6 +282,21 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Label+property indices are recreated.");
   }
 
+  // Recover DESC label+property indices.
+  {
+    spdlog::info("Recreating {} DESC label+property indices from metadata.",
+                 indices_metadata.label_properties_desc.size());
+    for (auto const &[label, properties] : indices_metadata.label_properties_desc) {
+      if (!mem_label_property_index->CreateIndexOnePass(
+              label, properties, vertices->access(), parallel_exec_info, updater, snapshot_info, IndexOrder::DESC))
+        throw RecoveryFailure("The DESC label+property index must be created here!");
+      spdlog::info("DESC index on :{}({}) is recreated from metadata",
+                   name_id_mapper->IdToName(label.AsUint()),
+                   PropertyPathFormatter{.data = properties, .name_mapper = name_id_mapper});
+    }
+    spdlog::info("DESC label+property indices are recreated.");
+  }
+
   // Recover label+property indices statistics.
   {
     spdlog::info("Recreating {} label+property indices statistics from metadata.",
