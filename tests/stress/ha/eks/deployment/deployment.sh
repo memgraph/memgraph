@@ -341,7 +341,21 @@ install_memgraph_ha() {
         exit 1
     fi
 
+    log_chart_version
     log_info "Memgraph HA Helm release installed"
+}
+
+log_chart_version() {
+    local chart_info
+    chart_info=$(helm list -o json 2>/dev/null | \
+        jq -r --arg name "$HELM_RELEASE_NAME" \
+        '.[] | select(.name==$name) | "\(.chart) (app_version=\(.app_version))"' 2>/dev/null)
+
+    if [[ -n "$chart_info" ]]; then
+        log_info "Helm chart: $chart_info"
+    else
+        log_warn "Could not determine Helm chart version"
+    fi
 }
 
 wait_for_pods() {
@@ -701,6 +715,7 @@ upgrade_memgraph() {
     log_info "Running: helm upgrade $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE [+ overrides]"
     eval "$helm_cmd"
 
+    log_chart_version
     wait_for_pods
 }
 
