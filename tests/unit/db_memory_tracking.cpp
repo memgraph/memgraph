@@ -289,6 +289,9 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
     accessor->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
   }
 
+  db1->storage()->FreeMemory();
+  db1->storage()->FreeMemory();
+
   const int64_t db1_edge_before = db1->DbEmbeddingMemoryUsage();
   const int64_t db2_edge_before = db2->DbEmbeddingMemoryUsage();
   const int64_t db1_edge_total_before = db1->DbMemoryUsage();
