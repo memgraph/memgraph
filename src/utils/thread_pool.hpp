@@ -26,9 +26,10 @@ namespace memgraph::utils {
 class ThreadPool {
  public:
   using TaskSignature = std::move_only_function<void()>;
-  using ThreadInitFn = std::move_only_function<void()>;
+  using ThreadInitFn = std::move_only_function<TaskSignature()>;
 
-  // Optional initializer runs once inside each worker thread before tasks start.
+  // Optional initializer runs once inside each worker thread before tasks start
+  // and may return a cleanup callback that runs when the worker exits.
   explicit ThreadPool(size_t pool_size, ThreadInitFn thread_init = {});
 
   void AddTask(TaskSignature new_task);

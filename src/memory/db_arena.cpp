@@ -164,8 +164,8 @@ bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_vi
     return false;
   }
 
-  // Cache base hooks for the specific arena before overwriting
-  hooks.base_hooks = base_hooks;
+  DMG_ASSERT(hooks.base_hooks == nullptr || hooks.base_hooks == base_hooks,
+             "Inconsistent jemalloc base hooks across ArenaPool arenas");
 
   const extent_hooks_t *new_hooks = &hooks.hooks;
   err = je_mallctl(hooks_key.c_str(),
@@ -193,11 +193,16 @@ class PendingArena {
       if (hooks_installed_ && base_hooks_) {
         const std::string hooks_key = "arena." + std::to_string(arena_idx_) + ".extent_hooks";
         const extent_hooks_t *base = base_hooks_;
-        je_mallctl(hooks_key.c_str(),
-                   nullptr,
-                   nullptr,
-                   static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
-                   sizeof(extent_hooks_t *));
+        const int err = je_mallctl(hooks_key.c_str(),
+                                   nullptr,
+                                   nullptr,
+                                   static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
+                                   sizeof(extent_hooks_t *));
+        if (err != 0) {
+          LogDestructorCleanupFailure("PendingArena", arena_idx_, "restore hooks",
+                                      fmt::format("err={} (arena leaked from GlobalArenaPool reuse)", err));
+          return;
+        }
       }
       GlobalArenaPool::Instance().Release(arena_idx_);
     } catch (const std::exception &e) {
@@ -285,6 +290,8 @@ ArenaPool::~ArenaPool() noexcept {
       if (err != 0) {
         spdlog::error("ArenaPool {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx,
                       err);
+        spdlog::error("ArenaPool {}: leaking arena from GlobalArenaPool reuse after failed hook restore", arena_idx);
+        continue;
       }
 
       try {

@@ -49,9 +49,10 @@ TEST(ThreadPool, ThreadInitializerRunsBeforeTasks) {
   static constexpr int initialized_marker = 42;
 
   std::atomic<size_t> initialized_threads{0};
-  memgraph::utils::ThreadPool pool{4, [&] {
+  memgraph::utils::ThreadPool pool{4, [&]() -> memgraph::utils::ThreadPool::TaskSignature {
                                      thread_pool_init_marker = initialized_marker;
                                      initialized_threads.fetch_add(1);
+                                     return {};
                                    }};
   while (initialized_threads.load() != 4U) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));

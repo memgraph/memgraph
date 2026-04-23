@@ -53,8 +53,9 @@ ThreadPool::~ThreadPool() {
 }
 
 void ThreadPool::ThreadLoop() {
+  TaskSignature thread_cleanup;
   if (thread_init_) {
-    thread_init_();
+    thread_cleanup = thread_init_();
   }
   auto const token = pool_stop_source_.get_token();
   while (true) {
@@ -62,12 +63,15 @@ void ThreadPool::ThreadLoop() {
     {
       auto guard = std::unique_lock{pool_lock_};
       queue_cv_.wait(guard, token, [&] { return !task_queue_.empty(); });
-      if (token.stop_requested()) return;
+      if (token.stop_requested()) break;
       task = std::move(task_queue_.front());
       task_queue_.pop();
     }
     task();
     unfinished_tasks_num_.fetch_sub(1);
+  }
+  if (thread_cleanup) {
+    thread_cleanup();
   }
 }
 

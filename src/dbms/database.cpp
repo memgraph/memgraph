@@ -70,11 +70,11 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 #endif
       after_commit_trigger_pool_{1,
 #if USE_JEMALLOC
-                                 // After-commit triggers run on this dedicated DB worker.
-                                 // Use the base DB arena for the worker lifetime.
-                                 [this] {
-                                   memory::tls_db_arena_state.arena_pool = db_arena_.get();
-                                   memory::tls_db_arena_state.arena = db_arena_->idx();
+                                 // After-commit triggers run on a dedicated DB worker.
+                                 // Keep a DB arena scope alive for the full worker lifetime.
+                                 [this]() -> utils::ThreadPool::TaskSignature {
+                                   auto db_arena_scope = std::make_unique<memory::DbArenaScope>(db_arena_.get());
+                                   return [db_arena_scope = std::move(db_arena_scope)]() mutable { db_arena_scope.reset(); };
                                  }
 #else
                                  {}
@@ -157,17 +157,11 @@ void Database::SwitchToOnDisk() {
 
 // DbArenaScope constructor implementation (Database* variant) - defined here
 // to avoid circular include between db_arena.cpp and database.hpp
-#if USE_JEMALLOC
 namespace memgraph::memory {
-
+#if USE_JEMALLOC
 DbArenaScope::DbArenaScope(const memgraph::dbms::Database *db, DbArenaScope::Type type)
     : DbArenaScope(db != nullptr ? &db->Arena() : nullptr, type) {}
-
-}  // namespace memgraph::memory
 #else
-namespace memgraph::memory {
-
 DbArenaScope::DbArenaScope(const memgraph::dbms::Database * /*db*/, DbArenaScope::Type /*type*/) : DbArenaScope() {}
-
-}  // namespace memgraph::memory
 #endif
+}  // namespace memgraph::memory
