@@ -1409,34 +1409,26 @@ void from_json(const nlohmann::json &data, UserImpersonation &usr_imp) {
   usr_imp = {std::move(granted), std::move(denied)};
 }
 
-const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessLabelPermissions(
+FineGrainedAccessPermissions Roles::GetFineGrainedAccessLabelPermissions(
     std::optional<std::string_view> db_name) const {
-  if (roles_.empty()) return empty_permissions;
-
   FineGrainedAccessPermissions combined_permissions;
   for (const auto &role : roles_) {
     if (!db_name || role.HasAccess(*db_name)) {
       combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().label_permissions());
     }
   }
-  static FineGrainedAccessPermissions result;
-  result = combined_permissions;
-  return result;
+  return combined_permissions;
 }
 
-const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessEdgeTypePermissions(
+FineGrainedAccessPermissions Roles::GetFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db_name) const {
-  if (roles_.empty()) return empty_permissions;
-
   FineGrainedAccessPermissions combined_permissions;
   for (const auto &role : roles_) {
     if (!db_name || role.HasAccess(*db_name)) {
       combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().edge_type_permissions());
     }
   }
-  static FineGrainedAccessPermissions result;
-  result = combined_permissions;
-  return result;
+  return combined_permissions;
 }
 #endif  // MG_ENTERPRISE
 

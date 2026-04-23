@@ -2,3 +2,37 @@
 
 # We are not packaging log dir
 addFilter("E: logrotate-log-dir-not-packaged")
+
+# libstdc++ COPYING ships with the old FSF address
+addFilter("E: incorrect-fsf-address")
+
+# third-party LICENSE files may ship with CRLF line endings
+addFilter("W: wrong-file-end-of-line-encoding")
+
+# debug symbols are stripped downstream; intentional here
+addFilter("W: unstripped-binary-or-object")
+
+# mgconsole is built without -pie
+addFilter("W: position-independent-executable-suggested")
+
+# mgconsole has no man page
+addFilter("W: no-manual-page-for-binary")
+
+# rpmlint misparses our SPDX-style License field
+addFilter("W: invalid-license")
+
+# third-party licenses are duplicated intentionally
+addFilter("W: files-duplicate")
+
+# %preun/%postun are intentionally empty
+addFilter("W: empty-%preun")
+addFilter("W: empty-%postun")
+
+# query_modules and mgp headers ship alongside the runtime by design
+addFilter("W: devel-file-in-non-devel-package")
+
+# chown in %post is required to set ownership of memgraph directories
+addFilter("W: dangerous-command-in-%post")
+
+# gethostbyname is pulled in transitively; no IPv6 regression
+addFilter("W: binary-or-shlib-calls-gethostbyname")

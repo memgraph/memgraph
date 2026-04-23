@@ -45,7 +45,7 @@ inline std::string_view LTrim(const std::string_view s) {
 /** Remove characters found in `chars` from the start of a string. */
 inline std::string_view LTrim(const std::string_view s, const std::string_view chars) {
   size_t start = 0;
-  while (start < s.size() && chars.find(s[start]) != std::string::npos) {
+  while (start < s.size() && chars.contains(s[start])) {
     ++start;
   }
   return std::string_view(s.data() + start, s.size() - start);
@@ -63,7 +63,7 @@ inline std::string_view RTrim(const std::string_view s) {
 /** Remove characters found in `chars` from the end of a string. */
 inline std::string_view RTrim(const std::string_view s, const std::string_view chars) {
   size_t count = s.size();
-  while (count > static_cast<size_t>(0) && chars.find(s[count - 1]) != std::string::npos) {
+  while (count > 0UZ && chars.contains(s[count - 1])) {
     --count;
   }
   return std::string_view(s.data(), count);
@@ -86,10 +86,10 @@ inline std::string_view Trim(const std::string_view s) {
 inline std::string_view Trim(const std::string_view s, const std::string_view chars) {
   size_t start = 0;
   size_t count = s.size();
-  while (start < s.size() && chars.find(s[start]) != std::string::npos) {
+  while (start < s.size() && chars.contains(s[start])) {
     ++start;
   }
-  while (count > start && chars.find(s[count - 1]) != std::string::npos) {
+  while (count > start && chars.contains(s[count - 1])) {
     --count;
   }
   return std::string_view(s.data() + start, count - start);
@@ -374,11 +374,7 @@ inline bool StartsWith(const std::string_view s, const std::string_view prefix) 
 
 /** Perform case-insensitive string equality test. */
 inline bool IEquals(const std::string_view lhs, const std::string_view rhs) {
-  if (lhs.size() != rhs.size()) return false;
-  for (size_t i = 0; i < lhs.size(); ++i) {
-    if (tolower(lhs[i]) != tolower(rhs[i])) return false;
-  }
-  return true;
+  return std::ranges::equal(lhs, rhs, [](char a, char b) { return tolower(a) == tolower(b); });
 }
 
 /**
@@ -395,7 +391,7 @@ std::basic_string<char, std::char_traits<char>, TAllocator> *RandomString(
   static thread_local std::mt19937 pseudo_rand_gen{std::random_device{}()};
   static thread_local std::uniform_int_distribution<size_t> rand_dist{0, strlen(charset) - 1};
   out->resize(length);
-  for (size_t i = 0; i < length; ++i) (*out)[i] = charset[rand_dist(pseudo_rand_gen)];
+  std::ranges::generate(*out, [] { return charset[rand_dist(pseudo_rand_gen)]; });
   return out;
 }
 

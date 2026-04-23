@@ -90,7 +90,7 @@ bool FileReplicationHandler::ValidateFilename(std::optional<std::string> const &
     return false;
   }
 
-  if (filename.find('.') != std::string::npos) {
+  if (filename.contains('.')) {
     spdlog::error("Filename must not contain extension: {}", filename);
     return false;
   }

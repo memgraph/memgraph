@@ -73,6 +73,10 @@ class Memgraph(ConanFile):
         "nuraft/*:asio": "standalone",
         "rocksdb/*:with_gflags": True,
         "rocksdb/*:use_rtti": True,
+        # Disable io_uring async I/O path in rocksdb's POSIX env. Avoids
+        # pulling liburing into the static link; flip to True (pulls
+        # liburing via Conan) to opt back in.
+        "rocksdb/*:with_liburing": False,
     }
 
     def requirements(self):

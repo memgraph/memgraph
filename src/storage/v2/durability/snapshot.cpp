@@ -11802,7 +11802,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     snapshot.WriteUint(used_ids.size());
     // Sort ids so they match expectations
     std::vector<uint64_t> sorted_ids(used_ids.begin(), used_ids.end());
-    std::sort(sorted_ids.begin(), sorted_ids.end());
+    std::ranges::sort(sorted_ids);
     for (auto item : sorted_ids) {
       snapshot.WriteUint(item);
       snapshot.WriteString(storage->name_id_mapper_->IdToName(item));

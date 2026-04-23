@@ -420,9 +420,8 @@ void RegisterMgFunctions(std::map<std::string, std::shared_ptr<Module>, std::les
 namespace {
 bool IsAllowedExtension(const auto &extension) {
   static constexpr std::array<std::string_view, 1> allowed_extensions{".py"};
-  return std::any_of(allowed_extensions.begin(), allowed_extensions.end(), [&](const auto allowed_extension) {
-    return allowed_extension == extension;
-  });
+  return std::ranges::any_of(allowed_extensions,
+                             [&](const auto allowed_extension) { return allowed_extension == extension; });
 }
 
 bool IsSubPath(const auto &base, const auto &destination) {
@@ -1092,7 +1091,7 @@ bool PythonModule::Close() {
        ++it) {
     std::string dir_entry_stem = it->path().stem().string();
     if (it->is_regular_file() || dir_entry_stem == "__pycache__") continue;
-    if (dir_entry_stem.find(stem) != std::string_view::npos) {
+    if (dir_entry_stem.contains(stem)) {
       it.disable_recursion_pending();
       submodules.emplace_back(it->path());
     }
