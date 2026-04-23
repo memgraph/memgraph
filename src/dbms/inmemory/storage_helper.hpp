@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
@@ -20,12 +21,13 @@ namespace memgraph::dbms {
 inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::Config config,
     storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
+    metrics::DatabaseMetricHandles *metric_handles = nullptr,
     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr) {
   const bool is_coordinator = config.is_coordinator;
 
   // Use default safe factory from Storage constructor for basic usage
   auto storage = std::make_unique<storage::InMemoryStorage>(
-      std::move(config), std::nullopt, std::move(invalidator), std::move(database_protector_factory));
+      std::move(config), std::nullopt, std::move(invalidator), metric_handles, std::move(database_protector_factory));
 
   if (!is_coordinator) {
     storage->CreateSnapshotHandler(

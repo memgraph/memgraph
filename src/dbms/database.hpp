@@ -26,6 +26,10 @@ class Streams;
 }  // namespace stream
 }  // namespace memgraph::query
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 namespace memgraph::dbms {
 
 struct DatabaseInfo {
@@ -50,7 +54,6 @@ class Database {
    */
   explicit Database(storage::Config config,
                     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
-
   ~Database();
 
   /**
@@ -180,7 +183,35 @@ class Database {
    */
   void StopAllBackgroundTasks();
 
+  metrics::DatabaseMetricHandles const *metric_handles() const { return metrics_.handles(); }
+
+  metrics::DatabaseMetricHandles *metric_handles() { return metrics_.handles(); }
+
  private:
+  // RAII guard that de-registers this database's metric handles from the
+  // global PrometheusMetrics registry on destruction.
+  class DatabaseMetricsRegistration {
+   public:
+    DatabaseMetricsRegistration() = default;
+
+    explicit DatabaseMetricsRegistration(metrics::DatabaseMetricHandles *handles) : handles_(handles) {}
+
+    ~DatabaseMetricsRegistration();
+
+    DatabaseMetricsRegistration(DatabaseMetricsRegistration const &) = delete;
+    DatabaseMetricsRegistration &operator=(DatabaseMetricsRegistration const &) = delete;
+    DatabaseMetricsRegistration(DatabaseMetricsRegistration &&) = delete;
+    DatabaseMetricsRegistration &operator=(DatabaseMetricsRegistration &&) = delete;
+
+    metrics::DatabaseMetricHandles *handles() const { return handles_; }
+
+    void reset(metrics::DatabaseMetricHandles *handles);
+
+   private:
+    metrics::DatabaseMetricHandles *handles_{nullptr};
+  };
+
+  DatabaseMetricsRegistration metrics_;                 //!< De-registration guard for this db's prometheus metrics
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers

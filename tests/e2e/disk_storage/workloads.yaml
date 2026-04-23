@@ -6,6 +6,14 @@ disk_storage: &disk_storage
       setup_queries: []
       validation_queries: []
 
+disk_storage_with_metrics: &disk_storage_with_metrics
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level", "TRACE", "--memory-limit", "150", "--metrics-address", "127.0.0.1", "--metrics-port", "9091"]
+      log_file: "disk_storage.log"
+      setup_queries: []
+      validation_queries: []
+
 workloads:
   - name: "Tests SHOW STORAGE INFO clause"
     binary: "tests/e2e/pytest_runner.sh"
@@ -56,3 +64,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["disk_storage/update_storage_mode_memory_to_disk.py"]
     <<: *disk_storage
+
+  - name: "Tests that the metrics endpoint is alive after switching to on-disk storage."
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/metrics_after_storage_mode_switch.py"]
+    <<: *disk_storage_with_metrics

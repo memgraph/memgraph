@@ -794,7 +794,7 @@ TYPED_TEST(QueryPlanTest, Delete) {
     auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, true);
     Frame frame(symbol_table.max_position());
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    delete_op->MakeCursor(memgraph::utils::NewDeleteResource())->Pull(frame, context);
+    delete_op->MakeCursor(memgraph::utils::NewDeleteResource(), nullptr)->Pull(frame, context);
     dba.AdvanceCommand();
     EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     EXPECT_EQ(6, CountEdges(&dba, memgraph::storage::View::OLD));

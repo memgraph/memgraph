@@ -161,6 +161,7 @@ target_link_libraries(mg-query
     mg-utils
     mg-aws
     mg-query-cppm
+    mg-events
     mg-kvstore
     mg-memory-utils
     mg::csv
@@ -168,7 +169,6 @@ target_link_libraries(mg-query
     mg-flags
     mg-dbms
     mg-coordination
-    mg-events
     mg-parameters
     mg::planner
     PRIVATE

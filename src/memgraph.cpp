@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <variant>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
@@ -38,6 +39,7 @@
 #include "flags/general.hpp"
 #include "flags/logging.hpp"
 #include "glue/MonitoringServerT.hpp"
+#include "glue/PrometheusServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
@@ -45,6 +47,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -63,8 +66,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
-#include "utils/concurrency_hint.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/readable_size.hpp"
@@ -80,10 +81,6 @@
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
-
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-}  // namespace memgraph::metrics
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -353,14 +350,14 @@ int main(int argc, char **argv) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
       mem_log_scheduler.SetInterval(std::chrono::seconds(3));
-      mem_log_scheduler.Run("Memory check", [] {
+      mem_log_scheduler.Run("Memory check", [peak_gauge = memgraph::metrics::Metrics().global.peak_memory_res_bytes] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn(memgraph::utils::MessageWithLink(
               "Running out of available RAM, only {} MB left.", *free_ram / 1024, "https://memgr.ph/ram"));
 
         auto memory_res = memgraph::utils::GetMemoryRES();
-        memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
+        peak_gauge->Set(std::max(static_cast<double>(memory_res), peak_gauge->Value()));
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -717,6 +714,19 @@ int main(int argc, char **argv) {
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config);
 
+  memgraph::metrics::Metrics().SetStorageSnapshotResolver(
+      [&dbms_handler](std::string_view name) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        return dbms_handler.TryGetStorageSnapshotForMetrics(name);
+      });
+
+#ifdef MG_ENTERPRISE
+  memgraph::metrics::Metrics().SetInstanceStatusResolver(
+      [&coordinator_state]() -> std::vector<memgraph::coordination::InstanceStatus> {
+        if (!coordinator_state || !coordinator_state->IsCoordinator()) return {};
+        return coordinator_state->ShowInstances();
+      });
+#endif
+
   // singleton replication state
   // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -921,10 +931,19 @@ int main(int argc, char **argv) {
     spdlog::error("Skipping adding logger sync for websocket.");
   }
 
-// TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
-  memgraph::glue::MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &bolt_server_context};
+  auto const metrics_endpoint =
+      memgraph::io::network::Endpoint{FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)};
+  using MetricsServerVariant = std::variant<memgraph::glue::PrometheusServerT, memgraph::glue::MonitoringServerT>;
+  MetricsServerVariant metrics_server =
+      FLAGS_metrics_format == "JSON" ? MetricsServerVariant{std::in_place_type<memgraph::glue::MonitoringServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context}
+                                     : MetricsServerVariant{std::in_place_type<memgraph::glue::PrometheusServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context};
   spdlog::trace("Metrics server created.");
 #endif
 
@@ -981,7 +1000,7 @@ int main(int argc, char **argv) {
     spdlog::trace("Shutting down websocket server");
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
-    metrics_server.Shutdown();
+    std::visit([](auto &s) { s.Shutdown(); }, metrics_server);
     if (coordinator_state && coordinator_state->IsCoordinator()) {
       // Coordinator instance destruction will handle the complete shutdown
       coordinator_state.reset();
@@ -999,8 +1018,17 @@ int main(int argc, char **argv) {
   spdlog::trace("Web socket server started.");
 
 #ifdef MG_ENTERPRISE
-  metrics_server.Start();
-  spdlog::trace("Metrics server started");
+  std::visit(
+      [](auto &s) {
+        s.Start();
+        if (s.IsRunning()) {
+          spdlog::trace("Metrics server started");
+        } else {
+          spdlog::warn("Metrics server failed to start on port {}. The port may already be in use.",
+                       FLAGS_metrics_port);
+        }
+      },
+      metrics_server);
 #endif
 
   if (!FLAGS_init_data_file.empty()) {
@@ -1029,7 +1057,7 @@ int main(int argc, char **argv) {
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
-  metrics_server.AwaitShutdown();
+  std::visit([](auto &s) { s.AwaitShutdown(); }, metrics_server);
 #endif
   try {
     memgraph::query::procedure::gModuleRegistry.UnloadAllModules();

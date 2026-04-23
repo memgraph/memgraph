@@ -17,4 +17,7 @@ target_sources(mg-dbms
     database_protector.hpp
 )
 
-target_link_libraries(mg-dbms PUBLIC mg-utils mg::storage mg-query mg-auth mg-replication PRIVATE mg-coordination)
+target_link_libraries(mg-dbms
+    PUBLIC mg-utils mg::storage mg-query mg-auth mg-replication mg-metrics
+    PRIVATE mg-coordination
+)

@@ -20,6 +20,10 @@
 #include <variant>
 #include <vector>
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 

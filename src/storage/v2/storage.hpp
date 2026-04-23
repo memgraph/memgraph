@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "common_function_signatures.hpp"
 #include "mg_procedure.h"
 #include "storage/v2/access_type.hpp"
@@ -35,27 +37,11 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_chunked_iterable.hpp"
 #include "storage/v2/vertices_iterable.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 
 namespace memgraph::metrics {
-extern const Event SnapshotCreationLatency_us;
-
-extern const Event ActiveLabelIndices;
-extern const Event ActiveLabelPropertyIndices;
-extern const Event ActiveEdgeTypeIndices;
-extern const Event ActiveEdgeTypePropertyIndices;
-extern const Event ActiveEdgePropertyIndices;
-extern const Event ActivePointIndices;
-extern const Event ActiveTextIndices;
-extern const Event ActiveTextEdgeIndices;
-extern const Event ActiveVectorIndices;
-extern const Event ActiveVectorEdgeIndices;
-
-extern const Event ActiveExistenceConstraints;
-extern const Event ActiveUniqueConstraints;
-extern const Event ActiveTypeConstraints;
+struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -142,13 +128,6 @@ struct StorageInfo {
   uint64_t schema_edge_count;
 };
 
-struct EventInfo {
-  std::string name;
-  std::string type;
-  std::string event_type;
-  uint64_t value;
-};
-
 static inline nlohmann::json ToJson(const StorageInfo &info) {
   nlohmann::json res;
 
@@ -210,6 +189,7 @@ class Storage {
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
+          metrics::DatabaseMetricHandles *metric_handles,
           std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
 
   Storage(const Storage &) = delete;
@@ -1055,8 +1035,6 @@ class Storage {
 
   virtual StorageInfo GetBaseInfo() = 0;
 
-  static std::vector<EventInfo> GetMetrics() noexcept;
-
   virtual StorageInfo GetInfo() = 0;
 
   size_t GetDescriptionCount() const { return description_store_.Size(); }
@@ -1125,6 +1103,8 @@ class Storage {
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
 
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+
   Indices indices_;
   Constraints constraints_;
   PlanInvalidatorPtr invalidator_;
@@ -1153,7 +1133,7 @@ class Storage {
   // A way to tell async operation to stop
   std::stop_source stop_source;
 
-  ttl::TTL ttl_{this};  // TTL handler
+  ttl::TTL ttl_{this, metric_handles_};  // TTL handler
 
   // Factory function to create database protectors for async operations
   // Used by async indexer and TTL system to get protectors for committing transactions

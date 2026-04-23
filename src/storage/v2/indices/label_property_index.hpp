@@ -11,6 +11,10 @@
 
 #pragma once
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/vertex.hpp"

@@ -11,7 +11,13 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
 #include <span>
+
+#include "metrics/scoped_gauge.hpp"
 
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
@@ -41,13 +47,17 @@ class InMemoryLabelIndex : public LabelIndex {
   };
 
  public:
+  explicit InMemoryLabelIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
+      : metric_handles_{metric_handles} {}
+
   struct IndividualIndex {
     IndividualIndex() {}
 
-    ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    ~IndividualIndex() = default;
+    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
     utils::SkipList<Entry> skiplist{};
     IndexStatus status{};
+    metrics::ScopedGauge gauge_{};
   };
 
   struct AllIndicesEntry {
@@ -230,6 +240,8 @@ class InMemoryLabelIndex : public LabelIndex {
  private:
   auto CleanupAllIndices() -> void;
   auto GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex>;
+
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

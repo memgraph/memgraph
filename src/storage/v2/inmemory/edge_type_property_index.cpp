@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
@@ -191,19 +192,14 @@ bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, Property
 bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(edge_type, property);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  auto *gauge = metric_handles_ ? metric_handles_->active_edge_type_property_indices : nullptr;
+  index->Publish(commit_timestamp, gauge);
   return true;
 }
 
-void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypePropertyIndices);
-}
-
-InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() {
-  if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypePropertyIndices);
-  }
+  gauge_ = metrics::ScopedGauge{gauge};
 }
 
 bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property,
@@ -222,12 +218,11 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, Pro
 bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId property,
                                               ActiveIndicesUpdater const &updater) {
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {
-    {
-      auto it = index_container->find({edge_type, property});
-      if (it == index_container->end()) [[unlikely]] {
-        return false;
-      }
+    auto it = index_container->find({edge_type, property});
+    if (it == index_container->end()) [[unlikely]] {
+      return false;
     }
+    it->second->gauge_ = {};
 
     auto new_container = std::make_shared<IndexContainer>(*index_container);
     new_container->erase({edge_type, property});

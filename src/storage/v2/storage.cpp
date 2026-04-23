@@ -17,6 +17,7 @@
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -30,9 +31,6 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/atomic_memory_block.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/event_gauge.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/small_vector.hpp"
@@ -90,6 +88,7 @@ auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::millis
 }  // namespace
 
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
+                 metrics::DatabaseMetricHandles *metric_handles,
                  std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory)
     : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
@@ -101,8 +100,9 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       config_(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
-      indices_(config, storage_mode),
-      constraints_(config, storage_mode),
+      metric_handles_{metric_handles},
+      indices_(config, storage_mode, metric_handles),
+      constraints_(config, storage_mode, metric_handles),
       invalidator_{std::move(invalidator)},
       database_protector_factory_{database_protector_factory ? std::move(database_protector_factory)
                                                              : []() -> std::unique_ptr<DatabaseProtector> {
@@ -171,37 +171,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
 }
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
-
-std::vector<EventInfo> Storage::GetMetrics() noexcept {
-  std::vector<EventInfo> result;
-  result.reserve(metrics::CounterEnd() + metrics::GaugeEnd() + metrics::HistogramEnd());
-
-  const auto *kCounterName = "Counter";
-  const auto *kGaugeName = "Gauge";
-  const auto *kHistogramName = "Histogram";
-
-  for (auto i = 0; i < metrics::CounterEnd(); i++) {
-    result.emplace_back(
-        metrics::GetCounterName(i), metrics::GetCounterType(i), kCounterName, metrics::global_counters[i]);
-  }
-
-  for (auto i = 0; i < metrics::GaugeEnd(); i++) {
-    result.emplace_back(
-        metrics::GetGaugeName(i), metrics::GetGaugeTypeString(i), kGaugeName, metrics::global_gauges[i]);
-  }
-
-  for (auto i = 0; i < metrics::HistogramEnd(); i++) {
-    const auto *name = metrics::GetHistogramName(i);
-    auto const &histogram = metrics::global_histograms[i];
-
-    for (auto &[percentile, value] : histogram.YieldPercentiles()) {
-      auto metric_name = fmt::format("{0}_{1}p", name, std::to_string(percentile));
-      result.emplace_back(std::move(metric_name), metrics::GetHistogramType(i), kHistogramName, value);
-    }
-  }
-
-  return result;
-}
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
@@ -740,7 +709,7 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_index_info);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
+  if (storage_->metric_handles_) storage_->metric_handles_->active_text_indices->Increment();
   return {};
 }
 
@@ -761,7 +730,7 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::text_edge_index_create, text_edge_index_info);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
+  if (storage_->metric_handles_) storage_->metric_handles_->active_text_edge_indices->Increment();
   return {};
 }
 
@@ -776,7 +745,7 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
+  if (storage_->metric_handles_) storage_->metric_handles_->active_text_indices->Decrement();
   return {};
 }
 

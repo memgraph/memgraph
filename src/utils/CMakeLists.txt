@@ -102,8 +102,6 @@ add_library(mg-events STATIC)
 target_sources(mg-events
     PRIVATE
     event_counter.cpp
-    event_gauge.cpp
-    event_histogram.cpp
     event_trigger.cpp
     event_map.cpp
 )
