@@ -10289,6 +10289,22 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       spdlog::info("Metadata of label+property indices are recovered.");
     }
 
+    // Recover DESC label+property indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of DESC label properties indices.");
+      spdlog::info("Recovering metadata of {} DESC label+properties indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for DESC label properties index.");
+        auto property_paths = get_property_paths("DESC label properties index");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties_desc,
+                                    {get_label_from_id(*label), property_paths},
+                                    "The DESC label+property index already exists!");
+      }
+      spdlog::info("Metadata of DESC label+property indices are recovered.");
+    }
+
     // Recover label+property indices statistics.
     {
       auto size = snapshot.ReadUint();
@@ -10324,22 +10340,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
-    }
-
-    // Recover DESC label+property indices.
-    {
-      auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Couldn't recover the number of DESC label properties indices.");
-      spdlog::info("Recovering metadata of {} DESC label+properties indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
-        auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Couldn't read label for DESC label properties index.");
-        auto property_paths = get_property_paths("DESC label properties index");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties_desc,
-                                    {get_label_from_id(*label), property_paths},
-                                    "The DESC label+property index already exists!");
-      }
-      spdlog::info("Metadata of DESC label+property indices are recovered.");
     }
 
     spdlog::info("Recovering metadata of indices.");
@@ -11670,15 +11670,15 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       if (snapshot_aborted()) return std::nullopt;
     }
 
-    // Write label+property index statistics — covers both ASC and DESC-only indices, deduplicated.
-    {
-      write_label_property_stats(asc_indices, desc_indices);
-      if (snapshot_aborted()) return std::nullopt;
-    }
-
     // Write DESC label+properties indices.
     {
       write_label_property_indices(desc_indices);
+      if (snapshot_aborted()) return std::nullopt;
+    }
+
+    // Write label+property index statistics — covers both ASC and DESC indices, deduplicated.
+    {
+      write_label_property_stats(asc_indices, desc_indices);
       if (snapshot_aborted()) return std::nullopt;
     }
 
