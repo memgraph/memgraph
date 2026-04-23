@@ -537,6 +537,13 @@ print_deployment_summary() {
     log_info "Cluster: $CLUSTER_NAME"
     log_info "Region:  $CLUSTER_REGION"
     log_info "Release: $HELM_RELEASE_NAME"
+    local chart_info
+    chart_info=$(helm list -o json 2>/dev/null | \
+        jq -r --arg name "$HELM_RELEASE_NAME" \
+        '.[] | select(.name==$name) | "\(.chart) (app_version=\(.app_version))"' 2>/dev/null)
+    if [[ -n "$chart_info" ]]; then
+        log_info "Chart:   $chart_info"
+    fi
     echo ""
 
     log_info "Services:"
