@@ -429,18 +429,18 @@ def resolve_remote_model(model_name):
 
 
 def default_remote_batch_size(provider):
-    # Conservative defaults that stay under each provider's per-request input cap.
+    """Default `remote_batch_size` when the user doesn't set one.
+
+    Only lists providers with a *documented hard cap* — exceeding those
+    returns HTTP 400. Everything else falls through to a generic default.
+    Users override per-call via `remote_batch_size`.
+    """
     return {
-        "voyage": 128,
-        "cohere": 96,
-        "openai": 512,
-        "azure": 512,
-        "mistral": 512,
-        "jina_ai": 512,
-        "ollama": 64,
-        "huggingface": 64,
-        "bedrock": 64,
-    }.get(provider, 64)
+        "voyage": 1000,  # docs.voyageai.com/docs/embeddings
+        "cohere": 96,  # docs.cohere.com/reference/embed
+        "openai": 2048,  # 2048 items + 300K tokens/request; token limit may bite first
+        "azure": 2048,  # mirrors OpenAI
+    }.get(provider, 256)
 
 
 def l2_normalize(vec):
