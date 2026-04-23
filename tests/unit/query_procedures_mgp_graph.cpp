@@ -740,7 +740,7 @@ TYPED_TEST(MgpGraphTest, VertexIteratorYieldsVirtualNodes) {
   memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
   auto graph = mgp_graph{
       &sub_dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
-  graph.virtual_overlay = mgp_graph::VirtualOverlay{.graph = &vg};
+  graph.virtual_graph = &vg;
 
   auto *it = EXPECT_MGP_NO_ERROR(mgp_vertices_iterator *, mgp_graph_iter_vertices, &graph, &this->memory);
   ASSERT_NE(it, nullptr);
@@ -770,7 +770,7 @@ TYPED_TEST(MgpGraphTest, VirtualOnlyScopeHidesRealVerticesAndEdges) {
 
   auto graph =
       mgp_graph{&dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
-  graph.virtual_overlay = mgp_graph::VirtualOverlay{.graph = &vg};
+  graph.virtual_graph = &vg;
 
   size_t vcount = 0;
   size_t ecount = 0;
@@ -802,7 +802,7 @@ TYPED_TEST(MgpGraphTest, VirtualNodeRejectsPropertyWrites) {
 
   auto graph =
       mgp_graph{&dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
-  graph.virtual_overlay = mgp_graph::VirtualOverlay{.graph = &vg};
+  graph.virtual_graph = &vg;
 
   MgpVertexPtr v{EXPECT_MGP_NO_ERROR(
       mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{synth_gid.AsInt()}, &this->memory)};
@@ -815,7 +815,7 @@ TYPED_TEST(MgpGraphTest, VirtualNodeRejectsPropertyWrites) {
 TYPED_TEST(MgpGraphTest, VirtualOnlyScopeRejectsMutations) {
   mgp_graph graph = this->CreateGraph();
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
-  graph.virtual_overlay = mgp_graph::VirtualOverlay{.graph = &vg};
+  graph.virtual_graph = &vg;
 
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_graph_is_mutable, &graph), 0);
   mgp_vertex *raw_vertex{};
