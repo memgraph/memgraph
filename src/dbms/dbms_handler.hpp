@@ -363,9 +363,7 @@ class DbmsHandler {
         stats.wal_enabled += storage_info.durability_wal_enabled;
         stats.property_store_compression_enabled += storage_info.property_store_compression_enabled;
 
-        using underlying_type = std::underlying_type_t<utils::CompressionLevel>;
-        ++stats.property_store_compression_level[static_cast<underlying_type>(
-            storage_info.property_store_compression_level)];
+        ++stats.property_store_compression_level[std::to_underlying(storage_info.property_store_compression_level)];
 
         stats.num_descriptions += db_acc->storage()->GetDescriptionCount();
 

@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <memory_resource>
+#include <utility>
 
 namespace memgraph::utils {
 
@@ -95,7 +96,7 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
       space = PAGE_SIZE - header_size;
       if (!std::align(alignment, bytes, ptr, space)) [[unlikely]] {
         // This should never happen for reasonable alignments
-        __builtin_unreachable();
+        std::unreachable();
       }
     }
 

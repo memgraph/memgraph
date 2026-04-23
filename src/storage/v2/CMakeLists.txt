@@ -77,7 +77,6 @@ target_sources(mg-storage-v2
         transaction.cpp
         vertex_accessor.cpp
         vertex_info_cache.cpp
-        vertices_iterable.cpp
         edge_ref.cpp
         indices/point_iterator.cpp
         property_value_utils.cpp
@@ -85,7 +84,6 @@ target_sources(mg-storage-v2
         id_types.cpp
         ttl.cpp
         all_vertices_chunked_iterable.cpp
-        vertices_chunked_iterable.cpp
         edges_chunked_iterable.cpp
 
         PUBLIC
@@ -109,7 +107,9 @@ target_sources(mg-storage-v2
         id_types.hpp
         indices/active_indices.hpp
         indices/active_indices_updater.hpp
+        indices/index_order.hpp
         indices/indices_utils.hpp
+        indices/label_properties_indices_info.hpp
         indices/point_index.hpp
         indices/point_index_change_collector.hpp
         indices/point_index_expensive_header.hpp

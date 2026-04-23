@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "storage/v2/constraints/constraints.hpp"
+
+#include <utility>
+
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
@@ -29,7 +32,7 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode) {
         unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);
         break;
       case StorageMode::N:
-        __builtin_unreachable();
+        std::unreachable();
     }
   });
 }

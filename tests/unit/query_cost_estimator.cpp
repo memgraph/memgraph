@@ -466,5 +466,30 @@ TEST_F(QueryCostEstimator, OrderByHasNonZeroCost) {
   EXPECT_GT(cost_with_order_by, cost_without_order_by);
 }
 
+// DESC index should produce the same cost as ASC index for the same data.
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesDescSameCostAsAsc) {
+  AddVertices(100, 30, 20);
+
+  // ASC cost (index already created in SetUp)
+  MakeOp<ScanAllByLabelProperties>(nullptr,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::Equal(Literal(12))});
+  static_cast<ScanAllByLabelProperties *>(last_op_.get())->index_order_ = ms::IndexOrder::ASC;
+  auto asc_cost = Cost();
+
+  // DESC cost — uses the same VerticesCount path (order-independent), so cost must match
+  MakeOp<ScanAllByLabelProperties>(nullptr,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::Equal(Literal(12))});
+  static_cast<ScanAllByLabelProperties *>(last_op_.get())->index_order_ = ms::IndexOrder::DESC;
+  auto desc_cost = Cost();
+
+  EXPECT_FLOAT_EQ(asc_cost, desc_cost);
+}
+
 // TODO test cost when ScanAll, Expand, Accumulate, Limit
 // vs cost for SA, Expand, Limit

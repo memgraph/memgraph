@@ -857,6 +857,7 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
   storage::LabelId label_;
   std::vector<storage::PropertyPath> properties_;
   std::vector<ExpressionRange> expression_ranges_;
+  storage::IndexOrder index_order_{storage::IndexOrder::ASC};
 
   std::string ToString() const override;
 
@@ -2075,7 +2076,8 @@ class ScanParallelByLabelProperties : public memgraph::query::plan::ScanParallel
   ScanParallelByLabelProperties(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
                                 Symbol state_symbol, storage::LabelId label,
                                 std::vector<storage::PropertyPath> properties,
-                                std::vector<ExpressionRange> expression_ranges);
+                                std::vector<ExpressionRange> expression_ranges,
+                                storage::IndexOrder index_order = storage::IndexOrder::ASC);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
@@ -2085,6 +2087,7 @@ class ScanParallelByLabelProperties : public memgraph::query::plan::ScanParallel
   storage::LabelId label_;
   std::vector<storage::PropertyPath> properties_;
   std::vector<ExpressionRange> expression_ranges_;
+  storage::IndexOrder index_order_{storage::IndexOrder::ASC};
 };
 
 /// Parallel scan variant for edges with edge type and property.

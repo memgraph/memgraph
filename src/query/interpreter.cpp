@@ -306,14 +306,13 @@ void EnsureMainInstance(InterpreterContext *interpreter_context, const std::stri
 
 template <typename T, typename K>
 void Sort(std::vector<T, K> &vec) {
-  std::sort(vec.begin(), vec.end());
+  std::ranges::sort(vec);
 }
 
 template <typename K>
 void Sort(std::vector<TypedValue, K> &vec) {
-  std::sort(vec.begin(), vec.end(), [](const TypedValue &lv, const TypedValue &rv) {
-    return lv.ValueString() < rv.ValueString();
-  });
+  std::ranges::sort(vec,
+                    [](const TypedValue &lv, const TypedValue &rv) { return lv.ValueString() < rv.ValueString(); });
 }
 
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
@@ -3711,7 +3710,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) 
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
-  using LPIndex = std::pair<storage::LabelId, std::vector<storage::PropertyPath>>;
+  using LPIndex = storage::LabelPropertyIndexEntry;
   auto view = storage::View::OLD;
 
   auto erase_not_specified_label_indices = [&labels, execution_db_accessor](auto &index_info) {
@@ -3734,7 +3733,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     }
 
     for (auto it = index_info.cbegin(); it != index_info.cend();) {
-      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(it->first))) {
+      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(it->label))) {
         it = index_info.erase(it);
       } else {
         ++it;
@@ -3782,8 +3781,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
       auto const uncomputed_stats_by_prefix = std::invoke([&] {
         auto prefix_key = key;
         auto stats_by_prefix = std::vector<StatsByPrefix>();
-        stats_by_prefix.reserve(key.second.size());
-        while (!prefix_key.second.empty()) {
+        stats_by_prefix.reserve(key.properties.size());
+        while (!prefix_key.properties.empty()) {
           if (label_property_counter.contains(prefix_key)) {
             // If we've computed the stats for a given prefix, we also know
             // that we've computed stats for every prefix of the prefix and
@@ -3792,7 +3791,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
           }
 
           stats_by_prefix.emplace_back(&label_property_counter[prefix_key], &vertex_degree_counter[prefix_key]);
-          prefix_key.second.pop_back();
+          prefix_key.properties.pop_back();
         }
 
         return stats_by_prefix;
@@ -3802,13 +3801,13 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
         return;
       }
 
-      auto const &[label, properties] = key;
+      auto const &[label, properties, order] = key;
 
       auto prop_ranges = std::vector<storage::PropertyValueRange>();
       prop_ranges.reserve(properties.size());
       ranges::fill(prop_ranges, storage::PropertyValueRange::IsNotNull());
 
-      for (auto const &vertex : execution_db_accessor->Vertices(view, label, properties, prop_ranges)) {
+      for (auto const &vertex : execution_db_accessor->Vertices(view, label, properties, prop_ranges, order)) {
         // TODO(colinbarry) currently using a linear pass to get the property
         // values. Instead, gather all in one pass and permute as we usually do.
         // Additional, we should only extract the leaf property rather than
@@ -3847,9 +3846,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     // could have computed as part of a longer composite key. For example,
     // in computing the stats for :L1(a, b, c), we can quickly compute them for
     // :L1(a, b) and :L1(a).
-    std::ranges::sort(index_info, std::greater{}, [](auto const &label_and_properties) {
-      return label_and_properties.second.size();
-    });
+    std::ranges::sort(index_info, std::greater{}, [](auto const &entry) { return entry.properties.size(); });
 
     for (auto const &index : index_info) {
       count_vertex_prop_info(index);
@@ -3884,7 +3881,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
                                                .statistic = chi_squared_stat,
                                                .avg_group_size = avg_group_size,
                                                .avg_degree = average_degree};
-          execution_db_accessor->SetIndexStats(label_property.first, label_property.second, index_stats);
+          execution_db_accessor->SetIndexStats(label_property.label, label_property.properties, index_stats);
           label_property_stats.push_back(std::make_pair(label_property, index_stats));
         });
 
@@ -3904,7 +3901,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_stats.size() + label_property_stats.size());
 
-  std::for_each(label_stats.begin(), label_stats.end(), [execution_db_accessor, &results](const auto &stat_entry) {
+  std::ranges::for_each(label_stats, [execution_db_accessor, &results](const auto &stat_entry) {
     std::vector<TypedValue> result;
     result.reserve(kComputeStatisticsNumResults);
 
@@ -3922,11 +3919,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     return PropertyPathToName(execution_db_accessor, property_path);
   };
 
-  std::for_each(label_property_stats.begin(), label_property_stats.end(), [&](const auto &stat_entry) {
+  std::ranges::for_each(label_property_stats, [&](const auto &stat_entry) {
     std::vector<TypedValue> result;
     result.reserve(kComputeStatisticsNumResults);
-    result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
-    result.emplace_back(stat_entry.first.second | rv::transform(prop_path_to_name) | ranges::to_vector);
+    result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.label));
+    result.emplace_back(stat_entry.first.properties | rv::transform(prop_path_to_name) | ranges::to_vector);
     result.emplace_back(static_cast<int64_t>(stat_entry.second.count));
     result.emplace_back(static_cast<int64_t>(stat_entry.second.distinct_values_count));
     result.emplace_back(stat_entry.second.avg_group_size);
@@ -3961,7 +3958,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
     }
 
     for (auto it = index_info.cbegin(); it != index_info.cend();) {
-      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(it->first))) {
+      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(it->label))) {
         it = index_info.erase(it);
       } else {
         ++it;
@@ -3988,9 +3985,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
 
     std::for_each(index_info.begin(),
                   index_info.end(),
-                  [execution_db_accessor, &label_property_results](
-                      const std::pair<storage::LabelId, std::vector<storage::PropertyPath>> &label_property) {
-                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(label_property.first);
+                  [execution_db_accessor, &label_property_results](const storage::LabelPropertyIndexEntry &entry) {
+                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(entry.label);
                     label_property_results.insert(
                         label_property_results.end(), std::move_iterator{res.begin()}, std::move_iterator{res.end()});
                   });
@@ -4116,6 +4112,39 @@ auto make_create_index_cancel_callback(StoppingContext stopping_context) {
       };
 }
 
+namespace {
+// Resolves `WITH CONFIG {"order": "ASC"|"DESC"}` for CREATE/DROP INDEX. Must run at execution time
+// rather than parse time: string literals get stripped into parameters, and the AST is cached across
+// calls, so the first call's parameters would be baked into subsequent cache hits.
+std::optional<storage::IndexOrder> ResolveIndexConfigOrder(std::unordered_map<Expression *, Expression *> const &config,
+                                                           Parameters const &parameters) {
+  if (config.empty()) return std::nullopt;
+
+  EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+  std::optional<storage::IndexOrder> order;
+  for (auto const &[key_expr, value_expr] : config) {
+    auto key = EvaluateOptionalExpression(key_expr, evaluator);
+    auto value = EvaluateOptionalExpression(value_expr, evaluator);
+    if (!key.IsString() || !value.IsString()) {
+      throw SemanticException("Index config keys and values must be string literals.");
+    }
+    std::string_view key_sv{key.ValueString()};
+    std::string_view value_sv{value.ValueString()};
+    if (key_sv != "order") {
+      throw SemanticException("Unknown index config key '{}'. Supported keys: 'order'.", key_sv);
+    }
+    order = std::invoke([&] {
+      if (value_sv == "ASC") return storage::IndexOrder::ASC;
+      if (value_sv == "DESC") return storage::IndexOrder::DESC;
+      throw SemanticException("Invalid index order '{}'. Expected 'ASC' or 'DESC'.", value_sv);
+    });
+  }
+  return order;
+}
+}  // namespace
+
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                 std::vector<Notification> *notifications, CurrentDB &current_db,
                                 StoppingContext stopping_context) {
@@ -4150,6 +4179,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   }
 
   auto properties_stringified = utils::Join(properties_string, ", ");
+  auto resolved_order = ResolveIndexConfigOrder(index_query->config_, parsed_query.parameters);
 
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
@@ -4165,11 +4195,12 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name,
                  properties = std::move(properties),
+                 order = resolved_order.value_or(storage::IndexOrder::ASC),
                  stopping_context = std::move(stopping_context)](Notification &index_notification) mutable {
         auto cancel_callback = make_create_index_cancel_callback(stopping_context);
-        auto maybe_index_error = properties.empty()
-                                     ? dba->CreateIndex(label, std::move(cancel_callback))
-                                     : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback));
+        auto maybe_index_error =
+            properties.empty() ? dba->CreateIndex(label, std::move(cancel_callback))
+                               : dba->CreateIndex(label, std::move(properties), order, std::move(cancel_callback));
         if (!maybe_index_error) {
           auto const error_visitor = [&]<typename T>(T const &) {
             if constexpr (std::is_same_v<T, storage::IndexDefinitionError> ||
@@ -4202,9 +4233,10 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  label,
                  properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name,
-                 properties = std::move(properties)](Notification &index_notification) mutable {
+                 properties = std::move(properties),
+                 order = resolved_order](Notification &index_notification) mutable {
         auto maybe_index_error =
-            properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties));
+            properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties), order);
         if (!maybe_index_error) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
@@ -5645,7 +5677,7 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
 
 bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   bool exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
-    return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
+    return std::ranges::any_of(interpreters_, [](const auto &interpreter) {
       return interpreter->transaction_status_.load() != TransactionStatus::IDLE;
     });
   });
@@ -6537,12 +6569,14 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(),
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
         }
-        for (const auto &[label, properties] : info.label_properties) {
+        for (const auto &[label, properties, order] : info.label_properties) {
           auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
             return TypedValue{PropertyPathToName(storage, property_path)};
           };
           auto props = properties | rv::transform(prop_path_to_name) | ranges::to_vector;
-          results.push_back({TypedValue(label_property_index_mark),
+          auto type_mark = order == storage::IndexOrder::DESC ? std::string{label_property_index_mark} + " (DESC)"
+                                                              : std::string{label_property_index_mark};
+          results.push_back({TypedValue(type_mark),
                              TypedValue(storage->LabelToName(label)),
                              TypedValue(std::move(props)),
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(label, properties)))});
@@ -7638,22 +7672,15 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     std::vector<std::vector<TypedValue>> status;
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
-      Sort(denied);
 
       status.reserve(all.size());
       for (const auto &name : all) {
         status.push_back({TypedValue(name)});
       }
 
-      // No denied databases (no need to filter them out)
-      if (denied.empty()) return;
-
-      auto denied_itr = denied.begin();
-      auto iter = std::remove_if(status.begin(), status.end(), [&denied_itr, &denied](auto &in) -> bool {
-        while (denied_itr != denied.end() && denied_itr->ValueString() < in[0].ValueString()) ++denied_itr;
-        return (denied_itr != denied.end() && denied_itr->ValueString() == in[0].ValueString());
+      std::erase_if(status, [&](auto const &row) {
+        return std::ranges::any_of(denied, [&](auto const &d) { return d.ValueString() == row[0].ValueString(); });
       });
-      status.erase(iter, status.end());
     };
 
     if (!user_or_role || !*user_or_role) {
@@ -7990,7 +8017,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         }));
       }
       // Vertex label property indices
-      for (const auto &[label_id, property_paths] : index_info.label_properties) {
+      for (const auto &[label_id, property_paths, order] : index_info.label_properties) {
 #ifdef MG_ENTERPRISE
         if (auth_checker && !auth_checker->Has(std::span{&label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
           continue;
@@ -8001,11 +8028,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         };
 
         auto props = property_paths | rv::transform(path_to_name) | r::to_vector;
+        const auto *type = order == storage::IndexOrder::DESC ? "label+properties (DESC)" : "label+properties";
         node_indexes.push_back(nlohmann::json::object({
             {"labels", {storage->LabelToName(label_id)}},
             {"properties", props},
             {"count", storage_acc->ApproximateVertexCount(label_id, property_paths)},
-            {"type", "label+properties"},
+            {"type", type},
         }));
       }
       // Vertex label text
@@ -9544,9 +9572,8 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
 std::vector<TypedValue> Interpreter::GetQueries() {
   auto typed_queries = std::vector<TypedValue>();
   transaction_queries_.WithLock([&typed_queries](const auto &transaction_queries) {
-    std::for_each(transaction_queries.begin(), transaction_queries.end(), [&typed_queries](const auto &query) {
-      typed_queries.emplace_back(query);
-    });
+    std::ranges::for_each(transaction_queries,
+                          [&typed_queries](const auto &query) { typed_queries.emplace_back(query); });
   });
   return typed_queries;
 }

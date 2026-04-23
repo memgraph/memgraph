@@ -13,9 +13,8 @@ import mgp
 
 
 @mgp.write_proc
-def set_property(ctx: mgp.ProcCtx, object: mgp.Any) -> mgp.Record():
+def set_property(ctx: mgp.ProcCtx, object: mgp.Any):
     try:
         object.properties.set("prop", 2)
     except mgp.AuthorizationError:
         pass
-    return mgp.Record()

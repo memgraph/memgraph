@@ -46,7 +46,8 @@ namespace memgraph::query::procedure {
 
 constexpr const char *func_code =
     "import ast\n\n"
-    "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph', 'dgl', 'numpy']\n"
+    "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph', 'dgl', 'numpy', 'mgp', "
+    "'_mgp']\n"
     "modules = set()\n\n"
     "def visit_Import(node):\n"
     "  for name in node.names:\n"
@@ -419,9 +420,8 @@ void RegisterMgFunctions(std::map<std::string, std::shared_ptr<Module>, std::les
 namespace {
 bool IsAllowedExtension(const auto &extension) {
   static constexpr std::array<std::string_view, 1> allowed_extensions{".py"};
-  return std::any_of(allowed_extensions.begin(), allowed_extensions.end(), [&](const auto allowed_extension) {
-    return allowed_extension == extension;
-  });
+  return std::ranges::any_of(allowed_extensions,
+                             [&](const auto allowed_extension) { return allowed_extension == extension; });
 }
 
 bool IsSubPath(const auto &base, const auto &destination) {
@@ -896,6 +896,14 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
         return with_error(error);
       }
     }
+    for (const auto &[proc_name, proc] : module_def->procedures) {
+      if (proc.info.is_batched && proc.results.empty()) {
+        return with_error(fmt::format(
+            "Unable to load module {}; void procedures cannot be batched (procedure '{}' declares no result fields).",
+            file_path,
+            proc_name));
+      }
+    }
     return true;
   };
   if (!WithModuleRegistration(&procedures_, &transformations_, &functions_, module_cb)) {
@@ -1000,6 +1008,7 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     return false;
   }
   bool succ = true;
+  std::string batched_void_proc_name;
   auto module_cb = [&](auto *module_def, auto * /*memory*/) {
     auto result = ImportPyModule(file_path.stem().c_str(), module_def);
     for (auto &trans : module_def->transformations) {
@@ -1008,6 +1017,13 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
         return result;
       }
     };
+    for (const auto &[proc_name, proc] : module_def->procedures) {
+      if (proc.info.is_batched && proc.results.empty()) {
+        succ = false;
+        batched_void_proc_name = proc_name;
+        return result;
+      }
+    }
     return result;
   };
   py_module_ = WithModuleRegistration(&procedures_, &transformations_, &functions_, module_cb);
@@ -1015,7 +1031,14 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     spdlog::info("Loaded module {}", file_path);
 
     if (!succ) {
-      spdlog::error("Unable to add result to transformation");
+      if (!batched_void_proc_name.empty()) {
+        spdlog::error(
+            "Unable to load module {}; void procedures cannot be batched (procedure '{}' declares no result fields).",
+            file_path,
+            batched_void_proc_name);
+      } else {
+        spdlog::error("Unable to add result to transformation");
+      }
       return false;
     }
     return true;
@@ -1068,7 +1091,7 @@ bool PythonModule::Close() {
        ++it) {
     std::string dir_entry_stem = it->path().stem().string();
     if (it->is_regular_file() || dir_entry_stem == "__pycache__") continue;
-    if (dir_entry_stem.find(stem) != std::string_view::npos) {
+    if (dir_entry_stem.contains(stem)) {
       it.disable_recursion_pending();
       submodules.emplace_back(it->path());
     }

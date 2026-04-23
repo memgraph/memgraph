@@ -12,8 +12,10 @@
 #include <algorithm>
 #include <any>
 #include <cstring>
+#include <functional>
 #include <iterator>
 #include <range/v3/all.hpp>
+#include <ranges>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -532,6 +534,13 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
     throw SemanticException("Properties cannot be repeated in a composite index.");
   }
 
+  if (auto *config_ctx = ctx->configsMap) {
+    if (index_query->properties_.empty()) {
+      throw SemanticException("WITH CONFIG is not supported for label-only indices.");
+    }
+    index_query->config_ = std::any_cast<ConfigMap>(config_ctx->accept(this));
+  }
+
   return index_query;
 }
 
@@ -540,6 +549,12 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   index_query->action_ = IndexQuery::Action::DROP;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   index_query->properties_ = get_index_properties(ctx->nestedPropertyKeyNames(), *this);
+  if (auto *config_ctx = ctx->configsMap) {
+    if (index_query->properties_.empty()) {
+      throw SemanticException("WITH CONFIG is not supported for label-only indices.");
+    }
+    index_query->config_ = std::any_cast<ConfigMap>(config_ctx->accept(this));
+  }
 
   return index_query;
 }
@@ -1962,28 +1977,20 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
 
   const auto &maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_);
   if (!maybe_found) {
-    // TODO remove this once void procedures are supported,
-    // this will not be needed anymore.
-    const auto mg_specific_name = procedure::gCallableAliasMapper.FindAlias(call_proc->procedure_name_);
-    const bool void_procedure_required = (mg_specific_name && *mg_specific_name == "mgps.validate");
-    if (void_procedure_required) {
-      // This is a special case. Since void procedures currently are not supported,
-      // we have to make sure that the non-memgraph native, void procedures that are
-      // possibly used against a memgraph instance are handled correctly. As of now
-      // this is the only known such case. This should be more generic, but the most
-      // generic solution would be to implement void procedures.
-      call_proc->void_procedure_ = true;
-    } else {
-      throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
-    }
+    throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
   }
-  if (maybe_found) {
-    call_proc->is_write_ = maybe_found->second->info.is_write;
+
+  call_proc->is_write_ = maybe_found->second->info.is_write;
+  if (maybe_found->second->results.empty()) {
+    call_proc->void_procedure_ = true;
   }
 
   auto *yield_ctx = ctx->yieldProcedureResults();
+  if (yield_ctx && call_proc->void_procedure_) {
+    throw SemanticException("YIELD may not be used on void procedures which do not return any result fields.");
+  }
   if (!yield_ctx) {
-    if ((maybe_found && !maybe_found->second->results.empty()) && !call_proc->void_procedure_) {
+    if (!call_proc->void_procedure_) {
       throw SemanticException(
           "CALL without YIELD may only be used on procedures which do not "
           "return any result fields.");
@@ -2009,58 +2016,23 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(result_alias));
     }
   } else {
-    call_proc->is_write_ = maybe_found->second->info.is_write;
-
-    auto *yield_ctx = ctx->yieldProcedureResults();
-    if (!yield_ctx) {
-      if (!maybe_found->second->results.empty() && !call_proc->void_procedure_) {
-        throw SemanticException(
-            "CALL without YIELD may only be used on procedures which do not "
-            "return any result fields.");
-      }
-      // When we return, we will release the lock on modules. This means that
-      // someone may reload the procedure and change the result signature. But to
-      // keep the implementation simple, we ignore the case as the rest of the
-      // code doesn't really care whether we yield or not, so it should not break.
-      return call_proc;
+    const auto &[module, proc] = *maybe_found;
+    call_proc->result_fields_.reserve(proc->results.size());
+    call_proc->result_identifiers_.reserve(proc->results.size());
+    for (const auto &[result_name, desc] : proc->results) {
+      bool const is_deprecated = desc.second;
+      if (is_deprecated) continue;
+      call_proc->result_fields_.emplace_back(result_name);
+      call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(std::string(result_name)));
     }
-    if (yield_ctx->getTokens(MemgraphCypher::ASTERISK).empty()) {
-      call_proc->result_fields_.reserve(yield_ctx->procedureResult().size());
-      call_proc->result_identifiers_.reserve(yield_ctx->procedureResult().size());
-      for (auto *result : yield_ctx->procedureResult()) {
-        MG_ASSERT(result->variable().size() == 1 || result->variable().size() == 2);
-        call_proc->result_fields_.push_back(std::any_cast<std::string>(result->variable()[0]->accept(this)));
-        std::string result_alias;
-        if (result->variable().size() == 2) {
-          result_alias = std::any_cast<std::string>(result->variable()[1]->accept(this));
-        } else {
-          result_alias = std::any_cast<std::string>(result->variable()[0]->accept(this));
-        }
-        call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(result_alias));
-      }
-    } else {
-      const auto &maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_);
-      if (!maybe_found) {
-        throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
-      }
-      const auto &[module, proc] = *maybe_found;
-      call_proc->result_fields_.reserve(proc->results.size());
-      call_proc->result_identifiers_.reserve(proc->results.size());
-      for (const auto &[result_name, desc] : proc->results) {
-        bool is_deprecated = desc.second;
-        if (is_deprecated) continue;
-        call_proc->result_fields_.emplace_back(result_name);
-        call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(std::string(result_name)));
-      }
-      // When we leave the scope, we will release the lock on modules. This means
-      // that someone may reload the procedure and change its result signature. We
-      // are fine with this, because if new result fields were added then we yield
-      // the subset of those and that will appear to a user as if they used the
-      // procedure before reload. Any subsequent `CALL ... YIELD *` will fetch the
-      // new fields as well. In case the result signature has had some result
-      // fields removed, then the query execution will report an error that we are
-      // yielding missing fields. The user can then just retry the query.
-    }
+    // When we leave the scope, we will release the lock on modules. This means
+    // that someone may reload the procedure and change its result signature. We
+    // are fine with this, because if new result fields were added then we yield
+    // the subset of those and that will appear to a user as if they used the
+    // procedure before reload. Any subsequent `CALL ... YIELD *` will fetch the
+    // new fields as well. In case the result signature has had some result
+    // fields removed, then the query execution will report an error that we are
+    // yielding missing fields. The user can then just retry the query.
   }
 
   if (yield_ctx->where()) {
@@ -2240,11 +2212,13 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
                                  std::vector<AuthQuery::LabelMatchingMode>,
                                  std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
             ctx->entityPrivileges->accept(this));
-    for (size_t i = 0; i < label_privileges.size(); ++i) {
-      const auto &[privilege, labels] = label_privileges[i];
+    DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
+               "parser invariant: label_privileges and label_matching_modes are populated in lockstep");
+    for (auto const &[privilege_and_labels, mode] : std::views::zip(label_privileges, label_matching_modes)) {
+      auto const &[privilege, labels] = privilege_and_labels;
       auth->label_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
-      auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
+      auth->label_matching_modes_.emplace_back(mode);
     }
     for (const auto &[privilege, edge_types] : edge_type_privileges) {
       auth->edge_type_privileges_.emplace_back(
@@ -2272,11 +2246,13 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
                                  std::vector<AuthQuery::LabelMatchingMode>,
                                  std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
             ctx->entityPrivileges->accept(this));
-    for (size_t i = 0; i < label_privileges.size(); ++i) {
-      const auto &[privilege, labels] = label_privileges[i];
+    DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
+               "parser invariant: label_privileges and label_matching_modes are populated in lockstep");
+    for (auto const &[privilege_and_labels, mode] : std::views::zip(label_privileges, label_matching_modes)) {
+      auto const &[privilege, labels] = privilege_and_labels;
       auth->label_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
-      auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
+      auth->label_matching_modes_.emplace_back(mode);
     }
     for (const auto &[privilege, edge_types] : edge_type_privileges) {
       auth->edge_type_privileges_.emplace_back(
@@ -2316,11 +2292,13 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
                                  std::vector<AuthQuery::LabelMatchingMode>,
                                  std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
             ctx->entityPrivileges->accept(this));
-    for (size_t i = 0; i < label_privileges.size(); ++i) {
-      const auto &[privilege, labels] = label_privileges[i];
+    DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
+               "parser invariant: label_privileges and label_matching_modes are populated in lockstep");
+    for (auto const &[privilege_and_labels, mode] : std::views::zip(label_privileges, label_matching_modes)) {
+      auto const &[privilege, labels] = privilege_and_labels;
       auth->label_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
-      auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
+      auth->label_matching_modes_.emplace_back(mode);
     }
     for (const auto &[privilege, edge_types] : edge_type_privileges) {
       auth->edge_type_privileges_.emplace_back(
@@ -3917,7 +3895,7 @@ antlrcpp::Any CypherMainVisitor::visitCaseExpression(MemgraphCypher::CaseExpress
   Expression *test_expression = ctx->test ? std::any_cast<Expression *>(ctx->test->accept(this)) : nullptr;
   auto alternatives = ctx->caseAlternatives();
   // Reverse alternatives so that tree of IfOperators can be built bottom-up.
-  std::reverse(alternatives.begin(), alternatives.end());
+  std::ranges::reverse(alternatives);
   Expression *else_expression = ctx->else_expression ? std::any_cast<Expression *>(ctx->else_expression->accept(this))
                                                      : storage_->Create<PrimitiveLiteral>(TypedValue());
   for (auto *alternative : alternatives) {

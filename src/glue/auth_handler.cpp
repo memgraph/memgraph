@@ -13,7 +13,9 @@
 #include <range/v3/all.hpp>
 
 #include <optional>
+#include <ranges>
 #include <sstream>
+#include <utility>
 
 #include <fmt/format.h>
 
@@ -1058,11 +1060,10 @@ void AuthQueryHandler::EditPermissions(
       }
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        for (size_t i = 0; i < label_privileges.size(); ++i) {
-          const auto &label_privilege_collection = label_privileges[i];
-          const auto &matching_mode = (i < label_matching_modes.size())
-                                          ? label_matching_modes[i]
-                                          : memgraph::query::AuthQuery::LabelMatchingMode::ANY;
+        DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
+                   "AuthQuery invariant: label_privileges and label_matching_modes have equal size");
+        for (auto const &[label_privilege_collection, matching_mode] :
+             std::views::zip(label_privileges, label_matching_modes)) {
           edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(),
                                             label_privilege_collection,
                                             matching_mode,
@@ -1084,11 +1085,9 @@ void AuthQueryHandler::EditPermissions(
       }
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        for (size_t i = 0; i < label_privileges.size(); ++i) {
-          const auto &label_privilege = label_privileges[i];
-          const auto &matching_mode = (i < label_matching_modes.size())
-                                          ? label_matching_modes[i]
-                                          : memgraph::query::AuthQuery::LabelMatchingMode::ANY;
+        DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
+                   "AuthQuery invariant: label_privileges and label_matching_modes have equal size");
+        for (auto const &[label_privilege, matching_mode] : std::views::zip(label_privileges, label_matching_modes)) {
           edit_fine_grained_permissions_fun(role->fine_grained_access_handler().label_permissions(),
                                             label_privilege,
                                             matching_mode,

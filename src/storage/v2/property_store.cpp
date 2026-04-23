@@ -3033,7 +3033,7 @@ bool PropertyStore::InitProperties(const std::map<storage::PropertyId, storage::
 }
 
 bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties) {
-  std::sort(properties.begin(), properties.end());
+  std::ranges::sort(properties);
 
   return DoInitProperties(properties);
 }

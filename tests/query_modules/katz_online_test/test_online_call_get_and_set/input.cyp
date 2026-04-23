@@ -35,5 +35,5 @@ queries:
 
 cleanup: |-
     CALL katz_centrality_online.reset() YIELD *;
-    CALL mg.load('katz_centrality_online') YIELD *;
+    CALL mg.load('katz_centrality_online');
     DROP TRIGGER katz_online;

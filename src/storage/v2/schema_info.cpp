@@ -697,7 +697,7 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::AddLabel(Vertex *vertex, La
                                                               std::unique_lock<utils::RWSpinLock> v_lock) {
   DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   auto old_labels = vertex->labels;
-  auto itr = std::find(old_labels.begin(), old_labels.end(), label);
+  auto itr = std::ranges::find(old_labels, label);
   DMG_ASSERT(itr != old_labels.end(), "Trying to recreate labels pre commit, but label not found!");
   *itr = old_labels.back();
   old_labels.pop_back();
@@ -801,7 +801,7 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(Vertex *
 void SchemaInfo::AnalyticalEdgeModifyingAccessor::AddLabel(Vertex *vertex, LabelId label) {
   DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   auto old_labels = vertex->labels;
-  auto itr = std::find(old_labels.begin(), old_labels.end(), label);
+  auto itr = std::ranges::find(old_labels, label);
   DMG_ASSERT(itr != old_labels.end(), "Trying to recreate labels pre commit, but label not found!");
   *itr = old_labels.back();
   old_labels.pop_back();
@@ -841,7 +841,7 @@ void SchemaInfo::VertexModifyingAccessor::AddLabel(Vertex *vertex, LabelId label
              __LINE__);
   // Move all stats and edges to new label
   auto old_labels = vertex->labels;
-  auto itr = std::find(old_labels.begin(), old_labels.end(), label);
+  auto itr = std::ranges::find(old_labels, label);
   DMG_ASSERT(itr != old_labels.end(), "Trying to recreate labels pre commit, but label not found!");
   *itr = old_labels.back();
   old_labels.pop_back();

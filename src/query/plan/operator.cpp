@@ -440,7 +440,7 @@ class SharedDistinctState {
 
   explicit SharedDistinctState(utils::MemoryResource *mem) : mem_(mem) {
     // Initialize all shards with the same memory resource
-    for (size_t i = 0; i < kNumShards; ++i) {
+    for (size_t i = 0UZ; i < kNumShards; ++i) {
       shards_[i] = SeenRowsSet(mem);
     }
   }
@@ -461,7 +461,7 @@ class SharedDistinctState {
   }
 
   void Clear() {
-    for (size_t i = 0; i < kNumShards; ++i) {
+    for (size_t i = 0UZ; i < kNumShards; ++i) {
       const std::lock_guard<std::mutex> lock(shard_mutexes_[i].mutex);
       shards_[i].clear();
     }
@@ -1638,7 +1638,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
       return std::nullopt;
     }
 
-    return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges));
+    return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabelProperties");
@@ -1651,10 +1651,12 @@ std::string ScanAllByLabelProperties::ToString() const {
                               }) |
                               ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
-  return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}})",
+  std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
+  return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}}){3}",
                      output_symbol_.name(),
                      dba_->LabelToName(label_),
-                     properties_stringified);
+                     properties_stringified,
+                     suffix);
 }
 
 std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *storage) const {
@@ -1667,6 +1669,7 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
   object->expression_ranges_ = expression_ranges_ |
                                rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
+  object->index_order_ = index_order_;
   return object;
 }
 
@@ -2486,7 +2489,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       last_vertex = last_edge->From() == last_vertex ? last_edge->To() : last_edge->From();
       result.emplace_back(*last_edge);
     }
-    std::reverse(result.begin(), result.end());
+    std::ranges::reverse(result);
     last_vertex = midpoint;
     while (true) {
       const auto &last_edge = out_edge.at(last_vertex);
@@ -3187,7 +3190,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
         if (!self_.is_reverse_) {
           // Place edges on the frame in the correct order.
-          std::reverse(edge_list.begin(), edge_list.end());
+          std::ranges::reverse(edge_list);
         }
         frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
         frame_writer.Write(self_.total_weight_.value(), current_weight);
@@ -3893,7 +3896,7 @@ class KShortestPathsCursor : public Cursor {
     const auto &last_path = shortest_paths_.back();
 
     // Generate candidate paths by deviating at each vertex of the last shortest path
-    for (size_t i = 0; i < last_path.edges.size(); ++i) {
+    for (size_t i = 0UZ; i < last_path.edges.size(); ++i) {
       GenerateCandidatesFromDeviation(source, target, last_path, i, evaluator, context);
     }
 
@@ -3932,7 +3935,7 @@ class KShortestPathsCursor : public Cursor {
       PathInfo candidate_path(evaluator.GetMemoryResource());
 
       // Add edges from source to deviation vertex
-      for (size_t i = 0; i < deviation_index; ++i) {
+      for (size_t i = 0UZ; i < deviation_index; ++i) {
         candidate_path.edges.push_back(base_path.edges[i]);
       }
 
@@ -3957,7 +3960,7 @@ class KShortestPathsCursor : public Cursor {
       if (deviation_index < path.edges.size()) {
         // Check if the path prefix matches up to deviation index
         bool prefix_matches = true;
-        for (size_t i = 0; i < deviation_index; ++i) {
+        for (size_t i = 0UZ; i < deviation_index; ++i) {
           if (i >= base_path.edges.size() || path.edges[i].Gid() != base_path.edges[i].Gid()) {
             prefix_matches = false;
             break;
@@ -3972,7 +3975,7 @@ class KShortestPathsCursor : public Cursor {
 
     // Block vertices in the root path (except the deviation vertex)
     VertexAccessor current_vertex = source;
-    for (size_t i = 0; i < deviation_index; ++i) {
+    for (size_t i = 0UZ; i < deviation_index; ++i) {
       blocked_vertices_.insert(current_vertex);
       const auto &edge = base_path.edges[i];
       current_vertex = (edge.From() == current_vertex) ? edge.To() : edge.From();
@@ -3983,7 +3986,7 @@ class KShortestPathsCursor : public Cursor {
     if (index == 0) return source;
 
     VertexAccessor current = source;
-    for (size_t i = 0; i < index && i < path.edges.size(); ++i) {
+    for (size_t i = 0UZ; i < index && i < path.edges.size(); ++i) {
       const auto &edge = path.edges[i];
       current = (edge.From() == current) ? edge.To() : edge.From();
     }
@@ -4008,7 +4011,7 @@ class KShortestPathsCursor : public Cursor {
     }
 
     // Reverse the path from source to midpoint
-    std::reverse(result.begin(), result.end());
+    std::ranges::reverse(result);
 
     // Reconstruct the path from midpoint to target
     current = midpoint;
@@ -6309,10 +6312,10 @@ class AggregateCursor : public Cursor {
       // Initialize counts to 0
       std::uninitialized_fill_n(counts_, num_aggs_, 0);
       // Initialize TypedValue arrays with Nulls so they are safe to destruct
-      for (size_t i = 0; i < num_aggs_; ++i) new (&values_[i]) TypedValue(mem);
-      for (size_t i = 0; i < num_rem_; ++i) new (&remember_[i]) TypedValue(mem);
+      for (size_t i = 0UZ; i < num_aggs_; ++i) new (&values_[i]) TypedValue(mem);
+      for (size_t i = 0UZ; i < num_rem_; ++i) new (&remember_[i]) TypedValue(mem);
       // Construct Sets (Must pass the allocator!)
-      for (size_t i = 0; i < num_aggs_; ++i) new (&unique_values_[i]) TSet(mem);
+      for (size_t i = 0UZ; i < num_aggs_; ++i) new (&unique_values_[i]) TSet(mem);
     }
 
     ~CompactAggregationValue() { free_resources(); }
@@ -6323,9 +6326,9 @@ class AggregateCursor : public Cursor {
     void free_resources() {
       if (!raw_block_) return;
       // Destruct objects in reverse order
-      for (size_t i = 0; i < num_aggs_; ++i) unique_values_[i].~TSet();
-      for (size_t i = 0; i < num_rem_; ++i) remember_[i].~TypedValue();
-      for (size_t i = 0; i < num_aggs_; ++i) values_[i].~TypedValue();
+      for (size_t i = 0UZ; i < num_aggs_; ++i) unique_values_[i].~TSet();
+      for (size_t i = 0UZ; i < num_rem_; ++i) remember_[i].~TypedValue();
+      for (size_t i = 0UZ; i < num_aggs_; ++i) values_[i].~TypedValue();
       // Deallocate memory
       mem_resource_->deallocate(raw_block_, total_alloc_size_, max_align);
       raw_block_ = nullptr;
@@ -7261,7 +7264,7 @@ class DistinctParallelCursor : public Cursor {
 
     // Batch check against global shared state using insertion-order vector
     auto uniqueness = shared_state_->TryInsertBatch(local_batch_);
-    for (size_t i = 0; i < uniqueness.size(); ++i) {
+    for (size_t i = 0UZ; i < uniqueness.size(); ++i) {
       if (uniqueness[i]) {
         if (unique_count_ != i) {
           std::swap(local_cache_[unique_count_], local_cache_[i]);
@@ -7573,7 +7576,7 @@ class OutputTableCursor : public Cursor {
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     if (current_row_ < rows_.size()) {
-      for (size_t i = 0; i < self_.output_symbols_.size(); ++i) {
+      for (size_t i = 0UZ; i < self_.output_symbols_.size(); ++i) {
         frame_writer.Write(self_.output_symbols_[i], rows_[current_row_][i]);
       }
       current_row_++;
@@ -7629,7 +7632,7 @@ class OutputTableStreamCursor : public Cursor {
     const auto row = self_->callback_(&frame, &context);
     if (row) {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
-      for (size_t i = 0; i < self_->output_symbols_.size(); ++i) {
+      for (size_t i = 0UZ; i < self_->output_symbols_.size(); ++i) {
         frame_writer.Write(self_->output_symbols_[i], row->at(i));
       }
       return true;
@@ -7835,7 +7838,7 @@ class CallProcedureCursor : public Cursor {
                                   get_proc_type_str(proc_->info.is_write));
     }
 
-    for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
+    for (size_t i = 0UZ; i < self_->result_fields_.size(); ++i) {
       auto signature_it =
           proc_->results.find(memgraph::utils::pmr::string{self_->result_fields_[i], proc_->results.get_allocator()});
       result_.signature.emplace(
@@ -7928,6 +7931,14 @@ class CallProcedureCursor : public Cursor {
         memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
       }
+
+      if (self_->void_procedure_) {
+        // we do not throw if a void procedure returns something, so we clear the iterators here
+        result_.rows.clear();
+        result_row_it_ = result_.rows.end();
+        return true;
+      }
+
       result_row_it_ = result_.rows.begin();
       if (!result_.is_transactional) {
         skip_rows_with_deleted_values();
@@ -7969,78 +7980,9 @@ class CallProcedureCursor : public Cursor {
   }
 };
 
-class CallValidateProcedureCursor : public Cursor {
-  const CallProcedure *self_;
-  UniqueCursorPtr input_cursor_;
-
- public:
-  CallValidateProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
-
-  bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("CallValidateProcedureCursor");
-
-    AbortCheck(context);
-    if (!input_cursor_->Pull(frame, context)) {
-      return false;
-    }
-
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::NEW,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user);
-
-    const auto args = self_->arguments_;
-    if (args.size() != 3U) {
-      throw QueryRuntimeException("'mgps.validate' requires exactly 3 arguments.");
-    }
-
-    const auto predicate = args[0]->Accept(evaluator);
-    const bool predicate_val = predicate.ValueBool();
-
-    if (predicate_val) [[unlikely]] {
-      const auto &message = args[1]->Accept(evaluator);
-      const auto &message_args = args[2]->Accept(evaluator);
-
-      using TString = std::remove_cvref_t<decltype(message.ValueString())>;
-      using TElement = std::remove_cvref_t<decltype(message_args.ValueList()[0])>;
-
-      utils::JStringFormatter<TString, TElement> formatter;
-
-      try {
-        const auto &msg = formatter.FormatString(message.ValueString(), message_args.ValueList());
-        throw QueryRuntimeException(msg);
-      } catch (const utils::JStringFormatException &e) {
-        throw QueryRuntimeException(e.what());
-      }
-    }
-
-    return true;
-  }
-
-  void Reset() override { input_cursor_->Reset(); }
-
-  void Shutdown() override {}
-};
-
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CallProcedureOperator);
   CallProcedure::IncrementCounter(procedure_name_);
-
-  if (void_procedure_) {
-    // Currently we do not support Call procedures that do not return
-    // anything. This cursor is way too specific, but it provides a workaround
-    // to ensure GraphQL compatibility until we start supporting truly void
-    // procedures.
-    return MakeUniqueCursorPtr<CallValidateProcedureCursor>(mem, this, mem);
-  }
-
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }
 
@@ -9713,11 +9655,13 @@ ScanParallelByLabelProperties::ScanParallelByLabelProperties(const std::shared_p
                                                              storage::View view, size_t num_threads,
                                                              Symbol state_symbol, storage::LabelId label,
                                                              std::vector<storage::PropertyPath> properties,
-                                                             std::vector<ExpressionRange> expression_ranges)
+                                                             std::vector<ExpressionRange> expression_ranges,
+                                                             storage::IndexOrder index_order)
     : ScanParallel(input, view, num_threads, state_symbol),
       label_(label),
       properties_(std::move(properties)),
-      expression_ranges_(std::move(expression_ranges)) {}
+      expression_ranges_(std::move(expression_ranges)),
+      index_order_(index_order) {}
 
 ACCEPT_WITH_INPUT(ScanParallelByLabelProperties)
 
@@ -9743,7 +9687,8 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
                                label_,
                                properties_,
                                maybe_prop_value_ranges.value_or(std::vector<storage::PropertyValueRange>{}),
-                               num_threads_);
+                               num_threads_,
+                               index_order_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
 #else
@@ -9758,10 +9703,12 @@ std::string ScanParallelByLabelProperties::ToString() const {
                               }) |
                               ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
-  return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {{{2}}})",
+  std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
+  return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {{{2}}}){3}",
                      num_threads_,
                      dba_->LabelToName(label_),
-                     properties_stringified);
+                     properties_stringified,
+                     suffix);
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage *storage) const {
@@ -9775,6 +9722,7 @@ std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage
   object->expression_ranges_ = expression_ranges_ |
                                rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
+  object->index_order_ = index_order_;
   return object;
 }
 
@@ -10203,7 +10151,7 @@ class ParallelBranchCursor : public Cursor {
           const PlanCreationHelper helper{collection_scheduler_};
           std::vector<UniqueCursorPtr> cursors;
           cursors.reserve(num_threads);
-          for (size_t i = 0; i < num_threads; i++) {
+          for (size_t i = 0UZ; i < num_threads; i++) {
             branch_plan_quotas_[i] = std::make_shared<std::vector<utils::SharedQuota *>>();
             plan_creation_helper_.shared_plan_quotas_ = branch_plan_quotas_[i];  // Branch specific plan quotas
             cursors.push_back(branch_input->MakeCursor(mem));
@@ -10557,9 +10505,7 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           case Aggregation::Op::SUM:
           case Aggregation::Op::AVG: {
             TypedValue left_sum{0};
-            std::for_each(other_unique_values.begin(), other_unique_values.end(), [&](const auto &val) {
-              left_sum = left_sum + val;
-            });
+            std::ranges::for_each(other_unique_values, [&](const auto &val) { left_sum = left_sum + val; });
 
             if (agg_op == Aggregation::Op::SUM) {
               main_value = main_value + other_value - left_sum;
@@ -10915,7 +10861,7 @@ class OrderByParallelCursor : public ParallelBranchCursor {
 
       // Initialize heap with iterators from each branch's sorted cache
       // Each element is (cache_it, order_by_it, cache_end, order_by_end, branch_index)
-      for (size_t i = 0; i < branch_cursors_.size(); ++i) {
+      for (size_t i = 0UZ; i < branch_cursors_.size(); ++i) {
         auto *orderby_cursor = static_cast<OrderByCursor *>(branch_cursors_[i].get());
         if (orderby_cursor->cache_.begin() != orderby_cursor->cache_.end()) {
           branch_iters_.emplace_back(orderby_cursor->cache_.begin(),

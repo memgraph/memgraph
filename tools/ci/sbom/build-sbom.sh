@@ -86,6 +86,12 @@ echo "Generated SBOM file: sbom/memgraph-build-sbom.json"
 
 # create SBOM for text-search
 pushd "$SOURCE_DIR/mgcxx/text_search" >/dev/null
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo not found, installing rust"
+  source "$SOURCE_DIR/environment/util.sh"
+  install_rust 1.95
+  . "$HOME/.cargo/env"
+fi
 cargo install --locked --version 0.5.9 cargo-cyclonedx
 cargo cyclonedx --format json --override-filename text-search
 echo "Generated SBOM file: text-search.json"
