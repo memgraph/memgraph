@@ -49,6 +49,8 @@
 namespace memgraph::query {
 
 class Graph;
+class VirtualGraph;
+class VirtualNode;
 
 class SubgraphVertexAccessor final {
  public:
@@ -1158,6 +1160,43 @@ class SubgraphDbAccessor final {
   std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view);
 
   Graph *getGraph();
+
+  storage::StorageMode GetStorageMode() const noexcept;
+
+  DbAccessor *GetAccessor();
+};
+
+// Mirror of SubgraphDbAccessor for virtual graphs produced by derive(). Wraps the
+// outer query's DbAccessor by value (for name maps, storage mode, memory tracking,
+// transaction context) and points at a VirtualGraph owned upstream. The virtual
+// store replaces the iterator/lookup surface; mutations are not supported because
+// MgpGraphIsMutable returns false whenever this variant arm is active.
+class VirtualGraphDbAccessor final {
+  DbAccessor db_accessor_;
+  VirtualGraph *graph_;
+
+ public:
+  explicit VirtualGraphDbAccessor(DbAccessor db_accessor, VirtualGraph *graph);
+
+  void TrackCurrentThreadAllocations();
+
+  void UntrackCurrentThreadAllocations();
+
+  storage::PropertyId NameToProperty(std::string_view name);
+
+  storage::LabelId NameToLabel(std::string_view name);
+
+  storage::EdgeTypeId NameToEdgeType(std::string_view name);
+
+  const std::string &PropertyToName(storage::PropertyId prop) const;
+
+  const std::string &LabelToName(storage::LabelId label) const;
+
+  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const;
+
+  [[nodiscard]] const VirtualNode *FindNode(storage::Gid synthetic_gid) const;
+
+  VirtualGraph *getGraph();
 
   storage::StorageMode GetStorageMode() const noexcept;
 

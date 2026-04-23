@@ -13,6 +13,7 @@
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 #include "query/graph.hpp"
+#include "query/virtual_graph.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage_mode.hpp"
 
@@ -124,6 +125,49 @@ query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
 storage::StorageMode SubgraphDbAccessor::GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
 
 DbAccessor *SubgraphDbAccessor::GetAccessor() { return &db_accessor_; }
+
+VirtualGraphDbAccessor::VirtualGraphDbAccessor(query::DbAccessor db_accessor, VirtualGraph *graph)
+    : db_accessor_(db_accessor), graph_(graph) {}
+
+void VirtualGraphDbAccessor::TrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
+
+void VirtualGraphDbAccessor::UntrackCurrentThreadAllocations() {
+  return db_accessor_.UntrackCurrentThreadAllocations();
+}
+
+storage::PropertyId VirtualGraphDbAccessor::NameToProperty(const std::string_view name) {
+  return db_accessor_.NameToProperty(name);
+}
+
+storage::LabelId VirtualGraphDbAccessor::NameToLabel(const std::string_view name) {
+  return db_accessor_.NameToLabel(name);
+}
+
+storage::EdgeTypeId VirtualGraphDbAccessor::NameToEdgeType(const std::string_view name) {
+  return db_accessor_.NameToEdgeType(name);
+}
+
+const std::string &VirtualGraphDbAccessor::PropertyToName(storage::PropertyId prop) const {
+  return db_accessor_.PropertyToName(prop);
+}
+
+const std::string &VirtualGraphDbAccessor::LabelToName(storage::LabelId label) const {
+  return db_accessor_.LabelToName(label);
+}
+
+const std::string &VirtualGraphDbAccessor::EdgeTypeToName(storage::EdgeTypeId type) const {
+  return db_accessor_.EdgeTypeToName(type);
+}
+
+const VirtualNode *VirtualGraphDbAccessor::FindNode(storage::Gid synthetic_gid) const {
+  return graph_->FindNode(synthetic_gid);
+}
+
+VirtualGraph *VirtualGraphDbAccessor::getGraph() { return graph_; }
+
+storage::StorageMode VirtualGraphDbAccessor::GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
+
+DbAccessor *VirtualGraphDbAccessor::GetAccessor() { return &db_accessor_; }
 
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 
