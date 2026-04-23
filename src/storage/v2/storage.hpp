@@ -1071,10 +1071,12 @@ class Storage {
     return repl_storage_state_.GetReplicaState(name);
   }
 
-  // Schema-metadata sets (labels / edge-types ever observed in the DB) are
-  // monotonically growing — entries are never removed. A snapshot-free read is
-  // therefore safe even without a storage accessor: a concurrent insert can
-  // only add entries that weren't present at the call site's logical moment.
+  // Snapshot-free read: the underlying `SynchronizedMetaDataStore::vectorize()`
+  // takes a shared rwlock and returns a consistent copy of the set. The set
+  // grows as new labels / edge-types are observed, and is cleared wholesale by
+  // `InMemoryStorage::Clear()` on DROP GRAPH (which takes the matching write
+  // lock). Callers therefore see either the pre-clear or post-clear contents
+  // atomically; no storage accessor is needed.
   std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
   std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
 

@@ -192,17 +192,22 @@ std::vector<TextIndexSpec> TextIndex::ListIndices() const {
   return ret;
 }
 
-void TextIndex::Clear() {
-  // DatabaseInfoQuery (SHOW INDEX INFO) reads text indices through ActiveIndices
-  // snapshots without holding a storage accessor, so Clear() can race with a
-  // reader still referencing the same TextIndexData via an older snapshot.
-  // Mark every entry for deferred drop and swap in an empty map; the actual
-  // tantivy drop_index happens in ~TextIndexData when the last snapshot
-  // reference is released.
+std::vector<std::shared_ptr<TextIndexData>> TextIndex::Clear() {
+  // Evict every entry, returning the shared_ptrs to the caller. The caller is
+  // responsible for flipping `deferred_drop = true` on each — this mirrors the
+  // per-index DropIndex contract so a Clear() from a transactional caller
+  // would not unlink on-disk tantivy directories before the txn commits.
+  // DatabaseInfoQuery readers holding older ActiveIndices snapshots continue
+  // to alias the same TextIndexData safely; the tantivy drop_index call
+  // happens in ~TextIndexData when the last snapshot reference is released
+  // (and only if deferred_drop was flipped).
+  std::vector<std::shared_ptr<TextIndexData>> evicted;
+  evicted.reserve(index_->size());
   for (auto &[_, data_ptr] : *index_) {
-    data_ptr->deferred_drop = true;
+    evicted.push_back(data_ptr);
   }
   index_ = std::make_shared<IndexContainer>();
+  return evicted;
 }
 
 // ---- TextIndex::ActiveIndices (snapshot) methods ----

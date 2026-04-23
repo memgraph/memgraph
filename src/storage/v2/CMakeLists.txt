@@ -10,7 +10,6 @@ target_sources(mg-storage-v2
         config.cpp
         constraint_verification_info.cpp
         delta.cpp
-        constraints/active_constraints_updater.cpp
         constraints/constraints.cpp
         constraints/existence_constraints.cpp
         constraints/type_constraints.cpp

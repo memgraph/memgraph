@@ -206,17 +206,20 @@ std::vector<TextEdgeIndexSpec> TextEdgeIndex::ListIndices() const {
   return ret;
 }
 
-void TextEdgeIndex::Clear() {
-  // DatabaseInfoQuery (SHOW INDEX INFO) reads text indices through ActiveIndices
-  // snapshots without holding a storage accessor, so Clear() can race with a
-  // reader still referencing the same TextEdgeIndexData via an older snapshot.
-  // Mark every entry for deferred drop and swap in an empty map; the actual
-  // tantivy drop_index happens in ~TextEdgeIndexData when the last snapshot
-  // reference is released.
+std::vector<std::shared_ptr<TextEdgeIndexData>> TextEdgeIndex::Clear() {
+  // Evict every entry, returning the shared_ptrs to the caller. The caller is
+  // responsible for flipping `deferred_drop = true` on each — mirrors the
+  // per-index DropIndex contract. DatabaseInfoQuery readers holding older
+  // ActiveIndices snapshots continue to alias the same TextEdgeIndexData
+  // safely; the tantivy drop_index call happens in ~TextEdgeIndexData when
+  // the last snapshot reference is released (only if deferred_drop was flipped).
+  std::vector<std::shared_ptr<TextEdgeIndexData>> evicted;
+  evicted.reserve(index_->size());
   for (auto &[_, data_ptr] : *index_) {
-    data_ptr->deferred_drop = true;
+    evicted.push_back(data_ptr);
   }
   index_ = std::make_shared<IndexContainer>();
+  return evicted;
 }
 
 // ---- TextEdgeIndex::ActiveIndices (snapshot) methods ----

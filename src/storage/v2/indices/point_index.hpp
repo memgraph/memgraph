@@ -139,6 +139,11 @@ struct PointIndexStorage {
   void PublishActiveIndices(ActiveIndicesUpdater const &updater);
 
  private:
+  // Invariant: `indexes_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
+  // InMemoryAccessor::CreatePointIndex / DropPointIndex and in DropGraphClearIndices). Reads from
+  // other contexts (regular READ/WRITE accessors, DatabaseInfoQuery) MUST go through the published
+  // snapshot in `ActiveIndicesStore` -- UNIQUE excludes READ/WRITE, which is what makes direct
+  // access to `indexes_` from commit-time hot paths race-free.
   std::shared_ptr<index_container_t> indexes_ = std::make_shared<index_container_t>();
 };
 

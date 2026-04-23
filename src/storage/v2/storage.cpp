@@ -735,10 +735,11 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   // create that gets rolled back.
   auto updater = storage_->indices_.MakeUpdater();
   auto &text_index = storage_->indices_.text_index_;
-  transaction_.commit_callbacks_.Add(
-      [&text_index, updater](uint64_t /*commit_ts*/) { text_index.PublishActiveIndices(updater); });
+  transaction_.commit_callbacks_.Add([&text_index, updater](uint64_t /*commit_ts*/) {
+    text_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_index_info);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }
 
@@ -761,10 +762,11 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   // Defer publication to commit time. See CreateTextIndex above.
   auto updater = storage_->indices_.MakeUpdater();
   auto &text_edge_index = storage_->indices_.text_edge_index_;
-  transaction_.commit_callbacks_.Add(
-      [&text_edge_index, updater](uint64_t /*commit_ts*/) { text_edge_index.PublishActiveIndices(updater); });
+  transaction_.commit_callbacks_.Add([&text_edge_index, updater](uint64_t /*commit_ts*/) {
+    text_edge_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::text_edge_index_create, text_edge_index_info);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
   return {};
 }
 
@@ -781,6 +783,7 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
         [&text_index, updater, evicted = std::move(evicted)](uint64_t /*commit_ts*/) mutable {
           evicted->deferred_drop = true;
           text_index.PublishActiveIndices(updater);
+          memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
         });
   } else if (storage_->indices_.text_edge_index_.IndexExists(index_name)) {
     auto evicted = storage_->indices_.text_edge_index_.DropIndex(index_name);
@@ -789,12 +792,12 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
         [&text_edge_index, updater, evicted = std::move(evicted)](uint64_t /*commit_ts*/) mutable {
           evicted->deferred_drop = true;
           text_edge_index.PublishActiveIndices(updater);
+          memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
         });
   } else {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }
 

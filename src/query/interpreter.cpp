@@ -6539,6 +6539,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         constexpr std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
 
         auto ai = storage->GetActiveIndices();
+        DMG_ASSERT(ai && ai->label_ && ai->label_properties_ && ai->edge_type_ && ai->edge_type_properties_ &&
+                       ai->edge_property_ && ai->text_ && ai->text_edge_ && ai->point_ && ai->vector_ &&
+                       ai->vector_edge_,
+                   "DatabaseInfoQuery (INDEX) called with partially-constructed ActiveIndices");
         auto const ts = storage::kLargestCommittedTimestamp;
         storage::IndicesInfo const info{
             .label = ai->label_->ListIndices(ts),
@@ -6602,7 +6606,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
               {TypedValue(fmt::format("{} (name: {})", text_label_index_mark, index_name)),
                TypedValue(storage->LabelToName(label)),
                TypedValue(std::move(prop_names)),
-               TypedValue(static_cast<int>(ai->text_->ApproximateVerticesTextCount(index_name).value()))});
+               TypedValue(static_cast<int>(ai->text_->ApproximateVerticesTextCount(index_name).value_or(0)))});
         }
         for (const auto &[index_name, label, properties] : info.text_edge_indices) {
           auto prop_names =
@@ -6613,14 +6617,14 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
               {TypedValue(fmt::format("{} (name: {})", text_edge_type_index_mark, index_name)),
                TypedValue(storage->EdgeTypeToName(label)),
                TypedValue(std::move(prop_names)),
-               TypedValue(static_cast<int>(ai->text_edge_->ApproximateEdgesTextCount(index_name).value()))});
+               TypedValue(static_cast<int>(ai->text_edge_->ApproximateEdgesTextCount(index_name).value_or(0)))});
         }
         for (const auto &[label_id, prop_id] : info.point_label_property) {
           results.push_back(
               {TypedValue(point_label_property_index_mark),
                TypedValue(storage->LabelToName(label_id)),
                TypedValue(storage->PropertyToName(prop_id)),
-               TypedValue(static_cast<int>(ai->point_->ApproximatePointCount(label_id, prop_id).value()))});
+               TypedValue(static_cast<int>(ai->point_->ApproximatePointCount(label_id, prop_id).value_or(0)))});
         }
 
         for (const auto &spec : info.vector_indices_spec) {
@@ -6628,7 +6632,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(storage->LabelToName(spec.label_id)),
                              TypedValue(storage->PropertyToName(spec.property)),
                              TypedValue(static_cast<int>(
-                                 ai->vector_->ApproximateNodesVectorCount(spec.label_id, spec.property).value()))});
+                                 ai->vector_->ApproximateNodesVectorCount(spec.label_id, spec.property).value_or(0)))});
         }
 
         for (const auto &spec : info.vector_edge_indices_spec) {
@@ -6637,7 +6641,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                TypedValue(storage->EdgeTypeToName(spec.edge_type_id)),
                TypedValue(storage->PropertyToName(spec.property)),
                TypedValue(static_cast<int>(
-                   ai->vector_edge_->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value()))});
+                   ai->vector_edge_->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)))});
         }
 
         std::ranges::sort(results, [&label_index_mark](const auto &record_1, const auto &record_2) {

@@ -1219,8 +1219,14 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
 
   CheckForFastDiscardOfDeltas();
-  transaction_.active_indices_->text_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
-  transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  // Skip the virtual dispatch when the txn didn't touch any text/text-edge data
+  // (the common case for the commit hot path).
+  if (!transaction_.text_index_change_collector_.empty()) {
+    transaction_.active_indices_->text_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  }
+  if (!transaction_.text_edge_index_change_collector_.empty()) {
+    transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  }
   is_transaction_active_ = false;
 }
 
@@ -2051,11 +2057,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   // Defer publication to commit time so concurrent readers don't observe a
   // create that gets rolled back. Matches the constraint / vector-index paths.
   auto updater = in_memory->indices_.MakeUpdater();
-  transaction_.commit_callbacks_.Add(
-      [&point_index, updater](uint64_t /*commit_ts*/) { point_index.PublishActiveIndices(updater); });
+  transaction_.commit_callbacks_.Add([&point_index, updater](uint64_t /*commit_ts*/) {
+    point_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
   return {};
 }
 
@@ -2069,11 +2075,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   // Defer publication to commit time. See CreatePointIndex above.
   auto updater = in_memory->indices_.MakeUpdater();
-  transaction_.commit_callbacks_.Add(
-      [&point_index, updater](uint64_t /*commit_ts*/) { point_index.PublishActiveIndices(updater); });
+  transaction_.commit_callbacks_.Add([&point_index, updater](uint64_t /*commit_ts*/) {
+    point_index.PublishActiveIndices(updater);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
   return {};
 }
 
@@ -2092,11 +2098,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   // Defer publication to commit time so concurrent readers don't observe a
   // create that gets rolled back. Matches the constraint CREATE/DROP paths below.
   auto updater = in_memory->indices_.MakeUpdater();
-  transaction_.commit_callbacks_.Add(
-      [&vector_index, updater](uint64_t /*commit_ts*/) { vector_index.PublishActiveIndices(updater); });
+  transaction_.commit_callbacks_.Add([&vector_index, updater](uint64_t /*commit_ts*/) {
+    vector_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
   return {};
 }
 
@@ -2107,21 +2113,20 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto updater = in_memory->indices_.MakeUpdater();
-  // Defer publication to commit time. Metrics are dec'd eagerly (matching the
-  // CREATE path's eager inc) since they're not MVCC-versioned.
   if (vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
-    transaction_.commit_callbacks_.Add(
-        [&vector_index, updater](uint64_t /*commit_ts*/) { vector_index.PublishActiveIndices(updater); });
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
+    transaction_.commit_callbacks_.Add([&vector_index, updater](uint64_t /*commit_ts*/) {
+      vector_index.PublishActiveIndices(updater);
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
+    });
   } else if (vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
-    transaction_.commit_callbacks_.Add(
-        [&vector_edge_index, updater](uint64_t /*commit_ts*/) { vector_edge_index.PublishActiveIndices(updater); });
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+    transaction_.commit_callbacks_.Add([&vector_edge_index, updater](uint64_t /*commit_ts*/) {
+      vector_edge_index.PublishActiveIndices(updater);
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+    });
   } else {
     return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
-  // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
 
@@ -2152,11 +2157,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   // Defer publication to commit time. See CreateVectorIndex above.
   auto updater = in_memory->indices_.MakeUpdater();
-  transaction_.commit_callbacks_.Add(
-      [&vector_edge_index, updater](uint64_t /*commit_ts*/) { vector_edge_index.PublishActiveIndices(updater); });
+  transaction_.commit_callbacks_.Add([&vector_edge_index, updater](uint64_t /*commit_ts*/) {
+    vector_edge_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   return {};
 }
 

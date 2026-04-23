@@ -170,14 +170,15 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, uti
       snapshot_info->Update(UpdateType::POINT_IDX);
     }
   }
+  // Skip the COW copy when the key already exists - matches the symmetric
+  // early-return in DropPointIndex.
+  if (indexes_->contains(key)) return false;
   auto new_index = std::make_shared<PointIndex>(points_2d_WGS, points_2d_Crt, points_3d_WGS, points_3d_Crt);
   // Copy-on-write: create a new map so existing ActiveIndices snapshots are not affected.
   auto new_indexes = std::make_shared<index_container_t>(*indexes_);
-  auto [_, inserted] = new_indexes->try_emplace(key, std::move(new_index));
-  if (inserted) {
-    indexes_ = std::move(new_indexes);
-  }
-  return inserted;
+  new_indexes->try_emplace(key, std::move(new_index));
+  indexes_ = std::move(new_indexes);
+  return true;
 }
 
 bool PointIndexStorage::DropPointIndex(LabelId label, PropertyId property) {

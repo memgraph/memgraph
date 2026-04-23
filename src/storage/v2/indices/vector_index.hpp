@@ -194,6 +194,13 @@ class VectorIndex {
   VectorIndex &operator=(VectorIndex &&) noexcept = default;
 
   /// Returns the current active indices snapshot for use in transactions.
+  // TODO(follow-up): return `shared_ptr<VectorIndexActiveIndices const>` -- all
+  // methods on the snapshot are const, the inner container is already
+  // `shared_ptr<VectorIndexContainer const>`, so the outer non-const shared_ptr
+  // is a weak const-correctness wart. Requires threading `const` through
+  // `ActiveIndices::vector_`, `ActiveIndicesUpdater::operator()`, and the 4
+  // other sub-indices (text, text_edge, point, vector_edge) for consistency.
+  // Do all 5 in one sweep.
   auto GetActiveIndices() const -> std::shared_ptr<VectorIndexActiveIndices> {
     return std::make_shared<ActiveIndices>(index_);
   }
@@ -346,6 +353,12 @@ class VectorIndex {
   void AddVertexToIndex(uint64_t index_id, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
                         std::optional<std::size_t> thread_id = std::nullopt);
 
+  // Invariant: `index_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
+  // InMemoryAccessor::CreateVectorIndex / DropVectorIndex and in DropGraphClearIndices). Reads
+  // from other contexts (regular READ/WRITE accessors, DatabaseInfoQuery) MUST go through the
+  // published snapshot in `ActiveIndicesStore` -- UNIQUE excludes READ/WRITE, which is what makes
+  // direct access to `index_` from commit-time hot paths (UpdateOnAddLabel / UpdateOnSetProperty /
+  // SearchNodes) race-free.
   std::shared_ptr<VectorIndexContainer> index_ = std::make_shared<VectorIndexContainer>();
 };
 

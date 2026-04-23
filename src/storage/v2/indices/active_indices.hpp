@@ -20,6 +20,7 @@
 #include <memory>
 #include <vector>
 
+#include "utils/logging.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -60,14 +61,14 @@ struct ActiveIndices {
         vector_{std::move(vector)},
         vector_edge_{std::move(vector_edge)} {}
 
-  // TODO(follow-up): enforce DMG_ASSERT that every sub-index snapshot is
-  // non-null in the ctor. Currently blocked because isolated tests (e.g.
-  // VectorEdgeIndexRecoveryTest) construct an ActiveIndices with only the
-  // sub-index they care about and pass nullptrs for the rest. Fix by adding
-  // a shared test helper that default-constructs empty sub-index snapshots
-  // (each concrete ActiveIndices supports an empty container), then make
-  // non-null a hard invariant here. Until then, the MG_ASSERTs inside
-  // ActiveIndicesUpdater::operator() are the safety net.
+  // TODO(follow-up): make non-null a hard ctor invariant. Currently
+  // `VectorEdgeIndexRecoveryTest` passes nullptrs for every slot except the
+  // one under test. The right fix is a shared test helper that default-builds
+  // empty sub-index snapshots (each concrete *ActiveIndices accepts an empty
+  // container), then DMG_ASSERT all fields in this ctor. Until then, the
+  // `DMG_ASSERT`s in `CheckIndicesAreReady` and at the `DatabaseInfoQuery`
+  // call-site guard prod paths, and `ActiveIndicesUpdater::operator()`
+  // guards DDL publish.
 
   /// Returns a new ActiveIndices with one field replaced, identified by
   /// pointer-to-member. Keeps layout knowledge in one place and avoids the
@@ -82,6 +83,8 @@ struct ActiveIndices {
   }
 
   bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
+    DMG_ASSERT(label_ && label_properties_ && edge_type_ && edge_type_properties_ && edge_property_,
+               "CheckIndicesAreReady called on partially-constructed ActiveIndices");
     // label
     for ([[maybe_unused]] auto const &label : required_indices.label_) {
       if (!label_->IndexReady(label)) return false;

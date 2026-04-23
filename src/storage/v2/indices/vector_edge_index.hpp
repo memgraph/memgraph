@@ -257,6 +257,11 @@ class VectorEdgeIndex {
   /// @brief Removes an edge from a vector index.
   void RemoveEdgeFromIndex(Edge *edge, uint64_t index_id);
 
+  // Invariant: `index_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
+  // InMemoryAccessor::CreateVectorEdgeIndex / DropVectorIndex and in DropGraphClearIndices). Reads
+  // from other contexts (regular READ/WRITE accessors, DatabaseInfoQuery) MUST go through the
+  // published snapshot in `ActiveIndicesStore` -- UNIQUE excludes READ/WRITE, which is what makes
+  // direct access to `index_` from commit-time hot paths race-free.
   std::shared_ptr<VectorEdgeIndexContainer> index_ = std::make_shared<VectorEdgeIndexContainer>();
   std::unordered_map<Edge *, std::pair<Vertex *, Vertex *>> edge_endpoints_;
   // Lock order: mg_index.mutex → edge_endpoints_mutex_ (never acquire mg_index.mutex while holding

@@ -56,8 +56,12 @@ void Indices::DropGraphClearIndices() {
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->DropGraphClearIndices();
-  text_index_.Clear();
-  text_edge_index_.Clear();
+  // DropGraphClearIndices is only reachable from IN_MEMORY_ANALYTICAL DropGraph
+  // where aborts can't happen, so flipping deferred_drop synchronously is safe.
+  // If a future caller invokes Clear() from a transactional path, the flip
+  // must instead be deferred to that txn's commit callback.
+  for (auto &evicted : text_index_.Clear()) evicted->deferred_drop = true;
+  for (auto &evicted : text_edge_index_.Clear()) evicted->deferred_drop = true;
   point_index_.Clear();
   vector_index_.Clear();
   vector_edge_index_.Clear();
@@ -134,9 +138,13 @@ Indices::Indices(const Config &config, StorageMode storage_mode)
       edge_property_index_ = std::make_unique<DiskEdgePropertyIndex>();
     }
   });
-  // Build the composite snapshot outside the outer lock so we don't establish
-  // an outer→inner lock-order edge (TSAN flags that as a potential deadlock
-  // because sub-index GetActiveIndices() takes its own inner read-lock).
+  // Build the composite snapshot outside the outer `active_indices_` lock so
+  // we don't establish an outer→inner lock-order edge. Only the label /
+  // label-property / edge-type / edge-type-property / edge-property sub-indices
+  // take an inner read-lock inside GetActiveIndices(); text / point / vector /
+  // vector-edge read their owner `index_` member directly (race-free by the
+  // UNIQUE-access invariant, see each owner header). We still build outside
+  // the outer lock uniformly so callers can't rely on the asymmetry.
   auto snapshot = std::make_shared<ActiveIndices>(label_index_->GetActiveIndices(),
                                                   label_property_index_->GetActiveIndices(),
                                                   edge_type_index_->GetActiveIndices(),

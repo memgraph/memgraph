@@ -154,9 +154,13 @@ class TextIndex {
   /// ListIndices on the owning class (for snapshot creation, outside transaction context).
   std::vector<TextIndexSpec> ListIndices() const;
 
-  /// Drops all text indices. Does NOT publish to ActiveIndicesStore —
-  /// the caller (DropGraphClearIndices) is responsible for republishing.
-  void Clear();
+  /// Empties the live container and returns the evicted TextIndexData entries.
+  /// The caller owns the flip-and-publish contract: match DropIndex and only
+  /// flip `deferred_drop` on each returned entry when it's safe to unlink the
+  /// on-disk tantivy directory (i.e. from a commit callback, or from
+  /// IN_MEMORY_ANALYTICAL DropGraph where aborts can't happen). Does NOT
+  /// publish to ActiveIndicesStore — the caller is responsible for that too.
+  [[nodiscard]] std::vector<std::shared_ptr<TextIndexData>> Clear();
 
   /// Publishes the current index container as the new ActiveIndices snapshot.
   /// Safe to call any time; read operations see the latest published snapshot.
@@ -164,6 +168,11 @@ class TextIndex {
 
  private:
   std::filesystem::path text_index_storage_dir_;
+  // Invariant: `index_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
+  // Storage::Accessor::CreateTextIndex / DropTextIndex and in DropGraphClearIndices). Reads from
+  // other contexts (regular READ/WRITE accessors, DatabaseInfoQuery) MUST go through the published
+  // snapshot in `ActiveIndicesStore` -- UNIQUE excludes READ/WRITE, which is what makes direct
+  // access to `index_` from commit-time hot paths (UpdateOnAddLabel etc.) race-free.
   std::shared_ptr<IndexContainer> index_;
 
   void CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info);

@@ -33,13 +33,16 @@ struct ActiveConstraints {
                              std::shared_ptr<TypeConstraints::ActiveConstraints> type)
       : existence_{std::move(existence)}, unique_{std::move(unique)}, type_{std::move(type)} {}
 
-  /// Factory methods that return a new ActiveConstraints with one field replaced.
-  [[nodiscard]] std::shared_ptr<ActiveConstraints const> WithExistence(
-      std::shared_ptr<ExistenceConstraints::ActiveConstraints> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveConstraints const> WithUnique(
-      std::shared_ptr<UniqueConstraints::ActiveConstraints> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveConstraints const> WithType(
-      std::shared_ptr<TypeConstraints::ActiveConstraints> x) const;
+  /// Returns a new ActiveConstraints with one field replaced, identified by
+  /// pointer-to-member. Mirrors `ActiveIndices::With<Member>` -- keeps layout
+  /// knowledge in one place and avoids the positional-argument foot-gun of the
+  /// 3-arg ctor.
+  template <auto Member, class X>
+  [[nodiscard]] std::shared_ptr<ActiveConstraints const> With(X x) const {
+    auto next = *this;
+    next.*Member = std::move(x);
+    return std::make_shared<ActiveConstraints>(std::move(next));
+  }
 
   // Related to collection and validation
   bool empty() const { return existence_->empty() && unique_->empty() && type_->empty(); }
