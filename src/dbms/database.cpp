@@ -57,14 +57,6 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
 
 Database::~Database() = default;
 
-unsigned Database::BaseArenaIdx() const noexcept {
-#if USE_JEMALLOC
-  return db_arena_ ? db_arena_->idx() : 0;
-#else
-  return 0;
-#endif
-}
-
 #if USE_JEMALLOC
 memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
 

@@ -200,6 +200,7 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
       return std::nullopt;
     }
 #endif
+    const memory::DbArenaScope db_arena_scope{acc.get()};
     auto const *inmem_storage = static_cast<storage::InMemoryStorage *>(acc.get()->storage());
     if (!inmem_storage || inmem_storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       spdlog::error("Database is not IN_MEMORY_TRANSACTIONAL.");

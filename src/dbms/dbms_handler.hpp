@@ -190,19 +190,20 @@ class DbmsHandler {
 
     // TODO: Fix this hack
     if (*name_view == kDefaultDB) {
+      const memory::DbArenaScope db_arena_scope{db.get()};
+      auto *storage = db->storage();
       spdlog::debug("Last commit timestamp for DB {} is {}",
                     kDefaultDB,
-                    db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
+                    storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
       // This seems correct, if database made progress
-      if (db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
-          storage::kTimestampInitialId) {
+      if (storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ != storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
         return std::unexpected{NewError::GENERIC};  // Update error
       }
       spdlog::debug("Updated default db's UUID");
       // Default db cannot be deleted and remade, have to just update the UUID
-      db->storage()->config_.salient.uuid = config.uuid;
-      UpdateDurability(db->storage()->config_, ".");
+      storage->config_.salient.uuid = config.uuid;
+      UpdateDurability(storage->config_, ".");
       return db;
     }
 

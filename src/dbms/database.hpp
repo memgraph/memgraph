@@ -196,12 +196,6 @@ class Database {
    */
   void StopAllBackgroundTasks();
 
-  /**
-   * @brief Base jemalloc arena index owned by this database (0 if not using jemalloc).
-   *        Long-lived DB threads should use Arena().Acquire() instead.
-   */
-  unsigned BaseArenaIdx() const noexcept;
-
 #if USE_JEMALLOC
   /// Returns the database arena pool for per-thread arena management
   memory::ArenaPool &Arena() noexcept;

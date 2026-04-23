@@ -68,9 +68,11 @@ class DiskStorage final : public Storage {
 
     ~DiskAccessor() override;
 
-    VertexAccessor CreateVertex() override;
+   VertexAccessor CreateVertex() override;
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
+
+    using Storage::Accessor::Vertices;
 
     VerticesIterable Vertices(View view) override;
 

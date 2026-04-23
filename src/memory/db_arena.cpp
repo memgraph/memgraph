@@ -148,6 +148,7 @@ void LogDestructorCleanupFailure(std::string_view owner, unsigned arena_idx, std
   try {
     spdlog::error("{} {}: {} failed during destructor cleanup: {}", owner, arena_idx, operation, error);
   } catch (...) {
+    (void)0; //clang-tidy
   }
 }
 

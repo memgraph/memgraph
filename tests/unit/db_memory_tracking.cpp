@@ -82,9 +82,9 @@ TEST_F(DbMemoryTrackingTest, ArenaBasics) {
   auto acc2 = db_gk2.access();
   ASSERT_TRUE(acc1 && acc2);
 
-  EXPECT_NE((*acc1)->BaseArenaIdx(), 0u) << "Each Database should own a unique jemalloc arena";
-  EXPECT_NE((*acc2)->BaseArenaIdx(), 0u);
-  EXPECT_NE((*acc1)->BaseArenaIdx(), (*acc2)->BaseArenaIdx()) << "Two databases must not share a jemalloc arena";
+  EXPECT_NE((*acc1)->Arena().idx(), 0u) << "Each Database should own a unique jemalloc arena";
+  EXPECT_NE((*acc2)->Arena().idx(), 0u);
+  EXPECT_NE((*acc1)->Arena().idx(), (*acc2)->Arena().idx()) << "Two databases must not share a jemalloc arena";
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ TEST_F(DbMemoryTrackingTest, ArenaIsolationAndParentPropagation) {
   auto &db1 = *acc1;
   auto &db2 = *acc2;
 
-  const unsigned arena1 = db1->BaseArenaIdx();
+  const unsigned arena1 = db1->Arena().idx();
   ASSERT_NE(arena1, 0u);
 
   const int64_t before1 = db1->DbMemoryUsage();
@@ -339,7 +339,7 @@ TEST_F(DbMemoryTrackingTest, StorageOpsIncreaseDbMemory) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->BaseArenaIdx();
+  const unsigned arena_idx = db->Arena().idx();
   ASSERT_NE(arena_idx, 0U);
 
   memgraph::memory::DbArenaScope scope{&db->Arena()};
@@ -388,7 +388,7 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->BaseArenaIdx();
+  const unsigned arena_idx = db->Arena().idx();
   ASSERT_NE(arena_idx, 0U);
   memgraph::memory::DbArenaScope scope{&db->Arena()};
 
@@ -456,7 +456,7 @@ TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->BaseArenaIdx();
+  const unsigned arena_idx = db->Arena().idx();
   ASSERT_NE(arena_idx, 0U);
 
   auto create_vertices = [&](const char *label_name) {
@@ -518,7 +518,7 @@ TEST_F(DbMemoryTrackingTest, SnapshotRecoveryPreservesDbMemoryTracking) {
     ASSERT_TRUE(acc_opt);
     auto &db = *acc_opt;
 
-    const unsigned arena_idx = db->BaseArenaIdx();
+    const unsigned arena_idx = db->Arena().idx();
     ASSERT_NE(arena_idx, 0U);
 
     memgraph::memory::DbArenaScope scope{&db->Arena()};
@@ -652,7 +652,7 @@ TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->BaseArenaIdx();
+  const unsigned arena_idx = db->Arena().idx();
   ASSERT_NE(arena_idx, 0U);
 
   auto label = db->storage()->NameToLabel("GcNode");
@@ -711,7 +711,7 @@ TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
 // ---------------------------------------------------------------------------
 // 14. ArenaPool API: Base arena vs Acquire/Release semantics
 // ---------------------------------------------------------------------------
-TEST_F(DbMemoryTrackingTest, ArenaPool_BaseArenaIdxVsAcquireRelease) {
+TEST_F(DbMemoryTrackingTest, ArenaPool_BaseArenaVsAcquireRelease) {
   auto dir = data_dir_ / "db_arena_reg";
   std::filesystem::create_directories(dir);
 
@@ -720,11 +720,11 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_BaseArenaIdxVsAcquireRelease) {
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
-  // BaseArenaIdx returns the DB's stable base arena.
+  // idx() returns the DB's stable base arena.
   unsigned base_arena = db->Arena().idx();
-  EXPECT_NE(base_arena, 0u) << "BaseArenaIdx should return a valid arena";
+  EXPECT_NE(base_arena, 0u) << "idx() should return a valid arena";
   unsigned base_arena2 = db->Arena().idx();
-  EXPECT_EQ(base_arena, base_arena2) << "BaseArenaIdx should be stable across calls";
+  EXPECT_EQ(base_arena, base_arena2) << "idx() should be stable across calls";
 
   // Acquire returns a valid arena for DB-owned thread work.
   unsigned thread_arena = db->Arena().Acquire();
@@ -1143,7 +1143,7 @@ TEST_F(DbMemoryTrackingTest, MixedAllocators_ConsistentAttribution) {
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
-  const unsigned arena_idx = db->BaseArenaIdx();
+  const unsigned arena_idx = db->Arena().idx();
   ASSERT_NE(arena_idx, 0U);
 
   const int64_t before = db->DbMemoryUsage();
