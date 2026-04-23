@@ -226,9 +226,10 @@ template <typename TFunc, typename... Args>
 
 // Graph mutations
 bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
-  // a virtual graph (derive() arg) is read-only: the virtual store is query-scoped
+  // A virtual graph (derive() arg) is read-only: the virtual store is query-scoped
   // and there is no sanctioned path to write into the underlying real DB.
-  return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr && !graph.IsVirtual();
+  return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr &&
+         !std::holds_alternative<memgraph::query::VirtualGraphDbAccessor *>(graph.impl);
 }
 
 bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
@@ -3475,37 +3476,26 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
         const auto gid = memgraph::storage::Gid::FromInt(id.as_int);
-        if (graph->IsVirtual()) {
-          if (const auto *vn = graph->VirtualGraphPtr()->FindNode(gid)) {
-            return NewRawMgpObject<mgp_vertex>(memory, *vn, graph);
-          }
-          return nullptr;
-        }
-        const auto maybe_vertex = std::visit(
+        return std::visit(
             memgraph::utils::Overloaded{
-                [graph, gid](memgraph::query::DbAccessor *impl) { return impl->FindVertex(gid, graph->view); },
-                [graph, gid](memgraph::query::SubgraphDbAccessor *impl) { return impl->FindVertex(gid, graph->view); },
-                VirtualGraphUnreachable<std::optional<memgraph::query::VertexAccessor>>(
-                    "mgp_graph_get_vertex_by_id FindVertex")},
+                [graph, gid, memory](memgraph::query::DbAccessor *impl) -> mgp_vertex * {
+                  const auto maybe_vertex = impl->FindVertex(gid, graph->view);
+                  if (!maybe_vertex) return nullptr;
+                  return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
+                },
+                [graph, gid, memory](memgraph::query::SubgraphDbAccessor *impl) -> mgp_vertex * {
+                  const auto maybe_vertex = impl->FindVertex(gid, graph->view);
+                  if (!maybe_vertex) return nullptr;
+                  return NewRawMgpObject<mgp_vertex>(
+                      memory, memgraph::query::SubgraphVertexAccessor(*maybe_vertex, impl->getGraph()), graph);
+                },
+                [graph, gid, memory](memgraph::query::VirtualGraphDbAccessor *impl) -> mgp_vertex * {
+                  if (const auto *vn = impl->FindNode(gid)) {
+                    return NewRawMgpObject<mgp_vertex>(memory, *vn, graph);
+                  }
+                  return nullptr;
+                }},
             graph->impl);
-        if (maybe_vertex) {
-          return std::visit(
-              memgraph::utils::Overloaded{
-                  [memory, graph, maybe_vertex](memgraph::query::DbAccessor *) {
-                    return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
-                  },
-                  [memory, graph, maybe_vertex](memgraph::query::SubgraphDbAccessor *impl) {
-                    return NewRawMgpObject<mgp_vertex>(
-                        memory, memgraph::query::SubgraphVertexAccessor(*maybe_vertex, impl->getGraph()), graph);
-                  },
-                  [](memgraph::query::VirtualGraphDbAccessor *) -> mgp_vertex * {
-                    // Unreachable: the IsVirtual() short-circuit at the top of this function
-                    // handles virtual graphs before reaching this visit.
-                    throw std::logic_error{"mgp_graph_get_vertex_by_id: real-vertex visit on virtual graph"};
-                  }},
-              graph->impl);
-        }
-        return nullptr;
       },
       result);
 }
@@ -4914,14 +4904,17 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
     : alloc(alloc),
       graph(graph),
       vertices(std::visit([graph](auto *impl) { return impl->Vertices(graph->view); }, graph->impl)),
-      current_it(graph->IsVirtual() ? vertices.end() : vertices.begin()) {
+      current_it(std::holds_alternative<memgraph::query::VirtualGraphDbAccessor *>(graph->impl) ? vertices.end()
+                                                                                                : vertices.begin()) {
 #ifdef MG_ENTERPRISE
-  if (!graph->IsVirtual() && memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+  if (!std::holds_alternative<memgraph::query::VirtualGraphDbAccessor *>(graph->impl) &&
+      memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     NextPermitted(*this);
   }
 #endif
 
-  if (auto *vg = graph->VirtualGraphPtr()) {
+  if (auto *const *vg_arm = std::get_if<memgraph::query::VirtualGraphDbAccessor *>(&graph->impl)) {
+    auto *vg = (*vg_arm)->getGraph();
     if (!vg->nodes().empty()) {
       has_virtual_nodes_ = true;
       virtual_node_it_ = vg->nodes().begin();
@@ -4955,21 +4948,27 @@ mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vert
 
 mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
-    if (graph->IsVirtual()) {
-      *result = graph->VirtualGraphPtr()->nodes().size();
-      return;
-    }
-    *result = graph->getImpl()->VerticesCount();
+    *result =
+        std::visit(memgraph::utils::Overloaded{
+                       [](memgraph::query::DbAccessor *impl) { return impl->VerticesCount(); },
+                       [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->VerticesCount(); },
+                       [](memgraph::query::VirtualGraphDbAccessor *impl) -> int64_t {
+                         return static_cast<int64_t>(impl->getGraph()->nodes().size());
+                       }},
+                   graph->impl);
   });
 }
 
 mgp_error mgp_graph_approximate_edge_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
-    if (graph->IsVirtual()) {
-      *result = graph->VirtualGraphPtr()->edges().size();
-      return;
-    }
-    *result = graph->getImpl()->EdgesCount();
+    *result =
+        std::visit(memgraph::utils::Overloaded{
+                       [](memgraph::query::DbAccessor *impl) { return impl->EdgesCount(); },
+                       [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->EdgesCount(); },
+                       [](memgraph::query::VirtualGraphDbAccessor *impl) -> int64_t {
+                         return static_cast<int64_t>(impl->getGraph()->edges().size());
+                       }},
+                   graph->impl);
   });
 }
 

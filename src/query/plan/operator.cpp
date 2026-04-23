@@ -7848,6 +7848,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   std::optional<query::Graph> subgraph;
   std::optional<query::SubgraphDbAccessor> db_acc;
   std::optional<query::VirtualGraph> virtual_graph;
+  std::optional<query::VirtualGraphDbAccessor> vg_acc;
 
   if (!args_list.empty() && args_list.front().type() == TypedValue::Type::Graph) {
     auto subgraph_value = args_list.front().ValueGraph();
@@ -7861,7 +7862,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     virtual_graph = query::VirtualGraph(std::move(vg_value), vg_value.get_allocator());
     args_list.erase(args_list.begin());
 
-    graph.virtual_graph = &*virtual_graph;
+    vg_acc = query::VirtualGraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), &*virtual_graph);
+    graph.impl = &*vg_acc;
   }
 
   procedure::ValidateArguments(args_list, proc, fully_qualified_procedure_name);

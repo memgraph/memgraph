@@ -731,16 +731,14 @@ TYPED_TEST(MgpGraphTest, VirtualGraphNodeIntegration) {
 TYPED_TEST(MgpGraphTest, VertexIteratorYieldsVirtualNodes) {
   auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
 
-  memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto score_id = dba.NameToProperty("score");
   vg.InsertNode(memgraph::query::VirtualNode({"A"}, {{score_id, memgraph::storage::PropertyValue(10)}}));
   vg.InsertNode(memgraph::query::VirtualNode({"B"}, {{score_id, memgraph::storage::PropertyValue(20)}}));
 
-  memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
+  memgraph::query::VirtualGraphDbAccessor vg_acc(dba, &vg);
   auto graph = mgp_graph{
-      &sub_dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
-  graph.virtual_graph = &vg;
+      &vg_acc, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
 
   auto *it = EXPECT_MGP_NO_ERROR(mgp_vertices_iterator *, mgp_graph_iter_vertices, &graph, &this->memory);
   ASSERT_NE(it, nullptr);
@@ -768,9 +766,9 @@ TYPED_TEST(MgpGraphTest, VirtualOnlyScopeHidesRealVerticesAndEdges) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto synth_gid = vg.InsertNode(memgraph::query::VirtualNode({"V"}, {})).Gid();
 
-  auto graph =
-      mgp_graph{&dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
-  graph.virtual_graph = &vg;
+  memgraph::query::VirtualGraphDbAccessor vg_acc(dba, &vg);
+  auto graph = mgp_graph{
+      &vg_acc, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
 
   size_t vcount = 0;
   size_t ecount = 0;
@@ -800,9 +798,9 @@ TYPED_TEST(MgpGraphTest, VirtualNodeRejectsPropertyWrites) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto synth_gid = vg.InsertNode(memgraph::query::VirtualNode({}, {})).Gid();
 
-  auto graph =
-      mgp_graph{&dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
-  graph.virtual_graph = &vg;
+  memgraph::query::VirtualGraphDbAccessor vg_acc(dba, &vg);
+  auto graph = mgp_graph{
+      &vg_acc, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
 
   MgpVertexPtr v{EXPECT_MGP_NO_ERROR(
       mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{synth_gid.AsInt()}, &this->memory)};
@@ -813,9 +811,11 @@ TYPED_TEST(MgpGraphTest, VirtualNodeRejectsPropertyWrites) {
 }
 
 TYPED_TEST(MgpGraphTest, VirtualOnlyScopeRejectsMutations) {
-  mgp_graph graph = this->CreateGraph();
+  auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
-  graph.virtual_graph = &vg;
+  memgraph::query::VirtualGraphDbAccessor vg_acc(dba, &vg);
+  mgp_graph graph{
+      &vg_acc, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
 
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_graph_is_mutable, &graph), 0);
   mgp_vertex *raw_vertex{};

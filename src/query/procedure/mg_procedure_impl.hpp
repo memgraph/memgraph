@@ -834,14 +834,21 @@ struct mgp_graph {
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
 
-  // Non-null means the graph is virtual-only: real-storage reads are hidden, writes are refused.
-  // Retained temporarily during the migration to VirtualGraphDbAccessor; will be removed
-  // once all call sites dispatch via the `impl` variant.
+  // Scheduled for removal in the next commit: VirtualGraphPtr()/IsVirtual() now
+  // derive from the `impl` variant arm, so this field is write-only and kept only
+  // to avoid a same-commit diff of every construction site.
   memgraph::query::VirtualGraph *virtual_graph{nullptr};
 
-  [[nodiscard]] memgraph::query::VirtualGraph *VirtualGraphPtr() const noexcept { return virtual_graph; }
+  [[nodiscard]] memgraph::query::VirtualGraph *VirtualGraphPtr() const noexcept {
+    if (auto *const *p = std::get_if<memgraph::query::VirtualGraphDbAccessor *>(&impl)) {
+      return (*p)->getGraph();
+    }
+    return nullptr;
+  }
 
-  [[nodiscard]] bool IsVirtual() const noexcept { return virtual_graph != nullptr; }
+  [[nodiscard]] bool IsVirtual() const noexcept {
+    return std::holds_alternative<memgraph::query::VirtualGraphDbAccessor *>(impl);
+  }
 
   memgraph::query::DbAccessor *getImpl() const {
     return std::visit(
