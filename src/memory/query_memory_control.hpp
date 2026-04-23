@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <optional>
 
+#include "memory/db_arena_fwd.hpp"
+
 // Forward declaration
 namespace memgraph::utils {
 class QueryMemoryTracker;
@@ -76,12 +78,12 @@ struct ThreadTrackingBlocker {
 struct CrossThreadMemoryTracking {
   utils::QueryMemoryTracker *query_tracker{nullptr};
   utils::UserResources *user_tracker{nullptr};
-  // DB arena index captured from the query execution context. Parallel worker
-  // threads restore this arena for the duration of their task so TLS-scoped
-  // DB allocations land in the same DB arena as the parent query.
-  unsigned db_arena_idx{0};
+  // DB arena pool captured from the query execution context. Parallel worker
+  // threads acquire from this pool for the duration of their task so
+  // TLS-scoped DB allocations are attributed to the parent DB.
+  ArenaPool *db_arena_pool{nullptr};
 
-  explicit CrossThreadMemoryTracking(unsigned arena_idx = 0);
+  explicit CrossThreadMemoryTracking(ArenaPool *arena_pool = nullptr);
   ~CrossThreadMemoryTracking() = default;
 
   void StartTracking();
@@ -95,7 +97,7 @@ struct CrossThreadMemoryTracking {
  private:
   utils::QueryMemoryTracker *prev_query_tracker_{nullptr};
   utils::UserResources *prev_user_tracker_{nullptr};
-  std::optional<unsigned> prev_arena_;
+  std::optional<DbArenaScope> db_arena_scope_;
   bool started_{false};
 };
 

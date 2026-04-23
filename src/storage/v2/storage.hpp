@@ -215,7 +215,7 @@ class Storage {
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator, unsigned db_arena_idx = 0,
-          utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
+          memory::ArenaPool *db_arena_pool = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
           std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
 
   Storage(const Storage &) = delete;
@@ -234,6 +234,8 @@ class Storage {
   auto uuid() -> utils::UUID & { return config_.salient.uuid; }
 
   unsigned BaseArenaIdx() const noexcept { return db_arena_idx_; }
+
+  memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   class Accessor {
    public:
@@ -1133,6 +1135,7 @@ class Storage {
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
   unsigned db_arena_idx_{0};
+  memory::ArenaPool *db_arena_pool_{nullptr};
 
   Indices indices_;
   Constraints constraints_;

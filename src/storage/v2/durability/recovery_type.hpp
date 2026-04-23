@@ -15,10 +15,14 @@
 #include <vector>
 #include "storage/v2/id_types.hpp"
 
+namespace memgraph::memory {
+class ArenaPool;
+}  // namespace memgraph::memory
+
 namespace memgraph::storage::durability {
 struct ParallelizedSchemaCreationInfo {
   std::vector<std::pair<Gid, uint64_t>> vertex_recovery_info;
   uint64_t thread_count;
-  unsigned arena_idx = 0;  // jemalloc arena for the owning DB; 0 = default arena
+  memory::ArenaPool *arena_pool = nullptr;
 };
 }  // namespace memgraph::storage::durability

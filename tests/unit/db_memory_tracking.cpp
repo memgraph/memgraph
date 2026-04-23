@@ -115,7 +115,7 @@ TEST_F(DbMemoryTrackingTest, ArenaIsolationAndParentPropagation) {
   // Allocate 4 MiB into DB1's arena.
   static constexpr std::size_t kAllocCount = 4096;
   static constexpr std::size_t kAllocSize = 1024;
-  memgraph::memory::DbArenaScope scope{arena1};
+  memgraph::memory::DbArenaScope scope{&db1->Arena()};
   std::vector<void *> ptrs;
   ptrs.reserve(kAllocCount);
   for (std::size_t i = 0; i < kAllocCount; ++i) {
@@ -238,7 +238,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   }
 
   {
-    memgraph::memory::DbArenaScope db_arena_scope{db1->BaseArenaIdx()};
+    memgraph::memory::DbArenaScope db_arena_scope{&db1->Arena()};
     auto unique_acc = db1->UniqueAccess();
 
     const int64_t db1_before = db1->DbEmbeddingMemoryUsage();
@@ -272,7 +272,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   auto edge_type = db1->storage()->NameToEdgeType("EMBEDDED_EDGE");
   auto edge_property = db1->storage()->NameToProperty("edge_embedding");
   {
-    memgraph::memory::DbArenaScope scope{db1->BaseArenaIdx()};
+    memgraph::memory::DbArenaScope scope{&db1->Arena()};
     auto accessor = db1->Access();
     std::vector<memgraph::storage::VertexAccessor> vertices;
     vertices.reserve(1025);
@@ -304,7 +304,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   };
 
   {
-    memgraph::memory::DbArenaScope db_arena_scope{db1->BaseArenaIdx()};
+    memgraph::memory::DbArenaScope db_arena_scope{&db1->Arena()};
     auto unique_acc = db1->UniqueAccess();
     ASSERT_NO_ERROR(unique_acc->CreateVectorEdgeIndex(edge_spec));
   }
@@ -318,7 +318,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   EXPECT_GE(db1_edge_total_delta, db1_edge_delta) << "db_total should include edge embedding delta";
 
   {
-    memgraph::memory::DbArenaScope db_arena_scope{db1->BaseArenaIdx()};
+    memgraph::memory::DbArenaScope db_arena_scope{&db1->Arena()};
     auto unique_acc = db1->UniqueAccess();
     ASSERT_NO_ERROR(unique_acc->DropVectorIndex(edge_spec.index_name));
   }
@@ -338,7 +338,7 @@ TEST_F(DbMemoryTrackingTest, StorageOpsIncreaseDbMemory) {
   const unsigned arena_idx = db->BaseArenaIdx();
   ASSERT_NE(arena_idx, 0U);
 
-  memgraph::memory::DbArenaScope scope{arena_idx};
+  memgraph::memory::DbArenaScope scope{&db->Arena()};
 
   auto label = db->storage()->NameToLabel("Person");
   auto prop_name = db->storage()->NameToProperty("name");
@@ -386,7 +386,7 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
 
   const unsigned arena_idx = db->BaseArenaIdx();
   ASSERT_NE(arena_idx, 0U);
-  memgraph::memory::DbArenaScope scope{arena_idx};
+  memgraph::memory::DbArenaScope scope{&db->Arena()};
 
   auto label = db->storage()->NameToLabel("IdxNode");
   auto prop = db->storage()->NameToProperty("val");
@@ -472,7 +472,7 @@ TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
     const int64_t before = db->DbMemoryUsage();
     std::atomic<int64_t> after{0};
     std::thread t([&] {
-      memgraph::memory::DbArenaScope scope{arena_idx};
+      memgraph::memory::DbArenaScope scope{&db->Arena()};
       create_vertices("FullPinNode");
       after.store(db->DbMemoryUsage());
     });
@@ -485,7 +485,7 @@ TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
     const int64_t before = db->DbMemoryUsage();
     std::atomic<int64_t> after{0};
     std::thread t([&] {
-      memgraph::memory::DbArenaScope scope{arena_idx};
+      memgraph::memory::DbArenaScope scope{&db->Arena()};
       create_vertices("TlsPinNode");
       after.store(db->DbMemoryUsage());
     });
@@ -517,7 +517,7 @@ TEST_F(DbMemoryTrackingTest, SnapshotRecoveryPreservesDbMemoryTracking) {
     const unsigned arena_idx = db->BaseArenaIdx();
     ASSERT_NE(arena_idx, 0U);
 
-    memgraph::memory::DbArenaScope scope{arena_idx};
+    memgraph::memory::DbArenaScope scope{&db->Arena()};
 
     auto label = db->storage()->NameToLabel("SnapNode");
     auto prop = db->storage()->NameToProperty("id");
@@ -594,8 +594,7 @@ TEST_F(DbMemoryTrackingTest, WalOnlyRecoveryPreservesDbMemoryTracking) {
     ASSERT_TRUE(acc_opt);
     auto &db = *acc_opt;
 
-    const unsigned arena_idx = db->BaseArenaIdx();
-    memgraph::memory::DbArenaScope scope{arena_idx};
+    memgraph::memory::DbArenaScope scope{&db->Arena()};
 
     auto label = db->storage()->NameToLabel("WalNode");
     auto prop = db->storage()->NameToProperty("id");
@@ -660,7 +659,7 @@ TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
   // Create 100k nodes with string properties to force many committed extents.
   static constexpr int kGcNodes = 100000;
   {
-    memgraph::memory::DbArenaScope scope{arena_idx};
+    memgraph::memory::DbArenaScope scope{&db->Arena()};
     auto acc = db->Access();
     for (int i = 0; i < kGcNodes; ++i) {
       auto v = acc->CreateVertex();
@@ -791,6 +790,58 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_SharedFirstArenaFallbackNotFreedUntilLast
   db->Arena().Release(next_arena);
   db->Arena().Release(first_arena);
 }
+
+TEST_F(DbMemoryTrackingTest, ArenaPoolScope_NestedSamePoolBorrowsExistingArena) {
+  memgraph::utils::MemoryTracker tracker;
+  memgraph::memory::ArenaPool arena{&tracker};
+
+  const memgraph::memory::DbArenaScope outer_scope{&arena};
+  const auto outer_arena_idx = memgraph::memory::tls_db_arena_state.arena;
+  ASSERT_NE(outer_arena_idx, 0U);
+
+  {
+    const memgraph::memory::DbArenaScope inner_scope{&arena};
+    EXPECT_EQ(memgraph::memory::tls_db_arena_state.arena, outer_arena_idx)
+        << "Nested scopes from the same ArenaPool should borrow the existing TLS arena";
+  }
+
+  EXPECT_EQ(memgraph::memory::tls_db_arena_state.arena, outer_arena_idx);
+}
+
+TEST_F(DbMemoryTrackingTest, ArenaPoolScope_NestedSamePoolDoesNotReleaseOnInnerDestruction) {
+  memgraph::utils::MemoryTracker tracker;
+  memgraph::memory::ArenaPool pool{&tracker};
+
+  const memgraph::memory::DbArenaScope outer{&pool};
+  const auto arena_after_outer = memgraph::memory::tls_db_arena_state.arena;
+  ASSERT_NE(arena_after_outer, 0U);
+
+  {
+    const memgraph::memory::DbArenaScope inner{&pool};
+    EXPECT_EQ(memgraph::memory::tls_db_arena_state.arena, arena_after_outer);
+    // inner scope destructs here — must NOT release the arena back to the pool
+  }
+
+  // TLS still valid; outer scope still holds the arena
+  EXPECT_EQ(memgraph::memory::tls_db_arena_state.arena, arena_after_outer);
+  // Outer scope destructs here; only one Release() should follow
+}
+
+#ifndef NDEBUG
+TEST_F(DbMemoryTrackingTest, ArenaPoolScope_CrossPoolNestingAborts) {
+  memgraph::utils::MemoryTracker tracker1;
+  memgraph::utils::MemoryTracker tracker2;
+  memgraph::memory::ArenaPool pool1{&tracker1};
+  memgraph::memory::ArenaPool pool2{&tracker2};
+
+  ASSERT_DEATH(
+      {
+        const memgraph::memory::DbArenaScope outer{&pool1};
+        const memgraph::memory::DbArenaScope inner{&pool2};  // different pool → assert
+      },
+      "");
+}
+#endif  // !NDEBUG
 
 // ---------------------------------------------------------------------------
 // 16. Arena reuse restores hooks before returning the arena index to the pool
@@ -961,17 +1012,13 @@ TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
 
   unsigned bg_thread_arena = 0;
   std::thread bg_thread([&]() {
-    // Simulate what GC/snapshot/TTL threads do
-    unsigned arena = db->Arena().Acquire();
-    {
-      const memgraph::memory::DbArenaScope scope{arena};
-      bg_thread_arena = arena;
-    }
+    // Simulate what GC/snapshot/TTL threads do — use pool-backed scope
+    const memgraph::memory::DbArenaScope scope{&db->Arena()};
+    bg_thread_arena = memgraph::memory::tls_db_arena_state.arena;
   });
   bg_thread.join();
 
   EXPECT_NE(bg_thread_arena, 0u) << "Background thread should acquire an arena";
-  db->Arena().Release(bg_thread_arena);
 }
 
 // ---------------------------------------------------------------------------
@@ -994,7 +1041,7 @@ TEST_F(DbMemoryTrackingTest, MixedAllocators_ConsistentAttribution) {
   // Create vertices under an explicit DB scope and set properties using
   // DbAwareAllocator (via std::string)
   {
-    memgraph::memory::DbArenaScope scope{arena_idx};
+    memgraph::memory::DbArenaScope scope{&db->Arena()};
     auto txn = db->Access();
 
     // Create 1000 vertices with string properties

@@ -25,6 +25,10 @@
 #include "nlohmann/json_fwd.hpp"
 #include "query/stream/common.hpp"
 
+namespace memgraph::memory {
+class ArenaPool;
+}  // namespace memgraph::memory
+
 namespace memgraph::query::stream {
 
 struct KafkaStream {
@@ -55,12 +59,12 @@ struct KafkaStream {
   std::expected<void, std::string> SetStreamOffset(int64_t offset);
 
  public:
-  void SetAcquireArenaFn(std::function<unsigned()> fn);
+  void SetArenaPool(memory::ArenaPool *arena_pool);
 
  private:
   using Consumer = integrations::kafka::Consumer;
   std::optional<Consumer> consumer_;
-  std::function<unsigned()> acquire_arena_fn_{};
+  memory::ArenaPool *arena_pool_{nullptr};
 };
 
 void to_json(nlohmann::json &data, KafkaStream::StreamInfo &&info);
@@ -93,12 +97,12 @@ struct PulsarStream {
              ConsumerFunction<Message> consumer_function) const;
 
  public:
-  void SetAcquireArenaFn(std::function<unsigned()> fn);
+  void SetArenaPool(memory::ArenaPool *arena_pool);
 
  private:
   using Consumer = integrations::pulsar::Consumer;
   std::optional<Consumer> consumer_;
-  std::function<unsigned()> acquire_arena_fn_{};
+  memory::ArenaPool *arena_pool_{nullptr};
 };
 
 void to_json(nlohmann::json &data, PulsarStream::StreamInfo &&info);

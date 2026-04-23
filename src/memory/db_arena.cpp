@@ -340,6 +340,15 @@ void ArenaPool::Release(unsigned arena_idx) {
   DMG_ASSERT(arena_idx == first_arena_idx_, "Attempting to release an arena that is not in use by this ArenaPool");
 }
 
+bool ArenaPool::Owns(unsigned arena_idx) const {
+  if (arena_idx == 0) return false;
+  const std::lock_guard<std::mutex> lock(arena_mux_);
+  for (const auto owned_arena_idx : arenas_) {
+    if (owned_arena_idx == arena_idx) return true;
+  }
+  return false;
+}
+
 }  // namespace memgraph::memory
 
 #endif  // USE_JEMALLOC
@@ -397,33 +406,37 @@ void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexce
 #endif
 }
 
-// TODO Add nested arena check. NOTE: Same arena pool is fine (not sure how to check it)
 DbArenaScope::DbArenaScope() noexcept : prev_arena_(tls_db_arena_state.arena) {
+  prev_arena_pool_ = tls_db_arena_state.arena_pool;
   tls_db_arena_state.arena = 0U;
+  tls_db_arena_state.arena_pool = nullptr;
   DMG_ASSERT(prev_arena_ == 0U, "Erasing DB scope!");
 }
 
-DbArenaScope::DbArenaScope(ArenaPool *arena_pool) : arena_pool_(arena_pool), prev_arena_(tls_db_arena_state.arena) {
+DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type)
+    : arena_pool_(arena_pool), prev_arena_pool_(tls_db_arena_state.arena_pool), prev_arena_(tls_db_arena_state.arena) {
 #if USE_JEMALLOC
+  if (prev_arena_pool_ == arena_pool_) {
+    arena_idx_ = prev_arena_;
+    arena_pool_ = nullptr;  // Disable release, we are borrowing the arena from the same pool
+    return;
+  }
+  DMG_ASSERT(type != Type::FORCE && prev_arena_pool_ == nullptr, "Crashing into a different DB arena pool!");
   arena_idx_ = arena_pool_ ? arena_pool_->Acquire() : 0U;
   tls_db_arena_state.arena = arena_idx_;
-  DMG_ASSERT(prev_arena_ == 0U || prev_arena_ == arena_idx_, "Crashing into a different DB scope!");
+  tls_db_arena_state.arena_pool = arena_pool_;
 #else
   (void)arena_pool;
   tls_db_arena_state.arena = 0U;
+  tls_db_arena_state.arena_pool = nullptr;
   DMG_ASSERT(prev_arena_ == 0U, "Erasing DB scope!");
 #endif
-}
-
-DbArenaScope::DbArenaScope(unsigned arena_idx) noexcept : prev_arena_(tls_db_arena_state.arena) {
-  arena_idx_ = arena_idx;
-  tls_db_arena_state.arena = arena_idx;
-  DMG_ASSERT(prev_arena_ == 0U || prev_arena_ == arena_idx, "Crashing into a different DB scope!");
 }
 
 DbArenaScope::~DbArenaScope() noexcept {
   // Restore previous arena
   tls_db_arena_state.arena = prev_arena_;
+  tls_db_arena_state.arena_pool = prev_arena_pool_;
 #if USE_JEMALLOC
   if (arena_pool_) {
     arena_pool_->Release(arena_idx_);

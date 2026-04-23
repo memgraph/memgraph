@@ -15,6 +15,7 @@
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
 #include "utils/db_aware_allocator.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/query_memory_tracker.hpp"
 
 TEST(MemoryTrackerTest, ExceptionEnabler) {
@@ -66,32 +67,13 @@ TEST(MemoryTrackerTest, CrossThreadTrackingRestoresPreviousThreadState) {
 #endif
 }
 
-TEST(MemoryTrackerTest, CrossThreadTrackingRestoresPreviousDbArena) {
-  constexpr unsigned kParentArena = 7;
-  constexpr unsigned kWorkerArena = 11;
-  constexpr unsigned kCapturedArena = 23;
-
-  memgraph::memory::tls_db_arena_state.arena = kParentArena;
-  auto cross_thread_tracking = memgraph::memory::CrossThreadMemoryTracking{kCapturedArena};
-
-  memgraph::memory::tls_db_arena_state.arena = kWorkerArena;
-  cross_thread_tracking.StartTracking();
-  EXPECT_EQ(memgraph::memory::tls_db_arena_state.arena, kCapturedArena);
-
-  cross_thread_tracking.StopTracking();
-  EXPECT_EQ(memgraph::memory::tls_db_arena_state.arena, kWorkerArena);
-
-  memgraph::memory::tls_db_arena_state.arena = 0;
-}
-
-TEST(MemoryTrackerTest, CrossThreadTrackingRestoresZeroDbArena) {
-  constexpr unsigned kCapturedArena = 23;
-
-  memgraph::memory::tls_db_arena_state.arena = 0;
-  auto cross_thread_tracking = memgraph::memory::CrossThreadMemoryTracking{kCapturedArena};
+TEST(MemoryTrackerTest, CrossThreadTrackingNullPoolIsNoop) {
+  // CrossThreadMemoryTracking with null pool should not touch TLS arena
+  ASSERT_EQ(memgraph::memory::tls_db_arena_state.arena, 0u);
+  auto cross_thread_tracking = memgraph::memory::CrossThreadMemoryTracking{nullptr};
 
   cross_thread_tracking.StartTracking();
-  EXPECT_EQ(memgraph::memory::tls_db_arena_state.arena, kCapturedArena);
+  EXPECT_EQ(memgraph::memory::tls_db_arena_state.arena, 0u);
 
   cross_thread_tracking.StopTracking();
   EXPECT_EQ(memgraph::memory::tls_db_arena_state.arena, 0u);

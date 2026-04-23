@@ -27,8 +27,11 @@ namespace memgraph::memory {
 
 class ArenaPool;
 
-// Lightweight helpers for code that only needs to talk to an optional
-// Database-owned ArenaPool without including the heavy jemalloc header.
+// Returns the base jemalloc arena index for a pool.
+// Use ONLY at low-level jemalloc allocator boundaries (e.g. ArenaMemoryResource,
+// MakeArenaAwareUnique, Storage construction) where a raw unsigned index is
+// required by the jemalloc API. Prefer DbArenaScope(ArenaPool*)
+// for all scope/attribution uses.
 unsigned ArenaPoolBaseIdx(ArenaPool *arena) noexcept;
 
 // A std::pmr::memory_resource that routes allocations to a specific jemalloc
@@ -129,18 +132,16 @@ class ArenaPageSlabMemoryResource {
 // Thread types and their correct setup:
 //
 //   Long-lived dedicated DB threads (TTL, GC, trigger pool):
-//     Call Acquire() once on first run to get a per-thread arena,
-//     then install that arena in TLS for the thread lifetime. Use SetAcquireArenaFn()
-//     injection so the thread can call Acquire() lazily without
-//     carrying arena indices across thread boundaries.
+//     Install a pool-backed DbArenaScope at the work boundary.
+//     The scope acquires from the DB's ArenaPool and releases on exit.
 //
 //   AsyncIndexer:
-//     Uses DbAwareThread with the owning storage's BaseArenaIdx(); the thread
-//     body should not install an additional DbArenaScope.
+//     Uses DbAwareThread with the owning storage's ArenaPool; the thread body
+//     should not install an additional broad DbArenaScope.
 //
 //   Short-lived thread-pool tasks (replication, plan cache):
-//     Use DbArenaScope{BaseArenaIdx()} for the task duration. BaseArenaIdx()
-//     is sufficient because tasks are short-lived and pool threads are shared.
+//     Use a pool-backed DbArenaScope for the task duration. Raw arena indices
+//     should be reserved for low-level allocator/recovery APIs that need them.
 //
 //   Query execution threads (Pull, Commit, Abort):
 //     DbArenaScope is placed at the entry point once the target DB is known.
@@ -151,23 +152,29 @@ class ArenaPageSlabMemoryResource {
 // RAII guard: installs a DB arena for the duration of its scope and restores
 // the previous TLS value on destruction.
 //
-// Nesting is intentional. Some DB-aware execution wrappers install a broad
-// arena scope for a whole thread/task, while narrower query/storage paths may
-// install the same DB arena again once they have a local DB handle. Restoring
-// the previous value on destruction keeps shared worker threads and task
-// stealing paths from leaking arena state across work items.
+// Nesting rules (pool-backed constructor):
+//   - No prior DB arena in TLS → acquire from the pool; release on destruction.
+//   - Prior arena belongs to the same pool → borrow it; do not release on destruction.
+//   - Prior arena belongs to a different pool → DMG_ASSERT (cross-DB collision).
+//
+// The default constructor (no pool) is a no-op scope that resets TLS to 0 and
+// asserts there was no previous arena. It exists only for non-jemalloc builds
+// where all constructors compile to no-ops.
 struct DbArenaScope {
-  // Default to global arenas
+  enum class Type : uint8_t {
+    DBG_CHECK,
+    FORCE,
+  };
+
+  // No-op scope: resets TLS arena to 0 (asserts no previous arena was set).
   DbArenaScope() noexcept;
 
-  // Acquire per-thread arena from the database.
-  explicit DbArenaScope(memgraph::dbms::Database *db);
+  // Acquire per-thread arena from the database's pool.
+  explicit DbArenaScope(const memgraph::dbms::Database *db, Type type = Type::DBG_CHECK);
 
-  // Acquire from and release back to a DB arena pool.
-  explicit DbArenaScope(ArenaPool *arena_pool);
-
-  // Legacy constructor: direct arena index.
-  explicit DbArenaScope(unsigned arena_idx) noexcept;
+  // Acquire from the pool (or borrow if same pool already in TLS).
+  // Releases back to the pool on destruction only when this scope acquired it.
+  explicit DbArenaScope(ArenaPool *arena_pool, Type type = Type::DBG_CHECK);
 
   ~DbArenaScope() noexcept;
 
@@ -178,6 +185,7 @@ struct DbArenaScope {
 
  private:
   ArenaPool *arena_pool_{nullptr};
+  ArenaPool *prev_arena_pool_{nullptr};
   unsigned arena_idx_{0};
   unsigned prev_arena_{0};
 };
@@ -189,26 +197,22 @@ struct DbArenaScope {
 // Non-jemalloc builds: no-op wrapper, identical behaviour to std::jthread.
 class DbAwareThread {
  public:
-  // Inherit the calling thread's arena state.
+  // Inherit the calling thread's ArenaPool, not its raw arena index.
   template <typename F, typename... Args>
     requires(std::is_invocable_v<std::decay_t<F>, std::decay_t<Args>...> ||
              std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>)
-
-  // TODO:
-  // this uses the main thread's arena. this is safe, but slow.
-  // if the thread was granted a new arena, that would be faster, but the arena would need to be associated to the
-  // database even after the thread was destroyed.
   explicit DbAwareThread(F &&f, Args &&...args)
-      : DbAwareThread(tls_db_arena_state.arena, std::forward<F>(f), std::forward<Args>(args)...) {}
+      : DbAwareThread(tls_db_arena_state.arena_pool, std::forward<F>(f), std::forward<Args>(args)...) {}
 
-  // Explicit arena index.
+  // The new thread acquires from the pool for the lifetime
+  // of the supplied function and releases it when the function exits.
   template <typename F, typename... Args>
     requires(std::is_invocable_v<std::decay_t<F>, std::decay_t<Args>...> ||
              std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>)
-  DbAwareThread(unsigned arena_idx, F &&f, Args &&...args)
+  DbAwareThread(ArenaPool *arena_pool, F &&f, Args &&...args)
       : thread_(
-            [arena_idx, func = std::forward<F>(f)](std::stop_token st, std::decay_t<Args>... a) mutable {
-              const DbArenaScope db_arena_scope{arena_idx};
+            [arena_pool, func = std::forward<F>(f)](std::stop_token st, std::decay_t<Args>... a) mutable {
+              const DbArenaScope db_arena_scope{arena_pool};
               if constexpr (std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>) {
                 func(std::move(st), std::move(a)...);
               } else {

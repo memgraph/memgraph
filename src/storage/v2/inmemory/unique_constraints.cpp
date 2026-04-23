@@ -452,7 +452,7 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
     std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(parallel_exec_info.arena_idx,
+      threads.emplace_back(parallel_exec_info.arena_pool,
                            [&result,
                             &vertex_batches,
                             &batch_counter,

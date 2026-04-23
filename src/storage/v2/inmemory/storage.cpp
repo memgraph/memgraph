@@ -317,7 +317,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
                                  memgraph::memory::ArenaPool *db_arena,
                                  utils::MemoryTracker *db_embedding_memory_tracker)
-    : Storage(config, config.salient.storage_mode, std::move(invalidator), memory::ArenaPoolBaseIdx(db_arena),
+    : Storage(config, config.salient.storage_mode, std::move(invalidator), memory::ArenaPoolBaseIdx(db_arena), db_arena,
               db_embedding_memory_tracker, std::move(database_protector_factory)),
       db_arena_(db_arena),
       vertices_{},
@@ -330,9 +330,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
-#if USE_JEMALLOC
-  ttl_.SetAcquireArenaFn([this] { return memory::ArenaPoolBaseIdx(db_arena_); });
-#endif
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -376,7 +373,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         &indices_,
         &constraints_,
         config_,
-        BaseArenaIdx(),
+        db_arena_,
         &wal_seq_num_,
         &enum_store_,
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
@@ -3968,7 +3965,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
                                                            &constraints_,
                                                            config_,
                                                            recovery_info,
-                                                           BaseArenaIdx(),
+                                                           db_arena_,
                                                            recovered_snapshot.indices_constraints,
                                                            config_.salient.items.properties_on_edges);
     spdlog::trace("Successfully recovered from snapshot {}", local_path);

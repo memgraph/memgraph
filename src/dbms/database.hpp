@@ -205,6 +205,7 @@ class Database {
 #if USE_JEMALLOC
   /// Returns the database arena pool for per-thread arena management
   memory::ArenaPool &Arena() noexcept;
+  memory::ArenaPool &Arena() const noexcept;
 #endif
 
   /// Total memory tracked for this database (storage + embeddings + query).

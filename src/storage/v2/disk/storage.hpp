@@ -41,7 +41,8 @@ class DiskStorage final : public Storage {
   explicit DiskStorage(Config config = Config(),
                        PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
                        std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
-                       unsigned db_arena_idx = 0, utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
+                       unsigned db_arena_idx = 0, memory::ArenaPool *db_arena_pool = nullptr,
+                       utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
 
   DiskStorage(const DiskStorage &) = delete;
   DiskStorage(DiskStorage &&) = delete;

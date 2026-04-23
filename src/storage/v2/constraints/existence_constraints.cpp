@@ -212,7 +212,7 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
 
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back(
-          parallel_exec_info.arena_idx,
+          parallel_exec_info.arena_pool,
           [&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property, &snapshot_info]() {
             do_per_thread_validation(maybe_error,
                                      ValidateVertexOnConstraint,

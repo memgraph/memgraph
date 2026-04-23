@@ -181,7 +181,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
   }
 
   auto ttl_job = [this]() {
-    const memory::DbArenaScope db_arena_scope{acquire_arena_fn_ ? acquire_arena_fn_() : storage_ptr_->BaseArenaIdx()};
+    const memory::DbArenaScope db_arena_scope{storage_ptr_->DbArenaPool()};
     // Check if we're a main instance - only main instances should run TTL
     if (!user_check_()) return;
 

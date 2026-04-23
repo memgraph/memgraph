@@ -2926,7 +2926,7 @@ struct PullPlan {
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
                     std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
-                    unsigned db_arena_idx = 0
+                    memory::ArenaPool *db_arena_pool = nullptr
 #ifdef MG_ENTERPRISE
                     ,
                     std::optional<size_t> parallel_execution = std::nullopt,
@@ -2969,7 +2969,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                    TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
                    FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   utils::PriorityThreadPool *worker_pool, const unsigned db_arena_idx
+                   utils::PriorityThreadPool *worker_pool, memory::ArenaPool *db_arena_pool
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
@@ -3001,7 +3001,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.parallel_execution = parallel_execution;
 #endif
   ctx_.db_accessor = dba;
-  ctx_.db_arena_idx = db_arena_idx;
+  ctx_.db_arena_pool = db_arena_pool;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
@@ -3418,6 +3418,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // TODO: pass current DB into plan, in future current can change during pull
   auto *trigger_context_collector =
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
+#if USE_JEMALLOC
+  auto *db_arena_pool = &current_db.db_acc_->get()->Arena();
+#else
+  memory::ArenaPool *db_arena_pool = nullptr;
+#endif
   auto pull_plan = std::make_shared<PullPlan>(plan,
                                               parsed_query.parameters,
                                               is_profile_query,
@@ -3433,9 +3438,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
                                               hops_limit,
                                               interpreter_context->worker_pool,
-                                              current_db.db_acc_->get()->BaseArenaIdx()
+                                              db_arena_pool
 #ifdef MG_ENTERPRISE
-                                                  ,
+                                              ,
                                               parallel_execution,
                                               user_resource
 #endif
@@ -3631,7 +3636,12 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          stopping_context = std::move(stopping_context),
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
-                                         db_arena_idx = current_db.db_acc_->get()->BaseArenaIdx(),
+                                         db_arena_pool =
+#if USE_JEMALLOC
+                                             &current_db.db_acc_->get()->Arena(),
+#else
+                                             static_cast<memory::ArenaPool *>(nullptr),
+#endif
                                          &query_logger = interpreter.query_logger_
 #ifdef MG_ENTERPRISE
                                          ,
@@ -3657,7 +3667,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
                                         hops_limit,
                                         interpreter_context->worker_pool,
-                                        db_arena_idx
+                                        db_arena_pool
 #ifdef MG_ENTERPRISE
                                         ,
                                         parallel_execution,
@@ -9544,7 +9554,10 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 void Interpreter::Abort() {
   // Route Abort-path deallocations/cleanup to this DB's arena.
   // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
-  const memory::DbArenaScope db_arena_scope{current_db_.db_acc_ ? current_db_.db_acc_->get() : nullptr};
+  std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
+  if (current_db_.db_acc_) {
+    plan_cache_db_arena_scope.emplace(current_db_.db_acc_->get());
+  }
 
 #ifdef MG_ENTERPRISE
   // Note: if the storage layer already aborted the transaction internally (e.g. PeriodicCommit
@@ -9760,7 +9773,10 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 void Interpreter::Commit() {
   // Route Abort-path deallocations/cleanup to this DB's arena.
   // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
-  const memory::DbArenaScope db_arena_scope{current_db_.db_acc_ ? current_db_.db_acc_->get() : nullptr};
+  std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
+  if (current_db_.db_acc_) {
+    plan_cache_db_arena_scope.emplace(current_db_.db_acc_->get());
+  }
 
 #ifdef MG_ENTERPRISE
   if (user_resource_ && current_db_.db_transactional_accessor_) {

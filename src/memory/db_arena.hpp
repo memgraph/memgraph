@@ -136,11 +136,14 @@ class ArenaPool {
   // Return an arena acquired from this pool so a future Acquire() can reuse it.
   void Release(unsigned arena_idx);
 
+  // Returns true if this pool owns the arena index.
+  bool Owns(unsigned arena_idx) const;
+
  private:
   DbArenaHooks hooks_{};
 
   // Protects arenas_, free_count_, and first_arena_use_count_.
-  std::mutex arena_mux_;
+  mutable std::mutex arena_mux_;
   // Arena indices owned by this database. The range [0, free_count_) is free;
   // the range [free_count_, arenas_.size()) is in use.
   std::vector<unsigned> arenas_;

@@ -29,6 +29,8 @@
 
 namespace memgraph::memory {
 
+class ArenaPool;
+
 #if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
 // Get the arena index for a pointer using jemalloc's arenas.lookup
 // Returns 0 if pointer is not a jemalloc allocation (e.g., system malloc)
@@ -50,13 +52,19 @@ inline void AssertPointerBelongsToArena(void * /*ptr*/, unsigned /*expected_aren
 // Thread-local state for the currently active database arena.
 // arena = 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
 //
-// Set by DbArenaScope for shared query threads and directly at thread-start
-// for DB-owned background threads (GC, snapshot, TTL, async indexer, ...).
+// Both fields are set by DbArenaScope. Background threads
+// (TTL, GC, async indexer, stream consumers) install a pool-backed scope via
+// DbAwareThread at their work boundary; they do not write
+// TLS directly.
+//
+// arena_pool is read by DbAwareThread(F, Args...) when spawning child threads
+// so they inherit the parent's pool without requiring an explicit argument.
 //
 // DEVNOTE: initial-exec TLS model requires this to be in the main executable,
 //          not a shared library. Matches the pattern used by query_memory_control.
 struct DbArenaTlsState {
-  unsigned arena{0};  // Current thread's arena for active DB
+  unsigned arena{0};               // Current thread's arena for active DB (0 = none)
+  ArenaPool *arena_pool{nullptr};  // Pool that owns arena; nullptr when arena == 0
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

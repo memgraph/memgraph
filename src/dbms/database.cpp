@@ -67,6 +67,8 @@ unsigned Database::BaseArenaIdx() const noexcept {
 
 #if USE_JEMALLOC
 memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
+
+memory::ArenaPool &Database::Arena() const noexcept { return *db_arena_; }
 #endif
 
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
@@ -89,10 +91,10 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
   // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
-  const memory::DbArenaScope db_arena_scope{BaseArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{this, memory::DbArenaScope::Type::FORCE};
 
 #if USE_JEMALLOC
-  streams()->SetAcquireArenaFn([this] { return db_arena_->idx(); });
+  streams()->SetArenaPool(db_arena_.get());
 #endif
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
@@ -102,6 +104,11 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                                       std::move(invalidator),
                                                       database_protector_factory,
                                                       BaseArenaIdx(),
+#if USE_JEMALLOC
+                                                      db_arena_.get(),
+#else
+                                                      nullptr,
+#endif
                                                       &db_embedding_memory_tracker_);
   } else {
     storage_ = dbms::CreateInMemoryStorage(std::move(config),
@@ -139,12 +146,16 @@ void Database::SwitchToOnDisk() {
   // Preserve the database protector factory from the previous storage
   // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
   auto preserved_factory = storage_->get_database_protector_factory();
-
-  const memory::DbArenaScope db_arena_scope{BaseArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{this};
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
                                                               std::make_unique<storage::PlanInvalidatorDefault>(),
                                                               preserved_factory,
                                                               BaseArenaIdx(),
+#if USE_JEMALLOC
+                                                              db_arena_.get(),
+#else
+                                                              nullptr,
+#endif
                                                               &db_embedding_memory_tracker_);
 }
 
@@ -155,13 +166,14 @@ void Database::SwitchToOnDisk() {
 #if USE_JEMALLOC
 namespace memgraph::memory {
 
-DbArenaScope::DbArenaScope(memgraph::dbms::Database *db) : DbArenaScope(db != nullptr ? &db->Arena() : nullptr) {}
+DbArenaScope::DbArenaScope(const memgraph::dbms::Database *db, DbArenaScope::Type type)
+    : DbArenaScope(db != nullptr ? &db->Arena() : nullptr, type) {}
 
 }  // namespace memgraph::memory
 #else
 namespace memgraph::memory {
 
-DbArenaScope::DbArenaScope(memgraph::dbms::Database * /*db*/) : DbArenaScope(0U) {}
+DbArenaScope::DbArenaScope(const memgraph::dbms::Database * /*db*/, DbArenaScope::Type /*type*/) : DbArenaScope() {}
 
 }  // namespace memgraph::memory
 #endif

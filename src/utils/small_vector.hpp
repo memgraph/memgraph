@@ -222,7 +222,7 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
         capacity_{std::max(other.size_, kSmallCapacity)} {
     // NOTE 1: smallest capacity is kSmallCapacity
     // NOTE 2: upon copy construct we only need enough capacity to satisfy size requirement
-    if (!usingSmallBuffer(capacity_)) {
+    if (hasAllocatedBuffer(capacity_)) {
       buffer_ = std::allocator_traits<Alloc>::allocate(get_alloc(), capacity_);
     }
     std::ranges::uninitialized_copy(other, *this);
@@ -255,7 +255,7 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
       // NOTE: move values to the new buffer
       std::ranges::uninitialized_move(begin(), end(), new_data, new_data + size_);
       std::destroy(begin(), end());
-      if (!usingSmallBuffer(capacity_)) {
+      if (hasAllocatedBuffer(capacity_)) {
         std::allocator_traits<Alloc>::deallocate(get_alloc(), buffer_, capacity_);
       }
       buffer_ = new_data;
@@ -312,7 +312,7 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
       }
     } else {
       std::destroy(begin(), end());
-      if (!usingSmallBuffer(capacity_)) {
+      if (hasAllocatedBuffer(capacity_)) {
         std::allocator_traits<Alloc>::deallocate(get_alloc(), buffer_, capacity_);
       }
       size_ = std::exchange(other.size_, 0);
@@ -327,7 +327,7 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
 
   ~small_vector() {
     std::destroy(begin(), end());
-    if (!usingSmallBuffer(capacity_)) {
+    if (hasAllocatedBuffer(capacity_)) {
       std::allocator_traits<Alloc>::deallocate(get_alloc(), buffer_, capacity_);
     }
   }
@@ -339,7 +339,7 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
 
   // TODO: generalise to not just vector
   explicit small_vector(std::vector<T> &&other) : size_(other.size()), capacity_{std::max(size_, kSmallCapacity)} {
-    if (!usingSmallBuffer(capacity_)) {
+    if (hasAllocatedBuffer(capacity_)) {
       buffer_ = std::allocator_traits<Alloc>::allocate(get_alloc(), capacity_);
     }
     std::ranges::uninitialized_move(other.begin(), other.end(), begin(), end());
@@ -348,14 +348,14 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
   template <typename It>
   explicit small_vector(It first, It last)
       : size_(static_cast<uint32_t>(std::distance(first, last))), capacity_{std::max(size_, kSmallCapacity)} {
-    if (!usingSmallBuffer(capacity_)) {
+    if (hasAllocatedBuffer(capacity_)) {
       buffer_ = std::allocator_traits<Alloc>::allocate(get_alloc(), capacity_);
     }
     std::ranges::uninitialized_copy(first, last, begin(), end());
   }
 
   explicit small_vector(uint32_t count) : size_(count), capacity_(std::max(size_, kSmallCapacity)) {
-    if (!usingSmallBuffer(capacity_)) {
+    if (hasAllocatedBuffer(capacity_)) {
       buffer_ = std::allocator_traits<Alloc>::allocate(get_alloc(), capacity_);
     }
     std::uninitialized_default_construct_n(begin(), size_);
@@ -417,7 +417,7 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
   [[nodiscard]] auto capacity() const -> uint32_t { return capacity_; }
 
   void shrink_to_fit() {
-    if (usingSmallBuffer(capacity_)) return;
+    if (!hasAllocatedBuffer(capacity_)) return;
 
     if (size_ == 0) {
       // special case, reset to default small_vector
@@ -474,7 +474,7 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
     auto *new_data = std::allocator_traits<Alloc>::allocate(get_alloc(), new_capacity);
     std::uninitialized_move(begin(), end(), new_data);
     std::destroy(begin(), end());
-    if (!usingSmallBuffer(capacity_)) {
+    if (hasAllocatedBuffer(capacity_)) {
       std::allocator_traits<Alloc>::deallocate(get_alloc(), buffer_, capacity_);
     }
     buffer_ = new_data;
@@ -578,6 +578,8 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
   constexpr static bool usingSmallBuffer(uint32_t capacity) {
     return kSmallCapacity != 0 && capacity == kSmallCapacity;
   }
+
+  constexpr static bool hasAllocatedBuffer(uint32_t capacity) { return capacity != 0 && !usingSmallBuffer(capacity); }
 
   uint32_t size_{};                    // max 4 billion
   uint32_t capacity_{kSmallCapacity};  // max 4 billion

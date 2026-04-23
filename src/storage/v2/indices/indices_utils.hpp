@@ -269,7 +269,7 @@ inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipLis
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(parallel_exec_info.arena_idx, [&, func /*local copy incase there is local state*/]() {
+      threads.emplace_back(parallel_exec_info.arena_pool, [&, func /*local copy incase there is local state*/]() {
         auto acc = accessor_factory();
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
@@ -374,7 +374,7 @@ inline void CreateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSKiplistI
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(parallel_exec_info.arena_idx, [&]() {
+      threads.emplace_back(parallel_exec_info.arena_pool, [&]() {
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {

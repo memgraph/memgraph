@@ -229,17 +229,11 @@ class TTL final {
    */
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
 
-  // Provide a callable that returns the arena index for this TTL scheduler thread.
-  // When set, the TTL lambda calls it (lazily acquiring a per-thread arena on first run).
-  // Falls back to storage BaseArenaIdx() if not set.
-  void SetAcquireArenaFn(std::function<unsigned()> fn) { acquire_arena_fn_ = std::move(fn); }
-
  private:
   utils::Scheduler ttl_;  //!< background thread
   TtlInfo info_{};        //!< configuration
   bool enabled_{false};   //!< feature enabler
   Storage *storage_ptr_{};
-  std::function<unsigned()> acquire_arena_fn_{};
 
   // User-defined function to check if this is a main instance
   // Returns true if this is a main instance, false if replica
@@ -331,8 +325,6 @@ class TTL final {
                    std::optional<std::chrono::system_clock::time_point> = std::nullopt) {}
 
   void SetUserCheck(std::function<bool()>) {}
-
-  void SetAcquireArenaFn(std::function<unsigned()>) {}
 
   bool Restore() { return false; }
 };

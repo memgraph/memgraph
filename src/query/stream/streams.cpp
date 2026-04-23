@@ -605,10 +605,9 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
                                           std::make_unique<SynchronizedStreamSource<TStream>>(
                                               stream_name, std::move(stream_info), std::move(consumer_function))});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
-  if (acquire_arena_fn_) {
-    std::visit(
-        [this](const auto &stream_data) { stream_data.stream_source->Lock()->SetAcquireArenaFn(acquire_arena_fn_); },
-        insert_result.first->second);
+  if (arena_pool_) {
+    std::visit([this](const auto &stream_data) { stream_data.stream_source->Lock()->SetArenaPool(arena_pool_); },
+               insert_result.first->second);
   }
   return insert_result.first;
 }

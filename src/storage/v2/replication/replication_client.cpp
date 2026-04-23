@@ -218,8 +218,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     replica_state_.WithLock([&](auto &state) {
       state = ReplicaState::RECOVERY;
       client_.thread_pool_.AddTask(
-          [main_storage, gk = protector.clone(), this, arena_idx = main_storage->BaseArenaIdx()] {
-            const memory::DbArenaScope db_arena_scope{arena_idx};
+          [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
+            const memory::DbArenaScope db_arena_scope{arena_pool};
             this->RecoverReplica(/*replica_last_commit_ts*/ 0,
                                  main_storage,
                                  true);  // needs force reset so we need to recover from 0.
@@ -262,9 +262,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       client_.thread_pool_.AddTask([main_storage,
                                     current_commit_timestamp = heartbeat_res.current_commit_timestamp_,
                                     gk = protector.clone(),
-                                    arena_idx = main_storage->BaseArenaIdx(),
+                                    arena_pool = main_storage->DbArenaPool(),
                                     this] {
-        const memory::DbArenaScope db_arena_scope{arena_idx};
+        const memory::DbArenaScope db_arena_scope{arena_pool};
         this->RecoverReplica(current_commit_timestamp, main_storage);
       });
     }
@@ -286,8 +286,8 @@ void ReplicationStorageClient::LogRpcFailure() const {
 
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector) {
   client_.thread_pool_.AddTask(
-      [main_storage, protector = protector.clone(), arena_idx = main_storage->BaseArenaIdx(), this]() {
-        const memory::DbArenaScope db_arena_scope{arena_idx};
+      [main_storage, protector = protector.clone(), arena_pool = main_storage->DbArenaPool(), this]() {
+        const memory::DbArenaScope db_arena_scope{arena_pool};
         this->TryCheckReplicaStateSync(main_storage, *protector);
       });
 }
@@ -298,8 +298,8 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
   replica_state_.WithLock([&](auto &state) {
     state = ReplicaState::RECOVERY;
     client_.thread_pool_.AddTask(
-        [main_storage, gk = protector.clone(), this, arena_idx = main_storage->BaseArenaIdx()] {
-          const memory::DbArenaScope db_arena_scope{arena_idx};
+        [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
+          const memory::DbArenaScope db_arena_scope{arena_pool};
           this->RecoverReplica(/*replica_last_commit_ts*/ 0,
                                main_storage,
                                true);  // needs force reset so we need to recover from 0.
@@ -552,14 +552,14 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   }
 
   bool const is_async = client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC;
-  auto const arena_idx = replica_stream->DbArenaIdx();
+  auto *arena_pool = replica_stream->DbArenaPool();
   auto task = [this,
                protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
                durability_commit_timestamp,
                is_async,
-               arena_idx]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
-    const memory::DbArenaScope db_arena_scope{arena_idx};
+               arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
+    const memory::DbArenaScope db_arena_scope{arena_pool};
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
       auto response = replica_stream_obj->Finalize();
@@ -914,7 +914,7 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replic
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }
 
-auto ReplicaStream::DbArenaIdx() const -> unsigned { return storage_->BaseArenaIdx(); }
+auto ReplicaStream::DbArenaPool() const -> memory::ArenaPool * { return storage_->DbArenaPool(); }
 
 void ReplicaStream::AppendDelta(const Delta &delta, Vertex *vertex, uint64_t const final_commit_timestamp,
                                 Storage *storage) {
