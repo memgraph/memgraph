@@ -643,49 +643,12 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, al
       map_v = allocator.new_object<mgp_map>(std::move(items));
       break;
     }
-    case MGP_VALUE_TYPE_VERTEX: {
-      memgraph::utils::Allocator<mgp_vertex> allocator(alloc);
-      if (tv.type() == memgraph::query::TypedValue::Type::VirtualNode) {
-        vertex_v = allocator.new_object<mgp_vertex>(tv.ValueVirtualNode(), graph);
-        break;
-      }
-      vertex_v = std::visit(
-          memgraph::utils::Overloaded{
-              [&](memgraph::query::DbAccessor *) { return allocator.new_object<mgp_vertex>(tv.ValueVertex(), graph); },
-              [&](memgraph::query::SubgraphDbAccessor *impl) {
-                return allocator.new_object<mgp_vertex>(
-                    memgraph::query::SubgraphVertexAccessor(tv.ValueVertex(), impl->getGraph()), graph);
-              }},
-          graph->impl);
-
+    case MGP_VALUE_TYPE_VERTEX:
+      vertex_v = mgp_vertex::FromTypedValue(tv, graph, memgraph::utils::Allocator<mgp_vertex>(alloc.resource()));
       break;
-    }
-    case MGP_VALUE_TYPE_EDGE: {
-      memgraph::utils::Allocator<mgp_edge> allocator(alloc);
-
-      if (tv.type() == memgraph::query::TypedValue::Type::VirtualEdge) {
-        edge_v = allocator.new_object<mgp_edge>(tv.ValueVirtualEdge(), graph);
-        break;
-      }
-      edge_v = std::visit(
-          memgraph::utils::Overloaded{[&tv, graph, &allocator](memgraph::query::DbAccessor *) {
-                                        return allocator.new_object<mgp_edge>(tv.ValueEdge(),
-                                                                              tv.ValueEdge().DeletedEdgeFromVertex(),
-                                                                              tv.ValueEdge().DeletedEdgeToVertex(),
-                                                                              graph);
-                                      },
-                                      [&tv, graph, &allocator](memgraph::query::SubgraphDbAccessor *db_impl) {
-                                        return allocator.new_object<mgp_edge>(
-                                            tv.ValueEdge(),
-                                            memgraph::query::SubgraphVertexAccessor(
-                                                tv.ValueEdge().DeletedEdgeFromVertex(), db_impl->getGraph()),
-                                            memgraph::query::SubgraphVertexAccessor(
-                                                tv.ValueEdge().DeletedEdgeToVertex(), db_impl->getGraph()),
-                                            graph);
-                                      }},
-          graph->impl);
+    case MGP_VALUE_TYPE_EDGE:
+      edge_v = mgp_edge::FromTypedValue(tv, graph, memgraph::utils::Allocator<mgp_edge>(alloc.resource()));
       break;
-    }
     case MGP_VALUE_TYPE_PATH: {
       // Fill the stack allocated container and then construct the actual member
       // value. This handles the case when filling the container throws
@@ -1236,6 +1199,40 @@ mgp_edge *mgp_edge::Copy(const mgp_edge &edge, mgp_memory &memory) {
             return NewRawMgpObject<mgp_edge>(&memory, ve, edge.from.graph);
           }},
       edge.impl);
+}
+
+mgp_vertex *mgp_vertex::FromTypedValue(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc) {
+  if (tv.type() == memgraph::query::TypedValue::Type::VirtualNode) {
+    return alloc.new_object<mgp_vertex>(tv.ValueVirtualNode(), graph);
+  }
+  return std::visit(
+      memgraph::utils::Overloaded{
+          [&](memgraph::query::DbAccessor *) { return alloc.new_object<mgp_vertex>(tv.ValueVertex(), graph); },
+          [&](memgraph::query::SubgraphDbAccessor *impl) {
+            return alloc.new_object<mgp_vertex>(
+                memgraph::query::SubgraphVertexAccessor(tv.ValueVertex(), impl->getGraph()), graph);
+          }},
+      graph->impl);
+}
+
+mgp_edge *mgp_edge::FromTypedValue(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc) {
+  if (tv.type() == memgraph::query::TypedValue::Type::VirtualEdge) {
+    return alloc.new_object<mgp_edge>(tv.ValueVirtualEdge(), graph);
+  }
+  const auto &ea = tv.ValueEdge();
+  return std::visit(memgraph::utils::Overloaded{
+                        [&](memgraph::query::DbAccessor *) {
+                          return alloc.new_object<mgp_edge>(
+                              ea, ea.DeletedEdgeFromVertex(), ea.DeletedEdgeToVertex(), graph);
+                        },
+                        [&](memgraph::query::SubgraphDbAccessor *db_impl) {
+                          return alloc.new_object<mgp_edge>(
+                              ea,
+                              memgraph::query::SubgraphVertexAccessor(ea.DeletedEdgeFromVertex(), db_impl->getGraph()),
+                              memgraph::query::SubgraphVertexAccessor(ea.DeletedEdgeToVertex(), db_impl->getGraph()),
+                              graph);
+                        }},
+                    graph->impl);
 }
 
 mgp_error mgp_value_copy(mgp_value *val, mgp_memory *memory, mgp_value **result) {

@@ -657,6 +657,11 @@ struct mgp_vertex {
   using VertexImpl = std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor,
                                   memgraph::query::VirtualNode>;
 
+  // Build an mgp_vertex from a TypedValue that carries either a real Vertex or a VirtualNode,
+  // picking the right ctor overload based on the TypedValue kind and (for real vertices)
+  // whether `graph`'s underlying impl is a DbAccessor or SubgraphDbAccessor.
+  static mgp_vertex *FromTypedValue(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc);
+
   mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, allocator_type alloc)
       : alloc(alloc), impl(v), graph(graph) {}
 
@@ -732,6 +737,9 @@ struct mgp_edge {
   using EdgeImpl = std::variant<memgraph::query::EdgeAccessor, memgraph::query::VirtualEdge>;
 
   static mgp_edge *Copy(const mgp_edge &edge, mgp_memory &memory);
+
+  // Counterpart to mgp_vertex::FromTypedValue for edges.
+  static mgp_edge *FromTypedValue(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc);
 
   mgp_edge(const memgraph::query::EdgeAccessor &impl, mgp_graph *graph, allocator_type alloc)
       : alloc(alloc), impl(impl), from(impl.From(), graph, alloc), to(impl.To(), graph, alloc) {}
