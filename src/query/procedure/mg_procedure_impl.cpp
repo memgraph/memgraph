@@ -4901,11 +4901,11 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
     : alloc(alloc),
       graph(graph),
       vertices(std::visit([graph](auto *impl) { return impl->Vertices(graph->view); }, graph->impl)),
-      current_it(std::holds_alternative<memgraph::query::VirtualGraphDbAccessor *>(graph->impl) ? vertices.end()
-                                                                                                : vertices.begin()) {
+      current_it(vertices.begin()) {
+  // on a virtual graph, vertices is empty, so current_it is already past-end and
+  // NextPermitted's while-loop exits immediately; no separate guard needed.
 #ifdef MG_ENTERPRISE
-  if (!std::holds_alternative<memgraph::query::VirtualGraphDbAccessor *>(graph->impl) &&
-      memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     NextPermitted(*this);
   }
 #endif
@@ -4920,17 +4920,14 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
   }
 
   if (current_it != vertices.end()) {
+    // reached only on real / subgraph graphs; virtual's empty iterable keeps current_it past-end.
     std::visit(
         memgraph::utils::Overloaded{
             [this, graph, alloc](memgraph::query::DbAccessor *) { current_v.emplace(*current_it, graph, alloc); },
             [this, graph, alloc](memgraph::query::SubgraphDbAccessor *impl) {
               current_v.emplace(memgraph::query::SubgraphVertexAccessor(*current_it, impl->getGraph()), graph, alloc);
             },
-            [](memgraph::query::VirtualGraphDbAccessor *) {
-              // Unreachable: VirtualGraphDbAccessor::Vertices returns an empty iterable,
-              // so current_it == vertices.end() here and this branch is skipped.
-              throw std::logic_error{"mgp_vertices_iterator ctor: real-vertex arm on virtual graph"};
-            }},
+            VirtualGraphUnreachable<void>("mgp_vertices_iterator ctor real-vertex arm")},
         graph->impl);
   } else if (has_virtual_nodes_ && virtual_node_it_ != virtual_node_end_) {
     current_v.emplace(virtual_node_it_->second, graph, alloc);
