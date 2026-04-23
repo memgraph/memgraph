@@ -1651,10 +1651,12 @@ std::string ScanAllByLabelProperties::ToString() const {
                               }) |
                               ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
-  return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}})",
+  auto const suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
+  return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}}){3}",
                      output_symbol_.name(),
                      dba_->LabelToName(label_),
-                     properties_stringified);
+                     properties_stringified,
+                     suffix);
 }
 
 std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *storage) const {

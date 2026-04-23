@@ -307,7 +307,7 @@ def test_plan_desc_index_desc_order_eliminated(memgraph):
 
     expected = [
         " * Produce {n}",
-        " * ScanAllByLabelProperties (n :L {prop})",
+        " * ScanAllByLabelProperties (n :L {prop}) (DESC)",
         " * Once",
     ]
 
