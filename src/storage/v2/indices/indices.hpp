@@ -96,8 +96,12 @@ struct Indices {
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper);
 
   /// This function should be called whenever a property is modified on a vertex.
+  /// @param old_value The value prior to the write. Used in IN_MEMORY_ANALYTICAL to
+  ///                  eagerly reclaim the stale label+property skiplist entry, since
+  ///                  there is no MVCC reader that could still observe it.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx);
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                           Vertex *vertex, Transaction &tx);
 
   /// This function should be called whenever a property is modified on an edge.
   /// @throw std::bad_alloc
