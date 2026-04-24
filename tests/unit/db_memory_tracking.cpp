@@ -45,6 +45,11 @@ memgraph::storage::Config MakeConfig(const std::filesystem::path &dir) {
   return config;
 }
 
+void StabilizeDbMemoryBaseline(memgraph::dbms::Database *db) {
+  db->storage()->FreeMemory();
+  db->storage()->FreeMemory();
+}
+
 #if USE_JEMALLOC
 unsigned JemallocArenaCount() {
   unsigned count = 0;
@@ -108,6 +113,8 @@ TEST_F(DbMemoryTrackingTest, ArenaIsolationAndParentPropagation) {
   const unsigned arena1 = db1->Arena().idx();
   ASSERT_NE(arena1, 0u);
 
+  StabilizeDbMemoryBaseline(db1.get());
+  StabilizeDbMemoryBaseline(db2.get());
   const int64_t before1 = db1->DbMemoryUsage();
   const int64_t before2 = db2->DbMemoryUsage();
   const int64_t total_before = memgraph::utils::total_memory_tracker.Amount();
@@ -165,18 +172,22 @@ TEST_F(DbMemoryTrackingTest, QueryMemoryTracking) {
   auto &db1 = *acc1;
   auto &db2 = *acc2;
 
-  // TLS query tracking should NOT affect per-DB query tracker.
-  auto accessor = db1->Access();
-  auto &query_tracker = accessor->GetTransactionMemoryTracker();
-
+  StabilizeDbMemoryBaseline(db1.get());
+  StabilizeDbMemoryBaseline(db2.get());
   const int64_t db1_q_before = db1->DbQueryMemoryUsage();
   const int64_t db2_q_before = db2->DbQueryMemoryUsage();
 
-  memgraph::memory::StartTrackingCurrentThread(&query_tracker);
+  // TLS query tracking should NOT affect per-DB query tracker.
   {
-    std::vector<char> payload(4 * 1024 * 1024, 0);
+    auto accessor = db1->Access();
+    auto &query_tracker = accessor->GetTransactionMemoryTracker();
+
+    memgraph::memory::StartTrackingCurrentThread(&query_tracker);
+    {
+      std::vector<char> payload(4 * 1024 * 1024, 0);
+    }
+    memgraph::memory::StopTrackingCurrentThread();
   }
-  memgraph::memory::StopTrackingCurrentThread();
 
   EXPECT_EQ(db1->DbQueryMemoryUsage(), db1_q_before)
       << "TLS query tracker allocations should not affect per-DB query tracker";
@@ -188,6 +199,7 @@ TEST_F(DbMemoryTrackingTest, QueryMemoryTracking) {
   // TrackingMemoryResource::Alloc and once via arena hooks). Query memory only rolls up to
   // db_total_memory_tracker_ for tenant limit enforcement, not to global domain trackers.
   memgraph::query::QueryAllocator execution_memory{db1->DbQueryMemoryTracker()};
+  StabilizeDbMemoryBaseline(db1.get());
   const int64_t pmr_before = db1->DbQueryMemoryUsage();
   const int64_t db_total_before = db1->DbMemoryUsage();
 
@@ -237,6 +249,9 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
     }
     accessor->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
   }
+
+  StabilizeDbMemoryBaseline(db1.get());
+  StabilizeDbMemoryBaseline(db2.get());
 
   {
     memgraph::memory::DbArenaScope db_arena_scope{&db1->Arena()};
@@ -289,8 +304,8 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
     accessor->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
   }
 
-  db1->storage()->FreeMemory();
-  db1->storage()->FreeMemory();
+  StabilizeDbMemoryBaseline(db1.get());
+  StabilizeDbMemoryBaseline(db2.get());
 
   const int64_t db1_edge_before = db1->DbEmbeddingMemoryUsage();
   const int64_t db2_edge_before = db2->DbEmbeddingMemoryUsage();
@@ -339,8 +354,7 @@ TEST_F(DbMemoryTrackingTest, StorageOpsIncreaseDbMemory) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->Arena().idx();
-  ASSERT_NE(arena_idx, 0U);
+  ASSERT_NE(db->Arena().idx(), 0U);
 
   memgraph::memory::DbArenaScope scope{&db->Arena()};
 
@@ -348,6 +362,7 @@ TEST_F(DbMemoryTrackingTest, StorageOpsIncreaseDbMemory) {
   auto prop_name = db->storage()->NameToProperty("name");
   auto edge_type = db->storage()->NameToEdgeType("KNOWS");
 
+  StabilizeDbMemoryBaseline(db.get());
   const int64_t before = db->DbMemoryUsage();
 
   // Create vertices with labels + properties, then connect them with edges.
@@ -388,8 +403,7 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->Arena().idx();
-  ASSERT_NE(arena_idx, 0U);
+  ASSERT_NE(db->Arena().idx(), 0U);
   memgraph::memory::DbArenaScope scope{&db->Arena()};
 
   auto label = db->storage()->NameToLabel("IdxNode");
@@ -413,10 +427,12 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
     acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
   }
 
-  // Purge so baseline is stable.
-  je_mallctl(("arena." + std::to_string(arena_idx) + ".purge").c_str(), nullptr, nullptr, nullptr, 0);
+  // Purge all DB-owned arenas so the baseline is stable even if this thread is
+  // using a non-base arena acquired via DbArenaScope.
+  db->Arena().PurgeAllArenas();
 
   // Label index
+  StabilizeDbMemoryBaseline(db.get());
   const int64_t before_label = db->DbMemoryUsage();
   {
     auto ua = db->storage()->UniqueAccess();
@@ -425,7 +441,8 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
   EXPECT_GT(db->DbMemoryUsage(), before_label) << "Label index creation should increase DbMemoryUsage";
 
   // Label-property index
-  je_mallctl(("arena." + std::to_string(arena_idx) + ".purge").c_str(), nullptr, nullptr, nullptr, 0);
+  db->Arena().PurgeAllArenas();
+  StabilizeDbMemoryBaseline(db.get());
   const int64_t before_lp = db->DbMemoryUsage();
   {
     memgraph::storage::PropertiesPaths props{{prop}};
@@ -435,7 +452,8 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
   EXPECT_GT(db->DbMemoryUsage(), before_lp) << "Label-property index creation should increase DbMemoryUsage";
 
   // Edge-type index
-  je_mallctl(("arena." + std::to_string(arena_idx) + ".purge").c_str(), nullptr, nullptr, nullptr, 0);
+  db->Arena().PurgeAllArenas();
+  StabilizeDbMemoryBaseline(db.get());
   const int64_t before_et = db->DbMemoryUsage();
   {
     auto ua = db->storage()->UniqueAccess();
@@ -456,8 +474,7 @@ TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->Arena().idx();
-  ASSERT_NE(arena_idx, 0U);
+  ASSERT_NE(db->Arena().idx(), 0U);
 
   auto create_vertices = [&](const char *label_name) {
     auto lbl = db->storage()->NameToLabel(label_name);
@@ -473,6 +490,7 @@ TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
 
   // DbArenaScope pins DbAwareAllocator TLS.
   {
+    StabilizeDbMemoryBaseline(db.get());
     const int64_t before = db->DbMemoryUsage();
     std::atomic<int64_t> after{0};
     std::thread t([&] {
@@ -486,6 +504,7 @@ TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
 
   // DbArenaScope restores previous state and can be reused by another thread.
   {
+    StabilizeDbMemoryBaseline(db.get());
     const int64_t before = db->DbMemoryUsage();
     std::atomic<int64_t> after{0};
     std::thread t([&] {
@@ -518,8 +537,7 @@ TEST_F(DbMemoryTrackingTest, SnapshotRecoveryPreservesDbMemoryTracking) {
     ASSERT_TRUE(acc_opt);
     auto &db = *acc_opt;
 
-    const unsigned arena_idx = db->Arena().idx();
-    ASSERT_NE(arena_idx, 0U);
+    ASSERT_NE(db->Arena().idx(), 0U);
 
     memgraph::memory::DbArenaScope scope{&db->Arena()};
 
@@ -551,6 +569,7 @@ TEST_F(DbMemoryTrackingTest, SnapshotRecoveryPreservesDbMemoryTracking) {
       acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
     }
 
+    StabilizeDbMemoryBaseline(db.get());
     before_snapshot = db->DbMemoryUsage();
     ASSERT_GT(before_snapshot, 0);
 
@@ -613,6 +632,7 @@ TEST_F(DbMemoryTrackingTest, WalOnlyRecoveryPreservesDbMemoryTracking) {
       txn->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
     }
 
+    StabilizeDbMemoryBaseline(db.get());
     before_destroy = db->DbMemoryUsage();
     ASSERT_GT(before_destroy, 0);
   }
@@ -652,12 +672,12 @@ TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->Arena().idx();
-  ASSERT_NE(arena_idx, 0U);
+  ASSERT_NE(db->Arena().idx(), 0U);
 
   auto label = db->storage()->NameToLabel("GcNode");
   auto prop = db->storage()->NameToProperty("value");
 
+  StabilizeDbMemoryBaseline(db.get());
   const int64_t baseline = db->DbMemoryUsage();
 
   // Create 100k nodes with string properties to force many committed extents.
@@ -692,8 +712,7 @@ TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
   // Wait for GC (interval=1s, give it 4 ticks).
   std::this_thread::sleep_for(std::chrono::seconds(4));
 
-  je_mallctl(("arena." + std::to_string(arena_idx) + ".decay").c_str(), nullptr, nullptr, nullptr, 0);
-  je_mallctl(("arena." + std::to_string(arena_idx) + ".purge").c_str(), nullptr, nullptr, nullptr, 0);
+  db->Arena().PurgeAllArenas();
 
   const int64_t after_gc = db->DbMemoryUsage();
   const int64_t growth = after_create - baseline;
@@ -709,7 +728,9 @@ TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
 }
 
 // ---------------------------------------------------------------------------
-// 14. ArenaPool API: Base arena vs Acquire/Release semantics
+// 14. ArenaPool API: stable base arena plus Acquire/Release semantics.
+// Database-owned background workers may already be holding the base arena, so
+// DB-backed tests must not assume the first Acquire() returns idx().
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, ArenaPool_BaseArenaVsAcquireRelease) {
   auto dir = data_dir_ / "db_arena_reg";
@@ -729,21 +750,20 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_BaseArenaVsAcquireRelease) {
   // Acquire returns a valid arena for DB-owned thread work.
   unsigned thread_arena = db->Arena().Acquire();
   EXPECT_NE(thread_arena, 0u) << "Acquire should return a valid arena";
+  EXPECT_TRUE(db->Arena().Owns(thread_arena)) << "Acquire should return an arena owned by the DB pool";
 
   // Acquire does not keep a thread-id map; each call obtains an arena owned by
   // this DB arena pool unless Release returned one to the free list.
   unsigned thread_arena2 = db->Arena().Acquire();
   EXPECT_NE(thread_arena, thread_arena2) << "Acquire should not be idempotent on same thread";
+  EXPECT_TRUE(db->Arena().Owns(thread_arena2)) << "Acquire should return an arena owned by the DB pool";
 
   db->Arena().Release(thread_arena);
   unsigned reused_arena = db->Arena().Acquire();
   EXPECT_EQ(thread_arena, reused_arena) << "Release should return arenas to the pool free list";
+  EXPECT_TRUE(db->Arena().Owns(reused_arena)) << "Reacquired arena should still be owned by the DB pool";
   db->Arena().Release(thread_arena2);
   db->Arena().Release(reused_arena);
-
-  // The constructor-created base arena participates in the same free/in-use
-  // split as every other arena, so Acquire may return it.
-  EXPECT_EQ(base_arena, thread_arena) << "The base arena should be available through Acquire";
 }
 
 // ---------------------------------------------------------------------------
@@ -781,16 +801,19 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_SharedFirstArenaFallbackNotFreedUntilLast
 
   const auto base_arena = db->Arena().idx();
   const auto first_arena = db->Arena().Acquire();
-  ASSERT_EQ(first_arena, base_arena);
+  ASSERT_NE(first_arena, 0U);
+  EXPECT_TRUE(db->Arena().Owns(first_arena));
 
   memgraph::memory::testing::SetArenaPoolFailureInjection(
       memgraph::memory::testing::ArenaPoolFailureInjection::AcquireArenaCreate);
   const auto fallback_arena = db->Arena().Acquire();
   ASSERT_EQ(fallback_arena, base_arena);
+  EXPECT_TRUE(db->Arena().Owns(fallback_arena));
 
   db->Arena().Release(fallback_arena);
   const auto next_arena = db->Arena().Acquire();
   EXPECT_NE(next_arena, base_arena) << "The first arena should stay in use until all shared users release it";
+  EXPECT_TRUE(db->Arena().Owns(next_arena));
 
   db->Arena().Release(next_arena);
   db->Arena().Release(first_arena);
@@ -830,7 +853,8 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_FailedAcquireSharedFirstArenaRemainsOwned
   EXPECT_TRUE(pool.Owns(base_arena)) << "The pool must still own the shared first arena after one fallback release";
 
   pool.Release(second_fallback);
-  EXPECT_TRUE(pool.Owns(base_arena)) << "The pool must still own the shared first arena while the original user holds it";
+  EXPECT_TRUE(pool.Owns(base_arena))
+      << "The pool must still own the shared first arena while the original user holds it";
 
   const auto next_arena = pool.Acquire();
   EXPECT_NE(next_arena, base_arena)
@@ -1117,8 +1141,7 @@ TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
-  unsigned base_arena = db->Arena().idx();
-  ASSERT_NE(base_arena, 0u);
+  ASSERT_NE(db->Arena().idx(), 0u);
 
   unsigned bg_thread_arena = 0;
   std::thread bg_thread([&]() {
@@ -1143,9 +1166,9 @@ TEST_F(DbMemoryTrackingTest, MixedAllocators_ConsistentAttribution) {
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
-  const unsigned arena_idx = db->Arena().idx();
-  ASSERT_NE(arena_idx, 0U);
+  ASSERT_NE(db->Arena().idx(), 0U);
 
+  StabilizeDbMemoryBaseline(db);
   const int64_t before = db->DbMemoryUsage();
 
   // Create vertices under an explicit DB scope and set properties using

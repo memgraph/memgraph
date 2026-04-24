@@ -140,6 +140,10 @@ class ArenaPool {
   // Returns true if this pool owns the arena index.
   bool Owns(unsigned arena_idx) const;
 
+  // Decay and purge all arenas currently owned by this pool so extent hooks can
+  // report released pages back to the DB memory tracker.
+  void PurgeAllArenas() const;
+
  private:
   DbArenaHooks hooks_{};
 

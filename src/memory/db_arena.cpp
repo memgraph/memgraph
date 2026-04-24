@@ -148,7 +148,7 @@ void LogDestructorCleanupFailure(std::string_view owner, unsigned arena_idx, std
   try {
     spdlog::error("{} {}: {} failed during destructor cleanup: {}", owner, arena_idx, operation, error);
   } catch (...) {
-    (void)0; //clang-tidy
+    (void)0;  // clang-tidy
   }
 }
 
@@ -199,7 +199,9 @@ class PendingArena {
                                    static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
                                    sizeof(extent_hooks_t *));
         if (err != 0) {
-          LogDestructorCleanupFailure("PendingArena", arena_idx_, "restore hooks",
+          LogDestructorCleanupFailure("PendingArena",
+                                      arena_idx_,
+                                      "restore hooks",
                                       fmt::format("err={} (arena leaked from GlobalArenaPool reuse)", err));
           return;
         }
@@ -288,8 +290,8 @@ ArenaPool::~ArenaPool() noexcept {
                            static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
                            sizeof(extent_hooks_t *));
       if (err != 0) {
-        spdlog::error("ArenaPool {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx,
-                      err);
+        spdlog::error(
+            "ArenaPool {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx, err);
         spdlog::error("ArenaPool {}: leaking arena from GlobalArenaPool reuse after failed hook restore", arena_idx);
         continue;
       }
@@ -376,6 +378,19 @@ bool ArenaPool::Owns(unsigned arena_idx) const {
   if (arena_idx == 0) return false;
   const std::lock_guard<std::mutex> lock(arena_mux_);
   return std::ranges::any_of(arenas_, [arena_idx](const auto id) { return id == arena_idx; });
+}
+
+void ArenaPool::PurgeAllArenas() const {
+  std::vector<unsigned> arena_indices;
+  {
+    const std::lock_guard<std::mutex> lock(arena_mux_);
+    arena_indices = arenas_;
+  }
+
+  for (const auto arena_idx : arena_indices) {
+    if (arena_idx == 0) continue;
+    je_mallctl(("arena." + std::to_string(arena_idx) + ".purge").c_str(), nullptr, nullptr, nullptr, 0);
+  }
 }
 
 }  // namespace memgraph::memory
