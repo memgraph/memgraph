@@ -3535,12 +3535,15 @@ mgp_error mgp_drop_label_index(mgp_graph *graph, const char *label, int *result)
 
 mgp_error mgp_list_all_label_indices(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions([graph, memory, result]() {
-    const auto index_res = std::visit(
-        memgraph::utils::Overloaded{
-            [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label; },
-            [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->ListAllIndices().label; },
-            VirtualGraphUnreachable<std::vector<memgraph::storage::LabelId>>("mgp_list_all_label_indices")},
-        graph->impl);
+    using LabelIndices = std::vector<memgraph::storage::LabelId>;
+    const auto index_res =
+        std::visit(memgraph::utils::Overloaded{
+                       [](memgraph::query::DbAccessor *impl) -> LabelIndices { return impl->ListAllIndices().label; },
+                       [](memgraph::query::SubgraphDbAccessor *impl) -> LabelIndices {
+                         return impl->GetAccessor()->ListAllIndices().label;
+                       },
+                       VirtualGraphUnreachable<LabelIndices>("mgp_list_all_label_indices")},
+                   graph->impl);
     if (const auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Listing all label indices failed due to failure of creating list");
     }
@@ -3661,8 +3664,10 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
         std::vector<std::pair<memgraph::storage::LabelId, std::vector<memgraph::storage::PropertyPath>>>;
     const auto index_res =
         std::visit(memgraph::utils::Overloaded{
-                       [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label_properties; },
-                       [](memgraph::query::SubgraphDbAccessor *impl) {
+                       [](memgraph::query::DbAccessor *impl) -> LabelPropertiesIndices {
+                         return impl->ListAllIndices().label_properties;
+                       },
+                       [](memgraph::query::SubgraphDbAccessor *impl) -> LabelPropertiesIndices {
                          return impl->GetAccessor()->ListAllIndices().label_properties;
                        },
                        VirtualGraphUnreachable<LabelPropertiesIndices>("mgp_list_all_label_property_indices")},
@@ -3734,8 +3739,10 @@ mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memor
     using ExistenceConstraints = std::vector<std::pair<memgraph::storage::LabelId, memgraph::storage::PropertyId>>;
     const auto constraint_res =
         std::visit(memgraph::utils::Overloaded{
-                       [](memgraph::query::DbAccessor *impl) { return impl->ListAllConstraints().existence; },
-                       [](memgraph::query::SubgraphDbAccessor *impl) {
+                       [](memgraph::query::DbAccessor *impl) -> ExistenceConstraints {
+                         return impl->ListAllConstraints().existence;
+                       },
+                       [](memgraph::query::SubgraphDbAccessor *impl) -> ExistenceConstraints {
                          return impl->GetAccessor()->ListAllConstraints().existence;
                        },
                        VirtualGraphUnreachable<ExistenceConstraints>("mgp_list_all_existence_constraints")},
@@ -3824,8 +3831,10 @@ mgp_error mgp_list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory, 
         std::vector<std::pair<memgraph::storage::LabelId, std::set<memgraph::storage::PropertyId>>>;
     const auto constraints_res = std::visit(
         memgraph::utils::Overloaded{
-            [](memgraph::query::DbAccessor *impl) { return impl->ListAllConstraints().unique; },
-            [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->ListAllConstraints().unique; },
+            [](memgraph::query::DbAccessor *impl) -> UniqueConstraints { return impl->ListAllConstraints().unique; },
+            [](memgraph::query::SubgraphDbAccessor *impl) -> UniqueConstraints {
+              return impl->GetAccessor()->ListAllConstraints().unique;
+            },
             VirtualGraphUnreachable<UniqueConstraints>("mgp_list_all_unique_constraints")},
         graph->impl);
 

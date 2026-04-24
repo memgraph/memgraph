@@ -28,7 +28,8 @@ namespace detail {
 inline constexpr auto kDerefEdgePtr = [](const VirtualEdge *p) noexcept -> const VirtualEdge & { return *p; };
 }  // namespace detail
 
-using EdgeRefView = decltype(std::span<const VirtualEdge *const>{} | std::views::transform(detail::kDerefEdgePtr));
+// function-call form (not pipe) avoids a range-adaptor-closure ambiguity gcc 15 hits.
+using EdgeRefView = decltype(std::views::transform(std::span<const VirtualEdge *const>{}, detail::kDerefEdgePtr));
 
 // Maps synthetic gids in one VirtualGraph (the "aliased" one) to the synthetic
 // gid of the canonical VirtualNode in another VirtualGraph. Used by Merge when
