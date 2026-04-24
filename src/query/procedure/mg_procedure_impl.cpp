@@ -242,9 +242,6 @@ auto VirtualGraphUnreachable(std::string_view fn) {
   };
 }
 
-// Maps a storage::Error raised by a failing read on a real vertex into the
-// appropriate exception. `op` is an imperative phrase like "get a label of"
-// that fits "Cannot {op} a deleted vertex!".
 [[noreturn]] void ThrowOnVertexReadError(memgraph::storage::Error err, std::string_view op) {
   switch (err) {
     case memgraph::storage::Error::DELETED_OBJECT:
@@ -259,7 +256,6 @@ auto VirtualGraphUnreachable(std::string_view fn) {
   std::unreachable();
 }
 
-// Edge analog of ThrowOnVertexReadError.
 [[noreturn]] void ThrowOnEdgeReadError(memgraph::storage::Error err, std::string_view op) {
   switch (err) {
     case memgraph::storage::Error::DELETED_OBJECT:
@@ -272,6 +268,27 @@ auto VirtualGraphUnreachable(std::string_view fn) {
       LOG_FATAL("Unexpected error: tried to {} an edge.", op);
   }
   std::unreachable();
+}
+
+// Dispatches on graph->impl and invokes real_op(wrap) where `wrap` converts a
+// storage::VertexAccessor into the per-impl form (identity for DbAccessor,
+// SubgraphVertexAccessor for SubgraphDbAccessor). The virtual arm throws — every
+// caller is guaranteed by an upstream IsVirtual() short-circuit to only reach
+// this on real graphs. Used across iterator init / _next to construct mgp_vertex
+// / mgp_edge whose endpoint type depends on the graph kind.
+template <typename RealOp>
+void WithRealVertexWrap(mgp_graph *graph, RealOp &&real_op) {
+  std::visit(
+      memgraph::utils::Overloaded{[&](memgraph::query::DbAccessor *) { real_op(std::identity{}); },
+                                  [&](memgraph::query::SubgraphDbAccessor *impl) {
+                                    real_op([impl](const auto &va) {
+                                      return memgraph::query::SubgraphVertexAccessor(va, impl->getGraph());
+                                    });
+                                  },
+                                  [](memgraph::query::VirtualGraphDbAccessor *) {
+                                    throw std::logic_error{"unreachable: real-vertex construction on a virtual graph"};
+                                  }},
+      graph->impl);
 }
 }  // namespace
 
@@ -2959,25 +2976,10 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
 #endif
 
         if (*it->in_it != it->in->end()) {
-          std::visit(
-              memgraph::utils::Overloaded{
-                  [&](memgraph::query::DbAccessor *) {
-                    auto edgeAcc = **it->in_it;
-                    it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), v->graph, it->GetMemoryResource());
-                  },
-                  [&](memgraph::query::SubgraphDbAccessor *impl) {
-                    auto edgeAcc = **it->in_it;
-                    it->current_e.emplace(edgeAcc,
-                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
-                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
-                                          v->graph,
-                                          it->GetMemoryResource());
-                  },
-                  [](memgraph::query::VirtualGraphDbAccessor *) {
-                    // Unreachable: the virtual path short-circuits above via v->IsVirtual().
-                    throw std::logic_error{"mgp_vertex_iter_in_edges: real-edge visit on virtual graph"};
-                  }},
-              v->graph->impl);
+          WithRealVertexWrap(v->graph, [&it, v](auto wrap) {
+            auto edgeAcc = **it->in_it;
+            it->current_e.emplace(edgeAcc, wrap(edgeAcc.From()), wrap(edgeAcc.To()), v->graph, it->GetMemoryResource());
+          });
         }
 
         return it.release();
@@ -3018,25 +3020,10 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
 #endif
 
         if (*it->out_it != it->out->end()) {
-          std::visit(
-              memgraph::utils::Overloaded{
-                  [&](memgraph::query::DbAccessor *) {
-                    auto edgeAcc = **it->out_it;
-                    it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), v->graph, it->GetMemoryResource());
-                  },
-                  [&](memgraph::query::SubgraphDbAccessor *impl) {
-                    auto edgeAcc = **it->out_it;
-                    it->current_e.emplace(edgeAcc,
-                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
-                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
-                                          v->graph,
-                                          it->GetMemoryResource());
-                  },
-                  [](memgraph::query::VirtualGraphDbAccessor *) {
-                    // Unreachable: the virtual path short-circuits above via v->IsVirtual().
-                    throw std::logic_error{"mgp_vertex_iter_out_edges: real-edge visit on virtual graph"};
-                  }},
-              v->graph->impl);
+          WithRealVertexWrap(v->graph, [&it, v](auto wrap) {
+            auto edgeAcc = **it->out_it;
+            it->current_e.emplace(edgeAcc, wrap(edgeAcc.From()), wrap(edgeAcc.To()), v->graph, it->GetMemoryResource());
+          });
         }
 
         return it.release();
@@ -3062,7 +3049,6 @@ mgp_error mgp_edges_iterator_get(mgp_edges_iterator *it, mgp_edge **result) {
 mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
   return WrapExceptions(
       [it]() -> mgp_edge * {
-        // source is a VirtualNode: walk the virtual span
         if (!it->in && !it->out) {
           auto &virt = it->virtual_in_.empty() ? it->virtual_out_ : it->virtual_in_;
           auto &virt_it = it->virtual_in_.empty() ? it->virtual_out_it_ : it->virtual_in_it_;
@@ -3099,26 +3085,11 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
             it->current_e = std::nullopt;
             return nullptr;
           }
-          std::visit(memgraph::utils::Overloaded{
-                         [&](memgraph::query::DbAccessor *) {
-                           const auto edgeAcc = **impl_it;
-                           it->current_e.emplace(
-                               edgeAcc, edgeAcc.From(), edgeAcc.To(), it->source_vertex.graph, it->GetMemoryResource());
-                         },
-                         [&](memgraph::query::SubgraphDbAccessor *impl) {
-                           const auto edgeAcc = **impl_it;
-                           it->current_e.emplace(
-                               edgeAcc,
-                               memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
-                               memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
-                               it->source_vertex.graph,
-                               it->GetMemoryResource());
-                         },
-                         [](memgraph::query::VirtualGraphDbAccessor *) {
-                           // Unreachable: virtual iteration uses virtual_in_/virtual_out_ above.
-                           throw std::logic_error{"mgp_edges_iterator next: real-edge visit on virtual graph"};
-                         }},
-                     it->source_vertex.graph->impl);
+          WithRealVertexWrap(it->source_vertex.graph, [it, &impl_it](auto wrap) {
+            const auto edgeAcc = **impl_it;
+            it->current_e.emplace(
+                edgeAcc, wrap(edgeAcc.From()), wrap(edgeAcc.To()), it->source_vertex.graph, it->GetMemoryResource());
+          });
 
           return &*it->current_e;
         };
@@ -4703,14 +4674,7 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
   }
 
   if (current_it != vertices.end()) {
-    std::visit(
-        memgraph::utils::Overloaded{
-            [this, graph, alloc](memgraph::query::DbAccessor *) { current_v.emplace(*current_it, graph, alloc); },
-            [this, graph, alloc](memgraph::query::SubgraphDbAccessor *impl) {
-              current_v.emplace(memgraph::query::SubgraphVertexAccessor(*current_it, impl->getGraph()), graph, alloc);
-            },
-            VirtualGraphUnreachable<void>("mgp_vertices_iterator ctor real-vertex arm")},
-        graph->impl);
+    WithRealVertexWrap(graph, [this, graph, alloc](auto wrap) { current_v.emplace(wrap(*current_it), graph, alloc); });
   } else if (has_virtual_nodes_ && virtual_node_it_ != virtual_node_end_) {
     current_v.emplace(*virtual_node_it_->second, graph, alloc);
   }
@@ -4801,23 +4765,9 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
         }
 
         memgraph::utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
-        std::visit(memgraph::utils::Overloaded{
-                       [it](memgraph::query::DbAccessor *) {
-                         it->current_v.emplace(*it->current_it, it->graph, it->GetMemoryResource());
-                       },
-                       [it](memgraph::query::SubgraphDbAccessor *impl) {
-                         it->current_v.emplace(
-                             memgraph::query::SubgraphVertexAccessor(*it->current_it, impl->getGraph()),
-                             it->graph,
-                             it->GetMemoryResource());
-                       },
-                       [](memgraph::query::VirtualGraphDbAccessor *) {
-                         // Unreachable: virtual-node iteration uses the virtual_node_it_ path
-                         // above and returns before reaching here.
-                         throw std::logic_error{"mgp_vertices_iterator_next: real-vertex arm on virtual graph"};
-                       }},
-                   it->graph->impl);
-
+        WithRealVertexWrap(it->graph, [it](auto wrap) {
+          it->current_v.emplace(wrap(*it->current_it), it->graph, it->GetMemoryResource());
+        });
         clean_up.Disable();
         return &*it->current_v;
       },
