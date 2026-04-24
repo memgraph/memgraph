@@ -744,8 +744,7 @@ class InMemoryStorage final : public Storage {
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
-  void SetStorageMode(StorageMode storage_mode, Storage::Accessor *existing_accessor = nullptr,
-                      bool skip_constraint_check = false);
+  void SetStorageMode(StorageMode storage_mode);
 
   const durability::Recovery &GetRecovery() const noexcept { return recovery_; }
 

@@ -2502,14 +2502,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           last_durable_ts};
 }
 
-void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode, Storage::Accessor *existing_accessor,
-                                     bool skip_constraint_check) {
-  std::unique_ptr<Storage::Accessor> owned_accessor;
-  if (!existing_accessor) {
-    owned_accessor = UniqueAccess();
-  }
-  auto *accessor = existing_accessor ? existing_accessor : owned_accessor.get();
-
+void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
+  auto unique_accessor = UniqueAccess();
   MG_ASSERT(
       (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
       (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
@@ -2517,14 +2511,12 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode, Storage::Acce
   if (storage_mode_ != new_storage_mode) {
     // Snapshot thread is already running, but setup periodic execution only if enabled
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      if (!skip_constraint_check) {
-        auto active_constraints = GetActiveConstraints();
-        // Constraints violation require deltas so we can abort. Hence in analytical can not support any constraint
-        if (!active_constraints.empty()) {
-          throw utils::BasicException(
-              "Constraints are not supported in analytical storage mode. Please drop them before "
-              "changing storage mode to analytical or use transactional mode.");
-        }
+      auto active_constraints = GetActiveConstraints();
+      // Constraints violation require deltas so we can abort. Hence in analytical can not support any constraint
+      if (!active_constraints.empty()) {
+        throw utils::BasicException(
+            "Constraints are not supported in analytical storage mode. Please drop them before "
+            "changing storage mode to analytical or use transactional mode.");
       }
       // Ensure all pending work has been completed before changing to IN_MEMORY_ANALYTICAL
       async_indexer_.CompleteRemaining();
@@ -2533,7 +2525,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode, Storage::Acce
       // No need to resume async indexer, it is always running.
       // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work
       const auto snapshot_path = durability::CreateSnapshot(this,
-                                                            accessor->GetTransaction(),
+                                                            unique_accessor->GetTransaction(),
                                                             recovery_.snapshot_directory_,
                                                             recovery_.wal_directory_,
                                                             &vertices_,
@@ -2547,9 +2539,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode, Storage::Acce
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
-    if (!existing_accessor) {
-      FreeMemory(std::unique_lock{main_lock_, std::adopt_lock}, false);
-    }
+    FreeMemory(std::unique_lock{main_lock_, std::adopt_lock}, false);
   }
 }
 
@@ -4446,10 +4436,14 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 
+  mem_storage->deleted_vertices_->clear();
+  mem_storage->deleted_edges_->clear();
   mem_storage->vertices_.clear();
   mem_storage->waiting_gc_deltas_->clear();
   mem_storage->edges_.clear();
   mem_storage->edge_count_.store(0, std::memory_order_release);
+  mem_storage->edges_metadata_.clear();
+  mem_storage->edges_metadata_.run_gc();
   mem_storage->description_store_.Clear();
 
   memory::PurgeUnusedMemory();

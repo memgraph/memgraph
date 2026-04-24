@@ -5598,20 +5598,12 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
   return callback;
 }
 
-Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba, storage::Storage::Accessor *raw_accessor) {
+Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
   Callback callback;
-  callback.fn = [&db, dba, raw_accessor]() mutable {
+  callback.fn = [&db, dba]() mutable {
     auto storage_mode = db->GetStorageMode();
     if (storage_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
       throw utils::BasicException("DROP GRAPH is not yet supported for on-disk storage.");
-    }
-
-    auto *storage = static_cast<storage::InMemoryStorage *>(db->storage());
-
-    if (storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-      storage->SetStorageMode(storage::StorageMode::IN_MEMORY_ANALYTICAL,
-                              raw_accessor,
-                              /*skip_constraint_check=*/true);
     }
 
     dba->DropGraph();
@@ -5624,10 +5616,6 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba, storage:
 
     auto &ttl = db->ttl();
     ttl.Disable();
-
-    if (storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-      storage->SetStorageMode(storage::StorageMode::IN_MEMORY_TRANSACTIONAL, raw_accessor);
-    }
 
     auto *plan_cache = db->plan_cache();
     plan_cache->WithLock([&](auto &cache) { cache.reset(); });
@@ -5712,12 +5700,11 @@ PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Drop graph query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
-  auto *raw_accessor = current_db.db_transactional_accessor_.get();
 
   auto *drop_graph_query = utils::Downcast<DropGraphQuery>(parsed_query.query);
   MG_ASSERT(drop_graph_query);
 
-  std::function<void()> callback = DropGraph(db_acc, dba, raw_accessor).fn;
+  std::function<void()> callback = DropGraph(db_acc, dba).fn;
 
   return PreparedQuery{
       .header = {},
