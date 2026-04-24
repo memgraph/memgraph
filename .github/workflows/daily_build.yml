@@ -88,7 +88,7 @@ jobs:
       os: 'ubuntu-24.04'
       arch: amd
       threads: 24
-      build_type: 'Release'
+      build_type: 'RelWithDebInfo'
       run_release_tests: 'true'
       run_stress_large: 'true'
     secrets: inherit
@@ -144,7 +144,11 @@ jobs:
     with:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
+      # matrix.build_type names the shipping intent: Release = default for customers
+      # (stripped, symbols archived separately); RelWithDebInfo = symbols-embedded debug variant.
+      build_type: RelWithDebInfo
+      split_debug: ${{ matrix.build_type == 'Release' }}
+      image_flavour: ${{ (matrix.build_type == 'Release' && 'prod') || 'debug' }}
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
@@ -167,7 +171,10 @@ jobs:
     with:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
+      # matrix.build_type names the shipping intent. See DailyPackageArtifact above.
+      build_type: RelWithDebInfo
+      split_debug: ${{ matrix.build_type == 'Release' }}
+      image_flavour: ${{ (matrix.build_type == 'Release' && 'prod') || 'debug' }}
       additional_build_args: '--for-docker'
       push_to_github: 'false'
       push_to_s3: 'true'
@@ -258,7 +265,10 @@ jobs:
             cugraph: true
     with:
       arch: ${{ matrix.build_arch }}
-      build_type: ${{ matrix.build_type }}
+      # matrix.build_type names the shipping intent. See DailyPackageArtifact above.
+      build_type: RelWithDebInfo
+      split_debug: ${{ matrix.build_type == 'Release' }}
+      image_flavour: ${{ (matrix.build_type == 'Release' && 'prod') || 'debug' }}
       s3_dest_dir: "daily-build/mage${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       cuda: ${{ matrix.cuda }}
       cugraph: ${{ matrix.cugraph }}

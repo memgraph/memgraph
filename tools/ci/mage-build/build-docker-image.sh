@@ -13,6 +13,7 @@ MEMGRAPH_URL=""
 MEMGRAPH_REF="$(git branch --show-current)"
 BUILD_TYPE="Release"
 CUGRAPH=false
+IMAGE_FLAVOUR="prod"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build-type)
@@ -31,6 +32,10 @@ while [[ $# -gt 0 ]]; do
       CUGRAPH=true
       shift 1
     ;;
+    --image-flavour)
+      IMAGE_FLAVOUR=$2
+      shift 2
+    ;;
     *)
       echo "Unknown option: $1"
       exit 1
@@ -38,12 +43,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+case "$IMAGE_FLAVOUR" in
+  prod|debug) ;;
+  *)
+    echo "Error: --image-flavour must be 'prod' or 'debug' (got '$IMAGE_FLAVOUR')"
+    exit 1
+  ;;
+esac
+
 # Fetch Memgraph package
 if [[ -z "$MEMGRAPH_URL" ]]; then
   echo "Warning using latest Memgraph release"
   VERSION=$(./tools/ci/get_latest_tag.sh)
   OS_PATH="$OS"
-  if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+  # The -relwithdebinfo URL path holds the symbols-embedded package variant.
+  # Prod flavour always fetches the stripped package (no suffix), even when
+  # the underlying build was RelWithDebInfo+split-debug.
+  if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$IMAGE_FLAVOUR" == "debug" ]]; then
     OS_PATH="${OS_PATH}-relwithdebinfo"
   fi
   MEMGRAPH_URL="https://download.memgraph.com/memgraph/v${VERSION}/${OS_PATH}/memgraph_${VERSION}-1_${ARCH}64.deb"

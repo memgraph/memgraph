@@ -131,7 +131,7 @@ jobs:
       os: ubuntu-24.04
       arch: amd
       threads: 24
-      build_type: Release
+      build_type: RelWithDebInfo
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
@@ -144,7 +144,7 @@ jobs:
       os: ubuntu-24.04
       arch: "amd"
       threads: 24
-      build_type: Release
+      build_type: RelWithDebInfo
       run_stress_large: 'true'
       run_release_tests: 'false'
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
@@ -202,7 +202,13 @@ jobs:
     with:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
+      # matrix.build_type still names the shipping "intent":
+      # Release = default for customers (stripped, symbols archived separately);
+      # RelWithDebInfo = symbols-embedded debug variant.
+      # Both compile with RelWithDebInfo; split_debug + image_flavour differ.
+      build_type: RelWithDebInfo
+      split_debug: ${{ matrix.build_type == 'Release' }}
+      image_flavour: ${{ (matrix.build_type == 'Release' && 'prod') || 'debug' }}
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
@@ -237,7 +243,10 @@ jobs:
     with:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
+      # matrix.build_type names the shipping intent, not the CMake build type. See PackageArtifact above.
+      build_type: RelWithDebInfo
+      split_debug: ${{ matrix.build_type == 'Release' }}
+      image_flavour: ${{ (matrix.build_type == 'Release' && 'prod') || 'debug' }}
       additional_build_args: "--for-docker${{ matrix.malloc == true && ' --disable-jemalloc' || '' }}"
       push_to_github: 'false'
       push_to_s3: 'true'
@@ -290,7 +299,10 @@ jobs:
             cugraph: true
     with:
       arch: ${{ matrix.build_arch }}
-      build_type: ${{ matrix.build_type }}
+      # matrix.build_type names the shipping intent. See PackageArtifact above for the mapping rationale.
+      build_type: RelWithDebInfo
+      split_debug: ${{ matrix.build_type == 'Release' }}
+      image_flavour: ${{ (matrix.build_type == 'Release' && 'prod') || 'debug' }}
       s3_dest_dir: "mage${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       cuda: ${{ matrix.cuda }}
       cugraph: ${{ matrix.cugraph }}

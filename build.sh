@@ -18,6 +18,7 @@ OPTIONS:
     --dev                   Developer mode: enables --skip-os-deps --keep-build
     --update-lockfile       Update conan.lock before installing dependencies
     --graph-info            Generate dependency graph as graph.html and exit
+    --split-debug           Extract debug info into sidecar .debug files (requires RelWithDebInfo or Debug)
     --help                  Show this help message
 
 ENVIRONMENT VARIABLES:
@@ -110,6 +111,10 @@ while [[ $# -gt 0 ]]; do
         --reserve-cores)
             RESERVE_CORES="$2"
             shift 2
+            ;;
+        --split-debug)
+            CMAKE_ARGS="$CMAKE_ARGS -DMG_SPLIT_DEBUG=ON"
+            shift
             ;;
         --help|-h)
             show_help
