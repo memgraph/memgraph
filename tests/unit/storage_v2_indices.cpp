@@ -4742,6 +4742,56 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexAbortLeavesNoGhostEntry) {
   }
 }
 
+TYPED_TEST(IndexTest, PointIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreatePointIndex(this->label1, this->prop_val).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->storage->UniqueAccess();
+    auto result = acc->CreatePointIndex(this->label1, this->prop_val);
+    EXPECT_TRUE(result.has_value())
+        << "Retry CreatePointIndex after aborted create must succeed; aborted create left a ghost.";
+    if (result.has_value()) {
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    } else {
+      acc->Abort();
+    }
+  }
+}
+
+TYPED_TEST(IndexTest, DropPointIndexAbortRestoresIndex) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreatePointIndex(this->label1, this->prop_val).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropPointIndex(this->label1, this->prop_val).has_value());
+    acc->Abort();
+  }
+  {
+    // Retry DROP must succeed — abort should have re-installed the entry.
+    auto acc = this->storage->UniqueAccess();
+    auto result = acc->DropPointIndex(this->label1, this->prop_val);
+    EXPECT_TRUE(result.has_value())
+        << "After an aborted DROP POINT INDEX, the index must be visible again and droppable.";
+    if (result.has_value()) {
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    } else {
+      acc->Abort();
+    }
+  }
+}
+
 TYPED_TEST(IndexTest, EdgePropertyIndexAbortLeavesNoGhostEntry) {
   if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
     GTEST_SKIP() << "Disk storage has different DDL semantics";

@@ -150,6 +150,12 @@ class TextIndex {
   /// snapshots still alias the same TextIndexData.
   [[nodiscard]] std::shared_ptr<TextIndexData> DropIndex(const std::string &index_name);
 
+  /// Re-installs an entry previously evicted by DropIndex. Used by abort
+  /// rollback of DROP TEXT INDEX when the evicted shared_ptr was captured
+  /// in the abort closure. No-op if a re-created entry with the same name
+  /// already exists.
+  void RestoreEvictedEntry(std::string const &index_name, std::shared_ptr<TextIndexData> data);
+
   bool IndexExists(const std::string &index_name) const;
 
   /// ListIndices on the owning class (for snapshot creation, outside transaction context).

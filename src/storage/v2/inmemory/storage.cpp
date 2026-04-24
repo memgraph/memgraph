@@ -2082,6 +2082,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     point_index.PublishActiveIndices(updater);
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
   });
+  transaction_.abort_callbacks_.Add([&point_index, label, property, updater]() {
+    if (point_index.DropPointIndex(label, property)) {
+      point_index.PublishActiveIndices(updater);
+    }
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
   return {};
 }
@@ -2091,6 +2096,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE, "Dropping point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
+  auto evicted = point_index.GetPointIndex(label, property);
   if (!point_index.DropPointIndex(label, property)) {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -2099,6 +2105,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   transaction_.commit_callbacks_.Add([&point_index, updater](uint64_t /*commit_ts*/) {
     point_index.PublishActiveIndices(updater);
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
+  });
+  transaction_.abort_callbacks_.Add([&point_index, label, property, updater, evicted = std::move(evicted)]() mutable {
+    point_index.RestorePointIndex(label, property, std::move(evicted));
+    point_index.PublishActiveIndices(updater);
   });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
   return {};

@@ -155,6 +155,12 @@ class TextEdgeIndex {
   /// ActiveIndices snapshots still alias the same TextEdgeIndexData.
   [[nodiscard]] std::shared_ptr<TextEdgeIndexData> DropIndex(const std::string &index_name);
 
+  /// Re-installs an entry previously evicted by DropIndex. Used by abort
+  /// rollback of DROP TEXT INDEX when the evicted shared_ptr was captured
+  /// in the abort closure. No-op if a re-created entry with the same name
+  /// already exists.
+  void RestoreEvictedEntry(std::string const &index_name, std::shared_ptr<TextEdgeIndexData> data);
+
   bool IndexExists(const std::string &index_name) const;
 
   /// ListIndices on the owning class (for snapshot creation, outside transaction context).
