@@ -568,12 +568,98 @@ done
 
 
 # --- Helm chart prep ---
-helm repo add memgraph https://memgraph.github.io/helm-charts
+HELM_CHARTS_REPO_URL="${HELM_CHARTS_REPO_URL:-https://github.com/memgraph/helm-charts.git}"
+HELM_CHARTS_BRANCH="${HELM_CHARTS_BRANCH:-main}"
+HELM_CHARTS_DIR="helm-charts"
+HELM_CHART_PATH="${HELM_CHARTS_DIR}/charts/memgraph-high-availability"
+MEMGRAPH_NAMESPACE="${MEMGRAPH_NAMESPACE:-default}"
+MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
+MONITORING_AUTH_SECRET_NAME="${MONITORING_AUTH_SECRET_NAME:-monitoring-basic-auth}"
+MONITORING_REMOTE_WRITE_PORT="${MONITORING_REMOTE_WRITE_PORT:-30091}"
+MONITORING_LOGS_PORT="${MONITORING_LOGS_PORT:-30454}"
+MONITORING_SCHEME="${MONITORING_SCHEME:-http}"
+MONITORING_REMOTE_WRITE_PATH="${MONITORING_REMOTE_WRITE_PATH:-/insert/0/prometheus/api/v1/write}"
+MONITORING_LOGS_PATH="${MONITORING_LOGS_PATH:-/insert}"
+VECTOR_WEBSOCKET_PORT="${VECTOR_WEBSOCKET_PORT:-7444}"
+SERVICE_NAME="${SERVICE_NAME:-memgraph-ha-issu}"
+
+echo -e "${GREEN}Cloning Helm charts repo (${HELM_CHARTS_BRANCH})...${NC}"
+rm -rf "${HELM_CHARTS_DIR}"
+git clone --depth 1 --branch "${HELM_CHARTS_BRANCH}" --single-branch "${HELM_CHARTS_REPO_URL}" "${HELM_CHARTS_DIR}"
+
+if [[ ! -d "${HELM_CHART_PATH}" ]]; then
+  echo -e "${RED}Error: Helm chart path '${HELM_CHART_PATH}' not found in branch '${HELM_CHARTS_BRANCH}'${NC}"
+  exit 1
+fi
+
+REMOTE_MONITORING_ENABLED=false
+if [[ -n "${MONITORING_HOST:-}" && -n "${MONITORING_USERNAME:-}" && -n "${MONITORING_PASSWORD:-}" ]]; then
+  REMOTE_MONITORING_ENABLED=true
+fi
+
+helm_install_args=(
+  install "$RELEASE" "${HELM_CHART_PATH}"
+  -f old_values.yaml
+  --timeout 120s
+  --wait
+  --debug
+)
+
+if [[ "${REMOTE_MONITORING_ENABLED}" == "true" ]]; then
+  REMOTE_WRITE_URL="${MONITORING_SCHEME}://${MONITORING_HOST}:${MONITORING_REMOTE_WRITE_PORT}${MONITORING_REMOTE_WRITE_PATH}"
+  LOGS_ENDPOINT="${MONITORING_SCHEME}://${MONITORING_HOST}:${MONITORING_LOGS_PORT}${MONITORING_LOGS_PATH}"
+  echo -e "${GREEN}Remote monitoring enabled (host: ${MONITORING_HOST})${NC}"
+
+  kubectl create namespace "${MONITORING_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret generic "${MONITORING_AUTH_SECRET_NAME}" \
+    -n "${MONITORING_NAMESPACE}" \
+    --from-literal=username="${MONITORING_USERNAME}" \
+    --from-literal=password="${MONITORING_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret generic "${MONITORING_AUTH_SECRET_NAME}" \
+    -n "${MEMGRAPH_NAMESPACE}" \
+    --from-literal=username="${MONITORING_USERNAME}" \
+    --from-literal=password="${MONITORING_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  helm_install_args+=(
+    --set prometheus.enabled=true
+    --set "prometheus.namespace=${MONITORING_NAMESPACE}"
+    --set prometheus.serviceMonitor.enabled=false
+    --set vmagentRemote.enabled=true
+    --set "vmagentRemote.namespace=${MONITORING_NAMESPACE}"
+    --set "vmagentRemote.remoteWrite.url=${REMOTE_WRITE_URL}"
+    --set "vmagentRemote.remoteWrite.basicAuth.secretName=${MONITORING_AUTH_SECRET_NAME}"
+    --set vectorRemote.enabled=true
+    --set vectorRemote.data=true
+    --set vectorRemote.coordinators=true
+    --set "vectorRemote.websocketPort=${VECTOR_WEBSOCKET_PORT}"
+    --set "vectorRemote.logsEndpoint=${LOGS_ENDPOINT}"
+    --set "vectorRemote.auth.secretName=${MONITORING_AUTH_SECRET_NAME}"
+    --set "vmagentRemote.externalLabels.service_name=${SERVICE_NAME}"
+    --set "vectorRemote.extraLabels.service_name=${SERVICE_NAME}"
+  )
+
+  if [[ -n "${CLUSTER_ID:-}" ]]; then
+    helm_install_args+=(
+      --set "vmagentRemote.externalLabels.cluster_id=${CLUSTER_ID}"
+      --set "vectorRemote.extraLabels.cluster_id=${CLUSTER_ID}"
+    )
+  fi
+  if [[ -n "${CLUSTER_ENV:-}" ]]; then
+    helm_install_args+=(
+      --set "vmagentRemote.externalLabels.cluster_env=${CLUSTER_ENV}"
+      --set "vectorRemote.extraLabels.cluster_env=${CLUSTER_ENV}"
+    )
+  fi
+else
+  echo -e "${YELLOW}Remote monitoring disabled (missing MONITORING_HOST / MONITORING_USERNAME / MONITORING_PASSWORD).${NC}"
+fi
 
 
 # --- Helm install ---
 echo -e "${GREEN}Installing Helm chart...${NC}"
-helm install "$RELEASE" memgraph/memgraph-high-availability -f old_values.yaml --timeout 120s --wait --debug | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
+helm "${helm_install_args[@]}" | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
 
 # --- Wait & verify resources ---
 echo -e "${GREEN}Waiting for resources to be created...${NC}"

@@ -30,6 +30,11 @@ on:
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-issu-test"
 
 jobs:
   test:

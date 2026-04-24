@@ -47,6 +47,7 @@ cmake-build-*
 cmake/DownloadProject/
 dist/
 src/query/frontend/opencypher/generated/
+tools/ci/monitoring/generated/
 tags
 ve/
 ve3/
