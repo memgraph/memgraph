@@ -1909,7 +1909,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !subquery_has_update !has_return && !is_standalone_call_procedure && !parsing_exists_subquery_) {
+  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure &&
+      !parsing_exists_subquery_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
