@@ -124,7 +124,7 @@ void PointIndexStorage::PublishActiveIndices(ActiveIndicesUpdater const &updater
   updater(std::make_shared<PointIndexStorage::ActiveIndices>(indexes_));
 }
 
-bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto key = LabelPropKey{label, property};
   if (indexes_->contains(key)) return false;

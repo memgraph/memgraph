@@ -14,6 +14,7 @@
 #include <optional>
 
 #include "storage/v2/result.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/vertex.hpp"
 
 #include "query/hops_limit.hpp"
@@ -30,7 +31,7 @@ struct Constraints;
 struct Indices;
 struct EdgesVertexAccessorResult;
 struct Transaction;
-using edge_store = utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
+using edge_store = Edges;
 
 class VertexAccessor final {
  private:
@@ -39,9 +40,9 @@ class VertexAccessor final {
   int64_t HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, query::HopsLimit *hops_limit,
                                            EdgeDirection direction) const;
 
-  int64_t HandleExpansionsWithEdgeTypes(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &result_edges,
-                                        const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *destination,
-                                        query::HopsLimit *hops_limit, EdgeDirection direction) const;
+  int64_t HandleExpansionsWithEdgeTypes(edge_store &result_edges, const std::vector<EdgeTypeId> &edge_types,
+                                        const VertexAccessor *destination, query::HopsLimit *hops_limit,
+                                        EdgeDirection direction) const;
 
  public:
   VertexAccessor(Vertex *vertex, Storage *storage, Transaction *transaction, bool for_deleted = false)
@@ -69,7 +70,7 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<utils::small_vector<LabelId>> Labels(View view) const;
+  Result<VertexKey> Labels(View view) const;
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc

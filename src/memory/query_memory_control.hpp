@@ -12,6 +12,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+
+#include "memory/db_arena_fwd.hpp"
 
 // Forward declaration
 namespace memgraph::utils {
@@ -23,19 +26,14 @@ namespace memgraph::memory {
 
 static constexpr int64_t UNLIMITED_MEMORY{0};
 
-#if USE_JEMALLOC
-
-// Find tracker for current thread if exists, track
-// query allocation and procedure allocation if
-// necessary
+// Track allocation against active query, procedure, and user-resource trackers
+// on the current thread. In non-jemalloc builds this is a no-op that always
+// returns true.
 bool TrackAllocOnCurrentThread(size_t size);
 
-// Find tracker for current thread if exists, track
-// query allocation and procedure allocation if
-// necessary
+// Track free against active query, procedure, and user-resource trackers on the
+// current thread. In non-jemalloc builds this is a no-op.
 void TrackFreeOnCurrentThread(size_t size);
-
-#endif
 
 // API function call to start tracking current thread.
 // Does nothing if jemalloc is not enabled
@@ -60,7 +58,6 @@ void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit);
 void PauseProcedureTracking();
 
 struct ThreadTrackingBlocker {
-#if USE_JEMALLOC
   ThreadTrackingBlocker();
   ~ThreadTrackingBlocker();
 
@@ -74,31 +71,34 @@ struct ThreadTrackingBlocker {
   utils::UserResources *GetPrevUserTracker() const { return prev_user_state_; }
 
  private:
-  utils::QueryMemoryTracker *prev_state_;
-  utils::UserResources *prev_user_state_;
-#endif
+  utils::QueryMemoryTracker *prev_state_{nullptr};
+  utils::UserResources *prev_user_state_{nullptr};
 };
 
 struct CrossThreadMemoryTracking {
-#if USE_JEMALLOC
   utils::QueryMemoryTracker *query_tracker{nullptr};
   utils::UserResources *user_tracker{nullptr};
+  // DB arena pool captured from the query execution context. Parallel worker
+  // threads acquire from this pool for the duration of their task so
+  // TLS-scoped DB allocations are attributed to the parent DB.
+  ArenaPool *db_arena_pool{nullptr};
 
-  CrossThreadMemoryTracking();
+  explicit CrossThreadMemoryTracking(ArenaPool *arena_pool = nullptr);
   ~CrossThreadMemoryTracking() = default;
 
-  void StartTracking() const;
-  void StopTracking() const;
+  void StartTracking();
+  void StopTracking();
 
   CrossThreadMemoryTracking(CrossThreadMemoryTracking &) = delete;
   CrossThreadMemoryTracking &operator=(CrossThreadMemoryTracking &) = delete;
   CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept;
   CrossThreadMemoryTracking &operator=(CrossThreadMemoryTracking &&other) noexcept;
-#else
-  void StartTracking() const {}
 
-  void StopTracking() const {}
-#endif
+ private:
+  utils::QueryMemoryTracker *prev_query_tracker_{nullptr};
+  utils::UserResources *prev_user_tracker_{nullptr};
+  std::optional<DbArenaScope> db_arena_scope_;
+  bool started_{false};
 };
 
 }  // namespace memgraph::memory

@@ -131,6 +131,7 @@ memgraphCypherKeyword : cypherKeyword
                       | MAP
                       | MAPPINGS
                       | MATCHING
+                      | MEMORY
                       | METRICS
                       | MODE
                       | MODULE_READ
@@ -201,6 +202,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STORAGE_MODE
                       | STREAM
                       | STREAMS
+                      | TENANT
                       | STRICT_SYNC
                       | STRING
                       | SYNC
@@ -297,8 +299,10 @@ query : cypherQuery
       | ttlQuery
       | setSessionTraceQuery
       | userProfileQuery
+      | tenantProfileQuery
       | descriptionQuery
       | reloadSSLQuery
+      | showMemoryInfo
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -779,6 +783,8 @@ showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 
+showMemoryInfo : SHOW MEMORY INFO ;
+
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
 createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
@@ -895,6 +901,26 @@ userProfileQuery : createUserProfile
                  | showResourceConsumption
                  ;
 
+createTenantProfile : CREATE TENANT PROFILE profile=symbolicName LIMIT tenantLimitList ;
+alterTenantProfile  : ALTER TENANT PROFILE profile=symbolicName SET tenantLimitList ;
+dropTenantProfile   : DROP TENANT PROFILE profile=symbolicName ;
+showTenantProfiles  : SHOW TENANT PROFILES ;
+showTenantProfile   : SHOW TENANT PROFILE profile=symbolicName ;
+setTenantProfileOnDatabase    : SET TENANT PROFILE ON DATABASE db=symbolicName TO profile=symbolicName ;
+removeTenantProfileFromDatabase : REMOVE TENANT PROFILE FROM DATABASE db=symbolicName ;
+
+tenantLimitList : tenantLimitKV ( ',' tenantLimitKV )* ;
+tenantLimitKV   : key=symbolicName val=limitValue ;
+
+tenantProfileQuery : createTenantProfile
+                   | alterTenantProfile
+                   | dropTenantProfile
+                   | showTenantProfiles
+                   | showTenantProfile
+                   | setTenantProfileOnDatabase
+                   | removeTenantProfileFromDatabase
+                   ;
+
 descriptionQuery
     : setDescription
     | deleteDescription
@@ -912,6 +938,9 @@ deleteDescription
 showDescriptions
     : SHOW DESCRIPTIONS
     ;
+
+systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
+storageInfo : STORAGE INFO ( ON DATABASE db=symbolicName )? ;
 
 edgeTypePatternNode
     : '(' ( ':' labelName )+ ')'

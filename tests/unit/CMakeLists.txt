@@ -308,6 +308,11 @@ add_unit_test(kvstore
     LINK_TARGETS mg-kvstore mg-utils
 )
 
+add_unit_test(tenant_profiles
+    SOURCES tenant_profiles.cpp ${CMAKE_SOURCE_DIR}/src/dbms/tenant_profiles.cpp
+    LINK_TARGETS mg-kvstore mg-utils nlohmann_json::nlohmann_json
+)
+
 # Test data structures
 add_unit_test(ring_buffer
     SOURCES ring_buffer.cpp
@@ -598,6 +603,13 @@ add_unit_test(storage_v2_constraints
     SOURCES storage_v2_constraints.cpp
     LINK_TARGETS mg::storage mg-dbms
 )
+
+if(ENABLE_JEMALLOC)
+    add_unit_test(db_memory_tracking
+        SOURCES db_memory_tracking.cpp
+        LINK_TARGETS mg::storage mg-dbms
+    )
+endif()
 
 add_unit_test(storage_v2_decoder_encoder
     SOURCES storage_v2_decoder_encoder.cpp

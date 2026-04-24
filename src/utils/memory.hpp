@@ -692,4 +692,43 @@ class ResourceWithOutOfMemoryException : public MemoryResource {
   MemoryResource *upstream_{utils::NewDeleteResource()};
 };
 
+// Memory resource that reports allocations and frees to a MemoryTracker while
+// delegating storage to an upstream resource. This is useful when we want
+// ownership-based accounting for a subsystem without changing the global
+// allocator/thread arena state.
+class TrackingMemoryResource final : public MemoryResource {
+ public:
+  explicit TrackingMemoryResource(utils::MemoryTracker *tracker = nullptr,
+                                  std::pmr::memory_resource *upstream = utils::NewDeleteResource())
+      : tracker_{tracker}, upstream_{upstream} {}
+
+ private:
+  void *do_allocate(size_t bytes, size_t alignment) override {
+    if (!tracker_) return upstream_->allocate(bytes, alignment);
+
+    if (!tracker_->Alloc(static_cast<int64_t>(bytes))) {
+      throw std::bad_alloc{};
+    }
+
+    try {
+      return upstream_->allocate(bytes, alignment);
+    } catch (...) {
+      tracker_->Free(static_cast<int64_t>(bytes));
+      throw;
+    }
+  }
+
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override {
+    if (tracker_) {
+      tracker_->Free(static_cast<int64_t>(bytes));
+    }
+    upstream_->deallocate(p, bytes, alignment);
+  }
+
+  bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override { return this == &other; }
+
+  utils::MemoryTracker *tracker_{nullptr};
+  MemoryResource *upstream_{utils::NewDeleteResource()};
+};
+
 }  // namespace memgraph::utils

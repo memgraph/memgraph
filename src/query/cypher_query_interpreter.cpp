@@ -212,9 +212,7 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
   const bool use_plan_cache = plan_cache && !flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2);
   if (use_plan_cache) {
     auto existing_plan =
-        plan_cache->WithLock([&](utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>> &cache) {
-          return cache.get(stripped_query.stripped_query());
-        });
+        plan_cache->WithLock([&](PlanCache_t &cache) { return cache.get(stripped_query.stripped_query()); });
     if (existing_plan) {
       // validate the index usage
       auto &ptr = existing_plan.value();
@@ -229,9 +227,7 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
       if (all_satisfied) {
         return ptr;
       } else {
-        plan_cache->WithLock([&](utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>> &cache) {
-          cache.invalidate(stripped_query.stripped_query());
-        });
+        plan_cache->WithLock([&](PlanCache_t &cache) { cache.invalidate(stripped_query.stripped_query()); });
       }
     }
   }

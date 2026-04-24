@@ -129,7 +129,7 @@ struct Config {
 
   bool is_coordinator{false};  // PER INSTANCE - when true, snapshot handler is not wired up
 
-  friend bool operator==(const Config &lrh, const Config &rhs) = default;
+  friend bool operator==(const Config &, const Config &) = default;
 };
 
 inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {

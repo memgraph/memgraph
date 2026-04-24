@@ -90,6 +90,7 @@ auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::millis
 }  // namespace
 
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
+                 memory::ArenaPool *db_arena_pool, utils::MemoryTracker *db_embedding_memory_tracker,
                  std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory)
     : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
@@ -101,7 +102,8 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       config_(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
-      indices_(config, storage_mode),
+      db_arena_pool_(db_arena_pool),
+      indices_(config, storage_mode, db_embedding_memory_tracker),
       constraints_(config, storage_mode),
       invalidator_{std::move(invalidator)},
       database_protector_factory_{database_protector_factory ? std::move(database_protector_factory)
@@ -452,8 +454,8 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
   // add nodes which need to be detached on the other end of the edge
   if (detach) {
     for (auto *vertex_ptr : vertices) {
-      utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-      utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+      utils::small_vector<EdgeTriple, memory::DbAwareAllocator<EdgeTriple>> in_edges;
+      utils::small_vector<EdgeTriple, memory::DbAwareAllocator<EdgeTriple>> out_edges;
 
       {
         auto vertex_lock = std::shared_lock{vertex_ptr->lock};

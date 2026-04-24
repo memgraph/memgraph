@@ -11,14 +11,29 @@
 
 #include "query/stream/sources.hpp"
 
+#include <functional>
 #include <nlohmann/json.hpp>
+#include <thread>
 #include <utility>
 
+#include "memory/db_arena_fwd.hpp"
 #include "query/stream/common.hpp"
 
 namespace memgraph::query::stream {
+namespace {
+auto MakeDbAwareThreadFactory(memory::ArenaPool *arena_pool) {
+  return [arena_pool](std::function<void()> task) {
+    return std::thread([arena_pool, task = std::move(task)]() mutable {
+      const memory::DbArenaScope db_arena_scope{arena_pool};
+      task();
+    });
+  };
+}
+}  // namespace
+
 KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
-                         ConsumerFunction<integrations::kafka::Message> consumer_function) {
+                         ConsumerFunction<integrations::kafka::Message> consumer_function,
+                         memory::ArenaPool *arena_pool) {
   integrations::kafka::ConsumerInfo consumer_info{
       .consumer_name = std::move(stream_name),
       .topics = std::move(stream_info.topics),
@@ -29,7 +44,7 @@ KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
       .public_configs = std::move(stream_info.configs),
       .private_configs = std::move(stream_info.credentials),
   };
-  consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
+  consumer_.emplace(std::move(consumer_info), std::move(consumer_function), MakeDbAwareThreadFactory(arena_pool));
 };
 
 KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const {
@@ -93,14 +108,15 @@ void from_json(const nlohmann::json &data, KafkaStream::StreamInfo &info) {
 }
 
 PulsarStream::PulsarStream(std::string stream_name, StreamInfo stream_info,
-                           ConsumerFunction<integrations::pulsar::Message> consumer_function) {
+                           ConsumerFunction<integrations::pulsar::Message> consumer_function,
+                           memory::ArenaPool *arena_pool) {
   integrations::pulsar::ConsumerInfo consumer_info{.batch_size = stream_info.common_info.batch_size,
                                                    .batch_interval = stream_info.common_info.batch_interval,
                                                    .topics = std::move(stream_info.topics),
                                                    .consumer_name = std::move(stream_name),
                                                    .service_url = std::move(stream_info.service_url)};
 
-  consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
+  consumer_.emplace(std::move(consumer_info), std::move(consumer_function), MakeDbAwareThreadFactory(arena_pool));
 };
 
 PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) const {

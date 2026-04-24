@@ -112,7 +112,7 @@ struct PointIndexStorage {
   // Query (modify index set). Caller is responsible for publishing the
   // resulting ActiveIndices snapshot via PublishActiveIndices — for user DDL
   // this is typically deferred through Transaction::commit_callbacks_.
-  bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+  bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   bool DropPointIndex(LabelId label, PropertyId property);
 

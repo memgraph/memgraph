@@ -139,6 +139,51 @@ struct RenameDatabaseRes {
 
 using RenameDatabaseRpc = rpc::RequestResponse<RenameDatabaseReq, RenameDatabaseRes>;
 
+// Tenant profile replication: a single RPC carries the action type + payload.
+struct TenantProfileReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_TENANT_PROFILE_REQ, .name = "TenantProfileReq"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Action : uint8_t { CREATE, ALTER, DROP, SET_ON_DATABASE, REMOVE_FROM_DATABASE };
+
+  static void Load(TenantProfileReq *self, memgraph::slk::Reader *reader);
+  static void Save(const TenantProfileReq &self, memgraph::slk::Builder *builder);
+  TenantProfileReq() = default;
+
+  TenantProfileReq(const utils::UUID &main_uuid, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
+                   Action action, std::string_view profile_name, std::string_view db_name, int64_t memory_limit)
+      : main_uuid(main_uuid),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        action(action),
+        profile_name(profile_name),
+        db_name(db_name),
+        memory_limit(memory_limit) {}
+
+  utils::UUID main_uuid;
+  uint64_t expected_group_timestamp{0};
+  uint64_t new_group_timestamp{0};
+  Action action{Action::CREATE};
+  std::string profile_name;
+  std::string db_name;
+  int64_t memory_limit{0};
+};
+
+struct TenantProfileRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_TENANT_PROFILE_RES, .name = "TenantProfileRes"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(TenantProfileRes *self, memgraph::slk::Reader *reader);
+  static void Save(const TenantProfileRes &self, memgraph::slk::Builder *builder);
+  TenantProfileRes() = default;
+
+  explicit TenantProfileRes(bool success) : success(success) {}
+
+  bool success{false};
+};
+
+using TenantProfileRpc = rpc::RequestResponse<TenantProfileReq, TenantProfileRes>;
+
 }  // namespace memgraph::storage::replication
 
 // SLK serialization declarations
@@ -167,4 +212,12 @@ void Load(memgraph::storage::replication::RenameDatabaseReq *self, memgraph::slk
 void Save(const memgraph::storage::replication::RenameDatabaseRes &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::RenameDatabaseRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::TenantProfileReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::TenantProfileReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::TenantProfileRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::TenantProfileRes *self, memgraph::slk::Reader *reader);
 }  // namespace memgraph::slk

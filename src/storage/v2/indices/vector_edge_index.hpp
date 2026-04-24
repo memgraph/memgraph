@@ -19,6 +19,7 @@
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/memory_tracker.hpp"
 
 namespace memgraph::storage {
 
@@ -66,7 +67,7 @@ struct VectorEdgeIndexRecoveryInfo {
 struct VectorEdgeIndexRecovery {
   static void UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                 std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
-                                utils::SkipList<Vertex>::Accessor &vertices);
+                                utils::SkipListDb<Vertex>::Accessor &vertices);
 
   static void UpdateOnSetEdgeProperty(PropertyId property, const PropertyValue &value, const Edge *edge,
                                       std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec);
@@ -142,6 +143,8 @@ class VectorEdgeIndex {
 
   using VectorSearchEdgeResults = std::vector<std::tuple<EdgeIndexEntry, double, double>>;
 
+  explicit VectorEdgeIndex(utils::MemoryTracker *memory_tracker = nullptr);
+  ~VectorEdgeIndex();
   /// Concrete ActiveIndices implementation holding a shared reference to the live edge index container.
   struct ActiveIndices : VectorEdgeIndexActiveIndices {
     ActiveIndices() = default;
@@ -157,14 +160,14 @@ class VectorEdgeIndex {
     std::shared_ptr<VectorEdgeIndexContainer const> index_container_;
   };
 
-  VectorEdgeIndex() = default;
-  ~VectorEdgeIndex() = default;
-
   VectorEdgeIndex(VectorEdgeIndex &&other) noexcept
-      : index_(std::move(other.index_)), edge_endpoints_(std::move(other.edge_endpoints_)) {}
+      : memory_tracker_(other.memory_tracker_),
+        index_(std::move(other.index_)),
+        edge_endpoints_(std::move(other.edge_endpoints_)) {}
 
   VectorEdgeIndex &operator=(VectorEdgeIndex &&other) noexcept {
     if (this != &other) {
+      memory_tracker_ = other.memory_tracker_;
       index_ = std::move(other.index_);
       edge_endpoints_ = std::move(other.edge_endpoints_);
     }
@@ -181,13 +184,14 @@ class VectorEdgeIndex {
   void PublishActiveIndices(ActiveIndicesUpdater const &updater) const;
 
   /// @brief Creates a new index based on the provided specification.
-  bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+  bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices,
                    NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Recovers a vector edge index based on recovery info.
-  void RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
-                    NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+  void RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
+                    NameIdMapper *name_id_mapper,
+                    ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
@@ -215,8 +219,10 @@ class VectorEdgeIndex {
   /// @brief Aborts the entries in the vector edge index.
   void AbortEntries(AbortProcessor::AbortableInfo &cleanup_collection);
 
-  /// @brief Removes edges from the index.
-  void RemoveEdges(std::vector<Edge *> const &edges_to_remove);
+  /// @brief Removes edges from the index by GID.
+  /// Must be called before the edge is removed from the skip list (while the pointer is still valid).
+  /// @param deleted_edge_gids The GIDs of the edges to remove.
+  void RemoveEdges(std::list<Gid, memory::DbAwareAllocator<Gid>> const &deleted_edge_gids) const;
 
   /// @brief Returns an abort processor snapshot used during transaction abort.
   AbortProcessor GetAbortProcessor() const;
@@ -257,13 +263,14 @@ class VectorEdgeIndex {
   /// @brief Removes an edge from a vector index.
   void RemoveEdgeFromIndex(Edge *edge, uint64_t index_id);
 
+  utils::MemoryTracker *memory_tracker_{nullptr};
   // Invariant: `index_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
   // InMemoryAccessor::CreateVectorEdgeIndex / DropVectorIndex and in DropGraphClearIndices). Reads
   // from other contexts (regular READ/WRITE accessors, DatabaseInfoQuery) MUST go through the
   // published snapshot in `ActiveIndicesStore` -- UNIQUE excludes READ/WRITE, which is what makes
   // direct access to `index_` from commit-time hot paths race-free.
   std::shared_ptr<VectorEdgeIndexContainer> index_ = std::make_shared<VectorEdgeIndexContainer>();
-  std::unordered_map<Edge *, std::pair<Vertex *, Vertex *>> edge_endpoints_;
+  mutable std::unordered_map<Edge *, std::pair<Vertex *, Vertex *>> edge_endpoints_;
   // Lock order: mg_index.mutex → edge_endpoints_mutex_ (never acquire mg_index.mutex while holding
   // edge_endpoints_mutex_)
   mutable std::shared_mutex edge_endpoints_mutex_;

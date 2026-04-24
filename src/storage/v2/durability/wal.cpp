@@ -1165,8 +1165,8 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
 
 std::optional<RecoveryInfo> LoadWal(
     const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
-    const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipList<Vertex> *vertices,
-    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+    const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipListDb<Vertex> *vertices,
+    utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
     memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store) {
@@ -1236,7 +1236,7 @@ std::optional<RecoveryInfo> LoadWal(
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         if (r::contains(vertex->labels, label_id))
           throw RecoveryFailure("The vertex already has the label! Current ldt is: {}", ret->last_durable_timestamp);
-        std::optional<utils::small_vector<LabelId>> old_labels{};
+        std::optional<VertexKey> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
@@ -1251,7 +1251,7 @@ std::optional<RecoveryInfo> LoadWal(
         auto it = r::find(vertex->labels, label_id);
         if (it == vertex->labels.end())
           throw RecoveryFailure("The vertex doesn't have the label! Current ldt is: {}", ret->last_durable_timestamp);
-        std::optional<utils::small_vector<LabelId>> old_labels{};
+        std::optional<VertexKey> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         std::swap(*it, vertex->labels.back());
         vertex->labels.pop_back();

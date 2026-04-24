@@ -46,8 +46,9 @@ void Indices::RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &verti
   vector_index_.RemoveVertices(vertices_to_remove);
 }
 
-void Indices::RemoveEdgesFromVectorEdgeIndices(std::vector<Edge *> const &edges_to_remove) {
-  vector_edge_index_.RemoveEdges(edges_to_remove);
+void Indices::RemoveEdgesFromVectorEdgeIndices(
+    std::list<Gid, memory::DbAwareAllocator<Gid>> const &deleted_edge_gids) const {
+  vector_edge_index_.RemoveEdges(deleted_edge_gids);
 }
 
 void Indices::DropGraphClearIndices() {
@@ -121,8 +122,12 @@ void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, E
   tx.active_indices_->edge_type_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
 }
 
-Indices::Indices(const Config &config, StorageMode storage_mode)
-    : text_index_(config.durability.storage_directory), text_edge_index_(config.durability.storage_directory) {
+Indices::Indices(const Config &config, StorageMode storage_mode,
+                 utils::MemoryTracker *db_embedding_memory_tracker)
+    : text_index_(config.durability.storage_directory),
+      text_edge_index_(config.durability.storage_directory),
+      vector_index_(db_embedding_memory_tracker),
+      vector_edge_index_(db_embedding_memory_tracker) {
   std::invoke([this, config, storage_mode]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>();

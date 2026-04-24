@@ -14,7 +14,8 @@
 namespace memgraph::storage {
 
 namespace {
-auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::ChunkedIterator it, utils::SkipList<Vertex>::ChunkedIterator end,
+auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::ChunkedIterator it,
+                            utils::SkipListDb<Vertex>::ChunkedIterator end,
                             std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
   while (it != end) [[likely]] {
     if (VertexAccessor::IsVisible(&*it, tx, view)) [[likely]] {
@@ -26,20 +27,24 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::ChunkedIterator it, utils::
   return it;
 }
 
-auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::ChunkedIterator it, std::optional<VertexAccessor> *vertex,
-                            Storage *storage, Transaction *tx, View view) {
+auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::ChunkedIterator it,
+                            std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
-  return AdvanceToVisibleVertex(it, utils::SkipList<Vertex>::ChunkedIterator{}, vertex, storage, tx, view);
+  return AdvanceToVisibleVertex(
+      it, utils::SkipListDb<Vertex>::ChunkedIterator{}, vertex, storage, tx, view);
 }
 }  // namespace
 
-AllVerticesChunkedIterable::Iterator::Iterator(AllVerticesChunkedIterable *self, utils::SkipList<Vertex>::Chunk &chunk)
+AllVerticesChunkedIterable::Iterator::Iterator(AllVerticesChunkedIterable *self,
+                                               utils::SkipListDb<Vertex>::Chunk &chunk)
     : self_(self),
       it_(AdvanceToVisibleVertex(chunk.begin(), chunk.end(), &cache_, self->storage_, self->transaction_,
                                  self->view_)) {}
 
-AllVerticesChunkedIterable::Iterator::Iterator(utils::SkipList<Vertex>::ChunkedIterator end) : it_(end) {}
+AllVerticesChunkedIterable::Iterator::Iterator(
+    utils::SkipListDb<Vertex>::ChunkedIterator end)
+    : it_(end) {}
 
 VertexAccessor const &AllVerticesChunkedIterable::Iterator::operator*() const { return cache_.value(); }
 

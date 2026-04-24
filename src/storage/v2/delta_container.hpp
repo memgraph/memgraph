@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/delta.hpp"
 #include "utils/allocator/page_aligned.hpp"
 #include "utils/allocator/page_slab_memory_resource.hpp"
@@ -25,6 +26,33 @@ extern const Event UnreleasedDeltaObjects;
 
 namespace memgraph::storage {
 namespace {
+
+class DbArenaMemoryResource final : public std::pmr::memory_resource {
+ public:
+  DbArenaMemoryResource() = default;
+
+ private:
+  void *do_allocate(std::size_t bytes, std::size_t alignment) override {
+    return memory::DbAllocateBytes(bytes, memory::tls_db_arena_state.arena, alignment);
+  }
+
+  void do_deallocate(void *p, std::size_t bytes, std::size_t alignment) noexcept override {
+    memory::DbDeallocateBytes(p, bytes, alignment);
+  }
+
+  bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override {
+    return dynamic_cast<const DbArenaMemoryResource *>(&other) != nullptr;
+  }
+};
+
+inline std::pmr::memory_resource *GetDbArenaPageSlabUpstream() {
+  static DbArenaMemoryResource upstream;
+  return &upstream;
+}
+
+inline std::unique_ptr<utils::PageSlabMemoryResource> MakeDbArenaPageSlabResource() {
+  return std::make_unique<utils::PageSlabMemoryResource>(GetDbArenaPageSlabUpstream());
+}
 
 template <typename T>
 using PageAlignedList = std::forward_list<T, utils::PageAlignedAllocator<T>>;
@@ -225,10 +253,11 @@ struct delta_container {
 
   // move assign: needed because of size_
   delta_container &operator=(delta_container &&other) noexcept {
+    if (this == &other) return *this;
+    using std::swap;
     std::swap(memory_resource_, other.memory_resource_);
     std::swap(deltas_, other.deltas_);
     std::swap(size_, other.size_);
-    other.clear();
     return *this;
   }
 
@@ -254,7 +283,7 @@ struct delta_container {
       } else {
         // requires memory_resource
         if (!memory_resource_) [[unlikely]] {
-          memory_resource_ = std::make_unique<utils::PageSlabMemoryResource>();
+          memory_resource_ = MakeDbArenaPageSlabResource();
         }
         auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)..., memory_resource_.get());
         ++size_;
@@ -288,8 +317,8 @@ struct delta_container {
   auto size() const -> std::size_t { return size_; }
 
  private:
-  // NOTE: destruction order important, lifetime of objects inside delta_slabs depend on memory_resource_
-  // hence destroy `deltas_` first then `memory_resource_`
+  // The container itself is TLS-backed: allocations follow the DB arena pinned
+  // on the current thread at the time emplace() needs to materialize a slab.
   std::unique_ptr<utils::PageSlabMemoryResource> memory_resource_{};
   PageAlignedList<delta_slab> deltas_{};
   std::size_t size_{};

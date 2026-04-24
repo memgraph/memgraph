@@ -27,10 +27,15 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 
+namespace memgraph::utils {
+class MemoryTracker;
+}
+
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(const Config &config, StorageMode storage_mode);
+  Indices(const Config &config, StorageMode storage_mode,
+          utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;
@@ -56,7 +61,7 @@ struct Indices {
 
   /// Removes edges from all vector edge indices. Must be called before
   /// the edge is removed from the skip list (while the pointer is still valid).
-  void RemoveEdgesFromVectorEdgeIndices(std::vector<Edge *> const &edges_to_remove);
+  void RemoveEdgesFromVectorEdgeIndices(std::list<Gid, memory::DbAwareAllocator<Gid>> const &deleted_edge_gids) const;
 
   struct AbortProcessor {
     LabelIndex::AbortProcessor label_;

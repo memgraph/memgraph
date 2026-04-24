@@ -13,7 +13,10 @@
 
 #include "utils/small_vector.hpp"
 
+#include <cstddef>
 #include <ranges>
+#include <stdexcept>
+#include <vector>
 
 using namespace memgraph::utils;
 namespace rv = std::ranges::views;
@@ -61,6 +64,35 @@ struct LargeType {
 };
 
 static_assert(8 < sizeof(LargeType), "must be larger than 8B so that we don't use SBO");
+
+template <typename T>
+struct NoZeroAllocator {
+  using value_type = T;
+
+  static inline auto zero_deallocations = 0;
+
+  NoZeroAllocator() = default;
+
+  template <typename U>
+  explicit(false) NoZeroAllocator(NoZeroAllocator<U> const &) {}
+
+  [[nodiscard]] auto allocate(std::size_t n) -> T * {
+    if (n == 0) {
+      throw std::logic_error("zero-size allocation");
+    }
+    return static_cast<T *>(::operator new(n * sizeof(T)));
+  }
+
+  void deallocate(T *p, std::size_t n) noexcept {
+    if (n == 0) {
+      ++zero_deallocations;
+      return;
+    }
+    ::operator delete(p);
+  }
+
+  friend bool operator==(NoZeroAllocator const &, NoZeroAllocator const &) = default;
+};
 
 template <typename T>
 struct SmallVectorCommon;
@@ -534,3 +566,33 @@ using sut_t = small_vector<int>;
 static_assert(CompatibleIterators<sut_t::iterator, sut_t::const_iterator>);
 static_assert(std::contiguous_iterator<sut_t::iterator>);
 static_assert(std::contiguous_iterator<sut_t::const_iterator>);
+
+TEST(SmallVectorNoInlineStorage, EmptyConstructionDoesNotAllocateZeroElements) {
+  using Vector = small_vector<LargeType, NoZeroAllocator<LargeType>>;
+  static_assert(Vector::kSmallCapacity == 0);
+
+  NoZeroAllocator<LargeType>::zero_deallocations = 0;
+
+  {
+    auto default_constructed = Vector{};
+    auto empty = std::vector<LargeType>{};
+    auto from_empty_vector = Vector{std::move(empty)};
+    auto from_empty_range = Vector{from_empty_vector.begin(), from_empty_vector.end()};
+    auto from_empty_count = Vector{0};
+    auto copied = Vector{from_empty_range};
+
+    default_constructed.shrink_to_fit();
+    from_empty_vector.shrink_to_fit();
+    from_empty_range.shrink_to_fit();
+    from_empty_count.shrink_to_fit();
+    copied.shrink_to_fit();
+
+    EXPECT_EQ(default_constructed.capacity(), 0);
+    EXPECT_EQ(from_empty_vector.capacity(), 0);
+    EXPECT_EQ(from_empty_range.capacity(), 0);
+    EXPECT_EQ(from_empty_count.capacity(), 0);
+    EXPECT_EQ(copied.capacity(), 0);
+  }
+
+  EXPECT_EQ(NoZeroAllocator<LargeType>::zero_deallocations, 0);
+}

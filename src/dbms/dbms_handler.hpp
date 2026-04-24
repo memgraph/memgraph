@@ -26,6 +26,8 @@
 
 #include "constants.hpp"
 #include "dbms/database.hpp"
+#include "dbms/rpc.hpp"
+#include "dbms/tenant_profiles.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
@@ -188,19 +190,20 @@ class DbmsHandler {
 
     // TODO: Fix this hack
     if (*name_view == kDefaultDB) {
+      const memory::DbArenaScope db_arena_scope{db.get()};
+      auto *storage = db->storage();
       spdlog::debug("Last commit timestamp for DB {} is {}",
                     kDefaultDB,
-                    db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
+                    storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
       // This seems correct, if database made progress
-      if (db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
-          storage::kTimestampInitialId) {
+      if (storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ != storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
         return std::unexpected{NewError::GENERIC};  // Update error
       }
       spdlog::debug("Updated default db's UUID");
       // Default db cannot be deleted and remade, have to just update the UUID
-      db->storage()->config_.salient.uuid = config.uuid;
-      UpdateDurability(db->storage()->config_, ".");
+      storage->config_.salient.uuid = config.uuid;
+      UpdateDurability(storage->config_, ".");
       return db;
     }
 
@@ -473,6 +476,17 @@ class DbmsHandler {
 
   static void RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data);
 
+#ifdef MG_ENTERPRISE
+  TenantProfiles *tenant_profiles() { return tenant_profiles_.get(); }
+
+  void CreateTenantProfile(std::string_view name, int64_t memory_limit, system::Transaction *sys_txn);
+  void AlterTenantProfile(std::string_view name, int64_t memory_limit, system::Transaction *sys_txn);
+  void DropTenantProfile(std::string_view name, system::Transaction *sys_txn);
+  void SetTenantProfileOnDatabase(std::string_view profile_name, std::string_view db_name,
+                                  system::Transaction *sys_txn);
+  void RemoveTenantProfileFromDatabase(std::string_view db_name, system::Transaction *sys_txn);
+#endif
+
   auto default_config() const -> storage::Config const & {
 #ifdef MG_ENTERPRISE
     return default_config_;
@@ -620,13 +634,23 @@ class DbmsHandler {
     }
   }
 
-  /**
-   * @brief Get the DatabaseAccess for the database associated with the "name"
-   *
-   * @param name
-   * @return DatabaseAccess
-   * @throw UnknownDatabaseException if trying to get unknown database
-   */
+  void RestoreTenantProfiles_() {
+    for (const auto &profile : tenant_profiles_->GetAll()) {
+      for (const auto &db_name : profile.databases) {
+        try {
+          auto db_acc = Get_(db_name);
+          if (profile.memory_limit > 0) {
+            db_acc.get()->SetTenantMemoryLimit(profile.memory_limit);
+            spdlog::info(
+                "Applied tenant profile '{}' (limit={}) to database '{}'", profile.name, profile.memory_limit, db_name);
+          }
+        } catch (const UnknownDatabaseException &) {
+          spdlog::warn("Tenant profile '{}' references unknown database '{}' — skipping", profile.name, db_name);
+        }
+      }
+    }
+  }
+
   DatabaseAccess Get_(std::string_view name) {
     auto db = db_handler_.Get(name);
     if (db) {
@@ -659,7 +683,8 @@ class DbmsHandler {
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   // TODO: move to be common
-  std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
+  std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
+  std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
 #endif
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper

@@ -31,7 +31,9 @@ constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::coun
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 constinit MemoryTracker total_memory_tracker{};
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 constinit MemoryTracker graph_memory_tracker{&total_memory_tracker};
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 constinit MemoryTracker vector_index_memory_tracker{&total_memory_tracker};
 
 // TODO (antonio2368): Define how should the peak memory be logged.
@@ -119,9 +121,18 @@ bool MemoryTracker::Alloc(int64_t const size) {
     return false;
   }
 
-  if (parent_ && !parent_->Alloc(size)) [[unlikely]] {
-    amount_.fetch_sub(size, std::memory_order_relaxed);
-    return false;
+  if (parent1_) [[likely]] {
+    if (!parent1_->Alloc(size)) [[unlikely]] {
+      amount_.fetch_sub(size, std::memory_order_relaxed);
+      return false;
+    }
+    if (parent2_) [[unlikely]] {
+      if (!parent2_->Alloc(size)) [[unlikely]] {
+        parent1_->Free(size);
+        amount_.fetch_sub(size, std::memory_order_relaxed);
+        return false;
+      }
+    }
   }
 
   UpdatePeak(will_be);
@@ -140,16 +151,14 @@ void MemoryTracker::DoCheck() {
                     GetReadableSize(static_cast<double>(current_hard_limit))));
   }
 
-  if (parent_) {
-    parent_->DoCheck();
-  }
+  if (parent1_) parent1_->DoCheck();
+  if (parent2_) parent2_->DoCheck();
 }
 
 void MemoryTracker::Free(const int64_t size) {
   amount_.fetch_sub(size, std::memory_order_relaxed);
-  if (parent_) {
-    parent_->Free(size);
-  }
+  if (parent1_) parent1_->Free(size);
+  if (parent2_) parent2_->Free(size);
 }
 
 // DEVNOTE: important that this is allocated at thread construction time

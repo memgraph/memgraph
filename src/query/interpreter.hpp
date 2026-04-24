@@ -12,9 +12,11 @@
 #pragma once
 
 #include <gflags/gflags.h>
+#include <optional>
 
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/query_logger.hpp"
@@ -45,7 +47,9 @@ extern const Event SuccessfulQuery;
 namespace memgraph::query {
 
 struct QueryAllocator {
-  QueryAllocator() = default;
+  explicit QueryAllocator(utils::MemoryTracker *db_query_tracker = nullptr)
+      : tracked_memory_{db_query_tracker}, upstream_{&tracked_memory_} {}
+
   QueryAllocator(QueryAllocator const &) = delete;
   QueryAllocator &operator=(QueryAllocator const &) = delete;
 
@@ -57,7 +61,7 @@ struct QueryAllocator {
 #ifndef MG_MEMORY_PROFILE
     return &pool;
 #else
-    return upstream_resource();
+    return &upstream_;
 #endif
   }
 
@@ -65,11 +69,11 @@ struct QueryAllocator {
 #ifndef MG_MEMORY_PROFILE
     return &monotonic;
 #else
-    return upstream_resource();
+    return &upstream_;
 #endif
   }
 
-  auto resource_without_pool_or_mono() -> utils::MemoryResource * { return upstream_resource(); }
+  auto resource_without_pool_or_mono() -> utils::MemoryResource * { return &upstream_; }
 
  private:
   // At least one page to ensure not sharing page with other subsystems
@@ -81,21 +85,18 @@ struct QueryAllocator {
   static constexpr auto kPoolBlockPerChunk = 64UL;
   static constexpr auto kPoolMaxBlockSize = 1024UL;
 
-  static auto upstream_resource() -> utils::MemoryResource * {
-    // singleton ResourceWithOutOfMemoryException
-    // explicitly backed by NewDeleteResource
-    static auto upstream = utils::ResourceWithOutOfMemoryException{utils::NewDeleteResource()};
-    return &upstream;
-  }
-
+  utils::TrackingMemoryResource tracked_memory_{nullptr};
+  utils::ResourceWithOutOfMemoryException upstream_{&tracked_memory_};
 #ifndef MG_MEMORY_PROFILE
-  memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::PoolResource<> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+  memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, &upstream_};
+  memgraph::utils::PoolResource<> pool{kPoolBlockPerChunk, &monotonic, &upstream_};
 #endif
 };
 
 struct ThreadSafeQueryAllocator {
-  ThreadSafeQueryAllocator() = default;
+  explicit ThreadSafeQueryAllocator(utils::MemoryTracker *db_query_tracker = nullptr)
+      : tracked_memory_{db_query_tracker}, upstream_{&tracked_memory_}, monotonic{kMonotonicInitialSize, &upstream_} {}
+
   ~ThreadSafeQueryAllocator() = default;
 
   ThreadSafeQueryAllocator(ThreadSafeQueryAllocator const &) = delete;
@@ -112,13 +113,10 @@ struct ThreadSafeQueryAllocator {
   static constexpr auto kPoolBlockPerChunk = 255;
   static constexpr auto kPoolMaxBlockSize = 1024UL;
 
-  static auto upstream_resource() -> utils::MemoryResource * {
-    static auto upstream = utils::ResourceWithOutOfMemoryException{utils::NewDeleteResource()};
-    return &upstream;
-  }
-
-  memgraph::utils::ThreadSafeMonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::PoolResource<utils::impl::ThreadSafePool> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+  utils::TrackingMemoryResource tracked_memory_{nullptr};
+  utils::ResourceWithOutOfMemoryException upstream_{&tracked_memory_};
+  memgraph::utils::ThreadSafeMonotonicBufferResource monotonic;
+  memgraph::utils::PoolResource<utils::impl::ThreadSafePool> pool{kPoolBlockPerChunk, &monotonic, &upstream_};
 };
 
 struct InterpreterContext;
@@ -484,6 +482,10 @@ class Interpreter final {
 
   std::optional<memgraph::system::Transaction> system_transaction_{};
 
+  memgraph::system::Transaction *system_transaction_ptr() {
+    return system_transaction_ ? &*system_transaction_ : nullptr;
+  }
+
   std::optional<QueryLogger> query_logger_{};
 
   bool IsQueryLoggingActive() const;
@@ -503,9 +505,14 @@ class Interpreter final {
     static constexpr struct ThreadSafe {
     } thread_safe_;
 
-    QueryExecution() = default;
+    // QueryExecution memory is charged to the DB whose query/trigger is being
+    // prepared. System-only executions may pass nullptr because they do not run
+    // inside a DB query-memory budget.
+    explicit QueryExecution(utils::MemoryTracker *db_query_tracker = nullptr)
+        : execution_memory{std::in_place_type<QueryAllocator>, db_query_tracker} {}
 
-    explicit QueryExecution(ThreadSafe /*marker*/) : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>} {}
+    QueryExecution(ThreadSafe /*marker*/, utils::MemoryTracker *db_query_tracker)
+        : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>, db_query_tracker} {}
 
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = delete;
@@ -521,10 +528,12 @@ class Interpreter final {
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
 
-    static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
+    static auto Create(utils::MemoryTracker *db_query_tracker = nullptr) -> std::unique_ptr<QueryExecution> {
+      return std::make_unique<QueryExecution>(db_query_tracker);
+    }
 
-    static auto CreateThreadSafe() -> std::unique_ptr<QueryExecution> {
-      return std::make_unique<QueryExecution>(thread_safe_);
+    static auto CreateThreadSafe(utils::MemoryTracker *db_query_tracker = nullptr) -> std::unique_ptr<QueryExecution> {
+      return std::make_unique<QueryExecution>(thread_safe_, db_query_tracker);
     }
 
     utils::MemoryResource *resource() {
@@ -582,6 +591,12 @@ class Interpreter final {
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
+  // Update the TLS arena index used to route allocations to the correct database arena.
+  // The previous arena is restored on scope exit so pool threads are unaffected.
+  std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
+  if (current_db_.db_acc_) {
+    plan_cache_db_arena_scope.emplace(current_db_.db_acc_->get());
+  }
   MG_ASSERT(in_explicit_transaction_ || !qid, "qid can be only used in explicit transaction!");
 
   const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);

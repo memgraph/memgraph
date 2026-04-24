@@ -15,6 +15,7 @@
 #include <optional>
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "query/exceptions.hpp"
 #include "range/v3/algorithm/remove.hpp"
 #include "storage/v2/indices/tracked_vector_allocator.hpp"
@@ -376,6 +377,11 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @brief Updates an entry in the vector index: removes existing entry if present, then adds new vector.
 /// If vector is empty, only removes the entry (if it exists) and returns.
 /// Automatically resizes the index if full during add.
+///
+/// Memory tracking note: TrackedVectorAllocator captures its tracker_ pointer at construction time
+/// (inside SetupIndex, where TrackedVectorAllocatorMemoryTrackerScope is active). All allocations
+/// triggered by index.add() and try_reserve() here use that stored tracker — NOT the TLS. Therefore
+/// TrackedVectorAllocatorMemoryTrackerScope does NOT need to be active on the calling thread.
 /// @tparam Key The key type used in the index (e.g., Vertex*, EdgeIndexEntry).
 /// @tparam Spec The index specification type.
 /// @param mg_index The synchronized index wrapper.
@@ -453,7 +459,7 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
 /// @param process The function to call for each vertex (thread_id is std::nullopt).
 template <typename ProcessFunc>
   requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
-void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
+void PopulateVectorIndexSingleThreaded(utils::SkipListDb<Vertex>::Accessor &vertices, ProcessFunc &&process) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   for (auto &vertex : vertices) {
     std::forward<ProcessFunc>(process)(vertex, std::nullopt);
@@ -466,13 +472,13 @@ void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertic
 /// @param process The function to call for each vertex (thread_id is the chunk index).
 template <typename ProcessFunc>
   requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
-void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
+void PopulateVectorIndexMultiThreaded(utils::SkipListDb<Vertex>::Accessor &vertices, ProcessFunc &&process) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto vertices_chunks = vertices.create_chunks(FLAGS_storage_recovery_thread_count);
   const auto actual_chunk_count = vertices_chunks.size();
   utils::Synchronized<std::exception_ptr, utils::SpinLock> first_exception{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(actual_chunk_count);
     for (std::size_t i = 0; i < actual_chunk_count; ++i) {
       threads.emplace_back([&vertices_chunks, &process, &first_exception, i]() {
