@@ -11,7 +11,11 @@ fi
 
 mem_per_thread_gb="$1"
 cpu_threads=$(nproc)
-mem_total_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+mem_total_kb=$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo)
+if [[ -z "$mem_total_kb" ]]; then
+  echo "Failed to read MemTotal from /proc/meminfo" >&2
+  exit 1
+fi
 
 awk -v cpus="$cpu_threads" -v mem_kb="$mem_total_kb" -v per="$mem_per_thread_gb" '
   BEGIN {
