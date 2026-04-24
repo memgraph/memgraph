@@ -1194,7 +1194,7 @@ class VirtualGraphDbAccessor final {
 
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const;
 
-  [[nodiscard]] const VirtualNode *FindNode(storage::Gid synthetic_gid) const;
+  [[nodiscard]] std::shared_ptr<const VirtualNode> FindNode(storage::Gid synthetic_gid) const;
 
   // empty real-vertex iterable; virtual-node iteration uses a separate cursor.
   VerticesIterable Vertices(storage::View);

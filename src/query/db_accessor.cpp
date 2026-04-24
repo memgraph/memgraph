@@ -159,7 +159,7 @@ const std::string &VirtualGraphDbAccessor::EdgeTypeToName(storage::EdgeTypeId ty
   return db_accessor_.EdgeTypeToName(type);
 }
 
-const VirtualNode *VirtualGraphDbAccessor::FindNode(storage::Gid synthetic_gid) const {
+std::shared_ptr<const VirtualNode> VirtualGraphDbAccessor::FindNode(storage::Gid synthetic_gid) const {
   return graph_->FindNode(synthetic_gid);
 }
 

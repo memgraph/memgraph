@@ -24,58 +24,48 @@
 
 namespace memgraph::query {
 
-// Endpoints are borrowed pointers into a VirtualGraph's node map. nodes_anchor_
-// is a type-erased shared_ptr on that map — edges escaping their source graph
-// (via collect(e), subquery returns, etc.) keep the map alive through the
-// refcount. Edges constructed without an anchor (unit tests with local
-// VirtualNode stack variables) are valid only while those locals are alive.
+// Endpoints are shared_ptrs into a VirtualGraph's node map — each edge owns its
+// own refcount on its two endpoint nodes, so edges escaping their source graph
+// (via collect(e), subquery returns, etc.) keep their own endpoints alive even
+// after the source VirtualGraph is destroyed.
 class VirtualEdge final {
  public:
   using allocator_type = utils::Allocator<VirtualEdge>;
   using property_map = utils::pmr::unordered_map<storage::PropertyId, storage::PropertyValue>;
 
-  VirtualEdge(const VirtualNode &from, const VirtualNode &to, utils::pmr::string edge_type_name,
-              std::shared_ptr<const void> nodes_anchor = {}, allocator_type alloc = {})
-      : from_(&from),
-        to_(&to),
+  VirtualEdge(std::shared_ptr<const VirtualNode> from, std::shared_ptr<const VirtualNode> to,
+              utils::pmr::string edge_type_name, allocator_type alloc = {})
+      : from_(std::move(from)),
+        to_(std::move(to)),
         edge_type_name_(std::move(edge_type_name), alloc),
         gid_(NextSyntheticGid()),
-        properties_(alloc),
-        cached_hash_(HashKey(from.Gid(), to.Gid(), edge_type_name_)),
-        nodes_anchor_(std::move(nodes_anchor)) {}
+        properties_(alloc) {}
 
   // Rebound copy: preserves identity (gid, type, props) but repoints from_/to_
   // at different VirtualNodes. Used when VirtualGraph duplicates its node map
   // under a new allocator, and by Merge when alias resolution maps the source
-  // edge's endpoints to canonical nodes with different synthetic gids —
-  // cached_hash_ must be recomputed since it encodes from_gid/to_gid/type.
-  VirtualEdge(const VirtualEdge &other, const VirtualNode &new_from, const VirtualNode &new_to,
-              std::shared_ptr<const void> nodes_anchor, allocator_type alloc)
-      : from_(&new_from),
-        to_(&new_to),
+  // edge's endpoints to canonical nodes with different synthetic gids.
+  VirtualEdge(const VirtualEdge &other, std::shared_ptr<const VirtualNode> new_from,
+              std::shared_ptr<const VirtualNode> new_to, allocator_type alloc)
+      : from_(std::move(new_from)),
+        to_(std::move(new_to)),
         edge_type_name_(other.edge_type_name_, alloc),
         gid_(other.gid_),
-        properties_(other.properties_, alloc),
-        cached_hash_(HashKey(new_from.Gid(), new_to.Gid(), edge_type_name_)),
-        nodes_anchor_(std::move(nodes_anchor)) {}
+        properties_(other.properties_, alloc) {}
 
   VirtualEdge(const VirtualEdge &other, allocator_type alloc)
       : from_(other.from_),
         to_(other.to_),
         edge_type_name_(other.edge_type_name_, alloc),
         gid_(other.gid_),
-        properties_(other.properties_, alloc),
-        cached_hash_(other.cached_hash_),
-        nodes_anchor_(other.nodes_anchor_) {}
+        properties_(other.properties_, alloc) {}
 
   VirtualEdge(VirtualEdge &&other, allocator_type alloc)
-      : from_(other.from_),
-        to_(other.to_),
+      : from_(std::move(other.from_)),
+        to_(std::move(other.to_)),
         edge_type_name_(std::move(other.edge_type_name_), alloc),
         gid_(other.gid_),
-        properties_(std::move(other.properties_), alloc),
-        cached_hash_(other.cached_hash_),
-        nodes_anchor_(std::move(other.nodes_anchor_)) {}
+        properties_(std::move(other.properties_), alloc) {}
 
   VirtualEdge(const VirtualEdge &other) : VirtualEdge(other, other.edge_type_name_.get_allocator()) {}
 
@@ -97,7 +87,7 @@ class VirtualEdge final {
 
   [[nodiscard]] auto Gid() const noexcept -> storage::Gid { return gid_; }
 
-  [[nodiscard]] size_t Hash() const noexcept { return cached_hash_; }
+  [[nodiscard]] size_t Hash() const noexcept { return HashKey(from_->Gid(), to_->Gid(), edge_type_name_); }
 
   [[nodiscard]] auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
     if (const auto it = properties_.find(key); it != properties_.end()) return it->second;
@@ -125,13 +115,11 @@ class VirtualEdge final {
     return seed;
   }
 
-  const VirtualNode *from_;
-  const VirtualNode *to_;
+  std::shared_ptr<const VirtualNode> from_;
+  std::shared_ptr<const VirtualNode> to_;
   utils::pmr::string edge_type_name_;
   storage::Gid gid_;
   property_map properties_;
-  size_t cached_hash_;
-  std::shared_ptr<const void> nodes_anchor_;
 };
 
 }  // namespace memgraph::query

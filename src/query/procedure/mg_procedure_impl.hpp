@@ -1014,7 +1014,8 @@ struct mgp_edges_iterator {
 
 struct mgp_vertices_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_vertices_iterator>;
-  using virtual_node_map_t = memgraph::utils::pmr::unordered_map<memgraph::storage::Gid, memgraph::query::VirtualNode>;
+  using virtual_node_map_t =
+      memgraph::utils::pmr::unordered_map<memgraph::storage::Gid, std::shared_ptr<const memgraph::query::VirtualNode>>;
 
   /// @throw anything VerticesIterable may throw
   mgp_vertices_iterator(mgp_graph *graph, allocator_type alloc);

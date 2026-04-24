@@ -30,9 +30,7 @@ inline storage::Gid NextSyntheticGid() {
   return storage::Gid::FromUint(counter.fetch_sub(1, std::memory_order_relaxed));
 }
 
-// Standalone graph node with no provenance back to any real vertex. Callers
-// that need the real-vertex correspondence keep it externally — for derive()
-// that's the aggregator's per-slot dedup map.
+// Standalone graph node with no provenance back to any real vertex.
 class VirtualNode final {
  public:
   using allocator_type = utils::Allocator<VirtualNode>;
@@ -53,7 +51,6 @@ class VirtualNode final {
   VirtualNode(VirtualNode &&) noexcept = default;
 
   VirtualNode &operator=(const VirtualNode &) = default;
-  // Not noexcept: pmr move-assign across mismatched allocators may reallocate and throw.
   VirtualNode &operator=(VirtualNode &&) = default;
   ~VirtualNode() = default;
 
@@ -74,9 +71,6 @@ class VirtualNode final {
 
   [[nodiscard]] auto Properties() const noexcept -> const property_map & { return properties_; }
 
-  // Identity is the synthetic gid. Two VirtualNodes derived from the same real vertex
-  // but constructed separately compare unequal — real-vertex correspondence is
-  // tracked externally (by the aggregator during derive()).
   bool operator==(const VirtualNode &other) const noexcept { return gid_ == other.gid_; }
 
  private:

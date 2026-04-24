@@ -6708,27 +6708,26 @@ class AggregateCursor : public Cursor {
     const auto alloc = projected_graph.get_allocator();
     auto canonical = [&](const VertexAccessor &real_vertex,
                          std::string_view labels_key,
-                         std::string_view props_key) -> const VirtualNode & {
+                         std::string_view props_key) -> std::shared_ptr<const VirtualNode> {
       const auto real_gid = real_vertex.Gid();
       if (const auto it = dedup.find(real_gid); it != dedup.end()) {
-        return *projected_graph.FindNode(it->second);
+        return projected_graph.FindNode(it->second);
       }
       auto new_node = BuildDerivedNode(labels_key, props_key, options, alloc);
-      dedup[real_gid] = new_node.Gid();
-      return projected_graph.InsertNode(std::move(new_node));
+      const auto synth_gid = new_node.Gid();
+      dedup[real_gid] = synth_gid;
+      projected_graph.InsertNode(std::move(new_node));
+      return projected_graph.FindNode(synth_gid);
     };
 
-    const auto &stored_from = canonical(path_vertices.front(), kSourceLabels, kSourceProperties);
+    auto stored_from = canonical(path_vertices.front(), kSourceLabels, kSourceProperties);
 
     if (path_vertices.size() < 2) return;
 
-    const auto &stored_to = canonical(path_vertices.back(), kTargetLabels, kTargetProperties);
+    auto stored_to = canonical(path_vertices.back(), kTargetLabels, kTargetProperties);
 
-    VirtualEdge ve(stored_from,
-                   stored_to,
-                   utils::pmr::string{type_it->second.ValueString(), alloc},
-                   projected_graph.NodesAnchor(),
-                   alloc);
+    VirtualEdge ve(
+        std::move(stored_from), std::move(stored_to), utils::pmr::string{type_it->second.ValueString(), alloc}, alloc);
     ApplyPropertyMap(options, kRelationshipProperties, [&](storage::PropertyId id, storage::PropertyValue pv) {
       ve.SetProperty(id, std::move(pv));
     });

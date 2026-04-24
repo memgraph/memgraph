@@ -715,14 +715,14 @@ TYPED_TEST(MgpGraphTest, VirtualGraphNodeIntegration) {
 
   EXPECT_EQ(vg.nodes().size(), 2);
 
-  const auto *found = vg.FindNode(vn1_gid);
+  const auto found = vg.FindNode(vn1_gid);
   ASSERT_NE(found, nullptr);
   EXPECT_EQ(found->Labels().size(), 2);
   EXPECT_EQ(found->Labels()[0], "Expert");
   EXPECT_EQ(found->Labels()[1], "Analyst");
   EXPECT_EQ(found->GetProperty(score_id), memgraph::storage::PropertyValue(99));
 
-  const auto *found2 = vg.FindNode(vn2_gid);
+  const auto found2 = vg.FindNode(vn2_gid);
   ASSERT_NE(found2, nullptr);
   EXPECT_EQ(found2->Labels().size(), 1);
   EXPECT_TRUE(found2->GetProperty(score_id).IsNull());

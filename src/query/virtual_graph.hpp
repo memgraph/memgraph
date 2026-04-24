@@ -25,7 +25,6 @@
 namespace memgraph::query {
 
 namespace detail {
-// Named lambda so the resulting transform_view type is nameable in aliases and struct fields.
 inline constexpr auto kDerefEdgePtr = [](const VirtualEdge *p) noexcept -> const VirtualEdge & { return *p; };
 }  // namespace detail
 
@@ -39,9 +38,10 @@ using EdgeRefView = decltype(std::span<const VirtualEdge *const>{} | std::views:
 using VirtualGraphAliasMap = utils::pmr::unordered_map<storage::Gid, storage::Gid>;
 
 // Invariants:
-//  - nodes_ptr_ is a shared_ptr<node_map> so VirtualEdges can carry a
-//    type-erased copy as an anchor; edges that escape the graph (collect(e),
-//    g.edges returned from a subquery) keep the node map alive via the refcount.
+//  - The node map stores each VirtualNode under a shared_ptr<const VirtualNode>;
+//    VirtualEdges own their endpoints by shared_ptr so edges that escape the
+//    graph (collect(e), g.edges returned from a subquery) each keep their own
+//    endpoints alive even after the source VirtualGraph is destroyed.
 //  - The node map is keyed by VirtualNode::Gid() (synthetic).
 //  - edges_ is dedup'd on VirtualEdge's semantic (from_synth, to_synth, type)
 //    hash/eq. pmr::unordered_set guarantees element-address stability, so
@@ -49,12 +49,11 @@ using VirtualGraphAliasMap = utils::pmr::unordered_map<storage::Gid, storage::Gi
 class VirtualGraph final {
  public:
   using allocator_type = utils::Allocator<VirtualGraph>;
-  using node_map = utils::pmr::unordered_map<storage::Gid, VirtualNode>;
+  using node_map = utils::pmr::unordered_map<storage::Gid, std::shared_ptr<const VirtualNode>>;
   using edge_set = utils::pmr::unordered_set<VirtualEdge>;
   using adjacency_map = utils::pmr::unordered_map<storage::Gid, utils::pmr::vector<const VirtualEdge *>>;
 
-  explicit VirtualGraph(allocator_type alloc)
-      : nodes_ptr_(std::make_shared<node_map>(alloc)), edges_(alloc), out_index_(alloc), in_index_(alloc) {}
+  explicit VirtualGraph(allocator_type alloc) : nodes_(alloc), edges_(alloc), out_index_(alloc), in_index_(alloc) {}
 
   VirtualGraph(const VirtualGraph &other, allocator_type alloc);
 
@@ -65,17 +64,13 @@ class VirtualGraph final {
   VirtualGraph(VirtualGraph &&other, allocator_type alloc);
 
   VirtualGraph &operator=(const VirtualGraph &) = default;
-  VirtualGraph &operator=(VirtualGraph &&) = default;
+  VirtualGraph &operator=(VirtualGraph &&) noexcept = default;
   ~VirtualGraph() = default;
 
-  // Insert a VirtualNode keyed by its own synthetic gid. Assumes the synth gid
-  // is unique within this graph (holds by construction — NextSyntheticGid is a
-  // process-wide monotonic counter).
   const VirtualNode &InsertNode(VirtualNode node);
 
-  [[nodiscard]] const VirtualNode *FindNode(storage::Gid synthetic_gid) const;
+  [[nodiscard]] std::shared_ptr<const VirtualNode> FindNode(storage::Gid synthetic_gid) const;
 
-  // Returns true iff the (from, to, type) triple was not already present.
   bool InsertEdgeIfNew(VirtualEdge edge);
 
   [[nodiscard]] bool ContainsEdge(const VirtualEdge &edge) const { return edges_.contains(edge); }
@@ -83,34 +78,24 @@ class VirtualGraph final {
   [[nodiscard]] EdgeRefView OutEdges(storage::Gid vertex_gid) const;
   [[nodiscard]] EdgeRefView InEdges(storage::Gid vertex_gid) const;
 
-  [[nodiscard]] auto nodes() const noexcept { return std::views::all(*nodes_ptr_); }
+  [[nodiscard]] auto nodes() const noexcept { return std::views::all(nodes_); }
 
   [[nodiscard]] auto edges() const noexcept { return std::views::all(edges_); }
 
-  // Callers that construct VirtualEdges which may escape the graph's lifetime must
-  // pass this anchor to the edge's ctor so the node map outlives them.
-  [[nodiscard]] std::shared_ptr<const void> NodesAnchor() const noexcept { return nodes_ptr_; }
-
-  // Merge other's nodes and edges into this graph. `aliases` maps a synthetic gid
-  // in `other` to the synthetic gid of an already-canonical VirtualNode in this
-  // graph; entries cause other's aliased node to be skipped (we already have a
-  // canonical) and edges referencing that synth gid to be rewritten to point at
-  // the canonical. Synth gids not in `aliases` are assumed unique across the two
-  // graphs (true by construction of NextSyntheticGid) and copied through.
   void Merge(const VirtualGraph &other, const VirtualGraphAliasMap &aliases);
 
-  [[nodiscard]] auto get_allocator() const noexcept -> allocator_type { return nodes_ptr_->get_allocator(); }
+  [[nodiscard]] auto get_allocator() const noexcept -> allocator_type { return nodes_.get_allocator(); }
 
  private:
   void IndexEdge(const VirtualEdge *edge);
   void RebuildEdgeIndexes();
 
-  // Re-resolve each edge in `source` to endpoints in this graph's nodes_ptr_ and
+  // Re-resolve each edge in `source` to endpoints in this graph's nodes_ and
   // insert as a new entry. Used by the copy/move-with-allocator ctors when the
   // node map was duplicated under a new allocator.
   void CopyEdgesRebound(const edge_set &source, allocator_type alloc);
 
-  std::shared_ptr<node_map> nodes_ptr_;
+  node_map nodes_;
   edge_set edges_;
   adjacency_map out_index_;
   adjacency_map in_index_;

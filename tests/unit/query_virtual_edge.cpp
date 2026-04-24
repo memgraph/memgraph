@@ -31,17 +31,17 @@ class VirtualEdgeTest : public ::testing::Test {
 };
 
 TEST_F(VirtualEdgeTest, AccessorsAndIdentity) {
-  memgraph::query::VirtualNode vn1({"L1"}, {});
-  memgraph::query::VirtualNode vn2({"L2"}, {});
+  auto vn1 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L1"}, {}));
+  auto vn2 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L2"}, {}));
 
   memgraph::query::VirtualEdge ve1(vn1, vn2, "RELATES_TO");
   memgraph::query::VirtualEdge ve2(vn1, vn2, "RELATES_TO");
 
-  EXPECT_EQ(ve1.From().Gid(), vn1.Gid());
-  EXPECT_EQ(ve1.To().Gid(), vn2.Gid());
+  EXPECT_EQ(ve1.From().Gid(), vn1->Gid());
+  EXPECT_EQ(ve1.To().Gid(), vn2->Gid());
   EXPECT_EQ(ve1.EdgeTypeName(), "RELATES_TO");
 
-  // Same triple → distinct synthetic gids but semantic equality.
+  // same triple → distinct synthetic gids but semantic equality.
   EXPECT_NE(ve1.Gid(), ve2.Gid());
   EXPECT_GT(ve1.Gid(), ve2.Gid());  // gids count down
   EXPECT_EQ(ve1, ve2);
@@ -78,7 +78,7 @@ TEST_F(VirtualEdgeTest, GraphStoresVirtualEdgesSeparately) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &vn1 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
   const auto &vn2 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
-  memgraph::query::VirtualEdge ve(vn1, vn2, "VIRTUAL");
+  memgraph::query::VirtualEdge ve(vg.FindNode(vn1.Gid()), vg.FindNode(vn2.Gid()), "VIRTUAL");
   EXPECT_TRUE(vg.InsertEdgeIfNew(ve));
   EXPECT_FALSE(vg.InsertEdgeIfNew(ve));
 
@@ -93,9 +93,12 @@ TEST_F(VirtualEdgeTest, VirtualGraphFiltersEdgesByVertex) {
   const auto &vn2 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
   const auto &vn3 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
 
-  vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn2, "A"));
-  vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn3, "B"));
-  vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn2, vn3, "C"));
+  auto s1 = vg.FindNode(vn1.Gid());
+  auto s2 = vg.FindNode(vn2.Gid());
+  auto s3 = vg.FindNode(vn3.Gid());
+  vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(s1, s2, "A"));
+  vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(s1, s3, "B"));
+  vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(s2, s3, "C"));
 
   EXPECT_EQ(vg.OutEdges(vn1.Gid()).size(), 2);
   EXPECT_EQ(vg.InEdges(vn1.Gid()).size(), 0);
@@ -106,7 +109,8 @@ TEST_F(VirtualEdgeTest, VirtualGraphFiltersEdgesByVertex) {
 TEST_F(VirtualEdgeTest, SelfLoopAppearsInBothDirections) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &vn1 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
-  vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn1, "SELF"));
+  auto s1 = vg.FindNode(vn1.Gid());
+  vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(s1, s1, "SELF"));
 
   EXPECT_EQ(vg.OutEdges(vn1.Gid()).size(), 1);
   EXPECT_EQ(vg.InEdges(vn1.Gid()).size(), 1);
@@ -122,8 +126,9 @@ TEST_F(VirtualEdgeTest, MergeRewritesEdgesViaExplicitAliasMap) {
   const auto &main_shared = main.InsertNode(memgraph::query::VirtualNode({"main"}, {}));
   const auto &other_shared = other.InsertNode(memgraph::query::VirtualNode({"other"}, {}));
   const auto &other_only = other.InsertNode(memgraph::query::VirtualNode({}, {}));
-  // Give other an edge between the two nodes it owns.
-  other.InsertEdgeIfNew(memgraph::query::VirtualEdge(other_shared, other_only, "E"));
+  // give `other` an edge between the two nodes it owns.
+  other.InsertEdgeIfNew(
+      memgraph::query::VirtualEdge(other.FindNode(other_shared.Gid()), other.FindNode(other_only.Gid()), "E"));
 
   memgraph::query::VirtualGraphAliasMap aliases(memgraph::utils::NewDeleteResource());
   aliases.try_emplace(other_shared.Gid(), main_shared.Gid());
@@ -131,7 +136,7 @@ TEST_F(VirtualEdgeTest, MergeRewritesEdgesViaExplicitAliasMap) {
   main.Merge(other, aliases);
 
   // main's canonical for the shared vertex kept its identity and label.
-  const auto *canonical = main.FindNode(main_shared.Gid());
+  const auto canonical = main.FindNode(main_shared.Gid());
   ASSERT_NE(canonical, nullptr);
   EXPECT_EQ(canonical->Labels()[0], "main");
   // other_shared was aliased; its synth gid is NOT a key in main's node map.
@@ -148,10 +153,12 @@ TEST_F(VirtualEdgeTest, InsertIfNewDedupsDistinctEdgeGidsByTriple) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &vn1 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
   const auto &vn2 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
+  auto s1 = vg.FindNode(vn1.Gid());
+  auto s2 = vg.FindNode(vn2.Gid());
 
-  EXPECT_TRUE(vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn2, "X")));
-  EXPECT_FALSE(vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn2, "X")));
-  EXPECT_TRUE(vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn2, "Y")));
+  EXPECT_TRUE(vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(s1, s2, "X")));
+  EXPECT_FALSE(vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(s1, s2, "X")));
+  EXPECT_TRUE(vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(s1, s2, "Y")));
 
   EXPECT_EQ(vg.edges().size(), 2);
   EXPECT_EQ(vg.OutEdges(vn1.Gid()).size(), 2);

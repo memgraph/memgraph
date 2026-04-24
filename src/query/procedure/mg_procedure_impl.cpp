@@ -3487,7 +3487,7 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
                       memory, memgraph::query::SubgraphVertexAccessor(*maybe_vertex, impl->getGraph()), graph);
                 },
                 [graph, gid, memory](memgraph::query::VirtualGraphDbAccessor *impl) -> mgp_vertex * {
-                  if (const auto *vn = impl->FindNode(gid)) {
+                  if (auto vn = impl->FindNode(gid)) {
                     return NewRawMgpObject<mgp_vertex>(memory, *vn, graph);
                   }
                   return nullptr;
@@ -4902,8 +4902,6 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
       graph(graph),
       vertices(std::visit([graph](auto *impl) { return impl->Vertices(graph->view); }, graph->impl)),
       current_it(vertices.begin()) {
-  // on a virtual graph, vertices is empty, so current_it is already past-end and
-  // NextPermitted's while-loop exits immediately; no separate guard needed.
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     NextPermitted(*this);
@@ -4920,7 +4918,6 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
   }
 
   if (current_it != vertices.end()) {
-    // reached only on real / subgraph graphs; virtual's empty iterable keeps current_it past-end.
     std::visit(
         memgraph::utils::Overloaded{
             [this, graph, alloc](memgraph::query::DbAccessor *) { current_v.emplace(*current_it, graph, alloc); },
@@ -4930,7 +4927,7 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
             VirtualGraphUnreachable<void>("mgp_vertices_iterator ctor real-vertex arm")},
         graph->impl);
   } else if (has_virtual_nodes_ && virtual_node_it_ != virtual_node_end_) {
-    current_v.emplace(virtual_node_it_->second, graph, alloc);
+    current_v.emplace(*virtual_node_it_->second, graph, alloc);
   }
 }
 
@@ -4996,7 +4993,7 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
             it->current_v = std::nullopt;
             return nullptr;
           }
-          it->current_v.emplace(it->virtual_node_it_->second, it->graph, it->GetMemoryResource());
+          it->current_v.emplace(*it->virtual_node_it_->second, it->graph, it->GetMemoryResource());
           return &*it->current_v;
         }
 

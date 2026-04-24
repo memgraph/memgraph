@@ -253,8 +253,11 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     }
     case TypedValue::Type::VirtualGraph: {
       const auto &vg = expression_result.ValueVirtualGraph();
-      result.emplace(TypedValue::TString("nodes", ctx_->memory),
-                     RangeToTypedValueList(vg.nodes() | std::views::values, ctx_->memory));
+      result.emplace(
+          TypedValue::TString("nodes", ctx_->memory),
+          RangeToTypedValueList(vg.nodes() | std::views::values |
+                                    std::views::transform([](const auto &sp) -> const VirtualNode & { return *sp; }),
+                                ctx_->memory));
       result.emplace(TypedValue::TString("edges", ctx_->memory), RangeToTypedValueList(vg.edges(), ctx_->memory));
       return {result, ctx_->memory};
     }
@@ -421,7 +424,9 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
   };
   auto maybe_virtual_graph = [this](const auto &vg, const auto &prop_name) -> std::optional<TypedValue> {
     if (prop_name == "nodes") {
-      return RangeToTypedValueList(vg.nodes() | std::views::values, ctx_->memory);
+      return RangeToTypedValueList(vg.nodes() | std::views::values |
+                                       std::views::transform([](const auto &sp) -> const VirtualNode & { return *sp; }),
+                                   ctx_->memory);
     }
     if (prop_name == "edges") return RangeToTypedValueList(vg.edges(), ctx_->memory);
     return std::nullopt;

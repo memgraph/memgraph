@@ -22,22 +22,19 @@ EdgeRefView MakeView(std::span<const VirtualEdge *const> ptrs) {
 }  // namespace
 
 VirtualGraph::VirtualGraph(const VirtualGraph &other, allocator_type alloc)
-    : nodes_ptr_(std::make_shared<node_map>(*other.nodes_ptr_, alloc)),
-      edges_(alloc),
-      out_index_(alloc),
-      in_index_(alloc) {
+    : nodes_(other.nodes_, alloc), edges_(alloc), out_index_(alloc), in_index_(alloc) {
   CopyEdgesRebound(other.edges_, alloc);
 }
 
 VirtualGraph::VirtualGraph(VirtualGraph &&other, allocator_type alloc)
-    : edges_(alloc), out_index_(alloc), in_index_(alloc) {
-  if (alloc == other.nodes_ptr_->get_allocator()) {
-    nodes_ptr_ = std::move(other.nodes_ptr_);
+    : nodes_(alloc), edges_(alloc), out_index_(alloc), in_index_(alloc) {
+  if (alloc == other.nodes_.get_allocator()) {
+    nodes_ = std::move(other.nodes_);
     edges_ = std::move(other.edges_);
     out_index_ = std::move(other.out_index_);
     in_index_ = std::move(other.in_index_);
   } else {
-    nodes_ptr_ = std::make_shared<node_map>(*other.nodes_ptr_, alloc);
+    nodes_ = node_map(other.nodes_, alloc);
     CopyEdgesRebound(other.edges_, alloc);
   }
 }
@@ -53,29 +50,31 @@ void VirtualGraph::RebuildEdgeIndexes() {
 
 void VirtualGraph::CopyEdgesRebound(const edge_set &source, allocator_type alloc) {
   // edges_.emplace() would route through uses-allocator construction and append the
-  // allocator as an extra argument, which our 5-arg rebound-copy ctor can't accept.
+  // allocator as an extra argument, which our rebound-copy ctor can't accept.
   // Build each edge directly and insert.
   const VirtualEdge::allocator_type edge_alloc(alloc.resource());
   for (const auto &edge : source) {
-    const auto it_from = nodes_ptr_->find(edge.FromGid());
-    const auto it_to = nodes_ptr_->find(edge.ToGid());
-    DMG_ASSERT(it_from != nodes_ptr_->end() && it_to != nodes_ptr_->end(),
+    const auto it_from = nodes_.find(edge.FromGid());
+    const auto it_to = nodes_.find(edge.ToGid());
+    DMG_ASSERT(it_from != nodes_.end() && it_to != nodes_.end(),
                "VirtualEdge references a synthetic gid absent from the source graph's node map");
-    edges_.insert(VirtualEdge(edge, it_from->second, it_to->second, nodes_ptr_, edge_alloc));
+    edges_.insert(VirtualEdge(edge, it_from->second, it_to->second, edge_alloc));
   }
   RebuildEdgeIndexes();
 }
 
 const VirtualNode &VirtualGraph::InsertNode(VirtualNode node) {
   const auto synthetic_gid = node.Gid();
-  const auto [it, inserted] = nodes_ptr_->try_emplace(synthetic_gid, std::move(node));
+  auto shared = std::allocate_shared<VirtualNode>(
+      std::pmr::polymorphic_allocator<VirtualNode>(nodes_.get_allocator().resource()), std::move(node));
+  const auto [it, inserted] = nodes_.try_emplace(synthetic_gid, std::move(shared));
   DMG_ASSERT(inserted, "NextSyntheticGid counter collision: synthetic gid not unique");
-  return it->second;
+  return *it->second;
 }
 
-const VirtualNode *VirtualGraph::FindNode(storage::Gid synthetic_gid) const {
-  if (const auto it = nodes_ptr_->find(synthetic_gid); it != nodes_ptr_->end()) return &it->second;
-  return nullptr;
+std::shared_ptr<const VirtualNode> VirtualGraph::FindNode(storage::Gid synthetic_gid) const {
+  if (const auto it = nodes_.find(synthetic_gid); it != nodes_.end()) return it->second;
+  return {};
 }
 
 bool VirtualGraph::InsertEdgeIfNew(VirtualEdge edge) {
@@ -96,9 +95,9 @@ EdgeRefView VirtualGraph::InEdges(storage::Gid vertex_gid) const {
 }
 
 void VirtualGraph::Merge(const VirtualGraph &other, const VirtualGraphAliasMap &aliases) {
-  for (const auto &[synth_gid, node] : *other.nodes_ptr_) {
+  for (const auto &[synth_gid, node] : other.nodes_) {
     if (aliases.contains(synth_gid)) continue;  // aliased to an existing canonical; skip
-    nodes_ptr_->try_emplace(synth_gid, node);
+    nodes_.try_emplace(synth_gid, node);
   }
   const auto resolve = [&aliases](storage::Gid g) {
     if (const auto it = aliases.find(g); it != aliases.end()) return it->second;
@@ -106,10 +105,10 @@ void VirtualGraph::Merge(const VirtualGraph &other, const VirtualGraphAliasMap &
   };
   const VirtualEdge::allocator_type edge_alloc(get_allocator().resource());
   for (const auto &edge : other.edges_) {
-    const auto *from_node = FindNode(resolve(edge.FromGid()));
-    const auto *to_node = FindNode(resolve(edge.ToGid()));
-    DMG_ASSERT(from_node && to_node, "merge alias resolution failed");
-    InsertEdgeIfNew(VirtualEdge(edge, *from_node, *to_node, nodes_ptr_, edge_alloc));
+    auto from_shared = FindNode(resolve(edge.FromGid()));
+    auto to_shared = FindNode(resolve(edge.ToGid()));
+    DMG_ASSERT(from_shared && to_shared, "merge alias resolution failed");
+    InsertEdgeIfNew(VirtualEdge(edge, std::move(from_shared), std::move(to_shared), edge_alloc));
   }
 }
 
