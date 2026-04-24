@@ -167,6 +167,11 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool has_aggregation{false};
     // Map from variable names to symbols.
     std::map<std::string, Symbol> symbols;
+    // Symbols imported into a `CALL (v1, v2, ...) { ... }` subquery scope.
+    // Kept separate from `symbols` because `symbols` is cleared/rewritten by
+    // WITH and reset at UNION branch boundaries, whereas imports are defined
+    // on the CALL itself and must remain visible across every UNION branch.
+    std::map<std::string, Symbol> call_subquery_imports;
     // Identifiers found in property maps of patterns or as variable length path
     // bounds in a single Match clause. They need to be checked after visiting
     // Match. Identifiers created by naming vertices, edges and paths are *not*

@@ -402,7 +402,9 @@ parallelExecution : PARALLEL EXECUTION ( num_threads=literal )? ;
 
 periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
 
-callSubquery : CALL '{' cypherQuery '}' ( periodicSubquery )? ;
+variableList : variable ( ',' variable )* ;
+
+callSubquery : CALL ( '(' ( variableList )? ')' )? '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
@@ -782,6 +784,10 @@ edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
 propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
 
+createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList?
+            | CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+            ;
+
 createEdgeIndex : CREATE EDGE INDEX ON ':' labelName nestedPropertyKeyList?;
 
 dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
@@ -790,7 +796,7 @@ createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')
 
 dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
 
-createEdgeIndexAlternativeSyntax : CREATE INDEX ( symbolicName )? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')' ;
+createEdgeIndexAlternativeSyntax : CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')' ;
 
 edgeIndexQuery : createEdgeIndex
                | dropEdgeIndex
@@ -837,7 +843,7 @@ alternativeConstraintPattern : '(' variable ':' labelName ')'                   
 
 originalConstraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
 
-alternativeConstraintSyntax : CREATE CONSTRAINT ( symbolicName )? FOR alternativeConstraintPattern REQUIRE
+alternativeConstraintSyntax : CREATE CONSTRAINT ( symbolicName )? ifNotExists? FOR alternativeConstraintPattern REQUIRE
                   ( alternativePropertyRefList IS UNIQUE
                   | alternativePropertyRef IS NOT CYPHERNULL
                   | alternativePropertyRef IS ':' ':' typeConstraintType

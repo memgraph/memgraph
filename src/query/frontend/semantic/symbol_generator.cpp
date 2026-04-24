@@ -199,9 +199,15 @@ bool SymbolGenerator::PreVisit(CypherUnion &) {
   // Currently only CALL and EXISTS subqueries can contain complete queries with UNION.
   next_scope.in_call_subquery = prev_scope.in_call_subquery;
   next_scope.in_exists_subquery = prev_scope.in_exists_subquery;
+  // Carry over explicit `CALL (v1, v2) { ... }` imports so each UNION branch
+  // within the subquery still sees the imported variables.
+  next_scope.call_subquery_imports = prev_scope.call_subquery_imports;
+  for (const auto &[name, symbol] : next_scope.call_subquery_imports) {
+    next_scope.symbols[name] = symbol;
+  }
 
   scopes_.pop_back();
-  scopes_.push_back(next_scope);
+  scopes_.push_back(std::move(next_scope));
 
   return true;
 }
@@ -254,8 +260,31 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
   return true;
 }
 
-bool SymbolGenerator::PreVisit(CallSubquery & /*call_sub*/) {
-  scopes_.emplace_back(Scope{.in_call_subquery = true});
+bool SymbolGenerator::PreVisit(CallSubquery &call_sub) {
+  if (!call_sub.has_explicit_imports_) {
+    scopes_.emplace_back(Scope{.in_call_subquery = true});
+    return true;
+  }
+
+  // `CALL (v1, v2, ...) { ... }`: resolve each imported variable against the
+  // outer scopes before pushing the subquery scope. Unknown names are unbound.
+  Scope new_scope{.in_call_subquery = true};
+  for (auto *ident : call_sub.imported_identifiers_) {
+    std::optional<Symbol> found;
+    for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
+      if (auto maybe = FindSymbolInScope(ident->name_, *scope, Symbol::Type::ANY); maybe) {
+        found = *maybe;
+        break;
+      }
+    }
+    if (!found) {
+      throw UnboundVariableError(ident->name_);
+    }
+    ident->MapTo(*found);
+    new_scope.symbols[ident->name_] = *found;
+    new_scope.call_subquery_imports[ident->name_] = *found;
+  }
+  scopes_.emplace_back(std::move(new_scope));
   return true;
 }
 

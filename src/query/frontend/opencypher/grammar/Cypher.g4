@@ -373,10 +373,6 @@ integerLiteral : DecimalLiteral
 
 alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
 
-createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList?
-            | CREATE INDEX ( symbolicName )? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
-            ;
-
 dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ;
 
 doubleLiteral : FloatingLiteral ;

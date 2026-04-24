@@ -4008,10 +4008,20 @@ class CallSubquery : public memgraph::query::Clause {
   }
 
   memgraph::query::CypherQuery *cypher_query_;
+  // Explicitly imported variables from the outer scope via `CALL (v1, v2) { ... }`.
+  // When has_explicit_imports_ is false, the legacy `CALL { ... }` form was used.
+  // When true and imported_identifiers_ is empty, `CALL () { ... }` was used (no imports).
+  std::vector<memgraph::query::Identifier *> imported_identifiers_;
+  bool has_explicit_imports_{false};
 
   CallSubquery *Clone(AstStorage *storage) const override {
     CallSubquery *object = storage->Create<CallSubquery>();
     object->cypher_query_ = cypher_query_ ? cypher_query_->Clone(storage) : nullptr;
+    object->imported_identifiers_.reserve(imported_identifiers_.size());
+    for (auto *ident : imported_identifiers_) {
+      object->imported_identifiers_.push_back(ident ? ident->Clone(storage) : nullptr);
+    }
+    object->has_explicit_imports_ = has_explicit_imports_;
     return object;
   }
 
