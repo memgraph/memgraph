@@ -201,7 +201,7 @@ bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, Property
 bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(edge_type, property);
   if (!index) return false;
-  auto *gauge = metric_handles_ ? metric_handles_->active_edge_type_property_indices : nullptr;
+  auto *gauge = gauge_;
   index->Publish(commit_timestamp, gauge);
   return true;
 }
@@ -240,6 +240,7 @@ auto InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId p
         updater(std::make_shared<ActiveIndices>(index_container));
         return evicted_entry;
       });
+
   CleanupAllIndices();
   return evicted;
 }
@@ -441,7 +442,7 @@ void InMemoryEdgeTypePropertyIndex::DropGraphClearIndices() {
 void InMemoryEdgeTypePropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
   metric_handles_ = metric_handles;
   if (!metric_handles_) return;
-  auto *gauge = metric_handles_->active_edge_type_property_indices;
+  auto *gauge = metric_handles_->active_edge_type_property_indices.gauge;
   index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &ptr) {
     double count = 0;
     for (auto const &[key, idx] : *ptr) {
@@ -450,7 +451,7 @@ void InMemoryEdgeTypePropertyIndex::SetMetricHandles(metrics::DatabaseMetricHand
         ++count;
       }
     }
-    gauge->Set(count);
+    metric_handles_->active_edge_type_property_indices.Set(count);
   });
 }
 

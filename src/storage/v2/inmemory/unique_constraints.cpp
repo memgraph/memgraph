@@ -535,7 +535,7 @@ bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
                                                   uint64_t commit_timestamp) {
   auto constraint = GetIndividualConstraint(label, properties);
   if (!constraint) return false;
-  auto *gauge = metric_handles_ ? metric_handles_->active_unique_constraints : nullptr;
+  auto *gauge = gauge_;
   constraint->Publish(commit_timestamp, gauge);
   return true;
 }

@@ -228,9 +228,9 @@ class Database {
     ~GatekeeperGuard() noexcept { memory::tls_db_arena_state = prev_; }
   };
 
-  metrics::DatabaseMetricHandles const *metric_handles() const { return metrics_.handles(); }
+  metrics::DatabaseMetricHandles const *metric_handles() const { return &metrics_.handles(); }
 
-  metrics::DatabaseMetricHandles *metric_handles() { return metrics_.handles(); }
+  metrics::DatabaseMetricHandles *metric_handles() { return &metrics_.handles(); }
 
  private:
   // Enforcement-only: caps total per-DB memory (tenant profile limit).
@@ -252,9 +252,8 @@ class Database {
   // global PrometheusMetrics registry on destruction.
   class DatabaseMetricsRegistration {
    public:
-    DatabaseMetricsRegistration() = default;
-
-    explicit DatabaseMetricsRegistration(metrics::DatabaseMetricHandles *handles) : handles_(handles) {}
+    DatabaseMetricsRegistration(utils::UUID uuid, metrics::DatabaseMetricHandles handles)
+        : uuid_(uuid), handles_(std::move(handles)) {}
 
     ~DatabaseMetricsRegistration();
 
@@ -263,12 +262,13 @@ class Database {
     DatabaseMetricsRegistration(DatabaseMetricsRegistration &&) = delete;
     DatabaseMetricsRegistration &operator=(DatabaseMetricsRegistration &&) = delete;
 
-    metrics::DatabaseMetricHandles *handles() const { return handles_; }
+    metrics::DatabaseMetricHandles const &handles() const { return handles_; }
 
-    void reset(metrics::DatabaseMetricHandles *handles);
+    metrics::DatabaseMetricHandles &handles() { return handles_; }
 
    private:
-    metrics::DatabaseMetricHandles *handles_{nullptr};
+    utils::UUID uuid_;
+    metrics::DatabaseMetricHandles handles_{};
   };
 
   DatabaseMetricsRegistration metrics_;                 //!< De-registration guard for this db's prometheus metrics

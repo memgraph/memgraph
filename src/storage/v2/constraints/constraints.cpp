@@ -20,17 +20,19 @@
 namespace memgraph::storage {
 
 Constraints::Constraints(const Config &config, StorageMode storage_mode,
-                         metrics::DatabaseMetricHandles *metric_handles) {
-  std::invoke([this, config, storage_mode, metric_handles]() {
-    existence_constraints_ = std::make_unique<ExistenceConstraints>(metric_handles);
-    type_constraints_ = std::make_unique<TypeConstraints>(metric_handles);
+                         metrics::DatabaseMetricHandles const &metric_handles) {
+  std::invoke([this, config, storage_mode, &metric_handles]() {
+    existence_constraints_ = std::make_unique<ExistenceConstraints>(metric_handles.active_existence_constraints.gauge);
+    type_constraints_ = std::make_unique<TypeConstraints>(metric_handles.active_type_constraints.gauge);
     switch (storage_mode) {
       case StorageMode::IN_MEMORY_TRANSACTIONAL:
       case StorageMode::IN_MEMORY_ANALYTICAL:
-        unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>(metric_handles);
+        unique_constraints_ =
+            std::make_unique<InMemoryUniqueConstraints>(metric_handles.active_unique_constraints.gauge);
         break;
       case StorageMode::ON_DISK_TRANSACTIONAL:
-        unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config, metric_handles);
+        unique_constraints_ =
+            std::make_unique<DiskUniqueConstraints>(config, metric_handles.active_unique_constraints.gauge);
         break;
       case StorageMode::N:
         std::unreachable();

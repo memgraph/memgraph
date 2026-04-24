@@ -15,10 +15,6 @@ namespace prometheus {
 class Gauge;
 }  // namespace prometheus
 
-namespace memgraph::metrics {
-struct DatabaseMetricHandles;
-}  // namespace memgraph::metrics
-
 #include <functional>
 #include <memory>
 
@@ -40,8 +36,7 @@ namespace memgraph::storage {
 
 class TypeConstraints {
  public:
-  explicit TypeConstraints(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit TypeConstraints(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   struct MultipleThreadsConstraintValidation {
     std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
@@ -128,11 +123,9 @@ class TypeConstraints {
   /// Get individual constraint for in-place status modification.
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
 
-  // Installs ptr if absent. restore_l2p=true on RestoreConstraint re-adds the
-  // (property, type) entry to l2p_ (RegisterConstraint defers that to PublishConstraint).
   bool InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr, bool restore_l2p);
 
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  prometheus::Gauge *gauge_{nullptr};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

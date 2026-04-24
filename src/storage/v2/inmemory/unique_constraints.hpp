@@ -38,8 +38,7 @@ struct Transaction;
 
 class InMemoryUniqueConstraints : public UniqueConstraints {
  public:
-  explicit InMemoryUniqueConstraints(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit InMemoryUniqueConstraints(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   struct Entry {
     std::vector<PropertyValue> values;
@@ -123,8 +122,6 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     ContainerPtr container_;
   };
 
-  InMemoryUniqueConstraints() = default;
-
   /// Creates an ActiveConstraints snapshot for transaction use.
   auto GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> override;
 
@@ -158,8 +155,6 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// READ_ONLY/UNIQUE, which does not serialize peers).
   void RestoreConstraint(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr evicted);
 
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
-
   /// Validates the given vertex against unique constraints before committing.
   /// This method should be called while commit lock is active with
   /// `commit_timestamp` being a potential commit timestamp of the transaction.
@@ -188,7 +183,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   auto InstallConstraint_(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr ptr)
       -> IndividualConstraintPtr;
 
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  prometheus::Gauge *gauge_{nullptr};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

@@ -214,7 +214,7 @@ void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, Type
 
   // Commit status in-place (shared_ptr allows modification without copy-on-write)
   constraint->status.Commit(commit_timestamp);
-  constraint->gauge_ = metrics::ScopedGauge{metric_handles_ ? metric_handles_->active_type_constraints : nullptr};
+  constraint->gauge_ = metrics::ScopedGauge{gauge_};
 }
 
 TypeConstraints::IndividualConstraintPtr TypeConstraints::DropConstraint(LabelId label, PropertyId property,
@@ -244,22 +244,6 @@ void TypeConstraints::RestoreConstraint(LabelId label, PropertyId property, Indi
   // Concurrent CREATE under READ_ONLY may own the slot; discarding evicted is benign
   // since the winning CREATE validated all existing rows.
   (void)InstallConstraint_(label, property, std::move(evicted), /*restore_l2p=*/true);
-}
-
-void TypeConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
-  metric_handles_ = metric_handles;
-  if (!metric_handles_) return;
-  auto *gauge = metric_handles_->active_type_constraints;
-  container_.WithReadLock([&](ContainerPtr const &ptr) {
-    double count = 0;
-    for (auto const &[key, constraint] : ptr->constraints_) {
-      if (constraint->status.IsReady()) {
-        constraint->gauge_ = metrics::ScopedGauge{gauge};
-        ++count;
-      }
-    }
-    gauge->Set(count);
-  });
 }
 
 void TypeConstraints::DropGraphClearConstraints() {

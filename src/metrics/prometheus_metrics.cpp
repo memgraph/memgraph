@@ -23,6 +23,7 @@
 
 #include "dbms/constants.hpp"
 #include "flags/coord_flag_env_handler.hpp"
+#include "flags/general.hpp"
 #include "utils/logging.hpp"
 #ifdef MG_ENTERPRISE
 #include "coordination/include/coordination/instance_status.hpp"
@@ -755,6 +756,14 @@ PrometheusMetrics::PrometheusMetrics()
   global.bolt_messages = &bolt_messages_family_.Add(no_labels);
 
   global.peak_memory_res_bytes = &peak_memory_res_family_.Add(no_labels);
+  // No-db fallback counters: same family as per-db, but with no database label.
+  // Incremented only when a query fires outside any database context.
+  global.transient_errors = &transient_errors_family_.Add(no_labels);
+  global.failed_query = &failed_query_family_.Add(no_labels);
+  global.failed_prepare = &failed_prepare_family_.Add(no_labels);
+  global.read_query = &read_query_family_.Add(no_labels);
+  global.write_query = &write_query_family_.Add(no_labels);
+  global.read_write_query = &read_write_query_family_.Add(no_labels);
 
   global.successful_failovers = &successful_failovers_family_.Add(no_labels);
   global.raft_failed_failovers = &raft_failed_failovers_family_.Add(no_labels);
@@ -837,227 +846,237 @@ StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(std::string_view db_na
   return StorageSnapshot{};
 }
 
-DatabaseMetricHandles *PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
+DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
+  // Legacy JSON endpoint only supports the default database
+  if (FLAGS_metrics_format != "OpenMetrics" && name != dbms::kDefaultDB) return {};
+
   std::lock_guard const lock{databases_.mutex};
   prometheus::Labels const labels{{"database", std::string(name)}};
-  databases_.entries.push_back({
-      .uuid = uuid,
-      .db_name = std::string(name),
-      .handles =
-          DatabaseMetricHandles{
-              .vertex_count = &vertex_count_family_.Add(labels),
-              .edge_count = &edge_count_family_.Add(labels),
-              .disk_usage_bytes = &disk_usage_family_.Add(labels),
-              .memory_res_bytes = &memory_res_family_.Add(labels),
-              .once_operator = &once_operator_family_.Add(labels),
-              .create_node_operator = &create_node_operator_family_.Add(labels),
-              .create_expand_operator = &create_expand_operator_family_.Add(labels),
-              .scan_all_operator = &scan_all_operator_family_.Add(labels),
-              .scan_all_by_label_operator = &scan_all_by_label_operator_family_.Add(labels),
-              .scan_all_by_label_properties_operator = &scan_all_by_label_properties_operator_family_.Add(labels),
-              .scan_all_by_id_operator = &scan_all_by_id_operator_family_.Add(labels),
-              .scan_all_by_edge_operator = &scan_all_by_edge_operator_family_.Add(labels),
-              .scan_all_by_edge_type_operator = &scan_all_by_edge_type_operator_family_.Add(labels),
-              .scan_all_by_edge_type_property_operator = &scan_all_by_edge_type_property_operator_family_.Add(labels),
-              .scan_all_by_edge_type_property_value_operator =
-                  &scan_all_by_edge_type_property_value_operator_family_.Add(labels),
-              .scan_all_by_edge_type_property_range_operator =
-                  &scan_all_by_edge_type_property_range_operator_family_.Add(labels),
-              .scan_all_by_edge_property_operator = &scan_all_by_edge_property_operator_family_.Add(labels),
-              .scan_all_by_edge_property_value_operator = &scan_all_by_edge_property_value_operator_family_.Add(labels),
-              .scan_all_by_edge_property_range_operator = &scan_all_by_edge_property_range_operator_family_.Add(labels),
-              .scan_all_by_edge_id_operator = &scan_all_by_edge_id_operator_family_.Add(labels),
-              .scan_all_by_point_distance_operator = &scan_all_by_point_distance_operator_family_.Add(labels),
-              .scan_all_by_point_withinbbox_operator = &scan_all_by_point_withinbbox_operator_family_.Add(labels),
-              .expand_operator = &expand_operator_family_.Add(labels),
-              .expand_variable_operator = &expand_variable_operator_family_.Add(labels),
-              .construct_named_path_operator = &construct_named_path_operator_family_.Add(labels),
-              .filter_operator = &filter_operator_family_.Add(labels),
-              .produce_operator = &produce_operator_family_.Add(labels),
-              .delete_operator = &delete_operator_family_.Add(labels),
-              .set_property_operator = &set_property_operator_family_.Add(labels),
-              .set_properties_operator = &set_properties_operator_family_.Add(labels),
-              .set_labels_operator = &set_labels_operator_family_.Add(labels),
-              .remove_property_operator = &remove_property_operator_family_.Add(labels),
-              .remove_labels_operator = &remove_labels_operator_family_.Add(labels),
-              .edge_uniqueness_filter_operator = &edge_uniqueness_filter_operator_family_.Add(labels),
-              .empty_result_operator = &empty_result_operator_family_.Add(labels),
-              .accumulate_operator = &accumulate_operator_family_.Add(labels),
-              .aggregate_operator = &aggregate_operator_family_.Add(labels),
-              .skip_operator = &skip_operator_family_.Add(labels),
-              .limit_operator = &limit_operator_family_.Add(labels),
-              .order_by_operator = &order_by_operator_family_.Add(labels),
-              .merge_operator = &merge_operator_family_.Add(labels),
-              .optional_operator = &optional_operator_family_.Add(labels),
-              .unwind_operator = &unwind_operator_family_.Add(labels),
-              .distinct_operator = &distinct_operator_family_.Add(labels),
-              .union_operator = &union_operator_family_.Add(labels),
-              .cartesian_operator = &cartesian_operator_family_.Add(labels),
-              .call_procedure_operator = &call_procedure_operator_family_.Add(labels),
-              .foreach_operator = &foreach_operator_family_.Add(labels),
-              .evaluate_pattern_filter_operator = &evaluate_pattern_filter_operator_family_.Add(labels),
-              .apply_operator = &apply_operator_family_.Add(labels),
-              .indexed_join_operator = &indexed_join_operator_family_.Add(labels),
-              .hash_join_operator = &hash_join_operator_family_.Add(labels),
-              .roll_up_apply_operator = &roll_up_apply_operator_family_.Add(labels),
-              .periodic_commit_operator = &periodic_commit_operator_family_.Add(labels),
-              .periodic_subquery_operator = &periodic_subquery_operator_family_.Add(labels),
-              .set_nested_property_operator = &set_nested_property_operator_family_.Add(labels),
-              .remove_nested_property_operator = &remove_nested_property_operator_family_.Add(labels),
-              .active_label_indices = &active_label_indices_family_.Add(labels),
-              .active_label_property_indices = &active_label_property_indices_family_.Add(labels),
-              .active_edge_type_indices = &active_edge_type_indices_family_.Add(labels),
-              .active_edge_type_property_indices = &active_edge_type_property_indices_family_.Add(labels),
-              .active_edge_property_indices = &active_edge_property_indices_family_.Add(labels),
-              .active_point_indices = &active_point_indices_family_.Add(labels),
-              .active_text_indices = &active_text_indices_family_.Add(labels),
-              .active_text_edge_indices = &active_text_edge_indices_family_.Add(labels),
-              .active_vector_indices = &active_vector_indices_family_.Add(labels),
-              .active_vector_edge_indices = &active_vector_edge_indices_family_.Add(labels),
-              .active_existence_constraints = &active_existence_constraints_family_.Add(labels),
-              .active_unique_constraints = &active_unique_constraints_family_.Add(labels),
-              .active_type_constraints = &active_type_constraints_family_.Add(labels),
-              .streams_created = &streams_created_family_.Add(labels),
-              .messages_consumed = &messages_consumed_family_.Add(labels),
-              .triggers_created = &triggers_created_family_.Add(labels),
-              .triggers_executed = &triggers_executed_family_.Add(labels),
-              .active_transactions = &active_transactions_family_.Add(labels),
-              .committed_transactions = &committed_transactions_family_.Add(labels),
-              .rolled_back_transactions = &rolled_back_transactions_family_.Add(labels),
-              .failed_query = &failed_query_family_.Add(labels),
-              .failed_prepare = &failed_prepare_family_.Add(labels),
-              .failed_pull = &failed_pull_family_.Add(labels),
-              .successful_query = &successful_query_family_.Add(labels),
-              .write_write_conflicts = &write_write_conflicts_family_.Add(labels),
-              .transient_errors = &transient_errors_family_.Add(labels),
-              .unreleased_delta_objects = &unreleased_delta_objects_family_.Add(labels),
-              .read_query = &read_query_family_.Add(labels),
-              .write_query = &write_query_family_.Add(labels),
-              .read_write_query = &read_write_query_family_.Add(labels),
-              .deleted_nodes = &deleted_nodes_family_.Add(labels),
-              .deleted_edges = &deleted_edges_family_.Add(labels),
-              .show_schema = &show_schema_family_.Add(labels),
-              .query_execution_latency_seconds = &query_execution_latency_family_.Add(labels, kLatencyBuckets),
-              .snapshot_creation_latency_seconds = &snapshot_creation_latency_family_.Add(labels, kLatencyBuckets),
-              .snapshot_recovery_latency_seconds = &snapshot_recovery_latency_family_.Add(labels, kLatencyBuckets),
-              .gc_latency_seconds = &gc_latency_family_.Add(labels, kLatencyBuckets),
-              .gc_skiplist_cleanup_latency_seconds = &gc_skiplist_cleanup_latency_family_.Add(labels, kLatencyBuckets),
-          },
-  });
-  return &databases_.entries.back().handles;
+  databases_.entries.push_back(
+      {
+          .uuid = uuid,
+          .db_name = std::string(name),
+          .handles =
+              DatabaseMetricHandles{
+                  .vertex_count = {&vertex_count_family_.Add(labels)},
+                  .edge_count = {&edge_count_family_.Add(labels)},
+                  .disk_usage_bytes = {&disk_usage_family_.Add(labels)},
+                  .memory_res_bytes = {&memory_res_family_.Add(labels)},
+                  .once_operator = {&once_operator_family_.Add(labels)},
+                  .create_node_operator = {&create_node_operator_family_.Add(labels)},
+                  .create_expand_operator = {&create_expand_operator_family_.Add(labels)},
+                  .scan_all_operator = {&scan_all_operator_family_.Add(labels)},
+                  .scan_all_by_label_operator = {&scan_all_by_label_operator_family_.Add(labels)},
+                  .scan_all_by_label_properties_operator = {&scan_all_by_label_properties_operator_family_.Add(labels)},
+                  .scan_all_by_id_operator = {&scan_all_by_id_operator_family_.Add(labels)},
+                  .scan_all_by_edge_operator = {&scan_all_by_edge_operator_family_.Add(labels)},
+                  .scan_all_by_edge_type_operator = {&scan_all_by_edge_type_operator_family_.Add(labels)},
+                  .scan_all_by_edge_type_property_operator = {&scan_all_by_edge_type_property_operator_family_.Add(
+                      labels)},
+                  .scan_all_by_edge_type_property_value_operator =
+                      {&scan_all_by_edge_type_property_value_operator_family_.Add(labels)},
+                  .scan_all_by_edge_type_property_range_operator =
+                      {&scan_all_by_edge_type_property_range_operator_family_.Add(labels)},
+                  .scan_all_by_edge_property_operator = {&scan_all_by_edge_property_operator_family_.Add(labels)},
+                  .scan_all_by_edge_property_value_operator = {&scan_all_by_edge_property_value_operator_family_.Add(
+                      labels)},
+                  .scan_all_by_edge_property_range_operator = {&scan_all_by_edge_property_range_operator_family_.Add(
+                      labels)},
+                  .scan_all_by_edge_id_operator = {&scan_all_by_edge_id_operator_family_.Add(labels)},
+                  .scan_all_by_point_distance_operator = {&scan_all_by_point_distance_operator_family_.Add(labels)},
+                  .scan_all_by_point_withinbbox_operator = {&scan_all_by_point_withinbbox_operator_family_.Add(labels)},
+                  .expand_operator = {&expand_operator_family_.Add(labels)},
+                  .expand_variable_operator = {&expand_variable_operator_family_.Add(labels)},
+                  .construct_named_path_operator = {&construct_named_path_operator_family_.Add(labels)},
+                  .filter_operator = {&filter_operator_family_.Add(labels)},
+                  .produce_operator = {&produce_operator_family_.Add(labels)},
+                  .delete_operator = {&delete_operator_family_.Add(labels)},
+                  .set_property_operator = {&set_property_operator_family_.Add(labels)},
+                  .set_properties_operator = {&set_properties_operator_family_.Add(labels)},
+                  .set_labels_operator = {&set_labels_operator_family_.Add(labels)},
+                  .remove_property_operator = {&remove_property_operator_family_.Add(labels)},
+                  .remove_labels_operator = {&remove_labels_operator_family_.Add(labels)},
+                  .edge_uniqueness_filter_operator = {&edge_uniqueness_filter_operator_family_.Add(labels)},
+                  .empty_result_operator = {&empty_result_operator_family_.Add(labels)},
+                  .accumulate_operator = {&accumulate_operator_family_.Add(labels)},
+                  .aggregate_operator = {&aggregate_operator_family_.Add(labels)},
+                  .skip_operator = {&skip_operator_family_.Add(labels)},
+                  .limit_operator = {&limit_operator_family_.Add(labels)},
+                  .order_by_operator = {&order_by_operator_family_.Add(labels)},
+                  .merge_operator = {&merge_operator_family_.Add(labels)},
+                  .optional_operator = {&optional_operator_family_.Add(labels)},
+                  .unwind_operator = {&unwind_operator_family_.Add(labels)},
+                  .distinct_operator = {&distinct_operator_family_.Add(labels)},
+                  .union_operator = {&union_operator_family_.Add(labels)},
+                  .cartesian_operator = {&cartesian_operator_family_.Add(labels)},
+                  .call_procedure_operator = {&call_procedure_operator_family_.Add(labels)},
+                  .foreach_operator = {&foreach_operator_family_.Add(labels)},
+                  .evaluate_pattern_filter_operator = {&evaluate_pattern_filter_operator_family_.Add(labels)},
+                  .apply_operator = {&apply_operator_family_.Add(labels)},
+                  .indexed_join_operator = {&indexed_join_operator_family_.Add(labels)},
+                  .hash_join_operator = {&hash_join_operator_family_.Add(labels)},
+                  .roll_up_apply_operator = {&roll_up_apply_operator_family_.Add(labels)},
+                  .periodic_commit_operator = {&periodic_commit_operator_family_.Add(labels)},
+                  .periodic_subquery_operator = {&periodic_subquery_operator_family_.Add(labels)},
+                  .set_nested_property_operator = {&set_nested_property_operator_family_.Add(labels)},
+                  .remove_nested_property_operator = {&remove_nested_property_operator_family_.Add(labels)},
+                  .active_label_indices = {&active_label_indices_family_.Add(labels)},
+                  .active_label_property_indices = {&active_label_property_indices_family_.Add(labels)},
+                  .active_edge_type_indices = {&active_edge_type_indices_family_.Add(labels)},
+                  .active_edge_type_property_indices = {&active_edge_type_property_indices_family_.Add(labels)},
+                  .active_edge_property_indices = {&active_edge_property_indices_family_.Add(labels)},
+                  .active_point_indices = {&active_point_indices_family_.Add(labels)},
+                  .active_text_indices = {&active_text_indices_family_.Add(labels)},
+                  .active_text_edge_indices = {&active_text_edge_indices_family_.Add(labels)},
+                  .active_vector_indices = {&active_vector_indices_family_.Add(labels)},
+                  .active_vector_edge_indices = {&active_vector_edge_indices_family_.Add(labels)},
+                  .active_existence_constraints = {&active_existence_constraints_family_.Add(labels)},
+                  .active_unique_constraints = {&active_unique_constraints_family_.Add(labels)},
+                  .active_type_constraints = {&active_type_constraints_family_.Add(labels)},
+                  .streams_created = {&streams_created_family_.Add(labels)},
+                  .messages_consumed = {&messages_consumed_family_.Add(labels)},
+                  .triggers_created = {&triggers_created_family_.Add(labels)},
+                  .triggers_executed = {&triggers_executed_family_.Add(labels)},
+                  .active_transactions = {&active_transactions_family_.Add(labels)},
+                  .committed_transactions = {&committed_transactions_family_.Add(labels)},
+                  .rolled_back_transactions = {&rolled_back_transactions_family_.Add(labels)},
+                  .failed_query = {&failed_query_family_.Add(labels)},
+                  .failed_prepare = {&failed_prepare_family_.Add(labels)},
+                  .failed_pull = {&failed_pull_family_.Add(labels)},
+                  .successful_query = {&successful_query_family_.Add(labels)},
+                  .write_write_conflicts = {&write_write_conflicts_family_.Add(labels)},
+                  .transient_errors = {&transient_errors_family_.Add(labels)},
+                  .unreleased_delta_objects = {&unreleased_delta_objects_family_.Add(labels)},
+                  .read_query = {&read_query_family_.Add(labels)},
+                  .write_query = {&write_query_family_.Add(labels)},
+                  .read_write_query = {&read_write_query_family_.Add(labels)},
+                  .deleted_nodes = {&deleted_nodes_family_.Add(labels)},
+                  .deleted_edges = {&deleted_edges_family_.Add(labels)},
+                  .show_schema = {&show_schema_family_.Add(labels)},
+                  .query_execution_latency_seconds = {&query_execution_latency_family_.Add(labels, kLatencyBuckets)},
+                  .snapshot_creation_latency_seconds = {&snapshot_creation_latency_family_.Add(labels,
+                                                                                               kLatencyBuckets)},
+                  .snapshot_recovery_latency_seconds = {&snapshot_recovery_latency_family_.Add(labels,
+                                                                                               kLatencyBuckets)},
+                  .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
+                  .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels,
+                                                                                                   kLatencyBuckets)},
+              },
+      });
+  return databases_.entries.back().handles;
 }
 
-void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
+void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   std::lock_guard const lock{databases_.mutex};
-  auto it = r::find_if(databases_.entries, [handles](auto const &e) { return &e.handles == handles; });
-  MG_ASSERT(it != databases_.entries.end(), "Attempted to remove unregistered database from PrometheusMetrics");
+  auto it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
+  if (it == databases_.entries.end()) return;  // Not registered (e.g. non-default db in JSON mode)
   // Database name is not a unique identity (e.g. main + replica can coexist in
   // same process in unit tests).  Prometheus metrics are keyed by labels, so
   // equal db_name values point to the same metric objects.  Remove those
   // objects only when the final entry for that name is erased.
   auto const db_name = it->db_name;
   bool const last_with_name =
-      r::none_of(databases_.entries, [&](auto const &e) { return &e.handles != handles && e.db_name == db_name; });
+      r::none_of(databases_.entries, [&](auto const &e) { return e.uuid != uuid && e.db_name == db_name; });
   if (!last_with_name) {
     databases_.entries.erase(it);
     return;
   }
   auto &h = it->handles;
-  vertex_count_family_.Remove(h.vertex_count);
-  edge_count_family_.Remove(h.edge_count);
-  disk_usage_family_.Remove(h.disk_usage_bytes);
-  memory_res_family_.Remove(h.memory_res_bytes);
-  once_operator_family_.Remove(h.once_operator);
-  create_node_operator_family_.Remove(h.create_node_operator);
-  create_expand_operator_family_.Remove(h.create_expand_operator);
-  scan_all_operator_family_.Remove(h.scan_all_operator);
-  scan_all_by_label_operator_family_.Remove(h.scan_all_by_label_operator);
-  scan_all_by_label_properties_operator_family_.Remove(h.scan_all_by_label_properties_operator);
-  scan_all_by_id_operator_family_.Remove(h.scan_all_by_id_operator);
-  scan_all_by_edge_operator_family_.Remove(h.scan_all_by_edge_operator);
-  scan_all_by_edge_type_operator_family_.Remove(h.scan_all_by_edge_type_operator);
-  scan_all_by_edge_type_property_operator_family_.Remove(h.scan_all_by_edge_type_property_operator);
-  scan_all_by_edge_type_property_value_operator_family_.Remove(h.scan_all_by_edge_type_property_value_operator);
-  scan_all_by_edge_type_property_range_operator_family_.Remove(h.scan_all_by_edge_type_property_range_operator);
-  scan_all_by_edge_property_operator_family_.Remove(h.scan_all_by_edge_property_operator);
-  scan_all_by_edge_property_value_operator_family_.Remove(h.scan_all_by_edge_property_value_operator);
-  scan_all_by_edge_property_range_operator_family_.Remove(h.scan_all_by_edge_property_range_operator);
-  scan_all_by_edge_id_operator_family_.Remove(h.scan_all_by_edge_id_operator);
-  scan_all_by_point_distance_operator_family_.Remove(h.scan_all_by_point_distance_operator);
-  scan_all_by_point_withinbbox_operator_family_.Remove(h.scan_all_by_point_withinbbox_operator);
-  expand_operator_family_.Remove(h.expand_operator);
-  expand_variable_operator_family_.Remove(h.expand_variable_operator);
-  construct_named_path_operator_family_.Remove(h.construct_named_path_operator);
-  filter_operator_family_.Remove(h.filter_operator);
-  produce_operator_family_.Remove(h.produce_operator);
-  delete_operator_family_.Remove(h.delete_operator);
-  set_property_operator_family_.Remove(h.set_property_operator);
-  set_properties_operator_family_.Remove(h.set_properties_operator);
-  set_labels_operator_family_.Remove(h.set_labels_operator);
-  remove_property_operator_family_.Remove(h.remove_property_operator);
-  remove_labels_operator_family_.Remove(h.remove_labels_operator);
-  edge_uniqueness_filter_operator_family_.Remove(h.edge_uniqueness_filter_operator);
-  empty_result_operator_family_.Remove(h.empty_result_operator);
-  accumulate_operator_family_.Remove(h.accumulate_operator);
-  aggregate_operator_family_.Remove(h.aggregate_operator);
-  skip_operator_family_.Remove(h.skip_operator);
-  limit_operator_family_.Remove(h.limit_operator);
-  order_by_operator_family_.Remove(h.order_by_operator);
-  merge_operator_family_.Remove(h.merge_operator);
-  optional_operator_family_.Remove(h.optional_operator);
-  unwind_operator_family_.Remove(h.unwind_operator);
-  distinct_operator_family_.Remove(h.distinct_operator);
-  union_operator_family_.Remove(h.union_operator);
-  cartesian_operator_family_.Remove(h.cartesian_operator);
-  call_procedure_operator_family_.Remove(h.call_procedure_operator);
-  foreach_operator_family_.Remove(h.foreach_operator);
-  evaluate_pattern_filter_operator_family_.Remove(h.evaluate_pattern_filter_operator);
-  apply_operator_family_.Remove(h.apply_operator);
-  indexed_join_operator_family_.Remove(h.indexed_join_operator);
-  hash_join_operator_family_.Remove(h.hash_join_operator);
-  roll_up_apply_operator_family_.Remove(h.roll_up_apply_operator);
-  periodic_commit_operator_family_.Remove(h.periodic_commit_operator);
-  periodic_subquery_operator_family_.Remove(h.periodic_subquery_operator);
-  set_nested_property_operator_family_.Remove(h.set_nested_property_operator);
-  remove_nested_property_operator_family_.Remove(h.remove_nested_property_operator);
-  active_label_indices_family_.Remove(h.active_label_indices);
-  active_label_property_indices_family_.Remove(h.active_label_property_indices);
-  active_edge_type_indices_family_.Remove(h.active_edge_type_indices);
-  active_edge_type_property_indices_family_.Remove(h.active_edge_type_property_indices);
-  active_edge_property_indices_family_.Remove(h.active_edge_property_indices);
-  active_point_indices_family_.Remove(h.active_point_indices);
-  active_text_indices_family_.Remove(h.active_text_indices);
-  active_text_edge_indices_family_.Remove(h.active_text_edge_indices);
-  active_vector_indices_family_.Remove(h.active_vector_indices);
-  active_vector_edge_indices_family_.Remove(h.active_vector_edge_indices);
-  active_existence_constraints_family_.Remove(h.active_existence_constraints);
-  active_unique_constraints_family_.Remove(h.active_unique_constraints);
-  active_type_constraints_family_.Remove(h.active_type_constraints);
-  streams_created_family_.Remove(h.streams_created);
-  messages_consumed_family_.Remove(h.messages_consumed);
-  triggers_created_family_.Remove(h.triggers_created);
-  triggers_executed_family_.Remove(h.triggers_executed);
-  active_transactions_family_.Remove(h.active_transactions);
-  committed_transactions_family_.Remove(h.committed_transactions);
-  rolled_back_transactions_family_.Remove(h.rolled_back_transactions);
-  failed_query_family_.Remove(h.failed_query);
-  failed_prepare_family_.Remove(h.failed_prepare);
-  failed_pull_family_.Remove(h.failed_pull);
-  successful_query_family_.Remove(h.successful_query);
-  write_write_conflicts_family_.Remove(h.write_write_conflicts);
-  transient_errors_family_.Remove(h.transient_errors);
-  unreleased_delta_objects_family_.Remove(h.unreleased_delta_objects);
-  read_query_family_.Remove(h.read_query);
-  write_query_family_.Remove(h.write_query);
-  read_write_query_family_.Remove(h.read_write_query);
-  deleted_nodes_family_.Remove(h.deleted_nodes);
-  deleted_edges_family_.Remove(h.deleted_edges);
-  show_schema_family_.Remove(h.show_schema);
-  query_execution_latency_family_.Remove(h.query_execution_latency_seconds);
-  snapshot_creation_latency_family_.Remove(h.snapshot_creation_latency_seconds);
-  snapshot_recovery_latency_family_.Remove(h.snapshot_recovery_latency_seconds);
-  gc_latency_family_.Remove(h.gc_latency_seconds);
-  gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds);
+  vertex_count_family_.Remove(h.vertex_count.get());
+  edge_count_family_.Remove(h.edge_count.get());
+  disk_usage_family_.Remove(h.disk_usage_bytes.get());
+  memory_res_family_.Remove(h.memory_res_bytes.get());
+  once_operator_family_.Remove(h.once_operator.get());
+  create_node_operator_family_.Remove(h.create_node_operator.get());
+  create_expand_operator_family_.Remove(h.create_expand_operator.get());
+  scan_all_operator_family_.Remove(h.scan_all_operator.get());
+  scan_all_by_label_operator_family_.Remove(h.scan_all_by_label_operator.get());
+  scan_all_by_label_properties_operator_family_.Remove(h.scan_all_by_label_properties_operator.get());
+  scan_all_by_id_operator_family_.Remove(h.scan_all_by_id_operator.get());
+  scan_all_by_edge_operator_family_.Remove(h.scan_all_by_edge_operator.get());
+  scan_all_by_edge_type_operator_family_.Remove(h.scan_all_by_edge_type_operator.get());
+  scan_all_by_edge_type_property_operator_family_.Remove(h.scan_all_by_edge_type_property_operator.get());
+  scan_all_by_edge_type_property_value_operator_family_.Remove(h.scan_all_by_edge_type_property_value_operator.get());
+  scan_all_by_edge_type_property_range_operator_family_.Remove(h.scan_all_by_edge_type_property_range_operator.get());
+  scan_all_by_edge_property_operator_family_.Remove(h.scan_all_by_edge_property_operator.get());
+  scan_all_by_edge_property_value_operator_family_.Remove(h.scan_all_by_edge_property_value_operator.get());
+  scan_all_by_edge_property_range_operator_family_.Remove(h.scan_all_by_edge_property_range_operator.get());
+  scan_all_by_edge_id_operator_family_.Remove(h.scan_all_by_edge_id_operator.get());
+  scan_all_by_point_distance_operator_family_.Remove(h.scan_all_by_point_distance_operator.get());
+  scan_all_by_point_withinbbox_operator_family_.Remove(h.scan_all_by_point_withinbbox_operator.get());
+  expand_operator_family_.Remove(h.expand_operator.get());
+  expand_variable_operator_family_.Remove(h.expand_variable_operator.get());
+  construct_named_path_operator_family_.Remove(h.construct_named_path_operator.get());
+  filter_operator_family_.Remove(h.filter_operator.get());
+  produce_operator_family_.Remove(h.produce_operator.get());
+  delete_operator_family_.Remove(h.delete_operator.get());
+  set_property_operator_family_.Remove(h.set_property_operator.get());
+  set_properties_operator_family_.Remove(h.set_properties_operator.get());
+  set_labels_operator_family_.Remove(h.set_labels_operator.get());
+  remove_property_operator_family_.Remove(h.remove_property_operator.get());
+  remove_labels_operator_family_.Remove(h.remove_labels_operator.get());
+  edge_uniqueness_filter_operator_family_.Remove(h.edge_uniqueness_filter_operator.get());
+  empty_result_operator_family_.Remove(h.empty_result_operator.get());
+  accumulate_operator_family_.Remove(h.accumulate_operator.get());
+  aggregate_operator_family_.Remove(h.aggregate_operator.get());
+  skip_operator_family_.Remove(h.skip_operator.get());
+  limit_operator_family_.Remove(h.limit_operator.get());
+  order_by_operator_family_.Remove(h.order_by_operator.get());
+  merge_operator_family_.Remove(h.merge_operator.get());
+  optional_operator_family_.Remove(h.optional_operator.get());
+  unwind_operator_family_.Remove(h.unwind_operator.get());
+  distinct_operator_family_.Remove(h.distinct_operator.get());
+  union_operator_family_.Remove(h.union_operator.get());
+  cartesian_operator_family_.Remove(h.cartesian_operator.get());
+  call_procedure_operator_family_.Remove(h.call_procedure_operator.get());
+  foreach_operator_family_.Remove(h.foreach_operator.get());
+  evaluate_pattern_filter_operator_family_.Remove(h.evaluate_pattern_filter_operator.get());
+  apply_operator_family_.Remove(h.apply_operator.get());
+  indexed_join_operator_family_.Remove(h.indexed_join_operator.get());
+  hash_join_operator_family_.Remove(h.hash_join_operator.get());
+  roll_up_apply_operator_family_.Remove(h.roll_up_apply_operator.get());
+  periodic_commit_operator_family_.Remove(h.periodic_commit_operator.get());
+  periodic_subquery_operator_family_.Remove(h.periodic_subquery_operator.get());
+  set_nested_property_operator_family_.Remove(h.set_nested_property_operator.get());
+  remove_nested_property_operator_family_.Remove(h.remove_nested_property_operator.get());
+  active_label_indices_family_.Remove(h.active_label_indices.get());
+  active_label_property_indices_family_.Remove(h.active_label_property_indices.get());
+  active_edge_type_indices_family_.Remove(h.active_edge_type_indices.get());
+  active_edge_type_property_indices_family_.Remove(h.active_edge_type_property_indices.get());
+  active_edge_property_indices_family_.Remove(h.active_edge_property_indices.get());
+  active_point_indices_family_.Remove(h.active_point_indices.get());
+  active_text_indices_family_.Remove(h.active_text_indices.get());
+  active_text_edge_indices_family_.Remove(h.active_text_edge_indices.get());
+  active_vector_indices_family_.Remove(h.active_vector_indices.get());
+  active_vector_edge_indices_family_.Remove(h.active_vector_edge_indices.get());
+  active_existence_constraints_family_.Remove(h.active_existence_constraints.get());
+  active_unique_constraints_family_.Remove(h.active_unique_constraints.get());
+  active_type_constraints_family_.Remove(h.active_type_constraints.get());
+  streams_created_family_.Remove(h.streams_created.get());
+  messages_consumed_family_.Remove(h.messages_consumed.get());
+  triggers_created_family_.Remove(h.triggers_created.get());
+  triggers_executed_family_.Remove(h.triggers_executed.get());
+  active_transactions_family_.Remove(h.active_transactions.get());
+  committed_transactions_family_.Remove(h.committed_transactions.get());
+  rolled_back_transactions_family_.Remove(h.rolled_back_transactions.get());
+  failed_query_family_.Remove(h.failed_query.get());
+  failed_prepare_family_.Remove(h.failed_prepare.get());
+  failed_pull_family_.Remove(h.failed_pull.get());
+  successful_query_family_.Remove(h.successful_query.get());
+  write_write_conflicts_family_.Remove(h.write_write_conflicts.get());
+  transient_errors_family_.Remove(h.transient_errors.get());
+  unreleased_delta_objects_family_.Remove(h.unreleased_delta_objects.get());
+  read_query_family_.Remove(h.read_query.get());
+  write_query_family_.Remove(h.write_query.get());
+  read_write_query_family_.Remove(h.read_write_query.get());
+  deleted_nodes_family_.Remove(h.deleted_nodes.get());
+  deleted_edges_family_.Remove(h.deleted_edges.get());
+  show_schema_family_.Remove(h.show_schema.get());
+  query_execution_latency_family_.Remove(h.query_execution_latency_seconds.get());
+  snapshot_creation_latency_family_.Remove(h.snapshot_creation_latency_seconds.get());
+  snapshot_recovery_latency_family_.Remove(h.snapshot_recovery_latency_seconds.get());
+  gc_latency_family_.Remove(h.gc_latency_seconds.get());
+  gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds.get());
   databases_.entries.erase(it);
 }
 
@@ -1079,10 +1098,10 @@ void PrometheusMetrics::UpdateGauges() {
       auto it = r::find_if(databases_.entries, [&](auto const &e) { return e.uuid == db_ids[i].first; });
       if (it == databases_.entries.end()) continue;
       auto const &snapshot = snaps[i];
-      it->handles.vertex_count->Set(static_cast<double>(snapshot.vertex_count));
-      it->handles.edge_count->Set(static_cast<double>(snapshot.edge_count));
-      it->handles.disk_usage_bytes->Set(static_cast<double>(snapshot.disk_usage));
-      it->handles.memory_res_bytes->Set(static_cast<double>(snapshot.memory_res));
+      it->handles.vertex_count.Set(static_cast<double>(snapshot.vertex_count));
+      it->handles.edge_count.Set(static_cast<double>(snapshot.edge_count));
+      it->handles.disk_usage_bytes.Set(static_cast<double>(snapshot.disk_usage));
+      it->handles.memory_res_bytes.Set(static_cast<double>(snapshot.memory_res));
     }
   }
 
@@ -1241,196 +1260,193 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back({"DiskUsage", "Memory", "Gauge", static_cast<int64_t>(snapshot.disk_usage)});
   out.push_back({"MemoryRes", "Memory", "Gauge", static_cast<int64_t>(snapshot.memory_res)});
   out.push_back(
-      {"UnreleasedDeltaObjects", "Memory", "Gauge", static_cast<int64_t>(h.unreleased_delta_objects->Value())});
-  AppendHistogramPercentiles(out, "GCLatency", "Memory", *h.gc_latency_seconds);
-  AppendHistogramPercentiles(out, "GCSkiplistCleanupLatency", "Memory", *h.gc_skiplist_cleanup_latency_seconds);
+      {"UnreleasedDeltaObjects", "Memory", "Gauge", static_cast<int64_t>(h.unreleased_delta_objects.Value())});
+  AppendHistogramPercentiles(out, "GCLatency", "Memory", *h.gc_latency_seconds.get());
+  AppendHistogramPercentiles(out, "GCSkiplistCleanupLatency", "Memory", *h.gc_skiplist_cleanup_latency_seconds.get());
 
   // Operator
-  out.push_back({"OnceOperator", "Operator", "Counter", static_cast<int64_t>(h.once_operator->Value())});
-  out.push_back({"CreateNodeOperator", "Operator", "Counter", static_cast<int64_t>(h.create_node_operator->Value())});
+  out.push_back({"OnceOperator", "Operator", "Counter", static_cast<int64_t>(h.once_operator.Value())});
+  out.push_back({"CreateNodeOperator", "Operator", "Counter", static_cast<int64_t>(h.create_node_operator.Value())});
   out.push_back(
-      {"CreateExpandOperator", "Operator", "Counter", static_cast<int64_t>(h.create_expand_operator->Value())});
-  out.push_back({"ScanAllOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_operator->Value())});
+      {"CreateExpandOperator", "Operator", "Counter", static_cast<int64_t>(h.create_expand_operator.Value())});
+  out.push_back({"ScanAllOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_operator.Value())});
   out.push_back(
-      {"ScanAllByLabelOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_label_operator->Value())});
+      {"ScanAllByLabelOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_label_operator.Value())});
   out.push_back({"ScanAllByLabelPropertiesOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.scan_all_by_label_properties_operator->Value())});
+                 static_cast<int64_t>(h.scan_all_by_label_properties_operator.Value())});
   out.push_back(
-      {"ScanAllByIdOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_id_operator->Value())});
+      {"ScanAllByIdOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_id_operator.Value())});
   out.push_back(
-      {"ScanAllByEdgeOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_edge_operator->Value())});
+      {"ScanAllByEdgeOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_edge_operator.Value())});
   out.push_back({"ScanAllByEdgeTypeOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_type_operator->Value())});
+                 static_cast<int64_t>(h.scan_all_by_edge_type_operator.Value())});
   out.push_back({"ScanAllByEdgeTypePropertyOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_type_property_operator->Value())});
+                 static_cast<int64_t>(h.scan_all_by_edge_type_property_operator.Value())});
   out.push_back({"ScanAllByEdgeTypePropertyValueOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_type_property_value_operator->Value())});
+                 static_cast<int64_t>(h.scan_all_by_edge_type_property_value_operator.Value())});
   out.push_back({"ScanAllByEdgeTypePropertyRangeOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_type_property_range_operator->Value())});
+                 static_cast<int64_t>(h.scan_all_by_edge_type_property_range_operator.Value())});
   out.push_back({"ScanAllByEdgePropertyOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_property_operator->Value())});
+                 static_cast<int64_t>(h.scan_all_by_edge_property_operator.Value())});
   out.push_back({"ScanAllByEdgePropertyValueOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_property_value_operator->Value())});
+                 static_cast<int64_t>(h.scan_all_by_edge_property_value_operator.Value())});
   out.push_back({"ScanAllByEdgePropertyRangeOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_property_range_operator->Value())});
-  out.push_back({"ScanAllByEdgeIdOperator",
-                 "Operator",
-                 "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_id_operator->Value())});
+                 static_cast<int64_t>(h.scan_all_by_edge_property_range_operator.Value())});
+  out.push_back(
+      {"ScanAllByEdgeIdOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_edge_id_operator.Value())});
   out.push_back({"ScanAllByPointDistanceOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.scan_all_by_point_distance_operator->Value())});
+                 static_cast<int64_t>(h.scan_all_by_point_distance_operator.Value())});
   out.push_back({"ScanAllByPointWithinbboxOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.scan_all_by_point_withinbbox_operator->Value())});
-  out.push_back({"ExpandOperator", "Operator", "Counter", static_cast<int64_t>(h.expand_operator->Value())});
+                 static_cast<int64_t>(h.scan_all_by_point_withinbbox_operator.Value())});
+  out.push_back({"ExpandOperator", "Operator", "Counter", static_cast<int64_t>(h.expand_operator.Value())});
   out.push_back(
-      {"ExpandVariableOperator", "Operator", "Counter", static_cast<int64_t>(h.expand_variable_operator->Value())});
+      {"ExpandVariableOperator", "Operator", "Counter", static_cast<int64_t>(h.expand_variable_operator.Value())});
   out.push_back({"ConstructNamedPathOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.construct_named_path_operator->Value())});
-  out.push_back({"FilterOperator", "Operator", "Counter", static_cast<int64_t>(h.filter_operator->Value())});
-  out.push_back({"ProduceOperator", "Operator", "Counter", static_cast<int64_t>(h.produce_operator->Value())});
-  out.push_back({"DeleteOperator", "Operator", "Counter", static_cast<int64_t>(h.delete_operator->Value())});
-  out.push_back({"SetPropertyOperator", "Operator", "Counter", static_cast<int64_t>(h.set_property_operator->Value())});
+                 static_cast<int64_t>(h.construct_named_path_operator.Value())});
+  out.push_back({"FilterOperator", "Operator", "Counter", static_cast<int64_t>(h.filter_operator.Value())});
+  out.push_back({"ProduceOperator", "Operator", "Counter", static_cast<int64_t>(h.produce_operator.Value())});
+  out.push_back({"DeleteOperator", "Operator", "Counter", static_cast<int64_t>(h.delete_operator.Value())});
+  out.push_back({"SetPropertyOperator", "Operator", "Counter", static_cast<int64_t>(h.set_property_operator.Value())});
   out.push_back(
-      {"SetPropertiesOperator", "Operator", "Counter", static_cast<int64_t>(h.set_properties_operator->Value())});
-  out.push_back({"SetLabelsOperator", "Operator", "Counter", static_cast<int64_t>(h.set_labels_operator->Value())});
+      {"SetPropertiesOperator", "Operator", "Counter", static_cast<int64_t>(h.set_properties_operator.Value())});
+  out.push_back({"SetLabelsOperator", "Operator", "Counter", static_cast<int64_t>(h.set_labels_operator.Value())});
   out.push_back(
-      {"RemovePropertyOperator", "Operator", "Counter", static_cast<int64_t>(h.remove_property_operator->Value())});
+      {"RemovePropertyOperator", "Operator", "Counter", static_cast<int64_t>(h.remove_property_operator.Value())});
   out.push_back(
-      {"RemoveLabelsOperator", "Operator", "Counter", static_cast<int64_t>(h.remove_labels_operator->Value())});
+      {"RemoveLabelsOperator", "Operator", "Counter", static_cast<int64_t>(h.remove_labels_operator.Value())});
   out.push_back({"EdgeUniquenessFilterOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.edge_uniqueness_filter_operator->Value())});
-  out.push_back({"EmptyResultOperator", "Operator", "Counter", static_cast<int64_t>(h.empty_result_operator->Value())});
-  out.push_back({"AccumulateOperator", "Operator", "Counter", static_cast<int64_t>(h.accumulate_operator->Value())});
-  out.push_back({"AggregateOperator", "Operator", "Counter", static_cast<int64_t>(h.aggregate_operator->Value())});
-  out.push_back({"SkipOperator", "Operator", "Counter", static_cast<int64_t>(h.skip_operator->Value())});
-  out.push_back({"LimitOperator", "Operator", "Counter", static_cast<int64_t>(h.limit_operator->Value())});
-  out.push_back({"OrderByOperator", "Operator", "Counter", static_cast<int64_t>(h.order_by_operator->Value())});
-  out.push_back({"MergeOperator", "Operator", "Counter", static_cast<int64_t>(h.merge_operator->Value())});
-  out.push_back({"OptionalOperator", "Operator", "Counter", static_cast<int64_t>(h.optional_operator->Value())});
-  out.push_back({"UnwindOperator", "Operator", "Counter", static_cast<int64_t>(h.unwind_operator->Value())});
-  out.push_back({"DistinctOperator", "Operator", "Counter", static_cast<int64_t>(h.distinct_operator->Value())});
-  out.push_back({"UnionOperator", "Operator", "Counter", static_cast<int64_t>(h.union_operator->Value())});
-  out.push_back({"CartesianOperator", "Operator", "Counter", static_cast<int64_t>(h.cartesian_operator->Value())});
+                 static_cast<int64_t>(h.edge_uniqueness_filter_operator.Value())});
+  out.push_back({"EmptyResultOperator", "Operator", "Counter", static_cast<int64_t>(h.empty_result_operator.Value())});
+  out.push_back({"AccumulateOperator", "Operator", "Counter", static_cast<int64_t>(h.accumulate_operator.Value())});
+  out.push_back({"AggregateOperator", "Operator", "Counter", static_cast<int64_t>(h.aggregate_operator.Value())});
+  out.push_back({"SkipOperator", "Operator", "Counter", static_cast<int64_t>(h.skip_operator.Value())});
+  out.push_back({"LimitOperator", "Operator", "Counter", static_cast<int64_t>(h.limit_operator.Value())});
+  out.push_back({"OrderByOperator", "Operator", "Counter", static_cast<int64_t>(h.order_by_operator.Value())});
+  out.push_back({"MergeOperator", "Operator", "Counter", static_cast<int64_t>(h.merge_operator.Value())});
+  out.push_back({"OptionalOperator", "Operator", "Counter", static_cast<int64_t>(h.optional_operator.Value())});
+  out.push_back({"UnwindOperator", "Operator", "Counter", static_cast<int64_t>(h.unwind_operator.Value())});
+  out.push_back({"DistinctOperator", "Operator", "Counter", static_cast<int64_t>(h.distinct_operator.Value())});
+  out.push_back({"UnionOperator", "Operator", "Counter", static_cast<int64_t>(h.union_operator.Value())});
+  out.push_back({"CartesianOperator", "Operator", "Counter", static_cast<int64_t>(h.cartesian_operator.Value())});
   out.push_back(
-      {"CallProcedureOperator", "Operator", "Counter", static_cast<int64_t>(h.call_procedure_operator->Value())});
-  out.push_back({"ForeachOperator", "Operator", "Counter", static_cast<int64_t>(h.foreach_operator->Value())});
+      {"CallProcedureOperator", "Operator", "Counter", static_cast<int64_t>(h.call_procedure_operator.Value())});
+  out.push_back({"ForeachOperator", "Operator", "Counter", static_cast<int64_t>(h.foreach_operator.Value())});
   out.push_back({"EvaluatePatternFilterOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.evaluate_pattern_filter_operator->Value())});
-  out.push_back({"ApplyOperator", "Operator", "Counter", static_cast<int64_t>(h.apply_operator->Value())});
-  out.push_back({"IndexedJoinOperator", "Operator", "Counter", static_cast<int64_t>(h.indexed_join_operator->Value())});
-  out.push_back({"HashJoinOperator", "Operator", "Counter", static_cast<int64_t>(h.hash_join_operator->Value())});
+                 static_cast<int64_t>(h.evaluate_pattern_filter_operator.Value())});
+  out.push_back({"ApplyOperator", "Operator", "Counter", static_cast<int64_t>(h.apply_operator.Value())});
+  out.push_back({"IndexedJoinOperator", "Operator", "Counter", static_cast<int64_t>(h.indexed_join_operator.Value())});
+  out.push_back({"HashJoinOperator", "Operator", "Counter", static_cast<int64_t>(h.hash_join_operator.Value())});
+  out.push_back({"RollUpApplyOperator", "Operator", "Counter", static_cast<int64_t>(h.roll_up_apply_operator.Value())});
   out.push_back(
-      {"RollUpApplyOperator", "Operator", "Counter", static_cast<int64_t>(h.roll_up_apply_operator->Value())});
+      {"PeriodicCommitOperator", "Operator", "Counter", static_cast<int64_t>(h.periodic_commit_operator.Value())});
   out.push_back(
-      {"PeriodicCommitOperator", "Operator", "Counter", static_cast<int64_t>(h.periodic_commit_operator->Value())});
-  out.push_back(
-      {"PeriodicSubqueryOperator", "Operator", "Counter", static_cast<int64_t>(h.periodic_subquery_operator->Value())});
+      {"PeriodicSubqueryOperator", "Operator", "Counter", static_cast<int64_t>(h.periodic_subquery_operator.Value())});
   out.push_back({"SetNestedPropertyOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.set_nested_property_operator->Value())});
+                 static_cast<int64_t>(h.set_nested_property_operator.Value())});
   out.push_back({"RemoveNestedPropertyOperator",
                  "Operator",
                  "Counter",
-                 static_cast<int64_t>(h.remove_nested_property_operator->Value())});
+                 static_cast<int64_t>(h.remove_nested_property_operator.Value())});
 
   // Index
-  out.push_back({"ActiveLabelIndices", "Index", "Gauge", static_cast<int64_t>(h.active_label_indices->Value())});
+  out.push_back({"ActiveLabelIndices", "Index", "Gauge", static_cast<int64_t>(h.active_label_indices.Value())});
   out.push_back(
-      {"ActiveLabelPropertyIndices", "Index", "Gauge", static_cast<int64_t>(h.active_label_property_indices->Value())});
-  out.push_back({"ActiveEdgeTypeIndices", "Index", "Gauge", static_cast<int64_t>(h.active_edge_type_indices->Value())});
+      {"ActiveLabelPropertyIndices", "Index", "Gauge", static_cast<int64_t>(h.active_label_property_indices.Value())});
+  out.push_back({"ActiveEdgeTypeIndices", "Index", "Gauge", static_cast<int64_t>(h.active_edge_type_indices.Value())});
   out.push_back({"ActiveEdgeTypePropertyIndices",
                  "Index",
                  "Gauge",
-                 static_cast<int64_t>(h.active_edge_type_property_indices->Value())});
+                 static_cast<int64_t>(h.active_edge_type_property_indices.Value())});
   out.push_back(
-      {"ActiveEdgePropertyIndices", "Index", "Gauge", static_cast<int64_t>(h.active_edge_property_indices->Value())});
-  out.push_back({"ActivePointIndices", "Index", "Gauge", static_cast<int64_t>(h.active_point_indices->Value())});
-  out.push_back({"ActiveTextIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_indices->Value())});
-  out.push_back({"ActiveTextEdgeIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_edge_indices->Value())});
-  out.push_back({"ActiveVectorIndices", "Index", "Gauge", static_cast<int64_t>(h.active_vector_indices->Value())});
+      {"ActiveEdgePropertyIndices", "Index", "Gauge", static_cast<int64_t>(h.active_edge_property_indices.Value())});
+  out.push_back({"ActivePointIndices", "Index", "Gauge", static_cast<int64_t>(h.active_point_indices.Value())});
+  out.push_back({"ActiveTextIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_indices.Value())});
+  out.push_back({"ActiveTextEdgeIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_edge_indices.Value())});
+  out.push_back({"ActiveVectorIndices", "Index", "Gauge", static_cast<int64_t>(h.active_vector_indices.Value())});
   out.push_back(
-      {"ActiveVectorEdgeIndices", "Index", "Gauge", static_cast<int64_t>(h.active_vector_edge_indices->Value())});
+      {"ActiveVectorEdgeIndices", "Index", "Gauge", static_cast<int64_t>(h.active_vector_edge_indices.Value())});
 
   // Constraint
   out.push_back({"ActiveExistenceConstraints",
                  "Constraint",
                  "Gauge",
-                 static_cast<int64_t>(h.active_existence_constraints->Value())});
+                 static_cast<int64_t>(h.active_existence_constraints.Value())});
   out.push_back(
-      {"ActiveUniqueConstraints", "Constraint", "Gauge", static_cast<int64_t>(h.active_unique_constraints->Value())});
+      {"ActiveUniqueConstraints", "Constraint", "Gauge", static_cast<int64_t>(h.active_unique_constraints.Value())});
   out.push_back(
-      {"ActiveTypeConstraints", "Constraint", "Gauge", static_cast<int64_t>(h.active_type_constraints->Value())});
+      {"ActiveTypeConstraints", "Constraint", "Gauge", static_cast<int64_t>(h.active_type_constraints.Value())});
 
   // Stream
-  out.push_back({"StreamsCreated", "Stream", "Counter", static_cast<int64_t>(h.streams_created->Value())});
-  out.push_back({"MessagesConsumed", "Stream", "Counter", static_cast<int64_t>(h.messages_consumed->Value())});
+  out.push_back({"StreamsCreated", "Stream", "Counter", static_cast<int64_t>(h.streams_created.Value())});
+  out.push_back({"MessagesConsumed", "Stream", "Counter", static_cast<int64_t>(h.messages_consumed.Value())});
 
   // Trigger
-  out.push_back({"TriggersCreated", "Trigger", "Counter", static_cast<int64_t>(h.triggers_created->Value())});
-  out.push_back({"TriggersExecuted", "Trigger", "Counter", static_cast<int64_t>(h.triggers_executed->Value())});
+  out.push_back({"TriggersCreated", "Trigger", "Counter", static_cast<int64_t>(h.triggers_created.Value())});
+  out.push_back({"TriggersExecuted", "Trigger", "Counter", static_cast<int64_t>(h.triggers_executed.Value())});
 
   // Transaction
-  out.push_back({"ActiveTransactions", "Transaction", "Gauge", static_cast<int64_t>(h.active_transactions->Value())});
+  out.push_back({"ActiveTransactions", "Transaction", "Gauge", static_cast<int64_t>(h.active_transactions.Value())});
   // NOTE: Typo in CommitedTransactions, preserved for backwards compatibility
   // with existing deployments relying on stable JSON metrics endpoint. Fixed
   // in OpenMetrics endpoint.
   out.push_back(
-      {"CommitedTransactions", "Transaction", "Counter", static_cast<int64_t>(h.committed_transactions->Value())});
+      {"CommitedTransactions", "Transaction", "Counter", static_cast<int64_t>(h.committed_transactions.Value())});
   out.push_back(
-      {"RolledBackTransactions", "Transaction", "Counter", static_cast<int64_t>(h.rolled_back_transactions->Value())});
-  out.push_back({"FailedQuery", "Transaction", "Counter", static_cast<int64_t>(h.failed_query->Value())});
-  out.push_back({"FailedPrepare", "Transaction", "Counter", static_cast<int64_t>(h.failed_prepare->Value())});
-  out.push_back({"FailedPull", "Transaction", "Counter", static_cast<int64_t>(h.failed_pull->Value())});
-  out.push_back({"SuccessfulQuery", "Transaction", "Counter", static_cast<int64_t>(h.successful_query->Value())});
+      {"RolledBackTransactions", "Transaction", "Counter", static_cast<int64_t>(h.rolled_back_transactions.Value())});
+  out.push_back({"FailedQuery", "Transaction", "Counter", static_cast<int64_t>(h.failed_query.Value())});
+  out.push_back({"FailedPrepare", "Transaction", "Counter", static_cast<int64_t>(h.failed_prepare.Value())});
+  out.push_back({"FailedPull", "Transaction", "Counter", static_cast<int64_t>(h.failed_pull.Value())});
+  out.push_back({"SuccessfulQuery", "Transaction", "Counter", static_cast<int64_t>(h.successful_query.Value())});
   out.push_back(
-      {"WriteWriteConflicts", "Transaction", "Counter", static_cast<int64_t>(h.write_write_conflicts->Value())});
-  out.push_back({"TransientErrors", "Transaction", "Counter", static_cast<int64_t>(h.transient_errors->Value())});
+      {"WriteWriteConflicts", "Transaction", "Counter", static_cast<int64_t>(h.write_write_conflicts.Value())});
+  out.push_back({"TransientErrors", "Transaction", "Counter", static_cast<int64_t>(h.transient_errors.Value())});
 
   // QueryType
-  out.push_back({"ReadQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_query->Value())});
-  out.push_back({"WriteQuery", "QueryType", "Counter", static_cast<int64_t>(h.write_query->Value())});
-  out.push_back({"ReadWriteQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_write_query->Value())});
+  out.push_back({"ReadQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_query.Value())});
+  out.push_back({"WriteQuery", "QueryType", "Counter", static_cast<int64_t>(h.write_query.Value())});
+  out.push_back({"ReadWriteQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_write_query.Value())});
 
   // TTL
-  out.push_back({"DeletedNodes", "TTL", "Counter", static_cast<int64_t>(h.deleted_nodes->Value())});
-  out.push_back({"DeletedEdges", "TTL", "Counter", static_cast<int64_t>(h.deleted_edges->Value())});
+  out.push_back({"DeletedNodes", "TTL", "Counter", static_cast<int64_t>(h.deleted_nodes.Value())});
+  out.push_back({"DeletedEdges", "TTL", "Counter", static_cast<int64_t>(h.deleted_edges.Value())});
 
   // SchemaInfo
-  out.push_back({"ShowSchema", "SchemaInfo", "Counter", static_cast<int64_t>(h.show_schema->Value())});
+  out.push_back({"ShowSchema", "SchemaInfo", "Counter", static_cast<int64_t>(h.show_schema.Value())});
 
   // Query
-  AppendHistogramPercentiles(out, "QueryExecutionLatency", "Query", *h.query_execution_latency_seconds);
+  AppendHistogramPercentiles(out, "QueryExecutionLatency", "Query", *h.query_execution_latency_seconds.get());
 
   // Snapshot
-  AppendHistogramPercentiles(out, "SnapshotCreationLatency", "Snapshot", *h.snapshot_creation_latency_seconds);
-  AppendHistogramPercentiles(out, "SnapshotRecoveryLatency", "Snapshot", *h.snapshot_recovery_latency_seconds);
+  AppendHistogramPercentiles(out, "SnapshotCreationLatency", "Snapshot", *h.snapshot_creation_latency_seconds.get());
+  AppendHistogramPercentiles(out, "SnapshotRecoveryLatency", "Snapshot", *h.snapshot_recovery_latency_seconds.get());
 
   return out;
 }
@@ -1529,7 +1545,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_failed_pull = 0;
   int64_t total_successful_query = 0;
   int64_t total_write_write_conflicts = 0;
-  int64_t total_transient_errors = 0;
   int64_t total_read_query = 0;
   int64_t total_write_query = 0;
   int64_t total_read_write_query = 0;
@@ -1547,104 +1562,103 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
     std::shared_lock const lock{databases_.mutex};
     for (auto const &entry : databases_.entries) {
       auto const &h = entry.handles;
-      total_once_operator += static_cast<int64_t>(h.once_operator->Value());
-      total_create_node_operator += static_cast<int64_t>(h.create_node_operator->Value());
-      total_create_expand_operator += static_cast<int64_t>(h.create_expand_operator->Value());
-      total_scan_all_operator += static_cast<int64_t>(h.scan_all_operator->Value());
-      total_scan_all_by_label_operator += static_cast<int64_t>(h.scan_all_by_label_operator->Value());
+      total_once_operator += static_cast<int64_t>(h.once_operator.Value());
+      total_create_node_operator += static_cast<int64_t>(h.create_node_operator.Value());
+      total_create_expand_operator += static_cast<int64_t>(h.create_expand_operator.Value());
+      total_scan_all_operator += static_cast<int64_t>(h.scan_all_operator.Value());
+      total_scan_all_by_label_operator += static_cast<int64_t>(h.scan_all_by_label_operator.Value());
       total_scan_all_by_label_properties_operator +=
-          static_cast<int64_t>(h.scan_all_by_label_properties_operator->Value());
-      total_scan_all_by_id_operator += static_cast<int64_t>(h.scan_all_by_id_operator->Value());
-      total_scan_all_by_edge_operator += static_cast<int64_t>(h.scan_all_by_edge_operator->Value());
-      total_scan_all_by_edge_type_operator += static_cast<int64_t>(h.scan_all_by_edge_type_operator->Value());
+          static_cast<int64_t>(h.scan_all_by_label_properties_operator.Value());
+      total_scan_all_by_id_operator += static_cast<int64_t>(h.scan_all_by_id_operator.Value());
+      total_scan_all_by_edge_operator += static_cast<int64_t>(h.scan_all_by_edge_operator.Value());
+      total_scan_all_by_edge_type_operator += static_cast<int64_t>(h.scan_all_by_edge_type_operator.Value());
       total_scan_all_by_edge_type_property_operator +=
-          static_cast<int64_t>(h.scan_all_by_edge_type_property_operator->Value());
+          static_cast<int64_t>(h.scan_all_by_edge_type_property_operator.Value());
       total_scan_all_by_edge_type_property_value_operator +=
-          static_cast<int64_t>(h.scan_all_by_edge_type_property_value_operator->Value());
+          static_cast<int64_t>(h.scan_all_by_edge_type_property_value_operator.Value());
       total_scan_all_by_edge_type_property_range_operator +=
-          static_cast<int64_t>(h.scan_all_by_edge_type_property_range_operator->Value());
-      total_scan_all_by_edge_property_operator += static_cast<int64_t>(h.scan_all_by_edge_property_operator->Value());
+          static_cast<int64_t>(h.scan_all_by_edge_type_property_range_operator.Value());
+      total_scan_all_by_edge_property_operator += static_cast<int64_t>(h.scan_all_by_edge_property_operator.Value());
       total_scan_all_by_edge_property_value_operator +=
-          static_cast<int64_t>(h.scan_all_by_edge_property_value_operator->Value());
+          static_cast<int64_t>(h.scan_all_by_edge_property_value_operator.Value());
       total_scan_all_by_edge_property_range_operator +=
-          static_cast<int64_t>(h.scan_all_by_edge_property_range_operator->Value());
-      total_scan_all_by_edge_id_operator += static_cast<int64_t>(h.scan_all_by_edge_id_operator->Value());
-      total_scan_all_by_point_distance_operator += static_cast<int64_t>(h.scan_all_by_point_distance_operator->Value());
+          static_cast<int64_t>(h.scan_all_by_edge_property_range_operator.Value());
+      total_scan_all_by_edge_id_operator += static_cast<int64_t>(h.scan_all_by_edge_id_operator.Value());
+      total_scan_all_by_point_distance_operator += static_cast<int64_t>(h.scan_all_by_point_distance_operator.Value());
       total_scan_all_by_point_withinbbox_operator +=
-          static_cast<int64_t>(h.scan_all_by_point_withinbbox_operator->Value());
-      total_expand_operator += static_cast<int64_t>(h.expand_operator->Value());
-      total_expand_variable_operator += static_cast<int64_t>(h.expand_variable_operator->Value());
-      total_construct_named_path_operator += static_cast<int64_t>(h.construct_named_path_operator->Value());
-      total_filter_operator += static_cast<int64_t>(h.filter_operator->Value());
-      total_produce_operator += static_cast<int64_t>(h.produce_operator->Value());
-      total_delete_operator += static_cast<int64_t>(h.delete_operator->Value());
-      total_set_property_operator += static_cast<int64_t>(h.set_property_operator->Value());
-      total_set_properties_operator += static_cast<int64_t>(h.set_properties_operator->Value());
-      total_set_labels_operator += static_cast<int64_t>(h.set_labels_operator->Value());
-      total_remove_property_operator += static_cast<int64_t>(h.remove_property_operator->Value());
-      total_remove_labels_operator += static_cast<int64_t>(h.remove_labels_operator->Value());
-      total_edge_uniqueness_filter_operator += static_cast<int64_t>(h.edge_uniqueness_filter_operator->Value());
-      total_empty_result_operator += static_cast<int64_t>(h.empty_result_operator->Value());
-      total_accumulate_operator += static_cast<int64_t>(h.accumulate_operator->Value());
-      total_aggregate_operator += static_cast<int64_t>(h.aggregate_operator->Value());
-      total_skip_operator += static_cast<int64_t>(h.skip_operator->Value());
-      total_limit_operator += static_cast<int64_t>(h.limit_operator->Value());
-      total_order_by_operator += static_cast<int64_t>(h.order_by_operator->Value());
-      total_merge_operator += static_cast<int64_t>(h.merge_operator->Value());
-      total_optional_operator += static_cast<int64_t>(h.optional_operator->Value());
-      total_unwind_operator += static_cast<int64_t>(h.unwind_operator->Value());
-      total_distinct_operator += static_cast<int64_t>(h.distinct_operator->Value());
-      total_union_operator += static_cast<int64_t>(h.union_operator->Value());
-      total_cartesian_operator += static_cast<int64_t>(h.cartesian_operator->Value());
-      total_call_procedure_operator += static_cast<int64_t>(h.call_procedure_operator->Value());
-      total_foreach_operator += static_cast<int64_t>(h.foreach_operator->Value());
-      total_evaluate_pattern_filter_operator += static_cast<int64_t>(h.evaluate_pattern_filter_operator->Value());
-      total_apply_operator += static_cast<int64_t>(h.apply_operator->Value());
-      total_indexed_join_operator += static_cast<int64_t>(h.indexed_join_operator->Value());
-      total_hash_join_operator += static_cast<int64_t>(h.hash_join_operator->Value());
-      total_roll_up_apply_operator += static_cast<int64_t>(h.roll_up_apply_operator->Value());
-      total_periodic_commit_operator += static_cast<int64_t>(h.periodic_commit_operator->Value());
-      total_periodic_subquery_operator += static_cast<int64_t>(h.periodic_subquery_operator->Value());
-      total_set_nested_property_operator += static_cast<int64_t>(h.set_nested_property_operator->Value());
-      total_remove_nested_property_operator += static_cast<int64_t>(h.remove_nested_property_operator->Value());
-      total_active_label_indices += static_cast<int64_t>(h.active_label_indices->Value());
-      total_active_label_property_indices += static_cast<int64_t>(h.active_label_property_indices->Value());
-      total_active_edge_type_indices += static_cast<int64_t>(h.active_edge_type_indices->Value());
-      total_active_edge_type_property_indices += static_cast<int64_t>(h.active_edge_type_property_indices->Value());
-      total_active_edge_property_indices += static_cast<int64_t>(h.active_edge_property_indices->Value());
-      total_active_point_indices += static_cast<int64_t>(h.active_point_indices->Value());
-      total_active_text_indices += static_cast<int64_t>(h.active_text_indices->Value());
-      total_active_text_edge_indices += static_cast<int64_t>(h.active_text_edge_indices->Value());
-      total_active_vector_indices += static_cast<int64_t>(h.active_vector_indices->Value());
-      total_active_vector_edge_indices += static_cast<int64_t>(h.active_vector_edge_indices->Value());
-      total_active_existence_constraints += static_cast<int64_t>(h.active_existence_constraints->Value());
-      total_active_unique_constraints += static_cast<int64_t>(h.active_unique_constraints->Value());
-      total_active_type_constraints += static_cast<int64_t>(h.active_type_constraints->Value());
-      total_streams_created += static_cast<int64_t>(h.streams_created->Value());
-      total_messages_consumed += static_cast<int64_t>(h.messages_consumed->Value());
-      total_triggers_created += static_cast<int64_t>(h.triggers_created->Value());
-      total_triggers_executed += static_cast<int64_t>(h.triggers_executed->Value());
-      total_active_transactions += static_cast<int64_t>(h.active_transactions->Value());
-      total_committed_transactions += static_cast<int64_t>(h.committed_transactions->Value());
-      total_rolled_back_transactions += static_cast<int64_t>(h.rolled_back_transactions->Value());
-      total_failed_query += static_cast<int64_t>(h.failed_query->Value());
-      total_failed_prepare += static_cast<int64_t>(h.failed_prepare->Value());
-      total_failed_pull += static_cast<int64_t>(h.failed_pull->Value());
-      total_successful_query += static_cast<int64_t>(h.successful_query->Value());
-      total_write_write_conflicts += static_cast<int64_t>(h.write_write_conflicts->Value());
-      total_transient_errors += static_cast<int64_t>(h.transient_errors->Value());
-      total_read_query += static_cast<int64_t>(h.read_query->Value());
-      total_write_query += static_cast<int64_t>(h.write_query->Value());
-      total_read_write_query += static_cast<int64_t>(h.read_write_query->Value());
-      total_deleted_nodes += static_cast<int64_t>(h.deleted_nodes->Value());
-      total_deleted_edges += static_cast<int64_t>(h.deleted_edges->Value());
-      total_show_schema += static_cast<int64_t>(h.show_schema->Value());
-      query_exec_hdatas.push_back(h.query_execution_latency_seconds->Collect().histogram);
-      snapshot_creation_hdatas.push_back(h.snapshot_creation_latency_seconds->Collect().histogram);
-      snapshot_recovery_hdatas.push_back(h.snapshot_recovery_latency_seconds->Collect().histogram);
-      gc_hdatas.push_back(h.gc_latency_seconds->Collect().histogram);
-      gc_skiplist_hdatas.push_back(h.gc_skiplist_cleanup_latency_seconds->Collect().histogram);
-      total_unreleased_deltas += static_cast<int64_t>(entry.handles.unreleased_delta_objects->Value());
+          static_cast<int64_t>(h.scan_all_by_point_withinbbox_operator.Value());
+      total_expand_operator += static_cast<int64_t>(h.expand_operator.Value());
+      total_expand_variable_operator += static_cast<int64_t>(h.expand_variable_operator.Value());
+      total_construct_named_path_operator += static_cast<int64_t>(h.construct_named_path_operator.Value());
+      total_filter_operator += static_cast<int64_t>(h.filter_operator.Value());
+      total_produce_operator += static_cast<int64_t>(h.produce_operator.Value());
+      total_delete_operator += static_cast<int64_t>(h.delete_operator.Value());
+      total_set_property_operator += static_cast<int64_t>(h.set_property_operator.Value());
+      total_set_properties_operator += static_cast<int64_t>(h.set_properties_operator.Value());
+      total_set_labels_operator += static_cast<int64_t>(h.set_labels_operator.Value());
+      total_remove_property_operator += static_cast<int64_t>(h.remove_property_operator.Value());
+      total_remove_labels_operator += static_cast<int64_t>(h.remove_labels_operator.Value());
+      total_edge_uniqueness_filter_operator += static_cast<int64_t>(h.edge_uniqueness_filter_operator.Value());
+      total_empty_result_operator += static_cast<int64_t>(h.empty_result_operator.Value());
+      total_accumulate_operator += static_cast<int64_t>(h.accumulate_operator.Value());
+      total_aggregate_operator += static_cast<int64_t>(h.aggregate_operator.Value());
+      total_skip_operator += static_cast<int64_t>(h.skip_operator.Value());
+      total_limit_operator += static_cast<int64_t>(h.limit_operator.Value());
+      total_order_by_operator += static_cast<int64_t>(h.order_by_operator.Value());
+      total_merge_operator += static_cast<int64_t>(h.merge_operator.Value());
+      total_optional_operator += static_cast<int64_t>(h.optional_operator.Value());
+      total_unwind_operator += static_cast<int64_t>(h.unwind_operator.Value());
+      total_distinct_operator += static_cast<int64_t>(h.distinct_operator.Value());
+      total_union_operator += static_cast<int64_t>(h.union_operator.Value());
+      total_cartesian_operator += static_cast<int64_t>(h.cartesian_operator.Value());
+      total_call_procedure_operator += static_cast<int64_t>(h.call_procedure_operator.Value());
+      total_foreach_operator += static_cast<int64_t>(h.foreach_operator.Value());
+      total_evaluate_pattern_filter_operator += static_cast<int64_t>(h.evaluate_pattern_filter_operator.Value());
+      total_apply_operator += static_cast<int64_t>(h.apply_operator.Value());
+      total_indexed_join_operator += static_cast<int64_t>(h.indexed_join_operator.Value());
+      total_hash_join_operator += static_cast<int64_t>(h.hash_join_operator.Value());
+      total_roll_up_apply_operator += static_cast<int64_t>(h.roll_up_apply_operator.Value());
+      total_periodic_commit_operator += static_cast<int64_t>(h.periodic_commit_operator.Value());
+      total_periodic_subquery_operator += static_cast<int64_t>(h.periodic_subquery_operator.Value());
+      total_set_nested_property_operator += static_cast<int64_t>(h.set_nested_property_operator.Value());
+      total_remove_nested_property_operator += static_cast<int64_t>(h.remove_nested_property_operator.Value());
+      total_active_label_indices += static_cast<int64_t>(h.active_label_indices.Value());
+      total_active_label_property_indices += static_cast<int64_t>(h.active_label_property_indices.Value());
+      total_active_edge_type_indices += static_cast<int64_t>(h.active_edge_type_indices.Value());
+      total_active_edge_type_property_indices += static_cast<int64_t>(h.active_edge_type_property_indices.Value());
+      total_active_edge_property_indices += static_cast<int64_t>(h.active_edge_property_indices.Value());
+      total_active_point_indices += static_cast<int64_t>(h.active_point_indices.Value());
+      total_active_text_indices += static_cast<int64_t>(h.active_text_indices.Value());
+      total_active_text_edge_indices += static_cast<int64_t>(h.active_text_edge_indices.Value());
+      total_active_vector_indices += static_cast<int64_t>(h.active_vector_indices.Value());
+      total_active_vector_edge_indices += static_cast<int64_t>(h.active_vector_edge_indices.Value());
+      total_active_existence_constraints += static_cast<int64_t>(h.active_existence_constraints.Value());
+      total_active_unique_constraints += static_cast<int64_t>(h.active_unique_constraints.Value());
+      total_active_type_constraints += static_cast<int64_t>(h.active_type_constraints.Value());
+      total_streams_created += static_cast<int64_t>(h.streams_created.Value());
+      total_messages_consumed += static_cast<int64_t>(h.messages_consumed.Value());
+      total_triggers_created += static_cast<int64_t>(h.triggers_created.Value());
+      total_triggers_executed += static_cast<int64_t>(h.triggers_executed.Value());
+      total_active_transactions += static_cast<int64_t>(h.active_transactions.Value());
+      total_committed_transactions += static_cast<int64_t>(h.committed_transactions.Value());
+      total_rolled_back_transactions += static_cast<int64_t>(h.rolled_back_transactions.Value());
+      total_failed_query += static_cast<int64_t>(h.failed_query.Value());
+      total_failed_prepare += static_cast<int64_t>(h.failed_prepare.Value());
+      total_failed_pull += static_cast<int64_t>(h.failed_pull.Value());
+      total_successful_query += static_cast<int64_t>(h.successful_query.Value());
+      total_write_write_conflicts += static_cast<int64_t>(h.write_write_conflicts.Value());
+      total_read_query += static_cast<int64_t>(h.read_query.Value());
+      total_write_query += static_cast<int64_t>(h.write_query.Value());
+      total_read_write_query += static_cast<int64_t>(h.read_write_query.Value());
+      total_deleted_nodes += static_cast<int64_t>(h.deleted_nodes.Value());
+      total_deleted_edges += static_cast<int64_t>(h.deleted_edges.Value());
+      total_show_schema += static_cast<int64_t>(h.show_schema.Value());
+      query_exec_hdatas.push_back(h.query_execution_latency_seconds.Collect().histogram);
+      snapshot_creation_hdatas.push_back(h.snapshot_creation_latency_seconds.Collect().histogram);
+      snapshot_recovery_hdatas.push_back(h.snapshot_recovery_latency_seconds.Collect().histogram);
+      gc_hdatas.push_back(h.gc_latency_seconds.Collect().histogram);
+      gc_skiplist_hdatas.push_back(h.gc_skiplist_cleanup_latency_seconds.Collect().histogram);
+      total_unreleased_deltas += static_cast<int64_t>(entry.handles.unreleased_delta_objects.Value());
     }
   }
 
@@ -1755,7 +1769,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"FailedPull", "Transaction", "Counter", total_failed_pull});
   out.push_back({"SuccessfulQuery", "Transaction", "Counter", total_successful_query});
   out.push_back({"WriteWriteConflicts", "Transaction", "Counter", total_write_write_conflicts});
-  out.push_back({"TransientErrors", "Transaction", "Counter", total_transient_errors});
 
   // QueryType
   out.push_back({"ReadQuery", "QueryType", "Counter", total_read_query});
@@ -1787,7 +1800,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
     return out;
   }
 
-  std::lock_guard const json_ha_metrics_delta_lock{json_ha_metrics_delta_mutex_};
   for (auto &info : out) {
     if (info.type != "HighAvailability" || info.metric_type != "Counter" ||
         !IsLegacyCoordinatorDeltaMetric(info.name)) {
@@ -1822,6 +1834,14 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   out.push_back(
       {"ActiveWebSocketSessions", "Session", "Gauge", static_cast<int64_t>(global.active_websocket_sessions->Value())});
   out.push_back({"BoltMessages", "Session", "Counter", static_cast<int64_t>(global.bolt_messages->Value())});
+
+  // Transaction (global) — no-db fallback counters, incremented when no database context is available
+  out.push_back({"TransientErrors", "Transaction", "Counter", static_cast<int64_t>(global.transient_errors->Value())});
+  out.push_back({"FailedQuery", "Transaction", "Counter", static_cast<int64_t>(global.failed_query->Value())});
+  out.push_back({"FailedPrepare", "Transaction", "Counter", static_cast<int64_t>(global.failed_prepare->Value())});
+  out.push_back({"ReadQuery", "QueryType", "Counter", static_cast<int64_t>(global.read_query->Value())});
+  out.push_back({"WriteQuery", "QueryType", "Counter", static_cast<int64_t>(global.write_query->Value())});
+  out.push_back({"ReadWriteQuery", "QueryType", "Counter", static_cast<int64_t>(global.read_write_query->Value())});
 
   // HighAvailability counters
   out.push_back({"SuccessfulFailovers",

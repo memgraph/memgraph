@@ -237,7 +237,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
-  if (auto *mh = db_acc->metric_handles()) transaction_gauge_ = metrics::ScopedGauge{mh->active_transactions};
+  transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
 
   if (db_acc->trigger_store()->HasTriggers() && could_commit) {
     trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
@@ -2559,7 +2559,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
     return config_map;
   };
 
-  if (auto *mh = db_acc->metric_handles()) mh->streams_created->Increment();
+  db_acc->metric_handles()->streams_created.Increment();
 
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
@@ -2601,7 +2601,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
     throw SemanticException("Service URL must not be an empty string!");
   }
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
-  if (auto *mh = db->metric_handles()) mh->streams_created->Increment();
+  db->metric_handles()->streams_created.Increment();
 
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
@@ -3065,11 +3065,11 @@ struct PullPlan {
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                     storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
+                    metrics::DatabaseMetricHandles &metric_handles,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
                     std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
-                    memory::ArenaPool *db_arena_pool = nullptr,
-                    metrics::DatabaseMetricHandles *metric_handles = nullptr
+                    memory::ArenaPool *db_arena_pool = nullptr
 #ifdef MG_ENTERPRISE
                     ,
                     std::optional<size_t> parallel_execution = std::nullopt,
@@ -3104,17 +3104,17 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  metrics::DatabaseMetricHandles *metric_handles_;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
-                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
-                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   utils::PriorityThreadPool *worker_pool, memory::ArenaPool *db_arena_pool,
-                   metrics::DatabaseMetricHandles *metric_handles
+                   metrics::DatabaseMetricHandles &metric_handles, TriggerContextCollector *trigger_context_collector,
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
+                   const std::optional<int64_t> hops_limit, utils::PriorityThreadPool *worker_pool,
+                   memory::ArenaPool *db_arena_pool
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
@@ -3130,9 +3130,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       user_resource_{std::move(user_resource)}
 #endif
       ,
-      metric_handles_(metric_handles) {
+      metric_handles_(&metric_handles) {
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
-  ctx_.metric_handles = metric_handles;
+  ctx_.metric_handles = &metric_handles;
   if (hops_limit) {
 #ifdef MG_ENTERPRISE
     if (parallel_execution) {
@@ -3258,7 +3258,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     query_logger_->trace(fmt::format("Query execution time: {}", execution_time_.count()));
   }
 
-  if (metric_handles_) metric_handles_->query_execution_latency_seconds->Observe(execution_time_.count());
+  metric_handles_->query_execution_latency_seconds.Observe(execution_time_.count());
 
   // We are finished with pulling all the data, therefore we can send any
   // metadata about the results i.e. notifications and statistics
@@ -3397,8 +3397,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw ExplicitTransactionUsageException("No current transaction to rollback.");
         }
 
-        if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
-          h->rolled_back_transactions->Increment();
+        (*current_db_.db_acc_)->metric_handles()->rolled_back_transactions.Increment();
 
         Abort();
         expect_rollback_ = false;
@@ -3576,15 +3575,15 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               std::move(stopping_context),
                                               dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
                                               interpreter.query_logger_,
+                                              *(*current_db.db_acc_)->metric_handles(),
                                               trigger_context_collector,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
                                               hops_limit,
                                               interpreter_context->worker_pool,
-                                              db_arena_pool,
-                                              (*current_db.db_acc_)->metric_handles()
+                                              db_arena_pool
 #ifdef MG_ENTERPRISE
-                                                  ,
+                                              ,
                                               parallel_execution,
                                               user_resource
 #endif
@@ -3801,15 +3800,15 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         std::move(stopping_context),
                                         dbms::DatabaseProtector{db_acc}.clone(),
                                         query_logger,
+                                        *db_acc->metric_handles(),
                                         nullptr,
                                         memory_limit,
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
                                         hops_limit,
                                         interpreter_context->worker_pool,
-                                        db_arena_pool,
-                                        db_acc->metric_handles()
+                                        db_arena_pool
 #ifdef MG_ENTERPRISE
-                                            ,
+                                        ,
                                         parallel_execution,
                                         user_resource
 #endif
@@ -5515,7 +5514,7 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
 Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPropertyValue::map_t &user_parameters,
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
                        std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name,
-                       metrics::DatabaseMetricHandles *metric_handles) {
+                       metrics::DatabaseMetricHandles &metric_handles) {
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
   return {.header = {},
@@ -5544,7 +5543,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                                       db_name,
                                       privilege_context,
                                       interpreter_context->parameters);
-            if (metric_handles) metric_handles->triggers_created->Increment();
+            metric_handles.triggers_created.Increment();
             return {};
           }};
 }
@@ -5624,7 +5623,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
                              dba,
                              std::move(owner),
                              db_name,
-                             metric_handles);
+                             *metric_handles);
       case TriggerQuery::Action::DROP_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO,
                                      NotificationCode::DROP_TRIGGER,
@@ -8238,7 +8237,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                  user_or_role
 #endif
   ]() mutable -> std::vector<std::vector<TypedValue>> {
-    if (auto *mh = db->metric_handles()) mh->show_schema->Increment();
+    db->metric_handles()->show_schema.Increment();
 
     std::vector<std::vector<TypedValue>> schema;
     auto *storage = db->storage();
@@ -9147,8 +9146,11 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
     metrics::FirstFailedQuery();
+    // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.
     if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
-      h->failed_query->Increment();
+      h->failed_query.Increment();
+    else
+      metrics::Metrics().global.failed_query->Increment();
     AbortCommand({});
     throw;
   }
@@ -9809,18 +9811,26 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     const auto rw_type = query_execution->prepared_query->rw_type;
     query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
 
+    // db_acc_ may be absent for queries that don't require a database (e.g. auth queries); fall back to global counter.
+    auto *const qtype_h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr;
     switch (rw_type) {
       case plan::ReadWriteTypeChecker::RWType::R:
-        if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
-          h->read_query->Increment();
+        if (qtype_h)
+          qtype_h->read_query.Increment();
+        else
+          metrics::Metrics().global.read_query->Increment();
         break;
       case plan::ReadWriteTypeChecker::RWType::W:
-        if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
-          h->write_query->Increment();
+        if (qtype_h)
+          qtype_h->write_query.Increment();
+        else
+          metrics::Metrics().global.write_query->Increment();
         break;
       case plan::ReadWriteTypeChecker::RWType::RW:
-        if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
-          h->read_write_query->Increment();
+        if (qtype_h)
+          qtype_h->read_write_query.Increment();
+        else
+          metrics::Metrics().global.read_write_query->Increment();
         break;
       default:
         break;
@@ -9862,8 +9872,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
     metrics::FirstFailedQuery();
+    // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.
     if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
-      h->failed_prepare->Increment();
+      h->failed_prepare.Increment();
+    else
+      metrics::Metrics().global.failed_prepare->Increment();
     AbortCommand(query_execution_ptr);
     throw;
   }
@@ -10259,10 +10272,8 @@ void Interpreter::Commit() {
         "Cannot commit transaction because the storage mode has changed from in-memory storage to on-disk storage.");
   }
 
-  auto *metric_handles = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr;
-  utils::OnScopeExit update_metrics([metric_handles]() {
-    if (metric_handles) metric_handles->committed_transactions->Increment();
-  });
+  auto *metric_handles = (*current_db_.db_acc_)->metric_handles();
+  utils::OnScopeExit update_metrics([metric_handles]() { metric_handles->committed_transactions.Increment(); });
 
   std::optional<TriggerContext> trigger_context = std::nullopt;
   if (current_db_.trigger_context_collector_) {

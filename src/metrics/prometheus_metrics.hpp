@@ -29,6 +29,7 @@
 #include <prometheus/histogram.h>
 #include <prometheus/registry.h>
 
+#include "utils/logging.hpp"
 #include "utils/uuid.hpp"
 
 #ifdef MG_ENTERPRISE
@@ -61,123 +62,179 @@ using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(std
 using InstanceStatusResolver = std::function<std::vector<coordination::InstanceStatus>()>;
 #endif
 
+struct GaugeHandle {
+  prometheus::Gauge *gauge{nullptr};
+
+  void Increment() const {
+    if (gauge) gauge->Increment();
+  }
+
+  void Decrement() const {
+    if (gauge) gauge->Decrement();
+  }
+
+  void Set(double v) const {
+    if (gauge) gauge->Set(v);
+  }
+
+  double Value() const { return gauge ? gauge->Value() : 0.0; }
+
+  prometheus::Gauge *get() const {
+    DMG_ASSERT(gauge);
+    return gauge;
+  }
+};
+
+struct CounterHandle {
+  prometheus::Counter *counter{nullptr};
+
+  void Increment(double v = 1.0) const {
+    if (counter) counter->Increment(v);
+  }
+
+  double Value() const { return counter ? counter->Value() : 0.0; }
+
+  prometheus::Counter *get() const {
+    DMG_ASSERT(counter);
+    return counter;
+  }
+};
+
+struct HistogramHandle {
+  prometheus::Histogram *histogram{nullptr};
+
+  void Observe(double v) const {
+    if (histogram) histogram->Observe(v);
+  }
+
+  auto Collect() const {
+    DMG_ASSERT(histogram);
+    return histogram->Collect();
+  }
+
+  prometheus::Histogram *get() const {
+    DMG_ASSERT(histogram);
+    return histogram;
+  }
+};
+
 struct DatabaseMetricHandles {
   // Storage
-  prometheus::Gauge *vertex_count;
-  prometheus::Gauge *edge_count;
-  prometheus::Gauge *disk_usage_bytes;
-  prometheus::Gauge *memory_res_bytes;
+  GaugeHandle vertex_count;
+  GaugeHandle edge_count;
+  GaugeHandle disk_usage_bytes;
+  GaugeHandle memory_res_bytes;
 
   // Operators
-  prometheus::Counter *once_operator;
-  prometheus::Counter *create_node_operator;
-  prometheus::Counter *create_expand_operator;
-  prometheus::Counter *scan_all_operator;
-  prometheus::Counter *scan_all_by_label_operator;
-  prometheus::Counter *scan_all_by_label_properties_operator;
-  prometheus::Counter *scan_all_by_id_operator;
-  prometheus::Counter *scan_all_by_edge_operator;
-  prometheus::Counter *scan_all_by_edge_type_operator;
-  prometheus::Counter *scan_all_by_edge_type_property_operator;
-  prometheus::Counter *scan_all_by_edge_type_property_value_operator;
-  prometheus::Counter *scan_all_by_edge_type_property_range_operator;
-  prometheus::Counter *scan_all_by_edge_property_operator;
-  prometheus::Counter *scan_all_by_edge_property_value_operator;
-  prometheus::Counter *scan_all_by_edge_property_range_operator;
-  prometheus::Counter *scan_all_by_edge_id_operator;
-  prometheus::Counter *scan_all_by_point_distance_operator;
-  prometheus::Counter *scan_all_by_point_withinbbox_operator;
-  prometheus::Counter *expand_operator;
-  prometheus::Counter *expand_variable_operator;
-  prometheus::Counter *construct_named_path_operator;
-  prometheus::Counter *filter_operator;
-  prometheus::Counter *produce_operator;
-  prometheus::Counter *delete_operator;
-  prometheus::Counter *set_property_operator;
-  prometheus::Counter *set_properties_operator;
-  prometheus::Counter *set_labels_operator;
-  prometheus::Counter *remove_property_operator;
-  prometheus::Counter *remove_labels_operator;
-  prometheus::Counter *edge_uniqueness_filter_operator;
-  prometheus::Counter *empty_result_operator;
-  prometheus::Counter *accumulate_operator;
-  prometheus::Counter *aggregate_operator;
-  prometheus::Counter *skip_operator;
-  prometheus::Counter *limit_operator;
-  prometheus::Counter *order_by_operator;
-  prometheus::Counter *merge_operator;
-  prometheus::Counter *optional_operator;
-  prometheus::Counter *unwind_operator;
-  prometheus::Counter *distinct_operator;
-  prometheus::Counter *union_operator;
-  prometheus::Counter *cartesian_operator;
-  prometheus::Counter *call_procedure_operator;
-  prometheus::Counter *foreach_operator;
-  prometheus::Counter *evaluate_pattern_filter_operator;
-  prometheus::Counter *apply_operator;
-  prometheus::Counter *indexed_join_operator;
-  prometheus::Counter *hash_join_operator;
-  prometheus::Counter *roll_up_apply_operator;
-  prometheus::Counter *periodic_commit_operator;
-  prometheus::Counter *periodic_subquery_operator;
-  prometheus::Counter *set_nested_property_operator;
-  prometheus::Counter *remove_nested_property_operator;
+  CounterHandle once_operator;
+  CounterHandle create_node_operator;
+  CounterHandle create_expand_operator;
+  CounterHandle scan_all_operator;
+  CounterHandle scan_all_by_label_operator;
+  CounterHandle scan_all_by_label_properties_operator;
+  CounterHandle scan_all_by_id_operator;
+  CounterHandle scan_all_by_edge_operator;
+  CounterHandle scan_all_by_edge_type_operator;
+  CounterHandle scan_all_by_edge_type_property_operator;
+  CounterHandle scan_all_by_edge_type_property_value_operator;
+  CounterHandle scan_all_by_edge_type_property_range_operator;
+  CounterHandle scan_all_by_edge_property_operator;
+  CounterHandle scan_all_by_edge_property_value_operator;
+  CounterHandle scan_all_by_edge_property_range_operator;
+  CounterHandle scan_all_by_edge_id_operator;
+  CounterHandle scan_all_by_point_distance_operator;
+  CounterHandle scan_all_by_point_withinbbox_operator;
+  CounterHandle expand_operator;
+  CounterHandle expand_variable_operator;
+  CounterHandle construct_named_path_operator;
+  CounterHandle filter_operator;
+  CounterHandle produce_operator;
+  CounterHandle delete_operator;
+  CounterHandle set_property_operator;
+  CounterHandle set_properties_operator;
+  CounterHandle set_labels_operator;
+  CounterHandle remove_property_operator;
+  CounterHandle remove_labels_operator;
+  CounterHandle edge_uniqueness_filter_operator;
+  CounterHandle empty_result_operator;
+  CounterHandle accumulate_operator;
+  CounterHandle aggregate_operator;
+  CounterHandle skip_operator;
+  CounterHandle limit_operator;
+  CounterHandle order_by_operator;
+  CounterHandle merge_operator;
+  CounterHandle optional_operator;
+  CounterHandle unwind_operator;
+  CounterHandle distinct_operator;
+  CounterHandle union_operator;
+  CounterHandle cartesian_operator;
+  CounterHandle call_procedure_operator;
+  CounterHandle foreach_operator;
+  CounterHandle evaluate_pattern_filter_operator;
+  CounterHandle apply_operator;
+  CounterHandle indexed_join_operator;
+  CounterHandle hash_join_operator;
+  CounterHandle roll_up_apply_operator;
+  CounterHandle periodic_commit_operator;
+  CounterHandle periodic_subquery_operator;
+  CounterHandle set_nested_property_operator;
+  CounterHandle remove_nested_property_operator;
 
   // Index
-  prometheus::Gauge *active_label_indices;
-  prometheus::Gauge *active_label_property_indices;
-  prometheus::Gauge *active_edge_type_indices;
-  prometheus::Gauge *active_edge_type_property_indices;
-  prometheus::Gauge *active_edge_property_indices;
-  prometheus::Gauge *active_point_indices;
-  prometheus::Gauge *active_text_indices;
-  prometheus::Gauge *active_text_edge_indices;
-  prometheus::Gauge *active_vector_indices;
-  prometheus::Gauge *active_vector_edge_indices;
+  GaugeHandle active_label_indices;
+  GaugeHandle active_label_property_indices;
+  GaugeHandle active_edge_type_indices;
+  GaugeHandle active_edge_type_property_indices;
+  GaugeHandle active_edge_property_indices;
+  GaugeHandle active_point_indices;
+  GaugeHandle active_text_indices;
+  GaugeHandle active_text_edge_indices;
+  GaugeHandle active_vector_indices;
+  GaugeHandle active_vector_edge_indices;
 
   // Constraint
-  prometheus::Gauge *active_existence_constraints;
-  prometheus::Gauge *active_unique_constraints;
-  prometheus::Gauge *active_type_constraints;
+  GaugeHandle active_existence_constraints;
+  GaugeHandle active_unique_constraints;
+  GaugeHandle active_type_constraints;
 
   // Stream
-  prometheus::Counter *streams_created;
-  prometheus::Counter *messages_consumed;
+  CounterHandle streams_created;
+  CounterHandle messages_consumed;
 
   // Trigger
-  prometheus::Counter *triggers_created;
-  prometheus::Counter *triggers_executed;
+  CounterHandle triggers_created;
+  CounterHandle triggers_executed;
 
   // Transaction
-  prometheus::Gauge *active_transactions;
-  prometheus::Counter *committed_transactions;
-  prometheus::Counter *rolled_back_transactions;
-  prometheus::Counter *failed_query;
-  prometheus::Counter *failed_prepare;
-  prometheus::Counter *failed_pull;
-  prometheus::Counter *successful_query;
-  prometheus::Counter *write_write_conflicts;
-  prometheus::Counter *transient_errors;
-  prometheus::Gauge *unreleased_delta_objects;
+  GaugeHandle active_transactions;
+  CounterHandle committed_transactions;
+  CounterHandle rolled_back_transactions;
+  CounterHandle failed_query;
+  CounterHandle failed_prepare;
+  CounterHandle failed_pull;
+  CounterHandle successful_query;
+  CounterHandle write_write_conflicts;
+  CounterHandle transient_errors;
+  GaugeHandle unreleased_delta_objects;
 
   // Query type
-  prometheus::Counter *read_query;
-  prometheus::Counter *write_query;
-  prometheus::Counter *read_write_query;
+  CounterHandle read_query;
+  CounterHandle write_query;
+  CounterHandle read_write_query;
 
   // TTL
-  prometheus::Counter *deleted_nodes;
-  prometheus::Counter *deleted_edges;
+  CounterHandle deleted_nodes;
+  CounterHandle deleted_edges;
 
   // SchemaInfo
-  prometheus::Counter *show_schema;
+  CounterHandle show_schema;
 
   // Histograms
-  prometheus::Histogram *query_execution_latency_seconds;
-  prometheus::Histogram *snapshot_creation_latency_seconds;
-  prometheus::Histogram *snapshot_recovery_latency_seconds;
-  prometheus::Histogram *gc_latency_seconds;
-  prometheus::Histogram *gc_skiplist_cleanup_latency_seconds;
+  HistogramHandle query_execution_latency_seconds;
+  HistogramHandle snapshot_creation_latency_seconds;
+  HistogramHandle snapshot_recovery_latency_seconds;
+  HistogramHandle gc_latency_seconds;
+  HistogramHandle gc_skiplist_cleanup_latency_seconds;
 };
 
 struct GlobalMetricHandles {
@@ -191,6 +248,14 @@ struct GlobalMetricHandles {
 
   // Memory
   prometheus::Gauge *peak_memory_res_bytes;
+
+  // Transaction (global) — incremented when no per-db context is available
+  prometheus::Counter *transient_errors;
+  prometheus::Counter *failed_query;
+  prometheus::Counter *failed_prepare;
+  prometheus::Counter *read_query;
+  prometheus::Counter *write_query;
+  prometheus::Counter *read_write_query;
 
   // HighAvailability counters
   prometheus::Counter *successful_failovers;
@@ -262,8 +327,8 @@ class PrometheusMetrics {
   PrometheusMetrics &operator=(PrometheusMetrics &&) = delete;
   ~PrometheusMetrics() = default;
 
-  DatabaseMetricHandles *AddDatabase(utils::UUID const &uuid, std::string_view name);
-  void RemoveDatabase(DatabaseMetricHandles const *handles);
+  DatabaseMetricHandles AddDatabase(utils::UUID const &uuid, std::string_view name);
+  void RemoveDatabase(utils::UUID const &uuid);
   void UpdateGauges();
 
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
@@ -307,7 +372,6 @@ class PrometheusMetrics {
     std::list<DatabaseEntry> entries;
   } databases_;
 
-  mutable std::mutex json_ha_metrics_delta_mutex_;
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
   StorageSnapshotResolver storage_snapshot_resolver_;
 #ifdef MG_ENTERPRISE
@@ -436,6 +500,8 @@ class PrometheusMetrics {
 
   // Global metric families — memory
   prometheus::Family<prometheus::Gauge> &peak_memory_res_family_;
+
+  // No separate global families needed — global no-db counters reuse the per-db families with no label
 
   // Global metric families — HA counters
   prometheus::Family<prometheus::Counter> &successful_failovers_family_;

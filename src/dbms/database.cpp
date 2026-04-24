@@ -70,6 +70,16 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                      db_arena_scope.reset();
                                    };
                                  }},
+      metrics_(config.salient.uuid,
+               ([&config]() -> metrics::DatabaseMetricHandles {
+                 auto const should_register =
+                     !(FLAGS_metrics_format == "OpenMetrics" &&
+                       flags::CoordinationSetupInstance().IsCoordinator());
+                 if (!should_register) {
+                   return {};
+                 }
+                 return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
+               })()),
       streams_(
           std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams", db_arena_.get())),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
@@ -83,21 +93,15 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     db_total_memory_tracker_.SetHardLimit(0);
   }
 
-  auto const should_register_database_metrics =
-      !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
-  if (should_register_database_metrics) {
-    metrics_.reset(metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str()));
-  }
-
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
     storage_ = std::make_unique<storage::DiskStorage>(
-        std::move(config), std::move(invalidator), metrics_.handles(), database_protector_factory, db_arena_.get(),
-        &db_embedding_memory_tracker_);
+        std::move(config), std::move(invalidator), metrics_.handles(), std::move(database_protector_factory),
+        db_arena_.get(), &db_embedding_memory_tracker_);
   } else {
     storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), metrics_.handles(),
-                                           database_protector_factory, db_arena_.get(),
+                                           std::move(database_protector_factory), db_arena_.get(),
                                            &db_embedding_memory_tracker_);
   }
 }
@@ -106,14 +110,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 // to forward declared types.
 Database::~Database() = default;
 
-Database::DatabaseMetricsRegistration::~DatabaseMetricsRegistration() {
-  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
-}
-
-void Database::DatabaseMetricsRegistration::reset(metrics::DatabaseMetricHandles *handles) {
-  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
-  handles_ = handles;
-}
+Database::DatabaseMetricsRegistration::~DatabaseMetricsRegistration() { metrics::Metrics().RemoveDatabase(uuid_); }
 
 memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
 
@@ -173,7 +170,7 @@ void Database::SwitchToOnDisk() {
   const memory::DbArenaScope db_arena_scope{this};
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(
       std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), metrics_.handles(),
-      preserved_factory, db_arena_.get(), &db_embedding_memory_tracker_);
+      std::move(preserved_factory), db_arena_.get(), &db_embedding_memory_tracker_);
 }
 
 }  // namespace memgraph::dbms

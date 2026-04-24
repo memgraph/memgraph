@@ -20,7 +20,7 @@
 namespace memgraph::storage {
 
 EdgeImportModeCache::EdgeImportModeCache(const Config &config)
-    : in_memory_indices_(Indices(config, StorageMode::IN_MEMORY_TRANSACTIONAL, nullptr)) {}
+    : in_memory_indices_(Indices(config, StorageMode::IN_MEMORY_TRANSACTIONAL, {}, {}, {}, {}, {})) {}
 
 InMemoryLabelIndex::Iterable EdgeImportModeCache::Vertices(LabelId label, View view, Storage *storage,
                                                            Transaction *transaction) const {

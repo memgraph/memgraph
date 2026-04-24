@@ -55,8 +55,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   };
 
  public:
-  explicit InMemoryEdgeTypeIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit InMemoryEdgeTypeIndex(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   class Iterable {
    public:
@@ -265,11 +264,10 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   void CleanupAllIndices();
   auto GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex>;
 
-  // Atomic install into index_ + (optional) all_indices_. Returns false if the slot
-  // is taken. Shared by RegisterIndex (true) and RestoreIndex (false).
   bool InstallIndividualIndex_(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> entry,
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
 
+  prometheus::Gauge *gauge_{nullptr};
   metrics::DatabaseMetricHandles *metric_handles_{nullptr};
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer const>()};

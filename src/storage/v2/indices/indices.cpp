@@ -139,11 +139,16 @@ Indices::Indices(const Config &config, StorageMode storage_mode,
       vector_edge_index_(db_embedding_memory_tracker) {
   std::invoke([this, config, storage_mode, metric_handles]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      label_index_ = std::make_unique<InMemoryLabelIndex>(metric_handles);
-      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(metric_handles);
-      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>(metric_handles);
-      edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>(metric_handles);
-      edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>(metric_handles);
+      label_index_ = std::make_unique<InMemoryLabelIndex>(
+          metric_handles ? metric_handles->active_label_indices.gauge : nullptr);
+      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(
+          metric_handles ? metric_handles->active_label_property_indices.gauge : nullptr);
+      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>(
+          metric_handles ? metric_handles->active_edge_type_indices.gauge : nullptr);
+      edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>(
+          metric_handles ? metric_handles->active_edge_type_property_indices.gauge : nullptr);
+      edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>(
+          metric_handles ? metric_handles->active_edge_property_indices.gauge : nullptr);
     } else {
       label_index_ = std::make_unique<DiskLabelIndex>(config);
       label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);

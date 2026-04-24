@@ -40,7 +40,7 @@ class DiskStorage final : public Storage {
  public:
   explicit DiskStorage(Config config = Config(),
                        PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
-                       metrics::DatabaseMetricHandles *metric_handles = nullptr,
+                       metrics::DatabaseMetricHandles metric_handles = {},
                        std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
                        memory::ArenaPool *db_arena_pool = nullptr,
                        utils::MemoryTracker *db_embedding_memory_tracker = nullptr);

@@ -62,8 +62,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   };
 
  public:
-  explicit InMemoryEdgePropertyIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit InMemoryEdgePropertyIndex(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   struct IndividualIndex {
     explicit IndividualIndex() : skip_list_{} {}
@@ -294,6 +293,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
   void CleanupAllIndicies();
 
+  prometheus::Gauge *gauge_{nullptr};
   metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{

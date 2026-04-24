@@ -47,8 +47,7 @@ class InMemoryLabelIndex : public LabelIndex {
   };
 
  public:
-  explicit InMemoryLabelIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit InMemoryLabelIndex(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   struct IndividualIndex {
     explicit IndividualIndex() : skiplist{} {}
@@ -250,12 +249,10 @@ class InMemoryLabelIndex : public LabelIndex {
   auto CleanupAllIndices() -> void;
   auto GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex>;
 
-  // Atomic install into index_ + (optional) all_indices_. Returns false if the slot
-  // is taken. Shared by RegisterIndex (true) and RestoreIndex (false).
   bool InstallIndividualIndex_(LabelId label, std::shared_ptr<IndividualIndex> entry,
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
 
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  prometheus::Gauge *gauge_{nullptr};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

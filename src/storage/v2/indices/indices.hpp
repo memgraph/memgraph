@@ -11,9 +11,9 @@
 
 #pragma once
 
+#include "metrics/prometheus_metrics.hpp"
 #include <memory>
 
-#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"

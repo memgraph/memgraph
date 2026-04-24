@@ -13,10 +13,6 @@
 
 #include <map>
 
-namespace memgraph::metrics {
-struct DatabaseMetricHandles;
-}  // namespace memgraph::metrics
-
 #include <vector>
 
 #include "storage/v2/edge_ref.hpp"

@@ -93,8 +93,7 @@ auto DiskUniqueConstraints::GetActiveConstraints() const -> std::shared_ptr<Uniq
   return std::make_shared<ActiveConstraints>(this);
 }
 
-DiskUniqueConstraints::DiskUniqueConstraints(const Config &config, metrics::DatabaseMetricHandles *metric_handles)
-    : metric_handles_{metric_handles} {
+DiskUniqueConstraints::DiskUniqueConstraints(const Config &config, prometheus::Gauge *gauge) : gauge_{gauge} {
   kvstore_ = std::make_unique<RocksDBStorage>();
   utils::EnsureDirOrDie(config.disk.unique_constraints_directory);
   kvstore_->options_.create_if_missing = true;
@@ -124,7 +123,7 @@ bool DiskUniqueConstraints::InsertConstraint(
     spdlog::error("rocksdb: {}", status.getState());
     return false;
   }
-  if (metric_handles_) metric_handles_->active_unique_constraints->Increment();
+  if (gauge_) gauge_->Increment();
   return true;
 }
 
@@ -301,7 +300,7 @@ DiskUniqueConstraints::DeletionStatus DiskUniqueConstraints::DropConstraint(Labe
     return drop_properties_check_result;
   }
   if (constraints_.erase({label, properties}) > 0) {
-    if (metric_handles_) metric_handles_->active_unique_constraints->Decrement();
+    if (gauge_) gauge_->Decrement();
     return UniqueConstraints::DeletionStatus::SUCCESS;
   }
   return UniqueConstraints::DeletionStatus::NOT_FOUND;

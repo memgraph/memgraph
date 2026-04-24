@@ -2007,7 +2007,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintValidationFailsThenT2Creates) {
 // Tests for constraint metrics
 TYPED_TEST(ConstraintsTest, ExistenceConstraintMetrics) {
   auto *handles = this->db_acc_->get()->metric_handles();
-  auto initial_count = handles->active_existence_constraints->Value();
+  auto initial_count = handles->active_existence_constraints.Value();
 
   // Create first existence constraint
   {
@@ -2016,7 +2016,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintMetrics) {
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_existence_constraints->Value(), initial_count + 1);
+  EXPECT_EQ(handles->active_existence_constraints.Value(), initial_count + 1);
 
   // Create second existence constraint
   {
@@ -2025,7 +2025,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintMetrics) {
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_existence_constraints->Value(), initial_count + 2);
+  EXPECT_EQ(handles->active_existence_constraints.Value(), initial_count + 2);
 
   // Drop first constraint
   {
@@ -2034,7 +2034,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintMetrics) {
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_existence_constraints->Value(), initial_count + 1);
+  EXPECT_EQ(handles->active_existence_constraints.Value(), initial_count + 1);
 
   // Drop second constraint
   {
@@ -2043,12 +2043,12 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintMetrics) {
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_existence_constraints->Value(), initial_count);
+  EXPECT_EQ(handles->active_existence_constraints.Value(), initial_count);
 }
 
 TYPED_TEST(ConstraintsTest, UniqueConstraintMetrics) {
   auto *handles = this->db_acc_->get()->metric_handles();
-  auto initial_count = handles->active_unique_constraints->Value();
+  auto initial_count = handles->active_unique_constraints.Value();
 
   // Create first unique constraint
   {
@@ -2058,7 +2058,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintMetrics) {
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_unique_constraints->Value(), initial_count + 1);
+  EXPECT_EQ(handles->active_unique_constraints.Value(), initial_count + 1);
 
   // Create second unique constraint
   {
@@ -2068,7 +2068,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintMetrics) {
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_unique_constraints->Value(), initial_count + 2);
+  EXPECT_EQ(handles->active_unique_constraints.Value(), initial_count + 2);
 
   // Drop first constraint
   {
@@ -2077,7 +2077,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintMetrics) {
     ASSERT_EQ(res, UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_unique_constraints->Value(), initial_count + 1);
+  EXPECT_EQ(handles->active_unique_constraints.Value(), initial_count + 1);
 
   // Drop second constraint
   {
@@ -2086,7 +2086,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintMetrics) {
     ASSERT_EQ(res, UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_unique_constraints->Value(), initial_count);
+  EXPECT_EQ(handles->active_unique_constraints.Value(), initial_count);
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
@@ -2095,7 +2095,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
   }
 
   auto *handles = this->db_acc_->get()->metric_handles();
-  auto initial_count = handles->active_type_constraints->Value();
+  auto initial_count = handles->active_type_constraints.Value();
 
   // Create first type constraint
   {
@@ -2104,7 +2104,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_type_constraints->Value(), initial_count + 1);
+  EXPECT_EQ(handles->active_type_constraints.Value(), initial_count + 1);
 
   // Create second type constraint
   {
@@ -2113,7 +2113,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_type_constraints->Value(), initial_count + 2);
+  EXPECT_EQ(handles->active_type_constraints.Value(), initial_count + 2);
 
   // Drop first constraint
   {
@@ -2122,7 +2122,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_type_constraints->Value(), initial_count + 1);
+  EXPECT_EQ(handles->active_type_constraints.Value(), initial_count + 1);
 
   // Drop second constraint
   {
@@ -2131,7 +2131,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_EQ(handles->active_type_constraints->Value(), initial_count);
+  EXPECT_EQ(handles->active_type_constraints.Value(), initial_count);
 }
 
 using memgraph::tests::ConstraintAcc;
