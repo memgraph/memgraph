@@ -270,22 +270,6 @@ auto VirtualGraphUnreachable(std::string_view fn) {
   std::unreachable();
 }
 
-// invoke real_op(wrap): wrap is identity for DbAccessor, SubgraphVertexAccessor-builder
-// for SubgraphDbAccessor. virtual arm throws; callers are guarded upstream by IsVirtual().
-template <typename RealOp>
-void WithRealVertexWrap(mgp_graph *graph, RealOp &&real_op) {
-  std::visit(
-      memgraph::utils::Overloaded{[&](memgraph::query::DbAccessor *) { real_op(std::identity{}); },
-                                  [&](memgraph::query::SubgraphDbAccessor *impl) {
-                                    real_op([impl](const auto &va) {
-                                      return memgraph::query::SubgraphVertexAccessor(va, impl->getGraph());
-                                    });
-                                  },
-                                  [](memgraph::query::VirtualGraphDbAccessor *) {
-                                    throw std::logic_error{"unreachable: real-vertex construction on a virtual graph"};
-                                  }},
-      graph->impl);
-}
 }  // namespace
 
 memgraph::query::DbAccessor *mgp_graph::getRealOnlyImpl(std::string_view fn_name) const {
@@ -2973,10 +2957,20 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory) {
 #endif
 
   if (rc.it != rc.edges.end()) {
-    WithRealVertexWrap(v->graph, [&rc, &it, v](auto wrap) {
-      auto edgeAcc = *rc.it;
-      it->current_e.emplace(edgeAcc, wrap(edgeAcc.From()), wrap(edgeAcc.To()), v->graph, it->GetMemoryResource());
-    });
+    const auto edgeAcc = *rc.it;
+    std::visit(memgraph::utils::Overloaded{
+                   [&](memgraph::query::DbAccessor *) {
+                     it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), v->graph, it->GetMemoryResource());
+                   },
+                   [&](memgraph::query::SubgraphDbAccessor *impl) {
+                     it->current_e.emplace(edgeAcc,
+                                           memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
+                                           memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
+                                           v->graph,
+                                           it->GetMemoryResource());
+                   },
+                   [](memgraph::query::VirtualGraphDbAccessor *) { std::unreachable(); }},
+               v->graph->impl);
   }
   return it.release();
 }
@@ -3025,14 +3019,26 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
                                   it->current_e = std::nullopt;
                                   return nullptr;
                                 }
-                                WithRealVertexWrap(it->source_vertex.graph, [it, &rc](auto wrap) {
-                                  const auto edgeAcc = *rc.it;
-                                  it->current_e.emplace(edgeAcc,
-                                                        wrap(edgeAcc.From()),
-                                                        wrap(edgeAcc.To()),
-                                                        it->source_vertex.graph,
-                                                        it->GetMemoryResource());
-                                });
+                                const auto edgeAcc = *rc.it;
+                                std::visit(
+                                    memgraph::utils::Overloaded{
+                                        [&](memgraph::query::DbAccessor *) {
+                                          it->current_e.emplace(edgeAcc,
+                                                                edgeAcc.From(),
+                                                                edgeAcc.To(),
+                                                                it->source_vertex.graph,
+                                                                it->GetMemoryResource());
+                                        },
+                                        [&](memgraph::query::SubgraphDbAccessor *impl) {
+                                          it->current_e.emplace(
+                                              edgeAcc,
+                                              memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
+                                              memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
+                                              it->source_vertex.graph,
+                                              it->GetMemoryResource());
+                                        },
+                                        [](memgraph::query::VirtualGraphDbAccessor *) { std::unreachable(); }},
+                                    it->source_vertex.graph->impl);
                                 return &*it->current_e;
                               },
                               [it](mgp_edges_iterator::VirtualCursor &vc) -> mgp_edge * {
@@ -4626,7 +4632,14 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
   }
 #endif
   if (rc.it != rc.vertices.end()) {
-    WithRealVertexWrap(graph, [this, graph, alloc, &rc](auto wrap) { current_v.emplace(wrap(*rc.it), graph, alloc); });
+    const auto va = *rc.it;
+    std::visit(memgraph::utils::Overloaded{
+                   [&](memgraph::query::DbAccessor *) { current_v.emplace(va, graph, alloc); },
+                   [&](memgraph::query::SubgraphDbAccessor *impl) {
+                     current_v.emplace(memgraph::query::SubgraphVertexAccessor(va, impl->getGraph()), graph, alloc);
+                   },
+                   [](memgraph::query::VirtualGraphDbAccessor *) { std::unreachable(); }},
+               graph->impl);
   }
 }
 
@@ -4698,9 +4711,19 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
                                   return nullptr;
                                 }
                                 memgraph::utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
-                                WithRealVertexWrap(it->graph, [it, &rc](auto wrap) {
-                                  it->current_v.emplace(wrap(*rc.it), it->graph, it->GetMemoryResource());
-                                });
+                                const auto va = *rc.it;
+                                std::visit(memgraph::utils::Overloaded{
+                                               [&](memgraph::query::DbAccessor *) {
+                                                 it->current_v.emplace(va, it->graph, it->GetMemoryResource());
+                                               },
+                                               [&](memgraph::query::SubgraphDbAccessor *impl) {
+                                                 it->current_v.emplace(
+                                                     memgraph::query::SubgraphVertexAccessor(va, impl->getGraph()),
+                                                     it->graph,
+                                                     it->GetMemoryResource());
+                                               },
+                                               [](memgraph::query::VirtualGraphDbAccessor *) { std::unreachable(); }},
+                                           it->graph->impl);
                                 clean_up.Disable();
                                 return &*it->current_v;
                               },
