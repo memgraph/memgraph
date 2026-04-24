@@ -134,3 +134,34 @@ Feature: Union
             """
         Then an error should be raised
 
+    Scenario: Union with limit on each branch
+        Given an empty graph
+        When executing query:
+            """
+            RETURN 1 AS x LIMIT 1 UNION RETURN 2 AS x LIMIT 1
+            """
+        Then the result should be:
+            | x |
+            | 1 |
+            | 2 |
+
+    Scenario: Union with limit deduplicates results
+        Given an empty graph
+        When executing query:
+            """
+            RETURN 1 AS x LIMIT 1 UNION RETURN 1 AS x LIMIT 1
+            """
+        Then the result should be:
+            | x |
+            | 1 |
+
+    Scenario: Union all with limit on each branch
+        Given an empty graph
+        When executing query:
+            """
+            RETURN 1 AS x LIMIT 1 UNION ALL RETURN 2 AS x LIMIT 1
+            """
+        Then the result should be:
+            | x |
+            | 1 |
+            | 2 |
