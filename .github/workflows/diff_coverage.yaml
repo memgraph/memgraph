@@ -112,16 +112,16 @@ jobs:
 
       - name: Build combined coverage binary with ASAN and UBSAN
         run: |
-          THREADS=$(./tools/ci/compute-build-threads.sh 5)
-          echo "Building with $THREADS threads"
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 5)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           --no-ccache \
           build-memgraph --coverage --asan --ubsan \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
