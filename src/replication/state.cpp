@@ -366,7 +366,7 @@ std::expected<ReplicationClient *, RegisterReplicaStatus> ReplicationState::Regi
     // name check
     auto name_check = [&config](auto const &replicas) {
       auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
-      return std::any_of(replicas.begin(), replicas.end(), name_matches);
+      return std::ranges::any_of(replicas, name_matches);
     };
     if (name_check(mainData.registered_replicas_)) {
       return RegisterReplicaStatus::NAME_EXISTS;
@@ -378,7 +378,7 @@ std::expected<ReplicationClient *, RegisterReplicaStatus> ReplicationState::Regi
         const auto &ep = replica.rpc_client_.Endpoint();
         return ep == config.repl_server_endpoint;
       };
-      return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
+      return std::ranges::any_of(replicas, endpoint_matches);
     };
     if (endpoint_check(mainData.registered_replicas_)) {
       return RegisterReplicaStatus::ENDPOINT_EXISTS;

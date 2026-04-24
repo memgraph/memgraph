@@ -373,7 +373,7 @@ integerLiteral : DecimalLiteral
 
 alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
 
-dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ;
+dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
 
 doubleLiteral : FloatingLiteral ;
 

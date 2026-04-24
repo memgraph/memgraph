@@ -27,8 +27,10 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -132,9 +134,11 @@ struct LabelPropertyOpInfo {
 
 struct LabelOrderedPropertiesOpInfo {
   friend bool operator==(const LabelOrderedPropertiesOpInfo &, const LabelOrderedPropertiesOpInfo &) = default;
-  using ctr_types = std::tuple<std::string, CompositePropertyPaths>;
+  using ctr_types =
+      std::tuple<std::string, CompositePropertyPaths, VersionDependant<kDescriptionAndDescIndexSupport, IndexOrder>>;
   std::string label;
   CompositePropertyPaths composite_property_paths;
+  std::optional<IndexOrder> order;  // std::nullopt for pre-v34 WALs, defaults to ASC
 };
 
 struct LabelUnorderedPropertiesOpInfo {

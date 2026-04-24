@@ -129,7 +129,7 @@
   "apoc.text.replace": "text.replace",
 
   "apoc.util.md5": "util_module.md5",
-  "apoc.util.validate": "mgps.validate",
+  "apoc.util.validate": "mgps_cpp.validate",
   "apoc.util.validatePredicate": "mgps.validate_predicate",
 
   "apoc.version": "mgps.version",

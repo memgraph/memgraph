@@ -73,6 +73,10 @@ class Memgraph(ConanFile):
         "nuraft/*:asio": "standalone",
         "rocksdb/*:with_gflags": True,
         "rocksdb/*:use_rtti": True,
+        # Disable io_uring async I/O path in rocksdb's POSIX env. Avoids
+        # pulling liburing into the static link; flip to True (pulls
+        # liburing via Conan) to opt back in.
+        "rocksdb/*:with_liburing": False,
     }
 
     def requirements(self):
@@ -122,13 +126,14 @@ class Memgraph(ConanFile):
     def build_requirements(self):
         self.tool_requires("cmake/[>=4 <5]")
         self.tool_requires("ninja/[>=1.13 <2]")
-        self.tool_requires("ccache/[>=4.12 <5]")
+        self.tool_requires("ccache/4.12.3-memgraph")
         self.tool_requires("antlr4/4.13.1")
 
         self.test_requires("benchmark/[>=1.9 <2]")
         # force=True overrides older gtest pinned by transitive dependencies
         self.test_requires("gtest/[>=1.17 <2]", force=True)
         self.test_requires("rapidcheck/cci.20231215")
+        self.test_requires("approvaltests.cpp/10.13.0")
 
     def validate(self):
         """Validate configuration before generation"""

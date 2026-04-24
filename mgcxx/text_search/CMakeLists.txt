@@ -40,13 +40,27 @@ set(MGCXX_TEXT_SEARCH_RUST_CXX      "${CMAKE_CURRENT_BINARY_DIR}/cxx.hpp")
 # This is critical when using add_subdirectory instead of ExternalProject
 set_source_files_properties("${MGCXX_TEXT_SEARCH_RUST_LIB}" PROPERTIES GENERATED TRUE)
 
+# Join the RUSTFLAGS cmake list into a single space-separated string so it
+# becomes one RUSTFLAGS=... env assignment under `cmake -E env` below.
+string(JOIN " " MGCXX_TEXT_SEARCH_RUST_FLAGS_JOINED ${MGCXX_TEXT_SEARCH_RUST_FLAGS})
+
 add_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_RUST_CPP})
 # The custom command builds the C++ bridge files, Rust library, and copies the header
 # We list all outputs so CMake knows they will be generated
 set(TEXT_SEARCH_HPP_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/text_search.hpp")
 add_custom_command(
   OUTPUT ${MGCXX_TEXT_SEARCH_RUST_CPP} ${MGCXX_TEXT_SEARCH_RUST_LIB} ${TEXT_SEARCH_HPP_OUTPUT}
-  COMMAND CARGO_TARGET_DIR=${CMAKE_CURRENT_BINARY_DIR} RUSTFLAGS="${MGCXX_TEXT_SEARCH_RUST_FLAGS}" ${CARGO_CMD}
+  # Unset CFLAGS/CXXFLAGS around the cargo call so flags meaningful only to
+  # clang (notably -ftime-trace used for build-time profiling) don't leak
+  # into cargo's internal cc-rs invocations and break the Rust build. The
+  # --unset= form (vs. the shell prefix "CFLAGS= CXXFLAGS= ...") is portable
+  # across generators and doesn't rely on ninja wrapping COMMAND in /bin/sh.
+  COMMAND ${CMAKE_COMMAND} -E env
+          --unset=CFLAGS
+          --unset=CXXFLAGS
+          CARGO_TARGET_DIR=${CMAKE_CURRENT_BINARY_DIR}
+          RUSTFLAGS=${MGCXX_TEXT_SEARCH_RUST_FLAGS_JOINED}
+          ${CARGO_CMD}
   COMMAND cp ${MGCXX_TEXT_SEARCH_BRIDGE_CC} ${MGCXX_TEXT_SEARCH_RUST_CPP}
   COMMAND cp ${MGCXX_TEXT_SEARCH_BRIDGE_H} ${MGCXX_TEXT_SEARCH_RUST_HPP}
   COMMAND cp ${MGCXX_TEXT_SEARCH_BRIDGE_CXX} ${MGCXX_TEXT_SEARCH_RUST_CXX}

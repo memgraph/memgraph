@@ -208,13 +208,14 @@ class InMemoryStorage final : public Storage {
     VerticesIterable Vertices(LabelId label, View view) override;
 
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
-                              std::span<storage::PropertyValueRange const> property_ranges, View view) override;
+                              std::span<storage::PropertyValueRange const> property_ranges, View view,
+                              IndexOrder order) override;
 
     VerticesChunkedIterable ChunkedVertices(View view, size_t num_chunks) override;
     VerticesChunkedIterable ChunkedVertices(LabelId label, View view, size_t num_chunks) override;
     VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                             std::span<storage::PropertyValueRange const> property_ranges, View view,
-                                            size_t num_chunks) override;
+                                            size_t num_chunks, IndexOrder order) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
@@ -327,23 +328,23 @@ class InMemoryStorage final : public Storage {
     }
 
     std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
-      return storage_->indices_.point_index_.ApproximatePointCount(label, property);
+      return transaction_.active_indices_->point_->ApproximatePointCount(label, property);
     }
 
     std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {
-      return storage_->indices_.vector_index_.ApproximateNodesVectorCount(label, property);
+      return transaction_.active_indices_->vector_->ApproximateNodesVectorCount(label, property);
     }
 
     std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override {
-      return storage_->indices_.vector_edge_index_.ApproximateEdgesVectorCount(edge_type, property);
+      return transaction_.active_indices_->vector_edge_->ApproximateEdgesVectorCount(edge_type, property);
     }
 
     std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const override {
-      return storage_->indices_.text_index_.ApproximateVerticesTextCount(index_name);
+      return transaction_.active_indices_->text_->ApproximateVerticesTextCount(index_name);
     }
 
     std::optional<uint64_t> ApproximateEdgesTextCount(std::string_view index_name) const override {
-      return storage_->indices_.text_edge_index_.ApproximateEdgesTextCount(index_name);
+      return transaction_.active_indices_->text_edge_->ApproximateEdgesTextCount(index_name);
     }
 
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const override {
@@ -453,6 +454,7 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
+                                                                 IndexOrder order,
                                                                  CheckCancelFunction cancel_check) override;
 
     /// Create an index.
@@ -489,8 +491,9 @@ class InMemoryStorage final : public Storage {
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `IndexDefinitionError`: the index does not exist.
-    std::expected<void, StorageIndexDefinitionError> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                               std::vector<storage::PropertyPath> &&properties,
+                                                               std::optional<IndexOrder> order = std::nullopt) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.

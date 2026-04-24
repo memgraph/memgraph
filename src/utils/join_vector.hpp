@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #pragma once
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -19,9 +20,9 @@ namespace memgraph::utils {
 template <typename T>
 std::string JoinVector(const std::vector<T> &vec, const std::string &separator) {
   std::ostringstream oss;
-  for (size_t i = 0; i < vec.size(); ++i) {
-    oss << vec[i];
-    if (i != vec.size() - 1) oss << separator;
+  for (auto const &[i, v] : vec | std::views::enumerate) {
+    if (i > 0) oss << separator;
+    oss << v;
   }
   return oss.str();
 }

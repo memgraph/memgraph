@@ -281,7 +281,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     for (const auto &item : info.label) {
       label_indices.insert({dba->LabelToName(item)});
     }
-    for (const auto &[label, properties] : info.label_properties) {
+    for (const auto &[label, properties, order] : info.label_properties) {
       using namespace std::string_literals;
       auto properties_as_strings =
           properties | rv::transform([&](auto &&path) { return ToString(path, dba.get()); }) | r::to_vector;
@@ -445,7 +445,7 @@ class DumpTest : public ::testing::Test {
                                               nullptr,
                                               nullptr,
                                               nullptr,
-                                              repl_state,
+                                              &repl_state,
                                               system_state,
                                               nullptr
 #ifdef MG_ENTERPRISE
@@ -1284,7 +1284,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
                                                           nullptr,
                                                           nullptr,
                                                           nullptr,
-                                                          repl_state,
+                                                          &repl_state,
                                                           system_state,
                                                           nullptr
 #ifdef MG_ENTERPRISE
@@ -1492,7 +1492,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                                                           nullptr,
                                                           nullptr,
                                                           nullptr,
-                                                          repl_state,
+                                                          &repl_state,
                                                           system_state,
                                                           nullptr
 #ifdef MG_ENTERPRISE

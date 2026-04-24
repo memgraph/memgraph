@@ -106,7 +106,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   };
 
   /// Creates an ActiveConstraints snapshot for transaction use.
-  auto GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> override;
+  auto GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> override;
 
   /// Creates unique constraint on the given `label` and a list of `properties`.
   /// Returns constraint violation if there are multiple vertices with the same

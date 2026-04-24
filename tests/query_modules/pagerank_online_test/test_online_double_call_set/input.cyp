@@ -11,4 +11,4 @@ queries:
 
 cleanup: |-
     CALL pagerank_online.reset() YIELD *;
-    CALL mg.load('pagerank_online') YIELD *;
+    CALL mg.load('pagerank_online');

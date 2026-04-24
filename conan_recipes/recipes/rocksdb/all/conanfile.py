@@ -32,6 +32,7 @@ class RocksDBConan(ConanFile):
         "with_tbb": [True, False],
         "with_folly": [True, False],
         "with_jemalloc": [True, False],
+        "with_liburing": [True, False],
         "enable_sse": [False, "sse42", "avx2"],
         "use_rtti": [True, False],
     }
@@ -46,6 +47,7 @@ class RocksDBConan(ConanFile):
         "with_tbb": False,
         "with_jemalloc": False,
         "with_folly": False,
+        "with_liburing": True,
         "enable_sse": False,
         "use_rtti": False,
     }
@@ -60,6 +62,10 @@ class RocksDBConan(ConanFile):
             del self.options.with_tbb
         if self.settings.build_type == "Debug":
             self.options.use_rtti = True  # Rtti are used in asserts for debug mode...
+        # liburing is a Linux-only kernel io_uring wrapper; upstream auto-detects
+        # it on Linux and leaves it undefined elsewhere.
+        if self.settings.os not in ["Linux", "FreeBSD"]:
+            del self.options.with_liburing
 
     def configure(self):
         if self.options.shared:
@@ -85,6 +91,10 @@ class RocksDBConan(ConanFile):
             self.requires("jemalloc/5.3.0")
         if self.options.with_folly:
             self.requires("folly/2024.08.12.00")
+        if self.options.get_safe("with_liburing"):
+            # Conan-provided liburing avoids relying on a system liburing-dev; also
+            # keeps the ROCKSDB_IOURING_PRESENT build bit deterministic across hosts.
+            self.requires("liburing/2.13")
 
     def validate(self):
         check_min_cppstd(self, 17)
@@ -128,6 +138,7 @@ class RocksDBConan(ConanFile):
         tc.variables["WITH_ZSTD"] = self.options.with_zstd
         tc.variables["WITH_TBB"] = self.options.get_safe("with_tbb", False)
         tc.variables["WITH_JEMALLOC"] = self.options.with_jemalloc
+        tc.variables["WITH_LIBURING"] = self.options.get_safe("with_liburing", False)
 
         tc.variables["ROCKSDB_BUILD_SHARED"] = self.options.shared
         tc.variables["ROCKSDB_LIBRARY_EXPORTS"] = self.settings.os == "Windows" and self.options.shared
@@ -190,6 +201,10 @@ class RocksDBConan(ConanFile):
                 self.cpp_info.components["librocksdb"].defines = ["ROCKSDB_DLL"]
         elif self.settings.os in ["Linux", "FreeBSD"]:
             self.cpp_info.components["librocksdb"].system_libs = ["pthread", "m"]
+            # rocksdb builds io_posix against liburing when WITH_LIBURING=ON; propagate
+            # the Conan-provided dep so consumers linking static librocksdb.a pull it in.
+            if self.options.get_safe("with_liburing"):
+                self.cpp_info.components["librocksdb"].requires.append("liburing::liburing")
         if self.options.with_gflags:
             self.cpp_info.components["librocksdb"].requires.append("gflags::gflags")
         if self.options.with_snappy:

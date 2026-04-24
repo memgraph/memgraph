@@ -49,7 +49,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
                                 nullptr,
                                 nullptr,
                                 nullptr,
-                                repl_state.value(),
+                                &repl_state.value(),
                                 *system,
                                 nullptr
 #ifdef MG_ENTERPRISE

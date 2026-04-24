@@ -127,8 +127,6 @@ struct Config {
 
   bool track_label_counts{false};
 
-  bool is_coordinator{false};  // PER INSTANCE - when true, snapshot handler is not wired up
-
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };
 

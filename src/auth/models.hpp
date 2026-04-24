@@ -91,19 +91,15 @@ enum class FineGrainedPermission : uint64_t {
 // clang-format on
 
 constexpr FineGrainedPermission operator|(FineGrainedPermission lhs, FineGrainedPermission rhs) {
-  return static_cast<FineGrainedPermission>(std::underlying_type_t<FineGrainedPermission>(lhs) |
-                                            std::underlying_type_t<FineGrainedPermission>(rhs));
+  return static_cast<FineGrainedPermission>(std::to_underlying(lhs) | std::to_underlying(rhs));
 }
 
-constexpr uint64_t operator|(uint64_t lhs, FineGrainedPermission rhs) { return lhs | static_cast<uint64_t>(rhs); }
+constexpr uint64_t operator|(uint64_t lhs, FineGrainedPermission rhs) { return lhs | std::to_underlying(rhs); }
 
-constexpr uint64_t operator&(uint64_t lhs, FineGrainedPermission rhs) {
-  return (lhs & static_cast<uint64_t>(rhs)) != 0;
-}
+constexpr uint64_t operator&(uint64_t lhs, FineGrainedPermission rhs) { return (lhs & std::to_underlying(rhs)) != 0; }
 
 constexpr FineGrainedPermission operator&(FineGrainedPermission lhs, FineGrainedPermission rhs) {
-  return static_cast<FineGrainedPermission>(std::underlying_type_t<FineGrainedPermission>(lhs) &
-                                            std::underlying_type_t<FineGrainedPermission>(rhs));
+  return static_cast<FineGrainedPermission>(std::to_underlying(lhs) & std::to_underlying(rhs));
 }
 
 constexpr FineGrainedPermission &operator|=(FineGrainedPermission &lhs, FineGrainedPermission rhs) {
@@ -112,7 +108,7 @@ constexpr FineGrainedPermission &operator|=(FineGrainedPermission &lhs, FineGrai
 }
 
 constexpr FineGrainedPermission operator~(FineGrainedPermission permission) {
-  return static_cast<FineGrainedPermission>(~static_cast<std::underlying_type_t<FineGrainedPermission>>(permission));
+  return static_cast<FineGrainedPermission>(~std::to_underlying(permission));
 }
 
 constexpr FineGrainedPermission kAllLabelPermissions =
@@ -257,8 +253,7 @@ class UserImpersonation {
   }
 
   std::optional<std::set<UserId>::iterator> find_denied(std::string_view username) const {
-    auto res =
-        std::find_if(denied_.begin(), denied_.end(), [username](const auto &elem) { return elem.name == username; });
+    auto res = std::ranges::find_if(denied_, [username](const auto &elem) { return elem.name == username; });
     if (res == denied_.end()) return {};
     return res;
   }
@@ -674,10 +669,10 @@ class Roles {
   }
 
 #ifdef MG_ENTERPRISE
-  const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions(
+  FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
 
-  const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions(
+  FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
 
   // No way to define a higher priority database, so we return the first one

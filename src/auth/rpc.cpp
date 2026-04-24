@@ -74,8 +74,7 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&db_role_map, reader);
   for (const auto &[db, role_names] : db_role_map) {
     for (const auto &role : role_names) {
-      if (auto role_it =
-              std::find_if(roles.begin(), roles.end(), [&role](const auto &r) { return r.rolename() == role; });
+      if (auto role_it = std::ranges::find_if(roles, [&role](const auto &r) { return r.rolename() == role; });
           role_it != roles.end()) {
         self->AddMultiTenantRole(*role_it, db);
       }

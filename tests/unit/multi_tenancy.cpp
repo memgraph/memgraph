@@ -119,7 +119,7 @@ class MultiTenantTest : public ::testing::Test {
                               &settings,
                               &parameters,
                               &dbms,
-                              repl_state,
+                              &repl_state,
                               system,
                               nullptr
 #ifdef MG_ENTERPRISE

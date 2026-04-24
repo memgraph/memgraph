@@ -11,6 +11,9 @@
 
 #include "storage/v2/storage_error.hpp"
 
+#include <iterator>
+#include <ranges>
+
 namespace memgraph::storage {
 
 auto ReplicaFailureReasonToString(ReplicaFailureReason reason) -> std::string {
@@ -62,9 +65,9 @@ auto FormatReplicationError(ReplicationError const &error) -> std::string {
       msg += fmt::format("Failed to replicate to {} replica '{}': {}.", key.mode, names[0], key.reason);
     } else {
       std::string joined;
-      for (size_t i = 0; i < names.size(); ++i) {
-        if (i > 0) joined += (i == names.size() - 1) ? " and " : ", ";
-        joined += fmt::format("'{}'", names[i]);
+      for (auto const &[i, name] : names | std::views::enumerate) {
+        if (i > 0) joined += (i + 1 == std::ssize(names)) ? " and " : ", ";
+        joined += fmt::format("'{}'", name);
       }
       auto plural_reason = key.reason;
       if (plural_reason.starts_with("replica is")) {
@@ -84,9 +87,9 @@ auto FormatReplicationError(ReplicationError const &error) -> std::string {
 
   if (has_timeout) {
     std::string timed_out_joined;
-    for (size_t i = 0; i < timed_out_names.size(); ++i) {
+    for (auto const &[i, name] : timed_out_names | std::views::enumerate) {
       if (i > 0) timed_out_joined += ", ";
-      timed_out_joined += timed_out_names[i];
+      timed_out_joined += name;
     }
     msg += fmt::format(
         " Main reached an RPC timeout while replicating to [{}]."

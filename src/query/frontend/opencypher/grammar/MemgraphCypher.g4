@@ -782,7 +782,7 @@ edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
 propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
 
-createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList?
+createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )?
             | CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
             ;
 

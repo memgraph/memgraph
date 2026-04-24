@@ -1223,15 +1223,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         }
       }
 
-      filters.erase(std::remove_if(filters.begin(),
-                                   filters.end(),
-                                   [&inner_symbols](FilterInfo &fi) {
-                                     for (const auto &symbol : inner_symbols) {
-                                       if (fi.used_symbols.contains(symbol)) return true;
-                                     }
-                                     return false;
-                                   }),
-                    filters.end());
+      auto [rem_begin, rem_end] = std::ranges::remove_if(filters, [&inner_symbols](FilterInfo &fi) {
+        return std::ranges::any_of(inner_symbols, [&](auto const &symbol) { return fi.used_symbols.contains(symbol); });
+      });
+      filters.erase(rem_begin, rem_end);
 
       // Unbind the temporarily bound inner symbols for filtering.
       bound_symbols.erase(filter_lambda.inner_edge_symbol);
