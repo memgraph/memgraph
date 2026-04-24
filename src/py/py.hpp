@@ -76,7 +76,7 @@ class [[nodiscard]] Object final {
   static Object FromBorrow(PyObject *ptr) noexcept {
     if (ptr && !Py_IsFinalizing()) {
       EnsureGIL gil;
-      if (!Py_IsFinalizing()) Py_INCREF(ptr);
+      Py_INCREF(ptr);
     }
     return Object(ptr);
   }
