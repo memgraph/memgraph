@@ -32,7 +32,10 @@ function(mg_split_debug target)
     endif()
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
-        COMMAND ${CMAKE_OBJCOPY} --strip-debug     $<TARGET_FILE:${target}>
+        # --strip-all drops .symtab/.strtab on top of DWARF, matching old Release size.
+        # Switch to --strip-debug for ~20-25% larger binaries that produce nicer
+        # stack traces when the .debug sidecar is unavailable.
+        COMMAND ${CMAKE_OBJCOPY} --strip-all       $<TARGET_FILE:${target}>
         COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE_NAME:${target}>.debug $<TARGET_FILE:${target}>
         WORKING_DIRECTORY $<TARGET_FILE_DIR:${target}>
         COMMENT "Splitting debug info for ${target}")
