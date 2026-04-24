@@ -25,9 +25,9 @@ struct ActiveIndicesUpdater {
   void operator()(std::shared_ptr<EdgePropertyIndexActiveIndices> const &x) const;
   void operator()(std::shared_ptr<TextIndexActiveIndices> const &x) const;
   void operator()(std::shared_ptr<TextEdgeIndexActiveIndices> const &x) const;
-  void operator()(std::shared_ptr<PointIndexActiveIndices const> const &x) const;
-  void operator()(std::shared_ptr<VectorIndexActiveIndices const> const &x) const;
-  void operator()(std::shared_ptr<VectorEdgeIndexActiveIndices const> const &x) const;
+  void operator()(std::shared_ptr<PointIndexActiveIndices> const &x) const;
+  void operator()(std::shared_ptr<VectorIndexActiveIndices> const &x) const;
+  void operator()(std::shared_ptr<VectorEdgeIndexActiveIndices> const &x) const;
 
  private:
   ActiveIndicesStore &active_indices_;

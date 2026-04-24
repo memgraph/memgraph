@@ -55,15 +55,15 @@ void ActiveIndicesUpdater::operator()(std::shared_ptr<TextEdgeIndexActiveIndices
   Publish<&ActiveIndices::text_edge_>(active_indices_, x);
 }
 
-void ActiveIndicesUpdater::operator()(std::shared_ptr<PointIndexActiveIndices const> const &x) const {
+void ActiveIndicesUpdater::operator()(std::shared_ptr<PointIndexActiveIndices> const &x) const {
   Publish<&ActiveIndices::point_>(active_indices_, x);
 }
 
-void ActiveIndicesUpdater::operator()(std::shared_ptr<VectorIndexActiveIndices const> const &x) const {
+void ActiveIndicesUpdater::operator()(std::shared_ptr<VectorIndexActiveIndices> const &x) const {
   Publish<&ActiveIndices::vector_>(active_indices_, x);
 }
 
-void ActiveIndicesUpdater::operator()(std::shared_ptr<VectorEdgeIndexActiveIndices const> const &x) const {
+void ActiveIndicesUpdater::operator()(std::shared_ptr<VectorEdgeIndexActiveIndices> const &x) const {
   Publish<&ActiveIndices::vector_edge_>(active_indices_, x);
 }
 

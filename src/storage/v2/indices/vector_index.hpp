@@ -194,8 +194,8 @@ class VectorIndex {
   VectorIndex &operator=(VectorIndex &&) noexcept = default;
 
   /// Returns the current active indices snapshot for use in transactions.
-  auto GetActiveIndices() const -> std::shared_ptr<VectorIndexActiveIndices const> {
-    return std::make_shared<ActiveIndices const>(index_);
+  auto GetActiveIndices() const -> std::shared_ptr<VectorIndexActiveIndices> {
+    return std::make_shared<ActiveIndices>(index_);
   }
 
   /// Publishes the current index container as the new ActiveIndices snapshot.

@@ -130,8 +130,8 @@ struct PointIndexStorage {
   auto CreatePointIndexContext() const -> PointIndexContext { return PointIndexContext{indexes_}; }
 
   /// Returns the current active indices snapshot for use in transactions.
-  auto GetActiveIndices() -> std::shared_ptr<PointIndexActiveIndices const> {
-    return std::make_shared<ActiveIndices const>(indexes_);
+  auto GetActiveIndices() -> std::shared_ptr<PointIndexActiveIndices> {
+    return std::make_shared<ActiveIndices>(indexes_);
   }
 
   // Commit
