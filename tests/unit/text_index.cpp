@@ -269,3 +269,36 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
     EXPECT_EQ(all_results.size(), 3);
   }
 }
+
+TEST_F(TextIndexTest, CreateTextIndexAbortLeavesNoGhostEntry) {
+  {
+    auto acc = this->storage->UniqueAccess();
+    auto const label = acc->NameToLabel(test_label.data());
+    ASSERT_TRUE(acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}}).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->storage->UniqueAccess();
+    auto const label = acc->NameToLabel(test_label.data());
+    ASSERT_TRUE(acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}}).has_value())
+        << "Retry CreateTextIndex after aborted create must succeed; aborted create left a ghost.";
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TEST_F(TextIndexTest, DropTextIndexAbortRestoresIndex) {
+  this->CreateIndex();
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropTextIndex(test_index.data()).has_value());
+    acc->Abort();
+  }
+  {
+    // Retry DROP must succeed — the aborted drop should have re-installed
+    // the entry so it's visible and droppable again.
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropTextIndex(test_index.data()).has_value())
+        << "After an aborted DROP, the text index must be visible again and droppable.";
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}

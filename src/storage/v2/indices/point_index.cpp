@@ -181,6 +181,21 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, uti
   return true;
 }
 
+std::shared_ptr<PointIndex const> PointIndexStorage::GetPointIndex(LabelId label, PropertyId property) const {
+  auto it = indexes_->find(LabelPropKey{label, property});
+  if (it == indexes_->end()) return nullptr;
+  return it->second;
+}
+
+void PointIndexStorage::RestorePointIndex(LabelId label, PropertyId property, std::shared_ptr<PointIndex const> index) {
+  if (!index) return;
+  auto key = LabelPropKey{label, property};
+  if (indexes_->contains(key)) return;
+  auto new_indexes = std::make_shared<index_container_t>(*indexes_);
+  new_indexes->emplace(key, std::move(index));
+  indexes_ = std::move(new_indexes);
+}
+
 bool PointIndexStorage::DropPointIndex(LabelId label, PropertyId property) {
   auto key = LabelPropKey{label, property};
   if (!indexes_->contains(key)) return false;

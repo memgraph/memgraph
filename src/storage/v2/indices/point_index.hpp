@@ -116,6 +116,16 @@ struct PointIndexStorage {
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   bool DropPointIndex(LabelId label, PropertyId property);
 
+  /// Retrieves the live PointIndex for (label, property) without mutating the
+  /// owner. Used by abort rollback of DROP to capture the entry before the
+  /// drop so it can be re-inserted if the txn aborts.
+  std::shared_ptr<PointIndex const> GetPointIndex(LabelId label, PropertyId property) const;
+
+  /// Re-installs an entry previously captured via GetPointIndex. Used by abort
+  /// rollback of DROP POINT INDEX. No-op if a re-created entry with the same
+  /// key already exists.
+  void RestorePointIndex(LabelId label, PropertyId property, std::shared_ptr<PointIndex const> index);
+
   // Transaction (establish what to collect + able to build next index)
   auto CreatePointIndexContext() const -> PointIndexContext { return PointIndexContext{indexes_}; }
 

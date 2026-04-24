@@ -4642,3 +4642,133 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransa
                 IsEmpty());
   }
 }
+
+TYPED_TEST(IndexTest, LabelIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1).has_value());
+    acc->Abort();
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_FALSE(acc->LabelIndexReady(this->label1));
+    EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1).has_value())
+        << "Retry CreateIndex after aborted CreateIndex must succeed; aborted Register left a ghost.";
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TYPED_TEST(IndexTest, LabelPropertyIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  PropertyPath props{this->prop_val};
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1, {props}).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1, {props}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TYPED_TEST(IndexTest, EdgeTypeIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->edge_type_id1).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->edge_type_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TYPED_TEST(IndexTest, PointIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreatePointIndex(this->label1, this->prop_val).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreatePointIndex(this->label1, this->prop_val).has_value())
+        << "Retry CreatePointIndex after aborted create must succeed; aborted create left a ghost.";
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TYPED_TEST(IndexTest, DropPointIndexAbortRestoresIndex) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreatePointIndex(this->label1, this->prop_val).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropPointIndex(this->label1, this->prop_val).has_value());
+    acc->Abort();
+  }
+  {
+    // Retry DROP must succeed — abort should have re-installed the entry.
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropPointIndex(this->label1, this->prop_val).has_value())
+        << "After an aborted DROP POINT INDEX, the index must be visible again and droppable.";
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TYPED_TEST(IndexTest, EdgePropertyIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}

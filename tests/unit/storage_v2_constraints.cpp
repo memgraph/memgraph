@@ -2125,3 +2125,59 @@ TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
   }
   EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints), initial_count);
 }
+
+TYPED_TEST(ConstraintsTest, ExistenceConstraintAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->CreateConstraintAccessor();
+    ASSERT_TRUE(acc->CreateExistenceConstraint(this->label1, this->prop1).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->CreateConstraintAccessor();
+    ASSERT_TRUE(acc->CreateExistenceConstraint(this->label1, this->prop1).has_value())
+        << "Retry CreateExistenceConstraint after aborted create must succeed; aborted Register left a ghost.";
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TYPED_TEST(ConstraintsTest, UniqueConstraintAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  std::set<PropertyId> const properties{this->prop1};
+  {
+    auto acc = this->CreateConstraintAccessor();
+    auto res = acc->CreateUniqueConstraint(this->label1, properties);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    acc->Abort();
+  }
+  {
+    auto acc = this->CreateConstraintAccessor();
+    auto res = acc->CreateUniqueConstraint(this->label1, properties);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS)
+        << "Retry CreateUniqueConstraint after aborted create must succeed; aborted Register left a ghost.";
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TYPED_TEST(ConstraintsTest, TypeConstraintAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->CreateConstraintAccessor();
+    ASSERT_TRUE(acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->CreateConstraintAccessor();
+    ASSERT_TRUE(acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER).has_value())
+        << "Retry CreateTypeConstraint after aborted create must succeed; aborted Register left a ghost.";
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}

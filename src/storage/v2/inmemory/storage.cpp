@@ -1202,6 +1202,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
   // Call other callbacks that publish/install upon commit
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
+  // Commit succeeded — DDL rollback hooks are no longer needed; discard so
+  // they don't fire if a later Abort() is invoked on this accessor.
+  transaction_.abort_callbacks_.Clear();
 
   // Dispatch to another async work to create requested auto-indexes in their own transaction
   if (mem_storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
@@ -1696,6 +1699,12 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
   }
 
+  // Roll back eager DDL owner-side mutations (POPULATING entries installed
+  // by RegisterIndex / RegisterConstraint). Runs after data-delta rollback
+  // so unregister sees a consistent state. No-op if the commit phase ran
+  // (commit_callbacks_ clears abort_callbacks_ on success).
+  transaction_.abort_callbacks_.RunAll();
+
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   is_transaction_active_ = false;
 }
@@ -1779,6 +1788,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       [=](uint64_t commit_timestamp) { return mem_label_index->PublishIndex(label, commit_timestamp); });
 
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add(
+      [mem_label_index, label, updater]() { mem_label_index->UnregisterIndex(label, updater); });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1817,6 +1828,9 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
     return mem_label_property_index->PublishIndex(label, properties, commit_timestamp, order);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([mem_label_property_index, label, properties, updater, order]() {
+    mem_label_property_index->UnregisterIndex(label, properties, updater, order);
+  });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties), order);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1851,6 +1865,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
       [=](uint64_t commit_timestamp) { return mem_edge_type_index->PublishIndex(edge_type, commit_timestamp); });
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add(
+      [mem_edge_type_index, edge_type, updater]() { mem_edge_type_index->UnregisterIndex(edge_type, updater); });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_create, edge_type);
   return {};
@@ -1890,6 +1906,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     return mem_edge_type_property_index->PublishIndex(edge_type, property, commit_timestamp);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([mem_edge_type_property_index, edge_type, property, updater]() {
+    mem_edge_type_property_index->UnregisterIndex(edge_type, property, updater);
+  });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_create, edge_type, property);
   return {};
@@ -1922,6 +1941,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
       [=](uint64_t commit_timestamp) { return mem_edge_property_index->PublishIndex(property, commit_timestamp); });
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add(
+      [mem_edge_property_index, property, updater]() { mem_edge_property_index->UnregisterIndex(property, updater); });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
   return {};
@@ -2061,6 +2082,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     point_index.PublishActiveIndices(updater);
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
   });
+  transaction_.abort_callbacks_.Add([&point_index, label, property, updater]() {
+    if (point_index.DropPointIndex(label, property)) {
+      point_index.PublishActiveIndices(updater);
+    }
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
   return {};
 }
@@ -2070,6 +2096,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE, "Dropping point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
+  auto evicted = point_index.GetPointIndex(label, property);
   if (!point_index.DropPointIndex(label, property)) {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -2078,6 +2105,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   transaction_.commit_callbacks_.Add([&point_index, updater](uint64_t /*commit_ts*/) {
     point_index.PublishActiveIndices(updater);
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
+  });
+  transaction_.abort_callbacks_.Add([&point_index, label, property, updater, evicted = std::move(evicted)]() mutable {
+    point_index.RestorePointIndex(label, property, std::move(evicted));
+    point_index.PublishActiveIndices(updater);
   });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
   return {};
@@ -2101,6 +2132,15 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   transaction_.commit_callbacks_.Add([&vector_index, updater](uint64_t /*commit_ts*/) {
     vector_index.PublishActiveIndices(updater);
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
+  });
+  // DropIndex on abort undoes both the owner-side installation and the eager
+  // vertex property rewrite (Vector -> VectorIndexId) that CreateIndex did,
+  // closing the data-level piggyback of the DDL ghost-entry class.
+  auto *name_mapper = in_memory->name_id_mapper_.get();
+  auto const name = spec.index_name;
+  transaction_.abort_callbacks_.Add([&vector_index, updater, name_mapper, name]() {
+    vector_index.DropIndex(name, name_mapper);
+    vector_index.PublishActiveIndices(updater);
   });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
   return {};
@@ -2157,6 +2197,12 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   // Defer publication to commit time. See CreateVectorIndex above.
   auto updater = in_memory->indices_.MakeUpdater();
+  auto *name_mapper = in_memory->name_id_mapper_.get();
+  auto const edge_index_name = spec.index_name;
+  transaction_.abort_callbacks_.Add([&vector_edge_index, updater, name_mapper, edge_index_name]() {
+    vector_edge_index.DropIndex(edge_index_name, name_mapper);
+    vector_edge_index.PublishActiveIndices(updater);
+  });
   transaction_.commit_callbacks_.Add([&vector_edge_index, updater](uint64_t /*commit_ts*/) {
     vector_edge_index.PublishActiveIndices(updater);
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
@@ -2193,6 +2239,11 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
     updater(existence_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([existence_constraints, label, property, updater]() {
+    if (existence_constraints->DropConstraint(label, property)) {
+      updater(existence_constraints->GetActiveConstraints());
+    }
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
@@ -2239,6 +2290,11 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
     updater(mem_unique_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([mem_unique_constraints, label, properties, updater]() {
+    if (mem_unique_constraints->DropConstraint(label, properties) == UniqueConstraints::DeletionStatus::SUCCESS) {
+      updater(mem_unique_constraints->GetActiveConstraints());
+    }
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
@@ -2293,6 +2349,11 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
     updater(type_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([type_constraints, label, property, kind, updater]() {
+    if (type_constraints->DropConstraint(label, property, kind)) {
+      updater(type_constraints->GetActiveConstraints());
+    }
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
   return {};
 }

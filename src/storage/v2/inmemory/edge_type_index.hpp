@@ -215,6 +215,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   bool RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater);
+  // Undoes a successful RegisterIndex on abort. See InMemoryLabelIndex::UnregisterIndex.
+  void UnregisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater);
   auto PopulateIndex(EdgeTypeId insert_function, utils::SkipList<Vertex>::Accessor vertices,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,

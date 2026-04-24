@@ -249,6 +249,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   auto GetActiveIndices() const -> std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> override;
 
   auto RegisterIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater) -> bool;
+  // Undoes a successful RegisterIndex on abort. See InMemoryLabelIndex::UnregisterIndex.
+  void UnregisterIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater);
   auto PopulateIndex(EdgeTypeId edge_type, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,

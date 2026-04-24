@@ -194,13 +194,6 @@ class VectorIndex {
   VectorIndex &operator=(VectorIndex &&) noexcept = default;
 
   /// Returns the current active indices snapshot for use in transactions.
-  // TODO(follow-up): return `shared_ptr<VectorIndexActiveIndices const>` -- all
-  // methods on the snapshot are const, the inner container is already
-  // `shared_ptr<VectorIndexContainer const>`, so the outer non-const shared_ptr
-  // is a weak const-correctness wart. Requires threading `const` through
-  // `ActiveIndices::vector_`, `ActiveIndicesUpdater::operator()`, and the 4
-  // other sub-indices (text, text_edge, point, vector_edge) for consistency.
-  // Do all 5 in one sweep.
   auto GetActiveIndices() const -> std::shared_ptr<VectorIndexActiveIndices> {
     return std::make_shared<ActiveIndices>(index_);
   }

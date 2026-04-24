@@ -72,6 +72,21 @@ bool InMemoryLabelIndex::RegisterIndex(LabelId label, ActiveIndicesUpdater const
   });
 }
 
+void InMemoryLabelIndex::UnregisterIndex(LabelId label, ActiveIndicesUpdater const &updater) {
+  index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
+    auto it = index->find(label);
+    if (it == index->end()) return;  // already dropped or never registered
+    // Only undo our own POPULATING registration; if another transaction has
+    // already flipped the entry to READY, leave it alone.
+    if (it->second->status.IsReady()) return;
+    auto new_index = std::make_shared<IndexContainer>(*index);
+    new_index->erase(label);
+    index = std::move(new_index);
+    updater(std::make_shared<ActiveIndices>(index));
+  });
+  CleanupAllIndices();
+}
+
 auto InMemoryLabelIndex::GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex> {
   return index_.WithReadLock(
       [&](std::shared_ptr<IndexContainer const> const &index) -> std::shared_ptr<IndividualIndex> {

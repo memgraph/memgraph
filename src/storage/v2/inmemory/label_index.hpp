@@ -207,6 +207,12 @@ class InMemoryLabelIndex : public LabelIndex {
   auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;
 
   auto RegisterIndex(LabelId, ActiveIndicesUpdater const &updater) -> bool;
+  // Undoes a successful RegisterIndex when the owning transaction aborts
+  // before its commit callback could Publish. Removes the POPULATING entry
+  // so a retry CREATE INDEX for the same label does not collide with a
+  // ghost. Must be called only if RegisterIndex returned true; tolerates
+  // the entry being concurrently dropped.
+  auto UnregisterIndex(LabelId, ActiveIndicesUpdater const &updater) -> void;
   auto PopulateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      ActiveIndicesUpdater const &updater,
