@@ -16,11 +16,11 @@
 #include <tuple>
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
+#include "storage/v2/disk/delta_utils.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
 
 namespace memgraph::storage {
@@ -252,7 +252,7 @@ bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &v
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
 
-  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
+  if (auto maybe_old_disk_key = disk::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
     spdlog::trace("Found old disk key {} for vertex {}", maybe_old_disk_key.value(), vertex.gid.ToString());
     if (auto status = disk_transaction->Delete(maybe_old_disk_key.value()); !status.ok()) {
       return false;
