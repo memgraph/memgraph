@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
                                                            nullptr,
                                                            nullptr,
                                                            &dbms_handler,
-                                                           repl_state,
+                                                           &repl_state,
                                                            system_state,
                                                            nullptr
 #ifdef MG_ENTERPRISE
