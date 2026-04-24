@@ -2126,31 +2126,20 @@ TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
   EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints), initial_count);
 }
 
-// Regression: RegisterConstraint installs an owner-side entry eagerly;
-// PublishConstraint is deferred to the commit callback. An abort between
-// the two left a ghost that blocked retry CREATE with "already exists".
-// These tests verify the abort_callbacks_ pairing undoes the Register.
-
 TYPED_TEST(ConstraintsTest, ExistenceConstraintAbortLeavesNoGhostEntry) {
   if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
     GTEST_SKIP() << "Disk storage has different DDL semantics";
   }
   {
     auto acc = this->CreateConstraintAccessor();
-    auto res = acc->CreateExistenceConstraint(this->label1, this->prop1);
-    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(acc->CreateExistenceConstraint(this->label1, this->prop1).has_value());
     acc->Abort();
   }
   {
     auto acc = this->CreateConstraintAccessor();
-    auto res = acc->CreateExistenceConstraint(this->label1, this->prop1);
-    EXPECT_TRUE(res.has_value())
+    ASSERT_TRUE(acc->CreateExistenceConstraint(this->label1, this->prop1).has_value())
         << "Retry CreateExistenceConstraint after aborted create must succeed; aborted Register left a ghost.";
-    if (res.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -2170,13 +2159,9 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintAbortLeavesNoGhostEntry) {
     auto acc = this->CreateConstraintAccessor();
     auto res = acc->CreateUniqueConstraint(this->label1, properties);
     ASSERT_TRUE(res.has_value());
-    EXPECT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS)
+    ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS)
         << "Retry CreateUniqueConstraint after aborted create must succeed; aborted Register left a ghost.";
-    if (res.value() == memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -2186,19 +2171,13 @@ TYPED_TEST(ConstraintsTest, TypeConstraintAbortLeavesNoGhostEntry) {
   }
   {
     auto acc = this->CreateConstraintAccessor();
-    auto res = acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
-    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER).has_value());
     acc->Abort();
   }
   {
     auto acc = this->CreateConstraintAccessor();
-    auto res = acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
-    EXPECT_TRUE(res.has_value())
+    ASSERT_TRUE(acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER).has_value())
         << "Retry CreateTypeConstraint after aborted create must succeed; aborted Register left a ghost.";
-    if (res.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }

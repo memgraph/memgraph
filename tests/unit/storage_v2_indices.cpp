@@ -4643,11 +4643,6 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransa
   }
 }
 
-// Regression: RegisterIndex installs a POPULATING owner-side entry eagerly;
-// the READY flip is deferred to a commit callback. If the transaction aborts
-// before the callback fires, the POPULATING ghost blocks any retry CreateIndex
-// for the same label with "already exists". A paired abort_callback_ must undo
-// the Register so the label stays re-indexable.
 TYPED_TEST(IndexTest, LabelIndexAbortLeavesNoGhostEntry) {
   if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
     GTEST_SKIP() << "Disk storage has different DDL semantics";
@@ -4667,14 +4662,9 @@ TYPED_TEST(IndexTest, LabelIndexAbortLeavesNoGhostEntry) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    auto result = acc->CreateIndex(this->label1);
-    EXPECT_TRUE(result.has_value())
+    ASSERT_TRUE(acc->CreateIndex(this->label1).has_value())
         << "Retry CreateIndex after aborted CreateIndex must succeed; aborted Register left a ghost.";
-    if (result.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -4690,13 +4680,8 @@ TYPED_TEST(IndexTest, LabelPropertyIndexAbortLeavesNoGhostEntry) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    auto result = acc->CreateIndex(this->label1, {props});
-    EXPECT_TRUE(result.has_value());
-    if (result.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_TRUE(acc->CreateIndex(this->label1, {props}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -4711,13 +4696,8 @@ TYPED_TEST(IndexTest, EdgeTypeIndexAbortLeavesNoGhostEntry) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    auto result = acc->CreateIndex(this->edge_type_id1);
-    EXPECT_TRUE(result.has_value());
-    if (result.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_TRUE(acc->CreateIndex(this->edge_type_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -4732,13 +4712,8 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexAbortLeavesNoGhostEntry) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    auto result = acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1);
-    EXPECT_TRUE(result.has_value());
-    if (result.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_TRUE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -4753,14 +4728,9 @@ TYPED_TEST(IndexTest, PointIndexAbortLeavesNoGhostEntry) {
   }
   {
     auto acc = this->storage->UniqueAccess();
-    auto result = acc->CreatePointIndex(this->label1, this->prop_val);
-    EXPECT_TRUE(result.has_value())
+    ASSERT_TRUE(acc->CreatePointIndex(this->label1, this->prop_val).has_value())
         << "Retry CreatePointIndex after aborted create must succeed; aborted create left a ghost.";
-    if (result.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -4781,14 +4751,9 @@ TYPED_TEST(IndexTest, DropPointIndexAbortRestoresIndex) {
   {
     // Retry DROP must succeed — abort should have re-installed the entry.
     auto acc = this->storage->UniqueAccess();
-    auto result = acc->DropPointIndex(this->label1, this->prop_val);
-    EXPECT_TRUE(result.has_value())
+    ASSERT_TRUE(acc->DropPointIndex(this->label1, this->prop_val).has_value())
         << "After an aborted DROP POINT INDEX, the index must be visible again and droppable.";
-    if (result.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -4803,12 +4768,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexAbortLeavesNoGhostEntry) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    auto result = acc->CreateGlobalEdgeIndex(this->edge_prop_id1);
-    EXPECT_TRUE(result.has_value());
-    if (result.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_TRUE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }

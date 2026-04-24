@@ -270,8 +270,6 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
   }
 }
 
-// Aborted CREATE TEXT INDEX must not leave a POPULATING ghost entry that
-// blocks a retry with the same name.
 TEST_F(TextIndexTest, CreateTextIndexAbortLeavesNoGhostEntry) {
   {
     auto acc = this->storage->UniqueAccess();
@@ -282,19 +280,12 @@ TEST_F(TextIndexTest, CreateTextIndexAbortLeavesNoGhostEntry) {
   {
     auto acc = this->storage->UniqueAccess();
     auto const label = acc->NameToLabel(test_label.data());
-    auto result = acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}});
-    EXPECT_TRUE(result.has_value())
+    ASSERT_TRUE(acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}}).has_value())
         << "Retry CreateTextIndex after aborted create must succeed; aborted create left a ghost.";
-    if (result.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
-// Aborted DROP TEXT INDEX must leave the index fully queryable — the evicted
-// entry is re-installed from the abort callback.
 TEST_F(TextIndexTest, DropTextIndexAbortRestoresIndex) {
   this->CreateIndex();
   {
@@ -306,12 +297,8 @@ TEST_F(TextIndexTest, DropTextIndexAbortRestoresIndex) {
     // Retry DROP must succeed — the aborted drop should have re-installed
     // the entry so it's visible and droppable again.
     auto acc = this->storage->UniqueAccess();
-    auto result = acc->DropTextIndex(test_index.data());
-    EXPECT_TRUE(result.has_value()) << "After an aborted DROP, the text index must be visible again and droppable.";
-    if (result.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_TRUE(acc->DropTextIndex(test_index.data()).has_value())
+        << "After an aborted DROP, the text index must be visible again and droppable.";
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }

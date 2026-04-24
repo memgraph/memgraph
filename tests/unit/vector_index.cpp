@@ -685,10 +685,6 @@ TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
   EXPECT_GE(vector_index_info[0].capacity, kNumNodes);
 }
 
-// CREATE VECTOR INDEX installs the index in the owner container. If the txn
-// aborts before its commit-callback publishes, the abort_callback calls
-// DropIndex — which undoes both the metadata install and the (potential)
-// vertex property rewrite.
 TEST_F(VectorIndexTest, CreateVectorIndexAbortLeavesNoGhostEntry) {
   LabelId label{};
   PropertyId property{};
@@ -716,14 +712,9 @@ TEST_F(VectorIndexTest, CreateVectorIndexAbortLeavesNoGhostEntry) {
 
   {
     auto acc = this->storage->UniqueAccess();
-    auto result = acc->CreateVectorIndex(spec);
-    EXPECT_TRUE(result.has_value())
+    ASSERT_TRUE(acc->CreateVectorIndex(spec).has_value())
         << "Retry CreateVectorIndex after aborted create must succeed; aborted create left a ghost.";
-    if (result.has_value()) {
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    } else {
-      acc->Abort();
-    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
