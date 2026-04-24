@@ -29,9 +29,10 @@ struct Transaction;
 
 struct ActiveIndicesUpdater;
 
-// TODO(follow-up): TextIndex and TextEdgeIndex are ~95% structurally identical
-// (Data/IndexContainer/ActiveIndices/deferred_drop/Create/Drop/Recover/Clear).
-// Extract a CRTP or template base before the duplication drifts.
+// TODO(follow-up, tracked): TextIndex and TextEdgeIndex are ~95% structurally
+// identical (Data/IndexContainer/ActiveIndices/deferred_drop/Create/Drop/Recover
+// /Clear). CRTP/template-base extraction is deferred as a separate follow-up;
+// keep the two files synchronized manually in the meantime.
 
 struct TextEdgeIndexData {
   mutable mgcxx::text_search::Context context;
