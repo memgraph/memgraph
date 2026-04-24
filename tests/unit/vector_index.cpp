@@ -685,6 +685,48 @@ TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
   EXPECT_GE(vector_index_info[0].capacity, kNumNodes);
 }
 
+// CREATE VECTOR INDEX installs the index in the owner container. If the txn
+// aborts before its commit-callback publishes, the abort_callback calls
+// DropIndex — which undoes both the metadata install and the (potential)
+// vertex property rewrite.
+TEST_F(VectorIndexTest, CreateVectorIndexAbortLeavesNoGhostEntry) {
+  LabelId label{};
+  PropertyId property{};
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    label = acc->NameToLabel(test_label.data());
+    property = acc->NameToProperty(test_property.data());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto const spec = VectorIndexSpec{.index_name = test_index.data(),
+                                    .label_id = label,
+                                    .property = property,
+                                    .metric_kind = metric,
+                                    .dimension = 2,
+                                    .resize_coefficient = resize_coefficient,
+                                    .capacity = 16,
+                                    .scalar_kind = scalar_kind};
+
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreateVectorIndex(spec).has_value());
+    acc->Abort();
+  }
+
+  {
+    auto acc = this->storage->UniqueAccess();
+    auto result = acc->CreateVectorIndex(spec);
+    EXPECT_TRUE(result.has_value())
+        << "Retry CreateVectorIndex after aborted create must succeed; aborted create left a ghost.";
+    if (result.has_value()) {
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    } else {
+      acc->Abort();
+    }
+  }
+}
+
 TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
   FLAGS_storage_parallel_schema_recovery = true;
   FLAGS_storage_recovery_thread_count =

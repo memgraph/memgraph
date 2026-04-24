@@ -2133,6 +2133,15 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     vector_index.PublishActiveIndices(updater);
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
   });
+  // DropIndex on abort undoes both the owner-side installation and the eager
+  // vertex property rewrite (Vector -> VectorIndexId) that CreateIndex did,
+  // closing the data-level piggyback of the DDL ghost-entry class.
+  auto *name_mapper = in_memory->name_id_mapper_.get();
+  auto const name = spec.index_name;
+  transaction_.abort_callbacks_.Add([&vector_index, updater, name_mapper, name]() {
+    vector_index.DropIndex(name, name_mapper);
+    vector_index.PublishActiveIndices(updater);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
   return {};
 }
@@ -2188,6 +2197,12 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   // Defer publication to commit time. See CreateVectorIndex above.
   auto updater = in_memory->indices_.MakeUpdater();
+  auto *name_mapper = in_memory->name_id_mapper_.get();
+  auto const edge_index_name = spec.index_name;
+  transaction_.abort_callbacks_.Add([&vector_edge_index, updater, name_mapper, edge_index_name]() {
+    vector_edge_index.DropIndex(edge_index_name, name_mapper);
+    vector_edge_index.PublishActiveIndices(updater);
+  });
   transaction_.commit_callbacks_.Add([&vector_edge_index, updater](uint64_t /*commit_ts*/) {
     vector_edge_index.PublishActiveIndices(updater);
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
