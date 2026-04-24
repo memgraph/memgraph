@@ -45,6 +45,7 @@ jobs:
     with:
       arch: ${{ matrix.arch }}
       build_type: RelWithDebInfo
+      image_flavour: debug
       push_to_s3: true
       s3_dest_dir: pr-build/mage/pr${{ needs.get-pr-number.outputs.pr_number }}
       ref: refs/heads/master

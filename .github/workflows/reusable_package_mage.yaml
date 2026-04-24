@@ -14,6 +14,14 @@ on:
         type: string
         description: "Mage build type"
         default: 'Release'
+      split_debug:
+        type: boolean
+        description: "Extract debug info into sidecar .debug files (requires RelWithDebInfo or Debug build type)."
+        default: false
+      image_flavour:
+        type: string
+        description: "Docker image flavour: 'prod' (stripped) or 'debug' (symbols embedded). Debug requires build_type=RelWithDebInfo."
+        default: prod
       push_to_github:
         type: boolean
         description: "Push the image, DEB and tar.gz to GitHub?"
@@ -223,7 +231,7 @@ jobs:
           if [[ "$ARCH" == 'arm' ]]; then
             artifact_name="${artifact_name}-aarch64"
           fi
-          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
+          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "${{ inputs.image_flavour }}" == 'debug' ]]; then
             artifact_name="${artifact_name}-relwithdebinfo"
           fi
           echo "MG_ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
@@ -257,13 +265,17 @@ jobs:
       - name: "Build Memgraph binaries"
         if: ${{ inputs.memgraph_download_link == '' }}
         run: |
+          SPLIT_DEBUG_ARG=""
+          if [[ "${{ inputs.split_debug }}" == "true" ]]; then
+            SPLIT_DEBUG_ARG="--split-debug"
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --cugraph $CUGRAPH \
-          build-memgraph $ADDITIONAL_BUILD_ARGS \
+          build-memgraph $ADDITIONAL_BUILD_ARGS $SPLIT_DEBUG_ARG \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -306,7 +318,7 @@ jobs:
           --sbom
 
       - name: "Build heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.image_flavour == 'debug' }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -316,7 +328,7 @@ jobs:
           build-heaptrack
 
       - name: "Copy heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.image_flavour == 'debug' }}
         run: |
           mkdir -p release/docker
           ./release/package/mgbuild.sh \
@@ -384,6 +396,7 @@ jobs:
             --cugraph $CUGRAPH \
             package-mage-deb \
             --version $MEMGRAPH_VERSION \
+            --image-flavour ${{ inputs.image_flavour }} \
             $PACKAGE_ARGS
 
           DEB_PACKAGE="$(ls output/memgraph-mage*.deb)"
@@ -454,7 +467,8 @@ jobs:
             --memgraph-ref $MEMGRAPH_REF \
             --cache-present $CACHE_PRESENT \
             --custom-mirror true \
-            --cuda $CUDA
+            --cuda $CUDA \
+            --image-flavour ${{ inputs.image_flavour }}
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
@@ -565,7 +579,7 @@ jobs:
         run: |
           last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
           last_version="${last_version#v}"
-          if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+          if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "${{ inputs.image_flavour }}" == "debug" ]]; then
             last_version="${last_version}-relwithdebinfo"
           fi
           if [[ "$MALLOC" == "true" ]]; then

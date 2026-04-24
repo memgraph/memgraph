@@ -141,6 +141,7 @@ print_help () {
   echo -e "  --disable-jemalloc            Build without jemalloc"
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
   echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
+  echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
   echo -e "  --conan-username string       Specify conan username (default \"\")"
   echo -e "  --conan-password string       Specify conan password (default \"\")"
@@ -165,6 +166,16 @@ print_help () {
   echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
   echo -e "                                This directory should contain the memgraph package."
   echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
+  echo -e "  --image-flavour string        Docker image flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling."
+
+  echo -e "\npackage-mage-docker options:"
+  echo -e "  --docker-repository-name str  Docker repository name (default \"memgraph/memgraph-mage\")"
+  echo -e "  --image-tag string            Image tag (required)"
+  echo -e "  --memgraph-ref string         Memgraph git ref (required)"
+  echo -e "  --cache-present bool          Whether build cache is present (default false)"
+  echo -e "  --custom-mirror bool          Use custom APT mirror (default false)"
+  echo -e "  --cuda bool                   CUDA variant (default false)"
+  echo -e "  --image-flavour string        Docker image flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and uses the relwithdebinfo dockerfile target."
 
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login (default empty)"
@@ -454,6 +465,7 @@ build_memgraph () {
   local conan_password=""
   local build_dependency=""
   local link_threads=0
+  local split_debug=false
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -516,6 +528,10 @@ build_memgraph () {
       --link-threads)
         link_threads=$2
         shift 2
+      ;;
+      --split-debug)
+        split_debug=true
+        shift 1
       ;;
       *)
         echo "Error: Unknown flag '$1'"
@@ -677,6 +693,15 @@ build_memgraph () {
     additional_options="$additional_options -DCMAKE_JOB_POOLS=link=$link_threads -DCMAKE_JOB_POOL_LINK=link"
   fi
 
+  # Extract debug info into sidecar .debug files post-link (requires RWD/Debug).
+  if [[ "$split_debug" = true ]]; then
+    if [[ "$build_type" != "RelWithDebInfo" && "$build_type" != "Debug" ]]; then
+      echo "Error: --split-debug requires --build-type RelWithDebInfo or Debug (got '$build_type')"
+      exit 1
+    fi
+    additional_options="$additional_options -DMG_SPLIT_DEBUG=ON"
+  fi
+
   if [[ -n "$additional_options" ]]; then
     echo "Adding additional CMake options: $additional_options"
   fi
@@ -816,6 +841,7 @@ package_docker() {
   local malloc=false
   local custom_mirror=false
   local keep_image_loaded=false
+  local image_flavour="prod"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
@@ -842,6 +868,10 @@ package_docker() {
         keep_image_loaded=$2
         shift 2
       ;;
+      --image-flavour)
+        image_flavour=$2
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -849,18 +879,32 @@ package_docker() {
       ;;
     esac
   done
+
+  case "$image_flavour" in
+    prod) ;;
+    debug)
+      if [[ "$build_type" != "RelWithDebInfo" ]]; then
+        echo "Error: --image-flavour debug requires --build-type RelWithDebInfo (got '$build_type')"
+        exit 1
+      fi
+    ;;
+    *)
+      echo "Error: --image-flavour must be 'prod' or 'debug' (got '$image_flavour')"
+      exit 1
+    ;;
+  esac
   # shellcheck disable=SC2012
   local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
   echo "Using custom mirror: $custom_mirror"
 
-  if [[ "$build_type" == "Release" ]]; then
-    echo "Package release"
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+  if [[ "$image_flavour" == "prod" ]]; then
+    echo "Package prod flavour"
+    ./package_docker --latest --image-flavour prod --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   else
-    echo "Package other"
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+    echo "Package debug flavour"
+    ./package_docker --image-flavour debug --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
@@ -1489,6 +1533,7 @@ package_mage_deb() {
   local version=""
   local malloc=false
   local cuda=false
+  local image_flavour="prod"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --version)
@@ -1503,6 +1548,10 @@ package_mage_deb() {
         cuda=true
         shift 1
       ;;
+      --image-flavour)
+        image_flavour=$2
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -1511,6 +1560,20 @@ package_mage_deb() {
     esac
   done
 
+  case "$image_flavour" in
+    prod) ;;
+    debug)
+      if [[ "$build_type" != "RelWithDebInfo" ]]; then
+        echo "Error: --image-flavour debug requires --build-type RelWithDebInfo (got '$build_type')"
+        exit 1
+      fi
+    ;;
+    *)
+      echo "Error: --image-flavour must be 'prod' or 'debug' (got '$image_flavour')"
+      exit 1
+    ;;
+  esac
+
   if [[ "$cugraph" = true ]]; then
     cuda=true
   fi
@@ -1518,7 +1581,7 @@ package_mage_deb() {
   echo -e "${GREEN_BOLD}Packaging MAGE DEB package${RESET}"
   docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y debhelper"
 
-  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda $cugraph"
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && IMAGE_FLAVOUR=$image_flavour ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda $cugraph"
 
   package_name="$(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb")"
   mkdir -pv output
@@ -1537,6 +1600,7 @@ package_mage_docker() {
   local cache_present=false
   local custom_mirror=false
   local cuda=false
+  local image_flavour="prod"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --docker-repository-name)
@@ -1563,6 +1627,10 @@ package_mage_docker() {
         [[ "$2" == "true" ]] && cuda=true
         shift 2
       ;;
+      --image-flavour)
+        image_flavour=$2
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         exit 1
@@ -1570,11 +1638,24 @@ package_mage_docker() {
     esac
   done
 
-  if [[ "$build_type" = "RelWithDebInfo" && "$cugraph" = "false" ]]; then
-    docker_target="relwithdebinfo"
-  else
-    docker_target="prod"
-  fi
+  case "$image_flavour" in
+    prod) docker_target="prod" ;;
+    debug)
+      if [[ "$build_type" != "RelWithDebInfo" ]]; then
+        echo -e "${RED_BOLD}Error: --image-flavour debug requires --build-type RelWithDebInfo (got '$build_type')${RESET}"
+        exit 1
+      fi
+      if [[ "$cugraph" = "true" ]]; then
+        echo -e "${RED_BOLD}Error: --image-flavour debug is not supported with --cugraph (no debug target in Dockerfile.cugraph)${RESET}"
+        exit 1
+      fi
+      docker_target="relwithdebinfo"
+    ;;
+    *)
+      echo -e "${RED_BOLD}Error: --image-flavour must be 'prod' or 'debug' (got '$image_flavour')${RESET}"
+      exit 1
+    ;;
+  esac
 
   if [[ "$cugraph" = "true" ]]; then
     dockerfile="Dockerfile.cugraph"

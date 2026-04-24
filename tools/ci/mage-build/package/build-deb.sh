@@ -18,8 +18,15 @@ CLEAN_VERSION=$(echo $VERSION | sed 's/_/+/g')
 # and replace anythin preceding the version number
 CLEAN_VERSION=$(echo $CLEAN_VERSION | sed 's/^[^0-9]*//')
 
+# IMAGE_FLAVOUR controls whether the -relwithdebinfo suffix is applied:
+# - "prod" (default) produces the stripped package customers install (no suffix).
+# - "debug" produces the symbols-embedded package used for interactive debugging.
+# The suffix used to be gated on BUILD_TYPE=RelWithDebInfo alone; now we split
+# the RWD build type into two packaging flavours via MG_SPLIT_DEBUG.
+IMAGE_FLAVOUR="${IMAGE_FLAVOUR:-prod}"
+
 PACKAGE_NAME="memgraph-mage_${VERSION}-1_${ARCH}"
-if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$IMAGE_FLAVOUR" == "debug" ]]; then
     PACKAGE_NAME="${PACKAGE_NAME}-relwithdebinfo"
 fi
 if [[ "$MALLOC" == true ]]; then

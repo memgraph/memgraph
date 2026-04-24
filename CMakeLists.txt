@@ -307,6 +307,8 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
+include(SplitDebug)
+
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING
     "Tunes the debug output for your preferred debugger (gdb or lldb).")
