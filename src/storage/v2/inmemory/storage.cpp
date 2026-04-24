@@ -1202,6 +1202,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
   // Call other callbacks that publish/install upon commit
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
+  // Commit succeeded — DDL rollback hooks are no longer needed; discard so
+  // they don't fire if a later Abort() is invoked on this accessor.
+  transaction_.abort_callbacks_.Clear();
 
   // Dispatch to another async work to create requested auto-indexes in their own transaction
   if (mem_storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
@@ -1695,6 +1698,12 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
     }
   }
+
+  // Roll back eager DDL owner-side mutations (POPULATING entries installed
+  // by RegisterIndex / RegisterConstraint). Runs after data-delta rollback
+  // so unregister sees a consistent state. No-op if the commit phase ran
+  // (commit_callbacks_ clears abort_callbacks_ on success).
+  transaction_.abort_callbacks_.RunAll();
 
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   is_transaction_active_ = false;

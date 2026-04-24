@@ -2008,6 +2008,7 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
   // the txn is fully committed. Commit timestamp is 0 if the txn had no
   // writes — callbacks that care about ts can handle either case.
   transaction_.commit_callbacks_.RunAll(commit_timestamp_.value_or(0));
+  transaction_.abort_callbacks_.Clear();
   is_transaction_active_ = false;
 
   return {};
@@ -2134,6 +2135,13 @@ void DiskStorage::DiskAccessor::Abort() {
 
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
+
+  // Roll back eager DDL owner-side mutations. No-op for disk today (disk DDL
+  // doesn't install POPULATING entries), but kept in parallel with the
+  // in-memory Abort() so any future disk DDL using the same pattern gets
+  // rollback for free.
+  transaction_.abort_callbacks_.RunAll();
+
   is_transaction_active_ = false;
   UpdateObjectsCountOnAbort();
 }

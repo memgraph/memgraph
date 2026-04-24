@@ -63,6 +63,36 @@ struct CommitCallbacks {
   std::vector<std::function<void(uint64_t)>> callbacks_;
 };
 
+/// Rollback callbacks that run when a transaction aborts. Used to undo
+/// eager DDL metadata mutations (e.g. POPULATING owner-side entries
+/// installed by RegisterIndex) that would otherwise become ghost entries
+/// blocking any retry for the same key.
+///
+/// Callbacks must be noexcept — Abort() runs on unwind paths and a throw
+/// here would terminate. Each DDL call-site that installs an eager entry
+/// pairs its commit_callbacks_.Add(publisher) with an
+/// abort_callbacks_.Add(unregisterer). On commit, commit_callbacks_
+/// publishes and abort_callbacks_ are discarded. On abort, the reverse.
+struct AbortCallbacks {
+  // Callbacks must not throw: Abort() runs on unwind paths. std::function does
+  // not express noexcept signatures, so this is a convention, not a type-level
+  // guarantee.
+  using func_t = std::function<void()>;
+
+  void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
+
+  void RunAll() noexcept {
+    for (auto &callback : callbacks_) {
+      callback();
+    }
+    callbacks_.clear();
+  }
+
+  void Clear() noexcept { callbacks_.clear(); }
+
+  std::vector<func_t> callbacks_;
+};
+
 struct AsyncIndexHelper {
   AsyncIndexHelper() = default;
   AsyncIndexHelper(Config const &config, ActiveIndices const &active_indices, uint64_t start_timestamp);
@@ -258,6 +288,9 @@ struct Transaction {
   /// Used for constraint validation during commit
   ActiveConstraintsPtr active_constraints_;
   CommitCallbacks commit_callbacks_;
+  /// Rollback hooks for eager DDL owner-side mutations. Runs on Abort(),
+  /// cleared on successful commit (see commit_callbacks_.RunAll site).
+  AbortCallbacks abort_callbacks_;
 
   /// Auto indexing infomation gathering
   AsyncIndexHelper async_index_helper_;
