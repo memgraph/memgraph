@@ -1,0 +1,8 @@
+0:	IterAllEClasses rc0, @6
+1:	Jump @3
+2:	NextEClass rc0, @6
+3:	BindSlot slot[0], rc0, @2
+4:	Yield (mark slot[0])
+5:	Jump @2
+6:	Halt
+
