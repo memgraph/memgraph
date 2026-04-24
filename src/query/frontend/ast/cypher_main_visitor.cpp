@@ -4142,20 +4142,19 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   }
 
   // Parse the explicit import list: `CALL (v1, v2, ...) { ... }`.
-  // Empty parentheses `CALL () { ... }` are rejected — at least one variable is required.
+  // Empty parentheses `CALL () { ... }` are allowed and mean "import nothing"
+  // (the subquery cannot reference any outer variables), matching Cypher 5.
   if (ctx->LPAREN() != nullptr) {
     call_subquery->has_explicit_imports_ = true;
-    auto *var_list = ctx->variableList();
-    if (var_list == nullptr) {
-      throw SyntaxException("CALL subquery import list cannot be empty — specify at least one variable.");
-    }
-    std::unordered_set<std::string> seen;
-    for (auto *var_ctx : var_list->variable()) {
-      auto name = std::any_cast<std::string>(var_ctx->accept(this));
-      if (!seen.insert(name).second) {
-        throw SyntaxException("Duplicate variable '{}' in CALL subquery import list.", name);
+    if (auto *var_list = ctx->variableList()) {
+      std::unordered_set<std::string> seen;
+      for (auto *var_ctx : var_list->variable()) {
+        auto name = std::any_cast<std::string>(var_ctx->accept(this));
+        if (!seen.insert(name).second) {
+          throw SyntaxException("Duplicate variable '{}' in CALL subquery import list.", name);
+        }
+        call_subquery->imported_identifiers_.push_back(storage_->Create<Identifier>(name));
       }
-      call_subquery->imported_identifiers_.push_back(storage_->Create<Identifier>(name));
     }
   }
 
