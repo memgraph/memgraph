@@ -139,5 +139,16 @@
   "db.schema.nodeTypeProperties": "schema.node_type_properties",
   "db.schema.relTypeProperties": "schema.rel_type_properties",
 
-  "dbms.components": "mgps.components"
+  "dbms.components": "mgps.components",
+
+  "migrate.mysql": "cross_database.mysql",
+  "migrate.sql_server": "cross_database.sql_server",
+  "migrate.oracle_db": "cross_database.oracle_db",
+  "migrate.postgresql": "cross_database.postgresql",
+  "migrate.s3": "cross_database.s3",
+  "migrate.neo4j": "cross_database.neo4j",
+  "migrate.arrow_flight": "cross_database.arrow_flight",
+  "migrate.duckdb": "cross_database.duckdb",
+  "migrate.servicenow": "cross_database.servicenow",
+  "migrate.memgraph": "cross_database.bolt"
 }
