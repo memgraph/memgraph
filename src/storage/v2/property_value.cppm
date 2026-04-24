@@ -1749,6 +1749,14 @@ inline auto ReadNestedPropertyValue(PropertyValue const &value, std::span<Proper
   return current;
 }
 
+extern template class PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t>;
+extern template bool operator==(
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &,
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &);
+extern template std::weak_ordering CompareLists(
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &,
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &);
+
 }  // namespace memgraph::storage
 
 export namespace std {
@@ -1828,3 +1836,16 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdTy
   }
 };
 }  // namespace std
+
+module :private;
+
+namespace memgraph::storage {
+template class PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t>;
+
+template bool operator==(PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &,
+                         PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &);
+
+template std::weak_ordering CompareLists(
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &,
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &);
+}  // namespace memgraph::storage
