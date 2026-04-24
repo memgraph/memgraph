@@ -93,6 +93,7 @@ def execute_test(memgraph_binary, tester_binary):
         "--data-directory",
         storage_directory.name,
         "--audit-enabled",
+        "--audit-log-file=" + os.path.join(storage_directory.name, "audit", "audit.log"),
         "--log-file=memgraph.log",
         "--log-level=TRACE",
     ]
