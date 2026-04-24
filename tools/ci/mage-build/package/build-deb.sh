@@ -52,6 +52,13 @@ cp ../../../../mage/install_python_requirements.sh $SCRIPT_DIR/build/usr/lib/mem
 
 tar -xvzf $PACKAGE_DIR -C $SCRIPT_DIR/build/usr/lib/memgraph/
 
+# For the prod flavour, strip any .debug sidecars that were bundled into the
+# tarball by mage/setup. They're only relevant to the debug flavour (symbols
+# embedded alongside the .so) or to the external symbol archive.
+if [[ "$IMAGE_FLAVOUR" == "prod" ]]; then
+    find $SCRIPT_DIR/build/usr/lib/memgraph -name '*.so.debug' -print -delete
+fi
+
 # Replace template variables in Debian control files
 sed -i "s/@ARCH@/$ARCH/g" $SCRIPT_DIR/debian/control
 sed -i "s/@VERSION@/$CLEAN_VERSION/g" $SCRIPT_DIR/debian/changelog
