@@ -1804,6 +1804,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   bool has_load_csv = false;
   bool has_load_parquet{false};
   bool has_load_jsonl{false};
+  bool subquery_has_update{false};
 
   auto check_write_procedure = [&calls_write_procedure](const std::string_view clause) {
     if (calls_write_procedure) {
@@ -1835,12 +1836,12 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       }
       const auto *single_query = call_subquery->cypher_query_->single_query_;
       if (single_query) {
-        has_update |= single_query->has_update;
+        subquery_has_update |= single_query->has_update;
         for (auto *cypher_union : call_subquery->cypher_query_->cypher_unions_) {
-          if (has_update) break;
+          if (subquery_has_update) break;
           const auto *single_query = cypher_union->single_query_;
           if (single_query) {
-            has_update |= single_query->has_update;
+            subquery_has_update |= single_query->has_update;
           }
         }
       }
@@ -1908,7 +1909,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !has_return && !is_standalone_call_procedure && !parsing_exists_subquery_) {
+  if (!has_update && !subquery_has_update !has_return && !is_standalone_call_procedure && !parsing_exists_subquery_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -1927,7 +1928,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
 
-  single_query->has_update = has_update;
+  single_query->has_update = has_update || subquery_has_update;
   return single_query;
 }
 
