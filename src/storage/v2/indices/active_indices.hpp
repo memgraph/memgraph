@@ -43,13 +43,16 @@ struct IndicesCollection {
 struct ActiveIndices {
   ActiveIndices() = delete;  // to avoid nullptr
 
-  explicit ActiveIndices(
-      std::shared_ptr<LabelIndexActiveIndices> label, std::shared_ptr<LabelPropertyIndexActiveIndices> label_properties,
-      std::shared_ptr<EdgeTypeIndexActiveIndices> edge_type,
-      std::shared_ptr<EdgeTypePropertyIndexActiveIndices> edge_type_properties,
-      std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property, std::shared_ptr<TextIndexActiveIndices> text,
-      std::shared_ptr<TextEdgeIndexActiveIndices> text_edge, std::shared_ptr<PointIndexActiveIndices> point,
-      std::shared_ptr<VectorIndexActiveIndices> vector, std::shared_ptr<VectorEdgeIndexActiveIndices> vector_edge)
+  explicit ActiveIndices(std::shared_ptr<LabelIndexActiveIndices> label,
+                         std::shared_ptr<LabelPropertyIndexActiveIndices> label_properties,
+                         std::shared_ptr<EdgeTypeIndexActiveIndices> edge_type,
+                         std::shared_ptr<EdgeTypePropertyIndexActiveIndices> edge_type_properties,
+                         std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property,
+                         std::shared_ptr<TextIndexActiveIndices> text,
+                         std::shared_ptr<TextEdgeIndexActiveIndices> text_edge,
+                         std::shared_ptr<PointIndexActiveIndices const> point,
+                         std::shared_ptr<VectorIndexActiveIndices const> vector,
+                         std::shared_ptr<VectorEdgeIndexActiveIndices const> vector_edge)
       : label_{std::move(label)},
         label_properties_{std::move(label_properties)},
         edge_type_{std::move(edge_type)},
@@ -113,9 +116,9 @@ struct ActiveIndices {
   std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property_;
   std::shared_ptr<TextIndexActiveIndices> text_;
   std::shared_ptr<TextEdgeIndexActiveIndices> text_edge_;
-  std::shared_ptr<PointIndexActiveIndices> point_;
-  std::shared_ptr<VectorIndexActiveIndices> vector_;
-  std::shared_ptr<VectorEdgeIndexActiveIndices> vector_edge_;
+  std::shared_ptr<PointIndexActiveIndices const> point_;
+  std::shared_ptr<VectorIndexActiveIndices const> vector_;
+  std::shared_ptr<VectorEdgeIndexActiveIndices const> vector_edge_;
 };
 
 using ActiveIndicesPtr = std::shared_ptr<ActiveIndices const>;

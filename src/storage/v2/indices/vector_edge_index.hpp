@@ -172,8 +172,8 @@ class VectorEdgeIndex {
   }
 
   /// Returns the current active indices snapshot for use in transactions.
-  auto GetActiveIndices() const -> std::shared_ptr<VectorEdgeIndexActiveIndices> {
-    return std::make_shared<ActiveIndices>(index_);
+  auto GetActiveIndices() const -> std::shared_ptr<VectorEdgeIndexActiveIndices const> {
+    return std::make_shared<ActiveIndices const>(index_);
   }
 
   /// Publishes the current index container as the new ActiveIndices snapshot.
