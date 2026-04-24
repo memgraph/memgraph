@@ -21,6 +21,8 @@
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -58,6 +60,9 @@ spdlog::level::level_enum ParseLogLevel() {
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(failed_query_log_file, "", "Path to where failed queries should be stored.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_string(logger_type, "sync",
                         "Controls whether synchronous or asynchronous logger will be used. Options: sync, async", {
                           auto const logger_lower = memgraph::utils::ToLowerCase(value);
@@ -79,6 +84,39 @@ inline constexpr std::array log_level_mappings{std::pair{"TRACE"sv, spdlog::leve
                                                std::pair{"WARNING"sv, spdlog::level::warn},
                                                std::pair{"ERROR"sv, spdlog::level::err},
                                                std::pair{"CRITICAL"sv, spdlog::level::critical}};
+
+namespace {
+
+auto FailedQueryLogPath() -> std::optional<std::string> {
+  if (!FLAGS_failed_query_log_file.empty()) {
+    return FLAGS_failed_query_log_file;
+  }
+  if (FLAGS_log_file.empty()) {
+    return std::nullopt;
+  }
+
+  auto path = std::filesystem::path{FLAGS_log_file};
+  return (path.parent_path() / "failed_queries.log").string();
+}
+
+void CleanLogDirectory(const std::string &path) {
+  auto const log_directory = std::filesystem::path{path}.parent_path();
+  auto const cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::days(FLAGS_log_retention_days);
+
+  std::error_code ec;
+  for (auto const &entry : std::filesystem::directory_iterator(log_directory, ec)) {
+    if (!entry.is_regular_file(ec)) continue;
+    if (entry.last_write_time(ec) < cutoff) {
+      memgraph::utils::DeleteFile(entry.path());
+    }
+  }
+  if (ec) {
+    spdlog::warn(
+        "Error occurred while trying to manually rotate old log files in {}: {}", log_directory.string(), ec.message());
+  }
+}
+
+}  // namespace
 
 namespace memgraph::flags {
 const std::string &GetAllowedLogLevels() {
@@ -149,6 +187,44 @@ void InitializeLogger() {
   logger->set_level(ParseLogLevel());
   logger->flush_on(spdlog::level::trace);
   spdlog::set_default_logger(std::move(logger));
+
+  if (auto path = FailedQueryLogPath(); path) {
+    try {
+      time_t current_time{0};
+      struct tm *local_time{nullptr};
+
+      (void)time(&current_time);
+      local_time = localtime(&current_time);
+
+      auto sink = std::make_shared<spdlog::sinks::daily_file_sink_mt>(
+          *path, local_time->tm_hour, local_time->tm_min, false, FLAGS_log_retention_days);
+
+      std::shared_ptr<spdlog::logger> fq_logger;
+      if (FLAGS_logger_type == kAsync) {
+        if (!spdlog::thread_pool()) {
+          spdlog::init_thread_pool(8192, 1);
+        }
+        fq_logger = std::make_shared<spdlog::async_logger>(
+            "failed_query_log", std::move(sink), spdlog::thread_pool(), spdlog::async_overflow_policy::block);
+      } else {
+        fq_logger = std::make_shared<spdlog::logger>("failed_query_log", std::move(sink));
+      }
+
+      fq_logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
+      fq_logger->set_level(spdlog::level::trace);
+      fq_logger->flush_on(spdlog::level::trace);
+      spdlog::register_logger(fq_logger);
+    } catch (const spdlog::spdlog_ex &e) {
+      spdlog::warn("Failed to initialize failed query log at {}: {}", *path, e.what());
+    }
+  }
+}
+
+void LogFailedQuery(std::string_view entry) {
+  if (auto logger = spdlog::get("failed_query_log")) {
+    logger->error("{}", entry);
+    logger->flush();
+  }
 }
 
 // This is thread-safe now because add_sink takes a lock from base_sink before adding subsink
@@ -176,22 +252,14 @@ void TurnOnStdErr() {
 // Assumes there are only log files in the directory.
 // Deletes all files whose last_write_time is older than --log-retention-days
 void CleanLogsDir() {
-  if (FLAGS_log_file.empty()) return;
-
-  auto const log_path = std::filesystem::path{FLAGS_log_file};
-  auto const log_directory = log_path.parent_path();
-  auto const cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::days(FLAGS_log_retention_days);
-
-  // Logs error only at the end, doesn't log for each file
-  std::error_code ec;
-  for (auto const &entry : std::filesystem::directory_iterator(log_directory, ec)) {
-    if (!entry.is_regular_file(ec)) continue;
-    if (entry.last_write_time(ec) < cutoff) {
-      memgraph::utils::DeleteFile(entry.path());
-    }
+  if (!FLAGS_log_file.empty()) {
+    CleanLogDirectory(FLAGS_log_file);
   }
-  if (ec) {
-    spdlog::warn("Error occurred while trying to manually rotate old log files: {}", ec.message());
+  if (auto failed_query_log_path = FailedQueryLogPath(); failed_query_log_path) {
+    if (std::filesystem::path{*failed_query_log_path}.parent_path() !=
+        std::filesystem::path{FLAGS_log_file}.parent_path()) {
+      CleanLogDirectory(*failed_query_log_path);
+    }
   }
 }
 

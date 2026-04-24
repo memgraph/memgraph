@@ -47,6 +47,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
+#include "flags/logging.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "frontend/ast/query/user_profile.hpp"
 #include "frontend/semantic/rw_checker.hpp"
@@ -8520,6 +8521,7 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     return Interpreter::ParseInfo{.parsed_query = std::move(parsed_query), .parsing_time = parsing_time};
   } catch (const utils::BasicException &e) {
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
+    RecordFailedQuery("parse", query_string, e, current_db_.name());
     // Trigger first failed query
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
@@ -8733,13 +8735,39 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                                 QueryExtras const &extras) {
   if (std::holds_alternative<TransactionQuery>(parse_res)) {
     const auto tx_query_enum = std::get<TransactionQuery>(parse_res);
+    const auto tx_query = [tx_query_enum]() -> std::string_view {
+      switch (tx_query_enum) {
+        case TransactionQuery::BEGIN:
+          return "BEGIN";
+        case TransactionQuery::COMMIT:
+          return "COMMIT";
+        case TransactionQuery::ROLLBACK:
+          return "ROLLBACK";
+      }
+      LOG_FATAL("Unknown transaction query!");
+      return {};
+    }();
     if (tx_query_enum == TransactionQuery::BEGIN) {
       ResetInterpreter();
     }
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
-    query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
-    auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
-    return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
+    query_execution->original_query = tx_query;
+    try {
+      query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
+      auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
+      return {.headers = query_execution->prepared_query->header,
+              .privileges = query_execution->prepared_query->privileges,
+              .qid = qid,
+              .db = {}};
+    } catch (const utils::BasicException &e) {
+      LogQueryMessage(fmt::format("Failed query: {}", e.what()));
+      RecordFailedQuery("prepare", tx_query, e, current_db_.name());
+      metrics::FirstFailedQuery();
+      memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
+      query_execution.reset();
+      throw;
+    }
   }
 
   MG_ASSERT(std::holds_alternative<ParseInfo>(parse_res), "Unkown ParseRes type");
@@ -8794,6 +8822,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
+  auto current_query_string = [&]() -> std::string_view {
+    if (query_execution_ptr && *query_execution_ptr) {
+      return (*query_execution_ptr)->original_query;
+    }
+    return parsed_query.query_string;
+  };
   try {
     // Setup QueryExecution
     // TODO: Use CreateThreadSafe for multi-threaded queries
@@ -8804,6 +8838,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
     auto &query_execution = query_executions_.back();
     query_execution_ptr = &query_execution;
+    query_execution->original_query = parsed_query.query_string;
 
     std::optional<int> qid =
         in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
@@ -9192,6 +9227,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             .db = query_execution->prepared_query->db};
   } catch (const utils::BasicException &e) {
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
+    RecordFailedQuery("prepare", current_query_string(), e, current_db_.name());
     // Trigger first failed query
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
@@ -9816,6 +9852,36 @@ void Interpreter::LogQueryMessage(std::string message) {
   if (query_logger_) {
     (*query_logger_).trace(message);
   }
+}
+
+void Interpreter::RecordFailedQuery(std::string_view phase, std::string_view query,
+                                    const utils::BasicException &exception, std::string_view db_name) {
+  std::string username;
+  if (user_or_role_ && user_or_role_->username()) {
+    username = *user_or_role_->username();
+  } else {
+    username = session_info_.username;
+  }
+
+  auto query_to_log = utils::Escape(query);
+  auto message_to_log = utils::Escape(exception.what());
+
+#ifdef MG_ENTERPRISE
+  if (license::global_license_checker.IsEnterpriseValidFast()) {
+    query_to_log = utils::Escape(memgraph::logging::MaskSensitiveInformation(query));
+  }
+#endif
+
+  flags::LogFailedQuery(
+      fmt::format("phase={} error_type={} db={} session_id={} user={} transaction_id={} query={} message={}",
+                  phase,
+                  utils::GetExceptionName(exception),
+                  utils::Escape(db_name),
+                  utils::Escape(session_info_.uuid),
+                  utils::Escape(username),
+                  current_transaction_ ? std::to_string(*current_transaction_) : "\"\"",
+                  query_to_log,
+                  message_to_log));
 }
 
 }  // namespace memgraph::query

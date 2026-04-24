@@ -37,6 +37,7 @@ bool ValidLogLevel(std::string_view value);
 std::optional<spdlog::level::level_enum> LogLevelToEnum(std::string_view value);
 
 void InitializeLogger();
+void LogFailedQuery(std::string_view entry);
 void AddLoggerSink(spdlog::sink_ptr new_sink);
 // Sets stderr log level to off
 void TurnOffStdErr();

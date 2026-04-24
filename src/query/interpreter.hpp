@@ -488,6 +488,8 @@ class Interpreter final {
 
   bool IsQueryLoggingActive() const;
   void LogQueryMessage(std::string message);
+  void RecordFailedQuery(std::string_view phase, std::string_view query, const utils::BasicException &exception,
+                         std::string_view db_name = {});
 
  private:
   void ResetInterpreter() {
@@ -520,6 +522,7 @@ class Interpreter final {
     std::optional<PreparedQuery> prepared_query;
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
+    std::string original_query;
 
     static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
 
@@ -654,10 +657,12 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     }
   } catch (const ExplicitTransactionUsageException &e) {
     LogQueryMessage(e.what());
+    RecordFailedQuery("pull", query_execution->original_query, e, current_db_.name());
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &e) {
     LogQueryMessage(e.what());
+    RecordFailedQuery("pull", query_execution->original_query, e, current_db_.name());
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPull);
