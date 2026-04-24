@@ -81,6 +81,59 @@ class TestVirtualEdgesWithProcedures:
         assert "Expert" in results[0][0]
         assert results[0][1] == 42
 
+    def test_match_derive_call_pipeline(self, connection):
+        """Full pipeline: MATCH paths → derive() → CALL a graph-algo-shaped procedure → return results.
+
+        Mirrors the intended community_detection.get(subgraph) shape, but calls a
+        user-defined procedure (read.community_label) since bundled MAGE algorithms
+        don't yet declare a Graph argument.
+        """
+        cursor = connection.cursor()
+        execute_and_fetch_all(
+            cursor,
+            """
+            CREATE (a1:Person {name: 'A1', dept: 'eng'}),
+                   (a2:Person {name: 'A2', dept: 'eng'}),
+                   (a3:Person {name: 'A3', dept: 'sales'}),
+                   (c1:Company {name: 'ACME'}),
+                   (c2:Company {name: 'Beta'}),
+                   (a1)-[:WORKS_AT]->(c1),
+                   (a2)-[:WORKS_AT]->(c1),
+                   (a3)-[:WORKS_AT]->(c1),
+                   (a3)-[:WORKS_AT]->(c2);
+            """,
+        )
+
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(a:Person)-[:WORKS_AT]->(:Company)<-[:WORKS_AT]-(b:Person)
+            WHERE id(a) < id(b)
+            WITH derive(p, {
+                virtualEdgeType: 'COLLEAGUES',
+                relationshipProperties: {strength: 1},
+                sourceNodeLabels: ['Employee'],
+                targetNodeLabels: ['Employee'],
+                sourceNodeProperties: {name: a.name, dept: a.dept},
+                targetNodeProperties: {name: b.name, dept: b.dept}
+            }) AS subgraph
+            CALL read.community_label(subgraph, 'dept') YIELD node, community_id
+            RETURN node.name AS person, community_id
+            ORDER BY community_id, person;
+            """,
+        )
+
+        # Three colleague relationships in the real graph: (a1,a2), (a1,a3), (a2,a3) — all via ACME.
+        # derive() produces 3 virtual nodes {a1, a2, a3} and 3 virtual edges between them.
+        # community_label groups by dept: {eng: a1, a2; sales: a3}.
+        assert len(results) == 3
+        people = sorted(r[0] for r in results)
+        assert people == ["A1", "A2", "A3"]
+
+        by_person = {r[0]: r[1] for r in results}
+        assert by_person["A1"] == by_person["A2"], "A1 and A2 both in eng → same community"
+        assert by_person["A1"] != by_person["A3"], "A3 in sales → different community"
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

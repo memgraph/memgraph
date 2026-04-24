@@ -66,6 +66,21 @@ def subgraph_get_in_edges(ctx: mgp.ProcCtx, vertex: mgp.Vertex) -> mgp.Record(ed
     return [mgp.Record(edge=edge) for edge in vertex.in_edges]
 
 
+# community_label mirrors the shape a graph-algorithm module would take when
+# rewritten to accept a subgraph: group vertices by a property and yield
+# (node, community_id) records. Used by the derive()-pipeline e2e test.
+@mgp.read_proc
+def community_label(ctx: mgp.ProcCtx, key: str) -> mgp.Record(node=mgp.Vertex, community_id=int):
+    group_to_id: dict = {}
+    records = []
+    for vertex in ctx.graph.vertices:
+        group = vertex.properties.get(key)
+        if group not in group_to_id:
+            group_to_id[group] = len(group_to_id)
+        records.append(mgp.Record(node=vertex, community_id=group_to_id[group]))
+    return records
+
+
 @mgp.read_proc
 def subgraph_get_2_hop_edges(ctx: mgp.ProcCtx, vertex: mgp.Vertex) -> mgp.Record(edge=mgp.Edge):
     out_edges = vertex.out_edges
