@@ -1166,11 +1166,6 @@ class SubgraphDbAccessor final {
   DbAccessor *GetAccessor();
 };
 
-// Mirror of SubgraphDbAccessor for virtual graphs produced by derive(). Wraps the
-// outer query's DbAccessor by value (for name maps, storage mode, memory tracking,
-// transaction context) and points at a VirtualGraph owned upstream. The virtual
-// store replaces the iterator/lookup surface; mutations are not supported because
-// MgpGraphIsMutable returns false whenever this variant arm is active.
 class VirtualGraphDbAccessor final {
   DbAccessor db_accessor_;
   VirtualGraph *graph_;

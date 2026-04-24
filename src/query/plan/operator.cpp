@@ -6301,7 +6301,6 @@ class AggregateCursor : public Cursor {
       offset = align_forward(offset, alignof(TSet));
       const size_t offset_unique = offset;
       offset += sizeof(TSet) * num_aggs_;
-      // Derive dedup maps (DeriveDedup)
       offset = align_forward(offset, alignof(DeriveDedup));
       const size_t offset_dedup = offset;
       offset += sizeof(DeriveDedup) * num_aggs_;
@@ -6326,7 +6325,6 @@ class AggregateCursor : public Cursor {
       for (size_t i = 0UZ; i < num_rem_; ++i) new (&remember_[i]) TypedValue(mem);
       // Construct Sets (Must pass the allocator!)
       for (size_t i = 0UZ; i < num_aggs_; ++i) new (&unique_values_[i]) TSet(mem);
-      // Construct dedup maps (per-slot, empty; only DERIVE slots populate).
       for (size_t i = 0UZ; i < num_aggs_; ++i) new (&derive_dedup_[i]) DeriveDedup(mem);
     }
 
@@ -6636,8 +6634,6 @@ class AggregateCursor : public Cursor {
   }
 
   // Walks options[key] as a map of (name -> value) and invokes setter(prop_id, pv) for each entry.
-  // Key absent is a no-op. Key present with a non-map value, or entries that can't be converted
-  // to PropertyValue, throw — derive()'s contract is strict about option types.
   template <typename Setter>
   void ApplyPropertyMap(const TypedValue::TMap &options, std::string_view key, Setter &&setter) const {
     const auto it = options.find(key);
@@ -6687,6 +6683,7 @@ class AggregateCursor : public Cursor {
     static constexpr auto kTargetLabels = "targetNodeLabels";
     static constexpr auto kTargetProperties = "targetNodeProperties";
     static constexpr auto kRelationshipProperties = "relationshipProperties";
+    static constexpr auto kUndirectedEdgeTypes = "undirectedEdgeTypes";
 
     if (path_value.type() != TypedValue::Type::Path) {
       throw QueryRuntimeException("derive() requires a path as argument 1.");
@@ -6700,9 +6697,23 @@ class AggregateCursor : public Cursor {
       throw QueryRuntimeException("derive() options map must contain a 'virtualEdgeType' string key.");
     }
 
+    const auto &type_name = type_it->second.ValueString();
+    const bool type_is_undirected = [&] {
+      const auto it = options.find(kUndirectedEdgeTypes);
+      if (it == options.end()) return false;
+      if (it->second.type() != TypedValue::Type::List) {
+        throw QueryRuntimeException("derive() option '{}' must be a list of edge-type strings.", kUndirectedEdgeTypes);
+      }
+      for (const auto &elem : it->second.ValueList()) {
+        if (elem.type() != TypedValue::Type::String) {
+          throw QueryRuntimeException("derive() option '{}' entries must be strings.", kUndirectedEdgeTypes);
+        }
+        if (elem.ValueString() == type_name) return true;
+      }
+      return false;
+    }();
+
     const auto &path_vertices = path_value.ValuePath().vertices();
-    // Empty path contributes nothing to the aggregate — no-op, matches how other path-consuming
-    // aggregations (project_path) treat vacuous inputs.
     if (path_vertices.empty()) return;
 
     const auto alloc = projected_graph.get_allocator();
@@ -6726,13 +6737,18 @@ class AggregateCursor : public Cursor {
 
     auto stored_to = canonical(path_vertices.back(), kTargetLabels, kTargetProperties);
 
-    VirtualEdge ve(
-        std::move(stored_from), std::move(stored_to), utils::pmr::string{type_it->second.ValueString(), alloc}, alloc);
-    ApplyPropertyMap(options, kRelationshipProperties, [&](storage::PropertyId id, storage::PropertyValue pv) {
-      ve.SetProperty(id, std::move(pv));
-    });
+    auto build_edge = [&](std::shared_ptr<const VirtualNode> from, std::shared_ptr<const VirtualNode> to) {
+      VirtualEdge e(std::move(from), std::move(to), utils::pmr::string{type_name, alloc}, alloc);
+      ApplyPropertyMap(options, kRelationshipProperties, [&](storage::PropertyId id, storage::PropertyValue pv) {
+        e.SetProperty(id, std::move(pv));
+      });
+      return e;
+    };
 
-    projected_graph.InsertEdgeIfNew(std::move(ve));
+    projected_graph.InsertEdgeIfNew(build_edge(stored_from, stored_to));
+    if (type_is_undirected && stored_from.get() != stored_to.get()) {
+      projected_graph.InsertEdgeIfNew(build_edge(std::move(stored_to), std::move(stored_from)));
+    }
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not

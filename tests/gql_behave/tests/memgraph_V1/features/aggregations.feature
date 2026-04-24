@@ -882,6 +882,72 @@ Feature: Aggregations
             | n | e |
             | 2 | 1 |
 
+    Scenario: undirectedEdgeTypes doubles the virtual edge between distinct endpoints
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x: 1})-[:R]->(b:N {x: 2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH derive(p, {virtualEdgeType: 'COLLEAGUES', undirectedEdgeTypes: ['COLLEAGUES']}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            """
+        Then the result should be:
+            | n | e |
+            | 2 | 2 |
+
+    Scenario: undirectedEdgeTypes leaves self-loops single
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x: 1})-[:R]->(a)
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x: 1})-[:R]->(:N {x: 1}) WITH derive(p, {virtualEdgeType: 'SELF', undirectedEdgeTypes: ['SELF']}) AS graph RETURN size(graph.edges) AS e
+            """
+        Then the result should be:
+            | e |
+            | 1 |
+
+    Scenario: undirectedEdgeTypes only doubles listed types
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x: 1})-[:R]->(b:N {x: 2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH derive(p, {virtualEdgeType: 'DIRECTED', undirectedEdgeTypes: ['OTHER']}) AS graph RETURN size(graph.edges) AS e
+            """
+        Then the result should be:
+            | e |
+            | 1 |
+
+    Scenario: undirectedEdgeTypes errors when not a list
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x: 1})-[:R]->(b:N {x: 2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH derive(p, {virtualEdgeType: 'X', undirectedEdgeTypes: 'X'}) AS graph RETURN graph
+            """
+        Then an error should be raised
+
+    Scenario: undirectedEdgeTypes errors when entries are not strings
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x: 1})-[:R]->(b:N {x: 2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH derive(p, {virtualEdgeType: 'X', undirectedEdgeTypes: [42]}) AS graph RETURN graph
+            """
+        Then an error should be raised
+
     Scenario: Empty collect aggregation:
       Given an empty graph
       And having executed

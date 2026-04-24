@@ -22,8 +22,8 @@ EdgeRefView MakeView(std::span<const VirtualEdge *const> ptrs) {
 }  // namespace
 
 VirtualGraph::VirtualGraph(const VirtualGraph &other, allocator_type alloc)
-    : nodes_(other.nodes_, alloc), edges_(alloc), out_index_(alloc), in_index_(alloc) {
-  CopyEdgesRebound(other.edges_, alloc);
+    : nodes_(other.nodes_, alloc), edges_(other.edges_, alloc), out_index_(alloc), in_index_(alloc) {
+  RebuildEdgeIndexes();
 }
 
 VirtualGraph::VirtualGraph(VirtualGraph &&other, allocator_type alloc)
@@ -35,7 +35,8 @@ VirtualGraph::VirtualGraph(VirtualGraph &&other, allocator_type alloc)
     in_index_ = std::move(other.in_index_);
   } else {
     nodes_ = node_map(other.nodes_, alloc);
-    CopyEdgesRebound(other.edges_, alloc);
+    edges_ = edge_set(other.edges_, alloc);
+    RebuildEdgeIndexes();
   }
 }
 
@@ -46,21 +47,6 @@ void VirtualGraph::IndexEdge(const VirtualEdge *edge) {
 
 void VirtualGraph::RebuildEdgeIndexes() {
   for (const auto &edge : edges_) IndexEdge(&edge);
-}
-
-void VirtualGraph::CopyEdgesRebound(const edge_set &source, allocator_type alloc) {
-  // edges_.emplace() would route through uses-allocator construction and append the
-  // allocator as an extra argument, which our rebound-copy ctor can't accept.
-  // Build each edge directly and insert.
-  const VirtualEdge::allocator_type edge_alloc(alloc.resource());
-  for (const auto &edge : source) {
-    const auto it_from = nodes_.find(edge.FromGid());
-    const auto it_to = nodes_.find(edge.ToGid());
-    DMG_ASSERT(it_from != nodes_.end() && it_to != nodes_.end(),
-               "VirtualEdge references a synthetic gid absent from the source graph's node map");
-    edges_.insert(VirtualEdge(edge, it_from->second, it_to->second, edge_alloc));
-  }
-  RebuildEdgeIndexes();
 }
 
 const VirtualNode &VirtualGraph::InsertNode(VirtualNode node) {
@@ -96,7 +82,7 @@ EdgeRefView VirtualGraph::InEdges(storage::Gid vertex_gid) const {
 
 void VirtualGraph::Merge(const VirtualGraph &other, const VirtualGraphAliasMap &aliases) {
   for (const auto &[synth_gid, node] : other.nodes_) {
-    if (aliases.contains(synth_gid)) continue;  // aliased to an existing canonical; skip
+    if (aliases.contains(synth_gid)) continue;
     nodes_.try_emplace(synth_gid, node);
   }
   const auto resolve = [&aliases](storage::Gid g) {

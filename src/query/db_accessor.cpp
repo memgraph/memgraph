@@ -129,10 +129,10 @@ DbAccessor *SubgraphDbAccessor::GetAccessor() { return &db_accessor_; }
 VirtualGraphDbAccessor::VirtualGraphDbAccessor(query::DbAccessor db_accessor, VirtualGraph *graph)
     : db_accessor_(db_accessor), graph_(graph) {}
 
-void VirtualGraphDbAccessor::TrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
+void VirtualGraphDbAccessor::TrackCurrentThreadAllocations() { db_accessor_.TrackCurrentThreadAllocations(); }
 
 void VirtualGraphDbAccessor::UntrackCurrentThreadAllocations() {
-  return db_accessor_.UntrackCurrentThreadAllocations();
+  memgraph::query::DbAccessor::UntrackCurrentThreadAllocations();
 }
 
 storage::PropertyId VirtualGraphDbAccessor::NameToProperty(const std::string_view name) {

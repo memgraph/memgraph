@@ -23,9 +23,6 @@ template <std::ranges::input_range R>
 TypedValue RangeToTypedValueList(R &&range, utils::MemoryResource *memory) {
   utils::pmr::vector<TypedValue> out(memory);
   if constexpr (std::ranges::sized_range<R>) out.reserve(std::ranges::size(range));
-  // emplace_back(item): single-arg TypedValue ctors pick up the vector's PMR allocator via
-  // uses-allocator construction. Passing memory explicitly would require non-explicit 2-arg
-  // ctors for every element type, which TypedValue doesn't have.
   for (const auto &item : range) out.emplace_back(item);
   return {std::move(out), memory};
 }

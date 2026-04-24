@@ -28,25 +28,12 @@ namespace detail {
 inline constexpr auto kDerefEdgePtr = [](const VirtualEdge *p) noexcept -> const VirtualEdge & { return *p; };
 }  // namespace detail
 
-// function-call form (not pipe) avoids a range-adaptor-closure ambiguity gcc 15 hits.
 using EdgeRefView = decltype(std::views::transform(std::span<const VirtualEdge *const>{}, detail::kDerefEdgePtr));
 
 // Maps synthetic gids in one VirtualGraph (the "aliased" one) to the synthetic
-// gid of the canonical VirtualNode in another VirtualGraph. Used by Merge when
-// the caller knows that two VirtualNodes in the two graphs represent the same
-// external entity (e.g. same real vertex under derive aggregation) and wants
-// the merged graph to collapse them.
+// gid of the canonical VirtualNode in another VirtualGraph.
 using VirtualGraphAliasMap = utils::pmr::unordered_map<storage::Gid, storage::Gid>;
 
-// Invariants:
-//  - The node map stores each VirtualNode under a shared_ptr<const VirtualNode>;
-//    VirtualEdges own their endpoints by shared_ptr so edges that escape the
-//    graph (collect(e), g.edges returned from a subquery) each keep their own
-//    endpoints alive even after the source VirtualGraph is destroyed.
-//  - The node map is keyed by VirtualNode::Gid() (synthetic).
-//  - edges_ is dedup'd on VirtualEdge's semantic (from_synth, to_synth, type)
-//    hash/eq. pmr::unordered_set guarantees element-address stability, so
-//    out_index_/in_index_ can hold raw const VirtualEdge* into its buckets.
 class VirtualGraph final {
  public:
   using allocator_type = utils::Allocator<VirtualGraph>;
@@ -90,11 +77,6 @@ class VirtualGraph final {
  private:
   void IndexEdge(const VirtualEdge *edge);
   void RebuildEdgeIndexes();
-
-  // Re-resolve each edge in `source` to endpoints in this graph's nodes_ and
-  // insert as a new entry. Used by the copy/move-with-allocator ctors when the
-  // node map was duplicated under a new allocator.
-  void CopyEdgesRebound(const edge_set &source, allocator_type alloc);
 
   node_map nodes_;
   edge_set edges_;
