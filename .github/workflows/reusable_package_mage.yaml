@@ -384,6 +384,20 @@ jobs:
           --cugraph $CUGRAPH \
           build-mage
 
+      - name: Upload MAGE debug symbols
+        if: ${{ inputs.split_debug }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-west-1
+        run: |
+          # MAGE .debug sidecars were bundled into mage.tar.gz by mage/setup
+          # when MG_SPLIT_DEBUG=ON. Extract on the runner and upload by build-id.
+          mkdir -p /tmp/mage-symbols
+          tar -xzf mage/mage.tar.gz -C /tmp/mage-symbols
+          bash tools/ci/upload-debug-symbols.sh /tmp/mage-symbols
+          rm -rf /tmp/mage-symbols
+
       - name: Build DEB package in MGBUILD container
         if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_DEB == 'true' }}
         run: |

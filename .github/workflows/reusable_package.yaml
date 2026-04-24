@@ -192,6 +192,21 @@ jobs:
           --package \
           --dest-dir $PACKAGE_ARTIFACT_DIR
 
+      - name: "Upload debug symbols"
+        if: ${{ inputs.split_debug }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-west-1
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          copy-debug-symbols \
+          --dest-dir build/debug-symbols
+          bash tools/ci/upload-debug-symbols.sh build/debug-symbols
+
       - name: "Copy SBOM"
         if: ${{ env.GENERATE_SBOM == 'true' }}
         run: |

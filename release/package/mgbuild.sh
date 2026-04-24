@@ -89,6 +89,7 @@ print_help () {
   echo -e "  build-memgraph [OPTIONS]           Build memgraph binary inside mgbuild container"
   echo -e "  init-tests                         Initialize tests inside mgbuild container"
   echo -e "  copy [OPTIONS]                     Copy an artifact from mgbuild container to host"
+  echo -e "  copy-debug-symbols [OPTIONS]       Copy all .debug sidecars from build tree to host (requires split-debug build)"
   echo -e "  package-memgraph                   Create memgraph package from built binary inside mgbuild container"
   echo -e "  package-docker [OPTIONS]           Create memgraph docker image and pack it as .tar.gz"
   echo -e "  package-mage-deb [OPTIONS]         Create MAGE DEB package"
@@ -1081,6 +1082,41 @@ copy_memgraph() {
     docker cp -L $build_container:$container_artifact_path $host_artifact_path
   fi
   echo -e "Memgraph $artifact saved to $host_artifact_path!"
+}
+
+copy_debug_symbols() {
+  # Extract all *.debug sidecars from the build tree and copy them to the host
+  # as a flat directory (tarball preserves subdir structure for readelf).
+  # Only meaningful after a build with --split-debug (MG_SPLIT_DEBUG=ON).
+  local PROJECT_BUILD_DIR="$PROJECT_ROOT/build"
+  local MGBUILD_BUILD_DIR="$MGBUILD_ROOT_DIR/build"
+  local host_dir="$PROJECT_BUILD_DIR/debug-symbols"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-dir)
+        host_dir="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  mkdir -p "$host_dir"
+  local container_tarball="/tmp/debug-symbols-$$.tar.gz"
+  echo "Archiving .debug sidecars from $build_container..."
+  docker exec -u mg "$build_container" bash -c \
+    "cd $MGBUILD_BUILD_DIR && find . -name '*.debug' -type f -print0 | tar --null -czf $container_tarball -T -"
+  docker cp "$build_container:$container_tarball" "$host_dir/debug-symbols.tar.gz"
+  docker exec -u mg "$build_container" rm -f "$container_tarball"
+  # Extract for easy per-file access (e.g. readelf + upload step).
+  tar -xzf "$host_dir/debug-symbols.tar.gz" -C "$host_dir"
+  local count
+  count=$(find "$host_dir" -name '*.debug' -type f | wc -l)
+  echo "Copied $count debug symbol files to $host_dir"
 }
 
 
@@ -2493,6 +2529,9 @@ case $command in
     ;;
     copy)
       copy_memgraph $@
+    ;;
+    copy-debug-symbols)
+      copy_debug_symbols $@
     ;;
     package-docker)
       package_docker $@
