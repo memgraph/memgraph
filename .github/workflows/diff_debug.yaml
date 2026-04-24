@@ -87,6 +87,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads $BUILD_THREADS \
           build-memgraph \
           --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
@@ -223,6 +224,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads $BUILD_THREADS \
           build-memgraph \
           --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
