@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <rocksdb/utilities/transaction_db.h>
 #include <filesystem>
+#include "dbms/constants.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 
@@ -26,7 +27,8 @@ memgraph::storage::Config GenerateOnDiskConfig(const std::string &testName) {
                    .name_id_mapper_directory = "rocksdb_" + testName + "_name_id_mapper",
                    .id_name_mapper_directory = "rocksdb_" + testName + "_id_name_mapper",
                    .durability_directory = "rocksdb_" + testName + "_durability",
-                   .wal_directory = "rocksdb_" + testName + "_wal"}};
+                   .wal_directory = "rocksdb_" + testName + "_wal"},
+          .salient = {.name = memgraph::dbms::kDefaultDB}};
 }
 
 void RemoveRocksDbDirs(const std::string &testName) {

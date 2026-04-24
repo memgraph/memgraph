@@ -66,7 +66,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
                                                           nullptr,
                                                           nullptr,
                                                           nullptr,
-                                                          repl_state,
+                                                          &repl_state,
                                                           system_state,
                                                           nullptr
 #ifdef MG_ENTERPRISE

@@ -15,6 +15,7 @@
 #include <thread>
 
 #include "flags/general.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -634,8 +635,11 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexSingleThreadTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo();
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -650,8 +654,11 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo();
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -666,8 +673,11 @@ TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo("resize_test_index", 10);  // Small capacity to force resize
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -699,8 +709,11 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
                                                                 .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
                                         .index_entries = std::move(index_entries)};
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);

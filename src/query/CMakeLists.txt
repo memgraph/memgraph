@@ -76,6 +76,7 @@ target_sources(mg-query
     plan_v2/egraph.cpp
     plan_v2/ast_converter.cpp
     plan_v2/egraph_converter.cpp
+    plan_v2/rewrites.cpp
     plan/parallel_checker.cpp
     procedure/mg_procedure_impl.cpp
     procedure/callable_alias_mapper.cpp
@@ -99,6 +100,7 @@ target_sources(mg-query
     FILE_SET HEADERS
     FILES
     dependant_symbol_visitor.hpp
+    plan_v2/rewrites.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp
     frontend/ast/query/aggregation.hpp
@@ -216,7 +218,9 @@ add_custom_command(
     DEPENDS
     ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
     ${opencypher_frontend}/grammar/CypherLexer.g4
-    ${opencypher_frontend}/grammar/Cypher.g4)
+    ${opencypher_frontend}/grammar/Cypher.g4
+    CODEGEN
+    VERBATIM)
 
 add_custom_target(generate_opencypher_parser
     DEPENDS ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include})

@@ -1,21 +1,23 @@
 add_unit_test(planner
+    CUSTOM_MAIN
     SOURCES
+        main.cpp
+        test_instantiations.cpp
         unittest__union_find.cpp
         unittest__enode.cpp
         unittest__egraph.cpp
         unittest__extractor.cpp
-    LINK_TARGETS mg::planner
+        unittest__pattern.cpp
+        unittest__match_arena.cpp
+        unittest__vm_matching.cpp
+        unittest__rewrite.cpp
+        unittest__vm_compiler.cpp
+        unittest__vm_trace.cpp
+        unittest__vm_state.cpp
+    LINK_TARGETS mg::planner ApprovalTests::ApprovalTests
 )
 
-# Fuzzer for e-graph operations
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    find_package(fmt REQUIRED)
-    add_executable(fuzz_egraph fuzz_egraph.cpp)
-    target_link_libraries(fuzz_egraph PRIVATE mg::planner fmt::fmt)
-    target_compile_options(fuzz_egraph PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
-    target_link_options(fuzz_egraph PRIVATE -fsanitize=fuzzer,address)
-    target_compile_definitions(fuzz_egraph PUBLIC ASSERT_FUZZ)
-
-    # Optional: Create a corpus directory for the fuzzer
-    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fuzz_corpus)
-endif()
+# ApprovalTests needs the source directory to locate approved files.
+target_compile_definitions(memgraph__unit__planner PRIVATE
+    APPROVAL_TESTS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)

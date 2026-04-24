@@ -1,0 +1,20 @@
+bolt_port: &bolt_port "7687"
+args: &args
+  - "--bolt_port"
+  - *bolt_port
+  - "--log-level=TRACE"
+
+in_memory_cluster: &in_memory_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "void-procedures-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Void procedures test"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/void_procedures/procedures/"
+    args: ["void_procedures/void_procedures_test.py"]
+    <<: *in_memory_cluster

@@ -23,8 +23,10 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
 
 
+COPY wheels /tmp/wheels
+
 USER memgraph
-RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/auth-module-requirements.txt && \
+RUN pip3 install --no-cache-dir --break-system-packages --find-links=/tmp/wheels -r /tmp/auth-module-requirements.txt && \
     pip3 install --no-cache-dir --break-system-packages numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16
 
 FROM ubuntu:24.04

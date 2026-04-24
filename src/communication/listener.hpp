@@ -254,7 +254,7 @@ class Listener final {
     epoll_.Delete(session.socket().fd());
 
     auto guard = std::lock_guard{lock_};
-    auto it = std::find_if(sessions_.begin(), sessions_.end(), [&](const auto &l) { return l.get() == &session; });
+    auto it = std::ranges::find_if(sessions_, [&](const auto &l) { return l.get() == &session; });
 
     MG_ASSERT(it != sessions_.end(), "Trying to remove session that is not found in sessions!");
     int i = it - sessions_.begin();

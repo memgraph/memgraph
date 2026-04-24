@@ -797,7 +797,6 @@ TEST(SkipListRangeChunking, CompleteCoveragePerformanceComparison) {
   std::atomic<int> total_processed{0};
   std::vector<std::jthread> threads;
 
-  auto start_time = std::chrono::high_resolution_clock::now();
   for (size_t i = 0; i < chunks.size(); ++i) {
     threads.emplace_back([&chunks, i, &total_processed]() {
       int local_count = 0;

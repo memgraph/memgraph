@@ -106,6 +106,10 @@ cp -v ../../build/libssl3t64*.deb "${working_dir}/openssl"
 
 cp -v ../../src/auth/reference_modules/requirements.txt "${working_dir}/auth-module-requirements.txt"
 
+# stage wheels dir so the python-base stage can install packages that lack
+# prebuilt linux wheels on PyPI (e.g. gssapi). Safe to be empty.
+mkdir -p "${working_dir}/wheels"
+
 extension="${package_path##*.}"
 dockerfile_path="${working_dir}/${toolchain_version}_${extension}${dockerfile_path_rwdi_extension}.dockerfile"
 echo "Dockerfile: $dockerfile_path"

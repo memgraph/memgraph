@@ -35,8 +35,8 @@ Graph::Graph(Graph &&other, allocator_type alloc)
 void Graph::Expand(const Path &path) {
   const auto &path_vertices_ = path.vertices();
   const auto &path_edges_ = path.edges();
-  std::for_each(path_vertices_.begin(), path_vertices_.end(), [this](const VertexAccessor v) { vertices_.insert(v); });
-  std::for_each(path_edges_.begin(), path_edges_.end(), [this](const EdgeAccessor e) { edges_.insert(e); });
+  std::ranges::for_each(path_vertices_, [this](const VertexAccessor v) { vertices_.insert(v); });
+  std::ranges::for_each(path_edges_, [this](const EdgeAccessor e) { edges_.insert(e); });
 }
 
 void Graph::Expand(std::span<TypedValue const> const nodes, std::span<TypedValue const> const edges) {

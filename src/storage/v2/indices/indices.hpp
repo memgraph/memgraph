@@ -75,7 +75,7 @@ struct Indices {
     void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
                                  Edge *edge);
-    bool IsInterestingEdgeProperty(PropertyId property);
+    bool IsInterestingEdgeProperty(PropertyId property) const;
 
     void Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
                  NameIdMapper *name_id_mapper);

@@ -24,6 +24,7 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/label_property_index_entry.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -99,7 +100,7 @@ class EdgeAccessor;
 // TODO: list status Populating/Ready
 struct IndicesInfo {
   std::vector<LabelId> label;
-  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> label_properties;
+  std::vector<LabelPropertyIndexEntry> label_properties;
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<PropertyId> edge_property;
@@ -281,9 +282,10 @@ class Storage {
     virtual VerticesIterable Vertices(LabelId label, View view) = 0;
 
     virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
-                                      std::span<storage::PropertyValueRange const> property_ranges, View view) = 0;
+                                      std::span<storage::PropertyValueRange const> property_ranges, View view,
+                                      IndexOrder order = IndexOrder::ASC) = 0;
 
-    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
+    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
       return Vertices(
           label, properties, std::vector(properties.size(), storage::PropertyValueRange::IsNotNull()), view);
     };
@@ -294,7 +296,8 @@ class Storage {
 
     virtual VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                                     std::span<storage::PropertyValueRange const> property_ranges,
-                                                    View view, size_t num_chunks) = 0;
+                                                    View view, size_t num_chunks,
+                                                    IndexOrder order = IndexOrder::ASC) = 0;
 
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
@@ -430,33 +433,29 @@ class Storage {
     virtual bool EdgePropertyIndexExists(PropertyId property) const = 0;
 
     bool TextIndexExists(const std::string &index_name) const {
-      return storage_->indices_.text_index_.IndexExists(index_name);
+      return transaction_.active_indices_->text_->IndexExists(index_name);
     }
 
     std::vector<TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
                                                   text_search_mode search_mode, std::size_t limit) const {
-      return storage_->indices_.text_index_.Search(index_name, search_query, search_mode, limit, transaction_);
+      return transaction_.active_indices_->text_->Search(index_name, search_query, search_mode, limit, transaction_);
     }
 
     std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                    const std::string &aggregation_query) const {
-      return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
+      return transaction_.active_indices_->text_->Aggregate(index_name, search_query, aggregation_query);
     }
 
     std::string TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
                                        const std::string &aggregation_query) const {
-      return storage_->indices_.text_edge_index_.Aggregate(index_name, search_query, aggregation_query);
+      return transaction_.active_indices_->text_edge_->Aggregate(index_name, search_query, aggregation_query);
     }
 
     std::vector<TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name,
                                                           const std::string &search_query, text_search_mode search_mode,
                                                           std::size_t limit) const {
-      return storage_->indices_.text_edge_index_.Search(index_name, search_query, search_mode, limit, transaction_);
-    }
-
-    std::string EdgeTextIndexAggregate(const std::string &index_name, const std::string &search_query,
-                                       const std::string &aggregation_query) const {
-      return storage_->indices_.text_edge_index_.Aggregate(index_name, search_query, aggregation_query);
+      return transaction_.active_indices_->text_edge_->Search(
+          index_name, search_query, search_mode, limit, transaction_);
     }
 
     virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
@@ -509,14 +508,11 @@ class Storage {
 
     auto const &uuid() const { return storage_->uuid(); }
 
-    std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
-
-    std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
-
     virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
                                                                          CheckCancelFunction cancel_check) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
+                                                                         IndexOrder order,
                                                                          CheckCancelFunction cancel_check) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
@@ -533,8 +529,9 @@ class Storage {
       return CreateIndex(label, neverCancel);
     }
 
-    auto CreateIndex(LabelId label, PropertiesPaths properties) -> std::expected<void, StorageIndexDefinitionError> {
-      return CreateIndex(label, std::move(properties), neverCancel);
+    auto CreateIndex(LabelId label, PropertiesPaths properties, IndexOrder order = IndexOrder::ASC)
+        -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(label, std::move(properties), order, neverCancel);
     }
 
     auto CreateIndex(EdgeTypeId edge_type) -> std::expected<void, StorageIndexDefinitionError> {
@@ -552,7 +549,8 @@ class Storage {
     virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) = 0;
+        LabelId label, std::vector<storage::PropertyPath> &&properties,
+        std::optional<IndexOrder> order = std::nullopt) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) = 0;
 
@@ -1073,14 +1071,22 @@ class Storage {
     return repl_storage_state_.GetReplicaState(name);
   }
 
+  // Snapshot-free read: the underlying `SynchronizedMetaDataStore::vectorize()`
+  // takes a shared rwlock and returns a consistent copy of the set. The set
+  // grows as new labels / edge-types are observed, and is cleared wholesale by
+  // `InMemoryStorage::Clear()` on DROP GRAPH (which takes the matching write
+  // lock). Callers therefore see either the pre-clear or post-clear contents
+  // atomically; no storage accessor is needed.
+  std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
+  std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
+
   /// Returns the current snapshot of active indices
   auto GetActiveIndices() const -> ActiveIndicesPtr { return indices_.active_indices_.ReadCopy(); }
 
-  auto GetActiveConstraints() const -> ActiveConstraints {
-    return ActiveConstraints{constraints_.existence_constraints_->GetActiveConstraints(),
-                             constraints_.unique_constraints_->GetActiveConstraints(),
-                             constraints_.type_constraints_->GetActiveConstraints()};
-  }
+  auto GetActiveConstraints() const -> ActiveConstraintsPtr { return constraints_.active_constraints_.ReadCopy(); }
+
+  // Vector index counts are now accessed through ActiveIndices snapshots (shared_ptr + COW),
+  // which provide both live counts and snapshot isolation.
 
   /// Check if async indexer is idle (no pending work)
   /// @return true if async indexer is idle, false if actively processing or has pending work

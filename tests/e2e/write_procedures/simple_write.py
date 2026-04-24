@@ -78,7 +78,7 @@ def test_single_vertex(multi_db):
         nonlocal cursor
         execute_and_fetch_all(
             cursor,
-            f"MATCH (n) CALL write.set_property(n, '{property_name}', " "$property) YIELD * RETURN *",
+            f"MATCH (n) CALL write.set_property(n, '{property_name}', " "$property) RETURN *",
             {"property": property},
         )
 
@@ -103,7 +103,7 @@ def test_single_vertex(multi_db):
     set_property(property_name, None)
     assert get_vertex().properties == {}
 
-    execute_and_fetch_all(cursor, "MATCH (n) CALL write.delete_vertex(n) YIELD * RETURN 1")
+    execute_and_fetch_all(cursor, "MATCH (n) CALL write.delete_vertex(n) RETURN 1")
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
 
 
@@ -135,7 +135,7 @@ def test_single_edge(multi_db):
         nonlocal cursor
         execute_and_fetch_all(
             cursor,
-            "MATCH ()-[e]->() " f"CALL write.set_property(e, '{property_name}', " "$property) YIELD * RETURN *",
+            "MATCH ()-[e]->() " f"CALL write.set_property(e, '{property_name}', " "$property) RETURN *",
             {"property": property},
         )
 
@@ -145,7 +145,7 @@ def test_single_edge(multi_db):
     assert get_edge().properties == {property_name: property_value_2}
     set_property(property_name, None)
     assert get_edge().properties == {}
-    execute_and_fetch_all(cursor, "MATCH ()-[e]->() CALL write.delete_edge(e) YIELD * RETURN 1")
+    execute_and_fetch_all(cursor, "MATCH ()-[e]->() CALL write.delete_edge(e) RETURN 1")
     assert has_n_result_row(cursor, "MATCH ()-[e]->() RETURN e", 0)
 
 
@@ -164,9 +164,7 @@ def test_detach_delete_vertex(multi_db):
     )
 
     assert has_one_result_row(cursor, "MATCH (n)-[e]->(m) RETURN n, e, m")
-    execute_and_fetch_all(
-        cursor, f"MATCH (n) WHERE id(n) = {v1_id} " "CALL write.detach_delete_vertex(n) YIELD * RETURN 1"
-    )
+    execute_and_fetch_all(cursor, f"MATCH (n) WHERE id(n) = {v1_id} " "CALL write.detach_delete_vertex(n) RETURN 1")
     assert has_n_result_row(cursor, "MATCH (n)-[e]->(m) RETURN n, e, m", 0)
     assert has_n_result_row(cursor, "MATCH ()-[e]->() RETURN e", 0)
     assert has_one_result_row(cursor, f"MATCH (n) WHERE id(n) = {v2_id} RETURN n")

@@ -12,6 +12,8 @@
 #pragma once
 
 #include "storage/v2/config.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
+#include "storage/v2/constraints/active_constraints_updater.hpp"
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
@@ -28,11 +30,17 @@ struct Constraints {
   Constraints &operator=(Constraints &&) = delete;
   ~Constraints() = default;
 
-  void DropGraphClearConstraints() const;
+  void DropGraphClearConstraints();
 
   std::unique_ptr<ExistenceConstraints> existence_constraints_;
   std::unique_ptr<UniqueConstraints> unique_constraints_;
   std::unique_ptr<TypeConstraints> type_constraints_;
+
+  /// Centralized snapshot of active constraints, shared by transactions via shared_ptr.
+  ActiveConstraintsStore active_constraints_;
+
+  /// Factory method to create an updater bound to this Constraints' active_constraints_ store.
+  ActiveConstraintsUpdater MakeUpdater() { return ActiveConstraintsUpdater{active_constraints_}; }
 };
 
 }  // namespace memgraph::storage
