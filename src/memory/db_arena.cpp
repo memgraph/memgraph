@@ -397,6 +397,28 @@ void ArenaPool::PurgeAllArenas() const {
 
 #endif  // USE_JEMALLOC
 
+namespace memgraph::memory {
+
+#if !USE_JEMALLOC
+
+ArenaPool::ArenaPool(utils::MemoryTracker * /*tracker*/) {}
+
+ArenaPool::~ArenaPool() noexcept = default;
+
+unsigned ArenaPool::idx() const noexcept { return 0U; }
+
+unsigned ArenaPool::Acquire() { return 0U; }
+
+void ArenaPool::Release(unsigned /*arena_idx*/) {}
+
+bool ArenaPool::Owns(unsigned /*arena_idx*/) const { return false; }
+
+void ArenaPool::PurgeAllArenas() const {}
+
+#endif
+
+}  // namespace memgraph::memory
+
 #if USE_JEMALLOC
 void *JeNew(size_t size, int flags);
 void JeFree(void *ptr, std::size_t size, int flags) noexcept;

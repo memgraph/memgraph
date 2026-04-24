@@ -196,11 +196,9 @@ class Database {
    */
   void StopAllBackgroundTasks();
 
-#if USE_JEMALLOC
   /// Returns the database arena pool for per-thread arena management
   memory::ArenaPool &Arena() noexcept;
   memory::ArenaPool &Arena() const noexcept;
-#endif
 
   /// Total memory tracked for this database (storage + embeddings + query).
   /// This is the sum of all per-DB trackers and represents the tenant enforcement total.
@@ -241,9 +239,7 @@ class Database {
   // Avoids double-counting: if this had graph_memory_tracker as parent, we'd count each
   // query PMR byte twice (once via TrackingMemoryResource::Alloc, once via arena hooks).
   utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
-#if USE_JEMALLOC
   std::unique_ptr<memory::ArenaPool> db_arena_;  //!< Per-DB jemalloc arena pool with tracking hooks
-#endif
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers

@@ -37,6 +37,58 @@ struct DbArenaHooks {
   // TODO: Think about a failsafe in case unhooking failed
 };
 
+#endif
+
+// Owns DB-specific arenas in jemalloc builds and degrades to a no-op facade
+// when jemalloc support is disabled. Higher layers should use it uniformly and
+// let the implementation hide the backend split.
+class ArenaPool {
+ public:
+  explicit ArenaPool(utils::MemoryTracker *tracker);
+  ~ArenaPool() noexcept;
+
+  ArenaPool(const ArenaPool &) = delete;
+  ArenaPool &operator=(const ArenaPool &) = delete;
+  ArenaPool(ArenaPool &&) = delete;
+  ArenaPool &operator=(ArenaPool &&) = delete;
+
+  // Returns the constructor-created base arena used by long-lived arena-aware
+  // owners and short-lived DB-scoped work.
+  unsigned idx() const noexcept;
+
+  // Acquire an arena for DB-owned thread work.
+  unsigned Acquire();
+
+  // Return an arena acquired from this pool so a future Acquire() can reuse it.
+  void Release(unsigned arena_idx);
+
+  // Returns true if this pool owns the arena index.
+  bool Owns(unsigned arena_idx) const;
+
+  // Decay and purge all arenas currently owned by this pool so extent hooks can
+  // report released pages back to the DB memory tracker.
+  void PurgeAllArenas() const;
+
+ private:
+#if USE_JEMALLOC
+  DbArenaHooks hooks_{};
+
+  // Protects arenas_, free_count_, and first_arena_use_count_.
+  mutable std::mutex arena_mux_;
+  // Arena indices owned by this database. The range [0, free_count_) is free;
+  // the range [free_count_, arenas_.size()) is in use.
+  std::vector<unsigned> arenas_;
+  std::size_t free_count_{0};
+
+  // Cache of the first arena for backwards compatibility
+  unsigned first_arena_idx_{0};
+
+  unsigned first_arena_use_count_{0};
+#endif
+};
+
+#if USE_JEMALLOC
+
 // Populate a DbArenaHooks struct so it can be installed on any jemalloc arena.
 // `tracker`    – receives Alloc/Free calls for that arena.
 // `base_hooks` – jemalloc's default hooks; the callbacks call through to these.
@@ -111,53 +163,6 @@ class GlobalArenaPool {
  private:
   std::mutex mux_;
   std::vector<unsigned> pool_;
-};
-
-// Owns DB-specific jemalloc arenas with custom extent hooks that report
-// committed OS pages to a `utils::MemoryTracker` owned by the caller.
-// Active DB-owned threads can acquire additional arenas to reduce allocator
-// contention. Acquired arenas are owned for the ArenaPool lifetime.
-class ArenaPool {
- public:
-  explicit ArenaPool(utils::MemoryTracker *tracker);
-  ~ArenaPool() noexcept;
-
-  ArenaPool(const ArenaPool &) = delete;
-  ArenaPool &operator=(const ArenaPool &) = delete;
-  ArenaPool(ArenaPool &&) = delete;
-  ArenaPool &operator=(ArenaPool &&) = delete;
-
-  // Returns the constructor-created base arena used by long-lived arena-aware
-  // owners and short-lived DB-scoped work.
-  unsigned idx() const noexcept;
-
-  // Acquire an arena for DB-owned thread work.
-  unsigned Acquire();
-
-  // Return an arena acquired from this pool so a future Acquire() can reuse it.
-  void Release(unsigned arena_idx);
-
-  // Returns true if this pool owns the arena index.
-  bool Owns(unsigned arena_idx) const;
-
-  // Decay and purge all arenas currently owned by this pool so extent hooks can
-  // report released pages back to the DB memory tracker.
-  void PurgeAllArenas() const;
-
- private:
-  DbArenaHooks hooks_{};
-
-  // Protects arenas_, free_count_, and first_arena_use_count_.
-  mutable std::mutex arena_mux_;
-  // Arena indices owned by this database. The range [0, free_count_) is free;
-  // the range [free_count_, arenas_.size()) is in use.
-  std::vector<unsigned> arenas_;
-  std::size_t free_count_{0};
-
-  // Cache of the first arena for backwards compatibility
-  unsigned first_arena_idx_{0};
-
-  unsigned first_arena_use_count_{0};
 };
 
 namespace testing {

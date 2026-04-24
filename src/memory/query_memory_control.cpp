@@ -27,24 +27,55 @@
 
 namespace memgraph::memory {
 
-#if USE_JEMALLOC
-
 namespace {
+constexpr bool kUseJemalloc = USE_JEMALLOC;
 
-inline auto &GetQueryTracker() {
+inline auto &QueryTrackerStorage() {
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
   constinit static thread_local utils::QueryMemoryTracker *query_memory_tracker_ [[gnu::tls_model("initial-exec")]] =
       nullptr;
   return query_memory_tracker_;
 }
 
-inline auto &GetUserTracker() {
+inline auto &UserTrackerStorage() {
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
   constinit static thread_local utils::UserResources *user_resource_ [[gnu::tls_model("initial-exec")]] = nullptr;
   return user_resource_;
 }
 
+inline auto GetQueryTracker() -> utils::QueryMemoryTracker * {
+  if constexpr (kUseJemalloc) {
+    return QueryTrackerStorage();
+  }
+  return nullptr;
+}
+
+inline void SetQueryTracker(utils::QueryMemoryTracker *tracker) {
+  if constexpr (kUseJemalloc) {
+    QueryTrackerStorage() = tracker;
+  } else {
+    (void)tracker;
+  }
+}
+
+inline auto GetUserTracker() -> utils::UserResources * {
+  if constexpr (kUseJemalloc) {
+    return UserTrackerStorage();
+  }
+  return nullptr;
+}
+
+inline void SetUserTracker(utils::UserResources *resource) {
+  if constexpr (kUseJemalloc) {
+    UserTrackerStorage() = resource;
+  } else {
+    (void)resource;
+  }
+}
+
 }  // namespace
+
+#if USE_JEMALLOC
 
 bool TrackAllocOnCurrentThread(size_t size) {
   const ThreadTrackingBlocker blocker{};  // makes sure we cannot recursively track allocations
@@ -88,78 +119,53 @@ void TrackFreeOnCurrentThread(size_t /*size*/) {}
 #endif  // USE_JEMALLOC
 
 void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker) {
-#if USE_JEMALLOC
-  GetQueryTracker() = tracker;
-#else
-  (void)tracker;
-#endif
+  SetQueryTracker(tracker);
 }
 
-void StopTrackingCurrentThread() {
-#if USE_JEMALLOC
-  GetQueryTracker() = nullptr;
-#endif
-}
+void StopTrackingCurrentThread() { SetQueryTracker(nullptr); }
 
-void StartTrackingUserResource(utils::UserResources *resource) {
-#if USE_JEMALLOC
-  GetUserTracker() = resource;
-#else
-  (void)resource;
-#endif
-}
+void StartTrackingUserResource(utils::UserResources *resource) { SetUserTracker(resource); }
 
-void StopTrackingUserResource() {
-#if USE_JEMALLOC
-  GetUserTracker() = nullptr;
-#endif
-}
+void StopTrackingUserResource() { SetUserTracker(nullptr); }
 
 bool IsQueryTracked() {
-#if USE_JEMALLOC
-  // GC is running, no way to control what gets deleted, just ignore this allocation.
-  return GetQueryTracker() != nullptr && !utils::detail::IsSkipListGcRunning();
-#else
+  if constexpr (kUseJemalloc) {
+    // GC is running, no way to control what gets deleted, just ignore this allocation.
+    return GetQueryTracker() != nullptr && !utils::detail::IsSkipListGcRunning();
+  }
   return false;
-#endif
 }
 
 void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit) {
-#if USE_JEMALLOC
-  // No need for user tracking at this level, if it was needed, it would have already been setup by this point
-  DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
-  GetQueryTracker()->CreateOrSetProcTracker(procedure_id, limit);
-#else
-  (void)procedure_id;
-  (void)limit;
-#endif
+  if constexpr (kUseJemalloc) {
+    // No need for user tracking at this level, if it was needed, it would have already been setup by this point
+    DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
+    GetQueryTracker()->CreateOrSetProcTracker(procedure_id, limit);
+  } else {
+    (void)procedure_id;
+    (void)limit;
+  }
 }
 
 void PauseProcedureTracking() {
-#if USE_JEMALLOC
-  DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
-  GetQueryTracker()->StopProcTracking();
-#endif
+  if constexpr (kUseJemalloc) {
+    DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
+    GetQueryTracker()->StopProcTracking();
+  }
 }
 
-#if USE_JEMALLOC
 ThreadTrackingBlocker::ThreadTrackingBlocker() : prev_state_{GetQueryTracker()}, prev_user_state_(GetUserTracker()) {
   // Disable thread tracking
-  GetQueryTracker() = nullptr;
-  GetUserTracker() = nullptr;
+  SetQueryTracker(nullptr);
+  SetUserTracker(nullptr);
 }
 
 ThreadTrackingBlocker::~ThreadTrackingBlocker() {
   // Reset thread tracking to previous state
-  GetQueryTracker() = prev_state_;
-  GetUserTracker() = prev_user_state_;
+  SetQueryTracker(prev_state_);
+  SetUserTracker(prev_user_state_);
 }
-#else
-ThreadTrackingBlocker::ThreadTrackingBlocker() = default;
-ThreadTrackingBlocker::~ThreadTrackingBlocker() = default;
-#endif
 
-#if USE_JEMALLOC
 CrossThreadMemoryTracking::CrossThreadMemoryTracking(ArenaPool *arena_pool)
     : query_tracker(GetQueryTracker()), user_tracker(GetUserTracker()), db_arena_pool(arena_pool) {}
 
@@ -168,15 +174,15 @@ void CrossThreadMemoryTracking::StartTracking() {
   started_ = true;
   prev_query_tracker_ = GetQueryTracker();
   prev_user_tracker_ = GetUserTracker();
-  GetQueryTracker() = query_tracker;
-  GetUserTracker() = user_tracker;
+  SetQueryTracker(query_tracker);
+  SetUserTracker(user_tracker);
   if (db_arena_pool) db_arena_scope_.emplace(db_arena_pool);
 }
 
 void CrossThreadMemoryTracking::StopTracking() {
   if (!started_) return;
-  GetQueryTracker() = prev_query_tracker_;
-  GetUserTracker() = prev_user_tracker_;
+  SetQueryTracker(prev_query_tracker_);
+  SetUserTracker(prev_user_tracker_);
   prev_query_tracker_ = nullptr;
   prev_user_tracker_ = nullptr;
   db_arena_scope_.reset();
@@ -206,39 +212,4 @@ CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemor
   }
   return *this;
 }
-#else   // !USE_JEMALLOC
-CrossThreadMemoryTracking::CrossThreadMemoryTracking(ArenaPool *arena_pool) : db_arena_pool(arena_pool) {}
-
-void CrossThreadMemoryTracking::StartTracking() {
-  DMG_ASSERT(!started_, "CrossThreadMemoryTracking::StartTracking called twice");
-  started_ = true;
-  if (db_arena_pool) db_arena_scope_.emplace(db_arena_pool);
-}
-
-void CrossThreadMemoryTracking::StopTracking() {
-  if (!started_) return;
-  db_arena_scope_.reset();
-  started_ = false;
-}
-
-CrossThreadMemoryTracking::CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept
-    : db_arena_pool(std::exchange(other.db_arena_pool, nullptr)),
-      prev_query_tracker_(std::exchange(other.prev_query_tracker_, nullptr)),
-      prev_user_tracker_(std::exchange(other.prev_user_tracker_, nullptr)),
-      started_(false) {
-  DMG_ASSERT(!other.started_ && !other.db_arena_scope_.has_value(), "Cannot move active CrossThreadMemoryTracking");
-}
-
-CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemoryTracking &&other) noexcept {
-  if (this != &other) {
-    DMG_ASSERT(!started_, "Cannot overwrite active CrossThreadMemoryTracking");
-    DMG_ASSERT(!other.started_ && !other.db_arena_scope_.has_value(), "Cannot move active CrossThreadMemoryTracking");
-    db_arena_pool = std::exchange(other.db_arena_pool, nullptr);
-    prev_query_tracker_ = std::exchange(other.prev_query_tracker_, nullptr);
-    prev_user_tracker_ = std::exchange(other.prev_user_tracker_, nullptr);
-    started_ = false;
-  }
-  return *this;
-}
-#endif  // USE_JEMALLOC
 }  // namespace memgraph::memory

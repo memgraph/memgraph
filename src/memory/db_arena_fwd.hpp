@@ -59,12 +59,7 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
 // constructing page-slab resources for DB-owned data.
 class ArenaPageSlabMemoryResource {
  public:
-  explicit ArenaPageSlabMemoryResource(unsigned arena_idx) noexcept
-#if USE_JEMALLOC
-      : arena_upstream_(arena_idx)
-#endif
-  {
-  }
+  explicit ArenaPageSlabMemoryResource(unsigned arena_idx) noexcept : arena_upstream_(arena_idx) {}
 
   ArenaPageSlabMemoryResource(ArenaPageSlabMemoryResource &&) noexcept = default;
   ArenaPageSlabMemoryResource &operator=(ArenaPageSlabMemoryResource &&) noexcept = default;
@@ -73,13 +68,8 @@ class ArenaPageSlabMemoryResource {
   ArenaPageSlabMemoryResource &operator=(const ArenaPageSlabMemoryResource &) = delete;
 
   friend void swap(ArenaPageSlabMemoryResource &lhs, ArenaPageSlabMemoryResource &rhs) noexcept {
-#if USE_JEMALLOC
     using std::swap;
     swap(lhs.arena_upstream_, rhs.arena_upstream_);
-#else
-    (void)lhs;
-    (void)rhs;
-#endif
   }
 
   auto MakeResource() -> std::unique_ptr<utils::PageSlabMemoryResource> {
@@ -93,17 +83,9 @@ class ArenaPageSlabMemoryResource {
   }
 
  private:
-  auto Upstream() noexcept -> std::pmr::memory_resource * {
-#if USE_JEMALLOC
-    return &arena_upstream_;
-#else
-    return std::pmr::get_default_resource();
-#endif
-  }
+  auto Upstream() noexcept -> std::pmr::memory_resource * { return &arena_upstream_; }
 
-#if USE_JEMALLOC
   ArenaMemoryResource arena_upstream_{0};
-#endif
 };
 
 // =============================================================================

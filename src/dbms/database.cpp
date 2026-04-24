@@ -57,36 +57,23 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
 
 Database::~Database() = default;
 
-#if USE_JEMALLOC
 memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
 
 memory::ArenaPool &Database::Arena() const noexcept { return *db_arena_; }
-#endif
 
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     :
-#if USE_JEMALLOC
       db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
-#endif
       after_commit_trigger_pool_{1,
-#if USE_JEMALLOC
                                  // After-commit triggers run on a dedicated DB worker.
                                  // Keep a DB arena scope alive for the full worker lifetime.
                                  [this]() -> utils::ThreadPool::TaskSignature {
                                    auto db_arena_scope = std::make_unique<memory::DbArenaScope>(db_arena_.get());
                                    return [db_arena_scope = std::move(db_arena_scope)]() mutable { db_arena_scope.reset(); };
                                  }
-#else
-                                 {}
-#endif
       },
       streams_(std::make_unique<query::stream::Streams>(
-          config.durability.storage_directory / "streams"
-#if USE_JEMALLOC
-          ,
-          db_arena_.get()
-#endif
-          )),
+          config.durability.storage_directory / "streams", db_arena_.get())),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
   const memory::DbArenaScope db_arena_scope{this, memory::DbArenaScope::Type::FORCE};
@@ -101,21 +88,13 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
                                                       std::move(invalidator),
                                                       database_protector_factory,
-#if USE_JEMALLOC
                                                       db_arena_.get(),
-#else
-                                                      nullptr,
-#endif
                                                       &db_embedding_memory_tracker_);
   } else {
     storage_ = dbms::CreateInMemoryStorage(std::move(config),
                                            std::move(invalidator),
                                            database_protector_factory,
-#if USE_JEMALLOC
                                            db_arena_.get(),
-#else
-                                           nullptr,
-#endif
                                            &db_embedding_memory_tracker_);
   }
 }
@@ -147,11 +126,7 @@ void Database::SwitchToOnDisk() {
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
                                                               std::make_unique<storage::PlanInvalidatorDefault>(),
                                                               preserved_factory,
-#if USE_JEMALLOC
                                                               db_arena_.get(),
-#else
-                                                              nullptr,
-#endif
                                                               &db_embedding_memory_tracker_);
 }
 
@@ -160,10 +135,6 @@ void Database::SwitchToOnDisk() {
 // DbArenaScope constructor implementation (Database* variant) - defined here
 // to avoid circular include between db_arena.cpp and database.hpp
 namespace memgraph::memory {
-#if USE_JEMALLOC
 DbArenaScope::DbArenaScope(const memgraph::dbms::Database *db, DbArenaScope::Type type)
     : DbArenaScope(db != nullptr ? &db->Arena() : nullptr, type) {}
-#else
-DbArenaScope::DbArenaScope(const memgraph::dbms::Database * /*db*/, DbArenaScope::Type /*type*/) : DbArenaScope() {}
-#endif
 }  // namespace memgraph::memory

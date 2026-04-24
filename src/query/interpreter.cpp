@@ -3418,11 +3418,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // TODO: pass current DB into plan, in future current can change during pull
   auto *trigger_context_collector =
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
-#if USE_JEMALLOC
   auto *db_arena_pool = &current_db.db_acc_->get()->Arena();
-#else
-  memory::ArenaPool *db_arena_pool = nullptr;
-#endif
   auto pull_plan = std::make_shared<PullPlan>(plan,
                                               parsed_query.parameters,
                                               is_profile_query,
@@ -3636,12 +3632,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          stopping_context = std::move(stopping_context),
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
-                                         db_arena_pool =
-#if USE_JEMALLOC
-                                             &current_db.db_acc_->get()->Arena(),
-#else
-                                             static_cast<memory::ArenaPool *>(nullptr),
-#endif
+                                         db_arena_pool = &current_db.db_acc_->get()->Arena(),
                                          &query_logger = interpreter.query_logger_
 #ifdef MG_ENTERPRISE
                                          ,

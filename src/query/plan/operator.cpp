@@ -7749,7 +7749,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // can disable tracking on that arena if it is not
     // once we are done with procedure tracking
 
-#if USE_JEMALLOC
     const bool is_transaction_tracked = memgraph::memory::IsQueryTracked();
 
     std::unique_ptr<utils::QueryMemoryTracker> tmp_query_tracker{};
@@ -7770,7 +7769,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
       memgraph::memory::PauseProcedureTracking();
       if (!is_transaction_tracked) memgraph::memory::StopTrackingCurrentThread();
     }};
-#endif
 
     mgp_memory proc_memory{&memory_tracking_resource};
 
