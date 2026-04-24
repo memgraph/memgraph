@@ -935,11 +935,12 @@ PyObject *MakePyMessages(mgp_messages *msgs, mgp_memory *memory) {
   return reinterpret_cast<PyObject *>(py_messages);
 }
 
+namespace {
 // Internal helpers that accept a pre-imported `mgp` module to avoid
 // re-importing on every recursive value conversion.
-static py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_graph, PyObject *py_mgp);
+py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_graph, PyObject *py_mgp);
 
-static py::Object MgpListToPyTupleImpl(mgp_list *list, PyGraph *py_graph, PyObject *py_mgp) {
+py::Object MgpListToPyTupleImpl(mgp_list *list, PyGraph *py_graph, PyObject *py_mgp) {
   MG_ASSERT(list);
   MG_ASSERT(py_graph);
   const auto len = list->elems.size();
@@ -956,17 +957,18 @@ static py::Object MgpListToPyTupleImpl(mgp_list *list, PyGraph *py_graph, PyObje
 py::Object MgpListToPyTuple(mgp_list *list, PyGraph *py_graph) {
   MG_ASSERT(list);
   MG_ASSERT(py_graph);
-  py::Object py_mgp(PyImport_ImportModule("mgp"));
+  py::Object const py_mgp(PyImport_ImportModule("mgp"));
   return MgpListToPyTupleImpl(list, py_graph, py_mgp.Ptr());
 }
 
-py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
+py::Object MgpListToPyTupleFromPyObject(mgp_list *list, PyObject *py_graph) {
   if (Py_TYPE(py_graph) != &PyGraphType) {
     PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Graph.");
     return nullptr;
   }
   return MgpListToPyTuple(list, reinterpret_cast<PyGraph *>(py_graph));
 }
+}  // namespace
 
 PyObject *MgpIsEnterpriseValid() { return mgp_is_enterprise_valid() ? Py_True : Py_False; }
 
@@ -1204,7 +1206,7 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
   };
 
   auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
-    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    const py::Object py_args(MgpListToPyTupleFromPyObject(args, py_graph.Ptr()));
     if (!py_args) return py::FetchError();
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
@@ -1269,7 +1271,7 @@ void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp
   };
 
   auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
-    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    const py::Object py_args(MgpListToPyTupleFromPyObject(args, py_graph.Ptr()));
     if (!py_args) return py::FetchError();
     auto py_res = py_initializer.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
@@ -1356,7 +1358,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
   };
 
   auto call = [&](py::Object py_graph) -> std::expected<mgp_value *, std::optional<py::ExceptionInfo>> {
-    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    const py::Object py_args(MgpListToPyTupleFromPyObject(args, py_graph.Ptr()));
     if (!py_args) return std::unexpected{py::FetchError()};
     const auto is_transactional = storage::IsTransactional(graph->storage_mode);
     auto py_res = py_cb.Call(py_graph, py_args);
@@ -2898,11 +2900,12 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyObject *py_graph) {
 }
 
 py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
-  py::Object py_mgp(PyImport_ImportModule("mgp"));
+  py::Object const py_mgp(PyImport_ImportModule("mgp"));
   return MgpValueToPyObjectImpl(value, py_graph, py_mgp.Ptr());
 }
 
-static py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_graph, PyObject *py_mgp) {
+namespace {
+py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_graph, PyObject *py_mgp) {
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
       Py_INCREF(Py_None);
@@ -3053,6 +3056,7 @@ static py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_gra
     }
   }
 }
+}  // namespace
 
 mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   auto py_seq_to_list = [memory](PyObject *seq, Py_ssize_t len, const auto &py_seq_get_item) {
@@ -3102,7 +3106,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       // This way we skip conversions of types from user-facing 'mgp' module.
       return false;
     }
-    py::Object mgp_obj(py::Object::FromBorrow(py_mgp));
+    py::Object const mgp_obj(py::Object::FromBorrow(py_mgp));
     auto mgp_type = mgp_obj.GetAttr(mgp_type_name);
     if (!mgp_type) {
       PyErr_Clear();
