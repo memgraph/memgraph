@@ -243,6 +243,13 @@ auto VirtualGraphUnreachable(std::string_view fn) {
 }
 }  // namespace
 
+memgraph::query::DbAccessor *mgp_graph::getRealOnlyImpl(std::string_view fn_name) const {
+  if (std::holds_alternative<memgraph::query::VirtualGraphDbAccessor *>(impl)) {
+    throw ImmutableObjectException{fmt::format("{} is not supported on a virtual graph", fn_name)};
+  }
+  return getImpl();
+}
+
 // Constants for common map key names used in procedure results
 namespace {
 constexpr const char *kErrorMsgKey = "error_msg";
@@ -3499,7 +3506,7 @@ mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *resul
   return WrapExceptions(
       [graph, label]() {
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
-        const auto index_res = graph->getImpl()->CreateIndex(label_id);
+        const auto index_res = graph->getRealOnlyImpl("mgp_create_label_index")->CreateIndex(label_id);
         return index_res.has_value() ? 1 : 0;
       },
       result);
@@ -3509,7 +3516,7 @@ mgp_error mgp_drop_label_index(mgp_graph *graph, const char *label, int *result)
   return WrapExceptions(
       [graph, label]() {
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
-        const auto index_res = graph->getImpl()->DropIndex(label_id);
+        const auto index_res = graph->getRealOnlyImpl("mgp_drop_label_index")->DropIndex(label_id);
         return index_res.has_value() ? 1 : 0;
       },
       result);
@@ -3517,7 +3524,7 @@ mgp_error mgp_drop_label_index(mgp_graph *graph, const char *label, int *result)
 
 mgp_error mgp_list_all_label_indices(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions([graph, memory, result]() {
-    const auto index_res = graph->getImpl()->ListAllIndices().label;
+    const auto index_res = graph->getRealOnlyImpl("mgp_list_all_label_indices")->ListAllIndices().label;
     if (const auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Listing all label indices failed due to failure of creating list");
     }
@@ -3552,7 +3559,8 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
                      ranges::to<std::vector<memgraph::storage::PropertyId>>();
             },
             graph->impl);
-        const auto index_res = graph->getImpl()->CreateIndex(label_id, {property_path});
+        const auto index_res =
+            graph->getRealOnlyImpl("mgp_create_label_property_index")->CreateIndex(label_id, {property_path});
         return index_res.has_value() ? 1 : 0;
       },
       result);
@@ -3573,7 +3581,8 @@ mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, con
             },
             graph->impl);
 
-        const auto index_res = graph->getImpl()->DropIndex(label_id, {property_path});
+        const auto index_res =
+            graph->getRealOnlyImpl("mgp_drop_label_property_index")->DropIndex(label_id, {property_path});
         return index_res.has_value() ? 1 : 0;
       },
       result);
@@ -3616,7 +3625,8 @@ mgp_error create_and_append_label_property_to_mgp_list(
 
 mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions([graph, memory, result]() {
-    const auto index_res = graph->getImpl()->ListAllIndices().label_properties;
+    const auto index_res =
+        graph->getRealOnlyImpl("mgp_list_all_label_property_indices")->ListAllIndices().label_properties;
 
     if (const auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Listing all label+property indices failed due to failure of creating list");
@@ -3643,7 +3653,8 @@ mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, c
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
-        const auto exist_res = graph->getImpl()->CreateExistenceConstraint(label_id, property_id);
+        const auto exist_res =
+            graph->getRealOnlyImpl("mgp_create_existence_constraint")->CreateExistenceConstraint(label_id, property_id);
         return exist_res.has_value() ? 1 : 0;
       },
       result);
@@ -3655,7 +3666,8 @@ mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, con
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
-        const auto exist_res = graph->getImpl()->DropExistenceConstraint(label_id, property_id);
+        const auto exist_res =
+            graph->getRealOnlyImpl("mgp_drop_existence_constraint")->DropExistenceConstraint(label_id, property_id);
         return exist_res.has_value() ? 1 : 0;
       },
       result);
@@ -3663,7 +3675,8 @@ mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, con
 
 mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions([graph, memory, result]() {
-    const auto constraint_res = graph->getImpl()->ListAllConstraints().existence;
+    const auto constraint_res =
+        graph->getRealOnlyImpl("mgp_list_all_existence_constraints")->ListAllConstraints().existence;
 
     if (const auto err = mgp_list_make_empty(constraint_res.size(), memory, result);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
@@ -3698,7 +3711,8 @@ mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_
               [prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
         }
 
-        const auto unique_res = graph->getImpl()->CreateUniqueConstraint(label_id, property_ids);
+        const auto unique_res =
+            graph->getRealOnlyImpl("mgp_create_unique_constraint")->CreateUniqueConstraint(label_id, property_ids);
         return unique_res.has_value() ? 1 : 0;
       },
       result);
@@ -3717,7 +3731,8 @@ mgp_error mgp_drop_unique_constraint(mgp_graph *graph, const char *label, mgp_li
               [prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
         }
 
-        const auto unique_res = graph->getImpl()->DropUniqueConstraint(label_id, property_ids);
+        const auto unique_res =
+            graph->getRealOnlyImpl("mgp_drop_unique_constraint")->DropUniqueConstraint(label_id, property_ids);
         return unique_res == memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS ? 1 : 0;
       },
       result);
@@ -3725,7 +3740,7 @@ mgp_error mgp_drop_unique_constraint(mgp_graph *graph, const char *label, mgp_li
 
 mgp_error mgp_list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions([graph, memory, result]() {
-    const auto constraints_res = graph->getImpl()->ListAllConstraints().unique;
+    const auto constraints_res = graph->getRealOnlyImpl("mgp_list_all_unique_constraints")->ListAllConstraints().unique;
 
     if (const auto err = mgp_list_make_empty(constraints_res.size(), memory, result);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
@@ -4092,7 +4107,9 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
 }
 
 mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int *result) {
-  return WrapExceptions([graph, index_name, result]() { *result = graph->getImpl()->TextIndexExists(index_name); });
+  return WrapExceptions([graph, index_name, result]() {
+    *result = graph->getRealOnlyImpl("mgp_graph_has_text_index")->TextIndexExists(index_name);
+  });
 }
 
 mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memory *memory) {

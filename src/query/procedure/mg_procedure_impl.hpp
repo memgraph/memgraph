@@ -842,6 +842,12 @@ struct mgp_graph {
         this->impl);
   }
 
+  // Like getImpl(), but throws when the graph is virtual. Intended for index / constraint /
+  // schema-introspection calls that have no meaningful virtual-graph semantic: the underlying
+  // DbAccessor does the work on the real DB, so routing a virtual graph through it would
+  // silently mutate real storage from within a virtual-graph-scoped procedure call.
+  memgraph::query::DbAccessor *getRealOnlyImpl(std::string_view fn_name) const;
+
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
     return mgp_graph{&acc, view, &ctx, acc.GetStorageMode()};
