@@ -1191,9 +1191,6 @@ class VirtualGraphDbAccessor final {
 
   [[nodiscard]] std::shared_ptr<const VirtualNode> FindNode(storage::Gid synthetic_gid) const;
 
-  // empty real-vertex iterable; virtual-node iteration uses a separate cursor.
-  VerticesIterable Vertices(storage::View);
-
   [[nodiscard]] VirtualGraph *getGraph() const;
 
   storage::StorageMode GetStorageMode() const noexcept;

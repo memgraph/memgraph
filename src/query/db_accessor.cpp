@@ -163,13 +163,6 @@ std::shared_ptr<const VirtualNode> VirtualGraphDbAccessor::FindNode(storage::Gid
   return graph_->FindNode(synthetic_gid);
 }
 
-VerticesIterable VirtualGraphDbAccessor::Vertices(storage::View) {
-  using Set = std::
-      unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>, utils::Allocator<VertexAccessor>>;
-  static Set empty{utils::NewDeleteResource()};
-  return VerticesIterable(&empty);
-}
-
 VirtualGraph *VirtualGraphDbAccessor::getGraph() const { return graph_; }
 
 storage::StorageMode VirtualGraphDbAccessor::GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }

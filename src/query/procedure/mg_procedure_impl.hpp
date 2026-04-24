@@ -657,9 +657,8 @@ struct mgp_vertex {
   using VertexImpl = std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor,
                                   memgraph::query::VirtualNode>;
 
-  // Build an mgp_vertex from a TypedValue that carries either a real Vertex or a VirtualNode,
-  // picking the right ctor overload based on the TypedValue kind and (for real vertices)
-  // whether `graph`'s underlying impl is a DbAccessor or SubgraphDbAccessor.
+  // dispatches on graph->impl: real arms use VertexAccessor / SubgraphVertexAccessor,
+  // virtual arm wraps tv.ValueVirtualNode().
   static mgp_vertex *FromTypedValue(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc);
 
   mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, allocator_type alloc)
@@ -834,7 +833,7 @@ struct mgp_graph {
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
 
-  memgraph::query::DbAccessor *getImpl() const {
+  [[nodiscard]] memgraph::query::DbAccessor *getImpl() const {
     return std::visit(
         memgraph::utils::Overloaded{[](memgraph::query::DbAccessor *impl) { return impl; },
                                     [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor(); },
@@ -842,11 +841,9 @@ struct mgp_graph {
         this->impl);
   }
 
-  // Like getImpl(), but throws when the graph is virtual. Intended for index / constraint /
-  // schema-introspection calls that have no meaningful virtual-graph semantic: the underlying
-  // DbAccessor does the work on the real DB, so routing a virtual graph through it would
-  // silently mutate real storage from within a virtual-graph-scoped procedure call.
-  memgraph::query::DbAccessor *getRealOnlyImpl(std::string_view fn_name) const;
+  // real-only variant of getImpl(); throws on virtual graphs so schema ops never hit
+  // the underlying real DB from within a virtual-graph-scoped proc call.
+  [[nodiscard]] memgraph::query::DbAccessor *getRealOnlyImpl(std::string_view fn_name) const;
 
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
@@ -972,22 +969,29 @@ struct mgp_properties_iterator {
 struct mgp_edges_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_edges_iterator>;
 
+  // single-valued cursor; chosen once at iterator setup based on whether the source vertex is real or virtual.
+  // monostate is the default; real construction assigns one of the two live arms.
+  struct RealCursor {
+    std::vector<memgraph::query::EdgeAccessor> edges;
+    std::vector<memgraph::query::EdgeAccessor>::iterator it;
+    bool for_in{false};  // enterprise NextPermittedEdge needs to know the direction
+
+    RealCursor(std::vector<memgraph::query::EdgeAccessor> edges, bool for_in)
+        : edges(std::move(edges)), it(this->edges.begin()), for_in(for_in) {}
+  };
+
+  struct VirtualCursor {
+    memgraph::query::EdgeRefView edges;  // borrow; VirtualGraph's edge index must outlive this iterator
+    std::ranges::iterator_t<memgraph::query::EdgeRefView> it;
+
+    explicit VirtualCursor(memgraph::query::EdgeRefView edges) : edges(std::move(edges)), it(this->edges.begin()) {}
+  };
+
+  using Cursor = std::variant<std::monostate, RealCursor, VirtualCursor>;
+
   mgp_edges_iterator(const mgp_vertex &v, allocator_type alloc) : alloc(alloc), source_vertex(v, alloc) {}
 
-  // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
-  mgp_edges_iterator(mgp_edges_iterator &&other)
-      : alloc(other.alloc),
-        source_vertex(std::move(other.source_vertex)),
-        in(std::move(other.in)),
-        in_it(std::move(other.in_it)),
-        out(std::move(other.out)),
-        out_it(std::move(other.out_it)),
-        current_e(std::move(other.current_e)),
-        virtual_in_(other.virtual_in_),
-        virtual_in_it_(other.virtual_in_it_),
-        virtual_out_(other.virtual_out_),
-        virtual_out_it_(other.virtual_out_it_) {}
-
+  mgp_edges_iterator(mgp_edges_iterator &&) = default;
   mgp_edges_iterator(const mgp_edges_iterator &) = delete;
   mgp_edges_iterator &operator=(const mgp_edges_iterator &) = delete;
   mgp_edges_iterator &operator=(mgp_edges_iterator &&) = delete;
@@ -998,30 +1002,31 @@ struct mgp_edges_iterator {
 
   allocator_type alloc;
   mgp_vertex source_vertex;
-
-  std::optional<std::remove_reference_t<decltype(std::get<memgraph::query::VertexAccessor>(source_vertex.impl)
-                                                     .InEdges(source_vertex.graph->view)
-                                                     ->edges)>>
-      in;
-  std::optional<decltype(in->begin())> in_it;
-  std::optional<std::remove_reference_t<decltype(std::get<memgraph::query::VertexAccessor>(source_vertex.impl)
-                                                     .OutEdges(source_vertex.graph->view)
-                                                     ->edges)>>
-      out;
-  std::optional<decltype(out->begin())> out_it;
+  Cursor cursor;
   std::optional<mgp_edge> current_e;
-
-  // Borrow from VirtualGraph's edge indexes, which must outlive this iterator.
-  memgraph::query::EdgeRefView virtual_in_;
-  std::ranges::iterator_t<memgraph::query::EdgeRefView> virtual_in_it_;
-  memgraph::query::EdgeRefView virtual_out_;
-  std::ranges::iterator_t<memgraph::query::EdgeRefView> virtual_out_it_;
 };
 
 struct mgp_vertices_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_vertices_iterator>;
   using virtual_node_map_t =
       memgraph::utils::pmr::unordered_map<memgraph::storage::Gid, std::shared_ptr<const memgraph::query::VirtualNode>>;
+
+  // single-valued cursor; chosen once at ctor based on graph->impl's variant arm.
+  // monostate is the default; the ctor assigns one of the two live arms.
+  struct RealCursor {
+    memgraph::query::VerticesIterable vertices;
+    memgraph::query::VerticesIterable::Iterator it;
+
+    explicit RealCursor(memgraph::query::VerticesIterable vertices)
+        : vertices(std::move(vertices)), it(this->vertices.begin()) {}
+  };
+
+  struct VirtualCursor {
+    virtual_node_map_t::const_iterator it;
+    virtual_node_map_t::const_iterator end;
+  };
+
+  using Cursor = std::variant<std::monostate, RealCursor, VirtualCursor>;
 
   /// @throw anything VerticesIterable may throw
   mgp_vertices_iterator(mgp_graph *graph, allocator_type alloc);
@@ -1030,14 +1035,8 @@ struct mgp_vertices_iterator {
 
   allocator_type alloc;
   mgp_graph *graph;
-  memgraph::query::VerticesIterable vertices;
-  decltype(vertices.begin()) current_it;
+  Cursor cursor;
   std::optional<mgp_vertex> current_v;
-
-  // Virtual node iteration (populated for subgraph context with virtual nodes)
-  bool has_virtual_nodes_{false};
-  virtual_node_map_t::const_iterator virtual_node_it_;
-  virtual_node_map_t::const_iterator virtual_node_end_;
 };
 
 struct mgp_type {

@@ -270,12 +270,8 @@ auto VirtualGraphUnreachable(std::string_view fn) {
   std::unreachable();
 }
 
-// Dispatches on graph->impl and invokes real_op(wrap) where `wrap` converts a
-// storage::VertexAccessor into the per-impl form (identity for DbAccessor,
-// SubgraphVertexAccessor for SubgraphDbAccessor). The virtual arm throws — every
-// caller is guaranteed by an upstream IsVirtual() short-circuit to only reach
-// this on real graphs. Used across iterator init / _next to construct mgp_vertex
-// / mgp_edge whose endpoint type depends on the graph kind.
+// invoke real_op(wrap): wrap is identity for DbAccessor, SubgraphVertexAccessor-builder
+// for SubgraphDbAccessor. virtual arm throws; callers are guarded upstream by IsVirtual().
 template <typename RealOp>
 void WithRealVertexWrap(mgp_graph *graph, RealOp &&real_op) {
   std::visit(
@@ -2918,117 +2914,80 @@ void mgp_edges_iterator_destroy(mgp_edges_iterator *it) { DeleteRawMgpObject(it)
 
 #ifdef MG_ENTERPRISE
 namespace {
-void NextPermittedEdge(mgp_edges_iterator &it, const bool for_in) {
-  if (const auto *ctx = it.source_vertex.graph->ctx; !ctx || !ctx->auth_checker) return;
-
-  auto &impl_it = for_in ? it.in_it : it.out_it;
-  const auto end = for_in ? it.in->end() : it.out->end();
-
-  if (impl_it) {
-    const auto *auth_checker = it.source_vertex.graph->ctx->auth_checker.get();
-    const auto view = it.source_vertex.graph->view;
-    while (*impl_it != end) {
-      auto edgeAcc = **impl_it;
-      if (auth_checker->Has(edgeAcc, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-        const auto &check_vertex = it.source_vertex.getImpl() == edgeAcc.From() ? edgeAcc.To() : edgeAcc.From();
-        if (auth_checker->Has(check_vertex, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-          break;
-        }
-      }
-
-      ++*impl_it;
+void NextPermittedEdge(mgp_edges_iterator::RealCursor &c, const mgp_vertex &source_vertex) {
+  const auto *ctx = source_vertex.graph->ctx;
+  if (!ctx || !ctx->auth_checker) return;
+  const auto *auth_checker = ctx->auth_checker.get();
+  const auto view = source_vertex.graph->view;
+  while (c.it != c.edges.end()) {
+    auto edgeAcc = *c.it;
+    if (auth_checker->Has(edgeAcc, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+      const auto &check_vertex = source_vertex.getImpl() == edgeAcc.From() ? edgeAcc.To() : edgeAcc.From();
+      if (auth_checker->Has(check_vertex, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) break;
     }
+    ++c.it;
   }
-};
+}
 }  // namespace
 #endif
 
-mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
-  return WrapExceptions(
-      [v, memory] {
-        auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
-        MG_ASSERT(it != nullptr);
+namespace {
+template <bool ForIn>
+mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory) {
+  auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
+  MG_ASSERT(it != nullptr);
 
-        // virtual nodes have no real edges — only virtual in-edges from the subgraph
-        if (v->IsVirtual()) {
-          auto *vg_acc = std::get_if<memgraph::query::VirtualGraphDbAccessor *>(&v->graph->impl);
-          if (!vg_acc) {
-            throw memgraph::query::QueryRuntimeException(
-                "Cannot iterate in-edges: virtual node has no associated virtual graph context.");
-          }
-          auto *vg = (*vg_acc)->getGraph();
-          it->virtual_in_ = vg->InEdges(v->GetVirtualNode().Gid());
-          it->virtual_in_it_ = it->virtual_in_.begin();
-          if (!it->virtual_in_.empty()) {
-            it->current_e.emplace(*it->virtual_in_it_, v->graph, it->GetMemoryResource());
-          }
-          return it.release();
-        }
+  if (v->IsVirtual()) {
+    auto *vg_acc = std::get_if<memgraph::query::VirtualGraphDbAccessor *>(&v->graph->impl);
+    if (!vg_acc) {
+      throw memgraph::query::QueryRuntimeException(
+          ForIn ? "Cannot iterate in-edges: virtual node has no associated virtual graph context."
+                : "Cannot iterate out-edges: virtual node has no associated virtual graph context.");
+    }
+    auto *vg = (*vg_acc)->getGraph();
+    auto edges = ForIn ? vg->InEdges(v->GetVirtualNode().Gid()) : vg->OutEdges(v->GetVirtualNode().Gid());
+    auto &vc = it->cursor.emplace<mgp_edges_iterator::VirtualCursor>(std::move(edges));
+    if (vc.it != vc.edges.end()) {
+      it->current_e.emplace(*vc.it, v->graph, it->GetMemoryResource());
+    }
+    return it.release();
+  }
 
-        auto maybe_edges = v->VisitReal([v](auto &impl) { return impl.InEdges(v->graph->view); });
-        if (!maybe_edges) ThrowOnVertexReadError(maybe_edges.error(), "get the inbound edges of");
-        it->in.emplace(std::move(maybe_edges->edges));
-        it->in_it.emplace(it->in->begin());
+  auto maybe_edges = v->VisitReal([v](auto &impl) {
+    if constexpr (ForIn) {
+      return impl.InEdges(v->graph->view);
+    } else {
+      return impl.OutEdges(v->graph->view);
+    }
+  });
+  if (!maybe_edges) {
+    ThrowOnVertexReadError(maybe_edges.error(), ForIn ? "get the inbound edges of" : "get the outbound edges of");
+  }
+
+  auto &rc = it->cursor.emplace<mgp_edges_iterator::RealCursor>(std::move(maybe_edges->edges), ForIn);
+
 #ifdef MG_ENTERPRISE
-        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-          NextPermittedEdge(*it, true);
-        }
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    NextPermittedEdge(rc, *v);
+  }
 #endif
 
-        if (*it->in_it != it->in->end()) {
-          WithRealVertexWrap(v->graph, [&it, v](auto wrap) {
-            auto edgeAcc = **it->in_it;
-            it->current_e.emplace(edgeAcc, wrap(edgeAcc.From()), wrap(edgeAcc.To()), v->graph, it->GetMemoryResource());
-          });
-        }
+  if (rc.it != rc.edges.end()) {
+    WithRealVertexWrap(v->graph, [&rc, &it, v](auto wrap) {
+      auto edgeAcc = *rc.it;
+      it->current_e.emplace(edgeAcc, wrap(edgeAcc.From()), wrap(edgeAcc.To()), v->graph, it->GetMemoryResource());
+    });
+  }
+  return it.release();
+}
+}  // namespace
 
-        return it.release();
-      },
-      result);
+mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
+  return WrapExceptions([v, memory] { return MakeEdgesIterator<true>(v, memory); }, result);
 }
 
 mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
-  return WrapExceptions(
-      [v, memory] {
-        auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
-        MG_ASSERT(it != nullptr);
-        // virtual nodes have no real edges — only virtual out-edges from the subgraph
-        if (v->IsVirtual()) {
-          auto *vg_acc = std::get_if<memgraph::query::VirtualGraphDbAccessor *>(&v->graph->impl);
-          if (!vg_acc) {
-            throw memgraph::query::QueryRuntimeException(
-                "Cannot iterate out-edges: virtual node has no associated virtual graph context.");
-          }
-          auto *vg = (*vg_acc)->getGraph();
-          it->virtual_out_ = vg->OutEdges(v->GetVirtualNode().Gid());
-          it->virtual_out_it_ = it->virtual_out_.begin();
-          if (!it->virtual_out_.empty()) {
-            it->current_e.emplace(*it->virtual_out_it_, v->graph, it->GetMemoryResource());
-          }
-          return it.release();
-        }
-
-        auto maybe_edges = v->VisitReal([v](auto &impl) { return impl.OutEdges(v->graph->view); });
-        if (!maybe_edges) ThrowOnVertexReadError(maybe_edges.error(), "get the outbound edges of");
-        it->out.emplace(std::move(maybe_edges->edges));
-        it->out_it.emplace(it->out->begin());
-
-#ifdef MG_ENTERPRISE
-        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-          NextPermittedEdge(*it, false);
-        }
-#endif
-
-        if (*it->out_it != it->out->end()) {
-          WithRealVertexWrap(v->graph, [&it, v](auto wrap) {
-            auto edgeAcc = **it->out_it;
-            it->current_e.emplace(edgeAcc, wrap(edgeAcc.From()), wrap(edgeAcc.To()), v->graph, it->GetMemoryResource());
-          });
-        }
-
-        return it.release();
-      },
-      result);
+  return WrapExceptions([v, memory] { return MakeEdgesIterator<false>(v, memory); }, result);
 }
 
 mgp_error mgp_edges_iterator_underlying_graph_is_mutable(mgp_edges_iterator *it, int *result) {
@@ -3049,51 +3008,47 @@ mgp_error mgp_edges_iterator_get(mgp_edges_iterator *it, mgp_edge **result) {
 mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
   return WrapExceptions(
       [it]() -> mgp_edge * {
-        if (!it->in && !it->out) {
-          auto &virt = it->virtual_in_.empty() ? it->virtual_out_ : it->virtual_in_;
-          auto &virt_it = it->virtual_in_.empty() ? it->virtual_out_it_ : it->virtual_in_it_;
-          if (virt.empty() || virt_it == virt.end()) {
-            it->current_e = std::nullopt;
-            return nullptr;
-          }
-          ++virt_it;
-          if (virt_it == virt.end()) {
-            it->current_e = std::nullopt;
-            return nullptr;
-          }
-          it->current_e.emplace(*virt_it, it->source_vertex.graph, it->GetMemoryResource());
-          return &*it->current_e;
-        }
-
-        auto next = [it](bool for_in) -> mgp_edge * {
-          auto &impl_it = for_in ? it->in_it : it->out_it;
-          const auto end = for_in ? it->in->end() : it->out->end();
-          if (*impl_it == end) {
-            it->current_e = std::nullopt;
-            return nullptr;
-          }
-
-          ++*impl_it;
-
+        return std::visit(memgraph::utils::Overloaded{
+                              [](std::monostate) -> mgp_edge * { LOG_FATAL("mgp_edges_iterator has no cursor"); },
+                              [it](mgp_edges_iterator::RealCursor &rc) -> mgp_edge * {
+                                if (rc.it == rc.edges.end()) {
+                                  it->current_e = std::nullopt;
+                                  return nullptr;
+                                }
+                                ++rc.it;
 #ifdef MG_ENTERPRISE
-          if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-            NextPermittedEdge(*it, for_in);
-          }
+                                if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+                                  NextPermittedEdge(rc, it->source_vertex);
+                                }
 #endif
-
-          if (*impl_it == end) {
-            it->current_e = std::nullopt;
-            return nullptr;
-          }
-          WithRealVertexWrap(it->source_vertex.graph, [it, &impl_it](auto wrap) {
-            const auto edgeAcc = **impl_it;
-            it->current_e.emplace(
-                edgeAcc, wrap(edgeAcc.From()), wrap(edgeAcc.To()), it->source_vertex.graph, it->GetMemoryResource());
-          });
-
-          return &*it->current_e;
-        };
-        return next(it->in_it.has_value());
+                                if (rc.it == rc.edges.end()) {
+                                  it->current_e = std::nullopt;
+                                  return nullptr;
+                                }
+                                WithRealVertexWrap(it->source_vertex.graph, [it, &rc](auto wrap) {
+                                  const auto edgeAcc = *rc.it;
+                                  it->current_e.emplace(edgeAcc,
+                                                        wrap(edgeAcc.From()),
+                                                        wrap(edgeAcc.To()),
+                                                        it->source_vertex.graph,
+                                                        it->GetMemoryResource());
+                                });
+                                return &*it->current_e;
+                              },
+                              [it](mgp_edges_iterator::VirtualCursor &vc) -> mgp_edge * {
+                                if (vc.it == vc.edges.end()) {
+                                  it->current_e = std::nullopt;
+                                  return nullptr;
+                                }
+                                ++vc.it;
+                                if (vc.it == vc.edges.end()) {
+                                  it->current_e = std::nullopt;
+                                  return nullptr;
+                                }
+                                it->current_e.emplace(*vc.it, it->source_vertex.graph, it->GetMemoryResource());
+                                return &*it->current_e;
+                              }},
+                          it->cursor);
       },
       result);
 }
@@ -4633,50 +4588,45 @@ mgp_error mgp_graph_show_index_info(mgp_graph *graph, mgp_memory *memory, mgp_ma
 
 #ifdef MG_ENTERPRISE
 namespace {
-void NextPermitted(mgp_vertices_iterator &it) {
-  const auto *ctx = it.graph->ctx;
-
-  if (!ctx || !ctx->auth_checker) {
-    return;
+void NextPermitted(mgp_vertices_iterator::RealCursor &rc, const mgp_graph &graph) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return;
+  while (rc.it != rc.vertices.end()) {
+    if (ctx->auth_checker->Has(*rc.it, graph.view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) break;
+    ++rc.it;
   }
-
-  while (it.current_it != it.vertices.end()) {
-    if (ctx->auth_checker->Has(
-            *it.current_it, it.graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-      break;
-    }
-
-    ++it.current_it;
-  }
-};
+}
 }  // namespace
 #endif
 
 /// @throw anything VerticesIterable may throw
-mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type alloc)
-    : alloc(alloc),
-      graph(graph),
-      vertices(std::visit([graph](auto *impl) { return impl->Vertices(graph->view); }, graph->impl)),
-      current_it(vertices.begin()) {
-#ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    NextPermitted(*this);
-  }
-#endif
-
+mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type alloc) : alloc(alloc), graph(graph) {
   if (auto *const *vg_arm = std::get_if<memgraph::query::VirtualGraphDbAccessor *>(&graph->impl)) {
     auto *vg = (*vg_arm)->getGraph();
-    if (!vg->nodes().empty()) {
-      has_virtual_nodes_ = true;
-      virtual_node_it_ = vg->nodes().begin();
-      virtual_node_end_ = vg->nodes().end();
+    const auto &nodes = vg->nodes();
+    auto &vc = cursor.emplace<VirtualCursor>(VirtualCursor{nodes.begin(), nodes.end()});
+    if (vc.it != vc.end) {
+      current_v.emplace(*vc.it->second, graph, alloc);
     }
+    return;
   }
 
-  if (current_it != vertices.end()) {
-    WithRealVertexWrap(graph, [this, graph, alloc](auto wrap) { current_v.emplace(wrap(*current_it), graph, alloc); });
-  } else if (has_virtual_nodes_ && virtual_node_it_ != virtual_node_end_) {
-    current_v.emplace(*virtual_node_it_->second, graph, alloc);
+  auto vertices =
+      std::visit(memgraph::utils::Overloaded{
+                     [graph](memgraph::query::DbAccessor *impl) { return impl->Vertices(graph->view); },
+                     [graph](memgraph::query::SubgraphDbAccessor *impl) { return impl->Vertices(graph->view); },
+                     [](memgraph::query::VirtualGraphDbAccessor *) -> memgraph::query::VerticesIterable {
+                       LOG_FATAL("VirtualGraphDbAccessor handled separately above");
+                     }},
+                 graph->impl);
+  auto &rc = cursor.emplace<RealCursor>(std::move(vertices));
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    NextPermitted(rc, *graph);
+  }
+#endif
+  if (rc.it != rc.vertices.end()) {
+    WithRealVertexWrap(graph, [this, graph, alloc, &rc](auto wrap) { current_v.emplace(wrap(*rc.it), graph, alloc); });
   }
 }
 
@@ -4730,46 +4680,44 @@ mgp_error mgp_vertices_iterator_get(mgp_vertices_iterator *it, mgp_vertex **resu
 mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **result) {
   return WrapExceptions(
       [it]() -> mgp_vertex * {
-        // currently iterating virtual nodes
-        if (it->current_it == it->vertices.end() && it->has_virtual_nodes_) {
-          if (it->virtual_node_it_ == it->virtual_node_end_) {
-            // already exhausted virtual nodes
-            MG_ASSERT(!it->current_v);
-            return nullptr;
-          }
-          ++it->virtual_node_it_;
-          if (it->virtual_node_it_ == it->virtual_node_end_) {
-            it->current_v = std::nullopt;
-            return nullptr;
-          }
-          it->current_v.emplace(*it->virtual_node_it_->second, it->graph, it->GetMemoryResource());
-          return &*it->current_v;
-        }
-
-        if (it->current_it == it->vertices.end()) {
-          MG_ASSERT(!it->current_v,
-                    "Iteration is already done, so it->current_v "
-                    "should have been set to std::nullopt");
-          return nullptr;
-        }
-
-        ++it->current_it;
+        return std::visit(memgraph::utils::Overloaded{
+                              [](std::monostate) -> mgp_vertex * { LOG_FATAL("mgp_vertices_iterator has no cursor"); },
+                              [it](mgp_vertices_iterator::RealCursor &rc) -> mgp_vertex * {
+                                if (rc.it == rc.vertices.end()) {
+                                  MG_ASSERT(!it->current_v, "iteration already done; current_v should be nullopt");
+                                  return nullptr;
+                                }
+                                ++rc.it;
 #ifdef MG_ENTERPRISE
-        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-          NextPermitted(*it);
-        }
+                                if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+                                  NextPermitted(rc, *it->graph);
+                                }
 #endif
-        if (it->current_it == it->vertices.end()) {
-          it->current_v = std::nullopt;
-          return nullptr;
-        }
-
-        memgraph::utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
-        WithRealVertexWrap(it->graph, [it](auto wrap) {
-          it->current_v.emplace(wrap(*it->current_it), it->graph, it->GetMemoryResource());
-        });
-        clean_up.Disable();
-        return &*it->current_v;
+                                if (rc.it == rc.vertices.end()) {
+                                  it->current_v = std::nullopt;
+                                  return nullptr;
+                                }
+                                memgraph::utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
+                                WithRealVertexWrap(it->graph, [it, &rc](auto wrap) {
+                                  it->current_v.emplace(wrap(*rc.it), it->graph, it->GetMemoryResource());
+                                });
+                                clean_up.Disable();
+                                return &*it->current_v;
+                              },
+                              [it](mgp_vertices_iterator::VirtualCursor &vc) -> mgp_vertex * {
+                                if (vc.it == vc.end) {
+                                  MG_ASSERT(!it->current_v);
+                                  return nullptr;
+                                }
+                                ++vc.it;
+                                if (vc.it == vc.end) {
+                                  it->current_v = std::nullopt;
+                                  return nullptr;
+                                }
+                                it->current_v.emplace(*vc.it->second, it->graph, it->GetMemoryResource());
+                                return &*it->current_v;
+                              }},
+                          it->cursor);
       },
       result);
 }
