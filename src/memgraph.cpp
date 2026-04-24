@@ -544,27 +544,29 @@ int main(int argc, char **argv) {
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
 
-  db_config.durability.snapshot_interval =
-      memgraph::utils::SchedulerInterval(memgraph::flags::run_time::GetStorageSnapshotInterval());
-  if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
-    if (!db_config.durability.snapshot_interval) {
-      if (FLAGS_storage_wal_enabled) {
-        LOG_FATAL(
-            "In order to use write-ahead-logging you must enable "
-            "periodic snapshots by setting the snapshot interval to a "
-            "value larger than 0!");
-      }
-      db_config.durability.snapshot_wal_mode = DISABLED;
-    } else {
-      if (FLAGS_storage_wal_enabled) {
-        db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL;
+  if (!is_coordinator_instance) {
+    db_config.durability.snapshot_interval =
+        memgraph::utils::SchedulerInterval(memgraph::flags::run_time::GetStorageSnapshotInterval());
+    if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
+      if (!db_config.durability.snapshot_interval) {
+        if (FLAGS_storage_wal_enabled) {
+          LOG_FATAL(
+              "In order to use write-ahead-logging you must enable "
+              "periodic snapshots by setting the snapshot interval to a "
+              "value larger than 0!");
+        }
+        db_config.durability.snapshot_wal_mode = DISABLED;
       } else {
-        db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT;
+        if (FLAGS_storage_wal_enabled) {
+          db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL;
+        } else {
+          db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT;
+        }
       }
+    } else {
+      // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
+      db_config.durability.snapshot_wal_mode = DISABLED;
     }
-  } else {
-    // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
-    db_config.durability.snapshot_wal_mode = DISABLED;
   }
 
 #ifdef MG_ENTERPRISE
