@@ -75,11 +75,14 @@ jobs:
 
       - name: Build debug binary
         run: |
+          BUILD_THREADS=$(./tools/ci/compute-build-threads.sh 3.5)
+          echo "Building with $BUILD_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads $BUILD_THREADS \
           build-memgraph \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
@@ -196,11 +199,14 @@ jobs:
 
       - name: Build debug binary
         run: |
+          BUILD_THREADS=$(./tools/ci/compute-build-threads.sh 3.5)
+          echo "Building with $BUILD_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads $BUILD_THREADS \
           build-memgraph \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
