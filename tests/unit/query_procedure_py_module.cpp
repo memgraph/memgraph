@@ -462,8 +462,7 @@ int main(int argc, char **argv) {
     test_result = RUN_ALL_TESTS();
     Py_END_ALLOW_THREADS;
   }
-  // Shutdown Python
-  Py_Finalize();
+  // NOTE: Skip Py_Finalize() — see comment in memgraph.cpp (bpo-42969).
   PyMem_RawFree(program_name);
   return test_result;
 }
