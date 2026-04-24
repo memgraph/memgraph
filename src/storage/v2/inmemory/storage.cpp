@@ -917,7 +917,7 @@ void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from
 
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
   // ExistenceConstraints validation block
-  auto const has_any_existence_constraints = !transaction_.active_constraints_.existence_->empty();
+  auto const has_any_existence_constraints = !transaction_.active_constraints_->existence_->empty();
   if (has_any_existence_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
     auto validation_result = storage_->constraints_.existence_constraints_->Validate(
@@ -930,7 +930,7 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Exis
 }
 
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueConstraintsViolation() const {
-  auto const has_any_unique_constraints = !transaction_.active_constraints_.unique_->empty();
+  auto const has_any_unique_constraints = !transaction_.active_constraints_->unique_->empty();
   if (has_any_unique_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
     // Before committing and validating vertices against unique constraints,
@@ -939,7 +939,7 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Uniq
     const auto vertices_to_update = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
 
     for (auto const *vertex : vertices_to_update) {
-      transaction_.active_constraints_.unique_->UpdateBeforeCommit(vertex, transaction_);
+      transaction_.active_constraints_->unique_->UpdateBeforeCommit(vertex, transaction_);
     }
 
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -1214,8 +1214,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   atomic_struct_update<CommitTsInfo>(mem_storage->repl_storage_state_.commit_ts_info_, update_func);
 
   // Install the new point index, if needed
-  mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
-                                                          transaction_.point_index_ctx_);
+  auto point_updater = mem_storage->indices_.MakeUpdater();
+  mem_storage->indices_.point_index_.InstallNewPointIndex(
+      transaction_.point_index_change_collector_, transaction_.point_index_ctx_, point_updater);
 
   // Call other callbacks that publish/install upon commit
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
@@ -1236,8 +1237,14 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
 
   CheckForFastDiscardOfDeltas();
-  memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
-  memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  // Skip the virtual dispatch when the txn didn't touch any text/text-edge data
+  // (the common case for the commit hot path).
+  if (!transaction_.text_index_change_collector_.empty()) {
+    transaction_.active_indices_->text_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  }
+  if (!transaction_.text_edge_index_change_collector_.empty()) {
+    transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  }
   is_transaction_active_ = false;
 }
 
@@ -1356,18 +1363,18 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   if (!transaction_.deltas.empty()) {
     auto index_abort_processor = storage_->indices_.GetAbortProcessor(*transaction_.active_indices_);
 
-    auto const has_any_unique_constraints = !transaction_.active_constraints_.unique_->empty();
+    auto const has_any_unique_constraints = !transaction_.active_constraints_->unique_->empty();
     if (has_any_unique_constraints && transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
       // Need to remove elements from constraints before handling of the deltas, so the elements match the correct
       // values. Use AbortProcessor pattern for efficient constraint-first iteration (one accessor per constraint).
       auto vertices_to_check = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
-      auto abort_processor = transaction_.active_constraints_.unique_->GetAbortProcessor();
+      auto abort_processor = transaction_.active_constraints_->unique_->GetAbortProcessor();
       for (auto const *vertex : vertices_to_check) {
-        transaction_.active_constraints_.unique_->CollectForAbort(abort_processor, vertex);
+        transaction_.active_constraints_->unique_->CollectForAbort(abort_processor, vertex);
       }
-      transaction_.active_constraints_.unique_->AbortEntries(std::move(abort_processor.abortable_info_),
-                                                             transaction_.start_timestamp);
+      transaction_.active_constraints_->unique_->AbortEntries(std::move(abort_processor.abortable_info_),
+                                                              transaction_.start_timestamp);
     }
 
     // We collect vertices and edges we've created here and then splice them into
@@ -2060,9 +2067,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time so concurrent readers don't observe a
+  // create that gets rolled back. Matches the constraint / vector-index paths.
+  auto updater = in_memory->indices_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([&point_index, updater](uint64_t /*commit_ts*/) {
+    point_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
   return {};
 }
 
@@ -2074,9 +2086,13 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   if (!point_index.DropPointIndex(label, property)) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time. See CreatePointIndex above.
+  auto updater = in_memory->indices_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([&point_index, updater](uint64_t /*commit_ts*/) {
+    point_index.PublishActiveIndices(updater);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
   return {};
 }
 
@@ -2092,9 +2108,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       !vector_index.CreateIndex(spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time so concurrent readers don't observe a
+  // create that gets rolled back. Matches the constraint CREATE/DROP paths below.
+  auto updater = in_memory->indices_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([&vector_index, updater](uint64_t /*commit_ts*/) {
+    vector_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
   return {};
 }
 
@@ -2104,15 +2125,21 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
+  auto updater = in_memory->indices_.MakeUpdater();
   if (vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
+    transaction_.commit_callbacks_.Add([&vector_index, updater](uint64_t /*commit_ts*/) {
+      vector_index.PublishActiveIndices(updater);
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
+    });
   } else if (vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+    transaction_.commit_callbacks_.Add([&vector_edge_index, updater](uint64_t /*commit_ts*/) {
+      vector_edge_index.PublishActiveIndices(updater);
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+    });
   } else {
     return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
-  // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
 
@@ -2141,9 +2168,13 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time. See CreateVectorIndex above.
+  auto updater = in_memory->indices_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([&vector_edge_index, updater](uint64_t /*commit_ts*/) {
+    vector_edge_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   return {};
 }
 
@@ -2169,8 +2200,10 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
     throw;
   }
   // Defer publication to commit time for MVCC correctness
-  auto publisher = [existence_constraints, label, property](uint64_t commit_ts) {
+  auto updater = in_memory->constraints_.MakeUpdater();
+  auto publisher = [existence_constraints, label, property, updater](uint64_t commit_ts) {
     existence_constraints->PublishConstraint(label, property, commit_ts);
+    updater(existence_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
@@ -2187,6 +2220,12 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
   if (!existence_constraints->DropConstraint(label, property)) {
     return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
+  // Defer publication to commit time so concurrent readers don't observe the
+  // drop if the DDL transaction aborts. Matches the CREATE path above.
+  auto updater = in_memory->constraints_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([existence_constraints, updater](uint64_t /*commit_ts*/) {
+    updater(existence_constraints->GetActiveConstraints());
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
   return {};
 }
@@ -2207,8 +2246,10 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
     return ret.value();
   }
   // Defer publication to commit time for MVCC correctness
-  auto publisher = [mem_unique_constraints, label, properties](uint64_t commit_ts) {
+  auto updater = in_memory->constraints_.MakeUpdater();
+  auto publisher = [mem_unique_constraints, label, properties, updater](uint64_t commit_ts) {
     mem_unique_constraints->PublishConstraint(label, properties, commit_ts);
+    updater(mem_unique_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
@@ -2227,6 +2268,12 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
+  // Defer publication to commit time so concurrent readers don't observe the
+  // drop if the DDL transaction aborts. Matches the CREATE path above.
+  auto updater = in_memory->constraints_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([mem_unique_constraints, updater](uint64_t /*commit_ts*/) {
+    updater(mem_unique_constraints->GetActiveConstraints());
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
@@ -2253,8 +2300,10 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
     throw;
   }
   // Defer publication to commit time for MVCC correctness
-  auto publisher = [type_constraints, label, property, kind](uint64_t commit_ts) {
+  auto updater = in_memory->constraints_.MakeUpdater();
+  auto publisher = [type_constraints, label, property, kind, updater](uint64_t commit_ts) {
     type_constraints->PublishConstraint(label, property, kind, commit_ts);
+    updater(type_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
@@ -2272,6 +2321,11 @@ std::expected<void, StorageTypeConstraintDroppingError> InMemoryStorage::InMemor
   if (!deleted_constraint) {
     return std::unexpected{StorageTypeConstraintDroppingError{ConstraintDefinitionError{}}};
   }
+  // Defer publication to commit time so concurrent readers don't observe the
+  // drop if the DDL transaction aborts. Matches the CREATE path above.
+  auto updater = in_memory->constraints_.MakeUpdater();
+  transaction_.commit_callbacks_.Add(
+      [type_constraints, updater](uint64_t /*commit_ts*/) { updater(type_constraints->GetActiveConstraints()); });
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, kind);
   return {};
 }
@@ -2545,7 +2599,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   uint64_t last_durable_ts = 0;
   std::optional<PointIndexContext> point_index_context;
   ActiveIndicesPtr active_indices;
-  std::optional<ActiveConstraints> active_constraints;
+  ActiveConstraintsPtr active_constraints;
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
@@ -2568,7 +2622,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           false,
           *std::move(point_index_context),
           std::move(active_indices),
-          *std::move(active_constraints),
+          std::move(active_constraints),
           std::move(async_index_helper),
           last_durable_ts};
 }
@@ -2584,7 +2638,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto active_constraints = GetActiveConstraints();
       // Constraints violation require deltas so we can abort. Hence in analytical can not support any constraint
-      if (!active_constraints.empty()) {
+      if (active_constraints && !active_constraints->empty()) {
         throw utils::BasicException(
             "Constraints are not supported in analytical storage mode. Please drop them before "
             "changing storage mode to analytical or use transactional mode.");
@@ -4371,7 +4425,7 @@ void InMemoryStorage::Clear() {
 }
 
 bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, PropertyId property) const {
-  return storage_->indices_.point_index_.PointIndexExists(label, property);
+  return transaction_.active_indices_->point_->PointIndexExists(label, property);
 }
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
@@ -4382,17 +4436,17 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       .edge_type_property =
           transaction_.active_indices_->edge_type_properties_->ListIndices(transaction_.start_timestamp),
       .edge_property = transaction_.active_indices_->edge_property_->ListIndices(transaction_.start_timestamp),
-      .text_indices = storage_->indices_.text_index_.ListIndices(),
-      .text_edge_indices = storage_->indices_.text_edge_index_.ListIndices(),
-      .point_label_property = storage_->indices_.point_index_.ListIndices(),
-      .vector_indices_spec = storage_->indices_.vector_index_.ListIndices(),
-      .vector_edge_indices_spec = storage_->indices_.vector_edge_index_.ListIndices()};
+      .text_indices = transaction_.active_indices_->text_->ListIndices(),
+      .text_edge_indices = transaction_.active_indices_->text_edge_->ListIndices(),
+      .point_label_property = transaction_.active_indices_->point_->ListIndices(),
+      .vector_indices_spec = transaction_.active_indices_->vector_->ListIndices(),
+      .vector_edge_indices_spec = transaction_.active_indices_->vector_edge_->ListIndices()};
 }
 
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
-  return {.existence = transaction_.active_constraints_.existence_->ListConstraints(transaction_.start_timestamp),
-          .unique = transaction_.active_constraints_.unique_->ListConstraints(transaction_.start_timestamp),
-          .type = transaction_.active_constraints_.type_->ListConstraints(transaction_.start_timestamp)};
+  return {.existence = transaction_.active_constraints_->existence_->ListConstraints(transaction_.start_timestamp),
+          .unique = transaction_.active_constraints_->unique_->ListConstraints(transaction_.start_timestamp),
+          .type = transaction_.active_constraints_->type_->ListConstraints(transaction_.start_timestamp)};
 }
 
 void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {

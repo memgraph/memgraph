@@ -81,7 +81,7 @@ class ExistenceConstraints {
   };
 
   /// Creates an ActiveConstraints snapshot for transaction use.
-  auto GetActiveConstraints() const -> std::unique_ptr<ActiveConstraints>;
+  auto GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints>;
 
   static auto GetCreationFunction(const std::optional<durability::ParallelizedSchemaCreationInfo> &)
       -> std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation>;

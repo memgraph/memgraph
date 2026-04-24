@@ -10,9 +10,11 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/text_index.hpp"
+#include <spdlog/spdlog.h>
 #include <range/v3/all.hpp>
 #include "mgcxx_text_search.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
@@ -22,6 +24,18 @@ namespace rv = r::views;
 
 namespace memgraph::storage {
 
+TextIndexData::~TextIndexData() {
+  if (deferred_drop) {
+    try {
+      mgcxx::text_search::drop_index(std::move(context));
+    } catch (...) {
+      spdlog::error("Failed to drop text index during deferred cleanup");
+    }
+  }
+}
+
+// ---- TextIndex (owner) methods ----
+
 void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info) {
   try {
     nlohmann::json mappings = {};
@@ -30,40 +44,24 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
     mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
     mappings["properties"]["gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
 
-    auto [_, success] = index_.try_emplace(
-        index_info.index_name,
-        // If index already exists, it will be loaded and reused.
+    if (index_->contains(index_info.index_name)) {
+      throw query::TextSearchException("Text index {} already exists at path: {}.", index_info.index_name, index_path);
+    }
+
+    // If index already exists on disk, it will be loaded and reused.
+    auto data = std::make_shared<TextIndexData>(
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
         index_info.label,
         index_info.properties);
-    if (!success) {
-      throw query::TextSearchException("Text index {} already exists at path: {}.", index_info.index_name, index_path);
-    }
+
+    // Copy-on-write: create a new map so existing ActiveIndices snapshots are not affected.
+    auto new_map = std::make_shared<IndexContainer>(*index_);
+    new_map->emplace(index_info.index_name, std::move(data));
+    index_ = std::move(new_map);
   } catch (const std::exception &e) {
     spdlog::error("Failed to create text index {} at path: {}. Error: {}", index_info.index_name, index_path, e.what());
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
-}
-
-std::vector<TextIndexData *> TextIndex::LabelApplicableTextIndices(std::span<storage::LabelId const> labels) {
-  std::vector<TextIndexData *> applicable_text_indices;
-  for (auto &[_, index_data] : index_) {
-    if (r::any_of(labels, [&](auto label) { return label == index_data.scope; })) {
-      applicable_text_indices.push_back(&index_data);
-    }
-  }
-  return applicable_text_indices;
-}
-
-std::vector<TextIndexData *> TextIndex::GetIndicesMatchingProperties(std::span<TextIndexData *const> label_indices,
-                                                                     std::span<const PropertyId> properties) {
-  std::vector<TextIndexData *> result;
-  for (const auto &text_index_data : label_indices) {
-    if (IndexPropertiesMatch(text_index_data->properties, properties)) {
-      result.push_back(text_index_data);
-    }
-  }
-  return result;
 }
 
 void TextIndex::AddNodeToTextIndex(std::int64_t gid, nlohmann::json properties, std::string all_property_values,
@@ -85,45 +83,8 @@ void TextIndex::AddNodeToTextIndex(std::int64_t gid, nlohmann::json properties, 
   }
 }
 
-void TextIndex::UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
-  if (index_.empty()) return;
-  auto label_applicable_text_indices = LabelApplicableTextIndices(std::array{label});
-  if (label_applicable_text_indices.empty()) return;
-  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
-  auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
-  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::ADD);
-}
-
-void TextIndex::UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
-  if (index_.empty()) return;
-  auto label_applicable_text_indices = LabelApplicableTextIndices(std::array{label});
-  if (label_applicable_text_indices.empty()) return;
-  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
-  auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
-  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
-}
-
-void TextIndex::UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, PropertyId property) {
-  if (index_.empty() || vertex->labels.empty()) return;
-  auto has_label = [&](const auto &text_index_data) {
-    return r::any_of(vertex->labels, [&](auto label) { return label == text_index_data.scope; });
-  };
-  std::vector<TextIndexData *> applicable_text_indices;
-  for (auto &[_, index_data] : index_) {
-    if (IndexPropertiesMatch(index_data.properties, std::array{property}) && has_label(index_data)) {
-      applicable_text_indices.push_back(&index_data);
-    }
-  };
-  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::UPDATE);
-}
-
-void TextIndex::RemoveNode(const Vertex *vertex, Transaction &tx) {
-  if (index_.empty()) return;
-  auto label_applicable_text_indices = LabelApplicableTextIndices(vertex->labels);
-  if (label_applicable_text_indices.empty()) return;
-  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
-  auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
-  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
+void TextIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) {
+  updater(std::make_shared<TextIndex::ActiveIndices>(index_));
 }
 
 void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIterable vertices,
@@ -132,7 +93,7 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
       MakeIndexPath(text_index_storage_dir_, index_info.index_name),
       {.index_name = index_info.index_name, .label = index_info.label, .properties = index_info.properties});
 
-  auto &index_data = index_.at(index_info.index_name);
+  auto &index_data = *index_->at(index_info.index_name);
   for (const auto &v : vertices) {
     if (!v.HasLabel(index_info.label, View::NEW).value()) {
       continue;
@@ -154,7 +115,8 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
 }
 
 void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
-                             NameIdMapper *name_id_mapper, std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                             NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
   auto needs_rebuild = !std::filesystem::exists(index_path);
   try {
@@ -173,7 +135,7 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<
   }
 
   if (needs_rebuild) {
-    auto &context = index_.at(index_info.index_name).context;
+    auto &context = index_->at(index_info.index_name)->context;
     for (const auto &vertex : vertices) {
       if (!std::ranges::contains(vertex.labels, index_info.label)) continue;
 
@@ -197,35 +159,131 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::TEXT_IDX);
   }
+
+  PublishActiveIndices(updater);
 }
 
-void TextIndex::DropIndex(const std::string &index_name) {
-  auto node = index_.extract(index_name);
-  if (node.empty()) {
+std::shared_ptr<TextIndexData> TextIndex::DropIndex(const std::string &index_name) {
+  auto it = index_->find(index_name);
+  if (it == index_->end()) {
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   }
+  auto evicted = it->second;  // Keep alive until the caller's commit callback.
 
-  auto &entry = node.mapped();
-  try {
-    mgcxx::text_search::drop_index(std::move(entry.context));
-  } catch (const std::exception &e) {
-    CreateTantivyIndex(
-        MakeIndexPath(text_index_storage_dir_, index_name),
-        TextIndexSpec{.index_name = index_name, .label = entry.scope, .properties = std::move(entry.properties)});
-    throw query::TextSearchException("Text index error on drop: {}", e.what());
-  }
+  // Copy-on-write: work on a new map so existing ActiveIndices snapshots are not affected.
+  auto new_map = std::make_shared<IndexContainer>(*index_);
+  new_map->erase(index_name);
+  index_ = std::move(new_map);
+
+  // deferred_drop stays false here on purpose. The caller flips it only after
+  // the DDL transaction commits; if the transaction aborts, the flag stays
+  // false and ~TextIndexData leaves the on-disk tantivy directory intact.
+  return evicted;
 }
 
-bool TextIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
+bool TextIndex::IndexExists(const std::string &index_name) const { return index_->contains(index_name); }
 
-std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, const std::string &search_query,
-                                                text_search_mode search_mode, std::size_t limit,
-                                                const Transaction &tx) {
-  auto it = index_.find(index_name);
-  if (it == index_.end()) {
+std::vector<TextIndexSpec> TextIndex::ListIndices() const {
+  std::vector<TextIndexSpec> ret;
+  ret.reserve(index_->size());
+  for (const auto &[index_name, data_ptr] : *index_) {
+    ret.emplace_back(index_name, data_ptr->scope, data_ptr->properties);
+  }
+  return ret;
+}
+
+std::vector<std::shared_ptr<TextIndexData>> TextIndex::Clear() {
+  // Evict every entry, returning the shared_ptrs to the caller. The caller is
+  // responsible for flipping `deferred_drop = true` on each — this mirrors the
+  // per-index DropIndex contract so a Clear() from a transactional caller
+  // would not unlink on-disk tantivy directories before the txn commits.
+  // DatabaseInfoQuery readers holding older ActiveIndices snapshots continue
+  // to alias the same TextIndexData safely; the tantivy drop_index call
+  // happens in ~TextIndexData when the last snapshot reference is released
+  // (and only if deferred_drop was flipped).
+  std::vector<std::shared_ptr<TextIndexData>> evicted;
+  evicted.reserve(index_->size());
+  for (auto &[_, data_ptr] : *index_) {
+    evicted.push_back(data_ptr);
+  }
+  index_ = std::make_shared<IndexContainer>();
+  return evicted;
+}
+
+// ---- TextIndex::ActiveIndices (snapshot) methods ----
+
+std::vector<TextIndexData *> TextIndex::ActiveIndices::LabelApplicableTextIndices(
+    std::span<storage::LabelId const> labels) const {
+  std::vector<TextIndexData *> applicable_text_indices;
+  for (auto const &[_, data_ptr] : *index_container_) {
+    if (r::any_of(labels, [&](auto label) { return label == data_ptr->scope; })) {
+      applicable_text_indices.push_back(data_ptr.get());
+    }
+  }
+  return applicable_text_indices;
+}
+
+std::vector<TextIndexData *> TextIndex::ActiveIndices::GetIndicesMatchingProperties(
+    std::span<TextIndexData *const> label_indices, std::span<const PropertyId> properties) {
+  std::vector<TextIndexData *> result;
+  for (const auto &text_index_data : label_indices) {
+    if (IndexPropertiesMatch(text_index_data->properties, properties)) {
+      result.push_back(text_index_data);
+    }
+  }
+  return result;
+}
+
+void TextIndex::ActiveIndices::UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
+  if (index_container_->empty()) return;
+  auto label_applicable_text_indices = LabelApplicableTextIndices(std::array{label});
+  if (label_applicable_text_indices.empty()) return;
+  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
+  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::ADD);
+}
+
+void TextIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
+  if (index_container_->empty()) return;
+  auto label_applicable_text_indices = LabelApplicableTextIndices(std::array{label});
+  if (label_applicable_text_indices.empty()) return;
+  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
+  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
+}
+
+void TextIndex::ActiveIndices::UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, PropertyId property) {
+  if (index_container_->empty() || vertex->labels.empty()) return;
+  auto has_label = [&](const auto &data_ptr) {
+    return r::any_of(vertex->labels, [&](auto label) { return label == data_ptr->scope; });
+  };
+  std::vector<TextIndexData *> applicable_text_indices;
+  for (auto const &[_, data_ptr] : *index_container_) {
+    if (IndexPropertiesMatch(data_ptr->properties, std::array{property}) && has_label(data_ptr)) {
+      applicable_text_indices.push_back(data_ptr.get());
+    }
+  };
+  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::UPDATE);
+}
+
+void TextIndex::ActiveIndices::RemoveNode(const Vertex *vertex, Transaction &tx) {
+  if (index_container_->empty()) return;
+  auto label_applicable_text_indices = LabelApplicableTextIndices(vertex->labels);
+  if (label_applicable_text_indices.empty()) return;
+  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
+  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
+}
+
+std::vector<TextSearchResult> TextIndex::ActiveIndices::Search(const std::string &index_name,
+                                                               const std::string &search_query,
+                                                               text_search_mode search_mode, std::size_t limit,
+                                                               const Transaction &tx) {
+  auto it = index_container_->find(index_name);
+  if (it == index_container_->end()) {
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   }
-  auto &index_data = it->second;
+  auto &index_data = *it->second;
   auto &context = index_data.context;
 
   mgcxx::text_search::GidScoreOutput search_results;
@@ -268,11 +326,11 @@ std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, c
          r::to<std::vector>();
 }
 
-std::string TextIndex::Aggregate(const std::string &index_name, const std::string &search_query,
-                                 const std::string &aggregation_query) {
+std::string TextIndex::ActiveIndices::Aggregate(const std::string &index_name, const std::string &search_query,
+                                                const std::string &aggregation_query) {
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
-    if (const auto it = index_.find(index_name); it != index_.end()) {
-      return it->second.context;
+    if (const auto it = index_container_->find(index_name); it != index_container_->end()) {
+      return it->second->context;
     }
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   });
@@ -292,50 +350,28 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
   return result_string;
 }
 
-std::vector<TextIndexSpec> TextIndex::ListIndices() const {
+bool TextIndex::ActiveIndices::IndexExists(const std::string &index_name) const {
+  return index_container_->contains(index_name);
+}
+
+std::vector<TextIndexSpec> TextIndex::ActiveIndices::ListIndices() const {
   std::vector<TextIndexSpec> ret;
-  ret.reserve(index_.size());
-  for (const auto &[index_name, index_data] : index_) {
-    ret.emplace_back(index_name, index_data.scope, index_data.properties);
+  ret.reserve(index_container_->size());
+  for (const auto &[index_name, data_ptr] : *index_container_) {
+    ret.emplace_back(index_name, data_ptr->scope, data_ptr->properties);
   }
   return ret;
 }
 
-std::optional<uint64_t> TextIndex::ApproximateVerticesTextCount(std::string_view index_name) const {
-  if (const auto it = index_.find(index_name); it != index_.end()) {
-    const auto &index_data = it->second;
-    return mgcxx::text_search::get_num_docs(index_data.context);
+std::optional<uint64_t> TextIndex::ActiveIndices::ApproximateVerticesTextCount(std::string_view index_name) const {
+  if (const auto it = index_container_->find(index_name); it != index_container_->end()) {
+    return mgcxx::text_search::get_num_docs(it->second->context);
   }
   return std::nullopt;
 }
 
-void TextIndex::Clear() {
-  // Collect all index specs before modifying the map -> we will need to recover them if we fail to drop any of them
-  std::vector<TextIndexSpec> all_index_specs;
-  all_index_specs.reserve(index_.size());
-  for (const auto &[index_name, index_data] : index_) {
-    all_index_specs.emplace_back(index_name, index_data.scope, index_data.properties);
-  }
-
-  std::vector<TextIndexSpec> successfully_dropped;
-  successfully_dropped.reserve(all_index_specs.size());
-  for (const auto &index_spec : all_index_specs) {
-    try {
-      DropIndex(index_spec.index_name);
-      successfully_dropped.push_back(index_spec);
-    } catch (const std::exception &e) {
-      // Recover indices that were successfully dropped before this failure
-      for (const auto &dropped_spec : successfully_dropped) {
-        CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, dropped_spec.index_name), dropped_spec);
-      }
-      throw;
-    }
-  }
-}
-
-void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
+void TextIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
   for (const auto &[index_data_ptr, pending] : tx.text_index_change_collector_) {
-    // Prepare documents outside the lock to minimize critical section
     struct PreparedDoc {
       std::int64_t gid;
       nlohmann::json properties;
@@ -359,7 +395,6 @@ void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mappe
                              StringifyProperties(vertex_properties)});
     }
 
-    // Lock only for tantivy writer operations
     const std::lock_guard lock(index_data_ptr->write_mutex);
     try {
       for (auto gid : gids_to_remove) {

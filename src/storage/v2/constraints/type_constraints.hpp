@@ -82,7 +82,7 @@ class TypeConstraints {
     ContainerPtr container_;
   };
 
-  auto GetActiveConstraints() const -> std::unique_ptr<ActiveConstraints>;
+  auto GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints>;
 
   [[nodiscard]] static auto ValidateVerticesOnConstraint(utils::SkipListDb<Vertex>::Accessor vertices, LabelId label,
                                                          PropertyId property, TypeConstraintKind type)

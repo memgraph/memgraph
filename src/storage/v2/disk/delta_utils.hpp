@@ -12,15 +12,21 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
+#include <string_view>
 
 namespace memgraph::storage {
-
-constexpr uint64_t kTimestampInitialId = 0;
-constexpr uint64_t kTransactionInitialId = 1ULL << 63U;
-/// Largest value still in the committed-timestamp space. Use as a saturating ts
-/// for reads that want "everything committed, nothing populating/in-flight":
-/// IsVisible(commit_ts) returns true for every committed entry and false for
-/// the kPopulating sentinel (which equals kTransactionInitialId).
-constexpr uint64_t kLargestCommittedTimestamp = kTransactionInitialId - 1;
-
+struct Delta;
 }  // namespace memgraph::storage
+
+namespace memgraph::storage::disk {
+
+// Walk a delta chain to find the oldest delta and extract the on-disk key
+// if the oldest action is DELETE_DESERIALIZED_OBJECT; otherwise nullopt.
+auto GetOldDiskKeyOrNull(Delta *head) -> std::optional<std::string_view>;
+
+// Walk a delta chain to find the oldest delta and return its commit timestamp
+// (0 for a nullptr head).
+auto GetEarliestTimestamp(Delta *head) -> uint64_t;
+
+}  // namespace memgraph::storage::disk

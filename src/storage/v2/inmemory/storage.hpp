@@ -331,23 +331,23 @@ class InMemoryStorage final : public Storage {
     }
 
     std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
-      return storage_->indices_.point_index_.ApproximatePointCount(label, property);
+      return transaction_.active_indices_->point_->ApproximatePointCount(label, property);
     }
 
     std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {
-      return storage_->indices_.vector_index_.ApproximateNodesVectorCount(label, property);
+      return transaction_.active_indices_->vector_->ApproximateNodesVectorCount(label, property);
     }
 
     std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override {
-      return storage_->indices_.vector_edge_index_.ApproximateEdgesVectorCount(edge_type, property);
+      return transaction_.active_indices_->vector_edge_->ApproximateEdgesVectorCount(edge_type, property);
     }
 
     std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const override {
-      return storage_->indices_.text_index_.ApproximateVerticesTextCount(index_name);
+      return transaction_.active_indices_->text_->ApproximateVerticesTextCount(index_name);
     }
 
     std::optional<uint64_t> ApproximateEdgesTextCount(std::string_view index_name) const override {
-      return storage_->indices_.text_edge_index_.ApproximateEdgesTextCount(index_name);
+      return transaction_.active_indices_->text_edge_->ApproximateEdgesTextCount(index_name);
     }
 
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const override {

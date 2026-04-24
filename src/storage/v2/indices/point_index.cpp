@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <utility>
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/indices/point_index_expensive_header.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
@@ -98,12 +99,35 @@ auto update_internal(index_container_t const &src, TrackedChanges const &tracked
 }
 }  // namespace
 
+// ---- PointIndexStorage::ActiveIndices (snapshot) methods ----
+
+bool PointIndexStorage::ActiveIndices::PointIndexExists(LabelId labelId, PropertyId propertyId) const {
+  return indexes_->contains(LabelPropKey{labelId, propertyId});
+}
+
+std::optional<uint64_t> PointIndexStorage::ActiveIndices::ApproximatePointCount(LabelId labelId,
+                                                                                PropertyId propertyId) const {
+  auto it = indexes_->find(LabelPropKey{labelId, propertyId});
+  if (it == indexes_->end()) return std::nullopt;
+  return it->second->EntryCount();
+}
+
+std::vector<std::pair<LabelId, PropertyId>> PointIndexStorage::ActiveIndices::ListIndices() const {
+  auto keys = *indexes_ | std::views::keys |
+              std::views::transform([](LabelPropKey key) { return std::pair{key.label(), key.property()}; });
+  return {keys.begin(), keys.end()};
+}
+
+// ---- PointIndexStorage (owner) methods ----
+
+void PointIndexStorage::PublishActiveIndices(ActiveIndicesUpdater const &updater) {
+  updater(std::make_shared<PointIndexStorage::ActiveIndices>(indexes_));
+}
+
 bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  // indexes_ protected by unique storage access
-  auto &indexes = *indexes_;
   auto key = LabelPropKey{label, property};
-  if (indexes.contains(key)) return false;
+  if (indexes_->contains(key)) return false;
 
   auto points_2d_WGS = std::vector<Entry<IndexPointWGS2d>>{};
   auto points_2d_Crt = std::vector<Entry<IndexPointCartesian2d>>{};
@@ -146,21 +170,30 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, uti
       snapshot_info->Update(UpdateType::POINT_IDX);
     }
   }
+  // Skip the COW copy when the key already exists - matches the symmetric
+  // early-return in DropPointIndex.
+  if (indexes_->contains(key)) return false;
   auto new_index = std::make_shared<PointIndex>(points_2d_WGS, points_2d_Crt, points_3d_WGS, points_3d_Crt);
-  auto [_, inserted] = indexes.try_emplace(key, std::move(new_index));
-  return inserted;
-}
-
-bool PointIndexStorage::DropPointIndex(LabelId label, PropertyId property) {
-  // indexes_ protected by unique storage access
-  auto &indexes = *indexes_;
-  auto it = indexes.find(LabelPropKey{label, property});
-  if (it == indexes.end()) return false;
-  indexes.erase(it);
+  // Copy-on-write: create a new map so existing ActiveIndices snapshots are not affected.
+  auto new_indexes = std::make_shared<index_container_t>(*indexes_);
+  new_indexes->try_emplace(key, std::move(new_index));
+  indexes_ = std::move(new_indexes);
   return true;
 }
 
-void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context) {
+bool PointIndexStorage::DropPointIndex(LabelId label, PropertyId property) {
+  auto key = LabelPropKey{label, property};
+  if (!indexes_->contains(key)) return false;
+
+  // Copy-on-write: create a new map so existing ActiveIndices snapshots are not affected.
+  auto new_indexes = std::make_shared<index_container_t>(*indexes_);
+  new_indexes->erase(key);
+  indexes_ = std::move(new_indexes);
+  return true;
+}
+
+void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context,
+                                             ActiveIndicesUpdater const &updater) {
   if (!context.UsingLocalIndex() && !collector.CurrentChanges().AnyChanges()) {
     // Hence TXN didn't do AdvanceCommand that required new private local index
     // no modification during the last command to require new index now
@@ -181,22 +214,17 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
     context.rebuild_current(indexes_, collector);
     indexes_ = context.current_indexes_;
   };
+
+  PublishActiveIndices(updater);
 }
 
-void PointIndexStorage::Clear() { indexes_->clear(); }
+void PointIndexStorage::Clear() { indexes_ = std::make_shared<index_container_t>(); }
 
 std::vector<std::pair<LabelId, PropertyId>> PointIndexStorage::ListIndices() {
   auto indexes = indexes_;  // local copy of shared_ptr, for safety
   auto keys = *indexes | std::views::keys |
               std::views::transform([](LabelPropKey key) { return std::pair{key.label(), key.property()}; });
   return {keys.begin(), keys.end()};
-}
-
-std::optional<uint64_t> PointIndexStorage::ApproximatePointCount(LabelId labelId, PropertyId propertyId) {
-  auto indexes = indexes_;  // local copy of shared_ptr, for safety
-  auto it = indexes->find(LabelPropKey{labelId, propertyId});
-  if (it == indexes->end()) return std::nullopt;
-  return it->second->EntryCount();
 }
 
 bool PointIndexStorage::PointIndexExists(LabelId labelId, PropertyId propertyId) {

@@ -55,8 +55,8 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ActiveConstrai
 
 bool ExistenceConstraints::ActiveConstraints::empty() const { return container_->empty(); }
 
-auto ExistenceConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveConstraints> {
-  return std::make_unique<ActiveConstraints>(constraints_.ReadCopy());
+auto ExistenceConstraints::GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints> {
+  return std::make_shared<ActiveConstraints>(constraints_.ReadCopy());
 }
 
 // --- ExistenceConstraints methods ---

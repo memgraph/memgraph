@@ -85,10 +85,33 @@ struct PointIndexContext {
   std::shared_ptr<index_container_t> current_indexes_;
 };
 
-struct PointIndexStorage {
-  // TODO: consider passkey idiom
+struct ActiveIndicesUpdater;
 
-  // Query (modify index set)
+/// Abstract interface for point index metadata queries accessed through ActiveIndices snapshots.
+struct PointIndexActiveIndices {
+  virtual ~PointIndexActiveIndices() = default;
+  virtual bool PointIndexExists(LabelId labelId, PropertyId propertyId) const = 0;
+  virtual std::optional<uint64_t> ApproximatePointCount(LabelId labelId, PropertyId propertyId) const = 0;
+  virtual std::vector<std::pair<LabelId, PropertyId>> ListIndices() const = 0;
+};
+
+struct PointIndexStorage {
+  /// Concrete ActiveIndices implementation holding an immutable snapshot of the index container.
+  struct ActiveIndices : PointIndexActiveIndices {
+    explicit ActiveIndices(std::shared_ptr<index_container_t> indexes = std::make_shared<index_container_t>())
+        : indexes_(std::move(indexes)) {}
+
+    bool PointIndexExists(LabelId labelId, PropertyId propertyId) const override;
+    std::optional<uint64_t> ApproximatePointCount(LabelId labelId, PropertyId propertyId) const override;
+    std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
+
+   private:
+    std::shared_ptr<index_container_t> indexes_;
+  };
+
+  // Query (modify index set). Caller is responsible for publishing the
+  // resulting ActiveIndices snapshot via PublishActiveIndices — for user DDL
+  // this is typically deferred through Transaction::commit_callbacks_.
   bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   bool DropPointIndex(LabelId label, PropertyId property);
@@ -96,18 +119,31 @@ struct PointIndexStorage {
   // Transaction (establish what to collect + able to build next index)
   auto CreatePointIndexContext() const -> PointIndexContext { return PointIndexContext{indexes_}; }
 
+  /// Returns the current active indices snapshot for use in transactions.
+  auto GetActiveIndices() -> std::shared_ptr<PointIndexActiveIndices> {
+    return std::make_shared<ActiveIndices>(indexes_);
+  }
+
   // Commit
-  void InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context);
+  void InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context,
+                            ActiveIndicesUpdater const &updater);
 
   void Clear();
 
+  /// ListIndices on the owning class (for snapshot creation, outside transaction context).
   std::vector<std::pair<LabelId, PropertyId>> ListIndices();
-
-  std::optional<uint64_t> ApproximatePointCount(LabelId labelId, PropertyId propertyId);
 
   bool PointIndexExists(LabelId labelId, PropertyId propertyId);
 
+  /// Publishes the current index container as the new ActiveIndices snapshot.
+  void PublishActiveIndices(ActiveIndicesUpdater const &updater);
+
  private:
+  // Invariant: `indexes_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
+  // InMemoryAccessor::CreatePointIndex / DropPointIndex and in DropGraphClearIndices). Reads from
+  // other contexts (regular READ/WRITE accessors, DatabaseInfoQuery) MUST go through the published
+  // snapshot in `ActiveIndicesStore` -- UNIQUE excludes READ/WRITE, which is what makes direct
+  // access to `indexes_` from commit-time hot paths race-free.
   std::shared_ptr<index_container_t> indexes_ = std::make_shared<index_container_t>();
 };
 

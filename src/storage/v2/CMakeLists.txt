@@ -15,6 +15,7 @@ target_sources(mg-storage-v2
         constraints/type_constraints.cpp
         constraints/type_constraints_validator.cpp
         constraints/unique_constraints.cpp
+        disk/delta_utils.cpp
         disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
         disk/edge_property_index.cpp
@@ -87,6 +88,9 @@ target_sources(mg-storage-v2
         edges_chunked_iterable.cpp
 
         PUBLIC
+        FILE_SET CXX_MODULES FILES
+        property_value.cppm
+
         FILE_SET HEADERS
         BASE_DIRS ../../
         FILES
@@ -130,7 +134,6 @@ target_sources(mg-storage-v2
         property_store.hpp
         indexed_property_decoder.hpp
         property_value.hpp
-        property_value_fwd.hpp
         property_value_utils.hpp
         replication/replication_transaction.hpp
         schema_info.hpp

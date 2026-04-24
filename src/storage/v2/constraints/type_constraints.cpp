@@ -110,8 +110,8 @@ auto TypeConstraints::ActiveConstraints::Validate(const Vertex &vertex, Property
   return {};
 }
 
-auto TypeConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveConstraints> {
-  return std::make_unique<ActiveConstraints>(container_.ReadCopy());
+auto TypeConstraints::GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints> {
+  return std::make_shared<ActiveConstraints>(container_.ReadCopy());
 }
 
 // --- TypeConstraints methods ---

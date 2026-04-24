@@ -213,6 +213,10 @@ std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(
   return {};
 }
 
+std::vector<EdgeTypeId> Storage::ListAllPossiblyPresentEdgeTypes() const { return stored_edge_types_.vectorize(); }
+
+std::vector<LabelId> Storage::ListAllPossiblyPresentVertexLabels() const { return stored_node_labels_.vectorize(); }
+
 StorageMode Storage::Accessor::GetCreationStorageMode() const noexcept { return creation_storage_mode_; }
 
 std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
@@ -224,18 +228,6 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
 
 utils::QueryMemoryTracker &Storage::Accessor::GetTransactionMemoryTracker() {
   return transaction_.query_memory_tracker_;
-}
-
-std::vector<LabelId> Storage::Accessor::ListAllPossiblyPresentVertexLabels() const {
-  std::vector<LabelId> vertex_labels;
-  storage_->stored_node_labels_.for_each([&vertex_labels](const auto &label) { vertex_labels.push_back(label); });
-  return vertex_labels;
-}
-
-std::vector<EdgeTypeId> Storage::Accessor::ListAllPossiblyPresentEdgeTypes() const {
-  std::vector<EdgeTypeId> edge_types;
-  storage_->stored_edge_types_.for_each([&edge_types](const auto &type) { edge_types.push_back(type); });
-  return edge_types;
 }
 
 void Storage::Accessor::AdvanceCommand() {
@@ -399,11 +391,11 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
 
   // Cleanup text indices
   for (auto *node : nodes_to_delete) {
-    storage_->indices_.text_index_.RemoveNode(node, transaction_);
+    transaction_.active_indices_->text_->RemoveNode(node, transaction_);
   }
   if (FLAGS_storage_properties_on_edges) {
     for (const auto &edge : deleted_edges) {
-      storage_->indices_.text_edge_index_.RemoveEdge(
+      transaction_.active_indices_->text_edge_->RemoveEdge(
           edge.edge_.ptr, edge.from_vertex_, edge.to_vertex_, edge.edge_type_, transaction_);
     }
   }
@@ -741,8 +733,15 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
+  // Defer publication to commit time so concurrent readers don't observe a
+  // create that gets rolled back.
+  auto updater = storage_->indices_.MakeUpdater();
+  auto &text_index = storage_->indices_.text_index_;
+  transaction_.commit_callbacks_.Add([&text_index, updater](uint64_t /*commit_ts*/) {
+    text_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_index_info);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }
 
@@ -762,23 +761,45 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
+  // Defer publication to commit time. See CreateTextIndex above.
+  auto updater = storage_->indices_.MakeUpdater();
+  auto &text_edge_index = storage_->indices_.text_edge_index_;
+  transaction_.commit_callbacks_.Add([&text_edge_index, updater](uint64_t /*commit_ts*/) {
+    text_edge_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::text_edge_index_create, text_edge_index_info);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
   return {};
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::DropTextIndex(
     const std::string &index_name) {
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
+  auto updater = storage_->indices_.MakeUpdater();
   if (storage_->indices_.text_index_.IndexExists(index_name)) {
-    storage_->indices_.text_index_.DropIndex(index_name);
+    auto evicted = storage_->indices_.text_index_.DropIndex(index_name);
+    auto &text_index = storage_->indices_.text_index_;
+    // Flip deferred_drop only on commit so an aborted DROP leaves the on-disk
+    // tantivy directory intact (other snapshots still alias the same data).
+    transaction_.commit_callbacks_.Add(
+        [&text_index, updater, evicted = std::move(evicted)](uint64_t /*commit_ts*/) mutable {
+          evicted->deferred_drop = true;
+          text_index.PublishActiveIndices(updater);
+          memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
+        });
   } else if (storage_->indices_.text_edge_index_.IndexExists(index_name)) {
-    storage_->indices_.text_edge_index_.DropIndex(index_name);
+    auto evicted = storage_->indices_.text_edge_index_.DropIndex(index_name);
+    auto &text_edge_index = storage_->indices_.text_edge_index_;
+    transaction_.commit_callbacks_.Add(
+        [&text_edge_index, updater, evicted = std::move(evicted)](uint64_t /*commit_ts*/) mutable {
+          evicted->deferred_drop = true;
+          text_edge_index.PublishActiveIndices(updater);
+          memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
+        });
   } else {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }
 

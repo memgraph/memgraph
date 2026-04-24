@@ -57,24 +57,34 @@ void Indices::DropGraphClearIndices() {
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->DropGraphClearIndices();
-  active_indices_.WithLock([&](ActiveIndicesPtr &ci) {
-    ci = std::make_shared<ActiveIndices>(label_index_->GetActiveIndices(),
-                                         label_property_index_->GetActiveIndices(),
-                                         edge_type_index_->GetActiveIndices(),
-                                         edge_type_property_index_->GetActiveIndices(),
-                                         edge_property_index_->GetActiveIndices());
-  });
+  // DropGraphClearIndices is only reachable from IN_MEMORY_ANALYTICAL DropGraph
+  // where aborts can't happen, so flipping deferred_drop synchronously is safe.
+  // If a future caller invokes Clear() from a transactional path, the flip
+  // must instead be deferred to that txn's commit callback.
+  for (auto &evicted : text_index_.Clear()) evicted->deferred_drop = true;
+  for (auto &evicted : text_edge_index_.Clear()) evicted->deferred_drop = true;
   point_index_.Clear();
   vector_index_.Clear();
   vector_edge_index_.Clear();
-  text_index_.Clear();
-  text_edge_index_.Clear();
+  // Build the composite snapshot outside the outer lock to avoid the
+  // outer->inner lock-order edge (see Indices::Indices ctor comment).
+  auto snapshot = std::make_shared<ActiveIndices>(label_index_->GetActiveIndices(),
+                                                  label_property_index_->GetActiveIndices(),
+                                                  edge_type_index_->GetActiveIndices(),
+                                                  edge_type_property_index_->GetActiveIndices(),
+                                                  edge_property_index_->GetActiveIndices(),
+                                                  text_index_.GetActiveIndices(),
+                                                  text_edge_index_.GetActiveIndices(),
+                                                  point_index_.GetActiveIndices(),
+                                                  vector_index_.GetActiveIndices(),
+                                                  vector_edge_index_.GetActiveIndices());
+  active_indices_.WithLock([&](ActiveIndicesPtr &ci) { ci = std::move(snapshot); });
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {
   tx.active_indices_->label_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_->label_properties_->UpdateOnAddLabel(label, vertex, tx);
-  text_index_.UpdateOnAddLabel(label, vertex, tx);
+  tx.active_indices_->text_->UpdateOnAddLabel(label, vertex, tx);
   vector_index_.UpdateOnAddLabel(
       label,
       vertex,
@@ -84,7 +94,7 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, N
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {
   tx.active_indices_->label_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_->label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
-  text_index_.UpdateOnRemoveLabel(label, vertex, tx);
+  tx.active_indices_->text_->UpdateOnRemoveLabel(label, vertex, tx);
   vector_index_.UpdateOnRemoveLabel(
       label,
       vertex,
@@ -93,7 +103,7 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx) {
   tx.active_indices_->label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
-  text_index_.UpdateOnSetProperty(vertex, tx, property);
+  tx.active_indices_->text_->UpdateOnSetProperty(vertex, tx, property);
   vector_index_.UpdateOnSetProperty(property, value, vertex);
 }
 
@@ -104,7 +114,7 @@ void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, con
   tx.active_indices_->edge_property_->UpdateOnSetProperty(
       from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
   vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
-  text_edge_index_.UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx, property);
+  tx.active_indices_->text_edge_->UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx, property);
 }
 
 void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
@@ -133,13 +143,24 @@ Indices::Indices(const Config &config, StorageMode storage_mode,
       edge_property_index_ = std::make_unique<DiskEdgePropertyIndex>();
     }
   });
-  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
-    ai = std::make_shared<ActiveIndices>(label_index_->GetActiveIndices(),
-                                         label_property_index_->GetActiveIndices(),
-                                         edge_type_index_->GetActiveIndices(),
-                                         edge_type_property_index_->GetActiveIndices(),
-                                         edge_property_index_->GetActiveIndices());
-  });
+  // Build the composite snapshot outside the outer `active_indices_` lock so
+  // we don't establish an outer→inner lock-order edge. Only the label /
+  // label-property / edge-type / edge-type-property / edge-property sub-indices
+  // take an inner read-lock inside GetActiveIndices(); text / point / vector /
+  // vector-edge read their owner `index_` member directly (race-free by the
+  // UNIQUE-access invariant, see each owner header). We still build outside
+  // the outer lock uniformly so callers can't rely on the asymmetry.
+  auto snapshot = std::make_shared<ActiveIndices>(label_index_->GetActiveIndices(),
+                                                  label_property_index_->GetActiveIndices(),
+                                                  edge_type_index_->GetActiveIndices(),
+                                                  edge_type_property_index_->GetActiveIndices(),
+                                                  edge_property_index_->GetActiveIndices(),
+                                                  text_index_.GetActiveIndices(),
+                                                  text_edge_index_.GetActiveIndices(),
+                                                  point_index_.GetActiveIndices(),
+                                                  vector_index_.GetActiveIndices(),
+                                                  vector_edge_index_.GetActiveIndices());
+  active_indices_.WithLock([&](ActiveIndicesPtr &ai) { ai = std::move(snapshot); });
 }
 
 Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_indices) const {
@@ -191,7 +212,7 @@ void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, Prop
   }
 }
 
-bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) {
+bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) const {
   return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property) ||
          vector_edge_.IsInteresting(property);
 }
