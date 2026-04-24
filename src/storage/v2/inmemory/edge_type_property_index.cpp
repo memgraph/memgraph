@@ -219,6 +219,20 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, Pro
   return PublishIndex(edge_type, property, 0);
 }
 
+void InMemoryEdgeTypePropertyIndex::UnregisterIndex(EdgeTypeId edge_type, PropertyId property,
+                                                    ActiveIndicesUpdater const &updater) {
+  index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {
+    auto it = index_container->find({edge_type, property});
+    if (it == index_container->end()) return;
+    if (it->second->status.IsReady()) return;
+    auto new_container = std::make_shared<IndexContainer>(*index_container);
+    new_container->erase({edge_type, property});
+    index_container = std::move(new_container);
+    updater(std::make_shared<ActiveIndices>(index_container));
+  });
+  CleanupAllIndices();
+}
+
 bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId property,
                                               ActiveIndicesUpdater const &updater) {
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {

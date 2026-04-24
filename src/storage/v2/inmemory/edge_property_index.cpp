@@ -268,6 +268,22 @@ InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() {
   }
 }
 
+void InMemoryEdgePropertyIndex::UnregisterIndex(PropertyId property, ActiveIndicesUpdater const &updater) {
+  index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
+    auto const it = indices_container->indices_.find(property);
+    if (it == indices_container->indices_.cend()) return;
+    if (it->second->status_.IsReady()) return;
+    auto new_container = std::make_shared<IndicesContainer>();
+    for (auto const &[existing_property, index] : indices_container->indices_) {
+      if (existing_property != property) {
+        new_container->indices_.emplace(existing_property, index);
+      }
+    }
+    indices_container = new_container;
+    updater(std::make_shared<ActiveIndices>(indices_container));
+  });
+}
+
 bool InMemoryEdgePropertyIndex::DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) {
   auto const result = index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     {

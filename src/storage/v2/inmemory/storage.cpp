@@ -1788,6 +1788,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       [=](uint64_t commit_timestamp) { return mem_label_index->PublishIndex(label, commit_timestamp); });
 
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add(
+      [mem_label_index, label, updater]() { mem_label_index->UnregisterIndex(label, updater); });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1826,6 +1828,9 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
     return mem_label_property_index->PublishIndex(label, properties, commit_timestamp, order);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([mem_label_property_index, label, properties, updater, order]() {
+    mem_label_property_index->UnregisterIndex(label, properties, updater, order);
+  });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties), order);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1860,6 +1865,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
       [=](uint64_t commit_timestamp) { return mem_edge_type_index->PublishIndex(edge_type, commit_timestamp); });
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add(
+      [mem_edge_type_index, edge_type, updater]() { mem_edge_type_index->UnregisterIndex(edge_type, updater); });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_create, edge_type);
   return {};
@@ -1899,6 +1906,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     return mem_edge_type_property_index->PublishIndex(edge_type, property, commit_timestamp);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([mem_edge_type_property_index, edge_type, property, updater]() {
+    mem_edge_type_property_index->UnregisterIndex(edge_type, property, updater);
+  });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_create, edge_type, property);
   return {};
@@ -1931,6 +1941,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
       [=](uint64_t commit_timestamp) { return mem_edge_property_index->PublishIndex(property, commit_timestamp); });
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add(
+      [mem_edge_property_index, property, updater]() { mem_edge_property_index->UnregisterIndex(property, updater); });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
   return {};

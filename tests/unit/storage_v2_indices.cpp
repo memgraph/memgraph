@@ -4642,3 +4642,123 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransa
                 IsEmpty());
   }
 }
+
+// Regression: RegisterIndex installs a POPULATING owner-side entry eagerly;
+// the READY flip is deferred to a commit callback. If the transaction aborts
+// before the callback fires, the POPULATING ghost blocks any retry CreateIndex
+// for the same label with "already exists". A paired abort_callback_ must undo
+// the Register so the label stays re-indexable.
+TYPED_TEST(IndexTest, LabelIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1).has_value());
+    acc->Abort();
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_FALSE(acc->LabelIndexReady(this->label1));
+    EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    auto result = acc->CreateIndex(this->label1);
+    EXPECT_TRUE(result.has_value())
+        << "Retry CreateIndex after aborted CreateIndex must succeed; aborted Register left a ghost.";
+    if (result.has_value()) {
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    } else {
+      acc->Abort();
+    }
+  }
+}
+
+TYPED_TEST(IndexTest, LabelPropertyIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  PropertyPath props{this->prop_val};
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1, {props}).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    auto result = acc->CreateIndex(this->label1, {props});
+    EXPECT_TRUE(result.has_value());
+    if (result.has_value()) {
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    } else {
+      acc->Abort();
+    }
+  }
+}
+
+TYPED_TEST(IndexTest, EdgeTypeIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->edge_type_id1).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    auto result = acc->CreateIndex(this->edge_type_id1);
+    EXPECT_TRUE(result.has_value());
+    if (result.has_value()) {
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    } else {
+      acc->Abort();
+    }
+  }
+}
+
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    auto result = acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1);
+    EXPECT_TRUE(result.has_value());
+    if (result.has_value()) {
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    } else {
+      acc->Abort();
+    }
+  }
+}
+
+TYPED_TEST(IndexTest, EdgePropertyIndexAbortLeavesNoGhostEntry) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    auto result = acc->CreateGlobalEdgeIndex(this->edge_prop_id1);
+    EXPECT_TRUE(result.has_value());
+    if (result.has_value()) {
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    } else {
+      acc->Abort();
+    }
+  }
+}

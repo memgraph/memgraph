@@ -473,6 +473,11 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
   });
 }
 
+void InMemoryLabelPropertyIndex::UnregisterIndex(LabelId label, PropertiesPaths const &properties,
+                                                 ActiveIndicesUpdater const &updater, IndexOrder order) {
+  DropSingleOrder(label, properties, updater, order);
+}
+
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,

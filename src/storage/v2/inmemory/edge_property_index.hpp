@@ -240,6 +240,8 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   bool RegisterIndex(PropertyId property, ActiveIndicesUpdater const &updater);
+  // Undoes a successful RegisterIndex on abort. See InMemoryLabelIndex::UnregisterIndex.
+  void UnregisterIndex(PropertyId property, ActiveIndicesUpdater const &updater);
   auto PopulateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,

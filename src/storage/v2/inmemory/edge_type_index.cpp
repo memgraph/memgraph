@@ -208,6 +208,22 @@ InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() {
   }
 }
 
+void InMemoryEdgeTypeIndex::UnregisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) {
+  index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
+    auto const it = indices_container->indices_.find(edge_type);
+    if (it == indices_container->indices_.cend()) return;
+    if (it->second->status_.IsReady()) return;  // committed by someone else; leave it
+    auto new_container = std::make_shared<IndicesContainer>();
+    for (auto const &[existing_edge_type, index] : indices_container->indices_) {
+      if (existing_edge_type != edge_type) {
+        new_container->indices_.emplace(existing_edge_type, index);
+      }
+    }
+    indices_container = new_container;
+    updater(std::make_shared<ActiveIndices>(indices_container));
+  });
+}
+
 bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) {
   auto const result = index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     {

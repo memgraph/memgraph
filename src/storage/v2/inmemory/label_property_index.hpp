@@ -190,6 +190,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   bool RegisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater,
                      IndexOrder order = IndexOrder::ASC);
+  // Undoes a successful RegisterIndex on abort. See InMemoryLabelIndex::UnregisterIndex.
+  void UnregisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater,
+                       IndexOrder order = IndexOrder::ASC);
 
   auto PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
