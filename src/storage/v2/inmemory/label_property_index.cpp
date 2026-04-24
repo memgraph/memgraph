@@ -510,7 +510,7 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
                                               uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(label, properties);
   if (!index) return false;
-  auto *gauge = metric_handles_ ? metric_handles_->active_label_property_indices : nullptr;
+  auto *gauge = gauge_;
   index->Publish(commit_timestamp, gauge);
   return true;
 }

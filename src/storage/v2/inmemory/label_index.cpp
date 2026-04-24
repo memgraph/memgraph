@@ -86,7 +86,7 @@ auto InMemoryLabelIndex::GetIndividualIndex(LabelId label) const -> std::shared_
 auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) -> bool {
   auto index = GetIndividualIndex(label);
   if (!index) return false;
-  auto *gauge = metric_handles_ ? metric_handles_->active_label_indices : nullptr;
+  auto *gauge = gauge_;
   index->Publish(commit_timestamp, gauge);
   return true;
 }

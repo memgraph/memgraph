@@ -947,9 +947,9 @@ DatabaseMetricHandles *PrometheusMetrics::AddDatabase(utils::UUID const &uuid, s
   return &databases_.entries.back().handles;
 }
 
-void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
+void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   std::lock_guard const lock{databases_.mutex};
-  auto it = r::find_if(databases_.entries, [handles](auto const &e) { return &e.handles == handles; });
+  auto it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
   MG_ASSERT(it != databases_.entries.end(), "Attempted to remove unregistered database from PrometheusMetrics");
   // Database name is not a unique identity (e.g. main + replica can coexist in
   // same process in unit tests).  Prometheus metrics are keyed by labels, so
@@ -957,7 +957,7 @@ void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
   // objects only when the final entry for that name is erased.
   auto const db_name = it->db_name;
   bool const last_with_name =
-      r::none_of(databases_.entries, [&](auto const &e) { return &e.handles != handles && e.db_name == db_name; });
+      r::none_of(databases_.entries, [&](auto const &e) { return e.uuid != uuid && e.db_name == db_name; });
   if (!last_with_name) {
     databases_.entries.erase(it);
     return;
@@ -1787,7 +1787,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
     return out;
   }
 
-  std::lock_guard const json_ha_metrics_delta_lock{json_ha_metrics_delta_mutex_};
   for (auto &info : out) {
     if (info.type != "HighAvailability" || info.metric_type != "Counter" ||
         !IsLegacyCoordinatorDeltaMetric(info.name)) {

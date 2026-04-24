@@ -47,8 +47,7 @@ class InMemoryLabelIndex : public LabelIndex {
   };
 
  public:
-  explicit InMemoryLabelIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit InMemoryLabelIndex(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   struct IndividualIndex {
     IndividualIndex() {}
@@ -241,7 +240,7 @@ class InMemoryLabelIndex : public LabelIndex {
   auto CleanupAllIndices() -> void;
   auto GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex>;
 
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  prometheus::Gauge *gauge_{nullptr};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

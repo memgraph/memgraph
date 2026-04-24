@@ -48,8 +48,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
  public:
-  explicit InMemoryLabelPropertyIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit InMemoryLabelPropertyIndex(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   struct IndividualIndex {
     explicit IndividualIndex(PropertiesPermutationHelper permutations_helper)
@@ -327,7 +326,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
       -> std::shared_ptr<IndividualIndex>;
 
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  prometheus::Gauge *gauge_{nullptr};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

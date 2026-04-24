@@ -194,7 +194,7 @@ bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpd
 bool InMemoryEdgeTypeIndex::PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(edge_type);
   if (!index) return false;
-  auto *gauge = metric_handles_ ? metric_handles_->active_edge_type_indices : nullptr;
+  auto *gauge = gauge_;
   index->Publish(commit_timestamp, gauge);
   return true;
 }

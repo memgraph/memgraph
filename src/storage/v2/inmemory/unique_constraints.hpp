@@ -37,8 +37,7 @@ struct Transaction;
 
 class InMemoryUniqueConstraints : public UniqueConstraints {
  public:
-  explicit InMemoryUniqueConstraints(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit InMemoryUniqueConstraints(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   struct Entry {
     std::vector<PropertyValue> values;
@@ -160,7 +159,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
  private:
   auto GetIndividualConstraint(const LabelId label, const std::set<PropertyId> &properties) const
       -> IndividualConstraintPtr;
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  prometheus::Gauge *gauge_{nullptr};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

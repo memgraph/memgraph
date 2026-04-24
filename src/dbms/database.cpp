@@ -66,7 +66,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   auto const should_register_database_metrics =
       !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
   if (should_register_database_metrics) {
-    metrics_.reset(metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str()));
+    metrics_.reset(config.salient.uuid, metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str()));
   }
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
@@ -85,11 +85,12 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 Database::~Database() = default;
 
 Database::DatabaseMetricsRegistration::~DatabaseMetricsRegistration() {
-  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
+  if (handles_) metrics::Metrics().RemoveDatabase(uuid_);
 }
 
-void Database::DatabaseMetricsRegistration::reset(metrics::DatabaseMetricHandles *handles) {
-  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
+void Database::DatabaseMetricsRegistration::reset(utils::UUID uuid, metrics::DatabaseMetricHandles *handles) {
+  if (handles_) metrics::Metrics().RemoveDatabase(uuid_);
+  uuid_ = uuid;
   handles_ = handles;
 }
 

@@ -263,7 +263,7 @@ class PrometheusMetrics {
   ~PrometheusMetrics() = default;
 
   DatabaseMetricHandles *AddDatabase(utils::UUID const &uuid, std::string_view name);
-  void RemoveDatabase(DatabaseMetricHandles const *handles);
+  void RemoveDatabase(utils::UUID const &uuid);
   void UpdateGauges();
 
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
@@ -307,7 +307,6 @@ class PrometheusMetrics {
     std::list<DatabaseEntry> entries;
   } databases_;
 
-  mutable std::mutex json_ha_metrics_delta_mutex_;
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
   StorageSnapshotResolver storage_snapshot_resolver_;
 #ifdef MG_ENTERPRISE

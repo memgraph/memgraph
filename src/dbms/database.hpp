@@ -17,6 +17,7 @@
 #include "query/cypher_query_interpreter.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::query {
 struct TriggerStore;
@@ -194,7 +195,8 @@ class Database {
    public:
     DatabaseMetricsRegistration() = default;
 
-    explicit DatabaseMetricsRegistration(metrics::DatabaseMetricHandles *handles) : handles_(handles) {}
+    DatabaseMetricsRegistration(utils::UUID uuid, metrics::DatabaseMetricHandles *handles)
+        : uuid_(uuid), handles_(handles) {}
 
     ~DatabaseMetricsRegistration();
 
@@ -205,9 +207,10 @@ class Database {
 
     metrics::DatabaseMetricHandles *handles() const { return handles_; }
 
-    void reset(metrics::DatabaseMetricHandles *handles);
+    void reset(utils::UUID uuid, metrics::DatabaseMetricHandles *handles);
 
    private:
+    utils::UUID uuid_;
     metrics::DatabaseMetricHandles *handles_{nullptr};
   };
 

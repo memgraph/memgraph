@@ -541,7 +541,7 @@ bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
                                                   uint64_t commit_timestamp) {
   auto constraint = GetIndividualConstraint(label, properties);
   if (!constraint) return false;
-  auto *gauge = metric_handles_ ? metric_handles_->active_unique_constraints : nullptr;
+  auto *gauge = gauge_;
   constraint->Publish(commit_timestamp, gauge);
   return true;
 }
@@ -559,7 +559,6 @@ auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<Pro
     auto props_it = label_it->second.find(properties);
     if (props_it == label_it->second.end()) return false;
     props_it->second->gauge_ = {};
-
     auto new_container = std::make_shared<Container>(*container);
     auto new_label_it = new_container->find(label);
     new_label_it->second.erase(properties);

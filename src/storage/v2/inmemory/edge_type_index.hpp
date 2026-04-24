@@ -54,8 +54,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   };
 
  public:
-  explicit InMemoryEdgeTypeIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit InMemoryEdgeTypeIndex(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   class Iterable {
    public:
@@ -245,7 +244,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   void CleanupAllIndices();
   auto GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex>;
 
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  prometheus::Gauge *gauge_{nullptr};
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer const>()};
 
