@@ -2996,7 +2996,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
   return WrapExceptions(
       [it]() -> mgp_edge * {
         return std::visit(memgraph::utils::Overloaded{
-                              [](std::monostate) -> mgp_edge * { LOG_FATAL("mgp_edges_iterator has no cursor"); },
+                              [](std::monostate) -> mgp_edge * { std::unreachable(); },
                               [it](mgp_edges_iterator::RealCursor &rc) -> mgp_edge * {
                                 if (rc.it == rc.edges.end()) {
                                   it->current_e = std::nullopt;
@@ -4611,14 +4611,12 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
     return;
   }
 
-  auto vertices =
-      std::visit(memgraph::utils::Overloaded{
-                     [graph](memgraph::query::DbAccessor *impl) { return impl->Vertices(graph->view); },
-                     [graph](memgraph::query::SubgraphDbAccessor *impl) { return impl->Vertices(graph->view); },
-                     [](memgraph::query::VirtualGraphDbAccessor *) -> memgraph::query::VerticesIterable {
-                       LOG_FATAL("VirtualGraphDbAccessor handled separately above");
-                     }},
-                 graph->impl);
+  auto vertices = std::visit(
+      memgraph::utils::Overloaded{
+          [graph](memgraph::query::DbAccessor *impl) { return impl->Vertices(graph->view); },
+          [graph](memgraph::query::SubgraphDbAccessor *impl) { return impl->Vertices(graph->view); },
+          [](memgraph::query::VirtualGraphDbAccessor *) -> memgraph::query::VerticesIterable { std::unreachable(); }},
+      graph->impl);
   auto &rc = cursor.emplace<RealCursor>(std::move(vertices));
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -4688,7 +4686,7 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
   return WrapExceptions(
       [it]() -> mgp_vertex * {
         return std::visit(memgraph::utils::Overloaded{
-                              [](std::monostate) -> mgp_vertex * { LOG_FATAL("mgp_vertices_iterator has no cursor"); },
+                              [](std::monostate) -> mgp_vertex * { std::unreachable(); },
                               [it](mgp_vertices_iterator::RealCursor &rc) -> mgp_vertex * {
                                 if (rc.it == rc.vertices.end()) {
                                   MG_ASSERT(!it->current_v, "iteration already done; current_v should be nullopt");
