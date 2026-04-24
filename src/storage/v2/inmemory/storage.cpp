@@ -2214,6 +2214,11 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
     updater(existence_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([existence_constraints, label, property, updater]() {
+    if (existence_constraints->DropConstraint(label, property)) {
+      updater(existence_constraints->GetActiveConstraints());
+    }
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
@@ -2260,6 +2265,11 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
     updater(mem_unique_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([mem_unique_constraints, label, properties, updater]() {
+    if (mem_unique_constraints->DropConstraint(label, properties) == UniqueConstraints::DeletionStatus::SUCCESS) {
+      updater(mem_unique_constraints->GetActiveConstraints());
+    }
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
@@ -2314,6 +2324,11 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
     updater(type_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([type_constraints, label, property, kind, updater]() {
+    if (type_constraints->DropConstraint(label, property, kind)) {
+      updater(type_constraints->GetActiveConstraints());
+    }
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
   return {};
 }
