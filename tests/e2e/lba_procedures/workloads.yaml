@@ -4,6 +4,8 @@ args: &args
   - "--schema-info-enabled=true"
 
 query_modules_setup_queries: &query_modules_setup_queries
+  # Create a role before the first user so builtin role creation (admin/readwrite/readonly) is suppressed.
+  - "CREATE ROLE _dummy_role;"
   - "CREATE USER admin IDENTIFIED BY 'test';"
   - "GRANT ALL PRIVILEGES TO admin"
   - "GRANT DATABASE * TO admin"
@@ -12,6 +14,8 @@ query_modules_setup_queries: &query_modules_setup_queries
   - "GRANT DATABASE * TO user"
 
 show_privileges_setup_queries: &show_privileges_setup_queries
+  # Create a role before the first user so builtin role creation (admin/readwrite/readonly) is suppressed.
+  - "CREATE ROLE _dummy_role;"
   - "Create User Josip;"
   - "GRANT READ ON NODES CONTAINING LABELS :Label1 TO Josip;"
   - "DENY * ON NODES CONTAINING LABELS :Label2 TO Josip;"
@@ -40,6 +44,8 @@ show_privileges_setup_queries: &show_privileges_setup_queries
   - "GRANT UPDATE ON NODES CONTAINING LABELS * TO Bruno;"
 
 schema_info_setup_queries: &schema_info_setup_queries
+  # Create a role before the first user so builtin role creation (admin/readwrite/readonly) is suppressed.
+  - "CREATE ROLE _dummy_role;"
   - "CREATE USER admin;"
   - "GRANT ALL PRIVILEGES TO admin;"
   - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS * TO admin;"

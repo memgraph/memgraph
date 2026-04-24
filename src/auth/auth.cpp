@@ -942,14 +942,35 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
   if (!NameRegexMatch(username)) {
     throw AuthException("Invalid user name.");
   }
-  auto existing_user = GetUser(username);
-  if (existing_user) return std::nullopt;
-  auto existing_role = GetRole(username);
-  if (existing_role) return std::nullopt;
+  if (GetUser(username)) return std::nullopt;
   auto new_user = User(username);
   UpdatePassword(new_user, password);
   SaveUser(new_user, system_tx);
   return new_user;
+}
+
+void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
+  spdlog::info(
+      "{} is the first created user. Granting all privileges. The official advice and intention is to use this "
+      "first user as the superuser with full privileges and capabilities on the Memgraph database.",
+      user.username());
+  if (license::global_license_checker.IsEnterpriseValidFast()) {
+    auto admin = GetRole("admin");
+    if (admin && admin->IsBuiltIn()) {
+      user.AddRole(*admin);
+      SaveUser(user, system_tx);
+      return;
+    }
+  }
+  for (auto const permission : kPermissionsAll) {
+    user.permissions().Grant(permission);
+  }
+  if (license::global_license_checker.IsEnterpriseValidFast()) {
+    user.fine_grained_access_handler().label_permissions().GrantGlobal(kAllLabelPermissions);
+    user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(kAllEdgeTypePermissions);
+    user.db_access().GrantAll();
+  }
+  SaveUser(user, system_tx);
 }
 
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
@@ -1213,81 +1234,98 @@ std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transacti
   if (!NameRegexMatch(rolename)) {
     throw AuthException("Invalid role name.");
   }
-  if (auto existing_role = GetRole(rolename)) return std::nullopt;
-  if (auto existing_user = GetUser(rolename)) return std::nullopt;
+  if (GetRole(rolename)) return std::nullopt;
   auto new_role = Role(rolename);
   SaveRole(new_role, system_tx);
   return new_role;
 }
 
-bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *system_tx) {
+bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
+  if (!license::global_license_checker.IsEnterpriseValidFast()) return false;
+  if (!AllRolenames().empty()) return false;
+
+  auto const make_role = [&](const std::string &name, auto grant_permissions) {
+    Role role{name};
+    grant_permissions(role);
+    role.SetBuiltIn(true);
+    SaveRole(role, system_tx);
+  };
+
+  auto const grant_privileges =
+      [](Role &role, FineGrainedPermission labelPermissions, FineGrainedPermission edgePermissions) {
+        role.fine_grained_access_handler().label_permissions().GrantGlobal(labelPermissions);
+        role.fine_grained_access_handler().edge_type_permissions().GrantGlobal(edgePermissions);
+      };
+
+  make_role("admin", [&](Role &role) {
+    for (auto permission : kPermissionsAll) {
+      role.permissions().Grant(permission);
+    }
+    grant_privileges(role, kAllLabelPermissions, kAllEdgeTypePermissions);
+    role.db_access().GrantAll();
+  });
+
+  make_role("readwrite", [&](Role &role) {
+    for (auto permission : {Permission::CREATE,
+                            Permission::DELETE,
+                            Permission::MERGE,
+                            Permission::SET,
+                            Permission::REMOVE,
+                            Permission::INDEX,
+                            Permission::MATCH}) {
+      role.permissions().Grant(permission);
+    }
+    grant_privileges(role, kAllLabelPermissions, kAllEdgeTypePermissions);
+  });
+
+  make_role("readonly", [&](Role &role) {
+    role.permissions().Grant(Permission::MATCH);
+    role.permissions().Grant(Permission::STATS);
+    grant_privileges(role, FineGrainedPermission::READ, FineGrainedPermission::READ);
+  });
+
+  return true;
+}
+
+bool Auth::RemoveRole(const std::string &rolename_orig, bool force, system::Transaction *system_tx) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
 
-  // First, remove the role from all users who have it
-  for (auto it = storage_.begin(kRoleLinkPrefix); it != storage_.end(kRoleLinkPrefix); ++it) {
-    auto username = it->first.substr(kRoleLinkPrefix.size());
-    bool needs_update = false;
-    nlohmann::json updated_roles;
-
-    try {
-      // Parse as JSON array (V2 format)
-      auto json_data = ParseJson(it->second);
-      if (!json_data.is_array()) {
-        spdlog::warn("Found invalid JSON in link format for user '{}'", username);
-        continue;
-      }
-      // V2 format: remove the role from the array
-      updated_roles = nlohmann::json::array();
-      for (const auto &role_name : json_data) {
-        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) != rolename) {
-          updated_roles.push_back(role_name);
-        } else if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
-          needs_update = true;
-        }
-      }
-    } catch (const nlohmann::detail::exception &) {
-      // This shouldn't happen after V2 migration, but handle gracefully
-      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
-      continue;
-    }
-
-    if (needs_update) {
-      if (updated_roles.is_null()) {
-        // Remove the link entirely (old format or empty array)
-        storage_.Delete(it->first);
-      } else if (updated_roles.empty()) {
-        // Remove the link entirely (empty array)
-        storage_.Delete(it->first);
-      } else {
-        // Update with the remaining roles
-        storage_.Put(it->first, updated_roles.dump());
-      }
-    }
-  }
-
-  for (auto it = storage_.begin(kMtLinkPrefix); it != storage_.end(kMtLinkPrefix); ++it) {
-    auto username = it->first.substr(kMtLinkPrefix.size());
-    if (username != utils::ToLowerCase(username)) continue;
-    auto json_data = ParseJson(it->second);
-    bool update = false;
-    for (auto &[db_name, role_names] : json_data.items()) {
-      if (role_names.is_array()) {
-        // Find and remove the role by index
-        for (size_t i = 0; i < role_names.size(); ++i) {
-          if (role_names[i].is_string() && utils::ToLowerCase(role_names[i].get<std::string>()) == rolename) {
-            role_names.erase(i);
-            update = true;
-            break;  // Remove only the first occurrence
+  // Reject deletion if any user has the role assigned (global or per-database)
+  if (!force) {
+    for (auto it = storage_.begin(kRoleLinkPrefix); it != storage_.end(kRoleLinkPrefix); ++it) {
+      try {
+        auto json_data = ParseJson(it->second);
+        if (!json_data.is_array()) continue;
+        for (auto const &role_name : json_data) {
+          if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+            throw AuthException(
+                "Cannot delete role '{}' as it is assigned to one or more users. Drop or reassign the users first.",
+                rolename);
           }
         }
+      } catch (AuthException const &) {
+        throw;
+      } catch (nlohmann::detail::exception const &) {
+        continue;
       }
     }
-    if (update) {
-      if (json_data.empty()) {
-        storage_.Delete(it->first);
-      } else {
-        storage_.Put(it->first, json_data.dump());
+
+    for (auto it = storage_.begin(kMtLinkPrefix); it != storage_.end(kMtLinkPrefix); ++it) {
+      auto username = it->first.substr(kMtLinkPrefix.size());
+      if (username != utils::ToLowerCase(username)) continue;
+      auto json_data = ParseJson(it->second);
+      for (auto const &[db_name, role_names] : json_data.items()) {
+        if (!role_names.is_array()) continue;
+        for (auto const &role_name : role_names) {
+          if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+            throw AuthException(
+                "Cannot delete role '{}': it is assigned to one or more users on database '{}'. Drop or reassign the "
+                "users first.",
+                rolename,
+                db_name);
+          }
+        }
       }
     }
   }
@@ -1408,13 +1446,17 @@ std::vector<std::string> Auth::AllUsernamesForRole(const std::string &rolename_o
 }
 
 #ifdef MG_ENTERPRISE
-Auth::Result Auth::GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+Auth::Result Auth::GrantDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                                 system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (auto user = GetUser(name)) {
+  auto user = (type != UserOrRoleType::ROLE) ? GetUser(name) : std::nullopt;
+  auto role = (type != UserOrRoleType::USER) ? GetRole(name) : std::nullopt;
+  if (user && role) throw AuthException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.", name);
+  if (user) {
     GrantDatabase(db, *user, system_tx);
     return SUCCESS;
   }
-  if (auto role = GetRole(name)) {
+  if (role) {
     GrantDatabase(db, *role, system_tx);
     return SUCCESS;
   }
@@ -1439,13 +1481,17 @@ void Auth::GrantDatabase(const std::string &db, Role &role, system::Transaction 
   SaveRole(role, system_tx);
 }
 
-Auth::Result Auth::DenyDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+Auth::Result Auth::DenyDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                                system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (auto user = GetUser(name)) {
+  auto user = (type != UserOrRoleType::ROLE) ? GetUser(name) : std::nullopt;
+  auto role = (type != UserOrRoleType::USER) ? GetRole(name) : std::nullopt;
+  if (user && role) throw AuthException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.", name);
+  if (user) {
     DenyDatabase(db, *user, system_tx);
     return SUCCESS;
   }
-  if (auto role = GetRole(name)) {
+  if (role) {
     DenyDatabase(db, *role, system_tx);
     return SUCCESS;
   }
@@ -1470,13 +1516,17 @@ void Auth::DenyDatabase(const std::string &db, Role &role, system::Transaction *
   SaveRole(role, system_tx);
 }
 
-Auth::Result Auth::RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+Auth::Result Auth::RevokeDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                                  system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (auto user = GetUser(name)) {
+  auto user = (type != UserOrRoleType::ROLE) ? GetUser(name) : std::nullopt;
+  auto role = (type != UserOrRoleType::USER) ? GetRole(name) : std::nullopt;
+  if (user && role) throw AuthException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.", name);
+  if (user) {
     RevokeDatabase(db, *user, system_tx);
     return SUCCESS;
   }
-  if (auto role = GetRole(name)) {
+  if (role) {
     RevokeDatabase(db, *role, system_tx);
     return SUCCESS;
   }
@@ -1526,13 +1576,17 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
   }
 }
 
-Auth::Result Auth::SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx) {
+Auth::Result Auth::SetMainDatabase(std::string_view db, const std::string &name, UserOrRoleType type,
+                                   system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (auto user = GetUser(name)) {
+  auto user = (type != UserOrRoleType::ROLE) ? GetUser(name) : std::nullopt;
+  auto role = (type != UserOrRoleType::USER) ? GetRole(name) : std::nullopt;
+  if (user && role) throw AuthException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.", name);
+  if (user) {
     SetMainDatabase(db, *user, system_tx);
     return SUCCESS;
   }
-  if (auto role = GetRole(name)) {
+  if (role) {
     SetMainDatabase(db, *role, system_tx);
     return SUCCESS;
   }

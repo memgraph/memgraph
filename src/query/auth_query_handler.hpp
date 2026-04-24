@@ -24,6 +24,12 @@
 
 namespace memgraph::query {
 
+struct CreateUserResult {
+  bool created;
+  bool first_user;
+  bool builtin_roles_created;
+};
+
 class AuthQueryHandler {
  public:
   AuthQueryHandler() = default;
@@ -34,10 +40,10 @@ class AuthQueryHandler {
   AuthQueryHandler &operator=(const AuthQueryHandler &) = delete;
   AuthQueryHandler &operator=(AuthQueryHandler &&) = delete;
 
-  /// Return false if the user already exists.
+  /// Return created=false if the user already exists.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool CreateUser(const std::string &username, const std::optional<std::string> &password,
-                          system::Transaction *system_tx) = 0;
+  virtual CreateUserResult CreateUser(const std::string &username, const std::optional<std::string> &password,
+                                      system::Transaction *system_tx) = 0;
 
   /// Return false if the user does not exist.
   /// @throw QueryRuntimeException if an error ocurred.
@@ -54,29 +60,42 @@ class AuthQueryHandler {
 #ifdef MG_ENTERPRISE
   /// Return true if access granted successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void GrantDatabase(const std::string &db, const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void GrantDatabase(const std::string &db, const std::string &username, auth::UserOrRoleType type,
+                             system::Transaction *system_tx) = 0;
 
   /// Return true if access revoked successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DenyDatabase(const std::string &db, const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void DenyDatabase(const std::string &db, const std::string &username, auth::UserOrRoleType type,
+                            system::Transaction *system_tx) = 0;
 
   /// Return true if access revoked successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RevokeDatabase(const std::string &db, const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void RevokeDatabase(const std::string &db, const std::string &username, auth::UserOrRoleType type,
+                              system::Transaction *system_tx) = 0;
 
   using DatabasePrivileges = std::vector<std::vector<memgraph::query::TypedValue>>;
 
-  /// Returns database access rights for the user
+  /// Returns database access rights for the user or role.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual DatabasePrivileges GetDatabasePrivileges(const std::string &user, const std::vector<std::string> &roles) = 0;
+  virtual DatabasePrivileges GetDatabasePrivileges(const std::string &user, const std::vector<std::string> &roles,
+                                                   auth::UserOrRoleType type) = 0;
+
+  DatabasePrivileges GetDatabasePrivileges(const std::string &user, const std::vector<std::string> &roles) {
+    return GetDatabasePrivileges(user, roles, auth::UserOrRoleType::UNSPECIFIED);
+  }
 
   DatabasePrivileges GetDatabasePrivileges(const std::string &user_or_role) {
-    return GetDatabasePrivileges(user_or_role, {user_or_role});
+    return GetDatabasePrivileges(user_or_role, {user_or_role}, auth::UserOrRoleType::UNSPECIFIED);
+  }
+
+  DatabasePrivileges GetDatabasePrivileges(const std::string &user_or_role, auth::UserOrRoleType type) {
+    return GetDatabasePrivileges(user_or_role, {user_or_role}, type);
   }
 
   /// Return true if main database set successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetMainDatabase(std::string_view db, const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void SetMainDatabase(std::string_view db, const std::string &username, auth::UserOrRoleType type,
+                               system::Transaction *system_tx) = 0;
 
   /// Delete database from all users
   /// @throw QueryRuntimeException if an error ocurred.
@@ -85,7 +104,11 @@ class AuthQueryHandler {
   /// Get the main database for a user or role
   /// @return Optional database access if user/role exists and has a main database set
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<std::string> GetMainDatabase(const std::string &user_or_role) = 0;
+  virtual std::optional<std::string> GetMainDatabase(const std::string &user_or_role, auth::UserOrRoleType type) = 0;
+
+  std::optional<std::string> GetMainDatabase(const std::string &user_or_role) {
+    return GetMainDatabase(user_or_role, auth::UserOrRoleType::UNSPECIFIED);
+  }
 #endif
 
   /// Return false if the role already exists.
@@ -104,11 +127,11 @@ class AuthQueryHandler {
   virtual std::vector<memgraph::query::TypedValue> GetUsernames() = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<memgraph::query::TypedValue> GetRolenames() = 0;
+  virtual std::vector<std::pair<std::string, bool>> GetRolenames() = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<std::string> GetRolenamesForUser(const std::string &username,
-                                                       std::optional<std::string> db_name) = 0;
+  virtual std::vector<std::pair<std::string, bool>> GetRolenamesForUser(const std::string &username,
+                                                                        std::optional<std::string> db_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) = 0;
@@ -121,11 +144,25 @@ class AuthQueryHandler {
   virtual void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
-                          system::Transaction *system_tx) = 0;
+  virtual void ClearRoles(const std::string &username, const std::vector<std::string> &roles,
+                          const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void AddRoles(const std::string &username, const std::vector<std::string> &roles,
+                        const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void RevokeRoles(const std::string &username, const std::vector<std::string> &roles,
+                           const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
 
   virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
-                                                                              std::optional<std::string>) = 0;
+                                                                              std::optional<std::string> db,
+                                                                              auth::UserOrRoleType type) = 0;
+
+  std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
+                                                                      std::optional<std::string> db) {
+    return GetPrivileges(user_or_role, db, auth::UserOrRoleType::UNSPECIFIED);
+  }
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void GrantPrivilege(
@@ -139,7 +176,7 @@ class AuthQueryHandler {
           &edge_type_privileges
 #endif
       ,
-      system::Transaction *system_tx) = 0;
+      auth::UserOrRoleType type, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DenyPrivilege(
@@ -153,7 +190,7 @@ class AuthQueryHandler {
           &edge_type_privileges
 #endif
       ,
-      system::Transaction *system_tx) = 0;
+      auth::UserOrRoleType type, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RevokePrivilege(
@@ -167,13 +204,13 @@ class AuthQueryHandler {
           &edge_type_privileges
 #endif
       ,
-      system::Transaction *system_tx) = 0;
+      auth::UserOrRoleType type, system::Transaction *system_tx) = 0;
 
 #ifdef MG_ENTERPRISE
   virtual void GrantImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
-                                    system::Transaction *system_tx) = 0;
+                                    auth::UserOrRoleType type, system::Transaction *system_tx) = 0;
   virtual void DenyImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
-                                   system::Transaction *system_tx) = 0;
+                                   auth::UserOrRoleType type, system::Transaction *system_tx) = 0;
 #endif
 
 // User profiles

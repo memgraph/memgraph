@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "auth/models.hpp"
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/ast/query/query.hpp"
 
@@ -38,6 +39,8 @@ class AuthQuery : public memgraph::query::Query {
     SHOW_USERS,
     SET_ROLE,
     CLEAR_ROLE,
+    GRANT_ROLE,
+    REVOKE_ROLE,
     GRANT_PRIVILEGE,
     DENY_PRIVILEGE,
     REVOKE_PRIVILEGE,
@@ -133,6 +136,7 @@ class AuthQuery : public memgraph::query::Query {
 
   // Database specification for SHOW PRIVILEGES query
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
+  auth::UserOrRoleType entity_type_{auth::UserOrRoleType::UNSPECIFIED};
 
   AuthQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<AuthQuery>();
@@ -152,6 +156,7 @@ class AuthQuery : public memgraph::query::Query {
     object->edge_type_privileges_ = edge_type_privileges_;
     object->impersonation_targets_ = impersonation_targets_;
     object->database_specification_ = database_specification_;
+    object->entity_type_ = entity_type_;
     return object;
   }
 

@@ -2631,6 +2631,96 @@ void check_auth_query(
   EXPECT_EQ(auth_query->label_matching_modes_, label_matching_modes);
 }
 
+// TODO(colinbarry) - Passing mainly deduced {} to the massive parameter
+// list for check_auth_query is very ugly. Instead, I've added a fluent API
+// to make this easier. Rather than introducing too much noise into this PR,
+// I'll migrate the testing after this PR is merged.
+struct AuthQueryChecker {
+  AuthQueryChecker(Base *ast_generator, std::string input, AuthQuery::Action action)
+      : ast_generator_(ast_generator), input_(std::move(input)), action_(action) {}
+
+  AuthQueryChecker &WithUser(std::string user) {
+    user_ = std::move(user);
+    return *this;
+  }
+
+  AuthQueryChecker &WithRoles(std::vector<std::string> roles) {
+    roles_ = std::move(roles);
+    return *this;
+  }
+
+  AuthQueryChecker &WithUserOrRole(std::string user_or_role) {
+    user_or_role_ = std::move(user_or_role);
+    return *this;
+  }
+
+  AuthQueryChecker &WithPassword(TypedValue password) {
+    password_ = std::move(password);
+    return *this;
+  }
+
+  AuthQueryChecker &WithPrivileges(std::vector<AuthQuery::Privilege> privileges) {
+    privileges_ = std::move(privileges);
+    return *this;
+  }
+
+  AuthQueryChecker &WithLabelPrivileges(
+      std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges) {
+    label_privileges_ = std::move(label_privileges);
+    return *this;
+  }
+
+  AuthQueryChecker &WithEdgeTypePrivileges(
+      std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges) {
+    edge_type_privileges_ = std::move(edge_type_privileges);
+    return *this;
+  }
+
+  AuthQueryChecker &WithLabelMatchingModes(std::vector<AuthQuery::LabelMatchingMode> modes) {
+    label_matching_modes_ = std::move(modes);
+    return *this;
+  }
+
+  AuthQueryChecker &WithDatabases(std::unordered_set<std::string> databases) {
+    role_databases_ = std::move(databases);
+    return *this;
+  }
+
+  void Check() const {
+    auto *q = dynamic_cast<AuthQuery *>(ast_generator_->ParseQuery(input_));
+    ASSERT_TRUE(q);
+    EXPECT_EQ(q->action_, action_);
+    EXPECT_EQ(q->user_, user_);
+    EXPECT_EQ(q->roles_, roles_);
+    EXPECT_EQ(q->user_or_role_, user_or_role_);
+    ASSERT_EQ(static_cast<bool>(q->password_), static_cast<bool>(password_));
+    if (password_) {
+      ast_generator_->CheckLiteral(q->password_, *password_);
+    }
+    EXPECT_EQ(q->privileges_, privileges_);
+    EXPECT_EQ(q->label_privileges_, label_privileges_);
+    EXPECT_EQ(q->edge_type_privileges_, edge_type_privileges_);
+    EXPECT_EQ(q->label_matching_modes_, label_matching_modes_);
+    if (role_databases_) {
+      EXPECT_EQ(q->role_databases_, *role_databases_);
+    }
+  }
+
+ private:
+  Base *ast_generator_;
+  std::string input_;
+  AuthQuery::Action action_;
+  std::string user_;
+  std::vector<std::string> roles_;
+  std::string user_or_role_;
+  std::optional<TypedValue> password_;
+  std::vector<AuthQuery::Privilege> privileges_;
+  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges_;
+  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges_;
+  std::vector<AuthQuery::LabelMatchingMode> label_matching_modes_;
+  std::optional<std::unordered_set<std::string>> role_databases_;
+};
+
 TEST_P(CypherMainVisitorTest, UserOrRoleName) {
   auto &ast_generator = *GetParam();
   check_auth_query(
@@ -2772,6 +2862,16 @@ TEST_P(CypherMainVisitorTest, SetRole) {
   // Single role tests (backward compatibility)
   check_auth_query(
       &ast_generator, "SET ROLE FOR user TO role", AuthQuery::Action::SET_ROLE, "user", {"role"}, "", {}, {}, {}, {});
+  check_auth_query(&ast_generator,
+                   "SET ROLE FOR USER user TO role",
+                   AuthQuery::Action::SET_ROLE,
+                   "user",
+                   {"role"},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {});
   check_auth_query(
       &ast_generator, "SET ROLE FOR user TO null", AuthQuery::Action::SET_ROLE, "user", {"null"}, "", {}, {}, {}, {});
 
@@ -2836,9 +2936,89 @@ TEST_P(CypherMainVisitorTest, ClearRole) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE FOR user TO"), SyntaxException);
-  check_auth_query(
-      &ast_generator, "CLEAR ROLE FOR user", AuthQuery::Action::CLEAR_ROLE, "user", {}, "", {}, {}, {}, {});
+
+  AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR user", AuthQuery::Action::CLEAR_ROLE).WithUser("user").Check();
+  AuthQueryChecker(&ast_generator, "CLEAR ROLES FOR user", AuthQuery::Action::CLEAR_ROLE).WithUser("user").Check();
+  AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR USER user", AuthQuery::Action::CLEAR_ROLE).WithUser("user").Check();
+
+  AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR user ON db1", AuthQuery::Action::CLEAR_ROLE)
+      .WithUser("user")
+      .WithDatabases({"db1"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR user ON db1, db2", AuthQuery::Action::CLEAR_ROLE)
+      .WithUser("user")
+      .WithDatabases({"db1", "db2"})
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, GrantRole) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT ROLE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT ROLE TO user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT ROLE admin"), SyntaxException);
+
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin TO USER user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin TO user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLES admin TO user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin, reader TO user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin TO user ON db1", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .WithDatabases({"db1"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin, reader TO user ON db1, db2", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .WithDatabases({"db1", "db2"})
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, RevokeRole) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE ROLE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE ROLE FROM user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE ROLE admin"), SyntaxException);
+
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin FROM USER user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin FROM user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLES admin FROM user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin, reader FROM user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin FROM user ON db1", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .WithDatabases({"db1"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin, reader FROM user ON db1, db2", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .WithDatabases({"db1", "db2"})
+      .Check();
 }
 
 TEST_P(CypherMainVisitorTest, GrantPrivilege) {
@@ -4187,6 +4367,8 @@ TEST_P(CypherMainVisitorTest, ShowRoleForUser) {
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR "), SyntaxException);
   check_auth_query(
       &ast_generator, "SHOW ROLE FOR user", AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", {}, "", {}, {}, {}, {});
+  check_auth_query(
+      &ast_generator, "SHOW ROLE FOR USER user", AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", {}, "", {}, {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR user1, user2"), SyntaxException);
 }
 
@@ -4195,6 +4377,16 @@ TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR "), SyntaxException);
   check_auth_query(
       &ast_generator, "SHOW USERS FOR role", AuthQuery::Action::SHOW_USERS_FOR_ROLE, "", {"role"}, "", {}, {}, {}, {});
+  check_auth_query(&ast_generator,
+                   "SHOW USERS FOR ROLE role",
+                   AuthQuery::Action::SHOW_USERS_FOR_ROLE,
+                   "",
+                   {"role"},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR role1, role2"), SyntaxException);
 }
 
