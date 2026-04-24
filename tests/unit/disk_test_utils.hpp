@@ -11,41 +11,22 @@
 
 #pragma once
 
-#include <rocksdb/utilities/transaction_db.h>
-#include <filesystem>
-#include "dbms/constants.hpp"
+#include <cstdint>
+#include <string>
+
 #include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 
+namespace rocksdb {
+class TransactionDB;
+}  // namespace rocksdb
+
 namespace disk_test_utils {
 
-memgraph::storage::Config GenerateOnDiskConfig(const std::string &testName) {
-  return {.disk = {.main_storage_directory = "rocksdb_" + testName + "_db",
-                   .label_index_directory = "rocksdb_" + testName + "_label_index",
-                   .label_property_index_directory = "rocksdb_" + testName + "_label_property_index",
-                   .unique_constraints_directory = "rocksdb_" + testName + "_unique_constraints",
-                   .name_id_mapper_directory = "rocksdb_" + testName + "_name_id_mapper",
-                   .id_name_mapper_directory = "rocksdb_" + testName + "_id_name_mapper",
-                   .durability_directory = "rocksdb_" + testName + "_durability",
-                   .wal_directory = "rocksdb_" + testName + "_wal"},
-          .salient = {.name = memgraph::dbms::kDefaultDB}};
-}
+memgraph::storage::Config GenerateOnDiskConfig(const std::string &testName);
 
-void RemoveRocksDbDirs(const std::string &testName) {
-  std::filesystem::remove_all("rocksdb_" + testName + "_db");
-  std::filesystem::remove_all("rocksdb_" + testName + "_label_index");
-  std::filesystem::remove_all("rocksdb_" + testName + "_label_property_index");
-  std::filesystem::remove_all("rocksdb_" + testName + "_unique_constraints");
-  std::filesystem::remove_all("rocksdb_" + testName + "_name_id_mapper");
-  std::filesystem::remove_all("rocksdb_" + testName + "_id_name_mapper");
-  std::filesystem::remove_all("rocksdb_" + testName + "_durability");
-  std::filesystem::remove_all("rocksdb_" + testName + "_wal");
-}
+void RemoveRocksDbDirs(const std::string &testName);
 
-uint64_t GetRealNumberOfEntriesInRocksDB(rocksdb::TransactionDB *disk_storage) {
-  uint64_t num_keys = 0;
-  disk_storage->GetAggregatedIntProperty("rocksdb.estimate-num-keys", &num_keys);
-  return num_keys;
-}
+uint64_t GetRealNumberOfEntriesInRocksDB(rocksdb::TransactionDB *disk_storage);
 
 }  // namespace disk_test_utils
