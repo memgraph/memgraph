@@ -4143,19 +4143,34 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
     throw SyntaxException("Memory limit cannot be set on subqueries!");
   }
 
-  // Parse the explicit import list: `CALL (v1, v2, ...) { ... }`.
-  // Empty parentheses `CALL () { ... }` are allowed and mean "import nothing"
-  // (the subquery cannot reference any outer variables), matching Cypher 5.
+  // Parse the explicit scope clause. Forms (Cypher 5):
+  //   `CALL () { ... }`            — no variables imported
+  //   `CALL (v1, v2, ...) { ... }` — only the listed variables
+  //   `CALL (*) { ... }`           — every variable in outer scope
+  // `returnItems` is reused from the Cypher grammar because it already
+  // encodes `*` plus a list. We restrict it here: aliases (`AS`) and
+  // non-identifier expressions are rejected.
   if (ctx->LPAREN() != nullptr) {
-    call_subquery->has_explicit_imports_ = true;
-    if (auto *var_list = ctx->variableList()) {
+    call_subquery->has_variable_scope_ = true;
+    if (auto *return_items = ctx->returnItems()) {
+      auto [has_asterisk, named_expressions] =
+          std::any_cast<std::pair<bool, std::vector<NamedExpression *>>>(return_items->accept(this));
+      if (has_asterisk) {
+        call_subquery->all_variables_scoped_ = true;
+      }
       std::unordered_set<std::string> seen;
-      for (auto *var_ctx : var_list->variable()) {
-        auto name = std::any_cast<std::string>(var_ctx->accept(this));
-        if (!seen.insert(name).second) {
-          throw SyntaxException("Duplicate variable '{}' in CALL subquery import list.", name);
+      for (auto *named_expr : named_expressions) {
+        if (named_expr->is_aliased_) {
+          throw SyntaxException("Aliasing is not allowed in the CALL subquery scope clause.");
         }
-        call_subquery->imported_identifiers_.push_back(storage_->Create<Identifier>(name));
+        auto *ident = utils::Downcast<Identifier>(named_expr->expression_);
+        if (!ident) {
+          throw SyntaxException("Only variables are allowed in the CALL subquery scope clause.");
+        }
+        if (!seen.insert(ident->name_).second) {
+          throw SyntaxException("Duplicate variable '{}' in CALL subquery scope clause.", ident->name_);
+        }
+        call_subquery->scoped_variables_.push_back(storage_->Create<Identifier>(ident->name_));
       }
     }
   }

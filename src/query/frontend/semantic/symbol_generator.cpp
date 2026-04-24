@@ -128,6 +128,15 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
     // new symbol would have a more specific type.
     named_expr->MapTo(CreateSymbol(name, true, Symbol::Type::ANY, named_expr->token_position_));
   }
+  // Scoped `CALL (v1, v2, ...) { ... }` imports survive WITH/RETURN narrowing
+  // inside the subquery body. Re-inject any that weren't explicitly redeclared
+  // by a named expression, and mark them as "new" so the cleanup step keeps
+  // them.
+  for (const auto &[name, symbol] : scopes_[scope_idx].call_subquery_imports) {
+    if (new_names.insert(name).second) {
+      scopes_[scope_idx].symbols[name] = symbol;
+    }
+  }
   scopes_[scope_idx].in_order_by = true;
   for (const auto &order_pair : body.order_by) {
     order_pair.expression->Accept(*this);
@@ -261,29 +270,36 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
 }
 
 bool SymbolGenerator::PreVisit(CallSubquery &call_sub) {
-  if (!call_sub.has_explicit_imports_) {
-    scopes_.emplace_back(Scope{.in_call_subquery = true});
-    return true;
-  }
-
-  // `CALL (v1, v2, ...) { ... }`: resolve each imported variable against the
-  // outer scopes before pushing the subquery scope. Unknown names are unbound.
   Scope new_scope{.in_call_subquery = true};
-  for (auto *ident : call_sub.imported_identifiers_) {
-    std::optional<Symbol> found;
-    for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
-      if (auto maybe = FindSymbolInScope(ident->name_, *scope, Symbol::Type::ANY); maybe) {
-        found = *maybe;
-        break;
+
+  if (call_sub.has_variable_scope_) {
+    // `CALL (...) { ... }`: resolve imports against the current outer scope
+    // only. Mirrors how `Visit(Identifier)` restricts lookups when
+    // `in_call_subquery && !in_with` — a scoped CALL is a visibility barrier,
+    // so we don't reach past it into enclosing scopes.
+    auto const &outer_scope = scopes_.back();
+    if (call_sub.all_variables_scoped_) {
+      // `CALL (*) { ... }`: import every user-declared variable currently in
+      // scope. Matches `RETURN *` semantics — anonymous / internal symbols
+      // (aggregations, pattern paths, etc.) are skipped.
+      for (const auto &[name, symbol] : outer_scope.symbols) {
+        if (!symbol.user_declared()) continue;
+        new_scope.symbols[name] = symbol;
+        new_scope.call_subquery_imports[name] = symbol;
+      }
+    } else {
+      for (auto *ident : call_sub.scoped_variables_) {
+        auto found = FindSymbolInScope(ident->name_, outer_scope, Symbol::Type::ANY);
+        if (!found) {
+          throw UnboundVariableError(ident->name_);
+        }
+        ident->MapTo(*found);
+        new_scope.symbols[ident->name_] = *found;
+        new_scope.call_subquery_imports[ident->name_] = *found;
       }
     }
-    if (!found) {
-      throw UnboundVariableError(ident->name_);
-    }
-    ident->MapTo(*found);
-    new_scope.symbols[ident->name_] = *found;
-    new_scope.call_subquery_imports[ident->name_] = *found;
   }
+
   scopes_.emplace_back(std::move(new_scope));
   return true;
 }
@@ -298,10 +314,17 @@ bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
     return true;
   }
 
+  // Drop scoped `CALL (v1, v2, ...)` imports from the merge — they already
+  // exist in the outer scope (that's where they came from). Without this,
+  // every import would collide with itself in the outer scope check below.
+  for (const auto &[name, _] : subquery_scope.call_subquery_imports) {
+    subquery_scope.symbols.erase(name);
+  }
+
   // append symbols returned in from subquery to outer scope
   for (const auto &[symbol_name, symbol] : subquery_scope.symbols) {
     if (main_query_scope.symbols.contains(symbol_name)) {
-      throw SemanticException("Variable in subquery already declared in outer scope!");
+      throw SemanticException("Variable '{}' in subquery already declared in outer scope!", symbol_name);
     }
 
     main_query_scope.symbols[symbol_name] = symbol;

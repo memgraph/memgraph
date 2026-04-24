@@ -402,9 +402,7 @@ parallelExecution : PARALLEL EXECUTION ( num_threads=literal )? ;
 
 periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
 
-variableList : variable ( ',' variable )* ;
-
-callSubquery : CALL ( '(' ( variableList )? ')' )? '{' cypherQuery '}' ( periodicSubquery )? ;
+callSubquery : CALL ( '(' returnItems? ')' )? '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream

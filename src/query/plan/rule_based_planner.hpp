@@ -461,10 +461,17 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                            pending_comprehensions);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
             std::optional<std::unordered_set<Symbol>> explicit_imports;
-            if (call_sub->has_explicit_imports_) {
+            if (call_sub->has_variable_scope_) {
               explicit_imports.emplace();
-              for (auto *ident : call_sub->imported_identifiers_) {
-                explicit_imports->insert(context.symbol_table->at(*ident));
+              if (call_sub->all_variables_scoped_) {
+                // `CALL (*) { ... }`: carry every user-declared outer symbol.
+                for (const auto &sym : context.bound_symbols) {
+                  if (sym.user_declared()) explicit_imports->insert(sym);
+                }
+              } else {
+                for (auto *ident : call_sub->scoped_variables_) {
+                  explicit_imports->insert(context.symbol_table->at(*ident));
+                }
               }
             }
             input_op = HandleSubquery(std::move(input_op),
