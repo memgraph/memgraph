@@ -221,7 +221,9 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     uint64_t procedure_id = 1;
     bool const has_periodic_commit = query_parts.commit_frequency != nullptr;
     bool const is_root_query = !query_parts.is_subquery;
+    auto const initial_bound_symbols = context.bound_symbols;
     for (const auto &query_part : query_parts.query_parts) {
+      context.bound_symbols = initial_bound_symbols;
       std::unique_ptr<LogicalOperator> input_op;
 
       context.is_write_query = false;
@@ -469,7 +471,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                   if (sym.user_declared()) explicit_imports->insert(sym);
                 }
               } else {
-                for (auto *ident : call_sub->scoped_variables_) {
+                for (auto *ne : call_sub->scoped_variables_) {
+                  auto *ident = utils::Downcast<query::Identifier>(ne->expression_);
                   explicit_imports->insert(context.symbol_table->at(*ident));
                 }
               }

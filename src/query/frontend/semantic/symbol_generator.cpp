@@ -288,14 +288,19 @@ bool SymbolGenerator::PreVisit(CallSubquery &call_sub) {
         new_scope.call_subquery_imports[name] = symbol;
       }
     } else {
-      for (auto *ident : call_sub.scoped_variables_) {
+      // For `CALL (v AS w, ...) { ... }`, `ne->expression_` is the outer
+      // identifier we resolve against the enclosing scope, while `ne->name_`
+      // is the inner name we bind into the subquery scope. When no alias was
+      // given, `ne->expression_->name_ == ne->name_`.
+      for (auto *ne : call_sub.scoped_variables_) {
+        auto *ident = utils::Downcast<Identifier>(ne->expression_);
         auto found = FindSymbolInScope(ident->name_, outer_scope, Symbol::Type::ANY);
         if (!found) {
           throw UnboundVariableError(ident->name_);
         }
         ident->MapTo(*found);
-        new_scope.symbols[ident->name_] = *found;
-        new_scope.call_subquery_imports[ident->name_] = *found;
+        new_scope.symbols[ne->name_] = *found;
+        new_scope.call_subquery_imports[ne->name_] = *found;
       }
     }
   }

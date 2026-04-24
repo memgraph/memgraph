@@ -4121,12 +4121,13 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   }
 
   // Parse the explicit scope clause. Forms (Cypher 5):
-  //   `CALL () { ... }`            — no variables imported
-  //   `CALL (v1, v2, ...) { ... }` — only the listed variables
-  //   `CALL (*) { ... }`           — every variable in outer scope
-  // `returnItems` is reused from the Cypher grammar because it already
-  // encodes `*` plus a list. We restrict it here: aliases (`AS`) and
-  // non-identifier expressions are rejected.
+  //   `CALL () { ... }`                  — no variables imported
+  //   `CALL (v1, v2, ...) { ... }`       — only the listed variables
+  //   `CALL (v AS w, ...) { ... }`       — same, with inner renaming
+  //   `CALL (*) { ... }`                 — every variable in outer scope
+  // `returnItems` is reused from the Cypher grammar because it already encodes
+  // `*` plus a list with optional aliases. We only reject non-identifier
+  // expressions here (e.g. `n.prop`).
   if (ctx->LPAREN() != nullptr) {
     call_subquery->has_variable_scope_ = true;
     if (auto *return_items = ctx->returnItems()) {
@@ -4135,19 +4136,18 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
       if (has_asterisk) {
         call_subquery->all_variables_scoped_ = true;
       }
-      std::unordered_set<std::string> seen;
+      std::unordered_set<std::string> seen_inner_names;
       for (auto *named_expr : named_expressions) {
-        if (named_expr->is_aliased_) {
-          throw SyntaxException("Aliasing is not allowed in the CALL subquery scope clause.");
+        if (!utils::Downcast<Identifier>(named_expr->expression_)) {
+          throw SyntaxException("Only variables (optionally aliased) are allowed in the CALL subquery scope clause.");
         }
-        auto *ident = utils::Downcast<Identifier>(named_expr->expression_);
-        if (!ident) {
-          throw SyntaxException("Only variables are allowed in the CALL subquery scope clause.");
+        // `named_expr->name_` is the inner (post-alias) name. Duplicate-check
+        // on the inner name catches both `CALL (t, t)` and
+        // `CALL (t AS x, s AS x)`.
+        if (!seen_inner_names.insert(named_expr->name_).second) {
+          throw SyntaxException("Duplicate variable '{}' in CALL subquery scope clause.", named_expr->name_);
         }
-        if (!seen.insert(ident->name_).second) {
-          throw SyntaxException("Duplicate variable '{}' in CALL subquery scope clause.", ident->name_);
-        }
-        call_subquery->scoped_variables_.push_back(storage_->Create<Identifier>(ident->name_));
+        call_subquery->scoped_variables_.push_back(named_expr);
       }
     }
   }

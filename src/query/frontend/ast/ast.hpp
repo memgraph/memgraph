@@ -4018,22 +4018,27 @@ class CallSubquery : public memgraph::query::Clause {
   }
 
   memgraph::query::CypherQuery *cypher_query_;
-  // Explicitly imported variables from the outer scope via `CALL (v1, v2) { ... }`.
-  // When has_variable_scope_ is false, the legacy `CALL { ... }` form was used.
-  // When true and scoped_variables_ is empty, `CALL () { ... }` was used (no imports).
-  std::vector<memgraph::query::Identifier *> scoped_variables_;
+  // Scope clause items from `CALL (v1, v2, ...) { ... }` (or the aliased form
+  // `CALL (v AS w, ...) { ... }`). Each entry's `expression_` is the outer
+  // identifier used to resolve the symbol in the enclosing scope, and `name_`
+  // is the inner name bound inside the subquery (equal to the outer name when
+  // no alias was used). When `has_variable_scope_` is false, the legacy
+  // `CALL { ... }` form was used; when true and this vector is empty,
+  // `CALL () { ... }` was used (no imports).
+  std::vector<memgraph::query::NamedExpression *> scoped_variables_;
   bool has_variable_scope_{false};
   // True if `CALL (*) { ... }` was used — import every variable currently in
-  // the outer scope. When set, scoped_variables_ is populated during semantic
-  // analysis from the outer scope.
+  // the outer scope. When set, scoped_variables_ is left empty; the outer
+  // symbols are pulled directly from the enclosing scope at semantic / planning
+  // time.
   bool all_variables_scoped_{false};
 
   CallSubquery *Clone(AstStorage *storage) const override {
     CallSubquery *object = storage->Create<CallSubquery>();
     object->cypher_query_ = cypher_query_ ? cypher_query_->Clone(storage) : nullptr;
     object->scoped_variables_.reserve(scoped_variables_.size());
-    for (auto *ident : scoped_variables_) {
-      object->scoped_variables_.push_back(ident ? ident->Clone(storage) : nullptr);
+    for (auto *ne : scoped_variables_) {
+      object->scoped_variables_.push_back(ne ? ne->Clone(storage) : nullptr);
     }
     object->has_variable_scope_ = has_variable_scope_;
     object->all_variables_scoped_ = all_variables_scoped_;

@@ -922,9 +922,9 @@ Feature: Subqueries
             """
         Then the result should be:
             | team                      | players                                                                        |
-            | (:Team {name: 'Team A'})  | [(:Player {name: 'Player B', age: 23}), (:Player {name: 'Player A', age: 21})] |
+            | (:Team {name: 'Team A'})  | [(:Player {name: 'Player A', age: 21}), (:Player {name: 'Player B', age: 23})] |
             | (:Team {name: 'Team B'})  | [(:Player {name: 'Player D', age: 30})]                                        |
-            | (:Team {name: 'Team C'})  | [(:Player {name: 'Player F', age: 35}), (:Player {name: 'Player E', age: 25})] |
+            | (:Team {name: 'Team C'})  | [(:Player {name: 'Player E', age: 25}), (:Player {name: 'Player F', age: 35})] |
 
     Scenario: Scoped CALL consumes a pre-ordered stream and mutates per row
         Given an empty graph
