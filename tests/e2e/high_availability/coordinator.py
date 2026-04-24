@@ -126,7 +126,7 @@ def test_disable_snp_interval(test_name):
         execute_and_fetch_all(cursor, "set database setting 'storage.snapshot.interval' to '1'")
         assert False
     except Exception as e:
-        assert "Coordinators don't support snapshots" in str(e)
+        assert "Unknown setting name" in str(e)
 
 
 def test_enable_show_license_info_queries(test_name):
