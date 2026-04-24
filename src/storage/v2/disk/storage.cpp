@@ -1343,7 +1343,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
   auto *active_unique_constraints =
-      static_cast<DiskUniqueConstraints::ActiveConstraints *>(transaction->active_constraints_.unique_.get());
+      static_cast<DiskUniqueConstraints::ActiveConstraints *>(transaction->active_constraints_->unique_.get());
 
   auto *label_active_indices = static_cast<DiskLabelIndex::ActiveIndices *>(transaction->active_indices_->label_.get());
   auto *label_properties_active_indices =
@@ -2001,9 +2001,13 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
 
   spdlog::trace("rocksdb: Commit successful");
 
-  memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, disk_storage->name_id_mapper_.get());
+  transaction_.active_indices_->text_->ApplyTrackedChanges(transaction_, disk_storage->name_id_mapper_.get());
   disk_storage->durable_metadata_.UpdateMetaData(
       disk_storage->timestamp_, disk_storage->vertex_count_, disk_storage->edge_count_);
+  // Run deferred publishes (index CREATE/DROP snapshot swap, etc.) now that
+  // the txn is fully committed. Commit timestamp is 0 if the txn had no
+  // writes — callbacks that care about ts can handle either case.
+  transaction_.commit_callbacks_.RunAll(commit_timestamp_.value_or(0));
   is_transaction_active_ = false;
 
   return {};
@@ -2357,6 +2361,8 @@ std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::Disk
   // We already verified !ConstraintRegistered above, so RegisterConstraint will succeed
   [[maybe_unused]] const bool registered = existence_constraints->RegisterConstraint(label, property);
   existence_constraints->PublishConstraint(label, property, kTimestampInitialId);
+  auto updater = on_disk->constraints_.MakeUpdater();
+  updater(existence_constraints->GetActiveConstraints());
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
@@ -2369,6 +2375,8 @@ std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAc
   if (!existence_constraints->DropConstraint(label, property)) {
     return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
+  auto updater = on_disk->constraints_.MakeUpdater();
+  updater(existence_constraints->GetActiveConstraints());
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
   return {};
 }
@@ -2389,6 +2397,8 @@ DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<
   if (!disk_unique_constraints->InsertConstraint(label, properties, check.value())) {
     return std::unexpected{StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
+  auto updater = on_disk->constraints_.MakeUpdater();
+  updater(disk_unique_constraints->GetActiveConstraints());
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
@@ -2402,6 +2412,8 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
       ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
+  auto updater = on_disk->constraints_.MakeUpdater();
+  updater(disk_unique_constraints->GetActiveConstraints());
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
@@ -2463,7 +2475,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
   uint64_t start_timestamp = 0;
   bool edge_import_mode_active{false};
   ActiveIndicesPtr active_indices;
-  std::optional<ActiveConstraints> active_constraints;
+  ActiveConstraintsPtr active_constraints;
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
@@ -2480,7 +2492,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           edge_import_mode_active,
           empty_point_index_.CreatePointIndexContext(),
           std::move(active_indices),
-          *std::move(active_constraints)};
+          std::move(active_constraints)};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
@@ -2555,16 +2567,16 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
       .edge_type = {/* edge type indices */},
       .edge_type_property = {/* edge_type_property */},
       .edge_property = {/*edge property*/},
-      .text_indices = storage_->indices_.text_index_.ListIndices(),
+      .text_indices = transaction_.active_indices_->text_->ListIndices(),
       .text_edge_indices = {/* text edge indices */},
       .point_label_property = {/* point indices */},
       .vector_indices_spec = {/* vector indices */}};
 }
 
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
-  return {.existence = transaction_.active_constraints_.existence_->ListConstraints(transaction_.start_timestamp),
-          .unique = transaction_.active_constraints_.unique_->ListConstraints(transaction_.start_timestamp),
-          .type = transaction_.active_constraints_.type_->ListConstraints(transaction_.start_timestamp)};
+  return {.existence = transaction_.active_constraints_->existence_->ListConstraints(transaction_.start_timestamp),
+          .unique = transaction_.active_constraints_->unique_->ListConstraints(transaction_.start_timestamp),
+          .type = transaction_.active_constraints_->type_->ListConstraints(transaction_.start_timestamp)};
 }
 
 void DiskStorage::DiskAccessor::DropAllIndexes() {

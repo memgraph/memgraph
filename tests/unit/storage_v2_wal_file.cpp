@@ -60,12 +60,16 @@ class DeltaGenerator final {
                            std::make_unique<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgeTypeIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
-                           std::make_unique<memgraph::storage::InMemoryEdgePropertyIndex::ActiveIndices>()),
-                       memgraph::storage::ActiveConstraints{
-                           std::make_unique<memgraph::storage::ExistenceConstraints::ActiveConstraints>(),
-                           std::make_unique<memgraph::storage::InMemoryUniqueConstraints::ActiveConstraints>(),
-                           std::make_unique<memgraph::storage::TypeConstraints::ActiveConstraints>(),
-                       }) {}
+                           std::make_unique<memgraph::storage::InMemoryEdgePropertyIndex::ActiveIndices>(),
+                           std::make_unique<memgraph::storage::TextIndex::ActiveIndices>(),
+                           std::make_unique<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
+                           std::make_unique<memgraph::storage::PointIndexStorage::ActiveIndices>(),
+                           std::make_unique<memgraph::storage::VectorIndex::ActiveIndices>(),
+                           std::make_unique<memgraph::storage::VectorEdgeIndex::ActiveIndices>()),
+                       std::make_shared<memgraph::storage::ActiveConstraints>(
+                           std::make_shared<memgraph::storage::ExistenceConstraints::ActiveConstraints>(),
+                           std::make_shared<memgraph::storage::InMemoryUniqueConstraints::ActiveConstraints>(),
+                           std::make_shared<memgraph::storage::TypeConstraints::ActiveConstraints>())) {}
 
    public:
     memgraph::storage::Vertex *CreateVertex() {

@@ -20,10 +20,17 @@
 #include <memory>
 #include <vector>
 
+#include "utils/logging.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
+
+struct TextIndexActiveIndices;
+struct TextEdgeIndexActiveIndices;
+struct PointIndexActiveIndices;
+struct VectorIndexActiveIndices;
+struct VectorEdgeIndexActiveIndices;
 
 struct IndicesCollection {
   std::vector<storage::LabelId> label_;
@@ -36,29 +43,48 @@ struct IndicesCollection {
 struct ActiveIndices {
   ActiveIndices() = delete;  // to avoid nullptr
 
-  explicit ActiveIndices(std::shared_ptr<LabelIndexActiveIndices> label,
-                         std::shared_ptr<LabelPropertyIndexActiveIndices> label_properties,
-                         std::shared_ptr<EdgeTypeIndexActiveIndices> edge_type,
-                         std::shared_ptr<EdgeTypePropertyIndexActiveIndices> edge_type_properties,
-                         std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property)
+  explicit ActiveIndices(
+      std::shared_ptr<LabelIndexActiveIndices> label, std::shared_ptr<LabelPropertyIndexActiveIndices> label_properties,
+      std::shared_ptr<EdgeTypeIndexActiveIndices> edge_type,
+      std::shared_ptr<EdgeTypePropertyIndexActiveIndices> edge_type_properties,
+      std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property, std::shared_ptr<TextIndexActiveIndices> text,
+      std::shared_ptr<TextEdgeIndexActiveIndices> text_edge, std::shared_ptr<PointIndexActiveIndices> point,
+      std::shared_ptr<VectorIndexActiveIndices> vector, std::shared_ptr<VectorEdgeIndexActiveIndices> vector_edge)
       : label_{std::move(label)},
         label_properties_{std::move(label_properties)},
         edge_type_{std::move(edge_type)},
         edge_type_properties_{std::move(edge_type_properties)},
-        edge_property_{std::move(edge_property)} {}
+        edge_property_{std::move(edge_property)},
+        text_{std::move(text)},
+        text_edge_{std::move(text_edge)},
+        point_{std::move(point)},
+        vector_{std::move(vector)},
+        vector_edge_{std::move(vector_edge)} {}
 
-  /// Factory methods that return a new ActiveIndices with one field replaced.
-  /// Keeps layout knowledge in one place and eliminates positional argument mistakes.
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithLabel(std::shared_ptr<LabelIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithLabelProperties(
-      std::shared_ptr<LabelPropertyIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithEdgeType(std::shared_ptr<EdgeTypeIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithEdgeTypeProperties(
-      std::shared_ptr<EdgeTypePropertyIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithEdgeProperty(
-      std::shared_ptr<EdgePropertyIndexActiveIndices> x) const;
+  // TODO(follow-up): make non-null a hard ctor invariant. Currently
+  // `VectorEdgeIndexRecoveryTest` passes nullptrs for every slot except the
+  // one under test. The right fix is a shared test helper that default-builds
+  // empty sub-index snapshots (each concrete *ActiveIndices accepts an empty
+  // container), then DMG_ASSERT all fields in this ctor. Until then, the
+  // `DMG_ASSERT`s in `CheckIndicesAreReady` and at the `DatabaseInfoQuery`
+  // call-site guard prod paths, and `ActiveIndicesUpdater::operator()`
+  // guards DDL publish.
+
+  /// Returns a new ActiveIndices with one field replaced, identified by
+  /// pointer-to-member. Keeps layout knowledge in one place and avoids the
+  /// positional-argument foot-gun of the 10-arg ctor.
+  ///
+  /// Example: auto next = ai.With<&ActiveIndices::text_>(new_text);
+  template <auto Member, class X>
+  [[nodiscard]] std::shared_ptr<ActiveIndices const> With(X x) const {
+    auto next = *this;
+    next.*Member = std::move(x);
+    return std::make_shared<ActiveIndices>(std::move(next));
+  }
 
   bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
+    DMG_ASSERT(label_ && label_properties_ && edge_type_ && edge_type_properties_ && edge_property_,
+               "CheckIndicesAreReady called on partially-constructed ActiveIndices");
     // label
     for ([[maybe_unused]] auto const &label : required_indices.label_) {
       if (!label_->IndexReady(label)) return false;
@@ -92,6 +118,11 @@ struct ActiveIndices {
   std::shared_ptr<EdgeTypeIndexActiveIndices> edge_type_;
   std::shared_ptr<EdgeTypePropertyIndexActiveIndices> edge_type_properties_;
   std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property_;
+  std::shared_ptr<TextIndexActiveIndices> text_;
+  std::shared_ptr<TextEdgeIndexActiveIndices> text_edge_;
+  std::shared_ptr<PointIndexActiveIndices> point_;
+  std::shared_ptr<VectorIndexActiveIndices> vector_;
+  std::shared_ptr<VectorEdgeIndexActiveIndices> vector_edge_;
 };
 
 using ActiveIndicesPtr = std::shared_ptr<ActiveIndices const>;
