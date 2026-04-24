@@ -142,7 +142,25 @@
                             <goal>single</goal>
                         </goals>
                     </execution>
-
+                    <execution>
+                        <id>build-g</id>
+                        <configuration>
+                        <archive>
+                            <manifest>
+                                <mainClass>memgraph.CreateSnapshots</mainClass>
+                            </manifest>
+                        </archive>
+                        <descriptorRefs>
+                            <descriptorRef>jar-with-dependencies</descriptorRef>
+                        </descriptorRefs>
+                        <appendAssemblyId>false</appendAssemblyId>
+                        <finalName>CreateSnapshots</finalName>
+                        </configuration>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>
