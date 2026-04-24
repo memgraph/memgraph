@@ -249,7 +249,7 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
    * @param utils::MemoryResource Memory resource used for allocations during
    *     the lifetime of the returned Cursor.
    */
-  virtual UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const = 0;
+  virtual UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const = 0;
 
   /** Return @c Symbol vector where the query results will be stored.
    *
@@ -335,7 +335,7 @@ class Once : public memgraph::query::plan::LogicalOperator {
   Once(std::vector<Symbol> symbols = {}) : symbols_{std::move(symbols)} {}
 
   DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override { return symbols_; }
 
@@ -412,7 +412,7 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
    */
   CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeCreationInfo node_info);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -429,7 +429,7 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
  private:
   class CreateNodeCursor : public Cursor {
    public:
-    CreateNodeCursor(const CreateNode &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    CreateNodeCursor(const CreateNode &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -501,7 +501,7 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
   CreateExpand(NodeCreationInfo node_info, EdgeCreationInfo edge_info, const std::shared_ptr<LogicalOperator> &input,
                Symbol input_symbol, bool existing_node);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -524,7 +524,7 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
  private:
   class CreateExpandCursor : public Cursor {
    public:
-    CreateExpandCursor(const CreateExpand &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    CreateExpandCursor(const CreateExpand &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -562,7 +562,7 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
   ScanAll() = default;
   ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -601,7 +601,7 @@ class ScanAllByLabel : public memgraph::query::plan::ScanAll {
   ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
                  storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   storage::LabelId label_;
 
@@ -633,7 +633,7 @@ class ScanAllByEdge : public memgraph::query::plan::ScanAll {
                 Symbol node2_symbol, EdgeAtom::Direction direction, const std::vector<storage::EdgeTypeId> &edge_types,
                 storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -662,7 +662,7 @@ class ScanAllByEdgeType : public memgraph::query::plan::ScanAllByEdge {
                     Symbol node2_symbol, EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
                     storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   bool HasSingleInput() const override { return true; }
 
@@ -686,7 +686,7 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
                             Symbol node2_symbol, EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
                             storage::PropertyId property, storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   bool HasSingleInput() const override { return true; }
 
@@ -713,7 +713,7 @@ class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAllByEd
                                  storage::PropertyId property, Expression *expression,
                                  storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   bool HasSingleInput() const override { return true; }
 
@@ -744,7 +744,7 @@ class ScanAllByEdgeTypePropertyRange : public memgraph::query::plan::ScanAllByEd
                                  storage::PropertyId property, std::optional<Bound> lower_bound,
                                  std::optional<Bound> upper_bound, storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   bool HasSingleInput() const override { return true; }
 
@@ -772,7 +772,7 @@ class ScanAllByEdgeProperty : public memgraph::query::plan::ScanAllByEdge {
                         Symbol node2_symbol, EdgeAtom::Direction direction, storage::PropertyId property,
                         storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   bool HasSingleInput() const override { return true; }
 
@@ -798,7 +798,7 @@ class ScanAllByEdgePropertyValue : public memgraph::query::plan::ScanAllByEdge {
                              Symbol node2_symbol, EdgeAtom::Direction direction, storage::PropertyId property,
                              Expression *expression, storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   bool HasSingleInput() const override { return true; }
 
@@ -829,7 +829,7 @@ class ScanAllByEdgePropertyRange : public memgraph::query::plan::ScanAllByEdge {
                              std::optional<Bound> lower_bound, std::optional<Bound> upper_bound,
                              storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   bool HasSingleInput() const override { return true; }
 
@@ -873,7 +873,7 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
                            std::vector<ExpressionRange> expression_ranges, storage::View view = storage::View::OLD);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   storage::LabelId label_;
   std::vector<storage::PropertyPath> properties_;
@@ -897,7 +897,7 @@ class ScanAllById : public memgraph::query::plan::ScanAll {
               storage::View view = storage::View::OLD);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   Expression *expression_;
 
@@ -917,7 +917,7 @@ class ScanAllByEdgeId : public memgraph::query::plan::ScanAllByEdge {
                   Symbol node2_symbol, EdgeAtom::Direction direction, Expression *expression,
                   storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   bool HasSingleInput() const override { return true; }
 
@@ -944,7 +944,7 @@ class ScanAllByPointDistance : public memgraph::query::plan::ScanAll {
                          PointDistanceCondition boundary_condition);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::string ToString() const override;
 
   storage::LabelId label_;
@@ -968,7 +968,7 @@ class ScanAllByPointWithinbbox : public memgraph::query::plan::ScanAll {
                            Expression *boundary_value);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::string ToString() const override;
 
   storage::LabelId label_;
@@ -1043,7 +1043,7 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   Expand() = default;
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1054,9 +1054,9 @@ class Expand : public memgraph::query::plan::LogicalOperator {
 
   class ExpandCursor : public Cursor {
    public:
-    ExpandCursor(const Expand &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    ExpandCursor(const Expand &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     ExpandCursor(const Expand &, int64_t input_degree, int64_t existing_node_degree, utils::MemoryResource *,
-                 metrics::DatabaseMetricHandles * = nullptr);
+                 metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1172,7 +1172,7 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
                  std::optional<ExpansionLambda> weight_lambda, std::optional<Symbol> total_weight, Expression *limit);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1227,7 +1227,7 @@ class ConstructNamedPath : public memgraph::query::plan::LogicalOperator {
       : input_(input), path_symbol_(std::move(path_symbol)), path_elements_(path_elements) {}
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1262,7 +1262,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
          const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
          Filters all_filters);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1285,7 +1285,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
  private:
   class FilterCursor : public Cursor {
    public:
-    FilterCursor(const Filter &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    FilterCursor(const Filter &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1316,7 +1316,7 @@ class Produce : public memgraph::query::plan::LogicalOperator {
 
   Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -1336,7 +1336,7 @@ class Produce : public memgraph::query::plan::LogicalOperator {
  private:
   class ProduceCursor : public Cursor {
    public:
-    ProduceCursor(const Produce &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    ProduceCursor(const Produce &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1365,7 +1365,7 @@ class Delete : public memgraph::query::plan::LogicalOperator {
 
   Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1387,7 +1387,7 @@ class Delete : public memgraph::query::plan::LogicalOperator {
  private:
   class DeleteCursor : public Cursor {
    public:
-    DeleteCursor(const Delete &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    DeleteCursor(const Delete &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1424,7 +1424,7 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
   Expression *rhs_;
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1438,7 +1438,7 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
  private:
   class SetPropertyCursor : public Cursor {
    public:
-    SetPropertyCursor(const SetProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    SetPropertyCursor(const SetProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1466,7 +1466,7 @@ class SetNestedProperty : public memgraph::query::plan::LogicalOperator {
   Expression *rhs_;
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1480,8 +1480,7 @@ class SetNestedProperty : public memgraph::query::plan::LogicalOperator {
  private:
   class SetNestedPropertyCursor : public Cursor {
    public:
-    SetNestedPropertyCursor(const SetNestedProperty &, utils::MemoryResource *,
-                            metrics::DatabaseMetricHandles * = nullptr);
+    SetNestedPropertyCursor(const SetNestedProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1516,7 +1515,7 @@ class SetProperties : public memgraph::query::plan::LogicalOperator {
 
   SetProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Expression *rhs, Op op);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1535,7 +1534,7 @@ class SetProperties : public memgraph::query::plan::LogicalOperator {
  private:
   class SetPropertiesCursor : public Cursor {
    public:
-    SetPropertiesCursor(const SetProperties &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    SetPropertiesCursor(const SetProperties &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1560,7 +1559,7 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
 
   SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, std::vector<StorageLabelType> labels);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1578,7 +1577,7 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
  private:
   class SetLabelsCursor : public Cursor {
    public:
-    SetLabelsCursor(const SetLabels &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    SetLabelsCursor(const SetLabels &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1605,7 +1604,7 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
   PropertyLookup *lhs_;
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1619,7 +1618,7 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
  private:
   class RemovePropertyCursor : public Cursor {
    public:
-    RemovePropertyCursor(const RemoveProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    RemovePropertyCursor(const RemoveProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1647,7 +1646,7 @@ class RemoveNestedProperty : public memgraph::query::plan::LogicalOperator {
   PropertyLookup *lhs_;
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1661,8 +1660,7 @@ class RemoveNestedProperty : public memgraph::query::plan::LogicalOperator {
  private:
   class RemoveNestedPropertyCursor : public Cursor {
    public:
-    RemoveNestedPropertyCursor(const RemoveNestedProperty &, utils::MemoryResource *,
-                               metrics::DatabaseMetricHandles * = nullptr);
+    RemoveNestedPropertyCursor(const RemoveNestedProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1687,7 +1685,7 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
   RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                std::vector<StorageLabelType> labels);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1705,7 +1703,7 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
  private:
   class RemoveLabelsCursor : public Cursor {
    public:
-    RemoveLabelsCursor(const RemoveLabels &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    RemoveLabelsCursor(const RemoveLabels &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1740,7 +1738,7 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
   EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol,
                        const std::vector<Symbol> &previous_symbols);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1760,8 +1758,7 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
  private:
   class EdgeUniquenessFilterCursor : public Cursor {
    public:
-    EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &, utils::MemoryResource *,
-                               metrics::DatabaseMetricHandles * = nullptr);
+    EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1791,7 +1788,7 @@ class EmptyResult : public memgraph::query::plan::LogicalOperator {
 
   EmptyResult(const std::shared_ptr<LogicalOperator> &input);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -1843,7 +1840,7 @@ class Accumulate : public memgraph::query::plan::LogicalOperator {
   Accumulate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &symbols,
              bool advance_command = false);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1900,7 +1897,7 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
             const std::vector<Expression *> &group_by, const std::vector<Symbol> &remember);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -1937,7 +1934,7 @@ class ParallelMerge : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &table) const override;
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles *metric_handles) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -1955,7 +1952,7 @@ class AggregateParallel : public memgraph::query::plan::LogicalOperator {
   AggregateParallel() = default;
   AggregateParallel(const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads);
 
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles *metric_handles) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles) const override;
 
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &table) const override;
 
@@ -1990,7 +1987,7 @@ class OrderByParallel : public memgraph::query::plan::LogicalOperator {
   OrderByParallel() = default;
   OrderByParallel(const std::shared_ptr<LogicalOperator> &orderby_input, size_t num_threads);
 
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles *metric_handles) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles) const override;
 
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &table) const override;
 
@@ -2027,7 +2024,7 @@ class ScanParallel : public memgraph::query::plan::LogicalOperator {
   ScanParallel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
                Symbol state_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   bool HasSingleInput() const override { return true; }
 
@@ -2063,7 +2060,7 @@ class ScanParallelByLabel : public memgraph::query::plan::ScanParallel {
   ScanParallelByLabel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
                       Symbol state_symbol, storage::LabelId label);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2082,7 +2079,7 @@ class ScanParallelByEdgeType : public memgraph::query::plan::ScanParallel {
   ScanParallelByEdgeType(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
                          Symbol state_symbol, storage::EdgeTypeId edge_type);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2104,7 +2101,7 @@ class ScanParallelByLabelProperties : public memgraph::query::plan::ScanParallel
                                 std::vector<ExpressionRange> expression_ranges,
                                 storage::IndexOrder index_order = storage::IndexOrder::ASC);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2126,7 +2123,7 @@ class ScanParallelByEdgeTypeProperty : public memgraph::query::plan::ScanParalle
   ScanParallelByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
                                  Symbol state_symbol, storage::EdgeTypeId edge_type, storage::PropertyId property);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2149,7 +2146,7 @@ class ScanParallelByEdgeTypePropertyRange : public memgraph::query::plan::ScanPa
                                       storage::PropertyId property, std::optional<Bound> lower_bound,
                                       std::optional<Bound> upper_bound);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2171,7 +2168,7 @@ class ScanParallelByEdgeProperty : public memgraph::query::plan::ScanParallel {
   ScanParallelByEdgeProperty(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
                              Symbol state_symbol, storage::PropertyId property);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2190,7 +2187,7 @@ class ScanParallelByEdgePropertyValue : public memgraph::query::plan::ScanParall
   ScanParallelByEdgePropertyValue(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
                                   Symbol state_symbol, storage::PropertyId property, Expression *expression);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2212,7 +2209,7 @@ class ScanParallelByEdgePropertyRange : public memgraph::query::plan::ScanParall
                                   Symbol state_symbol, storage::PropertyId property, std::optional<Bound> lower_bound,
                                   std::optional<Bound> upper_bound);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2234,7 +2231,7 @@ class ScanParallelByEdge : public memgraph::query::plan::ScanParallel {
                      Symbol state_symbol, Symbol edge_symbol, Symbol node1_symbol, Symbol node2_symbol,
                      EdgeAtom::Direction direction);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2257,7 +2254,7 @@ class ScanParallelByEdgeTypePropertyValue : public memgraph::query::plan::ScanPa
                                       size_t num_threads, Symbol state_symbol, storage::EdgeTypeId edge_type,
                                       storage::PropertyId property, Expression *expression);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2277,7 +2274,7 @@ class ScanChunk : public memgraph::query::plan::ScanAll {
   ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view,
             Symbol state_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2297,7 +2294,7 @@ class ScanChunkByEdge : public memgraph::query::plan::ScanAllByEdge {
                   Symbol node2_symbol, EdgeAtom::Direction direction,
                   const std::vector<storage::EdgeTypeId> &edge_types, storage::View view, Symbol state_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -2334,7 +2331,7 @@ class Skip : public memgraph::query::plan::LogicalOperator {
 
   Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -2353,7 +2350,7 @@ class Skip : public memgraph::query::plan::LogicalOperator {
  private:
   class SkipCursor : public Cursor {
    public:
-    SkipCursor(const Skip &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    SkipCursor(const Skip &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -2379,7 +2376,7 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
 
   EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -2397,7 +2394,7 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
   class EvaluatePatternFilterCursor : public Cursor {
    public:
     EvaluatePatternFilterCursor(const EvaluatePatternFilter &, utils::MemoryResource *,
-                                metrics::DatabaseMetricHandles * = nullptr);
+                                metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -2432,7 +2429,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
 
   Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -2451,7 +2448,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
  private:
   class LimitCursor : public Cursor {
    public:
-    LimitCursor(const Limit &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    LimitCursor(const Limit &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -2487,7 +2484,7 @@ class OrderBy : public memgraph::query::plan::LogicalOperator {
   OrderBy(const std::shared_ptr<LogicalOperator> &input, const std::vector<SortItem> &order_by,
           const std::vector<Symbol> &output_symbols);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -2532,7 +2529,7 @@ class Merge : public memgraph::query::plan::LogicalOperator {
   Merge(const std::shared_ptr<LogicalOperator> &input, const std::shared_ptr<LogicalOperator> &merge_match,
         const std::shared_ptr<LogicalOperator> &merge_create);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   // TODO: Consider whether we want to treat Merge as having single input. It
@@ -2553,7 +2550,7 @@ class Merge : public memgraph::query::plan::LogicalOperator {
  private:
   class MergeCursor : public Cursor {
    public:
-    MergeCursor(const Merge &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    MergeCursor(const Merge &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -2589,7 +2586,7 @@ class Optional : public memgraph::query::plan::LogicalOperator {
   Optional(const std::shared_ptr<LogicalOperator> &input, const std::shared_ptr<LogicalOperator> &optional,
            const std::vector<Symbol> &optional_symbols);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -2607,7 +2604,7 @@ class Optional : public memgraph::query::plan::LogicalOperator {
  private:
   class OptionalCursor : public Cursor {
    public:
-    OptionalCursor(const Optional &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    OptionalCursor(const Optional &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -2639,7 +2636,7 @@ class Unwind : public memgraph::query::plan::LogicalOperator {
 
   Unwind(const std::shared_ptr<LogicalOperator> &input, Expression *input_expression_, Symbol output_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -2671,7 +2668,7 @@ class Distinct : public memgraph::query::plan::LogicalOperator {
 
   Distinct(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &value_symbols);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -2705,7 +2702,7 @@ class Union : public memgraph::query::plan::LogicalOperator {
         const std::vector<Symbol> &union_symbols, const std::vector<Symbol> &left_symbols,
         const std::vector<Symbol> &right_symbols);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -2726,7 +2723,7 @@ class Union : public memgraph::query::plan::LogicalOperator {
  private:
   class UnionCursor : public Cursor {
    public:
-    UnionCursor(const Union &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    UnionCursor(const Union &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -2753,7 +2750,7 @@ class Cartesian : public memgraph::query::plan::LogicalOperator {
       : left_op_(left_op), left_symbols_(left_symbols), right_op_(right_op), right_symbols_(right_symbols) {}
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override;
@@ -2784,7 +2781,7 @@ class OutputTable : public memgraph::query::plan::LogicalOperator {
     LOG_FATAL("OutputTable operator should not be visited!");
   }
 
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override { return output_symbols_; }
 
@@ -2817,7 +2814,7 @@ class OutputTableStream : public memgraph::query::plan::LogicalOperator {
     LOG_FATAL("OutputTableStream operator should not be visited!");
   }
 
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override { return output_symbols_; }
 
@@ -2845,7 +2842,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
                 size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure = false);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -2888,7 +2885,7 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
           std::unordered_map<Expression *, Expression *> config_map, bool with_header, bool ignore_bad,
           Expression *delimiter, Expression *quote, Expression *nullif, Symbol row_var);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -2923,7 +2920,7 @@ class LoadParquet : public memgraph::query::plan::LogicalOperator {
   LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file,
               std::unordered_map<Expression *, Expression *> config_map, Symbol row_var);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -2952,7 +2949,7 @@ class LoadJsonl : public memgraph::query::plan::LogicalOperator {
   LoadJsonl(std::shared_ptr<LogicalOperator> input, Expression *file,
             std::unordered_map<Expression *, Expression *> config_map, Symbol row_var);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -2985,7 +2982,7 @@ class Foreach : public memgraph::query::plan::LogicalOperator {
           Symbol loop_variable_symbol);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -3014,7 +3011,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
         bool subquery_has_return);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }
@@ -3032,7 +3029,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
  private:
   class ApplyCursor : public Cursor {
    public:
-    ApplyCursor(const Apply &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    ApplyCursor(const Apply &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -3058,7 +3055,7 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
   IndexedJoin(std::shared_ptr<LogicalOperator> main_branch, std::shared_ptr<LogicalOperator> sub_branch);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource * /*unused*/,
-                             metrics::DatabaseMetricHandles *metric_handles = nullptr) const override;
+                             metrics::DatabaseMetricHandles &metric_handles) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable & /*unused*/) const override;
 
   bool HasSingleInput() const override;
@@ -3073,7 +3070,7 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
  private:
   class IndexedJoinCursor : public Cursor {
    public:
-    IndexedJoinCursor(const IndexedJoin &, utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr);
+    IndexedJoinCursor(const IndexedJoin &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
     void Shutdown() override;
     void Reset() override;
@@ -3106,7 +3103,7 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
         hash_join_condition_(hash_join_condition) {}
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override;
@@ -3144,7 +3141,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -3172,7 +3169,7 @@ class PeriodicCommit : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
@@ -3194,7 +3191,7 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
   PeriodicSubquery(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
                    Expression *commit_frequency, bool subquery_has_return);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles * = nullptr) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
   bool HasSingleInput() const override { return true; }

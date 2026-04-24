@@ -15,10 +15,6 @@ namespace prometheus {
 class Gauge;
 }  // namespace prometheus
 
-namespace memgraph::metrics {
-struct DatabaseMetricHandles;
-}  // namespace memgraph::metrics
-
 #include <functional>
 #include <memory>
 
@@ -41,8 +37,7 @@ namespace memgraph::storage {
 
 class ExistenceConstraints {
  public:
-  explicit ExistenceConstraints(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit ExistenceConstraints(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   struct MultipleThreadsConstraintValidation {
     auto operator()(const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
@@ -138,7 +133,7 @@ class ExistenceConstraints {
  private:
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
 
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  prometheus::Gauge *gauge_{nullptr};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> constraints_{std::make_shared<Container const>()};
 };
 

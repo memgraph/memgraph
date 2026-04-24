@@ -65,8 +65,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   using DescEntry = BasicEntry<true>;
 
  public:
-  explicit InMemoryLabelPropertyIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit InMemoryLabelPropertyIndex(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   template <typename EntryT = Entry>
   struct IndividualIndex {
@@ -455,7 +454,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
       -> std::shared_ptr<IndividualIndex<EntryT>>;
 
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  prometheus::Gauge *gauge_{nullptr};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

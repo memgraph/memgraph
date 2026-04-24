@@ -280,7 +280,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   }
 #endif
 
-  auto cursor = plan.plan().MakeCursor(execution_memory, db_acc->metric_handles());
+  auto cursor = plan.plan().MakeCursor(execution_memory, *db_acc->metric_handles());
   Frame frame{plan.symbol_table().max_position(), execution_memory};
   auto frame_writer = frame.GetFrameWriter(ctx.frame_change_collector, execution_memory);
   for (const auto &[identifier, tag] : identifiers) {
@@ -294,7 +294,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   while (cursor->Pull(frame, ctx));
 
   cursor->Shutdown();
-  if (auto *mh = db_acc->metric_handles()) mh->triggers_executed->Increment();
+  if (auto *mh = db_acc->metric_handles()) mh->triggers_executed.Increment();
 }
 
 namespace {

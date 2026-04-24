@@ -56,7 +56,7 @@ TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
   DbAccessor execution_dba(dba.get());
   auto context = MakeContext(ast, symbol_table, &execution_dba);
   Frame frame(context.symbol_table.max_position());
-  auto cursor = create_node.MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
+  auto cursor = create_node.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
   int count = 0;
   while (cursor->Pull(frame, context)) {
     ++count;
@@ -83,7 +83,7 @@ TYPED_TEST(QueryPlan, ScanAllEmpty) {
     memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol, memgraph::storage::View::OLD);
     auto context = MakeContext(ast, symbol_table, &execution_dba);
     Frame frame(context.symbol_table.max_position());
-    auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
+    auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     int count = 0;
     while (cursor->Pull(frame, context)) ++count;
     EXPECT_EQ(count, 0);
@@ -92,7 +92,7 @@ TYPED_TEST(QueryPlan, ScanAllEmpty) {
     memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol, memgraph::storage::View::NEW);
     auto context = MakeContext(ast, symbol_table, &execution_dba);
     Frame frame(context.symbol_table.max_position());
-    auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
+    auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     int count = 0;
     while (cursor->Pull(frame, context)) ++count;
     EXPECT_EQ(count, 0);
@@ -113,7 +113,7 @@ TYPED_TEST(QueryPlan, ScanAll) {
   memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol);
   auto context = MakeContext(ast, symbol_table, &execution_dba);
   Frame frame(context.symbol_table.max_position());
-  auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
+  auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
   int count = 0;
   while (cursor->Pull(frame, context)) ++count;
   EXPECT_EQ(count, 42);
@@ -145,7 +145,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   memgraph::query::plan::ScanAllByLabel scan_all(nullptr, node_symbol, label);
   auto context = MakeContext(ast, symbol_table, &execution_dba);
   Frame frame(context.symbol_table.max_position());
-  auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
+  auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
   int count = 0;
   while (cursor->Pull(frame, context)) ++count;
   EXPECT_EQ(count, 42);

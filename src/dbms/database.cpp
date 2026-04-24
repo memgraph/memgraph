@@ -61,25 +61,20 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
 };
 
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
+    : metrics_(config.salient.uuid, metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str())),
+      trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
       streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
-
-  auto const should_register_database_metrics =
-      !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
-  if (should_register_database_metrics) {
-    metrics_.reset(metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str()));
-  }
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
     storage_ = std::make_unique<storage::DiskStorage>(
-        std::move(config), std::move(invalidator), metrics_.handles(), database_protector_factory);
+        std::move(config), std::move(invalidator), metrics_.handles(), std::move(database_protector_factory));
   } else {
     storage_ = dbms::CreateInMemoryStorage(
-        std::move(config), std::move(invalidator), metrics_.handles(), database_protector_factory);
+        std::move(config), std::move(invalidator), metrics_.handles(), std::move(database_protector_factory));
   }
 }
 
@@ -87,14 +82,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 // to forward declared types.
 Database::~Database() = default;
 
-Database::DatabaseMetricsRegistration::~DatabaseMetricsRegistration() {
-  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
-}
-
-void Database::DatabaseMetricsRegistration::reset(metrics::DatabaseMetricHandles *handles) {
-  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
-  handles_ = handles;
-}
+Database::DatabaseMetricsRegistration::~DatabaseMetricsRegistration() { metrics::Metrics().RemoveDatabase(uuid_); }
 
 std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType rw_type,
                                                     std::optional<storage::IsolationLevel> override_isolation_level,

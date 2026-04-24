@@ -320,10 +320,8 @@ void TTL::Configure(bool should_run_edge_ttl) {
           // TODO: on sync replication error it should not continue since it commits
           continue;
         }
-        if (metric_handles_) {
-          metric_handles_->deleted_nodes->Increment(static_cast<double>(n_deleted));
-          metric_handles_->deleted_edges->Increment(static_cast<double>(n_edges_deleted));
-        }
+        if (deleted_nodes_) deleted_nodes_->Increment(static_cast<double>(n_deleted));
+        if (deleted_edges_) deleted_edges_->Increment(static_cast<double>(n_edges_deleted));
 
       } catch (const std::exception &e) {
         spdlog::trace("TTL error; retrying later: {}", e.what());

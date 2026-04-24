@@ -13,7 +13,6 @@
 
 #include <memory>
 
-#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
@@ -31,7 +30,9 @@
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(const Config &config, StorageMode storage_mode, metrics::DatabaseMetricHandles *metric_handles);
+  Indices(const Config &config, StorageMode storage_mode, metrics::GaugeHandle active_label_indices,
+          metrics::GaugeHandle active_label_property_indices, metrics::GaugeHandle active_edge_type_indices,
+          metrics::GaugeHandle active_edge_type_property_indices, metrics::GaugeHandle active_edge_property_indices);
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;

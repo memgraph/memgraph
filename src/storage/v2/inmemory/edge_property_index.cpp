@@ -254,7 +254,7 @@ auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipLi
 bool InMemoryEdgePropertyIndex::PublishIndex(PropertyId property, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(property);
   if (!index) return false;
-  auto *gauge = metric_handles_ ? metric_handles_->active_edge_property_indices : nullptr;
+  auto *gauge = gauge_;
   index->Publish(commit_timestamp, gauge);
   return true;
 }

@@ -23,7 +23,7 @@
 namespace memgraph::storage {
 
 struct Constraints {
-  Constraints(const Config &config, StorageMode storage_mode, metrics::DatabaseMetricHandles *metric_handles);
+  Constraints(const Config &config, StorageMode storage_mode, metrics::DatabaseMetricHandles const &metric_handles);
 
   Constraints(const Constraints &) = delete;
   Constraints(Constraints &&) = delete;

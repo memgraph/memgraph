@@ -536,8 +536,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     utils::OnScopeExit interpreter_cleanup{
         [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
 
-    if (auto *mh = interpreter->current_db_.db_acc_->get()->metric_handles())
-      mh->messages_consumed->Increment(static_cast<double>(messages.size()));
+    interpreter->current_db_.db_acc_->get()->metric_handles()->messages_consumed.Increment(
+        static_cast<double>(messages.size()));
     CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
     DiscardValueResultStream stream;

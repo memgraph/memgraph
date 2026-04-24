@@ -11,9 +11,9 @@
 
 #pragma once
 
-namespace memgraph::metrics {
-struct DatabaseMetricHandles;
-}  // namespace memgraph::metrics
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
@@ -57,7 +57,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
 
   auto GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> override;
 
-  explicit DiskUniqueConstraints(const Config &config, metrics::DatabaseMetricHandles *metric_handles);
+  explicit DiskUniqueConstraints(const Config &config, prometheus::Gauge *gauge = nullptr);
 
   CreationStatus CheckIfConstraintCanBeCreated(LabelId label, const std::set<PropertyId> &properties) const;
 
@@ -87,7 +87,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
  private:
   std::set<std::pair<LabelId, std::set<PropertyId>>> constraints_;
   std::unique_ptr<RocksDBStorage> kvstore_;
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  prometheus::Gauge *gauge_{nullptr};
 
   [[nodiscard]] std::expected<void, ConstraintViolation> TestIfVertexSatisifiesUniqueConstraint(
       const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,

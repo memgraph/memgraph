@@ -61,8 +61,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   };
 
  public:
-  explicit InMemoryEdgePropertyIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
-      : metric_handles_{metric_handles} {}
+  explicit InMemoryEdgePropertyIndex(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   struct IndividualIndex {
     ~IndividualIndex() = default;
@@ -271,7 +270,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   auto GetIndividualIndex(PropertyId property) const -> std::shared_ptr<IndividualIndex>;
   void CleanupAllIndicies();
 
-  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  prometheus::Gauge *gauge_{nullptr};
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer const>()};

@@ -62,7 +62,10 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     // database probably aborted transaction because of some timeout,
     // deadlock, serialization error or something similar. We return
     // TransientError since retry of same transaction could succeed.
-    if (metric_handles) metric_handles->transient_errors->Increment();
+    if (metric_handles)
+      metric_handles->transient_errors.Increment();
+    else
+      metrics::Metrics().global.transient_errors->Increment();
     return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const std::bad_alloc *>(&e)) {

@@ -19,6 +19,7 @@
 
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
+#include "flags/general.hpp"
 #include "storage/v2/config.hpp"
 
 namespace {
@@ -41,14 +42,12 @@ std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &fa
 }  // namespace
 
 TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
+  FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
-  auto *handles = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
+  auto handles = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
 
-  ASSERT_NE(handles->vertex_count, nullptr);
-  ASSERT_NE(handles->committed_transactions, nullptr);
-
-  handles->vertex_count->Set(42.0);
-  handles->committed_transactions->Increment(5.0);
+  handles.vertex_count.Set(42.0);
+  handles.committed_transactions.Increment(5.0);
 
   auto const families = pm.registry().Collect();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 42.0);
@@ -56,12 +55,13 @@ TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
 }
 
 TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
+  FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
-  auto *h1 = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
-  auto *h2 = pm.AddDatabase(memgraph::utils::UUID{}, "db2");
+  auto h1 = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
+  auto h2 = pm.AddDatabase(memgraph::utils::UUID{}, "db2");
 
-  h1->vertex_count->Set(10.0);
-  h2->vertex_count->Set(20.0);
+  h1.vertex_count.Set(10.0);
+  h2.vertex_count.Set(20.0);
 
   auto const families = pm.registry().Collect();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 10.0);
@@ -69,6 +69,7 @@ TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
 }
 
 TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
+  FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
   memgraph::metrics::StorageSnapshot snapshot{
       .vertex_count = 7, .edge_count = 3, .disk_usage = 1024, .memory_res = 4096};
@@ -90,10 +91,11 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
 
 TEST(PrometheusMetrics, RemoveDatabaseRemovesMetrics) {
   memgraph::metrics::PrometheusMetrics pm;
-  auto *handles = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
-  handles->vertex_count->Set(99.0);
+  memgraph::utils::UUID const uuid{};
+  auto handles = pm.AddDatabase(uuid, "db1");
+  handles.vertex_count.Set(99.0);
 
-  pm.RemoveDatabase(handles);
+  pm.RemoveDatabase(uuid);
 
   auto const families = pm.registry().Collect();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), std::nullopt);

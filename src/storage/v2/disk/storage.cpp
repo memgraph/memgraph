@@ -224,9 +224,9 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 
 }  // namespace
 
-DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles *metric_handles,
+DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles metric_handles,
                          std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator), metric_handles,
+    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator), std::move(metric_handles),
               std::move(database_protector_factory)),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
@@ -935,8 +935,7 @@ StorageInfo DiskStorage::GetBaseInfo() {
   metrics::Metrics().global.peak_memory_res_bytes->Set(
       std::max(static_cast<double>(info.memory_res), metrics::Metrics().global.peak_memory_res_bytes->Value()));
   info.peak_memory_res = static_cast<uint64_t>(metrics::Metrics().global.peak_memory_res_bytes->Value());
-  info.unreleased_delta_objects =
-      metric_handles_ ? static_cast<uint64_t>(metric_handles_->unreleased_delta_objects->Value()) : 0;
+  info.unreleased_delta_objects = static_cast<uint64_t>(metric_handles_.unreleased_delta_objects.Value());
 
   info.disk_usage = GetDiskSpaceUsage();
   return info;
@@ -2170,7 +2169,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
-  if (storage_->metric_handles_) storage_->metric_handles_->active_label_indices->Increment();
+  storage_->metric_handles_.active_label_indices.Increment();
   return {};
 }
 
@@ -2208,7 +2207,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  if (storage_->metric_handles_) storage_->metric_handles_->active_label_property_indices->Increment();
+  storage_->metric_handles_.active_label_property_indices.Increment();
   return {};
 }
 
@@ -2245,7 +2244,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
-  if (storage_->metric_handles_) storage_->metric_handles_->active_label_indices->Decrement();
+  storage_->metric_handles_.active_label_indices.Decrement();
   return {};
 }
 
@@ -2279,7 +2278,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  if (storage_->metric_handles_) storage_->metric_handles_->active_label_property_indices->Decrement();
+  storage_->metric_handles_.active_label_property_indices.Decrement();
   return {};
 }
 
@@ -2492,7 +2491,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           std::move(active_constraints),
           {},
           std::nullopt,
-          metric_handles_ ? metric_handles_->unreleased_delta_objects : nullptr};
+          metric_handles_.unreleased_delta_objects.gauge};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }

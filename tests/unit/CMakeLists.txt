@@ -914,7 +914,7 @@ add_unit_test(counter
 
 add_unit_test(prometheus_metrics
     SOURCES prometheus_metrics.cpp
-    LINK_TARGETS mg-metrics mg-dbms
+    LINK_TARGETS mg-metrics mg-dbms disk_test_utils
 )
 
 # Test coordination

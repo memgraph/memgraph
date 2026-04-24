@@ -192,7 +192,7 @@ bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, Property
 bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(edge_type, property);
   if (!index) return false;
-  auto *gauge = metric_handles_ ? metric_handles_->active_edge_type_property_indices : nullptr;
+  auto *gauge = gauge_;
   index->Publish(commit_timestamp, gauge);
   return true;
 }
@@ -223,7 +223,6 @@ bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId p
       return false;
     }
     it->second->gauge_ = {};
-
     auto new_container = std::make_shared<IndexContainer>(*index_container);
     new_container->erase({edge_type, property});
     index_container = std::move(new_container);

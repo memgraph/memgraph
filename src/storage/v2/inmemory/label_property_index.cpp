@@ -537,7 +537,7 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
 
 bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths const &properties,
                                               uint64_t commit_timestamp, IndexOrder order) {
-  auto *gauge = metric_handles_ ? metric_handles_->active_label_property_indices : nullptr;
+  auto *gauge = gauge_;
   auto publish = [&](auto const &index) {
     if (!index) return false;
     index->Publish(commit_timestamp, gauge);
@@ -552,9 +552,6 @@ void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(uint64_t commi
   status.Commit(commit_timestamp);
   gauge_ = metrics::ScopedGauge{gauge};
 }
-
-template <typename EntryT>
-InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::~IndividualIndex() = default;
 
 template <typename EntryT>
 auto InMemoryLabelPropertyIndex::GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
