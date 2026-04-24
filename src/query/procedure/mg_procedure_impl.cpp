@@ -241,6 +241,38 @@ auto VirtualGraphUnreachable(std::string_view fn) {
     throw std::logic_error{"unreachable on virtual graph in " + std::string{fn}};
   };
 }
+
+// Maps a storage::Error raised by a failing read on a real vertex into the
+// appropriate exception. `op` is an imperative phrase like "get a label of"
+// that fits "Cannot {op} a deleted vertex!".
+[[noreturn]] void ThrowOnVertexReadError(memgraph::storage::Error err, std::string_view op) {
+  switch (err) {
+    case memgraph::storage::Error::DELETED_OBJECT:
+      throw DeletedObjectException{fmt::format("Cannot {} a deleted vertex!", op)};
+    case memgraph::storage::Error::NONEXISTENT_OBJECT:
+      LOG_FATAL("Query modules shouldn't have access to nonexistent objects: tried to {} a vertex.", op);
+    case memgraph::storage::Error::PROPERTIES_DISABLED:
+    case memgraph::storage::Error::VERTEX_HAS_EDGES:
+    case memgraph::storage::Error::SERIALIZATION_ERROR:
+      LOG_FATAL("Unexpected error: tried to {} a vertex.", op);
+  }
+  std::unreachable();
+}
+
+// Edge analog of ThrowOnVertexReadError.
+[[noreturn]] void ThrowOnEdgeReadError(memgraph::storage::Error err, std::string_view op) {
+  switch (err) {
+    case memgraph::storage::Error::DELETED_OBJECT:
+      throw DeletedObjectException{fmt::format("Cannot {} a deleted edge!", op)};
+    case memgraph::storage::Error::NONEXISTENT_OBJECT:
+      LOG_FATAL("Query modules shouldn't have access to nonexistent objects: tried to {} an edge.", op);
+    case memgraph::storage::Error::PROPERTIES_DISABLED:
+    case memgraph::storage::Error::VERTEX_HAS_EDGES:
+    case memgraph::storage::Error::SERIALIZATION_ERROR:
+      LOG_FATAL("Unexpected error: tried to {} an edge.", op);
+  }
+  std::unreachable();
+}
 }  // namespace
 
 memgraph::query::DbAccessor *mgp_graph::getRealOnlyImpl(std::string_view fn_name) const {
@@ -1196,40 +1228,29 @@ mgp_value::mgp_value(mgp_value &&other, allocator_type alloc) : type(other.type)
 mgp_value::~mgp_value() noexcept { DeleteValueMember(this); }
 
 mgp_edge *mgp_edge::Copy(const mgp_edge &edge, mgp_memory &memory) {
-  return std::visit(
-      memgraph::utils::Overloaded{
-          [&](const memgraph::query::EdgeAccessor &ea) -> mgp_edge * {
-            return std::visit(
-                memgraph::utils::Overloaded{
-                    [&](memgraph::query::DbAccessor *) {
-                      return NewRawMgpObject<mgp_edge>(
-                          &memory, ea, ea.DeletedEdgeFromVertex(), ea.DeletedEdgeToVertex(), edge.from.graph);
-                    },
-                    [&](memgraph::query::SubgraphDbAccessor *db_impl) {
-                      return NewRawMgpObject<mgp_edge>(
-                          &memory,
-                          ea,
-                          memgraph::query::SubgraphVertexAccessor(ea.DeletedEdgeFromVertex(), db_impl->getGraph()),
-                          memgraph::query::SubgraphVertexAccessor(ea.DeletedEdgeToVertex(), db_impl->getGraph()),
-                          edge.to.graph);
-                    },
-                    [](memgraph::query::VirtualGraphDbAccessor *) -> mgp_edge * {
-                      // Unreachable: mgp_edge::Copy dispatches on edge.impl first; a real EdgeAccessor
-                      // never co-occurs with a VirtualGraphDbAccessor-owned graph.
-                      throw std::logic_error{"mgp_edge::Copy: real edge on virtual graph"};
-                    }},
-                edge.to.graph->impl);
-          },
-          [&](const memgraph::query::VirtualEdge &ve) -> mgp_edge * {
-            return NewRawMgpObject<mgp_edge>(&memory, ve, edge.from.graph);
-          }},
-      edge.impl);
+  return std::visit(memgraph::utils::Overloaded{
+                        [&](memgraph::query::DbAccessor *) {
+                          const auto &ea = std::get<memgraph::query::EdgeAccessor>(edge.impl);
+                          return NewRawMgpObject<mgp_edge>(
+                              &memory, ea, ea.DeletedEdgeFromVertex(), ea.DeletedEdgeToVertex(), edge.from.graph);
+                        },
+                        [&](memgraph::query::SubgraphDbAccessor *db_impl) {
+                          const auto &ea = std::get<memgraph::query::EdgeAccessor>(edge.impl);
+                          return NewRawMgpObject<mgp_edge>(
+                              &memory,
+                              ea,
+                              memgraph::query::SubgraphVertexAccessor(ea.DeletedEdgeFromVertex(), db_impl->getGraph()),
+                              memgraph::query::SubgraphVertexAccessor(ea.DeletedEdgeToVertex(), db_impl->getGraph()),
+                              edge.to.graph);
+                        },
+                        [&](memgraph::query::VirtualGraphDbAccessor *) {
+                          return NewRawMgpObject<mgp_edge>(
+                              &memory, std::get<memgraph::query::VirtualEdge>(edge.impl), edge.from.graph);
+                        }},
+                    edge.to.graph->impl);
 }
 
 mgp_vertex *mgp_vertex::FromTypedValue(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc) {
-  if (tv.type() == memgraph::query::TypedValue::Type::VirtualNode) {
-    return alloc.new_object<mgp_vertex>(tv.ValueVirtualNode(), graph);
-  }
   return std::visit(
       memgraph::utils::Overloaded{
           [&](memgraph::query::DbAccessor *) { return alloc.new_object<mgp_vertex>(tv.ValueVertex(), graph); },
@@ -1237,33 +1258,29 @@ mgp_vertex *mgp_vertex::FromTypedValue(const memgraph::query::TypedValue &tv, mg
             return alloc.new_object<mgp_vertex>(
                 memgraph::query::SubgraphVertexAccessor(tv.ValueVertex(), impl->getGraph()), graph);
           },
-          [](memgraph::query::VirtualGraphDbAccessor *) -> mgp_vertex * {
-            // Unreachable: the virtual-node branch is taken above before the visit runs.
-            throw std::logic_error{"mgp_vertex::FromTypedValue: real vertex on virtual graph"};
+          [&](memgraph::query::VirtualGraphDbAccessor *) {
+            return alloc.new_object<mgp_vertex>(tv.ValueVirtualNode(), graph);
           }},
       graph->impl);
 }
 
 mgp_edge *mgp_edge::FromTypedValue(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc) {
-  if (tv.type() == memgraph::query::TypedValue::Type::VirtualEdge) {
-    return alloc.new_object<mgp_edge>(tv.ValueVirtualEdge(), graph);
-  }
-  const auto &ea = tv.ValueEdge();
   return std::visit(memgraph::utils::Overloaded{
                         [&](memgraph::query::DbAccessor *) {
+                          const auto &ea = tv.ValueEdge();
                           return alloc.new_object<mgp_edge>(
                               ea, ea.DeletedEdgeFromVertex(), ea.DeletedEdgeToVertex(), graph);
                         },
                         [&](memgraph::query::SubgraphDbAccessor *db_impl) {
+                          const auto &ea = tv.ValueEdge();
                           return alloc.new_object<mgp_edge>(
                               ea,
                               memgraph::query::SubgraphVertexAccessor(ea.DeletedEdgeFromVertex(), db_impl->getGraph()),
                               memgraph::query::SubgraphVertexAccessor(ea.DeletedEdgeToVertex(), db_impl->getGraph()),
                               graph);
                         },
-                        [](memgraph::query::VirtualGraphDbAccessor *) -> mgp_edge * {
-                          // Unreachable: the virtual-edge branch is taken above before the visit runs.
-                          throw std::logic_error{"mgp_edge::FromTypedValue: real edge on virtual graph"};
+                        [&](memgraph::query::VirtualGraphDbAccessor *) {
+                          return alloc.new_object<mgp_edge>(tv.ValueVirtualEdge(), graph);
                         }},
                     graph->impl);
 }
@@ -2353,18 +2370,7 @@ mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result) {
           return vg->InEdges(v->GetVirtualNode().Gid()).size();
         }
         auto maybe_in_degree = v->VisitReal([v](const auto &impl) { return impl.InDegree(v->graph->view); });
-        if (!maybe_in_degree) {
-          switch (maybe_in_degree.error()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get the degree of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex degree!");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting vertex degree.");
-          }
-        }
+        if (!maybe_in_degree) ThrowOnVertexReadError(maybe_in_degree.error(), "get the degree of");
         return *maybe_in_degree;
       },
       result);
@@ -2378,18 +2384,7 @@ mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result) {
           return vg->OutEdges(v->GetVirtualNode().Gid()).size();
         }
         auto maybe_out_degree = v->VisitReal([v](const auto &impl) { return impl.OutDegree(v->graph->view); });
-        if (!maybe_out_degree) {
-          switch (maybe_out_degree.error()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get the degree of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex degree!");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting vertex degree.");
-          }
-        }
+        if (!maybe_out_degree) ThrowOnVertexReadError(maybe_out_degree.error(), "get the degree of");
         return *maybe_out_degree;
       },
       result);
@@ -2817,18 +2812,7 @@ mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
           return v->GetVirtualNode().Labels().size();
         }
         const auto maybe_labels = v->VisitReal([v](const auto &impl) { return impl.Labels(v->graph->view); });
-        if (!maybe_labels) {
-          switch (maybe_labels.error()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get the labels of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex labels!");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting vertex labels.");
-          }
-        }
+        if (!maybe_labels) ThrowOnVertexReadError(maybe_labels.error(), "get the labels of");
         return maybe_labels->size();
       },
       result);
@@ -2845,18 +2829,7 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
           return labels[i].c_str();
         }
         auto maybe_labels = v->VisitReal([v](const auto &impl) { return impl.Labels(v->graph->view); });
-        if (!maybe_labels) {
-          switch (maybe_labels.error()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get a label of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting a label of a vertex!");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting a label of a vertex.");
-          }
-        }
+        if (!maybe_labels) ThrowOnVertexReadError(maybe_labels.error(), "get a label of");
         if (i >= maybe_labels->size()) {
           throw std::out_of_range("Label cannot be retrieved, because index exceeds the number of labels!");
         }
@@ -2885,21 +2858,7 @@ mgp_error mgp_vertex_has_label_named(mgp_vertex *v, const char *name, int *resul
 
         auto maybe_has_label =
             v->VisitReal([v, label](const auto &impl) { return impl.HasLabel(v->graph->view, label); });
-        if (!maybe_has_label) {
-          switch (maybe_has_label.error()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot check the existence of a label on a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL(
-                  "Query modules shouldn't have access to nonexistent objects when checking the existence of a label "
-                  "on "
-                  "a vertex!");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when checking the existence of a label on a vertex.");
-          }
-        }
+        if (!maybe_has_label) ThrowOnVertexReadError(maybe_has_label.error(), "check the existence of a label on");
         return *maybe_has_label ? 1 : 0;
       },
       result);
@@ -2919,19 +2878,7 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
           return NewRawMgpObject<mgp_value>(memory, std::move(prop), GetNameIdMapper(v->graph));
         }
         auto maybe_prop = v->VisitReal([v, key](const auto &impl) { return impl.GetProperty(v->graph->view, key); });
-        if (!maybe_prop) {
-          switch (maybe_prop.error()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get a property of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL(
-                  "Query modules shouldn't have access to nonexistent objects when getting a property of a vertex.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting a property of a vertex.");
-          }
-        }
+        if (!maybe_prop) ThrowOnVertexReadError(maybe_prop.error(), "get a property of");
         return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop), GetNameIdMapper(v->graph));
       },
       result);
@@ -2944,20 +2891,7 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
           return NewRawMgpObject<mgp_properties_iterator>(memory, v->graph, v->GetVirtualNode().Properties());
         }
         auto maybe_props = v->VisitReal([v](const auto &impl) { return impl.Properties(v->graph->view); });
-        if (!maybe_props) {
-          switch (maybe_props.error()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get the properties of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL(
-                  "Query modules shouldn't have access to nonexistent objects when getting the properties of a "
-                  "vertex.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting the properties of a vertex.");
-          }
-        }
+        if (!maybe_props) ThrowOnVertexReadError(maybe_props.error(), "get the properties of");
         return NewRawMgpObject<mgp_properties_iterator>(memory, v->graph, std::move(*maybe_props));
       },
       result);
@@ -3015,20 +2949,7 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
         }
 
         auto maybe_edges = v->VisitReal([v](auto &impl) { return impl.InEdges(v->graph->view); });
-        if (!maybe_edges) {
-          switch (maybe_edges.error()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get the inbound edges of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL(
-                  "Query modules shouldn't have access to nonexistent objects when getting the inbound edges of a "
-                  "vertex.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting the inbound edges of a vertex.");
-          }
-        }
+        if (!maybe_edges) ThrowOnVertexReadError(maybe_edges.error(), "get the inbound edges of");
         it->in.emplace(std::move(maybe_edges->edges));
         it->in_it.emplace(it->in->begin());
 #ifdef MG_ENTERPRISE
@@ -3086,22 +3007,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         }
 
         auto maybe_edges = v->VisitReal([v](auto &impl) { return impl.OutEdges(v->graph->view); });
-
-        if (!maybe_edges) {
-          switch (maybe_edges.error()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get the outbound edges of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL(
-                  "Query modules shouldn't have access to nonexistent objects when getting the outbound edges of a "
-                  "vertex.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting the outbound edges of a vertex.");
-          }
-        }
-
+        if (!maybe_edges) ThrowOnVertexReadError(maybe_edges.error(), "get the outbound edges of");
         it->out.emplace(std::move(maybe_edges->edges));
         it->out_it.emplace(it->out->begin());
 
@@ -3290,20 +3196,7 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
                 [&](const memgraph::query::EdgeAccessor &ea) {
                   auto view = e->from.graph->view;
                   auto maybe_prop = ea.GetProperty(view, key);
-                  if (!maybe_prop) {
-                    switch (maybe_prop.error()) {
-                      case memgraph::storage::Error::DELETED_OBJECT:
-                        throw DeletedObjectException{"Cannot get a property of a deleted edge!"};
-                      case memgraph::storage::Error::NONEXISTENT_OBJECT:
-                        LOG_FATAL(
-                            "Query modules shouldn't have access to nonexistent objects when getting a property of an "
-                            "edge.");
-                      case memgraph::storage::Error::PROPERTIES_DISABLED:
-                      case memgraph::storage::Error::VERTEX_HAS_EDGES:
-                      case memgraph::storage::Error::SERIALIZATION_ERROR:
-                        LOG_FATAL("Unexpected error when getting a property of an edge.");
-                    }
-                  }
+                  if (!maybe_prop) ThrowOnEdgeReadError(maybe_prop.error(), "get a property of");
                   return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop), GetNameIdMapper(e->from.graph));
                 },
                 [&](const memgraph::query::VirtualEdge &ve) {
@@ -3445,31 +3338,18 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
 mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properties_iterator **result) {
   return WrapExceptions(
       [e, memory] {
-        return std::visit(
-            memgraph::utils::Overloaded{
-                [&](const memgraph::query::EdgeAccessor &ea) {
-                  auto view = e->from.graph->view;
-                  auto maybe_props = ea.Properties(view);
-                  if (!maybe_props) {
-                    switch (maybe_props.error()) {
-                      case memgraph::storage::Error::DELETED_OBJECT:
-                        throw DeletedObjectException{"Cannot get the properties of a deleted edge!"};
-                      case memgraph::storage::Error::NONEXISTENT_OBJECT:
-                        LOG_FATAL(
-                            "Query modules shouldn't have access to nonexistent objects when getting the properties "
-                            "of an edge.");
-                      case memgraph::storage::Error::PROPERTIES_DISABLED:
-                      case memgraph::storage::Error::VERTEX_HAS_EDGES:
-                      case memgraph::storage::Error::SERIALIZATION_ERROR:
-                        LOG_FATAL("Unexpected error when getting the properties of an edge.");
-                    }
-                  }
-                  return NewRawMgpObject<mgp_properties_iterator>(memory, e->from.graph, std::move(*maybe_props));
-                },
-                [&](const memgraph::query::VirtualEdge &ve) {
-                  return NewRawMgpObject<mgp_properties_iterator>(memory, e->from.graph, ve.Properties());
-                }},
-            e->impl);
+        return std::visit(memgraph::utils::Overloaded{
+                              [&](const memgraph::query::EdgeAccessor &ea) {
+                                auto view = e->from.graph->view;
+                                auto maybe_props = ea.Properties(view);
+                                if (!maybe_props) ThrowOnEdgeReadError(maybe_props.error(), "get the properties of");
+                                return NewRawMgpObject<mgp_properties_iterator>(
+                                    memory, e->from.graph, std::move(*maybe_props));
+                              },
+                              [&](const memgraph::query::VirtualEdge &ve) {
+                                return NewRawMgpObject<mgp_properties_iterator>(memory, e->from.graph, ve.Properties());
+                              }},
+                          e->impl);
       },
       result);
 }
