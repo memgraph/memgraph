@@ -12,10 +12,14 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "storage/v2/config.hpp"
-#include "storage/v2/disk/storage.hpp"
+
+namespace memgraph::storage {
+class Storage;
+}  // namespace memgraph::storage
 
 namespace rocksdb {
 class TransactionDB;
@@ -28,5 +32,7 @@ memgraph::storage::Config GenerateOnDiskConfig(const std::string &testName);
 void RemoveRocksDbDirs(const std::string &testName);
 
 uint64_t GetRealNumberOfEntriesInRocksDB(rocksdb::TransactionDB *disk_storage);
+
+std::unique_ptr<memgraph::storage::Storage> CreateDiskStorage(memgraph::storage::Config config);
 
 }  // namespace disk_test_utils
