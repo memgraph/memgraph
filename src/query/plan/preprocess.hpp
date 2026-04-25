@@ -76,6 +76,13 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PostVisit(Extract &extract) override {
+    // Remove the symbol bound by extract, because we are only interested
+    // in free (unbound) symbols.
+    symbols_.erase(symbol_table_.at(*extract.identifier_));
+    return true;
+  }
+
   bool PostVisit(ListComprehension &list_comprehension) override {
     // Remove the symbol which is bound by list comprehension, because we are only interested
     // in free (unbound) symbols.
