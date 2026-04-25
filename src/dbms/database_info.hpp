@@ -12,21 +12,17 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 
-#include "storage/v2/config.hpp"
-#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/storage.hpp"
 
-namespace rocksdb {
-class TransactionDB;
-}  // namespace rocksdb
+namespace memgraph::dbms {
 
-namespace disk_test_utils {
+struct DatabaseInfo {
+  storage::StorageInfo storage_info;
+  uint64_t triggers;
+  uint64_t streams;
+};
 
-memgraph::storage::Config GenerateOnDiskConfig(const std::string &testName);
+static inline nlohmann::json ToJson(const DatabaseInfo &info) { return ToJson(info.storage_info); }
 
-void RemoveRocksDbDirs(const std::string &testName);
-
-uint64_t GetRealNumberOfEntriesInRocksDB(rocksdb::TransactionDB *disk_storage);
-
-}  // namespace disk_test_utils
+}  // namespace memgraph::dbms
