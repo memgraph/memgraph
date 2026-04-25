@@ -829,6 +829,20 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto once_with_symbols = std::make_unique<Once>(bound_symbols);
     auto on_match = PlanMatching(match_ctx, std::move(once_with_symbols));
 
+    // Accumulate merge_match rows per input row. Without this, the underlying
+    // ScanAll keeps a live skip-list iterator with a nullptr-sentinel end; any
+    // node created by a downstream clause (e.g. `MERGE (a) MERGE (b) CREATE (c)`)
+    // gets appended during iteration and fed back into merge_match, producing
+    // unbounded node creation. Materializing matches up-front freezes the scan
+    // to nodes that existed when this MERGE started yielding for the current
+    // input row, while still preserving View::NEW visibility of nodes created
+    // by earlier clauses.
+    std::vector<Symbol> accumulate_symbols = match_ctx.new_symbols;
+    accumulate_symbols.insert(accumulate_symbols.end(), bound_symbols.begin(), bound_symbols.end());
+    on_match = std::make_unique<plan::Accumulate>(std::move(on_match),
+                                                  accumulate_symbols,
+                                                  /*advance_command=*/false);
+
     once_with_symbols = std::make_unique<Once>(std::move(bound_symbols));
     // Use the original bound_symbols, so we fill it with new symbols.
     auto on_create = GenCreateForPattern(
