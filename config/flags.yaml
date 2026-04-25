@@ -39,6 +39,10 @@ modifications:
     value: "/var/log/memgraph/memgraph.log"
     override: true
 
+  - name: "failed_query_log_file"
+    value: "/var/log/memgraph/failed_queries.log"
+    override: true
+
   - name: "log_level"
     value: "WARNING"
     override: true

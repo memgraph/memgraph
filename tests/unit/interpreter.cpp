@@ -12,6 +12,10 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/spdlog.h>
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
@@ -42,6 +46,10 @@
 
 import memgraph.csv.parsing;
 
+DECLARE_string(failed_query_log_file);
+DECLARE_string(log_file);
+DECLARE_string(logger_type);
+
 namespace {
 
 auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
@@ -65,6 +73,7 @@ class InterpreterTest : public ::testing::Test {
   const std::string testSuite = "interpreter";
   const std::string testSuiteCsv = "interpreter_csv";
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
+  std::filesystem::path failed_query_log_file;
 
   InterpreterTest() = default;
 
@@ -112,12 +121,38 @@ class InterpreterTest : public ::testing::Test {
 #endif
   };
 
+  void SetUp() override {
+    original_log_file_ = FLAGS_log_file;
+    original_failed_query_log_file_ = FLAGS_failed_query_log_file;
+    original_logger_type_ = FLAGS_logger_type;
+    const auto *test_info = ::testing::UnitTest::GetInstance()->current_test_info();
+    auto sanitized_suite_name = std::string(test_info->test_suite_name());
+    std::replace(sanitized_suite_name.begin(), sanitized_suite_name.end(), '/', '_');
+    failed_query_log_file =
+        data_directory / ("failed_queries_" + sanitized_suite_name + "_" + std::string(test_info->name()) + ".log");
+    FLAGS_log_file = "";
+    FLAGS_failed_query_log_file = failed_query_log_file.string();
+    FLAGS_logger_type = "sync";
+    std::filesystem::create_directories(data_directory);
+
+    auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(failed_query_log_file.string(), true);
+    auto logger = std::make_shared<spdlog::logger>("failed_query_log", std::move(sink));
+    logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
+    logger->set_level(spdlog::level::trace);
+    logger->flush_on(spdlog::level::trace);
+    spdlog::register_logger(logger);
+  }
+
   void TearDown() override {
+    FLAGS_log_file = original_log_file_;
+    FLAGS_failed_query_log_file = original_failed_query_log_file_;
+    FLAGS_logger_type = original_logger_type_;
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
       disk_test_utils::RemoveRocksDbDirs(testSuiteCsv);
     }
 
+    spdlog::drop("failed_query_log");
     std::filesystem::remove_all(data_directory);
   }
 
@@ -134,6 +169,33 @@ class InterpreterTest : public ::testing::Test {
   auto Interpret(const std::string &query, const memgraph::storage::ExternalPropertyValue::map_t &params = {}) {
     return default_interpreter.Interpret(query, params);
   }
+
+  auto ReadFailedQueryLog() const {
+    const auto prefix = failed_query_log_file.stem().string();
+    const auto extension = failed_query_log_file.extension().string();
+
+    std::vector<std::filesystem::path> matching_logs;
+    for (const auto &entry : std::filesystem::directory_iterator(data_directory)) {
+      if (!entry.is_regular_file()) continue;
+      const auto filename = entry.path().filename().string();
+      if (filename.starts_with(prefix) && entry.path().extension() == extension) {
+        matching_logs.push_back(entry.path());
+      }
+    }
+    std::sort(matching_logs.begin(), matching_logs.end());
+
+    std::string log_contents;
+    for (const auto &log_path : matching_logs) {
+      std::ifstream log_file_stream(log_path);
+      log_contents.append(std::istreambuf_iterator<char>(log_file_stream), std::istreambuf_iterator<char>());
+    }
+    return log_contents;
+  }
+
+ private:
+  std::string original_log_file_;
+  std::string original_failed_query_log_file_;
+  std::string original_logger_type_;
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
@@ -162,6 +224,37 @@ TYPED_TEST(InterpreterTest, MultiplePulls) {
     ASSERT_EQ(stream.GetResults()[3][0].ValueInt(), 4);
     ASSERT_EQ(stream.GetResults()[4][0].ValueInt(), 5);
   }
+}
+
+TYPED_TEST(InterpreterTest, FailedQueryLogCapturesParseFailures) {
+  ASSERT_THROW(this->Interpret("RETURN )"), memgraph::query::SyntaxException);
+
+  const auto log_contents = this->ReadFailedQueryLog();
+  EXPECT_THAT(log_contents, testing::HasSubstr("phase=parse"));
+  EXPECT_THAT(log_contents, testing::HasSubstr("error_type=SyntaxException"));
+  EXPECT_THAT(log_contents, testing::HasSubstr("query=\"RETURN )\""));
+}
+
+TYPED_TEST(InterpreterTest, FailedQueryLogCapturesPrepareFailures) {
+  this->Interpret("BEGIN");
+
+  ASSERT_THROW(this->Interpret("CREATE INDEX ON :X"), memgraph::query::IndexInMulticommandTxException);
+
+  const auto log_contents = this->ReadFailedQueryLog();
+  EXPECT_THAT(log_contents, testing::HasSubstr("phase=prepare"));
+  EXPECT_THAT(log_contents, testing::HasSubstr("error_type=IndexInMulticommandTxException"));
+  EXPECT_THAT(log_contents, testing::HasSubstr("query=\"CREATE INDEX ON :X\""));
+}
+
+TYPED_TEST(InterpreterTest, FailedQueryLogCapturesPullFailures) {
+  this->Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.a);");
+
+  ASSERT_THROW(this->Interpret("CREATE (:A)"), memgraph::query::QueryException);
+
+  const auto log_contents = this->ReadFailedQueryLog();
+  EXPECT_THAT(log_contents, testing::HasSubstr("phase=pull"));
+  EXPECT_THAT(log_contents, testing::HasSubstr("error_type=QueryException"));
+  EXPECT_THAT(log_contents, testing::HasSubstr("query=\"CREATE (:A)\""));
 }
 
 // Run query with different ast twice to see if query executes correctly when
