@@ -159,6 +159,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitConstraintQuery(MemgraphCypher::ConstraintQueryContext *ctx) override;
 
   /**
+   * @return ConstraintQuery*
+   */
+  antlrcpp::Any visitOriginalConstraintQuery(MemgraphCypher::OriginalConstraintQueryContext *ctx) override;
+
+  /**
+   * @return ConstraintQuery*
+   */
+  antlrcpp::Any visitAlternativeConstraintSyntax(MemgraphCypher::AlternativeConstraintSyntaxContext *ctx) override;
+
+  /**
    * @return TypeConstraintType
    */
   antlrcpp::Any visitTypeConstraintType(MemgraphCypher::TypeConstraintTypeContext *ctx) override;
@@ -589,6 +599,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return EdgeIndexQuery*
    */
   antlrcpp::Any visitCreateEdgeIndex(MemgraphCypher::CreateEdgeIndexContext *ctx) override;
+
+  /**
+   * @return EdgeIndexQuery*
+   */
+  antlrcpp::Any visitCreateEdgeIndexAlternativeSyntax(
+      MemgraphCypher::CreateEdgeIndexAlternativeSyntaxContext *ctx) override;
 
   /**
    * @return EdgeIndexQuery*

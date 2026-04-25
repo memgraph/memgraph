@@ -221,7 +221,9 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     uint64_t procedure_id = 1;
     bool const has_periodic_commit = query_parts.commit_frequency != nullptr;
     bool const is_root_query = !query_parts.is_subquery;
+    auto const initial_bound_symbols = context.bound_symbols;
     for (const auto &query_part : query_parts.query_parts) {
+      context.bound_symbols = initial_bound_symbols;
       std::unique_ptr<LogicalOperator> input_op;
 
       context.is_write_query = false;
@@ -460,13 +462,29 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                            merge_id,
                                            pending_comprehensions);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
+            std::optional<std::unordered_set<Symbol>> explicit_imports;
+            if (call_sub->has_variable_scope_) {
+              explicit_imports.emplace();
+              if (call_sub->all_variables_scoped_) {
+                // `CALL (*) { ... }`: carry every user-declared outer symbol.
+                for (const auto &sym : context.bound_symbols) {
+                  if (sym.user_declared()) explicit_imports->insert(sym);
+                }
+              } else {
+                for (auto *ne : call_sub->scoped_variables_) {
+                  auto *ident = utils::Downcast<query::Identifier>(ne->expression_);
+                  explicit_imports->insert(context.symbol_table->at(*ident));
+                }
+              }
+            }
             input_op = HandleSubquery(std::move(input_op),
                                       single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table,
                                       *context_->ast_storage,
                                       pending_comprehensions,
                                       write_occurred,
-                                      call_sub->cypher_query_->pre_query_directives_.commit_frequency_);
+                                      call_sub->cypher_query_->pre_query_directives_.commit_frequency_,
+                                      explicit_imports ? &*explicit_imports : nullptr);
             if (context.is_write_query && !has_periodic_commit) {
               input_op = std::make_unique<Accumulate>(
                   std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
@@ -1347,13 +1365,20 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   std::unique_ptr<LogicalOperator> HandleSubquery(
       std::unique_ptr<LogicalOperator> last_op, std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
       AstStorage &storage, std::unordered_map<Symbol, PatternComprehensionMatching> & /*pending_comprehensions*/,
-      bool /*write_occurred*/, Expression *commit_frequency) {
+      bool /*write_occurred*/, Expression *commit_frequency,
+      const std::unordered_set<Symbol> *explicit_imports = nullptr) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));
 
-    context_->bound_symbols =
-        impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage);
+    if (explicit_imports) {
+      // `CALL (v1, v2, ...) { ... }`: seed the subquery planner with exactly
+      // the imported outer symbols. The legacy leading-WITH scan is bypassed.
+      context_->bound_symbols = *explicit_imports;
+    } else {
+      context_->bound_symbols =
+          impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage);
+    }
 
     auto subquery_op = Plan(*subquery);
     auto subquery_bound_symbols = subquery_op->OutputSymbols(*context_->symbol_table);
