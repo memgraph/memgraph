@@ -263,13 +263,6 @@ enum class ObjectKind : std::uint8_t { Vertex, Edge };
 
 }  // namespace
 
-memgraph::query::DbAccessor *mgp_graph::getRealOnlyImpl(std::string_view fn_name) const {
-  if (std::holds_alternative<memgraph::query::VirtualGraphDbAccessor *>(impl)) {
-    throw ImmutableObjectException{fmt::format("{} is not supported on a virtual graph", fn_name)};
-  }
-  return getImpl();
-}
-
 // Constants for common map key names used in procedure results
 namespace {
 constexpr const char *kErrorMsgKey = "error_msg";
@@ -2922,7 +2915,7 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory) {
     }
     auto *vg = (*vg_acc)->getGraph();
     auto edges = ForIn ? vg->InEdges(v->GetVirtualNode().Gid()) : vg->OutEdges(v->GetVirtualNode().Gid());
-    auto &vc = it->cursor.emplace<mgp_edges_iterator::VirtualCursor>(std::move(edges));
+    auto &vc = it->cursor.emplace<mgp_edges_iterator::VirtualCursor>(edges);
     if (vc.it != vc.edges.end()) {
       it->current_e.emplace(*vc.it, v->graph, it->GetMemoryResource());
     }
@@ -2962,7 +2955,7 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory) {
                                            v->graph,
                                            it->GetMemoryResource());
                    },
-                   [](memgraph::query::VirtualGraphDbAccessor *) { std::unreachable(); }},
+                   VirtualGraphUnreachable<void>("MakeEdgesIterator real-cursor current_e")},
                v->graph->impl);
   }
   return it.release();
@@ -3030,7 +3023,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
                                               it->source_vertex.graph,
                                               it->GetMemoryResource());
                                         },
-                                        [](memgraph::query::VirtualGraphDbAccessor *) { std::unreachable(); }},
+                                        VirtualGraphUnreachable<void>("mgp_edges_iterator_next real-cursor")},
                                     it->source_vertex.graph->impl);
                                 return &*it->current_e;
                               },
@@ -3312,7 +3305,17 @@ mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *resul
   return WrapExceptions(
       [graph, label]() {
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
-        const auto index_res = graph->getRealOnlyImpl("mgp_create_label_index")->CreateIndex(label_id);
+        const auto index_res = std::visit(
+            memgraph::utils::Overloaded{
+                [label_id](memgraph::query::DbAccessor *impl) { return impl->CreateIndex(label_id); },
+                [label_id](memgraph::query::SubgraphDbAccessor *impl) {
+                  return impl->GetAccessor()->CreateIndex(label_id);
+                },
+                [](memgraph::query::VirtualGraphDbAccessor *)
+                    -> std::expected<void, memgraph::storage::StorageIndexDefinitionError> {
+                  throw ImmutableObjectException{"mgp_create_label_index is not supported on a virtual graph"};
+                }},
+            graph->impl);
         return index_res.has_value() ? 1 : 0;
       },
       result);
@@ -3322,7 +3325,17 @@ mgp_error mgp_drop_label_index(mgp_graph *graph, const char *label, int *result)
   return WrapExceptions(
       [graph, label]() {
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
-        const auto index_res = graph->getRealOnlyImpl("mgp_drop_label_index")->DropIndex(label_id);
+        const auto index_res =
+            std::visit(memgraph::utils::Overloaded{
+                           [label_id](memgraph::query::DbAccessor *impl) { return impl->DropIndex(label_id); },
+                           [label_id](memgraph::query::SubgraphDbAccessor *impl) {
+                             return impl->GetAccessor()->DropIndex(label_id);
+                           },
+                           [](memgraph::query::VirtualGraphDbAccessor *)
+                               -> std::expected<void, memgraph::storage::StorageIndexDefinitionError> {
+                             throw ImmutableObjectException{"mgp_drop_label_index is not supported on a virtual graph"};
+                           }},
+                       graph->impl);
         return index_res.has_value() ? 1 : 0;
       },
       result);
@@ -3330,7 +3343,14 @@ mgp_error mgp_drop_label_index(mgp_graph *graph, const char *label, int *result)
 
 mgp_error mgp_list_all_label_indices(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions([graph, memory, result]() {
-    const auto index_res = graph->getRealOnlyImpl("mgp_list_all_label_indices")->ListAllIndices().label;
+    const auto index_res = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label; },
+            [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->ListAllIndices().label; },
+            [](memgraph::query::VirtualGraphDbAccessor *) -> decltype(memgraph::storage::IndicesInfo{}.label) {
+              throw ImmutableObjectException{"mgp_list_all_label_indices is not supported on a virtual graph"};
+            }},
+        graph->impl);
     if (const auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Listing all label indices failed due to failure of creating list");
     }
@@ -3365,8 +3385,17 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
                      ranges::to<std::vector<memgraph::storage::PropertyId>>();
             },
             graph->impl);
-        const auto index_res =
-            graph->getRealOnlyImpl("mgp_create_label_property_index")->CreateIndex(label_id, {property_path});
+        const auto index_res = std::visit(
+            memgraph::utils::Overloaded{
+                [&](memgraph::query::DbAccessor *impl) { return impl->CreateIndex(label_id, {property_path}); },
+                [&](memgraph::query::SubgraphDbAccessor *impl) {
+                  return impl->GetAccessor()->CreateIndex(label_id, {property_path});
+                },
+                [](memgraph::query::VirtualGraphDbAccessor *)
+                    -> std::expected<void, memgraph::storage::StorageIndexDefinitionError> {
+                  throw ImmutableObjectException{"mgp_create_label_property_index is not supported on a virtual graph"};
+                }},
+            graph->impl);
         return index_res.has_value() ? 1 : 0;
       },
       result);
@@ -3387,8 +3416,17 @@ mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, con
             },
             graph->impl);
 
-        const auto index_res =
-            graph->getRealOnlyImpl("mgp_drop_label_property_index")->DropIndex(label_id, {property_path});
+        const auto index_res = std::visit(
+            memgraph::utils::Overloaded{
+                [&](memgraph::query::DbAccessor *impl) { return impl->DropIndex(label_id, {property_path}); },
+                [&](memgraph::query::SubgraphDbAccessor *impl) {
+                  return impl->GetAccessor()->DropIndex(label_id, {property_path});
+                },
+                [](memgraph::query::VirtualGraphDbAccessor *)
+                    -> std::expected<void, memgraph::storage::StorageIndexDefinitionError> {
+                  throw ImmutableObjectException{"mgp_drop_label_property_index is not supported on a virtual graph"};
+                }},
+            graph->impl);
         return index_res.has_value() ? 1 : 0;
       },
       result);
@@ -3431,8 +3469,17 @@ mgp_error create_and_append_label_property_to_mgp_list(
 
 mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions([graph, memory, result]() {
-    const auto index_res =
-        graph->getRealOnlyImpl("mgp_list_all_label_property_indices")->ListAllIndices().label_properties;
+    const auto index_res = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label_properties; },
+            [](memgraph::query::SubgraphDbAccessor *impl) {
+              return impl->GetAccessor()->ListAllIndices().label_properties;
+            },
+            [](memgraph::query::VirtualGraphDbAccessor *)
+                -> decltype(memgraph::storage::IndicesInfo{}.label_properties) {
+              throw ImmutableObjectException{"mgp_list_all_label_property_indices is not supported on a virtual graph"};
+            }},
+        graph->impl);
 
     if (const auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Listing all label+property indices failed due to failure of creating list");
@@ -3459,8 +3506,19 @@ mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, c
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
-        const auto exist_res =
-            graph->getRealOnlyImpl("mgp_create_existence_constraint")->CreateExistenceConstraint(label_id, property_id);
+        const auto exist_res = std::visit(
+            memgraph::utils::Overloaded{
+                [label_id, property_id](memgraph::query::DbAccessor *impl) {
+                  return impl->CreateExistenceConstraint(label_id, property_id);
+                },
+                [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                  return impl->GetAccessor()->CreateExistenceConstraint(label_id, property_id);
+                },
+                [](memgraph::query::VirtualGraphDbAccessor *)
+                    -> std::expected<void, memgraph::storage::StorageExistenceConstraintDefinitionError> {
+                  throw ImmutableObjectException{"mgp_create_existence_constraint is not supported on a virtual graph"};
+                }},
+            graph->impl);
         return exist_res.has_value() ? 1 : 0;
       },
       result);
@@ -3472,8 +3530,19 @@ mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, con
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
-        const auto exist_res =
-            graph->getRealOnlyImpl("mgp_drop_existence_constraint")->DropExistenceConstraint(label_id, property_id);
+        const auto exist_res = std::visit(
+            memgraph::utils::Overloaded{
+                [label_id, property_id](memgraph::query::DbAccessor *impl) {
+                  return impl->DropExistenceConstraint(label_id, property_id);
+                },
+                [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                  return impl->GetAccessor()->DropExistenceConstraint(label_id, property_id);
+                },
+                [](memgraph::query::VirtualGraphDbAccessor *)
+                    -> std::expected<void, memgraph::storage::StorageExistenceConstraintDroppingError> {
+                  throw ImmutableObjectException{"mgp_drop_existence_constraint is not supported on a virtual graph"};
+                }},
+            graph->impl);
         return exist_res.has_value() ? 1 : 0;
       },
       result);
@@ -3481,8 +3550,16 @@ mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, con
 
 mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions([graph, memory, result]() {
-    const auto constraint_res =
-        graph->getRealOnlyImpl("mgp_list_all_existence_constraints")->ListAllConstraints().existence;
+    const auto constraint_res = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return impl->ListAllConstraints().existence; },
+            [](memgraph::query::SubgraphDbAccessor *impl) {
+              return impl->GetAccessor()->ListAllConstraints().existence;
+            },
+            [](memgraph::query::VirtualGraphDbAccessor *) -> decltype(memgraph::storage::ConstraintsInfo{}.existence) {
+              throw ImmutableObjectException{"mgp_list_all_existence_constraints is not supported on a virtual graph"};
+            }},
+        graph->impl);
 
     if (const auto err = mgp_list_make_empty(constraint_res.size(), memory, result);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
@@ -3517,8 +3594,18 @@ mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_
               [prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
         }
 
-        const auto unique_res =
-            graph->getRealOnlyImpl("mgp_create_unique_constraint")->CreateUniqueConstraint(label_id, property_ids);
+        const auto unique_res = std::visit(
+            memgraph::utils::Overloaded{
+                [&](memgraph::query::DbAccessor *impl) { return impl->CreateUniqueConstraint(label_id, property_ids); },
+                [&](memgraph::query::SubgraphDbAccessor *impl) {
+                  return impl->GetAccessor()->CreateUniqueConstraint(label_id, property_ids);
+                },
+                [](memgraph::query::VirtualGraphDbAccessor *)
+                    -> std::expected<memgraph::storage::UniqueConstraints::CreationStatus,
+                                     memgraph::storage::StorageUniqueConstraintDefinitionError> {
+                  throw ImmutableObjectException{"mgp_create_unique_constraint is not supported on a virtual graph"};
+                }},
+            graph->impl);
         return unique_res.has_value() ? 1 : 0;
       },
       result);
@@ -3537,8 +3624,16 @@ mgp_error mgp_drop_unique_constraint(mgp_graph *graph, const char *label, mgp_li
               [prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
         }
 
-        const auto unique_res =
-            graph->getRealOnlyImpl("mgp_drop_unique_constraint")->DropUniqueConstraint(label_id, property_ids);
+        const auto unique_res = std::visit(
+            memgraph::utils::Overloaded{
+                [&](memgraph::query::DbAccessor *impl) { return impl->DropUniqueConstraint(label_id, property_ids); },
+                [&](memgraph::query::SubgraphDbAccessor *impl) {
+                  return impl->GetAccessor()->DropUniqueConstraint(label_id, property_ids);
+                },
+                [](memgraph::query::VirtualGraphDbAccessor *) -> memgraph::storage::UniqueConstraints::DeletionStatus {
+                  throw ImmutableObjectException{"mgp_drop_unique_constraint is not supported on a virtual graph"};
+                }},
+            graph->impl);
         return unique_res == memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS ? 1 : 0;
       },
       result);
@@ -3546,7 +3641,14 @@ mgp_error mgp_drop_unique_constraint(mgp_graph *graph, const char *label, mgp_li
 
 mgp_error mgp_list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions([graph, memory, result]() {
-    const auto constraints_res = graph->getRealOnlyImpl("mgp_list_all_unique_constraints")->ListAllConstraints().unique;
+    const auto constraints_res = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return impl->ListAllConstraints().unique; },
+            [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->ListAllConstraints().unique; },
+            [](memgraph::query::VirtualGraphDbAccessor *) -> decltype(memgraph::storage::ConstraintsInfo{}.unique) {
+              throw ImmutableObjectException{"mgp_list_all_unique_constraints is not supported on a virtual graph"};
+            }},
+        graph->impl);
 
     if (const auto err = mgp_list_make_empty(constraints_res.size(), memory, result);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
@@ -3914,7 +4016,16 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
 
 mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int *result) {
   return WrapExceptions([graph, index_name, result]() {
-    *result = graph->getRealOnlyImpl("mgp_graph_has_text_index")->TextIndexExists(index_name);
+    *result =
+        std::visit(memgraph::utils::Overloaded{
+                       [index_name](memgraph::query::DbAccessor *impl) { return impl->TextIndexExists(index_name); },
+                       [index_name](memgraph::query::SubgraphDbAccessor *impl) {
+                         return impl->GetAccessor()->TextIndexExists(index_name);
+                       },
+                       [](memgraph::query::VirtualGraphDbAccessor *) -> bool {
+                         throw ImmutableObjectException{"mgp_graph_has_text_index is not supported on a virtual graph"};
+                       }},
+                   graph->impl);
   });
 }
 
@@ -4611,12 +4722,12 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
     return;
   }
 
-  auto vertices = std::visit(
-      memgraph::utils::Overloaded{
-          [graph](memgraph::query::DbAccessor *impl) { return impl->Vertices(graph->view); },
-          [graph](memgraph::query::SubgraphDbAccessor *impl) { return impl->Vertices(graph->view); },
-          [](memgraph::query::VirtualGraphDbAccessor *) -> memgraph::query::VerticesIterable { std::unreachable(); }},
-      graph->impl);
+  auto vertices =
+      std::visit(memgraph::utils::Overloaded{
+                     [graph](memgraph::query::DbAccessor *impl) { return impl->Vertices(graph->view); },
+                     [graph](memgraph::query::SubgraphDbAccessor *impl) { return impl->Vertices(graph->view); },
+                     VirtualGraphUnreachable<memgraph::query::VerticesIterable>("mgp_vertices_iterator ctor")},
+                 graph->impl);
   auto &rc = cursor.emplace<RealCursor>(std::move(vertices));
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -4630,7 +4741,7 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
                    [&](memgraph::query::SubgraphDbAccessor *impl) {
                      current_v.emplace(memgraph::query::SubgraphVertexAccessor(va, impl->getGraph()), graph, alloc);
                    },
-                   [](memgraph::query::VirtualGraphDbAccessor *) { std::unreachable(); }},
+                   VirtualGraphUnreachable<void>("mgp_vertices_iterator ctor current_v")},
                graph->impl);
   }
 }
@@ -4714,7 +4825,7 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
                                                      it->graph,
                                                      it->GetMemoryResource());
                                                },
-                                               [](memgraph::query::VirtualGraphDbAccessor *) { std::unreachable(); }},
+                                               VirtualGraphUnreachable<void>("mgp_vertices_iterator_next real-cursor")},
                                            it->graph->impl);
                                 clean_up.Disable();
                                 return &*it->current_v;

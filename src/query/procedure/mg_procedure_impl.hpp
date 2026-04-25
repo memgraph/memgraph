@@ -841,10 +841,6 @@ struct mgp_graph {
         this->impl);
   }
 
-  // real-only variant of getImpl(); throws on virtual graphs so schema ops never hit
-  // the underlying real DB from within a virtual-graph-scoped proc call.
-  [[nodiscard]] memgraph::query::DbAccessor *getRealOnlyImpl(std::string_view fn_name) const;
-
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
     return mgp_graph{&acc, view, &ctx, acc.GetStorageMode()};
@@ -927,8 +923,7 @@ struct mgp_properties_iterator {
     PopulateCurrent();
   }
 
-  // Populate pvs directly from a range of (PropertyId, PropertyValue) pairs — avoids the
-  // intermediate std::map that a caller would otherwise construct with std::map{src.begin(), src.end()}.
+  // Populate pvs directly from a range of (PropertyId, PropertyValue) pairs
   mgp_properties_iterator(
       mgp_graph *graph,
       const memgraph::utils::pmr::unordered_map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> &src,
