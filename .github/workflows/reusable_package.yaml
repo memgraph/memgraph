@@ -15,6 +15,14 @@ on:
         type: string
         description: "Memgraph Build type. Default value is Release."
         default: Release
+      split_debug:
+        type: boolean
+        description: "Extract debug info into sidecar .debug files (requires RelWithDebInfo or Debug build type)."
+        default: false
+      image_flavour:
+        type: string
+        description: "Docker image flavour: 'prod' (stripped) or 'debug' (symbols embedded). Debug requires build_type=RelWithDebInfo."
+        default: prod
       additional_build_args:
         type: string
         description: "Additional build flags (--for-docker ...). Default value is empty."
@@ -120,7 +128,7 @@ jobs:
           if [[ "$ARCH" == 'arm' ]]; then
             artifact_name="${artifact_name}-aarch64"
           fi
-          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
+          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "${{ inputs.image_flavour }}" == 'debug' ]]; then
             artifact_name="${artifact_name}-relwithdebinfo"
           fi
           echo "ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
@@ -151,12 +159,16 @@ jobs:
 
       - name: "Build Memgraph binaries"
         run: |
+          SPLIT_DEBUG_ARG=""
+          if [[ "${{ inputs.split_debug }}" == "true" ]]; then
+            SPLIT_DEBUG_ARG="--split-debug"
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph $ADDITIONAL_BUILD_ARGS \
+          build-memgraph $ADDITIONAL_BUILD_ARGS $SPLIT_DEBUG_ARG \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -180,6 +192,21 @@ jobs:
           --package \
           --dest-dir $PACKAGE_ARTIFACT_DIR
 
+      - name: "Upload debug symbols"
+        if: ${{ inputs.split_debug }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-west-1
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          copy-debug-symbols \
+          --dest-dir build/debug-symbols
+          bash tools/ci/upload-debug-symbols.sh build/debug-symbols
+
       - name: "Copy SBOM"
         if: ${{ env.GENERATE_SBOM == 'true' }}
         run: |
@@ -191,7 +218,7 @@ jobs:
           --sbom
 
       - name: "Build heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.image_flavour == 'debug' && env.FOR_DOCKER == 'true' }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -200,7 +227,7 @@ jobs:
           build-heaptrack
 
       - name: "Copy heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.image_flavour == 'debug' && env.FOR_DOCKER == 'true' }}
         run: |
           mkdir -p release/docker
           ./release/package/mgbuild.sh \
@@ -274,6 +301,7 @@ jobs:
           --generate-sbom $GENERATE_SBOM \
           --malloc $malloc \
           --custom-mirror $USE_CUSTOM_MIRROR \
+          --image-flavour ${{ inputs.image_flavour }} \
           --keep-image-loaded ${{ inputs.run_smoke_tests }}
           image_archive="$(ls -1t "$DOCKER_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
           if [[ -z "$image_archive" ]]; then
@@ -316,7 +344,7 @@ jobs:
           # Test against the latest release version
           last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
           last_version="${last_version#v}"
-          if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+          if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "${{ inputs.image_flavour }}" == "debug" ]]; then
             last_version="${last_version}-relwithdebinfo"
           fi
           echo "Resolved LAST_VERSION=$last_version"
@@ -364,7 +392,7 @@ jobs:
           # determine new name
           if [ "$FOR_DOCKER" == "true" ]; then
             new_name="memgraph-${tag}_pr${pr}_${commit}"
-            if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
+            if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "${{ inputs.image_flavour }}" == 'debug' ]]; then
               new_name="${new_name}-relwithdebinfo"
             fi
             new_name="${new_name}-docker.tar.gz"
@@ -414,7 +442,7 @@ jobs:
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
 
       - name: Clean up heaptrack
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.image_flavour == 'debug' && env.FOR_DOCKER == 'true' }}
         run: |
           rm -rf release/docker/heaptrack
 

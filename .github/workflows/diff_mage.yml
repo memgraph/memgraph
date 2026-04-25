@@ -30,7 +30,8 @@ on:
         type: string
 
 env:
-  BUILD_TYPE: 'Release'
+  # BUILD_TYPE is kept for posterity; actual build_type flows through reusable inputs.
+  BUILD_TYPE: 'RelWithDebInfo'
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
@@ -89,6 +90,9 @@ jobs:
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: amd
+      build_type: RelWithDebInfo
+      split_debug: true
+      image_flavour: prod
       push_to_github: false
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
@@ -103,6 +107,9 @@ jobs:
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: arm
+      build_type: RelWithDebInfo
+      split_debug: true
+      image_flavour: prod
       push_to_github: false
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
@@ -117,6 +124,9 @@ jobs:
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: amd
+      build_type: RelWithDebInfo
+      split_debug: true
+      image_flavour: prod
       push_to_github: false
       push_to_s3: false
       run_tests: true

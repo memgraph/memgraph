@@ -85,6 +85,10 @@ if(lower_build_type STREQUAL "release")
                 COMMENT "Stripping symbols and sections from memgraph")
 endif()
 
+# When MG_SPLIT_DEBUG is enabled, extract debug info into memgraph.debug and
+# strip the binary via objcopy. Valid only with RelWithDebInfo/Debug builds.
+mg_split_debug(memgraph)
+
 # Generate the configuration file under the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py

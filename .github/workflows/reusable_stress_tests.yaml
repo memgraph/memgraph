@@ -51,7 +51,7 @@ jobs:
       TOOLCHAIN: v7
       ARCH: amd
       THREADS: 24
-      BUILD_TYPE: Release
+      BUILD_TYPE: RelWithDebInfo
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -87,6 +87,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           build-memgraph \
+          --split-debug \
           --conan-remote ${{ secrets.CONAN_REMOTE }} \
           --conan-username ${{ secrets.CONAN_USERNAME }} \
           --conan-password ${{ secrets.CONAN_PASSWORD }}
@@ -150,7 +151,7 @@ jobs:
       TOOLCHAIN: v7
       ARCH: amd
       THREADS: 24
-      BUILD_TYPE: Release
+      BUILD_TYPE: RelWithDebInfo
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -186,6 +187,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           build-memgraph \
+          --split-debug \
           --conan-remote ${{ secrets.CONAN_REMOTE }} \
           --conan-username ${{ secrets.CONAN_USERNAME }} \
           --conan-password ${{ secrets.CONAN_PASSWORD }}
