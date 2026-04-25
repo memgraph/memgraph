@@ -11,6 +11,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <optional>
 #include <range/v3/all.hpp>
 
 #include "storage/v2/id_types.hpp"
@@ -51,7 +52,7 @@ auto PropertyValuesUpdate_ActionMethod(PropertiesPermutationHelper const &helper
 
 /** Converts a span of `PropertyPaths` into a comma-separated string.
  */
-[[maybe_unused]] // Currently only used in DMG_ASSERT, maybe_unused to get rid of warning
+[[maybe_unused]]  // Currently only used in DMG_ASSERT, maybe_unused to get rid of warning
 auto JoinPropertiesAsString(std::span<PropertyPath const> properties) -> std::string {
   auto const make_nested = [](std::span<PropertyId const> path) {
     return utils::Join(path | ranges::views::transform(&PropertyId::AsUint) |
@@ -60,6 +61,25 @@ auto JoinPropertiesAsString(std::span<PropertyPath const> properties) -> std::st
   };
 
   return utils::Join(properties | rv::transform([&](auto &&path) { return make_nested(path); }), ", ");
+}
+
+bool AnyNonNull(auto const &values) {
+  return r::any_of(values, [](auto &&v) { return !v.IsNull(); });
+}
+
+// Erase the contiguous run of skiplist entries for `vertex` at the given key.
+// Entries are sorted by (values, vertex, timestamp), so all entries with this
+// (values, vertex) pair are adjacent regardless of ASC/DESC ordering (the
+// reversal only affects the values comparison, not equal-key neighbours).
+template <typename Acc>
+void EraseEntriesAtKey(Acc &acc, IndexOrderedPropertyValues const &values, Vertex *vertex) {
+  using EntryT = typename Acc::value_type;
+  for (auto it = acc.find_equal_or_greater(EntryT{values, vertex, 0});
+       it != acc.end() && it->vertex == vertex && it->values == values;) {
+    auto const next_it = std::next(it);
+    acc.remove(*it);
+    it = next_it;
+  }
 }
 
 // Helper function for iterating through label-property index. Returns true if
@@ -577,7 +597,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
     for (auto &[props, index] : it->second | rv::filter(relevant_index)) {
       auto &[permutations_helper, skiplist, status] = *index;
       auto values = permutations_helper.Extract(vertex_after_update->properties);
-      if (r::any_of(values, [](auto &&val) { return !val.IsNull(); })) {
+      if (AnyNonNull(values)) {
         auto acc = skiplist.access();
         acc.insert({permutations_helper.ApplyPermutation(std::move(values)), vertex_after_update, tx.start_timestamp});
       }
@@ -587,9 +607,45 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
   index_container_->ForEachIndicesMap(insert_into);
 }
 
-void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value,
-                                                                    Vertex *vertex, const Transaction &tx) {
+void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update,
+                                                                    const Transaction &tx) {
+  // In transactional mode the stale entry is reclaimed by CollectGarbage's
+  // skiplist-cleanup sweep once oldest_active_start_timestamp advances past
+  // the removal. In IN_MEMORY_ANALYTICAL no MVCC reader could observe it, and
+  // that sweep is gated on vertex deletions — so reclaim eagerly here.
+  if (tx.storage_mode != StorageMode::IN_MEMORY_ANALYTICAL) return;
+
+  auto const prop_ids = vertex_before_update->properties.ExtractPropertyIds();
+
+  auto const relevant_index = [&](auto &&each) {
+    auto &[index_props, _] = each;
+    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(prop_ids, index_prop); };
+    return r::any_of(index_props[0], vector_has_property);
+  };
+
+  auto const remove_from = [&](auto &indices_map) {
+    auto const it = indices_map.find(removed_label);
+    if (it == indices_map.cend()) return;
+    for (auto &[props, index] : it->second | rv::filter(relevant_index)) {
+      auto values = index->permutations_helper.Extract(vertex_before_update->properties);
+      if (!AnyNonNull(values)) continue;
+      auto acc = index->skiplist.access();
+      EraseEntriesAtKey(acc, index->permutations_helper.ApplyPermutation(std::move(values)), vertex_before_update);
+    }
+  };
+
+  index_container_->ForEachIndicesMap(remove_from);
+}
+
+void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value,
+                                                                    const PropertyValue & /*new_value*/, Vertex *vertex,
+                                                                    const Transaction &tx) {
   auto const has_label = [&](auto &&each) { return r::contains(vertex->labels, each.first); };
+
+  // IN_MEMORY_ANALYTICAL has no MVCC visibility to preserve, so reclaim the
+  // stale entry eagerly. CollectGarbage's sweep is gated on vertex deletions
+  // and never runs for a pure property overwrite.
+  const bool analytical = tx.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL;
 
   auto const update_from_reverse_lookup = [&](auto &reverse_lookup) {
     auto const it = reverse_lookup.find(property);
@@ -604,9 +660,26 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
     for (auto &lookup : it->second | rv::filter(relevant_index)) {
       auto &[property_ids, index] = lookup.second;
       auto values = index->permutations_helper.Extract(vertex->properties);
-      if (r::any_of(values, [](auto &&value) { return !value.IsNull(); })) {
-        auto acc = index->skiplist.access();
-        acc.insert({index->permutations_helper.ApplyPermutation(std::move(values)), vertex, tx.start_timestamp});
+
+      // Defer accessor construction (an AllocateId / ReleaseId pair) until we
+      // know we'll touch the skiplist. The all-null overwrite path skips it.
+      using AccT = decltype(index->skiplist.access());
+      std::optional<AccT> acc;
+      auto with_acc = [&]() -> AccT & {
+        if (!acc) acc.emplace(index->skiplist.access());
+        return *acc;
+      };
+
+      if (analytical) [[unlikely]] {
+        auto old_values = values;
+        index->permutations_helper.Update(property, old_value, old_values);
+        if (AnyNonNull(old_values)) {
+          EraseEntriesAtKey(with_acc(), index->permutations_helper.ApplyPermutation(std::move(old_values)), vertex);
+        }
+      }
+
+      if (AnyNonNull(values)) {
+        with_acc().insert({index->permutations_helper.ApplyPermutation(std::move(values)), vertex, tx.start_timestamp});
       }
     }
   };

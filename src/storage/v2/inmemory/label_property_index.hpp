@@ -325,10 +325,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
-    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override {}
+    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override;
 
-    void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                             const Transaction &tx) override;
+    void UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                             Vertex *vertex, const Transaction &tx) override;
 
     bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
 
