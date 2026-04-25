@@ -41,6 +41,7 @@
 #include <cstdint>
 #include <optional>
 #include <ranges>
+#include <span>
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -48,6 +49,8 @@
 namespace memgraph::query {
 
 class Graph;
+class VirtualGraph;
+class VirtualNode;
 
 class SubgraphVertexAccessor final {
  public:
@@ -77,9 +80,7 @@ class SubgraphVertexAccessor final {
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(view, key);
-  }
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const;
 
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
     return impl_.GetPropertySize(key, view);
@@ -1155,6 +1156,38 @@ class SubgraphDbAccessor final {
   std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view);
 
   Graph *getGraph();
+
+  storage::StorageMode GetStorageMode() const noexcept;
+
+  DbAccessor *GetAccessor();
+};
+
+class VirtualGraphDbAccessor final {
+  DbAccessor db_accessor_;
+  VirtualGraph *graph_;
+
+ public:
+  explicit VirtualGraphDbAccessor(DbAccessor db_accessor, VirtualGraph *graph);
+
+  void TrackCurrentThreadAllocations();
+
+  void UntrackCurrentThreadAllocations();
+
+  storage::PropertyId NameToProperty(std::string_view name);
+
+  storage::LabelId NameToLabel(std::string_view name);
+
+  storage::EdgeTypeId NameToEdgeType(std::string_view name);
+
+  const std::string &PropertyToName(storage::PropertyId prop) const;
+
+  const std::string &LabelToName(storage::LabelId label) const;
+
+  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const;
+
+  [[nodiscard]] std::shared_ptr<const VirtualNode> FindNode(storage::Gid synthetic_gid) const;
+
+  [[nodiscard]] VirtualGraph *getGraph() const;
 
   storage::StorageMode GetStorageMode() const noexcept;
 

@@ -72,8 +72,11 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case TypedValue::Type::Map:
       case TypedValue::Type::Vertex:
       case TypedValue::Type::Edge:
+      case TypedValue::Type::VirtualEdge:
+      case TypedValue::Type::VirtualNode:
       case TypedValue::Type::Path:
       case TypedValue::Type::Graph:
+      case TypedValue::Type::VirtualGraph:
       case TypedValue::Type::Function:
         throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
     }
@@ -103,6 +106,8 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case TypedValue::Type::Map:
       case TypedValue::Type::Vertex:
       case TypedValue::Type::Edge:
+      case TypedValue::Type::VirtualEdge:
+      case TypedValue::Type::VirtualNode:
       case TypedValue::Type::Path:
       case TypedValue::Type::Date:
       case TypedValue::Type::LocalTime:
@@ -113,6 +118,7 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case TypedValue::Type::Point2d:
       case TypedValue::Type::Point3d:
       case TypedValue::Type::Graph:
+      case TypedValue::Type::VirtualGraph:
       case TypedValue::Type::Function:
         LOG_FATAL("Invalid type");
     }

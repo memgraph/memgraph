@@ -21,8 +21,10 @@
 #include "disk_test_utils.hpp"
 #include "mg_procedure.h"
 #include "query/db_accessor.hpp"
+#include "query/graph.hpp"
 #include "query/plan/operator.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "query/virtual_graph.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -96,23 +98,21 @@ size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable, TIterableAccessor fu
 
 ;
 
+auto VisitInEdges(const MgpVertexPtr &v) {
+  return v->VisitReal([](const auto &impl) { return impl.InEdges(memgraph::storage::View::NEW); });
+}
+
+auto VisitOutEdges(const MgpVertexPtr &v) {
+  return v->VisitReal([](const auto &impl) { return impl.OutEdges(memgraph::storage::View::NEW); });
+}
+
 void CheckEdgeCountBetween(const MgpVertexPtr &from, const MgpVertexPtr &to, const size_t number_of_edges_between) {
-  EXPECT_EQ(
-      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, from->impl),
-                          [](const auto &edge_result) { return edge_result.edges; }),
-      0);
-  EXPECT_EQ(
-      CountMaybeIterables(std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, from->impl),
-                          [](const auto &edge_result) { return edge_result.edges; }),
-      number_of_edges_between);
-  EXPECT_EQ(
-      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, to->impl),
-                          [](const auto &edge_result) { return edge_result.edges; }),
-      number_of_edges_between);
-  EXPECT_EQ(
-      CountMaybeIterables(std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, to->impl),
-                          [](const auto &edge_result) { return edge_result.edges; }),
-      0);
+  EXPECT_EQ(CountMaybeIterables(VisitInEdges(from), [](const auto &edge_result) { return edge_result.edges; }), 0);
+  EXPECT_EQ(CountMaybeIterables(VisitOutEdges(from), [](const auto &edge_result) { return edge_result.edges; }),
+            number_of_edges_between);
+  EXPECT_EQ(CountMaybeIterables(VisitInEdges(to), [](const auto &edge_result) { return edge_result.edges; }),
+            number_of_edges_between);
+  EXPECT_EQ(CountMaybeIterables(VisitOutEdges(to), [](const auto &edge_result) { return edge_result.edges; }), 0);
 }
 }  // namespace
 
@@ -701,4 +701,123 @@ TYPED_TEST(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
   MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 65, &this->memory)};
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_edge_underlying_graph_is_mutable, edge.get()), 0);
   EXPECT_EQ(mgp_edge_set_property(edge.get(), "property", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+}
+
+TYPED_TEST(MgpGraphTest, VirtualGraphNodeIntegration) {
+  auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+  const auto score_id = dba.NameToProperty("score");
+
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  const auto vn1_gid = vg.InsertNode(memgraph::query::VirtualNode({"Expert", "Analyst"},
+                                                                  {{score_id, memgraph::storage::PropertyValue(99)}}))
+                           .Gid();
+  const auto vn2_gid = vg.InsertNode(memgraph::query::VirtualNode({"Novice"}, {})).Gid();
+
+  EXPECT_EQ(vg.nodes().size(), 2);
+
+  const auto found = vg.FindNode(vn1_gid);
+  ASSERT_NE(found, nullptr);
+  EXPECT_EQ(found->Labels().size(), 2);
+  EXPECT_EQ(found->Labels()[0], "Expert");
+  EXPECT_EQ(found->Labels()[1], "Analyst");
+  EXPECT_EQ(found->GetProperty(score_id), memgraph::storage::PropertyValue(99));
+
+  const auto found2 = vg.FindNode(vn2_gid);
+  ASSERT_NE(found2, nullptr);
+  EXPECT_EQ(found2->Labels().size(), 1);
+  EXPECT_TRUE(found2->GetProperty(score_id).IsNull());
+}
+
+TYPED_TEST(MgpGraphTest, VertexIteratorYieldsVirtualNodes) {
+  auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  const auto score_id = dba.NameToProperty("score");
+  vg.InsertNode(memgraph::query::VirtualNode({"A"}, {{score_id, memgraph::storage::PropertyValue(10)}}));
+  vg.InsertNode(memgraph::query::VirtualNode({"B"}, {{score_id, memgraph::storage::PropertyValue(20)}}));
+
+  memgraph::query::VirtualGraphDbAccessor vg_acc(dba, &vg);
+  auto graph = mgp_graph{
+      &vg_acc, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+  auto *it = EXPECT_MGP_NO_ERROR(mgp_vertices_iterator *, mgp_graph_iter_vertices, &graph, &this->memory);
+  ASSERT_NE(it, nullptr);
+
+  auto *first = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_get, it);
+  ASSERT_NE(first, nullptr);
+  EXPECT_TRUE(first->IsVirtual());
+
+  auto *second = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_next, it);
+  ASSERT_NE(second, nullptr);
+  EXPECT_TRUE(second->IsVirtual());
+
+  auto *third = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_next, it);
+  EXPECT_EQ(third, nullptr);
+
+  mgp_vertices_iterator_destroy(it);
+}
+
+TYPED_TEST(MgpGraphTest, VirtualOnlyScopeHidesRealVerticesAndEdges) {
+  auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("REAL")).has_value());
+
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  const auto synth_gid = vg.InsertNode(memgraph::query::VirtualNode({"V"}, {})).Gid();
+
+  memgraph::query::VirtualGraphDbAccessor vg_acc(dba, &vg);
+  auto graph = mgp_graph{
+      &vg_acc, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+  size_t vcount = 0;
+  size_t ecount = 0;
+  EXPECT_SUCCESS(mgp_graph_approximate_vertex_count(&graph, &vcount));
+  EXPECT_SUCCESS(mgp_graph_approximate_edge_count(&graph, &ecount));
+  EXPECT_EQ(vcount, 1);
+  EXPECT_EQ(ecount, 0);
+
+  MgpVertexPtr by_real{EXPECT_MGP_NO_ERROR(
+      mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{v1.Gid().AsInt()}, &this->memory)};
+  EXPECT_EQ(by_real, nullptr);
+  MgpVertexPtr by_synth{EXPECT_MGP_NO_ERROR(
+      mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{synth_gid.AsInt()}, &this->memory)};
+  ASSERT_NE(by_synth, nullptr);
+  EXPECT_TRUE(by_synth->IsVirtual());
+
+  auto *it = EXPECT_MGP_NO_ERROR(mgp_vertices_iterator *, mgp_graph_iter_vertices, &graph, &this->memory);
+  auto *first = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_get, it);
+  ASSERT_NE(first, nullptr);
+  EXPECT_TRUE(first->IsVirtual());
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_next, it), nullptr);
+  mgp_vertices_iterator_destroy(it);
+}
+
+TYPED_TEST(MgpGraphTest, VirtualNodeRejectsPropertyWrites) {
+  auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  const auto synth_gid = vg.InsertNode(memgraph::query::VirtualNode({}, {})).Gid();
+
+  memgraph::query::VirtualGraphDbAccessor vg_acc(dba, &vg);
+  auto graph = mgp_graph{
+      &vg_acc, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+  MgpVertexPtr v{EXPECT_MGP_NO_ERROR(
+      mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{synth_gid.AsInt()}, &this->memory)};
+  ASSERT_NE(v, nullptr);
+
+  MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 42, &this->memory)};
+  EXPECT_EQ(mgp_vertex_set_property(v.get(), "x", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+}
+
+TYPED_TEST(MgpGraphTest, VirtualOnlyScopeRejectsMutations) {
+  auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  memgraph::query::VirtualGraphDbAccessor vg_acc(dba, &vg);
+  mgp_graph graph{
+      &vg_acc, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_graph_is_mutable, &graph), 0);
+  mgp_vertex *raw_vertex{};
+  EXPECT_EQ(mgp_graph_create_vertex(&graph, &this->memory, &raw_vertex), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 }

@@ -115,6 +115,42 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
   return ToBoltEdge(edge.impl_, db, view);
 }
 
+namespace {
+communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db) {
+  auto id = communication::bolt::Id::FromUint(ve.Gid().AsUint());
+  auto from = communication::bolt::Id::FromUint(ve.FromGid().AsUint());
+  auto to = communication::bolt::Id::FromUint(ve.ToGid().AsUint());
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : ve.Properties()) {
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  auto element_id = std::to_string(id.AsInt());
+  auto from_element_id = std::to_string(from.AsInt());
+  auto to_element_id = std::to_string(to.AsInt());
+  return communication::bolt::Edge{id,
+                                   from,
+                                   to,
+                                   std::string{ve.EdgeTypeName()},
+                                   std::move(properties),
+                                   std::move(element_id),
+                                   std::move(from_element_id),
+                                   std::move(to_element_id)};
+}
+
+communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db) {
+  auto id = communication::bolt::Id::FromUint(node.Gid().AsUint());
+  std::vector<std::string> labels;
+  labels.reserve(node.Labels().size());
+  for (const auto &label : node.Labels()) labels.emplace_back(label);
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : node.Properties()) {
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  auto element_id = std::to_string(id.AsInt());
+  return communication::bolt::Vertex{id, std::move(labels), std::move(properties), std::move(element_id)};
+}
+}  // namespace
+
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
   auto check_db = [db]() {
     if (db == nullptr) [[unlikely]]
@@ -190,6 +226,11 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       if (!maybe_graph) return std::unexpected{maybe_graph.error()};
       return storage::Result<Value>{std::in_place, std::move(*maybe_graph)};
     }
+    case query::TypedValue::Type::VirtualGraph: {
+      check_db();
+      auto maybe_vg = ToBoltVirtualGraph(value.ValueVirtualGraph(), *db);
+      return storage::Result<Value>{std::in_place, std::move(maybe_vg)};
+    }
     case query::TypedValue::Type::Enum: {
       check_db();
       auto maybe_enum_value_str = db->enum_store_.ToString(value.ValueEnum());
@@ -206,6 +247,16 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     }
     case query::TypedValue::Type::Point3d: {
       return storage::Result<Value>{std::in_place, value.ValuePoint3d()};
+    }
+
+    case query::TypedValue::Type::VirtualEdge: {
+      check_db();
+      return storage::Result<Value>{std::in_place, ToBoltEdge(value.ValueVirtualEdge(), *db)};
+    }
+
+    case query::TypedValue::Type::VirtualNode: {
+      check_db();
+      return storage::Result<Value>{std::in_place, ToBoltVertex(value.ValueVirtualNode(), *db)};
     }
 
     // Unsupported conversions
@@ -296,6 +347,25 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
   map.emplace("edges", Value(edges));
 
   return std::move(map);
+}
+
+bolt_map_t ToBoltVirtualGraph(const query::VirtualGraph &vg, const storage::Storage &db) {
+  bolt_map_t map;
+  std::vector<Value> nodes;
+  nodes.reserve(vg.nodes().size());
+  for (const auto &[gid, vn] : vg.nodes()) {
+    nodes.emplace_back(ToBoltVertex(*vn, db));
+  }
+  map.emplace("nodes", Value(std::move(nodes)));
+
+  std::vector<Value> edges;
+  edges.reserve(vg.edges().size());
+  for (const auto &ve : vg.edges()) {
+    edges.emplace_back(ToBoltEdge(ve, db));
+  }
+  map.emplace("edges", Value(std::move(edges)));
+
+  return map;
 }
 
 storage::ExternalPropertyValue ToExternalPropertyValue(communication::bolt::Value const &value,
