@@ -4137,6 +4137,13 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   auto *index_query = utils::Downcast<IndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
+  if (index_query->name_) {
+    notifications->emplace_back(
+        SeverityLevel::WARNING,
+        NotificationCode::INDEX_CONSTRAINT_NAME_IGNORED,
+        fmt::format("Index name '{}' is ignored. Memgraph does not support named indices.", *index_query->name_));
+  }
+
   // TODO: we will need transaction for replication
   MG_ASSERT(current_db.db_acc_, "Index query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
@@ -4255,6 +4262,13 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
 
   auto *index_query = utils::Downcast<EdgeIndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
+
+  if (index_query->name_) {
+    notifications->emplace_back(
+        SeverityLevel::WARNING,
+        NotificationCode::INDEX_CONSTRAINT_NAME_IGNORED,
+        fmt::format("Index name '{}' is ignored. Memgraph does not support named indices.", *index_query->name_));
+  }
 
   MG_ASSERT(current_db.db_acc_, "Index query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
@@ -7001,6 +7015,14 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
   auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
+
+  if (constraint_query->name_) {
+    notifications->emplace_back(
+        SeverityLevel::WARNING,
+        NotificationCode::INDEX_CONSTRAINT_NAME_IGNORED,
+        fmt::format("Constraint name '{}' is ignored. Memgraph does not support named constraints.",
+                    *constraint_query->name_));
+  }
 
   auto label = storage->NameToLabel(constraint_query->constraint_.label.name);
   std::vector<storage::PropertyId> properties;
