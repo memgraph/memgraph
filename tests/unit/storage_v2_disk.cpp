@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,6 @@
 #include <gtest/gtest.h>
 
 #include "disk_test_utils.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/file.hpp"
 
@@ -22,7 +21,7 @@ TEST_F(DiskStorageTest, CreateDiskStorageInDataDirectory) {
   const std::string testSuite = "storage_v2_disk";
 
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
-  auto storage = std::make_unique<memgraph::storage::DiskStorage>(config);
+  auto storage = disk_test_utils::CreateDiskStorage(config);
   ASSERT_TRUE(memgraph::utils::DirExists(config.disk.main_storage_directory));
 
   disk_test_utils::RemoveRocksDbDirs(testSuite);

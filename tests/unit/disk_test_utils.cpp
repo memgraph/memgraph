@@ -13,8 +13,10 @@
 
 #include <rocksdb/utilities/transaction_db.h>
 #include <filesystem>
+#include <memory>
 
 #include "dbms/constants.hpp"
+#include "storage/v2/disk/storage.hpp"
 
 namespace disk_test_utils {
 
@@ -45,6 +47,10 @@ uint64_t GetRealNumberOfEntriesInRocksDB(rocksdb::TransactionDB *disk_storage) {
   uint64_t num_keys = 0;
   disk_storage->GetAggregatedIntProperty("rocksdb.estimate-num-keys", &num_keys);
   return num_keys;
+}
+
+std::unique_ptr<memgraph::storage::Storage> CreateDiskStorage(memgraph::storage::Config config) {
+  return std::make_unique<memgraph::storage::DiskStorage>(std::move(config));
 }
 
 }  // namespace disk_test_utils

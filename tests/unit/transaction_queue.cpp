@@ -21,6 +21,7 @@
 #include "interpreter_faker.hpp"
 #include "query/context.hpp"
 #include "query/interpreter_context.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 /*
