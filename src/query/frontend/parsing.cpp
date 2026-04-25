@@ -14,6 +14,7 @@
 #include <cctype>
 #include <charconv>
 #include <exception>
+#include <limits>
 #include <stdexcept>
 #include <system_error>
 
@@ -26,9 +27,20 @@ namespace memgraph::query::frontend {
 
 int64_t ParseIntegerLiteral(const std::string &s) {
   try {
-    // Not really correct since long long can have a bigger range than int64_t.
-    return static_cast<int64_t>(std::stoll(s, 0, 0));
+    return static_cast<int64_t>(std::stoll(s, nullptr, 0));
   } catch (const std::out_of_range &) {
+    // unary minus is a separate operator, so INT64_MIN's magnitude (2^63)
+    // arrives here as an unsigned overflow. Accept just that value; the visitor's
+    // visitExpression4 special case binds it to the leading minus instead of
+    // re-negating it.
+    try {
+      const auto magnitude = std::stoull(s, nullptr, 0);
+      if (magnitude == static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1U) {
+        return std::numeric_limits<int64_t>::min();
+      }
+    } catch (const std::out_of_range &) {
+      // fall through to the rethrow below
+    }
     throw SemanticException("Integer literal exceeds 64 bits.");
   }
 }

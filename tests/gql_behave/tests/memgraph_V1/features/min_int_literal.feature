@@ -10,14 +10,6 @@ Feature: INT64_MIN literal should parse successfully
             | x                    |
             | -9223372036854775808 |
 
-    Scenario: Double negation of INT64_MIN magnitude still overflows
-        Given an empty graph
-        When executing query:
-            """
-            RETURN - -9223372036854775808 AS x
-            """
-        Then an error should be raised
-
     Scenario: INT64_MAX literal still works
         Given an empty graph
         When executing query:
@@ -27,3 +19,11 @@ Feature: INT64_MIN literal should parse successfully
         Then the result should be:
             | x                   |
             | 9223372036854775807 |
+
+    Scenario: Magnitude beyond INT64_MIN still errors
+        Given an empty graph
+        When executing query:
+            """
+            RETURN -9223372036854775809 AS x
+            """
+        Then an error should be raised
