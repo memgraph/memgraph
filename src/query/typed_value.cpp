@@ -1606,22 +1606,40 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
       const auto &list_a = a.ValueList();
       const auto &list_b = b.ValueList();
       if (list_a.size() != list_b.size()) return TypedValue(false, a.alloc_);
+      // Per openCypher 9: list equality is the conjunction of element-wise `=`.
+      // In three-valued logic `false ∧ null = false`, so a definite mismatch
+      // dominates over null; only return null when no element compared false.
+      bool seen_null = false;
       for (size_t i = 0; i < list_a.size(); ++i) {
         TypedValue eq = list_a[i] == list_b[i];
-        if (!eq.IsBool() || !eq.ValueBool()) return eq;
+        if (eq.IsNull()) {
+          seen_null = true;
+          continue;
+        }
+        if (!eq.ValueBool()) return TypedValue(false, a.alloc_);
       }
+      if (seen_null) return TypedValue(a.alloc_);
       return TypedValue(true, a.alloc_);
     }
     case TypedValue::Type::Map: {
       const auto &map_a = a.ValueMap();
       const auto &map_b = b.ValueMap();
       if (map_a.size() != map_b.size()) return TypedValue(false, a.alloc_);
+      // Per openCypher 9: map equality is the conjunction of `m1.k = m2.k` for every key.
+      // Since `null = null` is null, propagate null when any nested comparison is null
+      // (matching the List branch above).
+      bool seen_null = false;
       for (const auto &kv_a : map_a) {
         auto found_b_it = map_b.find(kv_a.first);
         if (found_b_it == map_b.end()) return TypedValue(false, a.alloc_);
-        TypedValue comparison = kv_a.second == found_b_it->second;
-        if (comparison.IsNull() || !comparison.ValueBool()) return TypedValue(false, a.alloc_);
+        TypedValue eq = kv_a.second == found_b_it->second;
+        if (eq.IsNull()) {
+          seen_null = true;
+          continue;
+        }
+        if (!eq.ValueBool()) return TypedValue(false, a.alloc_);
       }
+      if (seen_null) return TypedValue(a.alloc_);
       return TypedValue(true, a.alloc_);
     }
     case TypedValue::Type::Path:
@@ -1922,11 +1940,44 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
 }
 
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
-  if (lhs.IsNull() && rhs.IsNull()) return true;
-  TypedValue equality_result = lhs == rhs;
-  DMG_ASSERT(equality_result.type() == TypedValue::Type::Bool || equality_result.type() == TypedValue::Type::Null,
-             "Equality between two TypedValues must result in either Null or Bool");
-  return equality_result.type() == TypedValue::Type::Bool && equality_result.ValueBool();
+  // Equivalence per openCypher 9 CIP "Define comparability and equality as well as
+  // orderability and equivalence": identical to equality except that any two null
+  // values are equivalent (both directly and inside nested structures).
+  // Used by DISTINCT, GROUP BY and hash-based set membership where null grouping
+  // keys must collapse together.
+  if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && rhs.IsNull();
+
+  if (lhs.type() != rhs.type() && !(lhs.IsNumeric() && rhs.IsNumeric())) {
+    return false;
+  }
+
+  switch (lhs.type()) {
+    case TypedValue::Type::List: {
+      const auto &la = lhs.ValueList();
+      const auto &lb = rhs.ValueList();
+      if (la.size() != lb.size()) return false;
+      for (size_t i = 0; i < la.size(); ++i) {
+        if (!(*this)(la[i], lb[i])) return false;
+      }
+      return true;
+    }
+    case TypedValue::Type::Map: {
+      const auto &ma = lhs.ValueMap();
+      const auto &mb = rhs.ValueMap();
+      if (ma.size() != mb.size()) return false;
+      for (const auto &kv : ma) {
+        auto it = mb.find(kv.first);
+        if (it == mb.end()) return false;
+        if (!(*this)(kv.second, it->second)) return false;
+      }
+      return true;
+    }
+    default: {
+      TypedValue eq = lhs == rhs;
+      DMG_ASSERT(eq.IsBool() || eq.IsNull(), "Equality between two TypedValues must result in either Null or Bool");
+      return eq.IsBool() && eq.ValueBool();
+    }
+  }
 }
 
 size_t TypedValue::Hash::operator()(const TypedValue &value) const {

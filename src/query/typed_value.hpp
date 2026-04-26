@@ -616,31 +616,16 @@ class TypedValue {
    * @throw TypedValueException if the values cannot be compared, i.e. they are
    *        not either Null, numeric or a character string type.
    */
-  // For ordering operators: if < returns null (incomparable), all ordering operators return null
-  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) {
-    TypedValue lt = a < b;
-    if (lt.IsNull()) return lt;
-    if (lt.ValueBool()) return lt;  // a < b is true, so a <= b is true
-    return a == b;                  // a < b is false, check equality
-  }
+  // For ordering operators: when `<` returns null (null operand, NaN, incomparable
+  // types, or types like Duration), `!` propagates null per three-valued logic, so
+  // all four operators correctly yield null. Defining via a single `<` call also
+  // avoids the redundant element-walk that `(a<b) || (a==b)` would do for
+  // containers.
+  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return !(b < a); }
 
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null or incomparable.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   */
   friend TypedValue operator>(const TypedValue &a, const TypedValue &b) { return b < a; }
 
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null or incomparable.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   */
-  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return b <= a; }
+  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return !(a < b); }
 
   // arithmetic operators
 

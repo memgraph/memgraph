@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <range/v3/view/zip.hpp>
 #include "query/exceptions.hpp"
@@ -85,6 +86,7 @@ constexpr int TypeOrderRank(TypedValue::Type type) {
     case TypedValue::Type::Null:
       return 17;
   }
+  std::unreachable();
 }
 
 std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b) {
