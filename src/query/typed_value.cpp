@@ -1941,14 +1941,23 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
 
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
   // Equivalence per openCypher 9 CIP "Define comparability and equality as well as
-  // orderability and equivalence": identical to equality except that any two null
-  // values are equivalent (both directly and inside nested structures).
-  // Used by DISTINCT, GROUP BY and hash-based set membership where null grouping
-  // keys must collapse together.
+  // orderability and equivalence": identical to equality except that the relation
+  // is reflexive — any two nulls are equivalent (recursively into containers),
+  // and NaN is equivalent to NaN even though IEEE-754 says NaN == NaN is false.
+  // Used by DISTINCT, GROUP BY and hash-based set membership where null and NaN
+  // grouping keys must collapse together.
   if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && rhs.IsNull();
 
   if (lhs.type() != rhs.type() && !(lhs.IsNumeric() && rhs.IsNumeric())) {
     return false;
+  }
+
+  // NaN reflexivity: required to keep Hash and BoolEqual consistent so that
+  // DISTINCT collapses NaN values that hash to the same bucket.
+  if (lhs.IsNumeric() && rhs.IsNumeric()) {
+    const double da = lhs.IsDouble() ? lhs.UnsafeValueDouble() : static_cast<double>(lhs.UnsafeValueInt());
+    const double db = rhs.IsDouble() ? rhs.UnsafeValueDouble() : static_cast<double>(rhs.UnsafeValueInt());
+    if (std::isnan(da) && std::isnan(db)) return true;
   }
 
   switch (lhs.type()) {
@@ -1972,12 +1981,32 @@ bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &
       }
       return true;
     }
-    default: {
+    case TypedValue::Type::Bool:
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+    case TypedValue::Type::String:
+    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Edge:
+    case TypedValue::Type::Path:
+    case TypedValue::Type::Date:
+    case TypedValue::Type::LocalTime:
+    case TypedValue::Type::LocalDateTime:
+    case TypedValue::Type::ZonedDateTime:
+    case TypedValue::Type::Duration:
+    case TypedValue::Type::Enum:
+    case TypedValue::Type::Point2d:
+    case TypedValue::Type::Point3d:
+    case TypedValue::Type::Graph:
+    case TypedValue::Type::Function: {
       TypedValue eq = lhs == rhs;
       DMG_ASSERT(eq.IsBool() || eq.IsNull(), "Equality between two TypedValues must result in either Null or Bool");
       return eq.IsBool() && eq.ValueBool();
     }
+    case TypedValue::Type::Null:
+      // Handled by the early null check above.
+      break;
   }
+  std::unreachable();
 }
 
 size_t TypedValue::Hash::operator()(const TypedValue &value) const {
@@ -1989,9 +2018,14 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Int:
       return std::hash<int64_t>{}(value.ValueInt());
     case TypedValue::Type::Double: {
+      // NaN reflexivity (see BoolEqual): every NaN must hash to the same bucket
+      // so DISTINCT/GROUP BY can collapse them. std::hash<double> is unspecified
+      // for NaN and may differ between bit patterns.
+      const double v = value.ValueDouble();
+      if (std::isnan(v)) return 0x7ff8000000000000ULL;  // sentinel for NaN equivalence class
       // Store whole number doubles as int hashes to be consistent with
       // TypedValue equality in which (2.0 == 2) returns true
-      const double double_value = std::trunc(value.ValueDouble());
+      const double double_value = std::trunc(v);
       double whole_value = 0.0;
       if (std::modf(double_value, &whole_value) == 0.0) {
         return std::hash<int64_t>{}(static_cast<int64_t>(whole_value));

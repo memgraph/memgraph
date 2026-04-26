@@ -616,11 +616,15 @@ class TypedValue {
    * @throw TypedValueException if the values cannot be compared, i.e. they are
    *        not either Null, numeric or a character string type.
    */
-  // For ordering operators: when `<` returns null (null operand, NaN, incomparable
-  // types, or types like Duration), `!` propagates null per three-valued logic, so
-  // all four operators correctly yield null. Defining via a single `<` call also
-  // avoids the redundant element-walk that `(a<b) || (a==b)` would do for
-  // containers.
+  /**
+   * Ordering operators (<=, >, >=) — return true, false, or Null with the same
+   * null-propagation contract as operator<: Null is returned whenever either
+   * operand is Null, NaN, of incomparable types, or of an inherently incomparable
+   * type (e.g. Duration). All three are derived from a single operator< call so
+   * that null propagates through operator! per three-valued logic, and so that
+   * containers are walked at most once. `>=` is `!(a<b)` (the negation of strict
+   * less-than is `≥`, *not* `>`); `<=` is the symmetric `!(b<a)`.
+   */
   friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return !(b < a); }
 
   friend TypedValue operator>(const TypedValue &a, const TypedValue &b) { return b < a; }
