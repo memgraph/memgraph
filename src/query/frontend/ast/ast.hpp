@@ -4019,18 +4019,11 @@ class CallSubquery : public memgraph::query::Clause {
 
   memgraph::query::CypherQuery *cypher_query_;
   // Scope clause items from `CALL (v1, v2, ...) { ... }` (or the aliased form
-  // `CALL (v AS w, ...) { ... }`). Each entry's `expression_` is the outer
-  // identifier used to resolve the symbol in the enclosing scope, and `name_`
-  // is the inner name bound inside the subquery (equal to the outer name when
-  // no alias was used). When `has_variable_scope_` is false, the legacy
-  // `CALL { ... }` form was used; when true and this vector is empty,
-  // `CALL () { ... }` was used (no imports).
+  // `CALL (v AS w, ...) { ... }`)
   std::vector<memgraph::query::NamedExpression *> scoped_variables_;
   bool has_variable_scope_{false};
   // True if `CALL (*) { ... }` was used — import every variable currently in
-  // the outer scope. When set, scoped_variables_ is left empty; the outer
-  // symbols are pulled directly from the enclosing scope at semantic / planning
-  // time.
+  // the outer scope. When set, scoped_variables_ is left empty
   bool all_variables_scoped_{false};
 
   CallSubquery *Clone(AstStorage *storage) const override {
