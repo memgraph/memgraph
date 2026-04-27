@@ -584,7 +584,7 @@ def validate_configuration(configuration: mgp.Map):
     # (e.g. range(0, n, 0) raises, ThreadPoolExecutor(max_workers=0) raises).
     _require_positive_number(configuration, "timeout")
     _require_int_ge(configuration, "num_retries", minimum=0)
-    _require_int_ge(configuration, "concurrency", minimum=1)
+    _require_int_ge(configuration, "concurrency", minimum=1, maximum=_CONCURRENCY_MAX)
     _require_int_ge(configuration, "remote_batch_size", minimum=1, allow_none=True)
     _require_int_ge(configuration, "dimensions", minimum=1, allow_none=True)
 
@@ -600,7 +600,11 @@ def validate_configuration(configuration: mgp.Map):
     return configuration
 
 
-def _require_int_ge(cfg, key, minimum, allow_none=False):
+# Upper bound on `concurrency` (in-flight HTTP requests per remote_compute call).
+_CONCURRENCY_MAX = 32
+
+
+def _require_int_ge(cfg, key, minimum, allow_none=False, maximum=None):
     value = cfg[key]
     if value is None:
         if allow_none:
@@ -609,6 +613,8 @@ def _require_int_ge(cfg, key, minimum, allow_none=False):
     # bool is a subclass of int — reject explicitly.
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         raise ValueError(f"'{key}' must be an integer >= {minimum}, got {value!r}")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"'{key}' must be <= {maximum}, got {value}")
 
 
 def _require_positive_number(cfg, key):
