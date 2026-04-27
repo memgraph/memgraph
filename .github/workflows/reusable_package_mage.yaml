@@ -87,6 +87,8 @@ env:
   ARCH: "${{ inputs.arch }}"
   DOCKER_REPOSITORY_NAME: memgraph/memgraph-mage
   BUILD_TYPE: "${{ inputs.build_type }}"
+  SPLIT_DEBUG: "${{ inputs.split_debug }}"
+  IMAGE_FLAVOUR: "${{ inputs.image_flavour }}"
   MALLOC: "${{ inputs.malloc }}"
   CUDA: "${{ inputs.cuda }}"
   CUGRAPH: "${{ inputs.cugraph }}"  # This image cannot be tested in CI, needs an Nvidia GPU
@@ -231,7 +233,7 @@ jobs:
           if [[ "$ARCH" == 'arm' ]]; then
             artifact_name="${artifact_name}-aarch64"
           fi
-          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "${{ inputs.image_flavour }}" == 'debug' ]]; then
+          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "$IMAGE_FLAVOUR" == 'debug' ]]; then
             artifact_name="${artifact_name}-relwithdebinfo"
           fi
           echo "MG_ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
@@ -266,7 +268,7 @@ jobs:
         if: ${{ inputs.memgraph_download_link == '' }}
         run: |
           SPLIT_DEBUG_ARG=""
-          if [[ "${{ inputs.split_debug }}" == "true" ]]; then
+          if [[ "$SPLIT_DEBUG" == "true" ]]; then
             SPLIT_DEBUG_ARG="--split-debug"
           fi
           ./release/package/mgbuild.sh \
@@ -410,7 +412,7 @@ jobs:
             --cugraph $CUGRAPH \
             package-mage-deb \
             --version $MEMGRAPH_VERSION \
-            --image-flavour ${{ inputs.image_flavour }} \
+            --image-flavour "$IMAGE_FLAVOUR" \
             $PACKAGE_ARGS
 
           DEB_PACKAGE="$(ls output/memgraph-mage*.deb)"
@@ -482,7 +484,7 @@ jobs:
             --cache-present $CACHE_PRESENT \
             --custom-mirror true \
             --cuda $CUDA \
-            --image-flavour ${{ inputs.image_flavour }}
+            --image-flavour "$IMAGE_FLAVOUR"
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
@@ -593,7 +595,7 @@ jobs:
         run: |
           last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
           last_version="${last_version#v}"
-          if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "${{ inputs.image_flavour }}" == "debug" ]]; then
+          if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$IMAGE_FLAVOUR" == "debug" ]]; then
             last_version="${last_version}-relwithdebinfo"
           fi
           if [[ "$MALLOC" == "true" ]]; then
