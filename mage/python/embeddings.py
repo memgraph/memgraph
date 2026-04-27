@@ -428,21 +428,6 @@ def resolve_remote_model(model_name):
     return model, provider, default_api_base
 
 
-def default_remote_batch_size(provider):
-    """Default `remote_batch_size` when the user doesn't set one.
-
-    Only lists providers with a *documented hard cap* — exceeding those
-    returns HTTP 400. Everything else falls through to a generic default.
-    Users override per-call via `remote_batch_size`.
-    """
-    return {
-        "voyage": 1000,  # docs.voyageai.com/docs/embeddings
-        "cohere": 96,  # docs.cohere.com/reference/embed
-        "openai": 2048,  # 2048 items + 300K tokens/request; token limit may bite first
-        "azure": 2048,  # mirrors OpenAI
-    }.get(provider, 256)
-
-
 def l2_normalize(vec):
     s = sum(x * x for x in vec) ** 0.5
     if s == 0:
@@ -478,7 +463,10 @@ def remote_compute(
             dimension=dimension,
         )
 
-    chunk_size = cfg["remote_batch_size"] or default_remote_batch_size(provider)
+    # Cohere's /embed endpoint enforces a hard 96-item cap (HTTP 400 above).
+    # 256 is a conservative default for everyone else; users tune via
+    # `remote_batch_size` for throughput.
+    chunk_size = cfg["remote_batch_size"] or (96 if provider == "cohere" else 256)
     chunks = [texts[i : i + chunk_size] for i in range(0, n, chunk_size)]
 
     api_base = cfg["api_base"] or default_api_base
@@ -499,7 +487,7 @@ def remote_compute(
         return [d["embedding"] for d in resp["data"]]
 
     results = [None] * len(chunks)
-    with ThreadPoolExecutor(max_workers=max(1, cfg["concurrency"])) as ex:
+    with ThreadPoolExecutor(max_workers=cfg["concurrency"]) as ex:
         fut2idx = {ex.submit(_call, c): i for i, c in enumerate(chunks)}
         for fut in as_completed(fut2idx):
             results[fut2idx[fut]] = fut.result()
@@ -591,6 +579,15 @@ def validate_configuration(configuration: mgp.Map):
     if configuration["embedding_property"] is not None and configuration["embedding_property"] not in excluded:
         excluded.append(configuration["embedding_property"])
 
+    # Validate numeric remote-path keys at config time so we fail loudly with
+    # a clear message rather than producing weird runtime errors downstream
+    # (e.g. range(0, n, 0) raises, ThreadPoolExecutor(max_workers=0) raises).
+    _require_positive_number(configuration, "timeout")
+    _require_int_ge(configuration, "num_retries", minimum=0)
+    _require_int_ge(configuration, "concurrency", minimum=1)
+    _require_int_ge(configuration, "remote_batch_size", minimum=1, allow_none=True)
+    _require_int_ge(configuration, "dimensions", minimum=1, allow_none=True)
+
     # When routing remote, a local `device` setting has no meaning — warn so the
     # user knows we're ignoring it rather than silently doing the wrong thing.
     if resolve_remote_model(configuration["model_name"]) is not None and configuration["device"] is not None:
@@ -601,6 +598,23 @@ def validate_configuration(configuration: mgp.Map):
     logger.debug(f"Using embedding configuration: {_redacted_config(configuration)}")
 
     return configuration
+
+
+def _require_int_ge(cfg, key, minimum, allow_none=False):
+    value = cfg[key]
+    if value is None:
+        if allow_none:
+            return
+        raise ValueError(f"'{key}' must be an integer >= {minimum}, got None")
+    # bool is a subclass of int — reject explicitly.
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise ValueError(f"'{key}' must be an integer >= {minimum}, got {value!r}")
+
+
+def _require_positive_number(cfg, key):
+    value = cfg[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise ValueError(f"'{key}' must be a positive number, got {value!r}")
 
 
 def _redacted_config(cfg):
