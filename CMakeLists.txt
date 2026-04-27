@@ -283,6 +283,8 @@ add_compile_options(
         -Wno-missing-field-initializers # C++20 designated init, unspecified fields are zero-initialized
         -Wno-c99-designator
         -Werror=implicit-fallthrough
+        -Werror=deprecated
+        -Wno-error=deprecated-declarations
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
 )
 

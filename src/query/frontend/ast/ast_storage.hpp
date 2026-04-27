@@ -138,6 +138,12 @@ class Tree {
 
   virtual Tree *Clone(AstStorage *storage) const = 0;
 
+ protected:
+  Tree(const Tree &) = default;
+  Tree(Tree &&) noexcept = default;
+  Tree &operator=(const Tree &) = default;
+  Tree &operator=(Tree &&) noexcept = default;
+
  private:
   friend class AstStorage;
 };
