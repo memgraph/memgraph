@@ -1148,6 +1148,10 @@ test_memgraph() {
         status=$?
         echo "Copying test report to host..."
         docker cp $build_container:$MGBUILD_ROOT_DIR/tests/drivers/test_report.tar.gz $PROJECT_ROOT/tests/drivers/test_report.tar.gz || true
+        # This trap replaces the outer stop_monitoring trap, so chain it here.
+        if [[ "$enable_monitoring" == "true" ]]; then
+          stop_monitoring || true
+        fi
         exit $status
       }
       trap copy_report EXIT INT TERM
@@ -2104,21 +2108,23 @@ start_monitoring() {
   echo -e "${GREEN_BOLD}Metrics targets: ${RED_BOLD}$metrics_targets${RESET}"
   echo -e "${GREEN_BOLD}Log websocket targets: ${RED_BOLD}$log_ws_targets${RESET}"
 
-  # start the monitoring stack
-  cd $PROJECT_ROOT/tools/ci/monitoring
-  MONITORING_SERVER_HOST=$monitoring_host \
-  CLUSTER_ID=$cluster_id \
-  CLUSTER_ENV=$cluster_env \
-  SERVICE_NAME=$service_name \
-  MEMGRAPH_METRICS_TARGETS=$metrics_targets \
-  MEMGRAPH_LOG_WS_TARGETS=$log_ws_targets \
-  ./up.sh
+  # Run in a subshell so the caller's working directory is preserved.
+  (
+    cd "$PROJECT_ROOT/tools/ci/monitoring"
+    MONITORING_SERVER_HOST=$monitoring_host \
+    CLUSTER_ID=$cluster_id \
+    CLUSTER_ENV=$cluster_env \
+    SERVICE_NAME=$service_name \
+    MEMGRAPH_METRICS_TARGETS=$metrics_targets \
+    MEMGRAPH_LOG_WS_TARGETS=$log_ws_targets \
+    ./up.sh
+  )
 }
 
 stop_monitoring() {
   echo -e "${GREEN_BOLD}Stopping monitoring...${RESET}"
-  cd $PROJECT_ROOT/tools/ci/monitoring
-  ./down.sh
+  # Run in a subshell so the caller's working directory is preserved.
+  ( cd "$PROJECT_ROOT/tools/ci/monitoring" && ./down.sh )
 }
 
 
