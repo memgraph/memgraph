@@ -487,7 +487,7 @@ setup_ha() {
 
     local coord1_internal="memgraph-coordinator-1.default.svc.cluster.local"
     local update_query="
-UPDATE CONFIG FOR COORDINATOR 1 {'bolt_server': '${coord2_ext}:7687'};
+UPDATE CONFIG FOR COORDINATOR 1 {'bolt_server': '${coord1_ext}:7687'};
 UPDATE CONFIG FOR COORDINATOR 2 {'bolt_server': '${coord2_ext}:7687'};
 UPDATE CONFIG FOR COORDINATOR 3 {'bolt_server': '${coord3_ext}:7687'};
 UPDATE CONFIG FOR INSTANCE instance_1 {'bolt_server': '${data0_ext}:7687'};
