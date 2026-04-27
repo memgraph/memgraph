@@ -43,8 +43,6 @@ cpp_build_flags=("CMAKE_BUILD_TYPE=${BUILD_TYPE}")
 if [[ "$SPLIT_DEBUG" = true ]]; then
     cpp_build_flags+=("MG_SPLIT_DEBUG=ON")
 fi
-echo "[mage-build] BUILD_TYPE=$BUILD_TYPE SPLIT_DEBUG=$SPLIT_DEBUG CUGRAPH=$CUGRAPH"
-echo "[mage-build] cpp-build-flags: ${cpp_build_flags[*]}"
 
 # Extract positional arguments after flags have been processed
 build_args=(
