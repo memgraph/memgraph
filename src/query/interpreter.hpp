@@ -452,6 +452,11 @@ class Interpreter final {
           expected, original_status_, std::memory_order_release, std::memory_order_relaxed);
     }
 
+    TxVerifier(const TxVerifier &) = delete;
+    TxVerifier(TxVerifier &&) = delete;
+    TxVerifier &operator=(const TxVerifier &) = delete;
+    TxVerifier &operator=(TxVerifier &&) = delete;
+
     TransactionStatus status() const { return original_status_; }
 
    private:
