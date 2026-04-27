@@ -633,18 +633,34 @@ def _require_positive_number(cfg, key):
 
 
 def _redacted_config(cfg):
-    """Return a shallow-copied config with URL-embedded credentials masked.
+    """Return a shallow-copied config with credentials in ``api_base`` masked.
 
-    We don't accept secret-bearing config keys (credentials come from provider
-    env vars), so the only vector left is an ``api_base`` URL of the form
-    ``https://user:pass@host/...`` — scrub just those.
+    The only vector for leaks is the api_base URL — we don't accept any
+    secret-bearing config keys (credentials come from provider env vars).
+    Covers all three places auth can hide in a URL: userinfo
+    (``user:pass@host``), query string (``?token=...``, ``?api_key=...``),
+    and fragment. Scheme/host/port/path are preserved so the log line is
+    still useful for debugging where Memgraph thinks it's calling.
     """
-    import re
+    from urllib.parse import urlsplit, urlunsplit
 
     api_base = cfg.get("api_base")
-    if not isinstance(api_base, str) or "@" not in api_base:
+    if not isinstance(api_base, str):
         return cfg
-    return {**cfg, "api_base": re.sub(r"(://)[^/@\s]+:[^/@\s]+@", r"\1<redacted>@", api_base)}
+    try:
+        parts = urlsplit(api_base)
+    except ValueError:
+        return cfg
+    if not (parts.username or parts.password or parts.query or parts.fragment):
+        return cfg
+    netloc = parts.hostname or ""
+    if parts.port is not None:
+        netloc = f"{netloc}:{parts.port}"
+    if parts.username or parts.password:
+        netloc = f"<redacted>@{netloc}"
+    query = "<redacted>" if parts.query else ""
+    fragment = "<redacted>" if parts.fragment else ""
+    return {**cfg, "api_base": urlunsplit((parts.scheme, netloc, parts.path, query, fragment))}
 
 
 def compute_embeddings(  # noqa: C901
