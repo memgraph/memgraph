@@ -274,14 +274,9 @@ bool SymbolGenerator::PreVisit(CallSubquery &call_sub) {
 
   if (call_sub.has_variable_scope_) {
     // `CALL (...) { ... }`: resolve imports against the current outer scope
-    // only. Mirrors how `Visit(Identifier)` restricts lookups when
-    // `in_call_subquery && !in_with` — a scoped CALL is a visibility barrier,
-    // so we don't reach past it into enclosing scopes.
     auto const &outer_scope = scopes_.back();
     if (call_sub.all_variables_scoped_) {
-      // `CALL (*) { ... }`: import every user-declared variable currently in
-      // scope. Matches `RETURN *` semantics — anonymous / internal symbols
-      // (aggregations, pattern paths, etc.) are skipped.
+      // `CALL (*) { ... }`: import every user-declared variable currently in scope
       for (const auto &[name, symbol] : outer_scope.symbols) {
         if (!symbol.user_declared()) continue;
         new_scope.symbols[name] = symbol;
@@ -290,8 +285,7 @@ bool SymbolGenerator::PreVisit(CallSubquery &call_sub) {
     } else {
       // For `CALL (v1, v2, ...) { ... }`, `ne->expression_` is the outer
       // identifier we resolve against the enclosing scope, and `ne->name_`
-      // is the same name bound into the subquery scope (aliasing in the
-      // scope clause is rejected by the parser).
+      // is the same name bound into the subquery scope
       for (auto *ne : call_sub.scoped_variables_) {
         auto *ident = utils::Downcast<Identifier>(ne->expression_);
         auto found = FindSymbolInScope(ident->name_, outer_scope, Symbol::Type::ANY);
