@@ -54,9 +54,11 @@ tar -xvzf $PACKAGE_DIR -C $SCRIPT_DIR/build/usr/lib/memgraph/
 
 # For the prod flavour, strip any .debug sidecars that were bundled into the
 # tarball by mage/setup. They're only relevant to the debug flavour (symbols
-# embedded alongside the .so) or to the external symbol archive.
+# embedded alongside the .so) or to the external symbol archive. Match both
+# shapes: `<name>.so.debug` (no SOVERSION) and `<name>.so.<N>.debug` (with
+# SOVERSION — what mage's add_query_module produces).
 if [[ "$PACKAGE_FLAVOUR" == "prod" ]]; then
-    find $SCRIPT_DIR/build/usr/lib/memgraph -name '*.so.debug' -print -delete
+    find $SCRIPT_DIR/build/usr/lib/memgraph -name '*.so*.debug' -print -delete
 fi
 
 # Replace template variables in Debian control files
