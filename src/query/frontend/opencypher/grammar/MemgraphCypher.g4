@@ -787,7 +787,7 @@ nestedPropertyKeyList : '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames 
 alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
 
 createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )?
-            | CREATE INDEX ( symbolicName )? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+            | CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
             ;
 
 dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
