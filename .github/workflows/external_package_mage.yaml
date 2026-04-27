@@ -23,13 +23,13 @@ on:
         options:
           - "amd"
           - "arm"
-      build_type:
+      package_flavour:
         type: choice
-        description: "Mage build type"
-        default: 'Release'
+        description: "Package flavour. 'prod' = stripped binary, symbols archived separately. 'debug' = symbols embedded, '-relwithdebinfo' suffix on filenames."
+        default: 'prod'
         options:
-          - "Release"
-          - "RelWithDebInfo"
+          - "prod"
+          - "debug"
       memgraph_download_link:
         description: "Memgraph package download link. Leave empty to use the official download link."
         default: ""
@@ -75,7 +75,7 @@ jobs:
     uses: ./.github/workflows/package_mage.yaml
     with:
       arch: ${{ inputs.build_arch }}
-      build_type: ${{ inputs.build_type }}
+      package_flavour: ${{ inputs.package_flavour }}
       memgraph_download_link: ${{ inputs.memgraph_download_link }}
       cuda: ${{ inputs.cuda }}
       push_to_s3: ${{ inputs.push_to_s3 }}
