@@ -235,3 +235,7 @@ workloads:
   - name: "Vector index memory tracking"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["memory/vector_index_memory.py"]
+
+  - name: "Index cleanup and RSS reclamation"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/index_cleanup_memory.py"]

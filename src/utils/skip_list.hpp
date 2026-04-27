@@ -221,28 +221,18 @@ constexpr uint64_t ExpectedSizeAtLayer(const uint64_t N, const uint8_t k) {
 /// The skip list doesn't have built-in reclamation of removed nodes (objects).
 /// This class handles all operations necessary to remove the nodes safely.
 ///
-/// The principal of operation is as follows:
-/// Each accessor to the skip list is given an ID. When nodes are garbage
-/// collected the ID of the currently newest living accessor is recorded. When
-/// that accessor is destroyed the node can be safely destroyed.
-/// This is correct because when the skip list removes the node it immediately
-/// unlinks it from the structure so no new accessors can reach it. The last
-/// possible accessor that can still have a reference to the removed object is
-/// the currently living accessor that has the largest ID.
+/// Each accessor is given a monotonically increasing ID. When a node is
+/// collected (after the skip list has already unlinked it so no new accessor
+/// can reach it) the ID of the newest currently-alive accessor is recorded.
+/// The node can be freed once that accessor has been destroyed; older ones
+/// must have been destroyed too (ReleaseId records a strict prefix of dead ids).
 ///
-/// To enable fast operations this GC stores accessor IDs in a specially crafted
-/// structure. It consists of a doubly-linked list of Blocks. Each Block holds
-/// the information (alive/dead) for about 500k accessors. When an accessor is
-/// destroyed the corresponding bit for the accessor is found in the list and is
-/// set. When garbage collection occurs it finds the largest prefix of dead
-/// accessors and destroys all nodes that have the largest living accessor ID
-/// corresponding to them less than the largest currently found dead accessor.
-///
-/// Insertion into the dead accessor list is fast because the blocks are large
-/// and the corresponding bit can be set atomically. The only times when the
-/// collection is blocking is when the structure of the doubly-linked list has
-/// to be changed (eg. a new Block has to be allocated and linked into the
-/// structure).
+/// Released IDs are stored in a doubly-linked list of Blocks, each holding
+/// alive/dead bits for ~500k accessors. ReleaseId is lock-free (atomic
+/// fetch_or). GC walks the blocks to find `live_horizon` (one past the last
+/// released id) and frees every pending node whose tag is < live_horizon.
+/// Fully-dead interior blocks are destroyed in the same pass; the most recent
+/// block is kept so the head pointer stays valid for concurrent ReleaseId.
 template <typename TObj>
 class SkipListGc final {
  private:
@@ -260,31 +250,31 @@ class SkipListGc final {
     std::atomic<uint64_t> field[kSkipListGcBlockSize];
   };
 
-  Block *AllocateBlock(Block *head) {
+  // Allocate a new head block if the caller's snapshot of head_ still matches.
+  // Otherwise another thread already extended the chain; return that new head.
+  Block *AllocateBlock(Block *expected_head) {
     auto guard = std::lock_guard{lock_};
     Block *curr_head = head_.load(std::memory_order_acquire);
-    if (curr_head == head) {
-      // Construct through allocator so it propagates if needed.
-      Allocator<Block> block_allocator(memory_);
-      Block *block = block_allocator.allocate(1);
-      // `calloc` would be faster, but the API has no such call.
-      memset(block, 0, sizeof(Block));
-      // Block constructor should not throw.
-      block_allocator.construct(block);
-      block->prev.store(curr_head, std::memory_order_release);
-      block->succ.store(nullptr, std::memory_order_release);
-      block->first_id = last_id_;
-      last_id_ += kIdsInBlock;
-      if (curr_head == nullptr) {
-        tail_.store(block, std::memory_order_release);
-      } else {
-        curr_head->succ.store(block, std::memory_order_release);
-      }
-      head_.store(block, std::memory_order_release);
-      return block;
+    if (curr_head != expected_head) return curr_head;
+
+    // Construct through allocator so it propagates if needed.
+    Allocator<Block> block_allocator(memory_);
+    Block *block = block_allocator.allocate(1);
+    // `calloc` would be faster, but the API has no such call.
+    memset(block, 0, sizeof(Block));
+    // Block constructor should not throw.
+    block_allocator.construct(block);
+    block->prev.store(curr_head, std::memory_order_release);
+    block->succ.store(nullptr, std::memory_order_release);
+    block->first_id = last_id_;
+    last_id_ += kIdsInBlock;
+    if (curr_head == nullptr) {
+      tail_.store(block, std::memory_order_release);
     } else {
-      return curr_head;
+      curr_head->succ.store(block, std::memory_order_release);
     }
+    head_.store(block, std::memory_order_release);
+    return block;
   }
 
  public:
@@ -317,23 +307,23 @@ class SkipListGc final {
     // accessed without a lock because all of the pointers in the list are
     // atomic and their modification is done so that the access is always
     // correct.
-    Block *head = head_.load(std::memory_order_acquire);
-    if (head == nullptr) {
-      head = AllocateBlock(head);
+    Block *block = head_.load(std::memory_order_acquire);
+    if (block == nullptr) {
+      block = AllocateBlock(block);
     }
     while (true) {
-      MG_ASSERT(head != nullptr, "Missing SkipListGc block!");
-      if (id < head->first_id) {
-        head = head->prev.load(std::memory_order_acquire);
-      } else if (id >= head->first_id + kIdsInBlock) {
-        head = AllocateBlock(head);
+      MG_ASSERT(block != nullptr, "Missing SkipListGc block!");
+      if (id < block->first_id) {
+        block = block->prev.load(std::memory_order_acquire);
+      } else if (id >= block->first_id + kIdsInBlock) {
+        block = AllocateBlock(block);
       } else {
-        id -= head->first_id;
+        id -= block->first_id;
         uint64_t field = id / kIdsInField;
         uint64_t bit = id % kIdsInField;
         uint64_t value = 1;
         value <<= bit;
-        auto ret = head->field[field].fetch_or(value, std::memory_order_acq_rel);
+        auto ret = block->field[field].fetch_or(value, std::memory_order_acq_rel);
         MG_ASSERT(!(ret & value), "A SkipList Accessor was released twice!");
         break;
       }
@@ -345,7 +335,9 @@ class SkipListGc final {
 
   void Collect(TNode *node) {
     std::unique_lock guard(lock_);
-    deleted_.Push({accessor_id_.load(std::memory_order_acquire), node});
+    // Tag with the newest alive accessor id. accessor_id_ is the next-to-
+    // allocate id; Collect is only called from an Accessor so load() >= 1.
+    deleted_.Push({accessor_id_.load(std::memory_order_acquire) - 1, node});
   }
 
   void Run() {
@@ -357,7 +349,10 @@ class SkipListGc final {
     auto guard = std::unique_lock{lock_, std::defer_lock};
     if (!guard.try_lock()) return;
     Block *tail = tail_.load(std::memory_order_acquire);
-    uint64_t last_dead = 0;
+    // Smallest still-alive accessor id: dead set = [0, live_horizon),
+    // alive set = [live_horizon, inf). Nodes tagged with id < live_horizon
+    // are safe to free (their owning accessor has been released).
+    uint64_t live_horizon = 0;
     bool remove_block = true;
     while (tail != nullptr && remove_block) {
       for (uint64_t pos = 0; pos < kSkipListGcBlockSize; ++pos) {
@@ -366,20 +361,18 @@ class SkipListGc final {
           if (field != 0) {
             // Here we find the position of the least significant zero bit
             // (using a inverted value and the `ffs` function to find the
-            // position of the first set bit). We find this position because we
-            // know that all bits that are of less significance are then all
-            // ones. That means that the `where_alive` will be the first ID that
-            // is still alive. That means that we have a prefix of all dead
-            // accessors that have IDs less than `where_alive`.
+            // position of the first set bit). That position is `where_alive`,
+            // i.e., the first ID that is still alive. The dead prefix ends
+            // exclusively at that ID.
             int where_alive = __builtin_ffsl(~field) - 1;
             if (where_alive > 0) {
-              last_dead = tail->first_id + pos * kIdsInField + where_alive - 1;
+              live_horizon = tail->first_id + pos * kIdsInField + where_alive;
             }
           }
           remove_block = false;
           break;
         } else {
-          last_dead = tail->first_id + (pos + 1) * kIdsInField - 1;
+          live_horizon = tail->first_id + (pos + 1) * kIdsInField;
         }
       }
       Block *next = tail->succ.load(std::memory_order_acquire);
@@ -401,7 +394,7 @@ class SkipListGc final {
       }
       tail = next;
     }
-    deleted_.EraseIf([last_dead](const TDeleted &item) { return item.first < last_dead; },
+    deleted_.EraseIf([live_horizon](const TDeleted &item) { return item.first < live_horizon; },
                      [this](const TDeleted &item) {
                        size_t bytes = SkipListNodeSize(*item.second);
                        item.second->~TNode();
@@ -413,13 +406,13 @@ class SkipListGc final {
 
   void Clear() {
     // Delete all allocated blocks.
-    Block *head = head_.load(std::memory_order_acquire);
-    while (head != nullptr) {
+    Block *block = head_.load(std::memory_order_acquire);
+    while (block != nullptr) {
       Allocator<Block> block_allocator(memory_);
-      Block *prev = head->prev.load(std::memory_order_acquire);
-      head->~Block();
-      block_allocator.deallocate(head, 1);
-      head = prev;
+      Block *prev = block->prev.load(std::memory_order_acquire);
+      block->~Block();
+      block_allocator.deallocate(block, 1);
+      block = prev;
     }
 
     // Delete all items that have to be garbage collected.
