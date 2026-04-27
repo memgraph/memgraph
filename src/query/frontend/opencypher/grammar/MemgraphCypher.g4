@@ -794,10 +794,6 @@ dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG con
 
 propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
 
-createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )?
-            | CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
-            ;
-
 createEdgeIndex : CREATE EDGE INDEX ON ':' labelName nestedPropertyKeyList?;
 
 dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
