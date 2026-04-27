@@ -505,7 +505,7 @@ Feature: Subqueries
         Then an error should be raised
 
     Scenario: Scoped CALL importing no variables returns constant from each input row
-        Given an empty graph
+        Given graph "subqueries"
         When executing query:
             """
             UNWIND [0, 1, 2] AS x
@@ -521,28 +521,7 @@ Feature: Subqueries
             | 'hello'     |
 
     Scenario: Scoped CALL importing no variables performs incremental updates
-        Given an empty graph
-        And having executed
-            """
-            CREATE (teamA:Team {name: 'Team A'}),
-                   (teamB:Team {name: 'Team B'}),
-                   (teamC:Team {name: 'Team C'}),
-                   (playerA:Player {name: 'Player A', age: 21}),
-                   (playerB:Player {name: 'Player B', age: 23}),
-                   (playerC:Player {name: 'Player C', age: 19}),
-                   (playerD:Player {name: 'Player D', age: 30}),
-                   (playerE:Player {name: 'Player E', age: 25}),
-                   (playerF:Player {name: 'Player F', age: 35}),
-                   (playerA)-[:PLAYS_FOR]->(teamA),
-                   (playerB)-[:PLAYS_FOR]->(teamA),
-                   (playerD)-[:PLAYS_FOR]->(teamB),
-                   (playerE)-[:PLAYS_FOR]->(teamC),
-                   (playerF)-[:PLAYS_FOR]->(teamC),
-                   (teamA)-[:OWES {dollars: 1500}]->(teamB),
-                   (teamA)-[:OWES {dollars: 3000}]->(teamB),
-                   (teamB)-[:OWES {dollars: 1700}]->(teamC),
-                   (teamC)-[:OWES {dollars: 5000}]->(teamB)
-            """
+        Given graph "subqueries"
         When executing query:
             """
             UNWIND [1, 2, 3] AS x
@@ -561,31 +540,10 @@ Feature: Subqueries
             | 3         | 24     | 24       |
 
     Scenario: Scoped CALL imports only the named variable
-        Given an empty graph
-        And having executed
-            """
-            CREATE (teamA:Team {name: 'Team A'}),
-                   (teamB:Team {name: 'Team B'}),
-                   (teamC:Team {name: 'Team C'}),
-                   (playerA:Player {name: 'Player A', age: 21}),
-                   (playerB:Player {name: 'Player B', age: 23}),
-                   (playerC:Player {name: 'Player C', age: 19}),
-                   (playerD:Player {name: 'Player D', age: 30}),
-                   (playerE:Player {name: 'Player E', age: 25}),
-                   (playerF:Player {name: 'Player F', age: 35}),
-                   (playerA)-[:PLAYS_FOR]->(teamA),
-                   (playerB)-[:PLAYS_FOR]->(teamA),
-                   (playerD)-[:PLAYS_FOR]->(teamB),
-                   (playerE)-[:PLAYS_FOR]->(teamC),
-                   (playerF)-[:PLAYS_FOR]->(teamC),
-                   (teamA)-[:OWES {dollars: 1500}]->(teamB),
-                   (teamA)-[:OWES {dollars: 3000}]->(teamB),
-                   (teamB)-[:OWES {dollars: 1700}]->(teamC),
-                   (teamC)-[:OWES {dollars: 5000}]->(teamB)
-            """
+        Given graph "subqueries"
         When executing query:
             """
-            MATCH (p:Player), (t:Team)
+            MATCH (p:Player)-[:PLAYS_FOR]->(t:Team)
             CALL (p) {
               WITH p.age / 100.0 AS random
               SET p.rating = random
@@ -597,34 +555,13 @@ Feature: Subqueries
             """
         Then the result should be:
             | playerName | rating | team                     |
-            | 'Player C' | 0.19   | (:Team {name: 'Team A'}) |
+            | 'Player A' | 0.21   | (:Team {name: 'Team A'}) |
 
     Scenario: Scoped CALL with star imports every outer variable
-        Given an empty graph
-        And having executed
-            """
-            CREATE (teamA:Team {name: 'Team A'}),
-                   (teamB:Team {name: 'Team B'}),
-                   (teamC:Team {name: 'Team C'}),
-                   (playerA:Player {name: 'Player A', age: 21}),
-                   (playerB:Player {name: 'Player B', age: 23}),
-                   (playerC:Player {name: 'Player C', age: 19}),
-                   (playerD:Player {name: 'Player D', age: 30}),
-                   (playerE:Player {name: 'Player E', age: 25}),
-                   (playerF:Player {name: 'Player F', age: 35}),
-                   (playerA)-[:PLAYS_FOR]->(teamA),
-                   (playerB)-[:PLAYS_FOR]->(teamA),
-                   (playerD)-[:PLAYS_FOR]->(teamB),
-                   (playerE)-[:PLAYS_FOR]->(teamC),
-                   (playerF)-[:PLAYS_FOR]->(teamC),
-                   (teamA)-[:OWES {dollars: 1500}]->(teamB),
-                   (teamA)-[:OWES {dollars: 3000}]->(teamB),
-                   (teamB)-[:OWES {dollars: 1700}]->(teamC),
-                   (teamC)-[:OWES {dollars: 5000}]->(teamB)
-            """
+        Given graph "subqueries"
         When executing query:
             """
-            MATCH (p:Player), (t:Team)
+            MATCH (p:Player)-[:PLAYS_FOR]->(t:Team)
             CALL (*) {
               SET p.lastUpdated = 1719304206653
               SET t.lastUpdated = 1719304206653
@@ -641,28 +578,7 @@ Feature: Subqueries
             | 'Player A' | 1719304206653 | 'Team A' | 1719304206653 |
 
     Scenario: Scoped CALL with empty imports exposes subquery cardinality to outer
-        Given an empty graph
-        And having executed
-            """
-            CREATE (teamA:Team {name: 'Team A'}),
-                   (teamB:Team {name: 'Team B'}),
-                   (teamC:Team {name: 'Team C'}),
-                   (playerA:Player {name: 'Player A', age: 21}),
-                   (playerB:Player {name: 'Player B', age: 23}),
-                   (playerC:Player {name: 'Player C', age: 19}),
-                   (playerD:Player {name: 'Player D', age: 30}),
-                   (playerE:Player {name: 'Player E', age: 25}),
-                   (playerF:Player {name: 'Player F', age: 35}),
-                   (playerA)-[:PLAYS_FOR]->(teamA),
-                   (playerB)-[:PLAYS_FOR]->(teamA),
-                   (playerD)-[:PLAYS_FOR]->(teamB),
-                   (playerE)-[:PLAYS_FOR]->(teamC),
-                   (playerF)-[:PLAYS_FOR]->(teamC),
-                   (teamA)-[:OWES {dollars: 1500}]->(teamB),
-                   (teamA)-[:OWES {dollars: 3000}]->(teamB),
-                   (teamB)-[:OWES {dollars: 1700}]->(teamC),
-                   (teamC)-[:OWES {dollars: 5000}]->(teamB)
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (t:Team)
@@ -677,7 +593,7 @@ Feature: Subqueries
             | 3          | 6            |
 
     Scenario: OPTIONAL CALL scoped subquery is not supported
-        Given an empty graph
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (p:Player)
@@ -690,28 +606,7 @@ Feature: Subqueries
         Then an error should be raised
 
     Scenario: Scoped CALL subquery with UNION over two ORDER BY branches
-        Given an empty graph
-        And having executed
-            """
-            CREATE (teamA:Team {name: 'Team A'}),
-                   (teamB:Team {name: 'Team B'}),
-                   (teamC:Team {name: 'Team C'}),
-                   (playerA:Player {name: 'Player A', age: 21}),
-                   (playerB:Player {name: 'Player B', age: 23}),
-                   (playerC:Player {name: 'Player C', age: 19}),
-                   (playerD:Player {name: 'Player D', age: 30}),
-                   (playerE:Player {name: 'Player E', age: 25}),
-                   (playerF:Player {name: 'Player F', age: 35}),
-                   (playerA)-[:PLAYS_FOR]->(teamA),
-                   (playerB)-[:PLAYS_FOR]->(teamA),
-                   (playerD)-[:PLAYS_FOR]->(teamB),
-                   (playerE)-[:PLAYS_FOR]->(teamC),
-                   (playerF)-[:PLAYS_FOR]->(teamC),
-                   (teamA)-[:OWES {dollars: 1500}]->(teamB),
-                   (teamA)-[:OWES {dollars: 3000}]->(teamB),
-                   (teamB)-[:OWES {dollars: 1700}]->(teamC),
-                   (teamC)-[:OWES {dollars: 5000}]->(teamB)
-            """
+        Given graph "subqueries"
         When executing query:
             """
             CALL () {
@@ -733,28 +628,7 @@ Feature: Subqueries
             | 'Player F' | 35  |
 
     Scenario: Scoped CALL with imported variable used in both UNION ALL branches
-        Given an empty graph
-        And having executed
-            """
-            CREATE (teamA:Team {name: 'Team A'}),
-                   (teamB:Team {name: 'Team B'}),
-                   (teamC:Team {name: 'Team C'}),
-                   (playerA:Player {name: 'Player A', age: 21}),
-                   (playerB:Player {name: 'Player B', age: 23}),
-                   (playerC:Player {name: 'Player C', age: 19}),
-                   (playerD:Player {name: 'Player D', age: 30}),
-                   (playerE:Player {name: 'Player E', age: 25}),
-                   (playerF:Player {name: 'Player F', age: 35}),
-                   (playerA)-[:PLAYS_FOR]->(teamA),
-                   (playerB)-[:PLAYS_FOR]->(teamA),
-                   (playerD)-[:PLAYS_FOR]->(teamB),
-                   (playerE)-[:PLAYS_FOR]->(teamC),
-                   (playerF)-[:PLAYS_FOR]->(teamC),
-                   (teamA)-[:OWES {dollars: 1500}]->(teamB),
-                   (teamA)-[:OWES {dollars: 3000}]->(teamB),
-                   (teamB)-[:OWES {dollars: 1700}]->(teamC),
-                   (teamC)-[:OWES {dollars: 5000}]->(teamB)
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (t:Team)
@@ -775,28 +649,7 @@ Feature: Subqueries
             | 'Team A' | -4500      |
 
     Scenario: Returning scoped CALL subquery trims outer rows with no match
-        Given an empty graph
-        And having executed
-            """
-            CREATE (teamA:Team {name: 'Team A'}),
-                   (teamB:Team {name: 'Team B'}),
-                   (teamC:Team {name: 'Team C'}),
-                   (playerA:Player {name: 'Player A', age: 21}),
-                   (playerB:Player {name: 'Player B', age: 23}),
-                   (playerC:Player {name: 'Player C', age: 19}),
-                   (playerD:Player {name: 'Player D', age: 30}),
-                   (playerE:Player {name: 'Player E', age: 25}),
-                   (playerF:Player {name: 'Player F', age: 35}),
-                   (playerA)-[:PLAYS_FOR]->(teamA),
-                   (playerB)-[:PLAYS_FOR]->(teamA),
-                   (playerD)-[:PLAYS_FOR]->(teamB),
-                   (playerE)-[:PLAYS_FOR]->(teamC),
-                   (playerF)-[:PLAYS_FOR]->(teamC),
-                   (teamA)-[:OWES {dollars: 1500}]->(teamB),
-                   (teamA)-[:OWES {dollars: 3000}]->(teamB),
-                   (teamB)-[:OWES {dollars: 1700}]->(teamC),
-                   (teamC)-[:OWES {dollars: 5000}]->(teamB)
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (p:Player)
@@ -815,28 +668,7 @@ Feature: Subqueries
             | 'Player F' | 'Team C' |
 
     Scenario: Unit scoped CALL subquery preserves outer row count
-        Given an empty graph
-        And having executed
-            """
-            CREATE (teamA:Team {name: 'Team A'}),
-                   (teamB:Team {name: 'Team B'}),
-                   (teamC:Team {name: 'Team C'}),
-                   (playerA:Player {name: 'Player A', age: 21}),
-                   (playerB:Player {name: 'Player B', age: 23}),
-                   (playerC:Player {name: 'Player C', age: 19}),
-                   (playerD:Player {name: 'Player D', age: 30}),
-                   (playerE:Player {name: 'Player E', age: 25}),
-                   (playerF:Player {name: 'Player F', age: 35}),
-                   (playerA)-[:PLAYS_FOR]->(teamA),
-                   (playerB)-[:PLAYS_FOR]->(teamA),
-                   (playerD)-[:PLAYS_FOR]->(teamB),
-                   (playerE)-[:PLAYS_FOR]->(teamC),
-                   (playerF)-[:PLAYS_FOR]->(teamC),
-                   (teamA)-[:OWES {dollars: 1500}]->(teamB),
-                   (teamA)-[:OWES {dollars: 3000}]->(teamB),
-                   (teamB)-[:OWES {dollars: 1700}]->(teamC),
-                   (teamC)-[:OWES {dollars: 5000}]->(teamB)
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (p:Player)
@@ -851,28 +683,7 @@ Feature: Subqueries
             | 6        |
 
     Scenario: Aggregation over scoped CALL with imported variable
-        Given an empty graph
-        And having executed
-            """
-            CREATE (teamA:Team {name: 'Team A'}),
-                   (teamB:Team {name: 'Team B'}),
-                   (teamC:Team {name: 'Team C'}),
-                   (playerA:Player {name: 'Player A', age: 21}),
-                   (playerB:Player {name: 'Player B', age: 23}),
-                   (playerC:Player {name: 'Player C', age: 19}),
-                   (playerD:Player {name: 'Player D', age: 30}),
-                   (playerE:Player {name: 'Player E', age: 25}),
-                   (playerF:Player {name: 'Player F', age: 35}),
-                   (playerA)-[:PLAYS_FOR]->(teamA),
-                   (playerB)-[:PLAYS_FOR]->(teamA),
-                   (playerD)-[:PLAYS_FOR]->(teamB),
-                   (playerE)-[:PLAYS_FOR]->(teamC),
-                   (playerF)-[:PLAYS_FOR]->(teamC),
-                   (teamA)-[:OWES {dollars: 1500}]->(teamB),
-                   (teamA)-[:OWES {dollars: 3000}]->(teamB),
-                   (teamB)-[:OWES {dollars: 1700}]->(teamC),
-                   (teamC)-[:OWES {dollars: 5000}]->(teamB)
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (t:Team)
@@ -889,28 +700,7 @@ Feature: Subqueries
             | 'Team C'  | 5000       | 'Team B' |
 
     Scenario: Scoped CALL with collect builds per-group list (performance pattern)
-        Given an empty graph
-        And having executed
-            """
-            CREATE (teamA:Team {name: 'Team A'}),
-                   (teamB:Team {name: 'Team B'}),
-                   (teamC:Team {name: 'Team C'}),
-                   (playerA:Player {name: 'Player A', age: 21}),
-                   (playerB:Player {name: 'Player B', age: 23}),
-                   (playerC:Player {name: 'Player C', age: 19}),
-                   (playerD:Player {name: 'Player D', age: 30}),
-                   (playerE:Player {name: 'Player E', age: 25}),
-                   (playerF:Player {name: 'Player F', age: 35}),
-                   (playerA)-[:PLAYS_FOR]->(teamA),
-                   (playerB)-[:PLAYS_FOR]->(teamA),
-                   (playerD)-[:PLAYS_FOR]->(teamB),
-                   (playerE)-[:PLAYS_FOR]->(teamC),
-                   (playerF)-[:PLAYS_FOR]->(teamC),
-                   (teamA)-[:OWES {dollars: 1500}]->(teamB),
-                   (teamA)-[:OWES {dollars: 3000}]->(teamB),
-                   (teamB)-[:OWES {dollars: 1700}]->(teamC),
-                   (teamC)-[:OWES {dollars: 5000}]->(teamB)
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (t:Team)
@@ -927,28 +717,7 @@ Feature: Subqueries
             | (:Team {name: 'Team C'})  | [(:Player {name: 'Player E', age: 25}), (:Player {name: 'Player F', age: 35})] |
 
     Scenario: Scoped CALL consumes a pre-ordered stream and mutates per row
-        Given an empty graph
-        And having executed
-            """
-            CREATE (teamA:Team {name: 'Team A'}),
-                   (teamB:Team {name: 'Team B'}),
-                   (teamC:Team {name: 'Team C'}),
-                   (playerA:Player {name: 'Player A', age: 21}),
-                   (playerB:Player {name: 'Player B', age: 23}),
-                   (playerC:Player {name: 'Player C', age: 19}),
-                   (playerD:Player {name: 'Player D', age: 30}),
-                   (playerE:Player {name: 'Player E', age: 25}),
-                   (playerF:Player {name: 'Player F', age: 35}),
-                   (playerA)-[:PLAYS_FOR]->(teamA),
-                   (playerB)-[:PLAYS_FOR]->(teamA),
-                   (playerD)-[:PLAYS_FOR]->(teamB),
-                   (playerE)-[:PLAYS_FOR]->(teamC),
-                   (playerF)-[:PLAYS_FOR]->(teamC),
-                   (teamA)-[:OWES {dollars: 1500}]->(teamB),
-                   (teamA)-[:OWES {dollars: 3000}]->(teamB),
-                   (teamB)-[:OWES {dollars: 1700}]->(teamC),
-                   (teamC)-[:OWES {dollars: 5000}]->(teamB)
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (player:Player)
@@ -982,11 +751,7 @@ Feature: Subqueries
             | 'Player D' | 30  | 'Player F'       | 35              |
 
     Scenario: Aliasing variables in the scope clause is not allowed
-        Given an empty graph
-        And having executed
-            """
-            CREATE (:Team {name: 'Team A'})
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (t:Team)
@@ -999,11 +764,7 @@ Feature: Subqueries
         Then an error should be raised
 
     Scenario: Re-declaring a scoped import inside the subquery is not allowed
-        Given an empty graph
-        And having executed
-            """
-            CREATE (:Team {name: 'Team A'})
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (t:Team)
@@ -1017,11 +778,7 @@ Feature: Subqueries
         Then an error should be raised
 
     Scenario: Subquery must not return a name that already exists in outer scope
-        Given an empty graph
-        And having executed
-            """
-            CREATE (:Team {name: 'Team A'})
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (t:Team)
@@ -1033,7 +790,7 @@ Feature: Subqueries
         Then an error should be raised
 
     Scenario: Scoped CALL with unknown imported variable raises unbound error
-        Given an empty graph
+        Given graph "subqueries"
         When executing query:
             """
             CALL (doesNotExist) {
@@ -1044,11 +801,7 @@ Feature: Subqueries
         Then an error should be raised
 
     Scenario: Scoped CALL with duplicate imports raises syntax error
-        Given an empty graph
-        And having executed
-            """
-            CREATE (:Player {name: 'Player A'})
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (p:Player)
@@ -1060,11 +813,7 @@ Feature: Subqueries
         Then an error should be raised
 
     Scenario: Scoped CALL with empty imports cannot see outer variables
-        Given an empty graph
-        And having executed
-            """
-            CREATE (:Player {name: 'Player A'})
-            """
+        Given graph "subqueries"
         When executing query:
             """
             MATCH (p:Player)
