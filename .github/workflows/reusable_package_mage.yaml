@@ -420,10 +420,6 @@ jobs:
 
           tar -xzf mage/mage.tar.gz -C "$DBG_DIR"
 
-          echo "=== .debug files staged for upload ==="
-          find "$DBG_DIR" -name '*.debug' -type f | head -40 || echo "(none)"
-          echo "=== end ==="
-
           bash tools/ci/upload-debug-symbols.sh "$DBG_DIR"
           rm -rf "$DBG_DIR"
 
