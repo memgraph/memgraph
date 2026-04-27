@@ -4124,11 +4124,10 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   // Parse the explicit scope clause. Forms (Cypher 5):
   //   `CALL () { ... }`                  — no variables imported
   //   `CALL (v1, v2, ...) { ... }`       — only the listed variables
-  //   `CALL (v AS w, ...) { ... }`       — same, with inner renaming
   //   `CALL (*) { ... }`                 — every variable in outer scope
   // `returnItems` is reused from the Cypher grammar because it already encodes
-  // `*` plus a list with optional aliases. We only reject non-identifier
-  // expressions here (e.g. `n.prop`).
+  // `*` plus a list with optional aliases. We reject non-identifier
+  // expressions (e.g. `n.prop`) and aliased entries (e.g. `t AS teams`).
   if (ctx->LPAREN() != nullptr) {
     call_subquery->has_variable_scope_ = true;
     if (auto *return_items = ctx->returnItems()) {
@@ -4140,11 +4139,12 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
       std::unordered_set<std::string> seen_inner_names;
       for (auto *named_expr : named_expressions) {
         if (!utils::Downcast<Identifier>(named_expr->expression_)) {
-          throw SyntaxException("Only variables (optionally aliased) are allowed in the CALL subquery scope clause.");
+          throw SyntaxException("Only variable references are allowed in the CALL subquery scope clause.");
         }
-        // `named_expr->name_` is the inner (post-alias) name. Duplicate-check
-        // on the inner name catches both `CALL (t, t)` and
-        // `CALL (t AS x, s AS x)`.
+        if (named_expr->is_aliased_) {
+          throw SyntaxException(
+              "Scoped variables in the CALL clause can not be aliased. Only simple variable references are allowed.");
+        }
         if (!seen_inner_names.insert(named_expr->name_).second) {
           throw SyntaxException("Duplicate variable '{}' in CALL subquery scope clause.", named_expr->name_);
         }

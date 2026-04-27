@@ -7222,6 +7222,11 @@ TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) CALL { MATCH (m) RETURN m QUERY MEMORY UNLIMITED } RETURN n",
                                                ast_generator,
                                                "Memory limit cannot be set on subqueries!");
+
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (t:Team) CALL (t AS teams) { RETURN 1 AS x } RETURN t",
+      ast_generator,
+      "Variables cannot be aliased in the scope clause. Only simple variable references are allowed.");
 }
 
 TEST_P(CypherMainVisitorTest, CallSubquery) {

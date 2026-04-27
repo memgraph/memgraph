@@ -288,10 +288,10 @@ bool SymbolGenerator::PreVisit(CallSubquery &call_sub) {
         new_scope.call_subquery_imports[name] = symbol;
       }
     } else {
-      // For `CALL (v AS w, ...) { ... }`, `ne->expression_` is the outer
-      // identifier we resolve against the enclosing scope, while `ne->name_`
-      // is the inner name we bind into the subquery scope. When no alias was
-      // given, `ne->expression_->name_ == ne->name_`.
+      // For `CALL (v1, v2, ...) { ... }`, `ne->expression_` is the outer
+      // identifier we resolve against the enclosing scope, and `ne->name_`
+      // is the same name bound into the subquery scope (aliasing in the
+      // scope clause is rejected by the parser).
       for (auto *ne : call_sub.scoped_variables_) {
         auto *ident = utils::Downcast<Identifier>(ne->expression_);
         auto found = FindSymbolInScope(ident->name_, outer_scope, Symbol::Type::ANY);
