@@ -373,9 +373,6 @@ createIndex : CREATE INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' n
 
 dropIndex : DROP INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ( WITH CONFIG configsMap=configMap )? ;
 
-
-dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
-
 doubleLiteral : FloatingLiteral ;
 
 enumValueAccess : symbolicName ':' ':' symbolicName ;
