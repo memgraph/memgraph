@@ -67,15 +67,15 @@ void MemoryTracker::SetHardLimit(const int64_t limit) {
     spdlog::warn("Invalid memory limit (negative value).");
     return;
   }
-  if (next_limit == 0) {
-    spdlog::warn("Memory limit is not set.");
-    return;
-  }
 
   const auto previous_limit = hard_limit_.exchange(next_limit, std::memory_order_relaxed);
   if (previous_limit != next_limit) {
-    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-    spdlog::info("Memory limit set to {}", utils::GetReadableSize(next_limit));
+    if (next_limit == 0) {
+      spdlog::info("Memory limit cleared");
+    } else {
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+      spdlog::info("Memory limit set to {}", utils::GetReadableSize(next_limit));
+    }
   }
 }
 

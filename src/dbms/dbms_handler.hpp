@@ -16,6 +16,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -196,7 +197,8 @@ class DbmsHandler {
                     kDefaultDB,
                     storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
       // This seems correct, if database made progress
-      if (storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ != storage::kTimestampInitialId) {
+      if (storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
+          storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
         return std::unexpected{NewError::GENERIC};  // Update error
       }
@@ -477,14 +479,28 @@ class DbmsHandler {
   static void RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data);
 
 #ifdef MG_ENTERPRISE
-  TenantProfiles *tenant_profiles() { return tenant_profiles_.get(); }
+  std::expected<void, TenantProfiles::CreateError> CreateTenantProfile(std::string_view name, int64_t memory_limit,
+                                                                       system::Transaction *sys_txn);
+  std::expected<void, TenantProfiles::AlterError> AlterTenantProfile(std::string_view name, int64_t memory_limit,
+                                                                     system::Transaction *sys_txn);
+  std::expected<void, TenantProfiles::DropError> DropTenantProfile(std::string_view name, system::Transaction *sys_txn);
+  std::expected<void, TenantProfiles::AttachError> SetTenantProfileOnDatabase(std::string_view profile_name,
+                                                                              std::string_view db_name,
+                                                                              system::Transaction *sys_txn);
+  std::expected<void, TenantProfiles::DetachError> RemoveTenantProfileFromDatabase(std::string_view db_name,
+                                                                                   system::Transaction *sys_txn);
 
-  void CreateTenantProfile(std::string_view name, int64_t memory_limit, system::Transaction *sys_txn);
-  void AlterTenantProfile(std::string_view name, int64_t memory_limit, system::Transaction *sys_txn);
-  void DropTenantProfile(std::string_view name, system::Transaction *sys_txn);
-  void SetTenantProfileOnDatabase(std::string_view profile_name, std::string_view db_name,
-                                  system::Transaction *sys_txn);
-  void RemoveTenantProfileFromDatabase(std::string_view db_name, system::Transaction *sys_txn);
+  std::vector<TenantProfiles::Profile> GetAllTenantProfiles() const {
+    return tenant_profiles_ ? tenant_profiles_->GetAll() : std::vector<TenantProfiles::Profile>{};
+  }
+
+  std::optional<TenantProfiles::Profile> GetTenantProfile(std::string_view name) const {
+    return tenant_profiles_ ? tenant_profiles_->Get(name) : std::nullopt;
+  }
+
+  std::optional<std::string> GetTenantProfileForDatabase(std::string_view db_name) const {
+    return tenant_profiles_ ? tenant_profiles_->GetProfileForDatabase(db_name) : std::nullopt;
+  }
 #endif
 
   auto default_config() const -> storage::Config const & {

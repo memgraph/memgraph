@@ -11,6 +11,8 @@
 
 #include "dbms/rpc.hpp"
 
+#ifdef MG_ENTERPRISE
+
 #include "slk/streams.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "utils/enum.hpp"
@@ -178,14 +180,25 @@ void Load(memgraph::storage::replication::RenameDatabaseRes *self, memgraph::slk
   }
 }
 
+void Save(const memgraph::dbms::TenantProfiles::Profile &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.name, builder);
+  memgraph::slk::Save(self.memory_limit, builder);
+  memgraph::slk::Save(self.databases, builder);
+}
+
+void Load(memgraph::dbms::TenantProfiles::Profile *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->name, reader);
+  memgraph::slk::Load(&self->memory_limit, reader);
+  memgraph::slk::Load(&self->databases, reader);
+}
+
 void Save(const memgraph::storage::replication::TenantProfileReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(static_cast<uint8_t>(self.action), builder);
-  memgraph::slk::Save(self.profile_name, builder);
+  memgraph::slk::Save(self.profile, builder);
   memgraph::slk::Save(self.db_name, builder);
-  memgraph::slk::Save(self.memory_limit, builder);
 }
 
 void Load(memgraph::storage::replication::TenantProfileReq *self, memgraph::slk::Reader *reader) {
@@ -195,9 +208,8 @@ void Load(memgraph::storage::replication::TenantProfileReq *self, memgraph::slk:
   uint8_t action = 0;
   memgraph::slk::Load(&action, reader);
   self->action = static_cast<memgraph::storage::replication::TenantProfileReq::Action>(action);
-  memgraph::slk::Load(&self->profile_name, reader);
+  memgraph::slk::Load(&self->profile, reader);
   memgraph::slk::Load(&self->db_name, reader);
-  memgraph::slk::Load(&self->memory_limit, reader);
 }
 
 void Save(const memgraph::storage::replication::TenantProfileRes &self, memgraph::slk::Builder *builder) {
@@ -210,3 +222,5 @@ void Load(memgraph::storage::replication::TenantProfileRes *self, memgraph::slk:
 
 }  // namespace slk
 }  // namespace memgraph
+
+#endif  // MG_ENTERPRISE

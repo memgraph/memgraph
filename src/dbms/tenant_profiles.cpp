@@ -11,6 +11,8 @@
 
 #include "dbms/tenant_profiles.hpp"
 
+#ifdef MG_ENTERPRISE
+
 #include <map>
 #include <nlohmann/json.hpp>
 
@@ -20,10 +22,12 @@ namespace memgraph::dbms {
 
 namespace {
 
-const std::string kLegacyDbMappingPrefix = "db_tenant_profile:";
-
 auto ProfileKey(std::string_view name) -> std::string {
   return std::string{TenantProfiles::kPrefix} + std::string{name};
+}
+
+auto DbMappingKey(std::string_view db) -> std::string {
+  return std::string{TenantProfiles::kDbMappingPrefix} + std::string{db};
 }
 
 auto FromJson(const nlohmann::json &json, std::string_view name) -> TenantProfiles::Profile {
@@ -36,11 +40,11 @@ auto FromJson(const nlohmann::json &json, std::string_view name) -> TenantProfil
 
 }  // namespace
 
-std::string TenantProfiles::ProfileToJson(const Profile &profile) {
+nlohmann::json TenantProfiles::ProfileToJson(const Profile &profile) {
   nlohmann::json json;
   json["memory_limit"] = profile.memory_limit;
   json["databases"] = profile.databases;
-  return json.dump();
+  return json;
 }
 
 TenantProfiles::TenantProfiles(kvstore::KVStore &durability) : durability_{&durability} {
@@ -48,151 +52,140 @@ TenantProfiles::TenantProfiles(kvstore::KVStore &durability) : durability_{&dura
   if (!existing_version || *existing_version != kVersion) {
     durability_->Put(kVersionKey, kVersion);
   }
+}
 
+std::expected<void, TenantProfiles::CreateError> TenantProfiles::Create(std::string_view name, int64_t memory_limit) {
+  std::unique_lock lock{mutex_};
+  if (durability_->Get(ProfileKey(name))) return std::unexpected{CreateError::ALREADY_EXISTS};
+
+  Profile profile{.name = std::string{name}, .memory_limit = memory_limit};
+  if (!durability_->Put(ProfileKey(profile.name), ProfileToJson(profile).dump())) {
+    return std::unexpected{CreateError::DURABILITY_ERROR};
+  }
+  return {};
+}
+
+std::expected<std::unordered_set<std::string>, TenantProfiles::AlterError> TenantProfiles::Alter(std::string_view name,
+                                                                                                 int64_t memory_limit) {
+  std::unique_lock lock{mutex_};
+  auto stored = durability_->Get(ProfileKey(name));
+  if (!stored) return std::unexpected{AlterError::NOT_FOUND};
+
+  Profile profile = FromJson(nlohmann::json::parse(*stored), name);
+  profile.memory_limit = memory_limit;
+  if (!durability_->Put(ProfileKey(profile.name), ProfileToJson(profile).dump())) {
+    return std::unexpected{AlterError::DURABILITY_ERROR};
+  }
+  return profile.databases;
+}
+
+std::expected<void, TenantProfiles::DropError> TenantProfiles::Drop(std::string_view name) {
+  std::unique_lock lock{mutex_};
+  auto stored = durability_->Get(ProfileKey(name));
+  if (!stored) return std::unexpected{DropError::NOT_FOUND};
+
+  Profile profile = FromJson(nlohmann::json::parse(*stored), name);
+  if (!profile.databases.empty()) return std::unexpected{DropError::HAS_ATTACHED_DATABASES};
+
+  if (!durability_->Delete(ProfileKey(name))) return std::unexpected{DropError::DURABILITY_ERROR};
+  return {};
+}
+
+std::optional<TenantProfiles::Profile> TenantProfiles::Get(std::string_view name) const {
+  std::shared_lock lock{mutex_};
+  auto stored = durability_->Get(ProfileKey(name));
+  if (!stored) return std::nullopt;
+  try {
+    return FromJson(nlohmann::json::parse(*stored), name);
+  } catch (const nlohmann::json::parse_error &e) {
+    spdlog::warn("Failed to parse tenant profile '{}': {}", name, e.what());
+    return std::nullopt;
+  }
+}
+
+std::vector<TenantProfiles::Profile> TenantProfiles::GetAll() const {
+  std::shared_lock lock{mutex_};
+  std::vector<Profile> result;
   for (auto it = durability_->begin(std::string{kPrefix}); it != durability_->end(std::string{kPrefix}); ++it) {
     const auto &[key, value] = *it;
     auto name = key.substr(kPrefix.size());
     try {
-      auto profile = FromJson(nlohmann::json::parse(value), name);
-      for (const auto &db : profile.databases) {
-        db_to_profile_[db] = profile.name;
-      }
-      profiles_.emplace(std::move(name), std::move(profile));
+      result.push_back(FromJson(nlohmann::json::parse(value), name));
     } catch (const nlohmann::json::parse_error &e) {
       spdlog::warn("Failed to parse tenant profile '{}': {}", name, e.what());
     }
   }
-
-  if (!durability_->DeletePrefix(kLegacyDbMappingPrefix)) {
-    spdlog::warn("Failed to remove legacy tenant profile database mapping keys.");
-  }
-
-  spdlog::info("Restored {} tenant profile(s)", profiles_.size());
-}
-
-bool TenantProfiles::Create(std::string_view name, int64_t memory_limit) {
-  const std::unique_lock lock{mutex_};
-  if (profiles_.contains(std::string{name})) return false;
-
-  Profile profile{.name = std::string{name}, .memory_limit = memory_limit};
-  if (!durability_->Put(ProfileKey(profile.name), ProfileToJson(profile))) return false;
-  auto key = profile.name;
-  profiles_.emplace(std::move(key), std::move(profile));
-  return true;
-}
-
-std::optional<std::unordered_set<std::string>> TenantProfiles::Alter(std::string_view name, int64_t memory_limit) {
-  const std::unique_lock lock{mutex_};
-  auto it = profiles_.find(std::string{name});
-  if (it == profiles_.end()) return std::nullopt;
-
-  auto updated = it->second;
-  updated.memory_limit = memory_limit;
-  if (!durability_->Put(ProfileKey(updated.name), ProfileToJson(updated))) return std::nullopt;
-
-  it->second.memory_limit = memory_limit;
-  return it->second.databases;
-}
-
-TenantProfiles::DropResult TenantProfiles::Drop(std::string_view name) {
-  const std::unique_lock lock{mutex_};
-  auto it = profiles_.find(std::string{name});
-  if (it == profiles_.end()) return DropResult::NOT_FOUND;
-
-  if (!it->second.databases.empty()) return DropResult::HAS_ATTACHED_DATABASES;
-
-  if (!durability_->Delete(ProfileKey(name))) return DropResult::DURABILITY_ERROR;
-  profiles_.erase(it);
-  return DropResult::SUCCESS;
-}
-
-std::optional<TenantProfiles::Profile> TenantProfiles::Get(std::string_view name) const {
-  const std::shared_lock lock{mutex_};
-  auto it = profiles_.find(std::string{name});
-  if (it == profiles_.end()) return std::nullopt;
-  return it->second;
-}
-
-std::vector<TenantProfiles::Profile> TenantProfiles::GetAll() const {
-  const std::shared_lock lock{mutex_};
-  std::vector<Profile> result;
-  result.reserve(profiles_.size());
-  for (const auto &[_, profile] : profiles_) {
-    result.push_back(profile);
-  }
   return result;
 }
 
-std::optional<int64_t> TenantProfiles::AttachToDatabase(std::string_view profile_name, std::string_view db_name) {
-  const std::unique_lock lock{mutex_};
-  auto pit = profiles_.find(std::string{profile_name});
-  if (pit == profiles_.end()) return std::nullopt;
+std::expected<int64_t, TenantProfiles::AttachError> TenantProfiles::AttachToDatabase(std::string_view profile_name,
+                                                                                     std::string_view db_name) {
+  std::unique_lock lock{mutex_};
+  auto new_stored = durability_->Get(ProfileKey(profile_name));
+  if (!new_stored) return std::unexpected{AttachError::PROFILE_NOT_FOUND};
+  Profile new_profile = FromJson(nlohmann::json::parse(*new_stored), profile_name);
 
-  // Build atomic write batch: update old profile (if any), update new profile.
   std::map<std::string, std::string> to_put;
-  Profile *old_profile = nullptr;
-  if (auto dit = db_to_profile_.find(std::string{db_name}); dit != db_to_profile_.end()) {
-    old_profile = &profiles_.at(dit->second);
-    auto updated_old = *old_profile;
-    updated_old.databases.erase(std::string{db_name});
-    to_put.emplace(ProfileKey(updated_old.name), ProfileToJson(updated_old));
+  if (auto old_profile_name = durability_->Get(DbMappingKey(db_name));
+      old_profile_name && *old_profile_name != profile_name) {
+    if (auto old_stored = durability_->Get(ProfileKey(*old_profile_name))) {
+      Profile old_profile = FromJson(nlohmann::json::parse(*old_stored), *old_profile_name);
+      old_profile.databases.erase(std::string{db_name});
+      to_put.emplace(ProfileKey(old_profile.name), ProfileToJson(old_profile).dump());
+    }
   }
-  auto updated_new = pit->second;
-  updated_new.databases.insert(std::string{db_name});
-  to_put.emplace(ProfileKey(updated_new.name), ProfileToJson(updated_new));
+  new_profile.databases.insert(std::string{db_name});
+  to_put.emplace(ProfileKey(new_profile.name), ProfileToJson(new_profile).dump());
+  to_put.emplace(DbMappingKey(db_name), profile_name);
 
-  if (!durability_->PutMultiple(to_put)) return std::nullopt;
-
-  // Persist succeeded — apply to in-memory state.
-  if (old_profile) {
-    old_profile->databases.erase(std::string{db_name});
-  }
-  pit->second.databases.insert(std::string{db_name});
-  db_to_profile_[std::string{db_name}] = std::string{profile_name};
-  return pit->second.memory_limit;
+  if (!durability_->PutMultiple(to_put)) return std::unexpected{AttachError::DURABILITY_ERROR};
+  return new_profile.memory_limit;
 }
 
-bool TenantProfiles::DetachFromDatabase(std::string_view db_name) {
-  const std::unique_lock lock{mutex_};
-  auto dit = db_to_profile_.find(std::string{db_name});
-  if (dit == db_to_profile_.end()) return false;
+std::expected<void, TenantProfiles::DetachError> TenantProfiles::DetachFromDatabase(std::string_view db_name) {
+  std::unique_lock lock{mutex_};
+  auto profile_name = durability_->Get(DbMappingKey(db_name));
+  if (!profile_name) return std::unexpected{DetachError::NOT_ATTACHED};
 
-  auto &profile = profiles_.at(dit->second);
-  auto updated = profile;
-  updated.databases.erase(std::string{db_name});
+  auto profile_stored = durability_->Get(ProfileKey(*profile_name));
+  if (!profile_stored) return std::unexpected{DetachError::DURABILITY_ERROR};
 
-  if (!durability_->Put(ProfileKey(updated.name), ProfileToJson(updated))) return false;
-
+  Profile profile = FromJson(nlohmann::json::parse(*profile_stored), *profile_name);
   profile.databases.erase(std::string{db_name});
-  db_to_profile_.erase(dit);
-  return true;
+
+  std::map<std::string, std::string> to_put{{ProfileKey(profile.name), ProfileToJson(profile).dump()}};
+  std::vector<std::string> to_delete{DbMappingKey(db_name)};
+  if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return std::unexpected{DetachError::DURABILITY_ERROR};
+  return {};
 }
 
-bool TenantProfiles::RenameDatabase(std::string_view old_name, std::string_view new_name) {
-  const std::unique_lock lock{mutex_};
-  auto dit = db_to_profile_.find(std::string{old_name});
-  if (dit == db_to_profile_.end()) return false;  // not attached to any profile
+std::expected<void, TenantProfiles::RenameError> TenantProfiles::RenameDatabase(std::string_view old_name,
+                                                                                std::string_view new_name) {
+  std::unique_lock lock{mutex_};
+  auto profile_name = durability_->Get(DbMappingKey(old_name));
+  if (!profile_name) return std::unexpected{RenameError::NOT_ATTACHED};
 
-  auto &profile = profiles_.at(dit->second);
-  auto updated = profile;
-  updated.databases.erase(std::string{old_name});
-  updated.databases.insert(std::string{new_name});
+  auto profile_stored = durability_->Get(ProfileKey(*profile_name));
+  if (!profile_stored) return std::unexpected{RenameError::DURABILITY_ERROR};
 
-  if (!durability_->Put(ProfileKey(updated.name), ProfileToJson(updated))) return false;
-
+  Profile profile = FromJson(nlohmann::json::parse(*profile_stored), *profile_name);
   profile.databases.erase(std::string{old_name});
   profile.databases.insert(std::string{new_name});
-  auto profile_name = std::move(dit->second);
-  db_to_profile_.erase(dit);
-  db_to_profile_[std::string{new_name}] = std::move(profile_name);
-  return true;
+
+  std::map<std::string, std::string> to_put{
+      {ProfileKey(profile.name), ProfileToJson(profile).dump()},
+      {DbMappingKey(new_name), *profile_name},
+  };
+  std::vector<std::string> to_delete{DbMappingKey(old_name)};
+  if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return std::unexpected{RenameError::DURABILITY_ERROR};
+  return {};
 }
 
 std::optional<std::string> TenantProfiles::GetProfileForDatabase(std::string_view db_name) const {
-  const std::shared_lock lock{mutex_};
-  auto it = db_to_profile_.find(std::string{db_name});
-  if (it == db_to_profile_.end()) return std::nullopt;
-  return it->second;
+  std::shared_lock lock{mutex_};
+  return durability_->Get(DbMappingKey(db_name));
 }
 
 }  // namespace memgraph::dbms
+
+#endif

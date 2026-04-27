@@ -11,14 +11,18 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#include <nlohmann/json_fwd.hpp>
 
 #include "kvstore/kvstore.hpp"
 
@@ -27,6 +31,7 @@ namespace memgraph::dbms {
 class TenantProfiles {
  public:
   static constexpr std::string_view kPrefix = "tenant_profile:";
+  static constexpr std::string_view kDbMappingPrefix = "db_tenant_profile:";
   static constexpr std::string_view kVersionKey = "tenant_profiles_version";
   static constexpr std::string_view kVersion = "V1";
 
@@ -38,27 +43,32 @@ class TenantProfiles {
 
   explicit TenantProfiles(kvstore::KVStore &durability);
 
-  enum class DropResult : uint8_t { SUCCESS, NOT_FOUND, HAS_ATTACHED_DATABASES, DURABILITY_ERROR };
+  enum class CreateError : uint8_t { ALREADY_EXISTS, DURABILITY_ERROR };
+  enum class AlterError : uint8_t { NOT_FOUND, DURABILITY_ERROR };
+  enum class DropError : uint8_t { NOT_FOUND, HAS_ATTACHED_DATABASES, DURABILITY_ERROR };
+  enum class AttachError : uint8_t { PROFILE_NOT_FOUND, DURABILITY_ERROR };
+  enum class DetachError : uint8_t { NOT_ATTACHED, DURABILITY_ERROR };
+  enum class RenameError : uint8_t { NOT_ATTACHED, DURABILITY_ERROR };
 
-  bool Create(std::string_view name, int64_t memory_limit);
-  std::optional<std::unordered_set<std::string>> Alter(std::string_view name, int64_t memory_limit);
-  DropResult Drop(std::string_view name);
+  std::expected<void, CreateError> Create(std::string_view name, int64_t memory_limit);
+  std::expected<std::unordered_set<std::string>, AlterError> Alter(std::string_view name, int64_t memory_limit);
+  std::expected<void, DropError> Drop(std::string_view name);
 
   std::optional<Profile> Get(std::string_view name) const;
   std::vector<Profile> GetAll() const;
 
-  std::optional<int64_t> AttachToDatabase(std::string_view profile_name, std::string_view db_name);
-  bool DetachFromDatabase(std::string_view db_name);
-  bool RenameDatabase(std::string_view old_name, std::string_view new_name);
+  std::expected<int64_t, AttachError> AttachToDatabase(std::string_view profile_name, std::string_view db_name);
+  std::expected<void, DetachError> DetachFromDatabase(std::string_view db_name);
+  std::expected<void, RenameError> RenameDatabase(std::string_view old_name, std::string_view new_name);
   std::optional<std::string> GetProfileForDatabase(std::string_view db_name) const;
 
  private:
-  static std::string ProfileToJson(const Profile &profile);
+  static nlohmann::json ProfileToJson(const Profile &profile);
 
   mutable std::shared_mutex mutex_;
   kvstore::KVStore *durability_;
-  std::unordered_map<std::string, Profile> profiles_;
-  std::unordered_map<std::string, std::string> db_to_profile_;  // db_name → profile_name
 };
 
 }  // namespace memgraph::dbms
+
+#endif

@@ -901,16 +901,13 @@ userProfileQuery : createUserProfile
                  | showResourceConsumption
                  ;
 
-createTenantProfile : CREATE TENANT PROFILE profile=symbolicName LIMIT tenantLimitList ;
-alterTenantProfile  : ALTER TENANT PROFILE profile=symbolicName SET tenantLimitList ;
+createTenantProfile : CREATE TENANT PROFILE profile=symbolicName LIMIT listOfLimits ;
+alterTenantProfile  : ALTER TENANT PROFILE profile=symbolicName SET listOfLimits ;
 dropTenantProfile   : DROP TENANT PROFILE profile=symbolicName ;
 showTenantProfiles  : SHOW TENANT PROFILES ;
 showTenantProfile   : SHOW TENANT PROFILE profile=symbolicName ;
 setTenantProfileOnDatabase    : SET TENANT PROFILE ON DATABASE db=symbolicName TO profile=symbolicName ;
 removeTenantProfileFromDatabase : REMOVE TENANT PROFILE FROM DATABASE db=symbolicName ;
-
-tenantLimitList : tenantLimitKV ( ',' tenantLimitKV )* ;
-tenantLimitKV   : key=symbolicName val=limitValue ;
 
 tenantProfileQuery : createTenantProfile
                    | alterTenantProfile
@@ -939,6 +936,8 @@ showDescriptions
     : SHOW DESCRIPTIONS
     ;
 
+// Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' clause.
+// systemInfoQuery is re-listed so it dispatches to the overridden storageInfo above.
 systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
 storageInfo : STORAGE INFO ( ON DATABASE db=symbolicName )? ;
 

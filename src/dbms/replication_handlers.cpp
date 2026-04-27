@@ -285,100 +285,86 @@ void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_acce
     return;
   }
 
-  auto *tp = dbms_handler.tenant_profiles();
-  if (!tp) {
-    spdlog::warn("TenantProfileHandler: tenant_profiles not initialized");
-    rpc::SendFinalResponse(res, request_version, res_builder);
-    return;
-  }
-
   using Action = storage::replication::TenantProfileReq::Action;
+  res = storage::replication::TenantProfileRes(true);
   try {
     switch (req.action) {
-      case Action::CREATE:
-        tp->Create(req.profile_name, req.memory_limit);
-        break;
-      case Action::ALTER: {
-        auto dbs = tp->Alter(req.profile_name, req.memory_limit);
-        if (!dbs) {
-          spdlog::warn("TenantProfileHandler: ALTER for non-existent tenant profile '{}'", req.profile_name);
-          rpc::SendFinalResponse(res, request_version, res_builder);
-          return;
+      case Action::CREATE: {
+        auto result = dbms_handler.CreateTenantProfile(req.profile.name, req.profile.memory_limit, /*sys_txn=*/nullptr);
+        if (!result && result.error() == TenantProfiles::CreateError::DURABILITY_ERROR) {
+          spdlog::error("TenantProfileHandler: CREATE for profile '{}' failed — KVStore I/O error", req.profile.name);
+          res.success = false;
         }
-        for (const auto &db_name : *dbs) {
-          try {
-            auto db_acc = dbms_handler.Get(db_name);
-            if (req.memory_limit > 0) {
-              db_acc.get()->SetTenantMemoryLimit(req.memory_limit);
-            } else {
-              db_acc.get()->ClearTenantMemoryLimit();
-            }
-          } catch (const UnknownDatabaseException &) {
-            spdlog::warn("TenantProfileHandler: ALTER — db '{}' not found on replica, skipping", db_name);
+        break;
+      }
+      case Action::ALTER: {
+        auto result = dbms_handler.AlterTenantProfile(req.profile.name, req.profile.memory_limit, /*sys_txn=*/nullptr);
+        if (!result) {
+          if (result.error() == TenantProfiles::AlterError::NOT_FOUND) {
+            spdlog::warn("TenantProfileHandler: ALTER for non-existent tenant profile '{}'", req.profile.name);
+          } else {
+            spdlog::error("TenantProfileHandler: ALTER for profile '{}' failed — KVStore I/O error", req.profile.name);
           }
+          res.success = false;
         }
         break;
       }
       case Action::DROP: {
-        const auto result = tp->Drop(req.profile_name);
-        if (result == TenantProfiles::DropResult::HAS_ATTACHED_DATABASES) {
-          spdlog::warn("TenantProfileHandler: DROP for profile '{}' rejected — has attached databases",
-                       req.profile_name);
-          rpc::SendFinalResponse(res, request_version, res_builder);
-          return;
-        }
-        if (result == TenantProfiles::DropResult::DURABILITY_ERROR) {
-          spdlog::error("TenantProfileHandler: DROP for profile '{}' failed — KVStore I/O error", req.profile_name);
-          rpc::SendFinalResponse(res, request_version, res_builder);
-          return;
+        auto result = dbms_handler.DropTenantProfile(req.profile.name, /*sys_txn=*/nullptr);
+        if (!result) {
+          switch (result.error()) {
+            case TenantProfiles::DropError::NOT_FOUND:
+              // Benign: replica may have already pruned this profile or never had it.
+              break;
+            case TenantProfiles::DropError::HAS_ATTACHED_DATABASES:
+              spdlog::warn("TenantProfileHandler: DROP for profile '{}' rejected — has attached databases",
+                           req.profile.name);
+              res.success = false;
+              break;
+            case TenantProfiles::DropError::DURABILITY_ERROR:
+              spdlog::error("TenantProfileHandler: DROP for profile '{}' failed — KVStore I/O error", req.profile.name);
+              res.success = false;
+              break;
+          }
         }
         break;
       }
       case Action::SET_ON_DATABASE: {
-        auto limit = tp->AttachToDatabase(req.profile_name, req.db_name);
-        if (!limit) {
-          spdlog::warn("TenantProfileHandler: SET_ON_DATABASE for non-existent tenant profile '{}'", req.profile_name);
-          rpc::SendFinalResponse(res, request_version, res_builder);
-          return;
-        }
-        try {
-          auto db_acc = dbms_handler.Get(req.db_name);
-          if (*limit > 0) {
-            db_acc.get()->SetTenantMemoryLimit(*limit);
+        auto result = dbms_handler.SetTenantProfileOnDatabase(req.profile.name, req.db_name, /*sys_txn=*/nullptr);
+        if (!result) {
+          if (result.error() == TenantProfiles::AttachError::PROFILE_NOT_FOUND) {
+            spdlog::warn("TenantProfileHandler: SET_ON_DATABASE for non-existent tenant profile '{}'",
+                         req.profile.name);
           } else {
-            db_acc.get()->ClearTenantMemoryLimit();
+            spdlog::error("TenantProfileHandler: SET_ON_DATABASE for profile '{}' failed — KVStore I/O error",
+                          req.profile.name);
           }
-        } catch (const UnknownDatabaseException &) {
-          spdlog::warn(
-              "TenantProfileHandler: SET_ON_DATABASE — db '{}' not found on replica, limit will apply on create",
-              req.db_name);
+          res.success = false;
         }
         break;
       }
       case Action::REMOVE_FROM_DATABASE: {
-        if (!tp->DetachFromDatabase(req.db_name)) {
-          spdlog::warn("TenantProfileHandler: REMOVE_FROM_DATABASE — db '{}' not attached to any profile on replica",
-                       req.db_name);
-          // Continue to clear limit anyway; the DB might exist even if not attached
-        }
-        try {
-          auto db_acc = dbms_handler.Get(req.db_name);
-          db_acc.get()->ClearTenantMemoryLimit();
-        } catch (const UnknownDatabaseException &) {
-          spdlog::warn(
-              "TenantProfileHandler: REMOVE_FROM_DATABASE — db '{}' not found on replica, skipping limit clear",
-              req.db_name);
+        auto result = dbms_handler.RemoveTenantProfileFromDatabase(req.db_name, /*sys_txn=*/nullptr);
+        if (!result) {
+          if (result.error() == TenantProfiles::DetachError::DURABILITY_ERROR) {
+            spdlog::error("TenantProfileHandler: REMOVE_FROM_DATABASE for db '{}' failed — KVStore I/O error",
+                          req.db_name);
+            res.success = false;
+          } else {
+            spdlog::warn("TenantProfileHandler: REMOVE_FROM_DATABASE — db '{}' not attached to any profile on replica",
+                         req.db_name);
+          }
         }
         break;
       }
       default:
         spdlog::warn("TenantProfileHandler: unknown action {}", static_cast<uint8_t>(req.action));
-        rpc::SendFinalResponse(res, request_version, res_builder);
-        return;
+        res.success = false;
+        break;
     }
-    res = storage::replication::TenantProfileRes(true);
   } catch (const std::exception &e) {
     spdlog::warn("TenantProfileHandler failed: {}", e.what());
+    res.success = false;
   }
 
   rpc::SendFinalResponse(res, request_version, res_builder);

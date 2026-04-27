@@ -389,7 +389,9 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
   }
 
   // Update tenant profile membership (no-op if database had no profile attached).
-  if (tenant_profiles_) tenant_profiles_->RenameDatabase(old_name, new_name);
+  if (tenant_profiles_) {
+    [[maybe_unused]] auto renamed = tenant_profiles_->RenameDatabase(old_name, new_name);
+  }
 
   // Add system action for replication
   if (txn) {
@@ -432,11 +434,13 @@ struct CreateDatabase : memgraph::system::ISystemAction {
   DatabaseAccess db_acc;
 };
 
+constexpr int64_t kUnusedMemoryLimit = 0;
+
 struct TenantProfileAction : memgraph::system::ISystemAction {
   using Action = storage::replication::TenantProfileReq::Action;
 
   TenantProfileAction(Action action, std::string_view profile_name, std::string_view db_name, int64_t memory_limit)
-      : action_{action}, profile_name_{profile_name}, db_name_{db_name}, memory_limit_{memory_limit} {}
+      : action_{action}, profile_{.name = std::string{profile_name}, .memory_limit = memory_limit}, db_name_{db_name} {}
 
   void DoDurability() override {}
 
@@ -450,42 +454,38 @@ struct TenantProfileAction : memgraph::system::ISystemAction {
         txn.last_committed_system_timestamp(),
         txn.timestamp(),
         action_,
-        profile_name_,
-        db_name_,
-        memory_limit_);
+        profile_,
+        db_name_);
   }
 
   void PostReplication(replication::RoleMainData & /*mainData*/) const override {}
 
  private:
   Action action_;
-  std::string profile_name_;
+  TenantProfiles::Profile profile_;
   std::string db_name_;
-  int64_t memory_limit_;
 };
 
-void DbmsHandler::CreateTenantProfile(std::string_view name, int64_t memory_limit, system::Transaction *sys_txn) {
-  if (!tenant_profiles_->Create(name, memory_limit)) {
-    throw query::QueryRuntimeException("Tenant profile '{}' already exists.", name);
-  }
+std::expected<void, TenantProfiles::CreateError> DbmsHandler::CreateTenantProfile(std::string_view name,
+                                                                                  int64_t memory_limit,
+                                                                                  system::Transaction *sys_txn) {
+  auto result = tenant_profiles_->Create(name, memory_limit);
+  if (!result) return std::unexpected{result.error()};
   if (sys_txn) {
     sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::CREATE, name, "", memory_limit);
   }
+  return {};
 }
 
-void DbmsHandler::AlterTenantProfile(std::string_view name, int64_t memory_limit, system::Transaction *sys_txn) {
-  auto attached_dbs = tenant_profiles_->Alter(name, memory_limit);
-  if (!attached_dbs) {
-    throw query::QueryRuntimeException("Tenant profile '{}' not found.", name);
-  }
-  for (const auto &db_name : *attached_dbs) {
+std::expected<void, TenantProfiles::AlterError> DbmsHandler::AlterTenantProfile(std::string_view name,
+                                                                                int64_t memory_limit,
+                                                                                system::Transaction *sys_txn) {
+  auto result = tenant_profiles_->Alter(name, memory_limit);
+  if (!result) return std::unexpected{result.error()};
+  for (const auto &db_name : *result) {
     try {
       auto db_acc = Get(db_name);
-      if (memory_limit > 0) {
-        db_acc.get()->SetTenantMemoryLimit(memory_limit);
-      } else {
-        db_acc.get()->ClearTenantMemoryLimit();
-      }
+      db_acc.get()->SetTenantMemoryLimit(memory_limit);
     } catch (const UnknownDatabaseException &) {
       // DB was dropped concurrently — the profile change is already durable and will not
       // be re-applied on restart (the DB no longer exists). Skip gracefully.
@@ -495,52 +495,44 @@ void DbmsHandler::AlterTenantProfile(std::string_view name, int64_t memory_limit
   if (sys_txn) {
     sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::ALTER, name, "", memory_limit);
   }
+  return {};
 }
 
-void DbmsHandler::DropTenantProfile(std::string_view name, system::Transaction *sys_txn) {
-  switch (tenant_profiles_->Drop(name)) {
-    case TenantProfiles::DropResult::SUCCESS:
-      break;
-    case TenantProfiles::DropResult::NOT_FOUND:
-      throw query::QueryRuntimeException("Tenant profile '{}' not found.", name);
-    case TenantProfiles::DropResult::HAS_ATTACHED_DATABASES:
-      throw query::QueryRuntimeException("Tenant profile '{}' has databases attached. Detach all databases first.",
-                                         name);
-    case TenantProfiles::DropResult::DURABILITY_ERROR:
-      throw query::QueryRuntimeException("Failed to persist deletion of tenant profile '{}'. Disk I/O error.", name);
-  }
+std::expected<void, TenantProfiles::DropError> DbmsHandler::DropTenantProfile(std::string_view name,
+                                                                              system::Transaction *sys_txn) {
+  auto result = tenant_profiles_->Drop(name);
+  if (!result) return std::unexpected{result.error()};
   if (sys_txn) {
-    sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::DROP, name, "", 0);
+    sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::DROP, name, "", kUnusedMemoryLimit);
   }
+  return {};
 }
 
-void DbmsHandler::SetTenantProfileOnDatabase(std::string_view profile_name, std::string_view db_name,
-                                             system::Transaction *sys_txn) {
+std::expected<void, TenantProfiles::AttachError> DbmsHandler::SetTenantProfileOnDatabase(std::string_view profile_name,
+                                                                                         std::string_view db_name,
+                                                                                         system::Transaction *sys_txn) {
   auto db_acc = Get(db_name);
-  auto memory_limit = tenant_profiles_->AttachToDatabase(profile_name, db_name);
-  if (!memory_limit) {
-    throw query::QueryRuntimeException("Tenant profile '{}' not found.", profile_name);
-  }
-  if (*memory_limit > 0) {
-    db_acc.get()->SetTenantMemoryLimit(*memory_limit);
-  } else {
-    db_acc.get()->ClearTenantMemoryLimit();
-  }
+  auto result = tenant_profiles_->AttachToDatabase(profile_name, db_name);
+  if (!result) return std::unexpected{result.error()};
+  db_acc.get()->SetTenantMemoryLimit(*result);
   if (sys_txn) {
     sys_txn->AddAction<TenantProfileAction>(
-        TenantProfileAction::Action::SET_ON_DATABASE, profile_name, db_name, *memory_limit);
+        TenantProfileAction::Action::SET_ON_DATABASE, profile_name, db_name, *result);
   }
+  return {};
 }
 
-void DbmsHandler::RemoveTenantProfileFromDatabase(std::string_view db_name, system::Transaction *sys_txn) {
-  if (!tenant_profiles_->DetachFromDatabase(db_name)) {
-    throw query::QueryRuntimeException("No tenant profile attached to database '{}'.", db_name);
-  }
+std::expected<void, TenantProfiles::DetachError> DbmsHandler::RemoveTenantProfileFromDatabase(
+    std::string_view db_name, system::Transaction *sys_txn) {
+  auto result = tenant_profiles_->DetachFromDatabase(db_name);
+  if (!result) return std::unexpected{result.error()};
   auto db_acc = Get(db_name);
-  db_acc.get()->ClearTenantMemoryLimit();
+  db_acc.get()->SetTenantMemoryLimit(0);
   if (sys_txn) {
-    sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::REMOVE_FROM_DATABASE, "", db_name, 0);
+    sys_txn->AddAction<TenantProfileAction>(
+        TenantProfileAction::Action::REMOVE_FROM_DATABASE, "", db_name, kUnusedMemoryLimit);
   }
+  return {};
 }
 
 DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system::Transaction *txn) {

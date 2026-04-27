@@ -19,6 +19,9 @@
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
+#ifdef MG_ENTERPRISE
+#include "dbms/tenant_profiles.hpp"
+
 namespace memgraph::storage::replication {
 
 struct CreateDatabaseReq {
@@ -151,22 +154,20 @@ struct TenantProfileReq {
   TenantProfileReq() = default;
 
   TenantProfileReq(const utils::UUID &main_uuid, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
-                   Action action, std::string_view profile_name, std::string_view db_name, int64_t memory_limit)
+                   Action action, dbms::TenantProfiles::Profile profile, std::string_view db_name)
       : main_uuid(main_uuid),
         expected_group_timestamp{expected_group_timestamp},
         new_group_timestamp(new_group_timestamp),
         action(action),
-        profile_name(profile_name),
-        db_name(db_name),
-        memory_limit(memory_limit) {}
+        profile(std::move(profile)),
+        db_name(db_name) {}
 
   utils::UUID main_uuid;
   uint64_t expected_group_timestamp{0};
   uint64_t new_group_timestamp{0};
   Action action{Action::CREATE};
-  std::string profile_name;
+  dbms::TenantProfiles::Profile profile;
   std::string db_name;
-  int64_t memory_limit{0};
 };
 
 struct TenantProfileRes {
@@ -213,6 +214,10 @@ void Save(const memgraph::storage::replication::RenameDatabaseRes &self, memgrap
 
 void Load(memgraph::storage::replication::RenameDatabaseRes *self, memgraph::slk::Reader *reader);
 
+void Save(const memgraph::dbms::TenantProfiles::Profile &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::dbms::TenantProfiles::Profile *self, memgraph::slk::Reader *reader);
+
 void Save(const memgraph::storage::replication::TenantProfileReq &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::TenantProfileReq *self, memgraph::slk::Reader *reader);
@@ -220,4 +225,7 @@ void Load(memgraph::storage::replication::TenantProfileReq *self, memgraph::slk:
 void Save(const memgraph::storage::replication::TenantProfileRes &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::TenantProfileRes *self, memgraph::slk::Reader *reader);
+
 }  // namespace memgraph::slk
+
+#endif  // MG_ENTERPRISE

@@ -211,11 +211,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateTenantProfile(MemgraphCypher::Create
   auto *q = storage_->Create<TenantProfileQuery>();
   q->action_ = TenantProfileQuery::Action::CREATE;
   q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
-  for (auto *kv : ctx->tenantLimitList()->tenantLimitKV()) {
-    auto key = utils::ToLowerCase(std::any_cast<std::string>(kv->key->accept(this)));
-    auto value = VisitLimitValue(kv->val, this);
-    q->limits_.emplace_back(key, value);
-  }
+  q->limits_ = std::any_cast<UserProfileQuery::limits_t>(ctx->listOfLimits()->accept(this));
   query_ = q;
   return q;
 }
@@ -224,11 +220,7 @@ antlrcpp::Any CypherMainVisitor::visitAlterTenantProfile(MemgraphCypher::AlterTe
   auto *q = storage_->Create<TenantProfileQuery>();
   q->action_ = TenantProfileQuery::Action::ALTER;
   q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
-  for (auto *kv : ctx->tenantLimitList()->tenantLimitKV()) {
-    auto key = utils::ToLowerCase(std::any_cast<std::string>(kv->key->accept(this)));
-    auto value = VisitLimitValue(kv->val, this);
-    q->limits_.emplace_back(key, value);
-  }
+  q->limits_ = std::any_cast<UserProfileQuery::limits_t>(ctx->listOfLimits()->accept(this));
   query_ = q;
   return q;
 }
