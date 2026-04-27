@@ -7398,18 +7398,18 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   AbortCheck(context);
 
   utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
-  if (left_cursor_->Pull(frame, context)) {
+  if (!is_left_exhausted_ && left_cursor_->Pull(frame, context)) {
     // collect values from the left child
     for (const auto &output_symbol : self_.left_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
     }
-  } else if (right_cursor_->Pull(frame, context)) {
+  } else {
+    is_left_exhausted_ = true;
+    if (!right_cursor_->Pull(frame, context)) return false;
     // collect values from the right child
     for (const auto &output_symbol : self_.right_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
     }
-  } else {
-    return false;
   }
 
   // put collected values on frame under union symbols
@@ -7428,6 +7428,7 @@ void Union::UnionCursor::Shutdown() {
 void Union::UnionCursor::Reset() {
   left_cursor_->Reset();
   right_cursor_->Reset();
+  is_left_exhausted_ = false;
 }
 
 std::vector<Symbol> Cartesian::ModifiedSymbols(const SymbolTable &table) const {
@@ -11129,7 +11130,6 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   // check we have not exceeded the limit before pulling
-  if (!shared_quota_) return false;
   if (shared_quota_->Decrement() == 0) {
     shared_quota_.reset();  // Important to release any remaining resource for other threads
     return false;
