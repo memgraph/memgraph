@@ -780,6 +780,18 @@ showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
+indexQuery : createIndex | dropIndex;
+
+nestedPropertyKeyList : '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' ;
+
+alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
+
+createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )?
+            | CREATE INDEX ( symbolicName )? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+            ;
+
+dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
+
 propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
 
 createEdgeIndex : CREATE EDGE INDEX ON ':' labelName nestedPropertyKeyList?;
