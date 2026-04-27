@@ -390,25 +390,42 @@ jobs:
           --cugraph $CUGRAPH \
           build-mage $SPLIT_DEBUG_ARG
 
-      - name: Upload MAGE debug symbols
+      - name: Upload debug symbols
         if: ${{ inputs.split_debug }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: eu-west-1
         run: |
-          # MAGE .debug sidecars were bundled into mage.tar.gz by mage/setup
-          # when MG_SPLIT_DEBUG=ON. Extract on the runner and upload by build-id.
-          echo "=== mage.tar.gz contents (filtered) ==="
-          tar -tzvf mage/mage.tar.gz | grep -E '\.(so|debug)$' | head -40 || echo "(no .so/.debug entries found)"
-          echo "=== end contents ==="
-          mkdir -p /tmp/mage-symbols
-          tar -xzf mage/mage.tar.gz -C /tmp/mage-symbols
-          echo "=== files in /tmp/mage-symbols matching *.debug ==="
-          find /tmp/mage-symbols -name '*.debug' -type f | head -40 || echo "(none)"
+          # Stage all .debug sidecars from this job into a single dir, then
+          # upload by ELF build-id. We collect from two sources:
+          #   1. memgraph's binary + query_modules built earlier in this job.
+          #      Those binaries get baked into the MAGE Docker image and have
+          #      a different build-id than the standalone memgraph package job.
+          #      Skip when an external memgraph package was downloaded — those
+          #      symbols are uploaded by the job that produced that package.
+          #   2. MAGE's own modules, bundled into mage.tar.gz by mage/setup.
+          DBG_DIR=build/debug-symbols
+          mkdir -p "$DBG_DIR"
+
+          if [[ -z "${{ inputs.memgraph_download_link }}" ]]; then
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --cugraph $CUGRAPH \
+            copy-debug-symbols \
+            --dest-dir "$DBG_DIR"
+          fi
+
+          tar -xzf mage/mage.tar.gz -C "$DBG_DIR"
+
+          echo "=== .debug files staged for upload ==="
+          find "$DBG_DIR" -name '*.debug' -type f | head -40 || echo "(none)"
           echo "=== end ==="
-          bash tools/ci/upload-debug-symbols.sh /tmp/mage-symbols
-          rm -rf /tmp/mage-symbols
+
+          bash tools/ci/upload-debug-symbols.sh "$DBG_DIR"
+          rm -rf "$DBG_DIR"
 
       - name: Build DEB package in MGBUILD container
         if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_DEB == 'true' }}
