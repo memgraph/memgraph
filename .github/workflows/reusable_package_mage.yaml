@@ -399,8 +399,14 @@ jobs:
         run: |
           # MAGE .debug sidecars were bundled into mage.tar.gz by mage/setup
           # when MG_SPLIT_DEBUG=ON. Extract on the runner and upload by build-id.
+          echo "=== mage.tar.gz contents (filtered) ==="
+          tar -tzvf mage/mage.tar.gz | grep -E '\.(so|debug)$' | head -40 || echo "(no .so/.debug entries found)"
+          echo "=== end contents ==="
           mkdir -p /tmp/mage-symbols
           tar -xzf mage/mage.tar.gz -C /tmp/mage-symbols
+          echo "=== files in /tmp/mage-symbols matching *.debug ==="
+          find /tmp/mage-symbols -name '*.debug' -type f | head -40 || echo "(none)"
+          echo "=== end ==="
           bash tools/ci/upload-debug-symbols.sh /tmp/mage-symbols
           rm -rf /tmp/mage-symbols
 
