@@ -295,6 +295,7 @@ class DiskStorage final : public Storage {
     // Bring base class convenience overloads into scope (they provide default neverCancel)
     using Storage::Accessor::CreateGlobalEdgeIndex;
     using Storage::Accessor::CreateIndex;
+    using Storage::Accessor::Vertices;
 
     std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
                                                                  CheckCancelFunction cancel_check) override;

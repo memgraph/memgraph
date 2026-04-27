@@ -13,11 +13,14 @@
 
 #include <memory>
 
+#include "dbms/database_info.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/ttl.hpp"
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
@@ -55,6 +58,34 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
 };
 
 Database::~Database() = default;
+
+std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType rw_type,
+                                                    std::optional<storage::IsolationLevel> override_isolation_level,
+                                                    std::optional<std::chrono::milliseconds> timeout) {
+  return storage_->Access(rw_type, override_isolation_level, timeout);
+}
+
+std::unique_ptr<storage::Accessor> Database::UniqueAccess(
+    std::optional<storage::IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
+  return storage_->UniqueAccess(override_isolation_level, timeout);
+}
+
+std::unique_ptr<storage::Accessor> Database::ReadOnlyAccess(
+    std::optional<storage::IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
+  return storage_->ReadOnlyAccess(override_isolation_level, timeout);
+}
+
+std::string Database::name() const { return storage_->name(); }
+
+utils::SafeString::ConstSafeWrapper Database::name_view() const { return storage_->name_view(); }
+
+const utils::UUID &Database::uuid() const { return storage_->uuid(); }
+
+const storage::Config &Database::config() const { return storage_->config_; }
+
+storage::StorageMode Database::GetStorageMode() const noexcept { return storage_->GetStorageMode(); }
+
+storage::ttl::TTL &Database::ttl() { return storage_->ttl_; }
 
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),

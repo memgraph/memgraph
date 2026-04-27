@@ -12,7 +12,6 @@
 #include <gtest/gtest.h>
 
 #include "disk_test_utils.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -119,7 +118,7 @@ TEST_P(StorageIsolationLevelTest, VisibilityOnDiskStorage) {
   config.transaction.isolation_level = default_isolation_level;
 
   for (const auto override_isolation_level : isolation_levels) {
-    std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::DiskStorage(config));
+    auto storage = disk_test_utils::CreateDiskStorage(config);
     auto on_exit = memgraph::utils::OnScopeExit{[&]() { disk_test_utils::RemoveRocksDbDirs(testSuite); }};
     try {
       this->TestVisibility(storage, default_isolation_level, override_isolation_level);

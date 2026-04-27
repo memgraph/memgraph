@@ -26,10 +26,12 @@
 
 #include "constants.hpp"
 #include "dbms/database.hpp"
+#include "dbms/database_info.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/storage.hpp"
 #ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
 #endif

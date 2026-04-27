@@ -31,6 +31,7 @@
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
 #include "replication/state.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
