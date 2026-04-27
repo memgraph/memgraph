@@ -83,6 +83,9 @@ class Cursor {
   ///     other information.
   ///
   /// @throws QueryRuntimeException if something went wrong with execution
+  /// @return true if a result was produced, false if the cursor is exhausted.
+  /// Once false is returned, Pull must not be called again without first
+  /// calling Reset().
   virtual bool Pull(Frame &, ExecutionContext &) = 0;
 
   /// Resets the Cursor to its initial state.
@@ -2708,6 +2711,7 @@ class Union : public memgraph::query::plan::LogicalOperator {
    private:
     const Union &self_;
     const UniqueCursorPtr left_cursor_, right_cursor_;
+    bool is_left_exhausted_{false};
   };
 };
 
