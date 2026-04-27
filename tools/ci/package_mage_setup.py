@@ -14,49 +14,49 @@ PR_BUILDS = ["amd", "arm", "cuda", "cugraph"]
 MATRIX_BUILDS = [
     {
         "arch": "amd",
-        "build_type": "Release",
+        "package_flavour": "prod",
         "cuda": "false",
         "cugraph": "false",
         "malloc": "false",
     },
     {
         "arch": "arm",
-        "build_type": "Release",
+        "package_flavour": "prod",
         "cuda": "false",
         "cugraph": "false",
         "malloc": "false",
     },
     {
         "arch": "amd",
-        "build_type": "RelWithDebInfo",
+        "package_flavour": "debug",
         "cuda": "false",
         "cugraph": "false",
         "malloc": "false",
     },
     {
         "arch": "arm",
-        "build_type": "RelWithDebInfo",
+        "package_flavour": "debug",
         "cuda": "false",
         "cugraph": "false",
         "malloc": "false",
     },
     {
         "arch": "amd",
-        "build_type": "RelWithDebInfo",
+        "package_flavour": "debug",
         "cuda": "true",
         "cugraph": "false",
         "malloc": "false",
     },
     {
         "arch": "amd",
-        "build_type": "Release",
+        "package_flavour": "prod",
         "cuda": "false",
         "cugraph": "false",
         "malloc": "true",
     },
     {
         "arch": "amd",
-        "build_type": "Release",
+        "package_flavour": "prod",
         "cuda": "false",
         "cugraph": "true",
         "malloc": "false",
@@ -113,7 +113,7 @@ class PackageMageSetup:
         if f"CI -package=mage-{package}" in pr_labels:
             print(f'Found label for "{package}"')
             out = {
-                "build_type": "Release",
+                "package_flavour": "prod",
                 "arch": "arm" if package == "arm" else "amd",
                 "cuda": "true" if package == "cuda" else "false",
                 "cugraph": "true" if package == "cugraph" else "false",
@@ -142,7 +142,7 @@ class PackageMageSetup:
         # always serialises booleans consistently — see MATRIX_BUILDS comment.
         return [
             {
-                "build_type": self.workflow_inputs.get("build_type", "Release"),
+                "package_flavour": self.workflow_inputs.get("package_flavour", "prod"),
                 "arch": self.workflow_inputs.get("build_arch", "amd"),
                 "cuda": self.workflow_inputs.get("cuda", "false"),
                 "cugraph": self.workflow_inputs.get("cugraph", "false"),
@@ -195,7 +195,7 @@ def print_package_suite(package_suite: dict) -> None:
     for build in package_suite:
         print("--------------------------------")
         print(f"Build: {build}")
-        print(f"Build type: {build.get('build_type')}")
+        print(f"Package flavour: {build.get('package_flavour')}")
         print(f"Arch: {build.get('arch')}")
         print(f"CUDA: {build.get('cuda')}")
         print(f"Malloc: {build.get('malloc')}")
