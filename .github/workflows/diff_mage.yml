@@ -30,7 +30,6 @@ on:
         type: string
 
 env:
-  # BUILD_TYPE is kept for posterity; actual build_type flows through reusable inputs.
   BUILD_TYPE: 'RelWithDebInfo'
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
@@ -90,7 +89,7 @@ jobs:
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: amd
-      build_type: RelWithDebInfo
+      build_type: ${{ env.BUILD_TYPE }}
       split_debug: true
       package_flavour: prod
       push_to_github: false
@@ -107,7 +106,7 @@ jobs:
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: arm
-      build_type: RelWithDebInfo
+      build_type: ${{ env.BUILD_TYPE }}
       split_debug: true
       package_flavour: prod
       push_to_github: false
@@ -124,7 +123,7 @@ jobs:
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: amd
-      build_type: RelWithDebInfo
+      build_type: ${{ env.BUILD_TYPE }}
       split_debug: true
       package_flavour: prod
       push_to_github: false
