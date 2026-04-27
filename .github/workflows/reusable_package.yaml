@@ -93,8 +93,11 @@ jobs:
       - name: "Validate S3 dest dir for official package"
         if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}
         run: |
-          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
-            echo -e "Error: You are pushing a RelWithDebInfo build to 'download.memgraph.com'."
+          # Only the prod flavour (stripped binary, symbols archived externally)
+          # belongs on the customer download site. The debug flavour with
+          # symbols embedded goes to the deps/internal bucket instead.
+          if [[ "$PACKAGE_FLAVOUR" == 'debug' ]]; then
+            echo -e "Error: You are pushing a debug-flavour package to 'download.memgraph.com'."
             exit 1
           fi
           if ! [[ "$S3_DEST_DIR" =~ memgraph/v[0-9]\.[0-9]+\.[0-9]+$ ]]; then
