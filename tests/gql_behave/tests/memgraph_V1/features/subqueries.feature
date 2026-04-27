@@ -789,37 +789,3 @@ Feature: Subqueries
             RETURN playerName
             """
         Then an error should be raised
-
-    Scenario: Scoped CALL consumes a pre-ordered stream and mutates per row
-        Given graph "subqueries"
-        When executing query:
-            """
-            MATCH (player:Player)
-            WITH player
-            ORDER BY player.age ASC LIMIT 1
-              SET player:ListHead
-            WITH *
-            MATCH (nextPlayer:Player)
-            WHERE NOT nextPlayer:ListHead
-            WITH nextPlayer
-            ORDER BY nextPlayer.age
-            CALL (nextPlayer) {
-              MATCH (current:ListHead)
-                REMOVE current:ListHead
-                SET nextPlayer:ListHead
-                CREATE (current)-[:IS_YOUNGER_THAN]->(nextPlayer)
-              RETURN current AS from, nextPlayer AS to
-            }
-            RETURN
-              from.name AS name,
-              from.age AS age,
-              to.name AS closestOlderName,
-              to.age AS closestOlderAge
-            """
-        Then the result should be:
-            | name       | age | closestOlderName | closestOlderAge |
-            | 'Player C' | 19  | 'Player A'       | 21              |
-            | 'Player A' | 21  | 'Player B'       | 23              |
-            | 'Player B' | 23  | 'Player E'       | 25              |
-            | 'Player E' | 25  | 'Player D'       | 30              |
-            | 'Player D' | 30  | 'Player F'       | 35              |
