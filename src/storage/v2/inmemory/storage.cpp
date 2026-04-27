@@ -2648,9 +2648,15 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       snapshot_runner_.Pause();
     } else {
       // No need to resume async indexer, it is always running.
-      // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work
+      // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work.
+      // The txn's last_durable_ts_ was captured at unique-acc construction
+      // from the pre-analytical-mode ldt; analytical-mode writes don't bump
+      // ldt, so without this the snapshot's durable_timestamp would lag its
+      // contents and consumers would skip it as "not newer".
+      auto *txn = unique_accessor->GetTransaction();
+      txn->last_durable_ts_ = txn->start_timestamp;
       const auto snapshot_path = durability::CreateSnapshot(this,
-                                                            unique_accessor->GetTransaction(),
+                                                            txn,
                                                             recovery_.snapshot_directory_,
                                                             recovery_.wal_directory_,
                                                             &vertices_,
@@ -4380,6 +4386,15 @@ void InMemoryStorage::Clear() {
   auto gc_lock = std::unique_lock{gc_lock_};
   auto engine_lock = std::unique_lock{engine_lock_};
 
+  // Reset schema tracking before vertices_.clear(); pending_schema_updates_
+  // entries hold raw Vertex* and would dangle.
+  {
+    std::lock_guard<std::mutex> const schema_lock{schema_queue_mutex_};
+    pending_schema_updates_.clear();
+    last_processed_commit_ts_ = kTimestampInitialId;
+  }
+  schema_info_.Clear();
+
   // Clear main memory
   vertices_.clear();
   vertices_.run_gc();
@@ -4423,7 +4438,6 @@ void InMemoryStorage::Clear() {
 
   // Reset helper classes
   enum_store_.clear();
-  schema_info_.Clear();
 
   // Replication epoch and timestamp reset
   repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
