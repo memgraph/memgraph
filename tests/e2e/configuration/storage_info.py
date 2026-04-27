@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import re
 import sys
 
 import mgclient
@@ -162,7 +163,7 @@ def test_show_storage_info_on_database():
 
     assert config["name"] == "memgraph"
     assert config["storage_mode"] in ("IN_MEMORY_TRANSACTIONAL", "IN_MEMORY_ANALYTICAL")
-    assert config["tenant_memory_limit"] == "unlimited"
+    assert config["tenant_memory_limit"] != "unlimited"
 
 
 if __name__ == "__main__":

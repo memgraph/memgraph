@@ -141,3 +141,24 @@ TEST(EmbeddingTrackingTest, ExceedingOverallLimitThrowsOutOfMemoryException) {
   auto enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
   EXPECT_THROW(child.DoCheck(), OutOfMemoryException);
 }
+
+TEST(MemoryTrackerTest, SetHardLimitZeroFallsBackToMaximumHardLimit) {
+  auto tracker = MemoryTracker{};
+  tracker.SetMaximumHardLimit(2048);
+  tracker.SetHardLimit(1024);
+  ASSERT_EQ(tracker.HardLimit(), 1024);
+
+  tracker.SetHardLimit(0);
+  EXPECT_EQ(tracker.HardLimit(), 2048);
+}
+
+TEST(MemoryTrackerTest, SetHardLimitClampsAgainstMaximum) {
+  auto tracker = MemoryTracker{};
+  tracker.SetMaximumHardLimit(2048);
+
+  tracker.SetHardLimit(8192);
+  EXPECT_EQ(tracker.HardLimit(), 2048);
+
+  tracker.SetHardLimit(512);
+  EXPECT_EQ(tracker.HardLimit(), 512);
+}

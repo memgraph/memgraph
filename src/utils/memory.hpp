@@ -707,6 +707,10 @@ class TrackingMemoryResource final : public MemoryResource {
     if (!tracker_) return upstream_->allocate(bytes, alignment);
 
     if (!tracker_->Alloc(static_cast<int64_t>(bytes))) {
+      [[maybe_unused]] auto blocker = MemoryTracker::OutOfMemoryExceptionBlocker{};
+      if (auto msg = MemoryErrorStatus().msg()) {
+        throw OutOfMemoryException{std::move(*msg)};
+      }
       throw std::bad_alloc{};
     }
 
