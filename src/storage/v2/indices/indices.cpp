@@ -100,10 +100,11 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
       IndexedPropertyDecoder<Vertex>{.indices = this, .name_id_mapper = name_id_mapper, .entity = vertex});
 }
 
-void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx) {
-  tx.active_indices_->label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
+void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                                  Vertex *vertex, Transaction &tx) {
+  tx.active_indices_->label_properties_->UpdateOnSetProperty(property, old_value, new_value, vertex, tx);
   tx.active_indices_->text_->UpdateOnSetProperty(vertex, tx, property);
-  vector_index_.UpdateOnSetProperty(property, value, vertex);
+  vector_index_.UpdateOnSetProperty(property, new_value, vertex);
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,

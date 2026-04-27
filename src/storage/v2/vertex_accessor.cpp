@@ -483,7 +483,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       transaction_->constraint_verification_info->RemovedProperty(vertex_);
     }
   }
-  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
+  storage_->indices_.UpdateOnSetProperty(property, old_value, new_value, vertex_, *transaction_);
   transaction_->UpdateOnSetProperty(property, old_value, new_value, vertex_);
 
   return std::move(old_value);
@@ -521,7 +521,7 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
         for (const auto &[property, new_value] : properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
           // TODO: defer until once all properties have been set, to make fewer entries ?
-          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+          storage->indices_.UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
           if (transaction->constraint_verification_info) {
             if (!new_value.IsNull()) {
@@ -598,7 +598,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_update && old_value == new_value) continue;
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
-      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
+      storage->indices_.UpdateOnSetProperty(id, old_value, new_value, vertex, *transaction);
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
@@ -651,7 +651,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
         auto new_value = PropertyValue();
         for (const auto &[property, old_value] : *properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+          storage->indices_.UpdateOnSetProperty(property, old_value, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
           if (schema_acc) {
             std::visit(utils::Overloaded{
