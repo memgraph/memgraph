@@ -487,10 +487,20 @@ def remote_compute(
         return [d["embedding"] for d in resp["data"]]
 
     results = [None] * len(chunks)
-    with ThreadPoolExecutor(max_workers=cfg["concurrency"]) as ex:
+    ex = ThreadPoolExecutor(max_workers=cfg["concurrency"])
+    try:
         fut2idx = {ex.submit(_call, c): i for i, c in enumerate(chunks)}
         for fut in as_completed(fut2idx):
-            results[fut2idx[fut]] = fut.result()
+            results[fut2idx[fut]] = fut.result()  # raises on permanent failure
+    except Exception:
+        # Cancel queued chunks and return promptly. In-flight chunks will
+        # complete in the background and be discarded — Python can't safely
+        # interrupt running threads, but we don't want to wait for a stuck
+        # request to hit `timeout` before surfacing success=False.
+        ex.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        ex.shutdown(wait=True)
 
     flat = [e for part in results for e in part]
     if cfg["normalize"]:
