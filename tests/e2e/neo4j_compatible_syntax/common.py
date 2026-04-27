@@ -23,6 +23,7 @@ def cursor(**kwargs) -> mgclient.Cursor:
     yield cursor
     cursor.execute("DROP ALL INDEXES")
     cursor.execute("DROP ALL CONSTRAINTS")
+    cursor.execute("MATCH (n) DETACH DELETE n")
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = dict()) -> typing.List[tuple]:
