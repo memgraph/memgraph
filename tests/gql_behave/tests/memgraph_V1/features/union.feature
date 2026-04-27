@@ -165,3 +165,25 @@ Feature: Union
             | x |
             | 1 |
             | 2 |
+
+    Scenario: Union all with limit on left branch only
+        Given an empty graph
+        When executing query:
+            """
+            RETURN 1 AS x LIMIT 1 UNION ALL RETURN 2 AS x
+            """
+        Then the result should be:
+            | x |
+            | 1 |
+            | 2 |
+
+    Scenario: Union all with limit on right branch only
+        Given an empty graph
+        When executing query:
+            """
+            RETURN 1 AS x UNION ALL RETURN 2 AS x LIMIT 1
+            """
+        Then the result should be:
+            | x |
+            | 1 |
+            | 2 |
