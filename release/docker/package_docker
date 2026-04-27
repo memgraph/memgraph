@@ -22,7 +22,7 @@ custom_mirror=false
 generate_sbom=false
 malloc=false
 keep_image_loaded=false
-image_flavour="prod"
+package_flavour="prod"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --latest)
@@ -70,8 +70,8 @@ while [[ $# -gt 0 ]]; do
         keep_image_loaded=$2
         shift 2
     ;;
-    --image-flavour)
-        image_flavour=$2
+    --package-flavour)
+        package_flavour=$2
         shift 2
     ;;
     *)
@@ -81,10 +81,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-case "$image_flavour" in
+case "$package_flavour" in
   prod|debug) ;;
   *)
-    echo "Error: --image-flavour must be 'prod' or 'debug' (got '$image_flavour')"
+    echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')"
     exit 1
   ;;
 esac
@@ -97,9 +97,9 @@ fi
 dockerfile_path_rwdi_extension=""
 docker_arg_source_code=""
 tag_extension=""
-if [[ "$image_flavour" == "debug" ]]; then
+if [[ "$package_flavour" == "debug" ]]; then
   if [[ -z "$src_path" ]]; then
-    echo "Error: --image-flavour debug requires --src-path"
+    echo "Error: --package-flavour debug requires --src-path"
     exit 1
   fi
   cp -r "$src_path" "${working_dir}/src"
