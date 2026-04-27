@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
     ;;
     *)
-      echo "Unknown option: $1"
+      echo "Unknown option: $1" >&2
       exit 1
     ;;
   esac
@@ -46,7 +46,7 @@ done
 case "$PACKAGE_FLAVOUR" in
   prod|debug) ;;
   *)
-    echo "Error: --package-flavour must be 'prod' or 'debug' (got '$PACKAGE_FLAVOUR')"
+    echo "Error: --package-flavour must be 'prod' or 'debug' (got '$PACKAGE_FLAVOUR')" >&2
     exit 1
   ;;
 esac

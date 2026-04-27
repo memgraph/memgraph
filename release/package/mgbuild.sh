@@ -697,7 +697,7 @@ build_memgraph () {
   # Extract debug info into sidecar .debug files post-link (requires RWD/Debug).
   if [[ "$split_debug" = true ]]; then
     if [[ "$build_type" != "RelWithDebInfo" && "$build_type" != "Debug" ]]; then
-      echo "Error: --split-debug requires --build-type RelWithDebInfo or Debug (got '$build_type')"
+      echo "Error: --split-debug requires --build-type RelWithDebInfo or Debug (got '$build_type')" >&2
       exit 1
     fi
     additional_options="$additional_options -DMG_SPLIT_DEBUG=ON"
@@ -874,7 +874,7 @@ package_docker() {
         shift 2
       ;;
       *)
-        echo "Error: Unknown flag '$1'"
+        echo "Error: Unknown flag '$1'" >&2
         print_help
         exit 1
       ;;
@@ -885,12 +885,12 @@ package_docker() {
     prod) ;;
     debug)
       if [[ "$build_type" != "RelWithDebInfo" ]]; then
-        echo "Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')"
+        echo "Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')" >&2
         exit 1
       fi
     ;;
     *)
-      echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')"
+      echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')" >&2
       exit 1
     ;;
   esac
@@ -1098,7 +1098,7 @@ copy_debug_symbols() {
         shift 2
       ;;
       *)
-        echo "Error: Unknown flag '$1'"
+        echo "Error: Unknown flag '$1'" >&2
         print_help
         exit 1
       ;;
@@ -1600,12 +1600,12 @@ package_mage_deb() {
     prod) ;;
     debug)
       if [[ "$build_type" != "RelWithDebInfo" ]]; then
-        echo "Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')"
+        echo "Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')" >&2
         exit 1
       fi
     ;;
     *)
-      echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')"
+      echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')" >&2
       exit 1
     ;;
   esac
@@ -1678,17 +1678,17 @@ package_mage_docker() {
     prod) docker_target="prod" ;;
     debug)
       if [[ "$build_type" != "RelWithDebInfo" ]]; then
-        echo -e "${RED_BOLD}Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')${RESET}"
+        echo -e "${RED_BOLD}Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')${RESET}" >&2
         exit 1
       fi
       if [[ "$cugraph" = "true" ]]; then
-        echo -e "${RED_BOLD}Error: --package-flavour debug is not supported with --cugraph (no debug target in Dockerfile.cugraph)${RESET}"
+        echo -e "${RED_BOLD}Error: --package-flavour debug is not supported with --cugraph (no debug target in Dockerfile.cugraph)${RESET}" >&2
         exit 1
       fi
       docker_target="relwithdebinfo"
     ;;
     *)
-      echo -e "${RED_BOLD}Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')${RESET}"
+      echo -e "${RED_BOLD}Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')${RESET}" >&2
       exit 1
     ;;
   esac
