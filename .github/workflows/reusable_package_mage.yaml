@@ -201,8 +201,8 @@ jobs:
 
       - name: Set image tag and artifact name
         run: |
-          echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA, CUGRAPH=$CUGRAPH"
-          read IMAGE_TAG ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA" "$CUGRAPH")
+          echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA, CUGRAPH=$CUGRAPH, PACKAGE_FLAVOUR=$PACKAGE_FLAVOUR"
+          read IMAGE_TAG ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA" "$CUGRAPH" "$PACKAGE_FLAVOUR")
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
 
@@ -378,13 +378,17 @@ jobs:
 
       - name: Build Query Modules in MGBUILD container
         run: |
+          SPLIT_DEBUG_ARG=""
+          if [[ "$SPLIT_DEBUG" == "true" ]]; then
+            SPLIT_DEBUG_ARG="--split-debug"
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --cugraph $CUGRAPH \
-          build-mage
+          build-mage $SPLIT_DEBUG_ARG
 
       - name: Upload MAGE debug symbols
         if: ${{ inputs.split_debug }}

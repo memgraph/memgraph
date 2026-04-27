@@ -90,7 +90,9 @@ fi
   ${MGBUILD_ARGS[*]} \
   build-gssapi
 
-if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+# Heaptrack ships only with the symbols-embedded debug variant. Prod-flavour
+# RWD builds are stripped and don't need heaptrack tooling in the image.
+if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$PACKAGE_FLAVOUR" == "debug" ]]; then
   ./release/package/mgbuild.sh \
     ${MGBUILD_ARGS[*]} \
     build-heaptrack

@@ -1516,6 +1516,7 @@ build_mage() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local rust_version=$DEFAULT_RUST_VERSION
   local config_only=false
+  local split_debug=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --rust-version)
@@ -1526,8 +1527,17 @@ build_mage() {
         config_only=true
         shift 1
       ;;
+      --split-debug)
+        split_debug=true
+        shift 1
+      ;;
     esac
   done
+
+  if [[ "$split_debug" = true && "$build_type" != "RelWithDebInfo" && "$build_type" != "Debug" ]]; then
+    echo "Error: --split-debug requires --build-type RelWithDebInfo or Debug (got '$build_type')"
+    exit 1
+  fi
 
   # check if the repo has already been copied
   if ! docker exec -u mg $build_container ls /home/mg/memgraph > /dev/null 2>&1; then
@@ -1549,6 +1559,9 @@ build_mage() {
   fi
   if [[ "$cugraph" = true ]]; then
     build_args+=("--cugraph")
+  fi
+  if [[ "$split_debug" = true ]]; then
+    build_args+=("--split-debug")
   fi
 
   docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
