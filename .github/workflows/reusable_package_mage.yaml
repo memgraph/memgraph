@@ -18,9 +18,9 @@ on:
         type: boolean
         description: "Extract debug info into sidecar .debug files (requires RelWithDebInfo or Debug build type)."
         default: false
-      image_flavour:
+      package_flavour:
         type: string
-        description: "Docker image flavour: 'prod' (stripped) or 'debug' (symbols embedded). Debug requires build_type=RelWithDebInfo."
+        description: "Package flavour: 'prod' (stripped binary, symbols archived separately) or 'debug' (symbols embedded, '-relwithdebinfo' suffix). Debug requires build_type=RelWithDebInfo."
         default: prod
       push_to_github:
         type: boolean
@@ -88,7 +88,7 @@ env:
   DOCKER_REPOSITORY_NAME: memgraph/memgraph-mage
   BUILD_TYPE: "${{ inputs.build_type }}"
   SPLIT_DEBUG: "${{ inputs.split_debug }}"
-  IMAGE_FLAVOUR: "${{ inputs.image_flavour }}"
+  PACKAGE_FLAVOUR: "${{ inputs.package_flavour }}"
   MALLOC: "${{ inputs.malloc }}"
   CUDA: "${{ inputs.cuda }}"
   CUGRAPH: "${{ inputs.cugraph }}"  # This image cannot be tested in CI, needs an Nvidia GPU
@@ -233,7 +233,7 @@ jobs:
           if [[ "$ARCH" == 'arm' ]]; then
             artifact_name="${artifact_name}-aarch64"
           fi
-          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "$IMAGE_FLAVOUR" == 'debug' ]]; then
+          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "$PACKAGE_FLAVOUR" == 'debug' ]]; then
             artifact_name="${artifact_name}-relwithdebinfo"
           fi
           echo "MG_ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
@@ -320,7 +320,7 @@ jobs:
           --sbom
 
       - name: "Build heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.image_flavour == 'debug' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.package_flavour == 'debug' }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -330,7 +330,7 @@ jobs:
           build-heaptrack
 
       - name: "Copy heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.image_flavour == 'debug' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.package_flavour == 'debug' }}
         run: |
           mkdir -p release/docker
           ./release/package/mgbuild.sh \
@@ -412,7 +412,7 @@ jobs:
             --cugraph $CUGRAPH \
             package-mage-deb \
             --version $MEMGRAPH_VERSION \
-            --image-flavour "$IMAGE_FLAVOUR" \
+            --package-flavour "$PACKAGE_FLAVOUR" \
             $PACKAGE_ARGS
 
           DEB_PACKAGE="$(ls output/memgraph-mage*.deb)"
@@ -484,7 +484,7 @@ jobs:
             --cache-present $CACHE_PRESENT \
             --custom-mirror true \
             --cuda $CUDA \
-            --image-flavour "$IMAGE_FLAVOUR"
+            --package-flavour "$PACKAGE_FLAVOUR"
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
@@ -595,7 +595,7 @@ jobs:
         run: |
           last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
           last_version="${last_version#v}"
-          if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$IMAGE_FLAVOUR" == "debug" ]]; then
+          if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$PACKAGE_FLAVOUR" == "debug" ]]; then
             last_version="${last_version}-relwithdebinfo"
           fi
           if [[ "$MALLOC" == "true" ]]; then

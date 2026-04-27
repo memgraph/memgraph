@@ -18,15 +18,15 @@ CLEAN_VERSION=$(echo $VERSION | sed 's/_/+/g')
 # and replace anythin preceding the version number
 CLEAN_VERSION=$(echo $CLEAN_VERSION | sed 's/^[^0-9]*//')
 
-# IMAGE_FLAVOUR controls whether the -relwithdebinfo suffix is applied:
+# PACKAGE_FLAVOUR controls whether the -relwithdebinfo suffix is applied:
 # - "prod" (default) produces the stripped package customers install (no suffix).
 # - "debug" produces the symbols-embedded package used for interactive debugging.
 # The suffix used to be gated on BUILD_TYPE=RelWithDebInfo alone; now we split
 # the RWD build type into two packaging flavours via MG_SPLIT_DEBUG.
-IMAGE_FLAVOUR="${IMAGE_FLAVOUR:-prod}"
+PACKAGE_FLAVOUR="${PACKAGE_FLAVOUR:-prod}"
 
 PACKAGE_NAME="memgraph-mage_${VERSION}-1_${ARCH}"
-if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$IMAGE_FLAVOUR" == "debug" ]]; then
+if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$PACKAGE_FLAVOUR" == "debug" ]]; then
     PACKAGE_NAME="${PACKAGE_NAME}-relwithdebinfo"
 fi
 if [[ "$MALLOC" == true ]]; then
@@ -55,7 +55,7 @@ tar -xvzf $PACKAGE_DIR -C $SCRIPT_DIR/build/usr/lib/memgraph/
 # For the prod flavour, strip any .debug sidecars that were bundled into the
 # tarball by mage/setup. They're only relevant to the debug flavour (symbols
 # embedded alongside the .so) or to the external symbol archive.
-if [[ "$IMAGE_FLAVOUR" == "prod" ]]; then
+if [[ "$PACKAGE_FLAVOUR" == "prod" ]]; then
     find $SCRIPT_DIR/build/usr/lib/memgraph -name '*.so.debug' -print -delete
 fi
 

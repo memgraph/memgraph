@@ -19,9 +19,9 @@ on:
         type: boolean
         description: "Extract debug info into sidecar .debug files (requires RelWithDebInfo or Debug build type)."
         default: false
-      image_flavour:
+      package_flavour:
         type: string
-        description: "Docker image flavour: 'prod' (stripped) or 'debug' (symbols embedded). Debug requires build_type=RelWithDebInfo."
+        description: "Package flavour: 'prod' (stripped binary, symbols archived separately) or 'debug' (symbols embedded, '-relwithdebinfo' suffix). Debug requires build_type=RelWithDebInfo."
         default: prod
       additional_build_args:
         type: string
@@ -70,7 +70,7 @@ env:
   ARCH: ${{ inputs.arch }}
   BUILD_TYPE: ${{ inputs.build_type }}
   SPLIT_DEBUG: ${{ inputs.split_debug }}
-  IMAGE_FLAVOUR: ${{ inputs.image_flavour }}
+  PACKAGE_FLAVOUR: ${{ inputs.package_flavour }}
   OS: ${{ inputs.os }}
   ADDITIONAL_BUILD_ARGS: ${{ inputs.additional_build_args }}
   PUSH_TO_GITHUB: ${{ inputs.push_to_github }}
@@ -130,7 +130,7 @@ jobs:
           if [[ "$ARCH" == 'arm' ]]; then
             artifact_name="${artifact_name}-aarch64"
           fi
-          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "$IMAGE_FLAVOUR" == 'debug' ]]; then
+          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "$PACKAGE_FLAVOUR" == 'debug' ]]; then
             artifact_name="${artifact_name}-relwithdebinfo"
           fi
           echo "ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
@@ -220,7 +220,7 @@ jobs:
           --sbom
 
       - name: "Build heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.image_flavour == 'debug' && env.FOR_DOCKER == 'true' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.package_flavour == 'debug' && env.FOR_DOCKER == 'true' }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -229,7 +229,7 @@ jobs:
           build-heaptrack
 
       - name: "Copy heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.image_flavour == 'debug' && env.FOR_DOCKER == 'true' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.package_flavour == 'debug' && env.FOR_DOCKER == 'true' }}
         run: |
           mkdir -p release/docker
           ./release/package/mgbuild.sh \
@@ -303,7 +303,7 @@ jobs:
           --generate-sbom $GENERATE_SBOM \
           --malloc $malloc \
           --custom-mirror $USE_CUSTOM_MIRROR \
-          --image-flavour "$IMAGE_FLAVOUR" \
+          --package-flavour "$PACKAGE_FLAVOUR" \
           --keep-image-loaded ${{ inputs.run_smoke_tests }}
           image_archive="$(ls -1t "$DOCKER_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
           if [[ -z "$image_archive" ]]; then
@@ -346,7 +346,7 @@ jobs:
           # Test against the latest release version
           last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
           last_version="${last_version#v}"
-          if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$IMAGE_FLAVOUR" == "debug" ]]; then
+          if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$PACKAGE_FLAVOUR" == "debug" ]]; then
             last_version="${last_version}-relwithdebinfo"
           fi
           echo "Resolved LAST_VERSION=$last_version"
@@ -394,7 +394,7 @@ jobs:
           # determine new name
           if [ "$FOR_DOCKER" == "true" ]; then
             new_name="memgraph-${tag}_pr${pr}_${commit}"
-            if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "$IMAGE_FLAVOUR" == 'debug' ]]; then
+            if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "$PACKAGE_FLAVOUR" == 'debug' ]]; then
               new_name="${new_name}-relwithdebinfo"
             fi
             new_name="${new_name}-docker.tar.gz"
@@ -444,7 +444,7 @@ jobs:
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
 
       - name: Clean up heaptrack
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.image_flavour == 'debug' && env.FOR_DOCKER == 'true' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.package_flavour == 'debug' && env.FOR_DOCKER == 'true' }}
         run: |
           rm -rf release/docker/heaptrack
 
