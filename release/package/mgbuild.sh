@@ -1900,6 +1900,8 @@ build_gssapi() {
     esac
   done
   mkdir -p "$dest_dir"
+  # TODO(matt): remove in toolchain v8
+  # we need to install libkrb5-dev in the container to build gssapi as it has been added as a build dependency sing the container image was built
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/install_deps.sh install MEMGRAPH_BUILD_DEPS"
   docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/tools/ci && ./build-gssapi.sh"
   local package_name
