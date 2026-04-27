@@ -889,7 +889,7 @@ if (MG_ENTERPRISE)
 
     add_unit_test(multi_tenancy
         SOURCES multi_tenancy.cpp
-        LINK_TARGETS mg-query mg-auth mg-glue mg-dbms disk_test_utils
+        LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
     )
 else ()
     add_unit_test(dbms_handler_community
