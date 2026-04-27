@@ -4021,6 +4021,9 @@ class CallSubquery : public memgraph::query::Clause {
   // Scope clause items from `CALL (v1, v2, ...) { ... }` (or the aliased form
   // `CALL (v AS w, ...) { ... }`)
   std::vector<memgraph::query::NamedExpression *> scoped_variables_;
+  // If any of the variables provided in the `CALL ()`, or `CALL (*)`, this
+  // boolean is true. Otherwise, when using `CALL () { ... }` or `CALL { ... }`,
+  // this boolean will be false
   bool has_variable_scope_{false};
   // True if `CALL (*) { ... }` was used — import every variable currently in
   // the outer scope. When set, scoped_variables_ is left empty
