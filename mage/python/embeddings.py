@@ -667,6 +667,9 @@ def compute_embeddings(  # noqa: C901
     input_items: mgp.Any,
     configuration: mgp.Map,
 ) -> mgp.Any:
+    # Initialized up front so the outer except handler can reference it even
+    # if we raise before the local-path assignment below.
+    dimension = None
     try:
         n = len(input_items)
 
