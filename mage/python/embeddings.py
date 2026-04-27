@@ -8,6 +8,7 @@ from typing import List
 import huggingface_hub  # noqa: F401
 import litellm
 import mgp
+import numpy as np
 
 # Suppress LiteLLM's "Provider List: ..." banner that fires on every
 # get_llm_provider() miss — we probe deliberately for local names.
@@ -428,13 +429,6 @@ def resolve_remote_model(model_name):
     return model, provider, default_api_base
 
 
-def l2_normalize(vec):
-    s = sum(x * x for x in vec) ** 0.5
-    if s == 0:
-        return vec
-    return [x / s for x in vec]
-
-
 def remote_compute(
     input_items: mgp.Any,
     cfg: mgp.Map,
@@ -504,7 +498,12 @@ def remote_compute(
 
     flat = [e for part in results for e in part]
     if cfg["normalize"]:
-        flat = [l2_normalize(e) for e in flat]
+        # Vectorized L2 normalization via numpy (transitively available
+        # through sentence_transformers/torch). Substitute 1.0 for any
+        # zero norms to leave zero vectors untouched after division.
+        arr = np.asarray(flat, dtype=np.float64)
+        norms = np.linalg.norm(arr, axis=1, keepdims=True)
+        flat = (arr / np.where(norms == 0.0, 1.0, norms)).tolist()
 
     if vertex_input:
         for v, e in zip(input_items, flat):
