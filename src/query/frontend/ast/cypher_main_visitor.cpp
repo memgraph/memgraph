@@ -584,6 +584,7 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
     if (index_query->properties_.empty()) {
       throw SemanticException("WITH CONFIG is not supported for label-only indices.");
     }
+    index_query->config_ = std::any_cast<ConfigMap>(config_ctx->accept(this));
   }
 
   return index_query;

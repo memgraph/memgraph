@@ -364,16 +364,14 @@ propertyKeyValuePair : propertyKeyName ':' expression ;
 
 nestedPropertyKeyNames : propertyKeyName ( '.' propertyKeyName )* ;
 
-nestedPropertyKeyList : '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' ;
-
 integerLiteral : DecimalLiteral
                | OctalLiteral
                | HexadecimalLiteral
                ;
 
-alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
+createIndex : CREATE INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ( WITH CONFIG configsMap=configMap )? ;
 
-dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
+dropIndex : DROP INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ( WITH CONFIG configsMap=configMap )? ;
 
 doubleLiteral : FloatingLiteral ;
 
