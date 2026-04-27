@@ -31,7 +31,11 @@ function(mg_split_debug target)
         return()
     endif()
     add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
+        # --compress-debug-sections=zlib shrinks the .debug sidecar ~3x with no
+        # client-side cost: gdb/lldb/perf/addr2line all read SHF_COMPRESSED
+        # transparently. Could switch to zstd for ~5-10% smaller files, but
+        # toolchain-v7's llvm-objcopy is built without zstd support today.
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug --compress-debug-sections=zlib $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
         # --strip-all drops .symtab/.strtab on top of DWARF, matching old Release size.
         # Switch to --strip-debug for ~20-25% larger binaries that produce nicer
         # stack traces when the .debug sidecar is unavailable.
