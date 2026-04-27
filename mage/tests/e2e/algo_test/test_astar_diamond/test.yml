@@ -1,0 +1,7 @@
+query: >
+  MATCH (a:N {name: 'a'}), (d:N {name: 'd'})
+  CALL algo.astar(a, d, {distance_prop:"distance"}) YIELD weight RETURN weight AS result;
+
+
+output:
+    - result: 3.0

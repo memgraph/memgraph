@@ -12,7 +12,6 @@
 #pragma once
 
 #include <cmath>
-#include <memory>
 #include <mgp.hpp>
 #include <queue>
 #include <unordered_map>
@@ -77,104 +76,68 @@ const std::string kDefaultLatitude = "lat";
 const std::string kDefaultLongitude = "lon";
 
 enum class RelationshipType { IN, OUT };
-struct NodeObject {
- public:
-  // heuristic distance of the node
-  double heuristic_distance;
-  // total distance of the path to the node
-  double total_distance;
-  // the node the object represents
-  mgp::Node node;
-  // path relationship that leads into the node
-  mgp::Relationship rel;
-  // previous node object
-  std::shared_ptr<NodeObject> prev;
 
-  NodeObject(const double heuristic_distance, const double total_distance, const mgp::Node &node,
-             const mgp::Relationship &rel, const std::shared_ptr<NodeObject> &prev)
-      : heuristic_distance(heuristic_distance), total_distance(total_distance), node(node), rel(rel), prev(prev) {}
+// Lazily-populated cache for heuristic data — only stores data for visited nodes
+struct GraphCache {
+  std::unordered_map<int64_t, double> heuristic_val;              // custom heuristic values
+  std::unordered_map<int64_t, std::pair<double, double>> coords;  // (lat, lng)
+};
 
-  struct Hash {
-    size_t operator()(const std::shared_ptr<NodeObject> &nodeObj) const {
-      return std::hash<int64_t>()(nodeObj->node.Id().AsInt());
-    }
-  };
+// PQ entry — 24 bytes, no heap allocations
+struct PQEntry {
+  double f_score;
+  double g_score;
+  int64_t node_id;
 
-  struct Comp {
-    bool operator()(const std::shared_ptr<NodeObject> &nodeObj, const std::shared_ptr<NodeObject> &nodeObj2) {
-      return nodeObj->total_distance + nodeObj->heuristic_distance >
-             nodeObj2->total_distance + nodeObj2->heuristic_distance;
-    }
-  };
-
-  struct Equal {
-    bool operator()(const std::shared_ptr<NodeObject> &nodeObj, const std::shared_ptr<NodeObject> &nodeObj2) const {
-      return nodeObj->node.Id() == nodeObj2->node.Id();
-    }
-  };
+  bool operator>(const PQEntry &other) const { return f_score > other.f_score; }
 };
 
 class Open {
  public:
-  /*since C++ pq doesnt enable to do std::find or loop and find element in pq,
-  and for A* we need to see if elements already exist in pq, I created a class open, which
-  uses a pq normally for A*, but also has a set which checks if the value is
-  already in pq, and if it has lesser path distance to it*/
-  std::priority_queue<std::shared_ptr<NodeObject>, std::vector<std::shared_ptr<NodeObject>>, NodeObject::Comp> pq;
-  std::unordered_map<mgp::Id, double> set;
+  std::priority_queue<PQEntry, std::vector<PQEntry>, std::greater<PQEntry>> pq;
+  std::unordered_map<int64_t, double> g_scores;
 
-  bool Empty() { return set.empty(); }
+  bool Empty() const { return g_scores.empty(); }
 
-  const std::shared_ptr<NodeObject> Top() {
-    while (set.find(pq.top()->node.Id()) == set.end()) {  // this is to make sure duplicates are ignored
+  PQEntry Top() {
+    while (!pq.empty()) {
+      auto it = g_scores.find(pq.top().node_id);
+      if (it != g_scores.end() && pq.top().g_score <= it->second) {
+        return pq.top();
+      }
       pq.pop();
     }
-    return pq.top();
+    return {0, 0, -1};
   }
 
   void Pop() {
-    set.erase(pq.top()->node.Id());
+    g_scores.erase(pq.top().node_id);
     pq.pop();
   }
 
-  void InsertOrUpdate(const std::shared_ptr<NodeObject> &elem) {
-    auto it = set.find(elem->node.Id());
-    if (it != set.end()) {
-      if (elem->total_distance < it->second) {
-        it->second = elem->total_distance;
-        pq.push(elem);
+  bool InsertOrUpdate(int64_t node_id, double g_score, double heuristic) {
+    auto it = g_scores.find(node_id);
+    if (it != g_scores.end()) {
+      if (g_score < it->second) {
+        it->second = g_score;
+        pq.push({g_score + heuristic, g_score, node_id});
+        return true;
       }
-      return;
+      return false;
     }
-    pq.push(elem);
-    set.insert({elem->node.Id(), elem->total_distance});
+    g_scores[node_id] = g_score;
+    pq.push({g_score + heuristic, g_score, node_id});
+    return true;
   }
-
-  Open() = default;
 };
 
 class Closed {
  public:
-  std::unordered_set<std::shared_ptr<NodeObject>, NodeObject::Hash, NodeObject::Equal> closed;
+  std::unordered_set<int64_t> closed;
 
-  bool Empty() { return closed.empty(); }
-  void Erase(const std::shared_ptr<NodeObject> &obj) { closed.erase(obj); }
+  bool Contains(int64_t node_id) const { return closed.count(node_id) > 0; }
 
-  bool FindAndCompare(const std::shared_ptr<NodeObject> &obj) {
-    auto it = closed.find(obj);
-    if (it != closed.end()) {
-      bool erase = (*it)->total_distance > obj->total_distance;
-      if (erase) {
-        closed.erase(it);
-      }
-      return erase;
-    }
-    return true;
-  }
-
-  void Insert(const std::shared_ptr<NodeObject> &obj) { closed.insert(obj); }
-
-  Closed() = default;
+  void Insert(int64_t node_id) { closed.insert(node_id); }
 };
 
 class Config {
@@ -249,33 +212,34 @@ class Config {
 };
 
 struct GoalNodes {
-  const mgp::Node start;
-  const mgp::Node target;
-  std::pair<double, double> lat_lon;
+  int64_t start_id;
+  int64_t target_id;
+  std::pair<double, double> target_lat_lon;  // target coords for haversine
 
-  GoalNodes(const mgp::Node &start, const mgp::Node &target, const std::pair<double, double> lat_lon)
-      : start(start), target(target), lat_lon(lat_lon) {}
-  GoalNodes(const mgp::Node &start, const mgp::Node &target) : start(start), target(target) {}
+  GoalNodes(int64_t start, int64_t target, std::pair<double, double> lat_lon)
+      : start_id(start), target_id(target), target_lat_lon(lat_lon) {}
+
+  GoalNodes(int64_t start, int64_t target) : start_id(start), target_id(target) {}
 };
 
 struct TrackingLists {
   Open open;
   Closed closed;
+  std::unordered_map<int64_t, int64_t> parent_edge;  // child node id -> edge_id leading to best parent
 };
 
 double GetHaversineDistance(double lat1, double lon1, double lat2, double lon2);
 double GetRadians(double degrees);
 void AStar(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
-bool RelOk(const mgp::Relationship &rel, const Config &config, const RelationshipType rel_type);
-bool IsLabelOk(const mgp::Node &node, const Config &config);
-std::pair<mgp::Path, double> BuildResult(std::shared_ptr<NodeObject> final_node, const mgp::Node &start);
-std::shared_ptr<NodeObject> InitializeStart(const mgp::Node &start);
-std::pair<mgp::Path, double> HelperAstar(const GoalNodes &nodes, const Config &config);
-void ExpandRelationships(const std::shared_ptr<NodeObject> &prev, const RelationshipType rel_type,
-                         const GoalNodes &nodes, TrackingLists &lists, const Config &config);
-double CalculateHeuristic(const Config &config, const mgp::Node &node, const GoalNodes &nodes);
-std::pair<double, double> GetLatLon(const mgp::Node &target, const Config &config);
-double CalculateDistance(const Config &config, const mgp::Relationship &rel);
+double CalculateHeuristic(const Config &config, int64_t node_id, const GoalNodes &nodes, const GraphCache &cache);
+std::pair<mgp::Path, double> BuildResult(int64_t target_id, double weight, const mgp::Graph &graph,
+                                         const mgp::Node &start,
+                                         const std::unordered_map<int64_t, int64_t> &parent_edge);
+std::pair<mgp::Path, double> HelperAstar(const GoalNodes &nodes, const Config &config, mgp_graph *raw_graph,
+                                         mgp_memory *mem, const mgp::Graph &graph, const mgp::Node &start_node);
+void ExpandRelationships(int64_t prev_id, double prev_g_score, const RelationshipType rel_type, const GoalNodes &nodes,
+                         TrackingLists &lists, const Config &config, mgp_graph *raw_graph, mgp_memory *mem,
+                         GraphCache &cache);
 void CheckConfigTypes(const mgp::Map &map);
 
 }  // namespace Algo
