@@ -8,7 +8,7 @@ gqlalchemy==1.8.0
 idna==2.10
 kafka-python==2.0.2
 ldap3==2.6
-lxml==6.0.0
+lxml==6.1.0
 neo4j==5.14.1
 neo4j-driver==4.1.1
 networkx==2.5.1
