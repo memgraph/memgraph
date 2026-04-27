@@ -16,6 +16,7 @@
 #include <string_view>
 #include <vector>
 
+#include "auth/models.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "query/typed_value.hpp"
@@ -25,9 +26,14 @@
 namespace memgraph::query {
 
 struct CreateUserResult {
-  bool created;
-  bool first_user;
-  bool builtin_roles_created;
+  bool created{false};
+  bool first_user{false};
+  bool builtin_roles_created{false};
+};
+
+struct RolenameResult {
+  std::string name;
+  bool is_builtin{false};
 };
 
 class AuthQueryHandler {
@@ -127,11 +133,11 @@ class AuthQueryHandler {
   virtual std::vector<memgraph::query::TypedValue> GetUsernames() = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<std::pair<std::string, bool>> GetRolenames() = 0;
+  virtual std::vector<RolenameResult> GetRolenames() = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<std::pair<std::string, bool>> GetRolenamesForUser(const std::string &username,
-                                                                        std::optional<std::string> db_name) = 0;
+  virtual std::vector<RolenameResult> GetRolenamesForUser(const std::string &username,
+                                                          std::optional<std::string> db_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) = 0;

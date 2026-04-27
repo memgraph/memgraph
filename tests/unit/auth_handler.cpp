@@ -1896,7 +1896,7 @@ TEST_F(AuthQueryHandlerFixture, GetRolenameForUser_WithDatabaseSpecification) {
   // Get roles for specific database
   auto rolenames = auth_handler.GetRolenamesForUser("test_user", "db1");
   ASSERT_EQ(rolenames.size(), 1);
-  ASSERT_EQ(rolenames[0].first, "test_role");
+  ASSERT_EQ(rolenames[0].name, "test_role");
 
   // Get roles for different database (should be empty)
   auto rolenames_db2 = auth_handler.GetRolenamesForUser("test_user", "db2");
@@ -2827,8 +2827,8 @@ TEST_F(AuthQueryHandlerFixture, FirstUserEnterpriseGetsAdminRoleAndBuiltinRolesC
   EXPECT_EQ(locked->AllRolenames().size(), 3);
   auto const roles = auth_handler.GetRolenamesForUser("alice", std::nullopt);
   EXPECT_EQ(roles.size(), 1);
-  EXPECT_EQ(roles[0].first, "admin");
-  EXPECT_TRUE(roles[0].second);
+  EXPECT_EQ(roles[0].name, "admin");
+  EXPECT_TRUE(roles[0].is_builtin);
 }
 
 TEST_F(AuthQueryHandlerFixture, FirstUserWhenRolesExistGetsPermissionsNoAdminRole) {
@@ -3007,15 +3007,15 @@ TEST_F(AuthQueryHandlerFixture, GetRolenamesReturnsBuiltinFlag) {
   auto const roles = auth_handler.GetRolenames();
   ASSERT_EQ(roles.size(), 2);
 
-  auto find = [&](std::string_view name) { return r::find_if(roles, [&](auto const &p) { return p.first == name; }); };
+  auto find = [&](std::string_view name) { return r::find_if(roles, [&](auto const &p) { return p.name == name; }); };
 
   auto regular_it = find("regular_role");
   ASSERT_NE(regular_it, roles.end());
-  EXPECT_FALSE(regular_it->second);
+  EXPECT_FALSE(regular_it->is_builtin);
 
   auto builtin_it = find("builtin_role");
   ASSERT_NE(builtin_it, roles.end());
-  EXPECT_TRUE(builtin_it->second);
+  EXPECT_TRUE(builtin_it->is_builtin);
 }
 
 TEST_F(AuthQueryHandlerFixture, GetRolenamesForUserReturnsBuiltinFlag) {
@@ -3031,15 +3031,15 @@ TEST_F(AuthQueryHandlerFixture, GetRolenamesForUserReturnsBuiltinFlag) {
   auto const roles = auth_handler.GetRolenamesForUser("alice", std::nullopt);
   ASSERT_EQ(roles.size(), 2);
 
-  auto find = [&](std::string_view name) { return r::find_if(roles, [&](auto const &p) { return p.first == name; }); };
+  auto find = [&](std::string_view name) { return r::find_if(roles, [&](auto const &p) { return p.name == name; }); };
 
   auto regular_it = find("regular_role");
   ASSERT_NE(regular_it, roles.end());
-  EXPECT_FALSE(regular_it->second);
+  EXPECT_FALSE(regular_it->is_builtin);
 
   auto builtin_it = find("builtin_role");
   ASSERT_NE(builtin_it, roles.end());
-  EXPECT_TRUE(builtin_it->second);
+  EXPECT_TRUE(builtin_it->is_builtin);
 }
 
 #ifdef MG_ENTERPRISE

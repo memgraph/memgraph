@@ -676,10 +676,10 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernames() {
   }
 }
 
-std::vector<std::pair<std::string, bool>> AuthQueryHandler::GetRolenames() {
+std::vector<query::RolenameResult> AuthQueryHandler::GetRolenames() {
   try {
     auto locked_auth = auth_->ReadLock();
-    std::vector<std::pair<std::string, bool>> rolenames;
+    std::vector<query::RolenameResult> rolenames;
     const auto &roles = locked_auth->AllRoles();
     rolenames.reserve(roles.size());
     for (const auto &role : roles) {
@@ -691,8 +691,8 @@ std::vector<std::pair<std::string, bool>> AuthQueryHandler::GetRolenames() {
   }
 }
 
-std::vector<std::pair<std::string, bool>> AuthQueryHandler::GetRolenamesForUser(const std::string &username,
-                                                                                std::optional<std::string> db_name) {
+std::vector<query::RolenameResult> AuthQueryHandler::GetRolenamesForUser(const std::string &username,
+                                                                         std::optional<std::string> db_name) {
   try {
     auto locked_auth = auth_->ReadLock();
     auto user = locked_auth->GetUser(username);
@@ -700,7 +700,7 @@ std::vector<std::pair<std::string, bool>> AuthQueryHandler::GetRolenamesForUser(
       throw query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
 
-    std::vector<std::pair<std::string, bool>> rolenames;
+    std::vector<query::RolenameResult> rolenames;
     auto roles = user->roles().GetRoles();
 #ifdef MG_ENTERPRISE
     if (db_name) {

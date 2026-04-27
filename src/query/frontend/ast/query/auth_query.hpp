@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "auth/models.hpp"
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/ast/query/query.hpp"
 
@@ -105,6 +104,13 @@ class AuthQuery : public memgraph::query::Query {
 
   enum class LabelMatchingMode { ANY, EXACTLY };
 
+  enum class UserOrRoleType {
+    UNSPECIFIED,  // Neither USER nor ROLE was explicitly specified; both are checked and an error is thrown if
+                  // ambiguous.
+    USER,         // Explicitly specified as a USER; only the user namespace is checked.
+    ROLE,         // Explicitly specified as a ROLE; only the role namespace is checked.
+  };
+
   enum class DatabaseSpecification {
     NONE,     // No database specification (non-enterprise)
     MAIN,     // MAIN database (enterprise)
@@ -136,7 +142,7 @@ class AuthQuery : public memgraph::query::Query {
 
   // Database specification for SHOW PRIVILEGES query
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
-  auth::UserOrRoleType entity_type_{auth::UserOrRoleType::UNSPECIFIED};
+  UserOrRoleType entity_type_{UserOrRoleType::UNSPECIFIED};
 
   AuthQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<AuthQuery>();

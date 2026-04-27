@@ -37,10 +37,13 @@
 
 namespace memgraph::auth {
 
+// Used to disambiguate commands that accept either a USER or ROLE argument in
+// cases where there exists both a user and role with the same name, which
+// is allowed since we split these into two namespaces in 3.10.
 enum class UserOrRoleType {
-  UNSPECIFIED,
-  USER,
-  ROLE,
+  UNSPECIFIED,  // Neither USER nor ROLE was explicitly specified; both are checked and an error is thrown if ambiguous.
+  USER,         // Explicitly specified as a USER; only the user namespace is checked.
+  ROLE,         // Explicitly specified as a ROLE; only the role namespace is checked.
 };
 
 // These permissions must have values that are applicable for usage in a

@@ -571,7 +571,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitUserOrRoleName(MemgraphCypher::UserOrRoleNameContext *ctx) override;
 
   /**
-   * @return std::pair<std::string, auth::UserOrRoleType>
+   * @return std::pair<std::string, AuthQuery::UserOrRoleType>
    */
   antlrcpp::Any visitUserOrRole(MemgraphCypher::UserOrRoleContext *ctx) override;
 

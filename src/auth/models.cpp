@@ -773,13 +773,11 @@ Role Role::Deserialize(const nlohmann::json &data) {
   }
   auto role = Role{
       *role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access), std::move(usr_imp)};
-  role.SetBuiltIn(is_builtin);
-  return role;
 #else
   auto role = Role{*role_name_it, permissions};
+#endif
   role.SetBuiltIn(is_builtin);
   return role;
-#endif
 }
 
 bool operator==(const Role &first, const Role &second) {

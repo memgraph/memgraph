@@ -124,6 +124,13 @@ std::string JoinSymbolicNamesWithDotsAndMinus(antlr4::tree::ParseTreeVisitor &vi
       [&](auto *token) { return JoinSymbolicNames(&visitor, token->symbolicName(), "-"); },
       ".");
 }
+
+std::unordered_set<std::string> GetRoleDatabases(MemgraphCypher::ListOfSymbolicNamesContext *db_ctx,
+                                                 antlr4::tree::ParseTreeVisitor *visitor) {
+  if (!db_ctx) return {};
+  auto db_names = std::any_cast<std::vector<std::string>>(db_ctx->accept(visitor));
+  return {std::make_move_iterator(db_names.begin()), std::make_move_iterator(db_names.end())};
+}
 }  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) {
@@ -2119,11 +2126,11 @@ antlrcpp::Any CypherMainVisitor::visitUserOrRoleName(MemgraphCypher::UserOrRoleN
 
 antlrcpp::Any CypherMainVisitor::visitUserOrRole(MemgraphCypher::UserOrRoleContext *ctx) {
   auto name = std::any_cast<std::string>(ctx->userOrRoleName()->accept(this));
-  auto entity_type = auth::UserOrRoleType::UNSPECIFIED;
+  auto entity_type = AuthQuery::UserOrRoleType::UNSPECIFIED;
   if (ctx->USER()) {
-    entity_type = auth::UserOrRoleType::USER;
+    entity_type = AuthQuery::UserOrRoleType::USER;
   } else if (ctx->ROLE()) {
-    entity_type = auth::UserOrRoleType::ROLE;
+    entity_type = AuthQuery::UserOrRoleType::ROLE;
   }
   return std::make_pair(std::move(name), entity_type);
 }
@@ -2251,12 +2258,7 @@ antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ct
   auth->action_ = AuthQuery::Action::SET_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
-  // Optionally limit the role to specific databases
-  if (ctx->db) {
-    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
-    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
-                                                            std::make_move_iterator(db_names.end()));
-  }
+  auth->role_databases_ = GetRoleDatabases(ctx->db, this);
   return auth;
 }
 
@@ -2267,11 +2269,7 @@ antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CLEAR_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
-  if (ctx->db) {
-    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
-    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
-                                                            std::make_move_iterator(db_names.end()));
-  }
+  auth->role_databases_ = GetRoleDatabases(ctx->db, this);
   return auth;
 }
 
@@ -2280,11 +2278,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantRole(MemgraphCypher::GrantRoleContext
   auth->action_ = AuthQuery::Action::GRANT_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
-  if (ctx->db) {
-    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
-    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
-                                                            std::make_move_iterator(db_names.end()));
-  }
+  auth->role_databases_ = GetRoleDatabases(ctx->db, this);
   return auth;
 }
 
@@ -2293,11 +2287,7 @@ antlrcpp::Any CypherMainVisitor::visitRevokeRole(MemgraphCypher::RevokeRoleConte
   auth->action_ = AuthQuery::Action::REVOKE_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
-  if (ctx->db) {
-    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
-    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
-                                                            std::make_move_iterator(db_names.end()));
-  }
+  auth->role_databases_ = GetRoleDatabases(ctx->db, this);
   return auth;
 }
 
@@ -2308,7 +2298,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::GRANT_PRIVILEGE;
   std::tie(auth->user_or_role_, auth->entity_type_) =
-      std::any_cast<std::pair<std::string, auth::UserOrRoleType>>(ctx->target->accept(this));
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   if (ctx->systemPrivileges) {
     auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
   } else if (ctx->entityPrivileges) {
@@ -2343,7 +2333,7 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DENY_PRIVILEGE;
   std::tie(auth->user_or_role_, auth->entity_type_) =
-      std::any_cast<std::pair<std::string, auth::UserOrRoleType>>(ctx->target->accept(this));
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   if (ctx->systemPrivileges) {
     auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
   } else if (ctx->entityPrivileges) {
@@ -2390,7 +2380,7 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::REVOKE_PRIVILEGE;
   std::tie(auth->user_or_role_, auth->entity_type_) =
-      std::any_cast<std::pair<std::string, auth::UserOrRoleType>>(ctx->target->accept(this));
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   if (ctx->systemPrivileges) {
     auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
   } else if (ctx->entityPrivileges) {
@@ -2520,7 +2510,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantImpersonateUser(MemgraphCypher::Grant
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::GRANT_IMPERSONATE_USER;
   std::tie(auth->user_or_role_, auth->entity_type_) =
-      std::any_cast<std::pair<std::string, auth::UserOrRoleType>>(ctx->target->accept(this));
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   auth->impersonation_targets_ = std::any_cast<std::vector<std::string>>(ctx->targets->accept(this));
   return auth;
 }
@@ -2532,7 +2522,7 @@ antlrcpp::Any CypherMainVisitor::visitDenyImpersonateUser(MemgraphCypher::DenyIm
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DENY_IMPERSONATE_USER;
   std::tie(auth->user_or_role_, auth->entity_type_) =
-      std::any_cast<std::pair<std::string, auth::UserOrRoleType>>(ctx->target->accept(this));
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   auth->impersonation_targets_ = std::any_cast<std::vector<std::string>>(ctx->targets->accept(this));
   return auth;
 }
@@ -2676,7 +2666,7 @@ antlrcpp::Any CypherMainVisitor::visitShowPrivileges(MemgraphCypher::ShowPrivile
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_PRIVILEGES;
   std::tie(auth->user_or_role_, auth->entity_type_) =
-      std::any_cast<std::pair<std::string, auth::UserOrRoleType>>(ctx->target->accept(this));
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
 
   // Handle optional ON clause
   if (ctx->ON()) {
@@ -2736,7 +2726,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantDatabaseToUserOrRole(MemgraphCypher::
   auth->action_ = AuthQuery::Action::GRANT_DATABASE_TO_USER;
   auth->database_ = std::any_cast<std::string>(ctx->wildcardName()->accept(this));
   std::tie(auth->user_or_role_, auth->entity_type_) =
-      std::any_cast<std::pair<std::string, auth::UserOrRoleType>>(ctx->target->accept(this));
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   return auth;
 }
 
@@ -2749,7 +2739,7 @@ antlrcpp::Any CypherMainVisitor::visitDenyDatabaseFromUserOrRole(
   auth->action_ = AuthQuery::Action::DENY_DATABASE_FROM_USER;
   auth->database_ = std::any_cast<std::string>(ctx->wildcardName()->accept(this));
   std::tie(auth->user_or_role_, auth->entity_type_) =
-      std::any_cast<std::pair<std::string, auth::UserOrRoleType>>(ctx->target->accept(this));
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   return auth;
 }
 
@@ -2762,7 +2752,7 @@ antlrcpp::Any CypherMainVisitor::visitRevokeDatabaseFromUserOrRole(
   auth->action_ = AuthQuery::Action::REVOKE_DATABASE_FROM_USER;
   auth->database_ = std::any_cast<std::string>(ctx->wildcardName()->accept(this));
   std::tie(auth->user_or_role_, auth->entity_type_) =
-      std::any_cast<std::pair<std::string, auth::UserOrRoleType>>(ctx->target->accept(this));
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   return auth;
 }
 
@@ -2773,7 +2763,7 @@ antlrcpp::Any CypherMainVisitor::visitShowDatabasePrivileges(MemgraphCypher::Sho
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_DATABASE_PRIVILEGES;
   std::tie(auth->user_or_role_, auth->entity_type_) =
-      std::any_cast<std::pair<std::string, auth::UserOrRoleType>>(ctx->target->accept(this));
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   return auth;
 }
 
@@ -2785,7 +2775,7 @@ antlrcpp::Any CypherMainVisitor::visitSetMainDatabase(MemgraphCypher::SetMainDat
   auth->action_ = AuthQuery::Action::SET_MAIN_DATABASE;
   auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
   std::tie(auth->user_or_role_, auth->entity_type_) =
-      std::any_cast<std::pair<std::string, auth::UserOrRoleType>>(ctx->target->accept(this));
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   return auth;
 }
 

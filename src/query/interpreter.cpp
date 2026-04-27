@@ -312,6 +312,17 @@ void Sort(std::vector<TypedValue, K> &vec) {
                     [](const TypedValue &lv, const TypedValue &rv) { return lv.ValueString() < rv.ValueString(); });
 }
 
+auth::UserOrRoleType ToAuthType(AuthQuery::UserOrRoleType t) {
+  switch (t) {
+    case AuthQuery::UserOrRoleType::USER:
+      return auth::UserOrRoleType::USER;
+    case AuthQuery::UserOrRoleType::ROLE:
+      return auth::UserOrRoleType::ROLE;
+    default:
+      return auth::UserOrRoleType::UNSPECIFIED;
+  }
+}
+
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
     case plan::ReadWriteTypeChecker::RWType::R:
@@ -982,7 +993,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
   std::string username = auth_query->user_;
   std::string user_or_role = auth_query->user_or_role_;
-  auto const entity_type = auth_query->entity_type_;
+  auto const entity_type = ToAuthType(auth_query->entity_type_);
   const bool if_not_exists = auth_query->if_not_exists_;
   std::string database = auth_query->database_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
