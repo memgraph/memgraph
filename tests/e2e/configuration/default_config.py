@@ -100,6 +100,7 @@ startup_config_dict = {
         "sync",
         "Controls whether synchronous or asynchronous logger will be used. Options: sync, async",
     ),
+    "failed_query_log_file": ("", "", "Path to where failed queries should be stored."),
     "log_file": ("", "", "Path to where the log should be stored."),
     "log_retention_days": ("35", "35", "Controls for how many days will daily log files be preserved."),
     "nuraft_log_file": ("", "", "Path to the file where NuRaft logs are saved."),
