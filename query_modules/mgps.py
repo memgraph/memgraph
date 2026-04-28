@@ -15,6 +15,7 @@ def components(
 
 @mgp.read_proc
 def await_indexes(context: mgp.ProcCtx, seconds: int):
+    # Nothing smart here
     time.sleep(1)
 
 
