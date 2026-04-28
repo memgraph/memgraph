@@ -1452,7 +1452,7 @@ std::partial_ordering CompareDoubles(double a, double b) {
 }
 
 // Lexicographic Gid-walk shared between the orderability comparator
-// (TypedValueCompare) and the Cypher `<` operator. Paths contain only
+// (OrderCompare) and the Cypher `<` operator. Paths contain only
 // VertexAccessor/EdgeAccessor handles, so the walk is pure strong_ordering.
 std::strong_ordering ComparePaths(const Path &path_a, const Path &path_b) {
   const auto &verts_a = path_a.vertices();
@@ -1472,7 +1472,7 @@ std::strong_ordering ComparePaths(const Path &path_a, const Path &path_b) {
 
 // Helper for the Cypher `<` operator on lists. Walks element-wise via
 // `==`/`<`, propagating null per equality semantics. This DIFFERS from
-// orderability (TypedValueCompare's List branch) which never returns null —
+// orderability (OrderCompare's List branch) which never returns null —
 // they cannot share an implementation: the element relation differs.
 TypedValue ListLess(const TypedValue::TVector &list_a, const TypedValue::TVector &list_b,
                     utils::MemoryResource *alloc) {
@@ -1503,7 +1503,7 @@ TypedValue MapLess(const TypedValue::TMap &map_a, const TypedValue::TMap &map_b,
 
 }  // namespace
 
-std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b) {
+std::partial_ordering OrderCompare(TypedValue const &a, TypedValue const &b) {
   const auto type_a = a.type();
   const auto type_b = b.type();
 
@@ -1540,7 +1540,7 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
                                                       a.UnsafeValueList().end(),
                                                       b.UnsafeValueList().begin(),
                                                       b.UnsafeValueList().end(),
-                                                      TypedValueCompare);
+                                                      OrderCompare);
       case TypedValue::Type::Map: {
         // Maps ordering: 1) by size, 2) by keys alphabetically, 3) by values
         const auto &map_a = a.UnsafeValueMap();
@@ -1560,8 +1560,7 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
         it_a = map_a.begin();
         it_b = map_b.begin();
         while (it_a != map_a.end()) {
-          if (auto val_cmp = TypedValueCompare(it_a->second, it_b->second);
-              val_cmp != std::partial_ordering::equivalent) {
+          if (auto val_cmp = OrderCompare(it_a->second, it_b->second); val_cmp != std::partial_ordering::equivalent) {
             return val_cmp;
           }
           ++it_a;

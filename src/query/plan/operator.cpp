@@ -6533,16 +6533,16 @@ class AggregateCursor : public Cursor {
           break;
         case Aggregation::Op::MIN: {
           // openCypher 9 orderability gives a total order across every type,
-          // so MIN/MAX never throw on mixed types or NaN. Use TypedValueCompare
+          // so MIN/MAX never throw on mixed types or NaN. Use OrderCompare
           // directly instead of operator</> (which propagates null per Cypher
           // comparability and would force `.ValueBool()` to throw here).
-          if (TypedValueCompare(input_value, agg_value->values_[pos]) == std::partial_ordering::less) {
+          if (OrderCompare(input_value, agg_value->values_[pos]) == std::partial_ordering::less) {
             agg_value->values_[pos] = std::move(input_value);
           }
           break;
         }
         case Aggregation::Op::MAX: {
-          if (TypedValueCompare(input_value, agg_value->values_[pos]) == std::partial_ordering::greater) {
+          if (OrderCompare(input_value, agg_value->values_[pos]) == std::partial_ordering::greater) {
             agg_value->values_[pos] = std::move(input_value);
           }
           break;
@@ -10493,12 +10493,12 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             break;
           }
           case Aggregation::Op::MIN:
-            if (TypedValueCompare(other_value, main_value) == std::partial_ordering::less) {
+            if (OrderCompare(other_value, main_value) == std::partial_ordering::less) {
               main_value = std::move(other_value);
             }
             break;
           case Aggregation::Op::MAX:
-            if (TypedValueCompare(other_value, main_value) == std::partial_ordering::greater) {
+            if (OrderCompare(other_value, main_value) == std::partial_ordering::greater) {
               main_value = std::move(other_value);
             }
             break;
@@ -10591,13 +10591,13 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::MIN: {
-          if (TypedValueCompare(other_value, main_value) == std::partial_ordering::less) {
+          if (OrderCompare(other_value, main_value) == std::partial_ordering::less) {
             main_value = std::move(other_value);
           }
           break;
         }
         case Aggregation::Op::MAX: {
-          if (TypedValueCompare(other_value, main_value) == std::partial_ordering::greater) {
+          if (OrderCompare(other_value, main_value) == std::partial_ordering::greater) {
             main_value = std::move(other_value);
           }
           break;

@@ -36,7 +36,7 @@ struct OrderedTypedValueCompare {
   OrderedTypedValueCompare(Ordering ordering) : ordering_{ordering}, ascending{ordering == Ordering::ASC} {}
 
   auto operator()(const TypedValue &lhs, const TypedValue &rhs) const -> std::partial_ordering {
-    return ascending ? TypedValueCompare(lhs, rhs) : TypedValueCompare(rhs, lhs);
+    return ascending ? OrderCompare(lhs, rhs) : OrderCompare(rhs, lhs);
   }
 
   auto ordering() const { return ordering_; }
@@ -49,7 +49,7 @@ struct OrderedTypedValueCompare {
 /// Custom Comparator type for comparing vectors of TypedValues.
 ///
 /// Does lexicographical ordering of elements based on the above
-/// defined TypedValueCompare, and also accepts a vector of Orderings
+/// defined OrderCompare, and also accepts a vector of Orderings
 /// the define how respective elements compare.
 class TypedValueVectorCompare final {
  public:
@@ -67,8 +67,8 @@ class TypedValueVectorCompare final {
       for (auto const &[cmp, l, r] : rng) {
         auto res = cmp(l, r);
         DMG_ASSERT(res != std::partial_ordering::unordered,
-                   "TypedValueCompare must yield a total order; got `unordered`. "
-                   "All NaN/incomparable cases must be normalized inside TypedValueCompare.");
+                   "OrderCompare must yield a total order; got `unordered`. "
+                   "All NaN/incomparable cases must be normalized inside OrderCompare.");
         if (res == std::partial_ordering::less) return true;
         if (res == std::partial_ordering::greater) return false;
       }

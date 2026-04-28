@@ -43,6 +43,28 @@ concept TypedValueValidPrimativeType =
     std::is_same_v<T, utils::Duration> || std::is_same_v<T, utils::Duration> || std::is_same_v<T, std::string>;
 }
 
+// =============================================================================
+// TypedValue comparison trichotomy (openCypher 9, CIP "Define comparability and
+// equality as well as orderability and equivalence").
+//
+// Three relations exist between TypedValues. Picking the wrong one is a
+// correctness bug — they disagree on null and NaN.
+//
+//   Relation     | Returns          | null / NaN | Used by
+//   -------------+------------------+------------+--------------------------
+//   Equality     | TypedValue (3VL) | propagate  | `=`, `<>`, IN (uncached)
+//   Equivalence  | bool             | reflexive  | DISTINCT, GROUP BY, hash
+//   Orderability | partial_ordering | total      | ORDER BY, MIN, MAX
+//
+//   Equality      → operator==(TypedValue, TypedValue)
+//   Equivalence   → TypedValue::Equivalent  (paired with TypedValue::Hash)
+//   Orderability  → query::OrderCompare    (declared after TypedValue)
+//
+// Hash invariant: Equivalent(a, b) ⇒ Hash(a) == Hash(b).
+// Order invariant: OrderCompare never returns `unordered` (NaN sorts last,
+// two NaNs are equivalent).
+// =============================================================================
+
 // TODO: Neo4j does overflow checking. Should we also implement it?
 /**
  * Stores a query runtime value and its type.
@@ -598,7 +620,7 @@ class TypedValue {
    * incomparable type for `<` (e.g. Duration). Does NOT throw — the previous
    * "incompatible types" exception is replaced with null propagation through
    * three-valued logic. For total-order semantics needed by ORDER BY / MIN /
-   * MAX, use `TypedValueCompare`, which never returns null.
+   * MAX, use `OrderCompare`, which never returns null.
    */
   friend TypedValue operator<(const TypedValue &a, const TypedValue &b);
 
@@ -819,7 +841,7 @@ constexpr int TypeOrderRank(TypedValue::Type type) {
 /// This is distinct from `operator<` (Cypher comparability `<`, which
 /// propagates null on NaN/cross-type) and from `Equivalent` (used by
 /// hash-based set membership). Use this for ORDER BY, MIN, MAX.
-std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b);
+std::partial_ordering OrderCompare(TypedValue const &a, TypedValue const &b);
 
 constexpr bool is_canonical(TypedValue::Type type) {
   switch (type) {
