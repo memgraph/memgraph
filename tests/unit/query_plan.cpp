@@ -744,24 +744,58 @@ TYPED_TEST(TestPlanner, MatchMerge) {
   auto r_type = "r";
   auto prop = dba.Property("prop");
   auto ident_n = IDENT("n");
-  auto edge_r = EDGE("r", Direction::BOTH, {r_type});
-  auto node_m = NODE("m");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                                  MERGE(PATTERN(NODE("n"), edge_r, node_m),
+                                  MERGE(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {r_type}), NODE("m")),
                                         ON_MATCH(SET(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(42))),
                                         ON_CREATE(SET("m", IDENT("n")))),
                                   RETURN(ident_n, AS("n"))));
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  std::list<BaseOpChecker *> on_match{
-      new ExpectExpand(),
-      new ExpectAccumulate(
-          {symbol_table.at(*ident_n), symbol_table.at(*edge_r->identifier_), symbol_table.at(*node_m->identifier_)}),
-      new ExpectSetProperty()};
+  std::list<BaseOpChecker *> on_match{new ExpectExpand(), new ExpectSetProperty()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateExpand(), new ExpectSetProperties()};
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // We expect Accumulate after Merge, because it is considered as a write.
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectMerge(on_match, on_create), acc, ExpectProduce());
+  DeleteListContent(&on_match);
+  DeleteListContent(&on_create);
+}
+
+TYPED_TEST(TestPlanner, MergeWithDownstreamCreateAccumulatesMatch) {
+  // Test MERGE (n) CREATE (c)
+  // Regression for issue #1333: when a clause downstream of MERGE may append to storage,
+  // merge_match must materialize via Accumulate to stop the live ScanAll iterator from
+  // re-observing newly-written vertices and producing unbounded creation.
+  FakeDbAccessor dba;
+  auto node_n = NODE("n");
+  auto *query = QUERY(SINGLE_QUERY(MERGE(PATTERN(node_n)), CREATE(PATTERN(NODE("c")))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  std::list<BaseOpChecker *> on_match{new ExpectScanAll(),
+                                      new ExpectAccumulate({symbol_table.at(*node_n->identifier_)})};
+  std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectMerge(on_match, on_create), ExpectCreateNode(), ExpectEmptyResult());
+  DeleteListContent(&on_match);
+  DeleteListContent(&on_create);
+}
+
+TYPED_TEST(TestPlanner, MergeFollowedByWithSkipsMatchAccumulate) {
+  // Test MERGE (n) WITH n CREATE (c)
+  // WITH already inserts an Accumulate barrier, so merge_match does not need its own —
+  // the downstream CREATE cannot pollute the (already drained) ScanAll iterator.
+  FakeDbAccessor dba;
+  auto node_n = NODE("n");
+  auto *query = QUERY(SINGLE_QUERY(MERGE(PATTERN(node_n)), WITH(IDENT("n"), AS("n")), CREATE(PATTERN(NODE("c")))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  std::list<BaseOpChecker *> on_match{new ExpectScanAll()};
+  std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectMerge(on_match, on_create),
+            ExpectAccumulate({symbol_table.at(*node_n->identifier_)}),
+            ExpectProduce(),
+            ExpectCreateNode(),
+            ExpectEmptyResult());
   DeleteListContent(&on_match);
   DeleteListContent(&on_create);
 }
@@ -1581,19 +1615,12 @@ TYPED_TEST(TestPlanner, MatchReturnAsteriskSum) {
 
 TYPED_TEST(TestPlanner, UnwindMergeNodeProperty) {
   // Test UNWIND [1] AS i MERGE (n {prop: i})
-  FakeDbAccessor dba;
   auto node_n = NODE("n");
   std::get<0>(node_n->properties_)[this->storage.GetPropertyIx("prop")] = IDENT("i");
-  auto unwind_as_i = AS("i");
-  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), unwind_as_i), MERGE(PATTERN(node_n))));
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  std::list<BaseOpChecker *> on_match{
-      new ExpectScanAll(),
-      new ExpectFilter(),
-      new ExpectAccumulate({symbol_table.at(*node_n->identifier_), symbol_table.at(*unwind_as_i)})};
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n))));
+  std::list<BaseOpChecker *> on_match{new ExpectScanAll(), new ExpectFilter()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
-  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectMerge(on_match, on_create), ExpectEmptyResult());
+  CheckPlan<TypeParam>(query, this->storage, ExpectUnwind(), ExpectMerge(on_match, on_create), ExpectEmptyResult());
   DeleteListContent(&on_match);
   DeleteListContent(&on_create);
 }
@@ -1607,14 +1634,11 @@ TYPED_TEST(TestPlanner, UnwindMergeNodePropertyWithIndex) {
   dba.SetIndexCount(label, property.second, 1);
   auto node_n = NODE("n", label_name);
   std::get<0>(node_n->properties_)[this->storage.GetPropertyIx(property.first)] = IDENT("i");
-  auto unwind_as_i = AS("i");
-  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), unwind_as_i), MERGE(PATTERN(node_n))));
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  std::list<BaseOpChecker *> on_match{
-      new ExpectScanAllByLabelProperties(
-          label, std::vector{ms::PropertyPath{property.second}}, std::vector{ExpressionRange::Equal(IDENT("i"))}),
-      new ExpectAccumulate({symbol_table.at(*node_n->identifier_), symbol_table.at(*unwind_as_i)})};
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n))));
+  std::list<BaseOpChecker *> on_match{new ExpectScanAllByLabelProperties(
+      label, std::vector{ms::PropertyPath{property.second}}, std::vector{ExpressionRange::Equal(IDENT("i"))})};
   std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectMerge(on_match, on_create), ExpectEmptyResult());
   DeleteListContent(&on_match);
@@ -2563,14 +2587,12 @@ TYPED_TEST(TestPlanner, Foreach) {
     dba.SetIndexCount(label, 0);
 
     auto *n = NEXPR("n", IDENT("n"));
-    auto node_v = NODE("v", label_name);
-    auto *query = QUERY(SINGLE_QUERY(FOREACH(n, {MERGE(PATTERN(node_v))})));
+    auto *query = QUERY(SINGLE_QUERY(FOREACH(n, {MERGE(PATTERN(NODE("v", label_name)))})));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-    std::list<BaseOpChecker *> on_match{
-        new ExpectScanAllByLabel(), new ExpectAccumulate({symbol_table.at(*node_v->identifier_), symbol_table.at(*n)})};
+    std::list<BaseOpChecker *> on_match{new ExpectScanAllByLabel()};
     std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
 
     auto create = ExpectMerge(on_match, on_create);

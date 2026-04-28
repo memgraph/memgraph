@@ -348,7 +348,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
           }
         };
 
-        for (const auto &clause : single_query_part.remaining_clauses) {
+        for (size_t clause_idx = 0; clause_idx < single_query_part.remaining_clauses.size(); ++clause_idx) {
+          auto *const clause = single_query_part.remaining_clauses[clause_idx];
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
 
           // Create context with current view for RETURN/WITH
@@ -367,7 +368,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                        context.in_exists_subquery);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             plan_and_apply_comprehensions();
-            input_op = GenMerge(*merge, std::move(input_op), single_query_part.merge_matching[merge_id++]);
+            const bool insert_match_accumulate =
+                MergeMatchNeedsAccumulate(single_query_part.remaining_clauses, clause_idx);
+            input_op = GenMerge(
+                *merge, std::move(input_op), single_query_part.merge_matching[merge_id++], insert_match_accumulate);
             // Treat MERGE clause as write, because we do not know if it will create anything.
             context.is_write_query = true;
             write_occurred = true;
@@ -720,6 +724,33 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
            utils::Downcast<query::RemoveLabels>(clause);
   }
 
+  // True if any nested clause inside the FOREACH body could append a vertex/edge.
+  static bool ForeachContainsAppendingWrite(const query::Foreach &fe) {
+    return std::ranges::any_of(fe.clauses_, [](auto *c) {
+      if (utils::IsSubtype(*c, query::Create::kType) || utils::IsSubtype(*c, query::Merge::kType)) return true;
+      auto *nested = utils::Downcast<query::Foreach>(c);
+      return nested != nullptr && ForeachContainsAppendingWrite(*nested);
+    });
+  }
+
+  // Decide whether merge_match for the MERGE at `merge_idx` must be materialized via Accumulate.
+  // The bug (issue #1333) fires when a downstream clause appends to storage while merge_match's
+  // ScanAll/Expand iterator (View::NEW, nullptr-sentinel end) is still alive — the iterator then
+  // re-observes the newly written vertices/edges. WITH and RETURN already insert their own
+  // Accumulate barrier, so anything past them is harmless.
+  static bool MergeMatchNeedsAccumulate(const std::vector<Clause *> &clauses, size_t merge_idx) {
+    for (size_t i = merge_idx + 1; i < clauses.size(); ++i) {
+      auto *c = clauses[i];
+      if (utils::IsSubtype(*c, query::With::kType) || utils::IsSubtype(*c, query::Return::kType)) return false;
+      if (utils::IsSubtype(*c, query::Create::kType) || utils::IsSubtype(*c, query::Merge::kType) ||
+          utils::IsSubtype(*c, query::CallSubquery::kType))
+        return true;
+      if (auto *cp = utils::Downcast<query::CallProcedure>(c); cp && cp->is_write_) return true;
+      if (auto *fe = utils::Downcast<query::Foreach>(c); fe && ForeachContainsAppendingWrite(*fe)) return true;
+    }
+    return false;
+  }
+
   // Apply nested pattern comprehensions as RollUpApply nodes.
   // Used when a pattern comprehension's result expression contains other pattern comprehensions.
   std::unique_ptr<LogicalOperator> ApplyNestedPatternComprehensions(
@@ -818,7 +849,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     return last_op;
   }
 
-  auto GenMerge(query::Merge &merge, std::unique_ptr<LogicalOperator> input_op, const Matching &matching) {
+  auto GenMerge(query::Merge &merge, std::unique_ptr<LogicalOperator> input_op, const Matching &matching,
+                bool insert_match_accumulate) {
     // Copy the bound symbol set, because we don't want to use the updated
     // version when generating the create part.
     std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
@@ -829,24 +861,23 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto once_with_symbols = std::make_unique<Once>(bound_symbols);
     auto on_match = PlanMatching(match_ctx, std::move(once_with_symbols));
 
-    // Accumulate merge_match rows per input row. Without this, the underlying
-    // ScanAll keeps a live skip-list iterator with a nullptr-sentinel end; any
-    // node created by a downstream clause (e.g. `MERGE (a) MERGE (b) CREATE (c)`)
-    // gets appended during iteration and fed back into merge_match, producing
-    // unbounded node creation. Materializing matches up-front freezes the scan
-    // to nodes that existed when this MERGE started yielding for the current
-    // input row, while still preserving View::NEW visibility of nodes created
-    // by earlier clauses.
-    std::vector<Symbol> accumulate_symbols = match_ctx.new_symbols;
-    std::unordered_set<Symbol> seen_symbols(accumulate_symbols.begin(), accumulate_symbols.end());
-    for (const auto &symbol : bound_symbols) {
-      if (seen_symbols.insert(symbol).second) {
-        accumulate_symbols.push_back(symbol);
+    // Materialize merge_match per input row when a downstream clause may append to storage.
+    // Without this, the underlying ScanAll keeps a live skip-list iterator with a nullptr-sentinel
+    // end; any node created downstream (e.g. `MERGE (a) MERGE (b) CREATE (c)`) gets appended during
+    // iteration and fed back into merge_match, producing unbounded node creation. Accumulating
+    // freezes the scan to nodes that existed when MERGE started yielding for the current input row,
+    // while preserving View::NEW visibility of nodes created by earlier clauses. See issue #1333.
+    if (insert_match_accumulate) {
+      std::vector<Symbol> accumulate_symbols = match_ctx.new_symbols;
+      std::unordered_set<Symbol> seen_symbols(accumulate_symbols.begin(), accumulate_symbols.end());
+      for (const auto &symbol : bound_symbols) {
+        if (seen_symbols.insert(symbol).second) {
+          accumulate_symbols.push_back(symbol);
+        }
       }
+      on_match = std::make_unique<plan::Accumulate>(std::move(on_match), accumulate_symbols,
+                                                    /*advance_command=*/false);
     }
-    on_match = std::make_unique<plan::Accumulate>(std::move(on_match),
-                                                  accumulate_symbols,
-                                                  /*advance_command=*/false);
 
     once_with_symbols = std::make_unique<Once>(std::move(bound_symbols));
     // Use the original bound_symbols, so we fill it with new symbols.
@@ -1349,12 +1380,14 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     // Plan any comprehensions whose dependencies are now satisfied (e.g., referencing the FOREACH variable)
     plan_satisfied_comprehensions();
 
-    for (auto *clause : foreach->clauses_) {
+    for (size_t clause_idx = 0; clause_idx < foreach->clauses_.size(); ++clause_idx) {
+      auto *const clause = foreach->clauses_[clause_idx];
       if (auto *nested_for_each = utils::Downcast<query::Foreach>(clause)) {
         op = HandleForeachClause(
             nested_for_each, std::move(op), symbol_table, bound_symbols, query_part, merge_id, pending_comprehensions);
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-        op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++]);
+        const bool insert_match_accumulate = MergeMatchNeedsAccumulate(foreach->clauses_, clause_idx);
+        op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++], insert_match_accumulate);
       } else {
         op = HandleWriteClause(clause, op, symbol_table, bound_symbols);
       }
