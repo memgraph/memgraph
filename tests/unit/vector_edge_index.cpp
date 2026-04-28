@@ -283,9 +283,7 @@ TEST_F(VectorEdgeIndexTest, RemoveEntriesTest) {
     EXPECT_EQ(maybe_deleted_edge.has_value(), true);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    std::list<memgraph::storage::Gid, memgraph::memory::DbAwareAllocator<memgraph::storage::Gid>> gids_to_remove;
-    gids_to_remove.push_back(edge_gid);
-    mem_storage->indices_.vector_edge_index_.RemoveEdges(gids_to_remove);
+    mem_storage->indices_.vector_edge_index_.RemoveEdges(std::vector<Edge *>{edge.edge_.ptr});
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);

@@ -336,6 +336,7 @@ unsigned ArenaPool::Acquire() {
     }
     new_idx = GlobalArenaPool::Instance().Acquire();
   } catch (...) {
+    spdlog::trace("Failed to acquire arena from the global pool. Fallback to first arena...");
     ++first_arena_use_count_;
     return first_arena_idx_;
   }
@@ -343,6 +344,7 @@ unsigned ArenaPool::Acquire() {
   // 4. Install hooks with RAII protection
   PendingArena pending(new_idx);
   if (!InstallDbArenaHooks(new_idx, hooks_, "per-thread")) {
+    spdlog::trace("Failed to install hooks on arena. Fallback to first arena...");
     ++first_arena_use_count_;
     return first_arena_idx_;  // pending dtor releases new_idx
   }

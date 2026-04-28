@@ -60,7 +60,7 @@ struct Indices {
 
   /// Removes edges from all vector edge indices. Must be called before
   /// the edge is removed from the skip list (while the pointer is still valid).
-  void RemoveEdgesFromVectorEdgeIndices(std::list<Gid, memory::DbAwareAllocator<Gid>> const &deleted_edge_gids) const;
+  void RemoveEdgesFromVectorEdgeIndices(std::span<Edge *const> edges_to_remove) const;
 
   struct AbortProcessor {
     LabelIndex::AbortProcessor label_;

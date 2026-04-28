@@ -145,6 +145,7 @@ class VectorEdgeIndex {
 
   explicit VectorEdgeIndex(utils::MemoryTracker *memory_tracker = nullptr);
   ~VectorEdgeIndex();
+
   /// Concrete ActiveIndices implementation holding a shared reference to the live edge index container.
   struct ActiveIndices : VectorEdgeIndexActiveIndices {
     ActiveIndices() = default;
@@ -190,8 +191,7 @@ class VectorEdgeIndex {
 
   /// @brief Recovers a vector edge index based on recovery info.
   void RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
-                    NameIdMapper *name_id_mapper,
-                    ActiveIndicesUpdater const &updater,
+                    NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
@@ -221,8 +221,7 @@ class VectorEdgeIndex {
 
   /// @brief Removes edges from the index by GID.
   /// Must be called before the edge is removed from the skip list (while the pointer is still valid).
-  /// @param deleted_edge_gids The GIDs of the edges to remove.
-  void RemoveEdges(std::list<Gid, memory::DbAwareAllocator<Gid>> const &deleted_edge_gids) const;
+  void RemoveEdges(std::span<Edge *const> edges_to_remove) const;
 
   /// @brief Returns an abort processor snapshot used during transaction abort.
   AbortProcessor GetAbortProcessor() const;
