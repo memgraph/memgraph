@@ -275,23 +275,14 @@ def _test_standalone(test_file: Path):
     """
     Run a self-contained Python test script via pytest subprocess.
     These scripts manage their own connections and cleanup.
-
-    Always prints the inner pytest output so per-test PASSED/SKIPPED lines
-    reach the CI log. Without this, a wholly-skipped opt-in suite (gated
-    by an env var like MAGE_E2E_OLLAMA) exits 0 and is indistinguishable
-    from a passing suite at this level. ``-rs`` adds a short summary of
-    skip reasons at the bottom for at-a-glance verification.
     """
     result = subprocess.run(
-        ["python3", "-m", "pytest", str(test_file), "-v", "-rs"],
+        ["python3", "-m", "pytest", str(test_file), "-v"],
         capture_output=True,
         text=True,
     )
-    print(f"\n--- {test_file.name} stdout ---\n{result.stdout}", flush=True)
-    if result.stderr:
-        print(f"--- {test_file.name} stderr ---\n{result.stderr}", flush=True)
     if result.returncode != 0:
-        pytest.fail(f"Standalone test {test_file.name} failed (exit {result.returncode})")
+        pytest.fail(f"Standalone test {test_file.name} failed:\n" f"{result.stdout}\n{result.stderr}")
 
 
 @pytest.mark.parametrize("test_dir", tests)
