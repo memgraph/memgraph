@@ -22,31 +22,6 @@
 
 namespace memgraph::storage {
 
-inline thread_local utils::MemoryTracker *tls_tracked_vector_allocator_memory_tracker
-    [[gnu::tls_model("initial-exec")]] = nullptr;
-
-inline auto CurrentTrackedVectorAllocatorMemoryTracker() -> utils::MemoryTracker * {
-  return tls_tracked_vector_allocator_memory_tracker != nullptr ? tls_tracked_vector_allocator_memory_tracker
-                                                                : &utils::vector_index_memory_tracker;
-}
-
-class TrackedVectorAllocatorMemoryTrackerScope {
- public:
-  explicit TrackedVectorAllocatorMemoryTrackerScope(utils::MemoryTracker *tracker)
-      : previous_tracker_(tls_tracked_vector_allocator_memory_tracker) {
-    tls_tracked_vector_allocator_memory_tracker = tracker != nullptr ? tracker : &utils::vector_index_memory_tracker;
-  }
-
-  TrackedVectorAllocatorMemoryTrackerScope(const TrackedVectorAllocatorMemoryTrackerScope &) = delete;
-  auto operator=(const TrackedVectorAllocatorMemoryTrackerScope &)
-      -> TrackedVectorAllocatorMemoryTrackerScope & = delete;
-
-  ~TrackedVectorAllocatorMemoryTrackerScope() { tls_tracked_vector_allocator_memory_tracker = previous_tracker_; }
-
- private:
-  utils::MemoryTracker *previous_tracker_;
-};
-
 /// Wraps usearch's memory_mapping_allocator_gt and reports all mmap
 /// allocations/deallocations to the global memory tracker.
 ///
@@ -65,7 +40,11 @@ class TrackedVectorAllocator {
   using pointer = unum::usearch::byte_t *;
   using const_pointer = unum::usearch::byte_t const *;
 
-  TrackedVectorAllocator() : tracker_(CurrentTrackedVectorAllocatorMemoryTracker()) {}
+  /// Constructs with an explicit memory tracker.
+  /// When nullptr, uses the global vector_index_memory_tracker.
+  /// Not explicit to allow copy-list-initialization (e.g., `allocator = {}` in usearch).
+  TrackedVectorAllocator(utils::MemoryTracker *tracker = nullptr)
+      : tracker_(tracker != nullptr ? tracker : &utils::vector_index_memory_tracker) {}
 
   TrackedVectorAllocator(TrackedVectorAllocator &&other) noexcept
       : inner_(std::move(other.inner_)),
@@ -132,6 +111,9 @@ class TrackedVectorAllocator {
   size_type total_wasted() const noexcept { return inner_.total_wasted(); }
 
   size_type total_reserved() const noexcept { return inner_.total_reserved(); }
+
+  /// Returns the memory tracker associated with this allocator.
+  utils::MemoryTracker *memory_tracker() const noexcept { return tracker_; }
 
  private:
   unum::usearch::memory_mapping_allocator_gt<alignment_ak> inner_;
