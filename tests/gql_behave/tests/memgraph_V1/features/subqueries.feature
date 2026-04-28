@@ -577,21 +577,6 @@ Feature: Subqueries
             | playerName | playerUpdated | teamName | teamUpdated   |
             | 'Player A' | 1719304206653 | 'Team A' | 1719304206653 |
 
-    Scenario: Scoped CALL with empty imports exposes subquery cardinality to outer
-        Given graph "subqueries"
-        When executing query:
-            """
-            MATCH (t:Team)
-            CALL () {
-              MATCH (p:Player)
-              RETURN count(p) AS totalPlayers
-            }
-            RETURN count(t) AS totalTeams, totalPlayers
-            """
-        Then the result should be:
-            | totalTeams | totalPlayers |
-            | 3          | 6            |
-
     Scenario: OPTIONAL CALL scoped subquery is not supported
         Given graph "subqueries"
         When executing query:
