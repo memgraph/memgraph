@@ -149,6 +149,29 @@ TEST_F(VirtualEdgeTest, MergeRewritesEdgesViaExplicitAliasMap) {
   EXPECT_EQ(main.InEdges(other_only.Gid()).size(), 1);
 }
 
+TEST_F(VirtualEdgeTest, StoresAndReadsProperties) {
+  auto vn1 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({}, {}));
+  auto vn2 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({}, {}));
+  memgraph::query::VirtualEdge ve(vn1, vn2, "E");
+
+  const auto pa = memgraph::storage::PropertyId::FromUint(1);
+  const auto pb = memgraph::storage::PropertyId::FromUint(2);
+
+  EXPECT_TRUE(ve.Properties().empty());
+  EXPECT_TRUE(ve.GetProperty(pa).IsNull());
+
+  ve.SetProperty(pa, memgraph::storage::PropertyValue(42));
+  ve.SetProperty(pb, memgraph::storage::PropertyValue("hello"));
+
+  EXPECT_EQ(ve.GetProperty(pa), memgraph::storage::PropertyValue(42));
+  EXPECT_EQ(ve.GetProperty(pb), memgraph::storage::PropertyValue("hello"));
+  EXPECT_EQ(ve.Properties().size(), 2);
+
+  ve.SetProperty(pa, memgraph::storage::PropertyValue(99));
+  EXPECT_EQ(ve.GetProperty(pa), memgraph::storage::PropertyValue(99));
+  EXPECT_EQ(ve.Properties().size(), 2);
+}
+
 TEST_F(VirtualEdgeTest, InsertIfNewDedupsDistinctEdgeGidsByTriple) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &vn1 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));

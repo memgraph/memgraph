@@ -821,3 +821,35 @@ TYPED_TEST(MgpGraphTest, VirtualOnlyScopeRejectsMutations) {
   mgp_vertex *raw_vertex{};
   EXPECT_EQ(mgp_graph_create_vertex(&graph, &this->memory, &raw_vertex), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 }
+
+TYPED_TEST(MgpGraphTest, RealEntitiesReportNotVirtual) {
+  const auto vertex_ids = this->CreateEdge();
+  auto graph = this->CreateGraph();
+
+  MgpVertexPtr v{EXPECT_MGP_NO_ERROR(
+      mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{vertex_ids[0].AsInt()}, &this->memory)};
+  ASSERT_NE(v, nullptr);
+  EXPECT_FALSE(v->IsVirtual());
+
+  MgpEdgePtr e;
+  ASSERT_NO_FATAL_FAILURE(this->GetFirstOutEdge(graph, vertex_ids[0], e));
+  EXPECT_FALSE(e->IsVirtual());
+}
+
+TYPED_TEST(MgpGraphTest, VirtualGraphRejectsSchemaOps) {
+  auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  memgraph::query::VirtualGraphDbAccessor vg_acc(dba, &vg);
+  mgp_graph graph{
+      &vg_acc, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+  int int_result = 0;
+  EXPECT_EQ(mgp_create_label_index(&graph, "L", &int_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_drop_label_index(&graph, "L", &int_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_create_label_property_index(&graph, "L", "p", &int_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_create_existence_constraint(&graph, "L", "p", &int_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_graph_has_text_index(&graph, "idx", &int_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+
+  mgp_list *list_result = nullptr;
+  EXPECT_EQ(mgp_list_all_label_indices(&graph, &this->memory, &list_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+}
