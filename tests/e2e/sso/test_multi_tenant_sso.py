@@ -842,17 +842,18 @@ def test_no_main_database_user(multi_tenant_setup):
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
         with client.session() as session:
-            # Verify current user
             current_user_result = list(session.run("SHOW CURRENT USER;"))
             assert len(current_user_result) == 1 and current_user_result[0]["user"] == "no_main_user"
 
-            # Should be able to access user_db
+            # On user_db, only the "user" role applies, which grants READ on
+            # :Review
             session.run("USE DATABASE user_db;").consume()
-            session.run("CREATE (n:TestNode {name: 'no_main_test'})").consume()
+            session.run("MATCH (n:Review) RETURN n").consume()
 
-            # Should be able to access architect_db
+            # On architect_db, only the "architect" role applies, which grants
+            # CREATE on all labels.
             session.run("USE DATABASE architect_db;").consume()
-            session.run("CREATE (n:TestNode {name: 'no_main_test'})").consume()
+            session.run("CREATE (n:Person {name: 'no_main_test'})").consume()
 
 
 def test_label_based_authorization_hierarchy(multi_tenant_setup):

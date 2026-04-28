@@ -430,7 +430,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     }
     if (!labels.empty()) {
       // find existing LabelsTest that matched identifier
-      auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(node->identifier_));
+      auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(node->identifier_));
       if (it == all_filters_.end()) {
         // No existing LabelTest for this identifier
         auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels, node->label_expression_);
@@ -535,7 +535,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 
     // Properties are reversed because the AST walk produces them in reverse
     // order. This returns them to the order as specified in the grammar.
-    std::reverse(nested_properties.begin(), nested_properties.end());
+    std::ranges::reverse(nested_properties);
 
     return std::pair<Identifier *, PropertyIxPath>{utils::Downcast<Identifier>(prev_expr->expression_),
                                                    std::move(nested_properties)};
@@ -834,7 +834,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
     if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
-      auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(identifier));
+      auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
       if (it == all_filters_.end()) {
         // No existing LabelTest for this identifier
         auto filter = make_filter(FilterInfo::Type::Label);
@@ -979,7 +979,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     auto filters = SplitExpression(or_operator, SplitExpressionMode::OR);
     // If each filter is LabelsTest we aim to cover basic case and put them in existing LabelsTest
     // If there is a non-LabelsTest filter we fallback to generic
-    auto is_each_labels_test = std::all_of(filters.begin(), filters.end(), [](auto &filter) {
+    auto is_each_labels_test = std::ranges::all_of(filters, [](auto &filter) {
       auto *labels_test = utils::Downcast<LabelsTest>(filter);
       if (!labels_test) {
         return false;
@@ -991,7 +991,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       for (auto &filter : filters) {
         auto *labels_test = utils::Downcast<LabelsTest>(filter);
         auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
-        auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(identifier));
+        auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
         if (it == all_filters_.end()) {
           // No existing LabelTest for this identifier
           auto filter_info = FilterInfo{FilterInfo::Type::Label, labels_test, collector.symbols_};

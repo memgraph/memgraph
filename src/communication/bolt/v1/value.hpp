@@ -108,8 +108,7 @@ struct Path {
     // added to switch between positive and negative indices (that define edge
     // direction).
     auto add_element = [this](auto &collection, const auto &element, int multiplier, int offset) {
-      auto found =
-          std::find_if(collection.begin(), collection.end(), [&](const auto &e) { return e.id == element.id; });
+      auto found = std::ranges::find_if(collection, [&](const auto &e) { return e.id == element.id; });
       indices.emplace_back(multiplier * (std::distance(collection.begin(), found) + offset));
       if (found == collection.end()) collection.push_back(element);
     };

@@ -106,7 +106,7 @@ inline auto Labels_ActionMethod(utils::small_vector<LabelId> &labels) {
         labels.pop_back();
       }),
       ActionMethod<ADD_LABEL>([&](Delta const &delta) {
-        DMG_ASSERT(std::find(labels.begin(), labels.end(), delta.label.value) == labels.end(), "Invalid database state!");
+        DMG_ASSERT(!std::ranges::contains(labels, delta.label.value), "Invalid database state!");
         labels.emplace_back(delta.label.value);
       })
   };

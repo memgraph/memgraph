@@ -1,15 +1,15 @@
 name: "Package Memgraph (External)"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.inputs.pr_number }}
+  group: ${{ github.workflow }}-${{ inputs.pr_number }}
   cancel-in-progress: true
 on:
   workflow_dispatch:
     inputs:
       pr_number:
         type: string
+        required: true
         description: "PR number."
-        default: ''
       base_master:
         type: boolean
         description: "Base master?"

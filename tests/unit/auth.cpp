@@ -844,6 +844,90 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
   }
 }
 
+TEST(RolesFga, PerDatabaseRoleAssignmentScopesFga) {
+  memgraph::license::global_license_checker.EnableTesting();
+
+  Role role1{"role1"};
+  role1.fine_grained_access_handler().label_permissions().Grant({"l1"}, FineGrainedPermission::READ);
+  role1.db_access().Grant("db2");
+  role1.db_access().Grant("db4");
+
+  Role role2{"role2"};
+  role2.fine_grained_access_handler().label_permissions().Grant({"l2"}, FineGrainedPermission::READ);
+  role2.db_access().Grant("db3");
+  role2.db_access().Grant("db4");
+
+  User user{"test"};
+  user.AddMultiTenantRole(role1, "db2");
+  user.AddMultiTenantRole(role2, "db3");
+  user.AddMultiTenantRole(role1, "db4");
+  user.AddMultiTenantRole(role2, "db4");
+
+  std::vector<std::string> const l1{"l1"};
+  std::vector<std::string> const l2{"l2"};
+
+  // db1: no roles assigned so all access denied
+  {
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db1");
+    ASSERT_EQ(perms.Has(l1, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(l2, FineGrainedPermission::READ), PermissionLevel::DENY);
+  }
+
+  // db2: role1 assigned, so l1 granted, l2 denied
+  {
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db2");
+    ASSERT_EQ(perms.Has(l1, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(perms.Has(l2, FineGrainedPermission::READ), PermissionLevel::DENY);
+  }
+
+  // db3: role2 assigned, so l2 granted, l1 denied
+  {
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db3");
+    ASSERT_EQ(perms.Has(l1, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(l2, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+
+  // db4: both roles assigned, so l1 and l2 granted
+  {
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db4");
+    ASSERT_EQ(perms.Has(l1, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(perms.Has(l2, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+}
+
+TEST(RolesFga, GlobalRoleFgaIsFilteredByDatabase) {
+  memgraph::license::global_license_checker.EnableTesting();
+
+  Role role1{"role1"};
+  role1.fine_grained_access_handler().label_permissions().Grant({"l1"}, FineGrainedPermission::READ);
+  role1.db_access().Grant("db1");
+
+  Role role2{"role2"};
+  role2.fine_grained_access_handler().label_permissions().Grant({"l2"}, FineGrainedPermission::READ);
+  role2.db_access().Grant("db2");
+
+  User user{"test"};
+  user.roles().AddRole(role1);
+  user.roles().AddRole(role2);
+
+  std::vector<std::string> const l1{"l1"};
+  std::vector<std::string> const l2{"l2"};
+
+  // db1: role1 applies so l1 granted, l2 denied
+  {
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db1");
+    ASSERT_EQ(perms.Has(l1, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(perms.Has(l2, FineGrainedPermission::READ), PermissionLevel::DENY);
+  }
+
+  // db2: role2 applies so l2 granted, l1 denied
+  {
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db2");
+    ASSERT_EQ(perms.Has(l1, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(l2, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+}
+
 #endif  // MG_ENTERPRISE
 
 TEST_F(AuthWithStorage, RoleManipulations) {

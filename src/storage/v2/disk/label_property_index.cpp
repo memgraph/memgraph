@@ -13,8 +13,8 @@
 
 #include "storage/v2/disk/label_property_index.hpp"
 #include <range/v3/all.hpp>
+#include "storage/v2/disk/delta_utils.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
-#include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/rocksdb_serialization.hpp"
@@ -90,7 +90,7 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
                                                                    uint64_t commit_timestamp) const {
   auto disk_transaction = CreateRocksDBTransaction();
 
-  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
+  if (auto maybe_old_disk_key = disk::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
     if (!disk_transaction->Delete(maybe_old_disk_key.value()).ok()) {
       return false;
     }
@@ -167,12 +167,16 @@ void DiskLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_
   }
 }
 
-bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
-                                       ActiveIndicesUpdater const &updater) {
-  if (!index_.contains({label, properties[0][0]})) return false;
+LabelPropertyIndex::DropResult DiskLabelPropertyIndex::DropIndex(LabelId label,
+                                                                 std::vector<PropertyPath> const &properties,
+                                                                 ActiveIndicesUpdater const &updater,
+                                                                 std::optional<IndexOrder> order) {
+  // Disk only has ASC indices; a DESC-only selective drop is a miss.
+  if (order.has_value() && *order != IndexOrder::ASC) return {};
+  if (!index_.contains({label, properties[0][0]})) return {};
   index_.erase({label, properties[0][0]});
   updater(GetActiveIndices());
-  return true;
+  return {.dropped_asc = true};
 }
 
 bool DiskLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label, std::span<PropertyPath const> properties) const {
@@ -183,11 +187,11 @@ bool DiskLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label, std::span<
   return index_.contains(LabelProperty{label, properties[0][0]});
 }
 
-auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const
-    -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> {
-  auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyPath>> {
+auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t /*start_timestamp*/) const
+    -> std::vector<LabelPropertyIndexEntry> {
+  auto const convert = [](auto &&index) -> LabelPropertyIndexEntry {
     auto [label, property] = index;
-    return {label, {PropertyPath{property}}};
+    return {label, {PropertyPath{property}}, IndexOrder::ASC};
   };
 
   return index_ | ranges::views::transform(convert) | ranges::to_vector;
@@ -206,7 +210,7 @@ auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId /*lab
   return 10;
 }
 
-auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId label,
+auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId /*label*/,
                                                                    std::span<PropertyPath const> /*properties*/,
                                                                    std::span<PropertyValueRange const> /*bounds*/) const
     -> uint64_t {

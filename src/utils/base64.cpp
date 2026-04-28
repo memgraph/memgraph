@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -181,9 +181,7 @@ static std::string decode(String encoded_string, bool remove_linebreaks) {
 
   if (remove_linebreaks) {
     std::string copy(encoded_string);
-
-    copy.erase(std::remove(copy.begin(), copy.end(), '\n'), copy.end());
-
+    std::erase(copy, '\n');
     return base64_decode(copy, false);
   }
 

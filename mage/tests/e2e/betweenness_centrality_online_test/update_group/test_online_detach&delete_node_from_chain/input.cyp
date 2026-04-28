@@ -13,4 +13,4 @@ queries:
 
 cleanup: |-
     DROP TRIGGER test_detachdelete_node;
-    CALL mg.load('betweenness_centrality_online') YIELD *;
+    CALL mg.load('betweenness_centrality_online');

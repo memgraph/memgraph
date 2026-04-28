@@ -1,0 +1,15 @@
+sources:
+  "2.21.4":
+    url: "https://github.com/unum-cloud/usearch/archive/refs/tags/v2.21.4.tar.gz"
+    sha256: "05280f31d6634b64e8cc31a74a2f1252dfacc5f71a9a5362db3df4ba4c58a23a"
+submodules:
+  "2.21.4":
+    simsimd:
+      url: "https://github.com/ashvardanian/simsimd/archive/25eacdc6bc541d0e04411de4b5ea06709136fc1a.tar.gz"
+      sha256: "909a9ac3e8b62fbde25bbe9cb469d05cc63fe140d8a6591e38da1aadf9b4c8c8"
+patches:
+  "2.21.4":
+    - patch_file: "patches/0001-enable-custom-allocators.patch"
+      patch_description: "Allow Memgraph to provide custom usearch tape allocators."
+    - patch_file: "patches/0002-fix-tombstone-iteration.patch"
+      patch_description: "Skip tombstones while advancing flat_hash_multi_set iterators."

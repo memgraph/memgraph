@@ -235,8 +235,7 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
       spdlog::debug("SystemRecoveryHandler: UnknownDatabaseException");
       return false;
     }
-    const auto it = std::find(old.begin(), old.end(), *config.name.str_view());
-    if (it != old.end()) old.erase(it);
+    std::erase(old, *config.name.str_view());
   }
 
   // Delete all the leftover old dbs

@@ -219,6 +219,6 @@ VertexInfoCache::EdgeKey::EdgeKey(Vertex const *src_vertex, Vertex const *dst_ve
                                   std::vector<EdgeTypeId> edge_types)
     : src_vertex_{src_vertex}, dst_vertex_{dst_vertex}, edge_types_{std::move(edge_types)} {
   // needed for a canonical form
-  std::sort(edge_types_.begin(), edge_types_.end());
+  std::ranges::sort(edge_types_);
 }
 }  // namespace memgraph::storage

@@ -452,6 +452,11 @@ class Interpreter final {
           expected, original_status_, std::memory_order_release, std::memory_order_relaxed);
     }
 
+    TxVerifier(const TxVerifier &) = delete;
+    TxVerifier(TxVerifier &&) = delete;
+    TxVerifier &operator=(const TxVerifier &) = delete;
+    TxVerifier &operator=(TxVerifier &&) = delete;
+
     TransactionStatus status() const { return original_status_; }
 
    private:
@@ -569,9 +574,8 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
   size_t ActiveQueryExecutions() {
-    return std::count_if(query_executions_.begin(), query_executions_.end(), [](const auto &execution) {
-      return execution && execution->prepared_query;
-    });
+    return std::ranges::count_if(query_executions_,
+                                 [](const auto &execution) { return execution && execution->prepared_query; });
   }
 
   std::optional<std::function<void(std::string_view)>> on_change_{};

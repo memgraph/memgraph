@@ -11,6 +11,7 @@
 
 #include "replication_handler/auth_replication_handlers.hpp"
 #include <spdlog/spdlog.h>
+#include <utility>
 
 #include "auth/auth.hpp"
 #include "auth/profiles/user_profiles.hpp"
@@ -131,7 +132,7 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
         auth->DropProfile(req.name);
       } break;
       case N:
-        __builtin_unreachable();
+        std::unreachable();
     }
     // Success
     res = DropAuthDataRes(true);
@@ -161,9 +162,7 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
           spdlog::debug("SystemRecoveryHandler: Failed to save profile");
           return false;
         }
-        const auto it = std::find_if(
-            old_profiles.begin(), old_profiles.end(), [&](const auto &p) { return p.name == profile.name; });
-        if (it != old_profiles.end()) old_profiles.erase(it);
+        std::erase_if(old_profiles, [&](const auto &p) { return p.name == profile.name; });
       }
       // Delete all the leftover profiles
       for (const auto &profile : old_profiles) {
@@ -187,8 +186,7 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
           spdlog::debug("SystemRecoveryHandler: Failed to save role");
           return false;
         }
-        const auto it = std::find(old_roles.begin(), old_roles.end(), role.rolename());
-        if (it != old_roles.end()) old_roles.erase(it);
+        std::erase(old_roles, role.rolename());
       }
       // Delete all the leftover roles
       for (const auto &role : old_roles) {
@@ -210,8 +208,7 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
         spdlog::debug("SystemRecoveryHandler: Failed to save user");
         return false;
       }
-      const auto it = std::find(old_users.begin(), old_users.end(), user.username());
-      if (it != old_users.end()) old_users.erase(it);
+      std::erase(old_users, user.username());
     }
     // Delete all the leftover users
     for (const auto &user : old_users) {

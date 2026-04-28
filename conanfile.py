@@ -68,11 +68,18 @@ class Memgraph(ConanFile):
         "jemalloc/*:malloc_conf": "retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
         "rapidcheck/*:enable_gtest": True,
         "rapidcheck/*:enable_gmock": True,
+        "gflags/*:nothreads": False,
+        "gflags/*:namespace": "google;gflags",
+        "nuraft/*:asio": "standalone",
+        "rocksdb/*:with_gflags": True,
+        "rocksdb/*:use_rtti": True,
+        # Disable io_uring async I/O path in rocksdb's POSIX env. Avoids
+        # pulling liburing into the static link; flip to True (pulls
+        # liburing via Conan) to opt back in.
+        "rocksdb/*:with_liburing": False,
     }
 
     def requirements(self):
-        # self.requires("gflags/2.2.2") # we cannot use this gflags because we have a custom one!
-
         # Direct dependencies — packages we #include or link against directly
         self.requires("abseil/20250512.1")
         self.requires("antlr4-cppruntime/4.13.2")
@@ -87,12 +94,14 @@ class Memgraph(ConanFile):
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
         self.requires("fmt/11.2.0")
+        self.requires("gflags/2.2.0-memgraph", force=True)
         self.requires("jemalloc/5.2.1-memgraph")
         self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.6.1")
         self.requires("librdtsc/0.3-memgraph")
         self.requires("mgclient/1.4.3")
         self.requires("nlohmann_json/3.11.3-memgraph")
+        self.requires("nuraft/2.1.0-memgraph")
         has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
         openssl_shared = not has_sanitizers
         # Production builds dynamically link OpenSSL so the binary can use any system-provided
@@ -100,10 +109,14 @@ class Memgraph(ConanFile):
         # libcrypto.so leaking into LD_LIBRARY_PATH and breaking autotools configure scripts
         # of other dependencies during the Conan build.
         self.requires("openssl/3.0.18", options={"shared": openssl_shared})
+        self.requires("protobuf/3.21.12")
+        self.requires("pulsar-client-cpp/4.0.0-memgraph")
         self.requires("range-v3/0.12.0")
+        self.requires("rocksdb/8.1.1-memgraph")
         self.requires("simdjson/4.2.2")
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
+        self.requires("usearch/2.21.4")
         self.requires("zlib/1.3.1")
 
         # Version overrides — pin transitive dependency versions
@@ -113,13 +126,14 @@ class Memgraph(ConanFile):
     def build_requirements(self):
         self.tool_requires("cmake/[>=4 <5]")
         self.tool_requires("ninja/[>=1.13 <2]")
-        self.tool_requires("ccache/[>=4.12 <5]")
+        self.tool_requires("ccache/4.12.3-memgraph")
         self.tool_requires("antlr4/4.13.1")
 
         self.test_requires("benchmark/[>=1.9 <2]")
         # force=True overrides older gtest pinned by transitive dependencies
         self.test_requires("gtest/[>=1.17 <2]", force=True)
         self.test_requires("rapidcheck/cci.20231215")
+        self.test_requires("approvaltests.cpp/10.13.0")
 
     def validate(self):
         """Validate configuration before generation"""
