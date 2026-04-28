@@ -358,7 +358,7 @@ struct TypedValueVectorEqual {
     MG_ASSERT(left.size() == right.size(),
               "TypedValueVector comparison should only be done over vectors "
               "of the same size");
-    return std::equal(left.begin(), left.end(), right.begin(), TypedValue::BoolEqual{});
+    return std::equal(left.begin(), left.end(), right.begin(), TypedValue::Equivalent{});
   }
 };
 
@@ -6218,7 +6218,7 @@ class AggregateCursor : public Cursor {
   // aggregation map. The vectors in an AggregationValue contain one element for
   // each aggregation in this LogicalOp.
   struct CompactAggregationValue {
-    using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
+    using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::Equivalent>;
 
     // Pointers to the start of our arrays within the single memory block
     int64_t *counts_ = nullptr;
@@ -6494,7 +6494,7 @@ class AggregateCursor : public Cursor {
         switch (agg_op) {
           case Aggregation::Op::MIN:
           case Aggregation::Op::MAX:
-            EnsureOkForMinMax(input_value);
+            // Per openCypher 9, every type is orderable; no type check needed.
             agg_value->values_[pos] = std::move(input_value);
             break;
           case Aggregation::Op::SUM:
@@ -6532,28 +6532,18 @@ class AggregateCursor : public Cursor {
           // value is deferred to post-processing
           break;
         case Aggregation::Op::MIN: {
-          EnsureOkForMinMax(input_value);
-          try {
-            TypedValue comparison_result = input_value < agg_value->values_[pos];
-            // since we skip nulls we either have a valid comparison, or
-            // an exception was just thrown above
-            // safe to assume a bool TypedValue
-            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
-          } catch (const TypedValueException &) {
-            throw QueryRuntimeException(
-                "Unable to get MIN of '{}' and '{}'.", input_value.type(), agg_value->values_[pos].type());
+          // openCypher 9 orderability gives a total order across every type,
+          // so MIN/MAX never throw on mixed types or NaN. Use TypedValueCompare
+          // directly instead of operator</> (which propagates null per Cypher
+          // comparability and would force `.ValueBool()` to throw here).
+          if (TypedValueCompare(input_value, agg_value->values_[pos]) == std::partial_ordering::less) {
+            agg_value->values_[pos] = std::move(input_value);
           }
           break;
         }
         case Aggregation::Op::MAX: {
-          //  all comments as for Op::Min
-          EnsureOkForMinMax(input_value);
-          try {
-            TypedValue comparison_result = input_value > agg_value->values_[pos];
-            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
-          } catch (const TypedValueException &) {
-            throw QueryRuntimeException(
-                "Unable to get MAX of '{}' and '{}'.", input_value.type(), agg_value->values_[pos].type());
+          if (TypedValueCompare(input_value, agg_value->values_[pos]) == std::partial_ordering::greater) {
+            agg_value->values_[pos] = std::move(input_value);
           }
           break;
         }
@@ -6602,26 +6592,6 @@ class AggregateCursor : public Cursor {
     }
 
     projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
-  }
-
-  /** Checks if the given TypedValue is legal in MIN and MAX. If not
-   * an appropriate exception is thrown. */
-  void EnsureOkForMinMax(const TypedValue &value) const {
-    switch (value.type()) {
-      case TypedValue::Type::Bool:
-      case TypedValue::Type::Int:
-      case TypedValue::Type::Double:
-      case TypedValue::Type::String:
-      case TypedValue::Type::Date:
-      case TypedValue::Type::LocalTime:
-      case TypedValue::Type::LocalDateTime:
-      case TypedValue::Type::ZonedDateTime:
-        return;
-      default:
-        throw QueryRuntimeException(
-            "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX "
-            "aggregations.");
-    }
   }
 
   /** Checks if the given TypedValue is legal in AVG and SUM. If not
@@ -8836,7 +8806,7 @@ class HashJoinCursor : public Cursor {
   const UniqueCursorPtr left_op_cursor_;
   const UniqueCursorPtr right_op_cursor_;
   utils::pmr::unordered_map<TypedValue, utils::pmr::vector<utils::pmr::vector<TypedValue>>, TypedValue::Hash,
-                            TypedValue::BoolEqual>
+                            TypedValue::Equivalent>
       hashtable_;
   utils::pmr::vector<TypedValue> right_op_frame_;
   utils::pmr::vector<utils::pmr::vector<TypedValue>>::iterator left_op_frame_it_;
@@ -10523,12 +10493,12 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             break;
           }
           case Aggregation::Op::MIN:
-            if ((other_value < main_value).ValueBool()) {
+            if (TypedValueCompare(other_value, main_value) == std::partial_ordering::less) {
               main_value = std::move(other_value);
             }
             break;
           case Aggregation::Op::MAX:
-            if ((other_value > main_value).ValueBool()) {
+            if (TypedValueCompare(other_value, main_value) == std::partial_ordering::greater) {
               main_value = std::move(other_value);
             }
             break;
@@ -10621,13 +10591,13 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::MIN: {
-          if ((other_value < main_value).ValueBool()) {
+          if (TypedValueCompare(other_value, main_value) == std::partial_ordering::less) {
             main_value = std::move(other_value);
           }
           break;
         }
         case Aggregation::Op::MAX: {
-          if ((other_value > main_value).ValueBool()) {
+          if (TypedValueCompare(other_value, main_value) == std::partial_ordering::greater) {
             main_value = std::move(other_value);
           }
           break;

@@ -13,6 +13,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <limits>
 #include <map>
@@ -240,8 +241,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
                       storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
-                      const int64_t *hops_counter = nullptr,
-		      const std::shared_ptr<QueryUserOrRole> &user_or_role = {},
+                      const int64_t *hops_counter = nullptr, const std::shared_ptr<QueryUserOrRole> &user_or_role = {},
                       const std::shared_ptr<QueryUserOrRole> &triggering_user = {})
       : frame_(frame),
         symbol_table_(&symbol_table),
@@ -405,7 +405,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return {};
     };
 
-    if (frame_change_collector_) {
+    // The cache is keyed by Equivalent/Hash which fold NaN into a single
+    // bucket — but Cypher `=` says NaN never equals anything. Bypass the
+    // cache for NaN literals so cached and uncached paths agree.
+    const bool literal_is_nan = literal.IsDouble() && std::isnan(literal.ValueDouble());
+
+    if (frame_change_collector_ && !literal_is_nan) {
       const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
       if (frame_change_collector_->IsInlistKeyTracked(cached_id)) {
         auto cached_value_ref = frame_change_collector_->TryGetInlistCachedValue(cached_id);

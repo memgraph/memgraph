@@ -414,7 +414,7 @@ class Database {
     for (size_t i = 0; i < results.size();) {
       int j = i;
       auto blocked = results[j][3];
-      while (j < results.size() && memgraph::query::TypedValue::BoolEqual{}(results[j][3], blocked)) ++j;
+      while (j < results.size() && memgraph::query::TypedValue::Equivalent{}(results[j][3], blocked)) ++j;
 
       SCOPED_TRACE(fmt::format("blocked entity = {}", ToString(blocked, dba)));
 

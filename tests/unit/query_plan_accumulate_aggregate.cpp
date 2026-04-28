@@ -365,7 +365,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), group_by_vals.size() - 2);
-  std::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual> result_group_bys;
+  std::unordered_set<TypedValue, TypedValue::Hash, TypedValue::Equivalent> result_group_bys;
   for (const auto &row : results) {
     ASSERT_EQ(2, row.size());
     result_group_bys.insert(row[1]);
@@ -375,7 +375,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   group_by_tvals.reserve(group_by_vals.size());
   for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v, storage_dba->GetNameIdMapper());
   EXPECT_TRUE(std::is_permutation(
-      group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(), TypedValue::BoolEqual{}));
+      group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(), TypedValue::Equivalent{}));
 }
 
 TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
@@ -776,7 +776,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), group_by_vals.size() - 2);
-  std::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual> result_group_bys;
+  std::unordered_set<TypedValue, TypedValue::Hash, TypedValue::Equivalent> result_group_bys;
   for (const auto &row : results) {
     ASSERT_EQ(2, row.size());
     if (!row[1].IsNull()) {
@@ -789,7 +789,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   group_by_tvals.reserve(group_by_vals.size());
   for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v, storage_dba->GetNameIdMapper());
   EXPECT_TRUE(std::is_permutation(
-      group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(), TypedValue::BoolEqual{}));
+      group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(), TypedValue::Equivalent{}));
 }
 
 TYPED_TEST(QueryPlanTest, AggregateMultipleGroupByWithDistinct) {
