@@ -11,6 +11,7 @@
 
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include <expected>
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
@@ -32,11 +33,7 @@ namespace {
 
 // --- IndividualConstraint implementation ---
 
-ExistenceConstraints::IndividualConstraint::~IndividualConstraint() {
-  if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveExistenceConstraints);
-  }
-}
+ExistenceConstraints::IndividualConstraint::~IndividualConstraint() = default;
 
 // --- ActiveConstraints implementation ---
 
@@ -98,16 +95,18 @@ bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property,
     return false;
   }
   constraint->status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveExistenceConstraints);
+  constraint->gauge_ = metrics::ScopedGauge{gauge_};
   return true;
 }
 
 bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
   return constraints_.WithLock([&](ContainerPtr &constraints) -> bool {
+    auto it = constraints->find({label, property});
+    if (it == constraints->end()) return false;
+    it->second->gauge_ = {};
+
     auto new_constraints = std::make_shared<Container>(*constraints);
-    if (const auto count = new_constraints->erase({label, property}); count == 0) {
-      return false;
-    }
+    new_constraints->erase({label, property});
     constraints = std::move(new_constraints);
     return true;
   });
@@ -165,7 +164,6 @@ void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::strin
       if (inserted) {
         // Immediately commit with timestamp 0 so constraint is visible to all transactions
         it->second->status.Commit(kTimestampInitialId);
-        memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveExistenceConstraints);
       }
     }
     constraints = std::move(new_constraints);

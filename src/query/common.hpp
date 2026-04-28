@@ -13,9 +13,11 @@
 #pragma once
 
 #include <concepts>
+
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include "metrics/prometheus_metrics.hpp"
 
 #include <range/v3/view/zip.hpp>
 #include "query/exceptions.hpp"
@@ -174,9 +176,10 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
   }
 }
 
-inline void ProcessError(const storage::Error error) {
+inline void ProcessError(const storage::Error error, metrics::DatabaseMetricHandles &metric_handles) {
   switch (error) {
     case storage::Error::SERIALIZATION_ERROR:
+      metric_handles.write_write_conflicts.Increment();
       throw TransactionSerializationException();
     case storage::Error::DELETED_OBJECT:
       throw QueryRuntimeException("Trying to set properties on a deleted object.");
@@ -199,11 +202,12 @@ concept AccessorWithSetProperty =
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
 storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value,
-                                       storage::NameIdMapper *name_id_mapper) {
+                                       storage::NameIdMapper *name_id_mapper,
+                                       metrics::DatabaseMetricHandles &metric_handles) {
   try {
     auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
     if (!maybe_old_value) {
-      ProcessError(maybe_old_value.error());
+      ProcessError(maybe_old_value.error(), metric_handles);
     }
     return std::move(*maybe_old_value);
   } catch (const TypedValueException &) {
@@ -221,11 +225,12 @@ concept AccessorWithInitProperties =
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithInitProperties T>
-bool MultiPropsInitChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+bool MultiPropsInitChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                           metrics::DatabaseMetricHandles &metric_handles) {
   try {
     auto maybe_values = record->InitProperties(properties);
     if (!maybe_values) {
-      ProcessError(maybe_values.error());
+      ProcessError(maybe_values.error(), metric_handles);
     }
     return std::move(*maybe_values);
   } catch (const TypedValueException &) {
@@ -246,12 +251,13 @@ concept AccessorWithUpdateProperties = requires(T accessor,
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithUpdateProperties T>
-auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties)
+auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                             metrics::DatabaseMetricHandles &metric_handles)
     -> std::remove_reference_t<decltype(record->UpdateProperties(properties).value())> {
   try {
     auto maybe_values = record->UpdateProperties(properties);
     if (!maybe_values) {
-      ProcessError(maybe_values.error());
+      ProcessError(maybe_values.error(), metric_handles);
     }
     return std::move(*maybe_values);
   } catch (const TypedValueException &) {

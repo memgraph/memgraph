@@ -376,11 +376,6 @@ add_unit_test(utils_exceptions
     LINK_TARGETS mg-utils
 )
 
-add_unit_test(utils_histogram
-    SOURCES utils_histogram.cpp
-    LINK_TARGETS mg-utils mg-events
-)
-
 add_unit_test(utils_file
     SOURCES utils_file.cpp
     LINK_TARGETS mg-utils
@@ -915,6 +910,11 @@ add_unit_test(query_hint_provider
 add_unit_test(counter
     SOURCES counter.cpp
     LINK_TARGETS mg-utils
+)
+
+add_unit_test(prometheus_metrics
+    SOURCES prometheus_metrics.cpp
+    LINK_TARGETS mg-metrics mg-dbms disk_test_utils
 )
 
 # Test coordination

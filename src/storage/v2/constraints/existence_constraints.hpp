@@ -11,10 +11,16 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
 #include <functional>
 #include <memory>
+
 #include <optional>
 #include <variant>
+#include "metrics/scoped_gauge.hpp"
 
 #include "absl/container/flat_hash_map.h"
 #include "storage/v2/constraint_verification_info.hpp"
@@ -31,6 +37,8 @@ namespace memgraph::storage {
 
 class ExistenceConstraints {
  public:
+  explicit ExistenceConstraints(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
+
   struct MultipleThreadsConstraintValidation {
     auto operator()(const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
@@ -62,6 +70,7 @@ class ExistenceConstraints {
   /// This pattern matches indices and unique constraints for consistency.
   struct IndividualConstraint {
     ConstraintStatus status{};
+    metrics::ScopedGauge gauge_{};
     ~IndividualConstraint();
   };
 
@@ -124,6 +133,7 @@ class ExistenceConstraints {
  private:
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
 
+  prometheus::Gauge *gauge_{nullptr};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> constraints_{std::make_shared<Container const>()};
 };
 

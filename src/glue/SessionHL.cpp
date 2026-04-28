@@ -27,6 +27,7 @@
 #include "glue/communication.hpp"
 #include "glue/run_id.hpp"
 #include "license/license.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
@@ -36,10 +37,6 @@
 #include "utils/resource_monitoring.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
-
-namespace memgraph::metrics {
-extern const Event ActiveBoltSessions;
-}  // namespace memgraph::metrics
 
 namespace {
 
@@ -568,8 +565,7 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
 #endif
       auth_(context.auth),
       endpoint_(std::move(context.endpoint)) {
-  // Metrics update
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
+  bolt_session_gauge_ = metrics::ScopedGauge{metrics::Metrics().global.active_bolt_sessions};
 #ifdef MG_ENTERPRISE
   interpreter_.OnChangeCB([&](std::string_view db_name) {
     auto &user_or_role = interpreter_.user_or_role_;
@@ -580,7 +576,6 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
 }
 
 SessionHL::~SessionHL() {
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
 #ifdef MG_ENTERPRISE
   // User-related resource monitoring

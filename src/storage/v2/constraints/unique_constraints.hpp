@@ -11,6 +11,10 @@
 
 #pragma once
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 #include <memory>
 #include <set>
 

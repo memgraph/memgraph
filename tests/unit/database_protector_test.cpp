@@ -16,6 +16,7 @@
 #include <mutex>
 #include <thread>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -209,6 +210,7 @@ TEST_F(DatabaseProtectorTest, FactoryHandlesNullProtector) {
       config_,
       std::nullopt,
       std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+      memgraph::metrics::DatabaseMetricHandles{},
       CreateTestFactory(database_dropped));
 
   // Simulate database being dropped
@@ -236,6 +238,7 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerStopsWhenProtectorReturnsNull) {
       config_,
       std::nullopt,
       std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+      memgraph::metrics::DatabaseMetricHandles{},
       notifier.CreateNotifyingFactory());
 
   // Create vertices with labels to trigger auto index creation
@@ -284,6 +287,7 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerCompletesBeforeShutdown) {
       config_,
       std::nullopt,
       std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+      memgraph::metrics::DatabaseMetricHandles{},
       notifier.CreateNotifyingFactory());
 
   // Create vertices with a label to trigger auto index creation

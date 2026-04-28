@@ -11,10 +11,15 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
 #include <cstdint>
 #include <map>
 #include <utility>
 
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -56,12 +61,15 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   };
 
  public:
+  explicit InMemoryEdgePropertyIndex(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
+
   struct IndividualIndex {
-    ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    ~IndividualIndex() = default;
+    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
 
     utils::SkipList<Entry> skip_list_;
     IndexStatus status_{};
+    metrics::ScopedGauge gauge_{};
   };
 
   struct IndicesContainer {
@@ -261,6 +269,8 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
  private:
   auto GetIndividualIndex(PropertyId property) const -> std::shared_ptr<IndividualIndex>;
   void CleanupAllIndicies();
+
+  prometheus::Gauge *gauge_{nullptr};
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer const>()};

@@ -14,6 +14,7 @@
 #include <limits>
 #include <optional>
 #include <tuple>
+#include "metrics/prometheus_metrics.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/disk/delta_utils.hpp"
@@ -92,7 +93,7 @@ auto DiskUniqueConstraints::GetActiveConstraints() const -> std::shared_ptr<Uniq
   return std::make_shared<ActiveConstraints>(this);
 }
 
-DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
+DiskUniqueConstraints::DiskUniqueConstraints(const Config &config, prometheus::Gauge *gauge) : gauge_{gauge} {
   kvstore_ = std::make_unique<RocksDBStorage>();
   utils::EnsureDirOrDie(config.disk.unique_constraints_directory);
   kvstore_->options_.create_if_missing = true;
@@ -122,7 +123,7 @@ bool DiskUniqueConstraints::InsertConstraint(
     spdlog::error("rocksdb: {}", status.getState());
     return false;
   }
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+  if (gauge_) gauge_->Increment();
   return true;
 }
 
@@ -299,7 +300,7 @@ DiskUniqueConstraints::DeletionStatus DiskUniqueConstraints::DropConstraint(Labe
     return drop_properties_check_result;
   }
   if (constraints_.erase({label, properties}) > 0) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+    if (gauge_) gauge_->Decrement();
     return UniqueConstraints::DeletionStatus::SUCCESS;
   }
   return UniqueConstraints::DeletionStatus::NOT_FOUND;
@@ -367,10 +368,7 @@ void DiskUniqueConstraints::LoadUniqueConstraints(const std::vector<std::string>
     for (int i = 1; i < key_parts.size(); i++) {
       properties.insert(PropertyId::FromString(key_parts[i]));
     }
-    auto [_, inserted] = constraints_.emplace(label, properties);
-    if (inserted) {
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
-    }
+    constraints_.emplace(label, properties);
   }
 }
 

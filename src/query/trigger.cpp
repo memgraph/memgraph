@@ -25,15 +25,10 @@
 #include "query/query_user.hpp"
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
 #ifdef MG_ENTERPRISE
 #include "license/license.hpp"
 #endif
-
-namespace memgraph::metrics {
-extern const Event TriggersExecuted;
-}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 namespace {
@@ -265,6 +260,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.evaluation_context.memory = execution_memory;
   ctx.protector = dbms::DatabaseProtector{db_acc}.clone();
   ctx.is_main = is_main;
+  ctx.metric_handles = db_acc->metric_handles();
   // used for authorization checks
   ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
   // used for username() and roles() functions
@@ -284,7 +280,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   }
 #endif
 
-  auto cursor = plan.plan().MakeCursor(execution_memory);
+  auto cursor = plan.plan().MakeCursor(execution_memory, *db_acc->metric_handles());
   Frame frame{plan.symbol_table().max_position(), execution_memory};
   auto frame_writer = frame.GetFrameWriter(ctx.frame_change_collector, execution_memory);
   for (const auto &[identifier, tag] : identifiers) {
@@ -298,7 +294,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   while (cursor->Pull(frame, ctx));
 
   cursor->Shutdown();
-  memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);
+  if (auto *mh = db_acc->metric_handles()) mh->triggers_executed.Increment();
 }
 
 namespace {

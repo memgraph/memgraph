@@ -15,6 +15,7 @@
 #include <bitset>
 #include <ranges>
 #include <tuple>
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -307,15 +308,9 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 
 // --- IndividualConstraint implementation ---
 
-InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() {
-  if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveUniqueConstraints);
-  }
-}
-
-void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp) {
+void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+  gauge_ = metrics::ScopedGauge{gauge};
 }
 
 // --- ActiveConstraints implementation ---
@@ -546,7 +541,8 @@ bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
                                                   uint64_t commit_timestamp) {
   auto constraint = GetIndividualConstraint(label, properties);
   if (!constraint) return false;
-  constraint->Publish(commit_timestamp);
+  auto *gauge = gauge_;
+  constraint->Publish(commit_timestamp, gauge);
   return true;
 }
 
@@ -558,15 +554,16 @@ auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<Pro
   }
 
   auto erased = container_.WithLock([&](ContainerPtr &container) -> bool {
+    auto label_it = container->find(label);
+    if (label_it == container->end()) return false;
+    auto props_it = label_it->second.find(properties);
+    if (props_it == label_it->second.end()) return false;
+    props_it->second->gauge_ = {};
     auto new_container = std::make_shared<Container>(*container);
-    auto label_it = new_container->find(label);
-    if (label_it == new_container->end()) {
-      return false;
-    }
-    auto const count = label_it->second.erase(properties);
-    if (count == 0) return false;
-    if (label_it->second.empty()) {
-      new_container->erase(label_it);
+    auto new_label_it = new_container->find(label);
+    new_label_it->second.erase(properties);
+    if (new_label_it->second.empty()) {
+      new_container->erase(new_label_it);
     }
 
     container = std::move(new_container);

@@ -8325,6 +8325,7 @@ TEST_P(CypherMainVisitorTest, TestShowMetricsInfo) {
     auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW METRICS INFO"));
     ASSERT_TRUE(query);
     EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::METRICS);
+    EXPECT_EQ(query->database_specification_, DatabaseInfoQuery::DatabaseSpecification::NONE);
   }
 
   {
@@ -8332,6 +8333,24 @@ TEST_P(CypherMainVisitorTest, TestShowMetricsInfo) {
     auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW METRICS"));
     ASSERT_TRUE(query);
     EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::METRICS);
+    EXPECT_EQ(query->database_specification_, DatabaseInfoQuery::DatabaseSpecification::NONE);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW METRICS INFO ON DATABASE db1"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::METRICS);
+    EXPECT_EQ(query->database_specification_, DatabaseInfoQuery::DatabaseSpecification::DATABASE);
+    EXPECT_EQ(query->database_, "db1");
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW METRICS INFO ON CURRENT"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::METRICS);
+    EXPECT_EQ(query->database_specification_, DatabaseInfoQuery::DatabaseSpecification::CURRENT);
   }
 }
 

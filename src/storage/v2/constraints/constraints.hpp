@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/active_constraints_updater.hpp"
@@ -22,7 +23,7 @@
 namespace memgraph::storage {
 
 struct Constraints {
-  Constraints(const Config &config, StorageMode storage_mode);
+  Constraints(const Config &config, StorageMode storage_mode, metrics::DatabaseMetricHandles const &metric_handles);
 
   Constraints(const Constraints &) = delete;
   Constraints(Constraints &&) = delete;

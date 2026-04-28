@@ -6,6 +6,7 @@ target_sources(mg-glue PRIVATE auth.cpp
                                SessionHL.cpp
                                ServerT.cpp
                                MonitoringServerT.cpp
+                               PrometheusServerT.cpp
                                run_id.cpp
                                query_user.cpp)
-target_link_libraries(mg-glue PRIVATE mg-query mg-auth mg-audit mg-flags)
+target_link_libraries(mg-glue PRIVATE mg-query mg-auth mg-audit mg-flags mg-metrics prometheus-cpp::pull)
