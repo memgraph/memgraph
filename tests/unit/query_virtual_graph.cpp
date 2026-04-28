@@ -11,26 +11,14 @@
 
 #include <unordered_set>
 
-#include "disk_test_utils.hpp"
 #include "gtest/gtest.h"
 
-#include "query/db_accessor.hpp"
-#include "query/graph.hpp"
 #include "query/virtual_edge.hpp"
 #include "query/virtual_graph.hpp"
 #include "query/virtual_node.hpp"
-#include "storage/v2/inmemory/storage.hpp"
-#include "tests/test_commit_args_helper.hpp"
 #include "utils/memory.hpp"
 
-class VirtualGraphTest : public ::testing::Test {
- protected:
-  const std::string testSuite = "query_virtual_graph";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage(config)};
-};
-
-TEST_F(VirtualGraphTest, AccessorsAndIdentity) {
+TEST(VirtualGraphTest, AccessorsAndIdentity) {
   auto vn1 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L1"}, {}));
   auto vn2 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L2"}, {}));
 
@@ -59,7 +47,7 @@ TEST_F(VirtualGraphTest, AccessorsAndIdentity) {
   EXPECT_EQ(set.size(), 2);
 }
 
-TEST_F(VirtualGraphTest, VirtualGraphFiltersEdgesByVertex) {
+TEST(VirtualGraphTest, VirtualGraphFiltersEdgesByVertex) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &vn1 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
   const auto &vn2 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
@@ -78,7 +66,7 @@ TEST_F(VirtualGraphTest, VirtualGraphFiltersEdgesByVertex) {
   EXPECT_EQ(vg.InEdges(vn3.Gid()).size(), 2);
 }
 
-TEST_F(VirtualGraphTest, SelfLoopAppearsInBothDirections) {
+TEST(VirtualGraphTest, SelfLoopAppearsInBothDirections) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &vn1 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
   auto s1 = vg.FindNode(vn1.Gid());
@@ -88,7 +76,7 @@ TEST_F(VirtualGraphTest, SelfLoopAppearsInBothDirections) {
   EXPECT_EQ(vg.InEdges(vn1.Gid()).size(), 1);
 }
 
-TEST_F(VirtualGraphTest, MergeRewritesEdgesViaExplicitAliasMap) {
+TEST(VirtualGraphTest, MergeRewritesEdgesViaExplicitAliasMap) {
   // Simulate two parallel aggregate branches that both derived a node from the same real vertex,
   // producing distinct synth gids. The caller (aggregator) supplies an alias map telling Merge
   // that `other`'s synth is an alias for `main`'s canonical synth.
@@ -121,7 +109,7 @@ TEST_F(VirtualGraphTest, MergeRewritesEdgesViaExplicitAliasMap) {
   EXPECT_EQ(main.InEdges(other_only.Gid()).size(), 1);
 }
 
-TEST_F(VirtualGraphTest, NodeStoresLabelsAndProperties) {
+TEST(VirtualGraphTest, NodeStoresLabelsAndProperties) {
   const auto score_id = memgraph::storage::PropertyId::FromUint(1);
 
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
@@ -145,7 +133,7 @@ TEST_F(VirtualGraphTest, NodeStoresLabelsAndProperties) {
   EXPECT_TRUE(found2->GetProperty(score_id).IsNull());
 }
 
-TEST_F(VirtualGraphTest, StoresAndReadsProperties) {
+TEST(VirtualGraphTest, StoresAndReadsProperties) {
   auto vn1 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({}, {}));
   auto vn2 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({}, {}));
   memgraph::query::VirtualEdge ve(vn1, vn2, "E");
@@ -168,7 +156,7 @@ TEST_F(VirtualGraphTest, StoresAndReadsProperties) {
   EXPECT_EQ(ve.Properties().size(), 2);
 }
 
-TEST_F(VirtualGraphTest, InsertIfNewDedupsDistinctEdgeGidsByTriple) {
+TEST(VirtualGraphTest, InsertIfNewDedupsDistinctEdgeGidsByTriple) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &vn1 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
   const auto &vn2 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
