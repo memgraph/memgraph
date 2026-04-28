@@ -1,17 +1,15 @@
-"""E2E test: embeddings.* against the real OpenAI embeddings API.
+"""Opt-in e2e test: embeddings.* against the real OpenAI embeddings API.
 
-Runs whenever Memgraph is reachable AND its process environment carries a
-working ``OPENAI_API_KEY``. The CI workflow forwards the secret into the
-container's env (see ``.github/workflows/reusable_package_mage.yaml``);
-locally:
+Skipped by default. To run locally:
 
-    docker run -e OPENAI_API_KEY=$OPENAI_API_KEY ... memgraph/memgraph-mage
+    # 1. Ensure Memgraph+MAGE is running on localhost:7687 with OPENAI_API_KEY
+    #    in its process environment (e.g. docker run -e OPENAI_API_KEY=$OPENAI_API_KEY ...).
+
+    # 2. opt in and run
+    export MAGE_E2E_OPENAI=1
     pytest tests/e2e/embeddings_test/test_remote_openai.py -v
 
-If the key is missing or the OpenAI probe call fails, the suite skips with
-a clear message rather than failing — local devs without a key won't see
-spurious red, but CI failures (where the key is supposed to be set) still
-surface as real regressions.
+Not run in CI: the gating env var is unset in the CI workflow.
 """
 
 import os
@@ -22,6 +20,11 @@ import pytest
 MEMGRAPH_HOST = os.environ.get("MAGE_E2E_MEMGRAPH_HOST", "127.0.0.1")
 MEMGRAPH_PORT = int(os.environ.get("MAGE_E2E_MEMGRAPH_PORT", "7687"))
 MODEL = os.environ.get("MAGE_E2E_OPENAI_MODEL", "openai/text-embedding-3-small")
+
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("MAGE_E2E_OPENAI"),
+    reason="MAGE_E2E_OPENAI not set — skipping opt-in OpenAI e2e test",
+)
 
 
 def _connect():

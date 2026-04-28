@@ -92,9 +92,8 @@ env:
   POSTGRESQL_CONTAINER: "postgresql_test"
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  # Forwarded into the Memgraph container so the embeddings.* e2e tests can
-  # exercise the real OpenAI API. Tests skip gracefully if this is unset.
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  MAGE_E2E_OPENAI: "1"
   GENERATE_SBOM: "${{ inputs.generate_sbom }}"
   TOOLCHAIN: "v7"
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
