@@ -52,6 +52,11 @@ ve/
 ve3/
 env/
 venv/
+.venv/
+crash-*
+*.log
+*.profdata
+*.profraw
 perf.data*
 TAGS
 *.apollo_measurements

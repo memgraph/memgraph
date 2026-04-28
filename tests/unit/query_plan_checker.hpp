@@ -32,6 +32,13 @@ class BaseOpChecker {
   virtual ~BaseOpChecker() = default;
 
   virtual void CheckOp(LogicalOperator &, const SymbolTable &) = 0;
+
+ protected:
+  BaseOpChecker() = default;
+  BaseOpChecker(const BaseOpChecker &) = default;
+  BaseOpChecker(BaseOpChecker &&) noexcept = default;
+  BaseOpChecker &operator=(const BaseOpChecker &) = default;
+  BaseOpChecker &operator=(BaseOpChecker &&) noexcept = default;
 };
 
 /// Type-erased wrapper for BaseOpChecker that allows value semantics.

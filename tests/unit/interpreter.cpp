@@ -32,6 +32,7 @@
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
 #include "replication/state.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
@@ -103,7 +104,7 @@ class InterpreterTest : public ::testing::Test {
                                                           nullptr,
                                                           nullptr,
                                                           kNoHandler,
-                                                          repl_state,
+                                                          &repl_state,
                                                           system_state,
                                                           nullptr
 #ifdef MG_ENTERPRISE
@@ -1216,7 +1217,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
                                                                 nullptr,
                                                                 nullptr,
                                                                 nullptr,
-                                                                repl_state,
+                                                                &repl_state,
                                                                 system_state,
                                                                 nullptr
 #ifdef MG_ENTERPRISE

@@ -227,8 +227,8 @@ struct LabelPropertyIndexActiveIndices {
 
   virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
-  virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                   const Transaction &tx) = 0;
+  virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                                   Vertex *vertex, const Transaction &tx) = 0;
 
   virtual bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 

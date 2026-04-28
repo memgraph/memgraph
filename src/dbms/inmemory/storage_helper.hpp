@@ -22,8 +22,6 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
     memgraph::memory::ArenaPool *db_arena = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr) {
-  const bool is_coordinator = config.is_coordinator;
-
   // Use default safe factory from Storage constructor for basic usage
   auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config),
                                                             std::nullopt,
@@ -31,18 +29,14 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
                                                             std::move(database_protector_factory),
                                                             db_arena,
                                                             db_embedding_memory_tracker);
-
-  if (!is_coordinator) {
-    storage->CreateSnapshotHandler(
-        [storage = storage.get()]() -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
-          auto result = storage->CreateSnapshot();
-          if (!result) {
-            return std::unexpected(result.error());
-          }
-          return {};
-        });
-  }
-
+  storage->CreateSnapshotHandler(
+      [storage = storage.get()]() -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
+        auto result = storage->CreateSnapshot();
+        if (!result) {
+          return std::unexpected(result.error());
+        }
+        return {};
+      });
   return storage;
 }
 

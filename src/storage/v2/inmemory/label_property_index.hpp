@@ -200,8 +200,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool RegisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater,
                      IndexOrder order = IndexOrder::ASC);
 
-  auto PopulateIndex(LabelId label, PropertiesPaths const &properties,
-                     utils::SkipListDb<Vertex>::Accessor vertices,
+  auto PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
@@ -335,10 +334,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
-    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override {}
+    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override;
 
-    void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                             const Transaction &tx) override;
+    void UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                             Vertex *vertex, const Transaction &tx) override;
 
     bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
 
@@ -378,14 +377,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     template <typename EntryT>
     auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-                  utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view,
-                  Storage *storage, Transaction *transaction) -> Iterable<EntryT>;
+                  utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+                  Transaction *transaction) -> Iterable<EntryT>;
 
     template <typename EntryT = Entry>
-    ChunkedIterable<EntryT> ChunkedVertices(
-        LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-        utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
-        Transaction *transaction, size_t num_chunks);
+    ChunkedIterable<EntryT> ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
+                                            std::span<PropertyValueRange const> range,
+                                            utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view,
+                                            Storage *storage, Transaction *transaction, size_t num_chunks);
 
    private:
     auto ListIndicesImpl(uint64_t start_timestamp, std::optional<IndexOrder> order) const

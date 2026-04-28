@@ -68,11 +68,9 @@ class DiskStorage final : public Storage {
 
     ~DiskAccessor() override;
 
-   VertexAccessor CreateVertex() override;
+    VertexAccessor CreateVertex() override;
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
-
-    using Storage::Accessor::Vertices;
 
     VerticesIterable Vertices(View view) override;
 
@@ -299,6 +297,7 @@ class DiskStorage final : public Storage {
     // Bring base class convenience overloads into scope (they provide default neverCancel)
     using Storage::Accessor::CreateGlobalEdgeIndex;
     using Storage::Accessor::CreateIndex;
+    using Storage::Accessor::Vertices;
 
     std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
                                                                  CheckCancelFunction cancel_check) override;
@@ -520,7 +519,8 @@ class DiskStorage final : public Storage {
       utils::SkipListDb<Vertex> *indexed_vertices, const auto &label_property_filter);
   void LoadVerticesFromDiskLabelPropertyIndex(Transaction *transaction, LabelId label, PropertyId property,
                                               const std::unordered_set<storage::Gid> &gids,
-                                              delta_container &index_deltas, utils::SkipListDb<Vertex> *indexed_vertices,
+                                              delta_container &index_deltas,
+                                              utils::SkipListDb<Vertex> *indexed_vertices,
                                               const auto &label_property_filter);
   std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
       Transaction *transaction, std::string_view key, std::string_view value, Delta *index_delta,

@@ -41,6 +41,7 @@
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 #include "utils/tag.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -1001,6 +1002,73 @@ uint64_t ReadWalDeltaHeader(BaseDecoder *decoder) {
   auto timestamp = decoder->ReadUint();
   if (!timestamp) throw RecoveryFailure(kInvalidWalErrorMessage);
   return *timestamp;
+}
+
+bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
+  return std::visit(utils::Overloaded{
+                        []<typename T>(T const &lhs, T const &rhs) { return lhs == rhs; },
+                        [](auto const &, auto const &) { return false; },
+                    },
+                    a.data_,
+                    b.data_);
+}
+
+bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta) {
+  return std::visit(utils::Overloaded{
+                        // These delta actions are all found inside transactions so they don't
+                        // indicate a transaction end.
+                        [](WalVertexCreate const &) { return false; },
+                        [](WalVertexDelete const &) { return false; },
+                        [](WalVertexAddLabel const &) { return false; },
+                        [](WalVertexRemoveLabel const &) { return false; },
+                        [](WalVertexSetProperty const &) { return false; },
+                        [](WalEdgeCreate const &) { return false; },
+                        [](WalEdgeDelete const &) { return false; },
+                        [](WalEdgeSetProperty const &) { return false; },
+                        [](WalTransactionStart const &) { return false; },
+
+                        // This delta explicitly indicates that a transaction is done.
+                        [](WalTransactionEnd const &) { return true; },
+
+                        // These operations aren't transactional and they are encoded only using
+                        // a single delta, so they each individually mark the end of their
+                        // 'transaction'.
+                        [](WalLabelIndexCreate const &) { return true; },
+                        [](WalLabelIndexDrop const &) { return true; },
+                        [](WalLabelIndexStatsSet const &) { return true; },
+                        [](WalLabelIndexStatsClear const &) { return true; },
+                        [](WalLabelPropertyIndexCreate const &) { return true; },
+                        [](WalLabelPropertyIndexDrop const &) { return true; },
+                        [](WalLabelPropertyIndexStatsSet const &) { return true; },
+                        [](WalLabelPropertyIndexStatsClear const &) { return true; },
+                        [](WalEdgeTypeIndexCreate const &) { return true; },
+                        [](WalEdgeTypeIndexDrop const &) { return true; },
+                        [](WalEdgeTypePropertyIndexCreate const &) { return true; },
+                        [](WalEdgeTypePropertyIndexDrop const &) { return true; },
+                        [](WalEdgePropertyIndexCreate const &) { return true; },
+                        [](WalEdgePropertyIndexDrop const &) { return true; },
+                        [](WalTextIndexCreate const &) { return true; },
+                        [](WalTextIndexDrop const &) { return true; },
+                        [](WalTextEdgeIndexCreate const &) { return true; },
+                        [](WalExistenceConstraintCreate const &) { return true; },
+                        [](WalExistenceConstraintDrop const &) { return true; },
+                        [](WalUniqueConstraintCreate const &) { return true; },
+                        [](WalUniqueConstraintDrop const &) { return true; },
+                        [](WalEnumCreate const &) { return true; },
+                        [](WalEnumAlterAdd const &) { return true; },
+                        [](WalEnumAlterUpdate const &) { return true; },
+                        [](WalPointIndexCreate const &) { return true; },
+                        [](WalPointIndexDrop const &) { return true; },
+                        [](WalTypeConstraintCreate const &) { return true; },
+                        [](WalTypeConstraintDrop const &) { return true; },
+                        [](WalVectorIndexCreate const &) { return true; },
+                        [](WalVectorEdgeIndexCreate const &) { return true; },
+                        [](WalVectorIndexDrop const &) { return true; },
+                        [](WalTtlOperation const &) { return true; },
+                        [](WalDescriptionSet const &) { return true; },
+                        [](WalDescriptionDelete const &) { return true; },
+                    },
+                    delta.data_);
 }
 
 // Function used to read the current WAL delta data. The WAL delta header must

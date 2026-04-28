@@ -118,6 +118,22 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 
+std::unique_ptr<Accessor> Storage::Access(StorageAccessType rw_type) {
+  return Access(rw_type, std::nullopt, std::nullopt);
+}
+
+std::unique_ptr<Accessor> Storage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
+  return UniqueAccess(override_isolation_level, std::nullopt);
+}
+
+std::unique_ptr<Accessor> Storage::UniqueAccess() { return UniqueAccess({}, std::nullopt); }
+
+std::unique_ptr<Accessor> Storage::ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level) {
+  return ReadOnlyAccess(override_isolation_level, std::nullopt);
+}
+
+std::unique_ptr<Accessor> Storage::ReadOnlyAccess() { return ReadOnlyAccess({}, std::nullopt); }
+
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, StorageAccessType rw_type,
                             const std::optional<std::chrono::milliseconds> timeout)

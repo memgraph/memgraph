@@ -298,7 +298,7 @@ constexpr std::string_view kSocketErrorExplanation =
 
 #ifdef MG_ENTERPRISE
 void EnsureMainInstance(InterpreterContext *interpreter_context, const std::string &operation_name) {
-  if (interpreter_context->repl_state.ReadLock()->IsReplica()) {
+  if (interpreter_context->repl_state->ReadLock()->IsReplica()) {
     throw QueryException(
         fmt::format("{} forbidden on REPLICA! This operation must be executed on the MAIN instance.", operation_name));
   }
@@ -1026,7 +1026,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   }
 
   const auto forbid_on_replica = [has_license = !license_check_result.has_value(),
-                                  is_replica = interpreter_context->repl_state.ReadLock()->IsReplica()]() {
+                                  is_replica = interpreter_context->repl_state->ReadLock()->IsReplica()]() {
     if (is_replica) {
 #if MG_ENTERPRISE
       if (has_license) {
@@ -3027,7 +3027,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.frame_change_collector = frame_change_collector;
   ctx_.evaluation_context.memory = execution_memory;
   ctx_.protector = std::move(protector);
-  ctx_.is_main = interpreter_context->repl_state.ReadLock()->IsMain();
+  ctx_.is_main = interpreter_context->repl_state->ReadLock()->IsMain();
   ctx_.worker_pool = worker_pool;
 }
 
@@ -6892,6 +6892,11 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
 
   switch (info_query->info_type_) {
     case SystemInfoQuery::InfoType::STORAGE: {
+#ifdef MG_ENTERPRISE
+      if (interpreter_context->coordinator_state_ && interpreter_context->coordinator_state_->IsCoordinator()) {
+        throw QueryRuntimeException("Coordinators don't have storage!");
+      }
+#endif
       if (info_query->database_) {
 #ifdef MG_ENTERPRISE
         handler = [db_name = *info_query->database_, db_handler = interpreter_context->dbms_handler]
@@ -7383,7 +7388,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
   auto *db_handler = interpreter_context->dbms_handler;
 
-  const bool is_replica = interpreter_context->repl_state.ReadLock()->IsReplica();
+  const bool is_replica = interpreter_context->repl_state->ReadLock()->IsReplica();
 
   switch (query->action_) {
     case MultiDatabaseQuery::Action::CREATE: {
@@ -7420,7 +7425,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             } else {
               res = "Successfully created database " + db_name;
               db_handler->Get(db_name)->storage()->ttl_.SetUserCheck([interpreter_context]() {
-                const auto locked_repl_state = interpreter_context->repl_state.ReadLock();
+                const auto locked_repl_state = interpreter_context->repl_state->ReadLock();
                 return locked_repl_state->IsMainWriteable();
               });
             }
@@ -8515,7 +8520,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
   }
 
   auto *query = utils::Downcast<UserProfileQuery>(parsed_query.query);
-  const bool is_replica = interpreter_context->repl_state.ReadLock()->IsReplica();
+  const bool is_replica = interpreter_context->repl_state->ReadLock()->IsReplica();
 
   Callback callback;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -8805,7 +8810,7 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::
     }
 
     auto result = RouteResult{};
-    if (interpreter_context_->repl_state.ReadLock()->IsMain()) {
+    if (interpreter_context_->repl_state->ReadLock()->IsMain()) {
       result.servers.emplace_back(std::vector<std::string>{address->second}, "WRITE");
     } else {
       result.servers.emplace_back(std::vector<std::string>{address->second}, "READ");
@@ -9213,6 +9218,19 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       return system_txn;
     });
 
+#ifdef MG_ENTERPRISE
+    // TODO(antoniofilipovic) extend to cover Lab queries
+    // Must run before SetupDatabaseTransaction below: coordinators have no db_acc, so any query that
+    // requests a storage accessor (e.g. CypherQuery) would otherwise throw a generic "Database required"
+    // error instead of this clearer coordinator-specific message.
+    if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
+        !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query) &&
+        !utils::Downcast<ReloadSSLQuery>(parsed_query.query) && !utils::Downcast<ShowConfigQuery>(parsed_query.query) &&
+        !utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
+      throw QueryRuntimeException("Coordinator can run only coordinator queries!");
+    }
+#endif
+
     if (!in_explicit_transaction_) {
       auto storage_mode = current_db_.db_acc_
                               ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
@@ -9236,16 +9254,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                                        interpreter_context_->parameters,
                                                        std::string{current_db_.db_acc_->get()->uuid()});
     }
-
-#ifdef MG_ENTERPRISE
-    // TODO(antoniofilipovic) extend to cover Lab queries
-    if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
-        !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query) &&
-        !utils::Downcast<ReloadSSLQuery>(parsed_query.query) && !utils::Downcast<ShowConfigQuery>(parsed_query.query) &&
-        !utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
-      throw QueryRuntimeException("Coordinator can run only coordinator queries!");
-    }
-#endif
 
     const utils::Timer planning_timer;  // TODO: Think about moving it to Parse()
     LogQueryMessage("Query planning started!");
@@ -9432,7 +9440,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
       prepared_query = PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<RecoverSnapshotQuery>(parsed_query.query)) {
-      auto const replication_role = interpreter_context_->repl_state.ReadLock()->GetRole();
+      auto const replication_role = interpreter_context_->repl_state->ReadLock()->GetRole();
       prepared_query =
           PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
     } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
@@ -9546,12 +9554,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (write_query) {
       // TODO: This is a catch all for operations that should not be allowed to run via user query on REPLICA
       //       prefer more explicit EnsureMainInstance(interpreter_context, "XYZ operations");
-      if (interpreter_context_->repl_state.ReadLock()->IsReplica()) {
+      if (interpreter_context_->repl_state->ReadLock()->IsReplica()) {
         query_execution = nullptr;
         throw WriteQueryOnReplicaException();
       }
 #ifdef MG_ENTERPRISE
-      if (!interpreter_context_->repl_state.ReadLock()->IsMainWriteable()) {
+      if (!interpreter_context_->repl_state->ReadLock()->IsMainWriteable()) {
         query_execution = nullptr;
         throw WriteQueryOnMainException();
       }
@@ -9723,10 +9731,12 @@ std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() 
     // Transaction is not in a state we can verify
     return std::nullopt;
   }
-  // CAS to VERIFYING to own the transaction
+  // CAS to VERIFYING to own the transaction; in-place construction of the
+  // optional avoids any copy/move of the RAII guard, which would prematurely
+  // run the destructor's CAS and collapse the verification window.
   if (transaction_status_.compare_exchange_strong(
           status, TransactionStatus::VERIFYING, std::memory_order_acq_rel, std::memory_order_acquire)) {
-    return TxVerifier{status, transaction_status_};
+    return std::optional<TxVerifier>(std::in_place, status, transaction_status_);
   }
   // CAS failed, return to avoid busy loops
   return std::nullopt;
@@ -9757,7 +9767,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      auto is_main = interpreter_context->repl_state.ReadLock()->IsMain();
+      auto is_main = interpreter_context->repl_state->ReadLock()->IsMain();
       trigger.Execute(&db_accessor,
                       db_acc,
                       execution_memory.resource(),
@@ -9775,7 +9785,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     }
 
     auto maybe_commit_error = std::invoke([&]() {
-      auto locked_repl_state = interpreter_context->repl_state.ReadLock();
+      auto locked_repl_state = interpreter_context->repl_state->ReadLock();
       const bool is_main = locked_repl_state->IsMain();
       return db_accessor.Commit(make_commit_arg(is_main, db_acc));
     });
@@ -9919,7 +9929,8 @@ void Interpreter::Commit() {
     };
 
     auto const commit_method = utils::Overloaded{main_commit, replica_commit};
-    [[maybe_unused]] auto sync_result = std::visit(commit_method, interpreter_context_->repl_state->ReplicationData());
+    [[maybe_unused]] auto sync_result =
+        std::visit(commit_method, interpreter_context_->repl_state->Lock()->ReplicationData());
     // TODO: something with sync_result
     return;
   }
@@ -9992,7 +10003,7 @@ void Interpreter::Commit() {
       QueryAllocator execution_memory{db->DbQueryMemoryTracker()};
       AdvanceCommand();
       try {
-        auto is_main = interpreter_context_->repl_state.ReadLock()->IsMain();
+        auto is_main = interpreter_context_->repl_state->ReadLock()->IsMain();
         trigger.Execute(&*current_db_.execution_db_accessor_,
                         *current_db_.db_acc_,
                         execution_memory.resource(),
@@ -10019,7 +10030,7 @@ void Interpreter::Commit() {
   };
   utils::OnScopeExit const reset_members(reset_necessary_members);
 
-  auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
+  auto locked_repl_state = std::optional{interpreter_context_->repl_state->ReadLock()};
   bool const is_main = (*locked_repl_state)->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
   // if I was main with write txn which became replica, abort.

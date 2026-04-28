@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include "frontend/ast/ast_storage.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan_v2/egraph.hpp"
 
 namespace memgraph::query::plan {
@@ -20,6 +21,8 @@ class LogicalOperator;
 
 namespace memgraph::query::plan::v2 {
 
+/// Returns the extracted plan together with the SymbolTable to use for
+/// downstream lookups, in place of the parse-time SymbolTable.
 auto ConvertToLogicalOperator(egraph const &e, eclass root)
-    -> std::tuple<std::unique_ptr<LogicalOperator>, double, AstStorage>;
+    -> std::tuple<std::unique_ptr<LogicalOperator>, double, AstStorage, SymbolTable>;
 }  // namespace memgraph::query::plan::v2

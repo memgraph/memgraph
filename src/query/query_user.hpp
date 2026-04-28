@@ -67,6 +67,11 @@ struct QueryUserOrRole {
   operator bool() const { return username_.has_value(); }
 
  protected:
+  QueryUserOrRole(const QueryUserOrRole &) = default;
+  QueryUserOrRole(QueryUserOrRole &&) noexcept = default;
+  QueryUserOrRole &operator=(const QueryUserOrRole &) = default;
+  QueryUserOrRole &operator=(QueryUserOrRole &&) noexcept = default;
+
   std::optional<std::string> username_;
   std::vector<std::string> rolenames_;
 };

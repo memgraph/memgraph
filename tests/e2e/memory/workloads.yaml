@@ -238,6 +238,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["memory/vector_index_memory.py"]
 
+  - name: "Index cleanup and RSS reclamation"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/index_cleanup_memory.py"]
+
   - name: "Per-DB memory tracking check"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["memory/db_memory_tracking.py"]
