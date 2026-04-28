@@ -34,7 +34,7 @@ void VectorIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) cons
 bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
                               NameIdMapper *name_id_mapper, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
-    auto index_id = SetupIndex(spec, name_id_mapper);
+    const auto index_id = SetupIndex(spec, name_id_mapper);
     if (!index_id.has_value()) return false;
     PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
       AddVertexToIndex(

@@ -724,26 +724,21 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::Create
 }
 
 antlrcpp::Any CypherMainVisitor::visitVectorIndexLabels(MemgraphCypher::VectorIndexLabelsContext *ctx) {
-  VectorIndexLabelsInfo info;
-  auto label_names = ctx->labelName();
+  const auto label_names = ctx->labelName();
   auto *property_ctx = ctx->propertyKeyName();
-  info.property = std::any_cast<PropertyIx>(property_ctx->accept(this));
+  const auto mode = std::invoke([&] {
+    if (ctx->ASTERISK() || label_names.empty()) return VectorLabelMode::WILDCARD;
+    if (!ctx->AMPERSAND().empty()) return VectorLabelMode::ALL_OF;
+    if (label_names.size() > 1) return VectorLabelMode::ANY_OF;
+    return VectorLabelMode::SINGLE;
+  });
 
-  if (ctx->ASTERISK() || label_names.empty()) {
-    info.mode = VectorLabelMode::WILDCARD;
-  } else if (!ctx->AMPERSAND().empty()) {
-    info.mode = VectorLabelMode::ALL_OF;
+  VectorIndexLabelsInfo info{.mode = mode, .names = {}, .property = std::any_cast<PropertyIx>(property_ctx->accept(this))};
+  if (mode != VectorLabelMode::WILDCARD) {
+    info.names.reserve(label_names.size());
     for (auto *label_ctx : label_names) {
       info.names.push_back(std::any_cast<std::string>(label_ctx->accept(this)));
     }
-  } else if (label_names.size() > 1) {
-    info.mode = VectorLabelMode::ANY_OF;
-    for (auto *label_ctx : label_names) {
-      info.names.push_back(std::any_cast<std::string>(label_ctx->accept(this)));
-    }
-  } else {
-    info.mode = VectorLabelMode::SINGLE;
-    info.names.push_back(std::any_cast<std::string>(label_names[0]->accept(this)));
   }
   return info;
 }

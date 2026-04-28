@@ -9556,24 +9556,9 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
           throw RecoveryFailure("The vector index with the same name already exists!");
         }
 
-        VectorLabelFilter label_filter;
-        if (version >= kVectorIndexMultiLabel) {
-          auto label_mode = snapshot.ReadUint();
-          if (!label_mode) throw RecoveryFailure("Couldn't read vector index label mode!");
-          auto label_count = snapshot.ReadUint();
-          if (!label_count) throw RecoveryFailure("Couldn't read vector index label count!");
-          label_filter.mode = static_cast<VectorLabelMode>(*label_mode);
-          label_filter.labels.reserve(*label_count);
-          for (uint64_t j = 0; j < *label_count; ++j) {
-            auto label = snapshot.ReadUint();
-            if (!label) throw RecoveryFailure("Couldn't read vector index label!");
-            label_filter.labels.push_back(get_label_from_id(*label));
-          }
-        } else {
-          auto label = snapshot.ReadUint();
-          if (!label) throw RecoveryFailure("Couldn't read vector index label!");
-          label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {get_label_from_id(*label)}};
-        }
+        const auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read vector index label!");
+        VectorLabelFilter label_filter{.mode = VectorLabelMode::SINGLE, .labels = {get_label_from_id(*label)}};
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read vector index property!");
         auto metric = snapshot.ReadString();
@@ -9638,25 +9623,10 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
           throw RecoveryFailure("The vector index with the same name already exists!");
         }
 
-        VectorEdgeTypeFilter edge_type_filter;
-        if (version >= kVectorIndexMultiLabel) {
-          auto et_mode = snapshot.ReadUint();
-          if (!et_mode) throw RecoveryFailure("Couldn't read vector edge index edge type mode!");
-          auto et_count = snapshot.ReadUint();
-          if (!et_count) throw RecoveryFailure("Couldn't read vector edge index edge type count!");
-          edge_type_filter.mode = static_cast<VectorEdgeTypeMode>(*et_mode);
-          edge_type_filter.edge_types.reserve(*et_count);
-          for (uint64_t j = 0; j < *et_count; ++j) {
-            auto edge_type = snapshot.ReadUint();
-            if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
-            edge_type_filter.edge_types.push_back(get_edge_type_from_id(*edge_type));
-          }
-        } else {
-          auto edge_type = snapshot.ReadUint();
-          if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
-          edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE,
-                                                  .edge_types = {get_edge_type_from_id(*edge_type)}};
-        }
+        const auto edge_type = snapshot.ReadUint();
+        if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
+        VectorEdgeTypeFilter edge_type_filter{.mode = VectorEdgeTypeMode::SINGLE,
+                                              .edge_types = {get_edge_type_from_id(*edge_type)}};
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read vector edge index property!");
         auto metric = snapshot.ReadString();

@@ -8086,7 +8086,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           for (const auto &et : spec.edge_type_filter.edge_types) {
             edge_type_names.push_back(storage->EdgeTypeToName(et));
           }
-          node_indexes.push_back(nlohmann::json::object({{"edge_type", std::move(edge_type_names)},
+          edge_indexes.push_back(nlohmann::json::object({{"edge_type", std::move(edge_type_names)},
                                                          {"properties", {storage->PropertyToName(spec.property)}},
                                                          {"count", 0},
                                                          {"type", "edge_type+property_vector"}}));

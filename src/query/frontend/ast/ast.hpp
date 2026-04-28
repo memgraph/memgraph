@@ -36,6 +36,7 @@
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/description_store.hpp"
 #include "storage/v2/indices/index_order.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -2392,6 +2393,15 @@ enum class VectorLabelMode : uint8_t {
   ANY_OF = 2,
   ALL_OF = 3,
 };
+
+static_assert(static_cast<uint8_t>(VectorLabelMode::SINGLE) == static_cast<uint8_t>(storage::VectorLabelMode::SINGLE) &&
+                  static_cast<uint8_t>(VectorLabelMode::WILDCARD) ==
+                      static_cast<uint8_t>(storage::VectorLabelMode::WILDCARD) &&
+                  static_cast<uint8_t>(VectorLabelMode::ANY_OF) ==
+                      static_cast<uint8_t>(storage::VectorLabelMode::ANY_OF) &&
+                  static_cast<uint8_t>(VectorLabelMode::ALL_OF) ==
+                      static_cast<uint8_t>(storage::VectorLabelMode::ALL_OF),
+              "query::VectorLabelMode and storage::VectorLabelMode must have identical values");
 
 class VectorIndexQuery : public memgraph::query::Query {
  public:

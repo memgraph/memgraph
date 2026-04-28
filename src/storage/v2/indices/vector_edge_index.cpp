@@ -283,9 +283,9 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
     }
   } else if (value.IsNull()) {
     // If value is null, we have to remove the edge from all indices that contain it (by edge type).
-    auto indices = GetIndicesByProperty(property);
-    for (const auto &[et, idx_id] : indices) {
-      if (et != edge_type) continue;
+    const auto indices = GetIndicesByProperty(property);
+    for (const auto &[idx_id, filter] : indices) {
+      if (!filter->Matches(edge_type)) continue;
       RemoveEdgeFromIndex(edge, idx_id);
     }
   }
@@ -393,9 +393,9 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
         }
       } else {
         DMG_ASSERT(old_value.IsNull(), "Unexpected property value type in abort processor of vector edge index");
-        auto indices_by_prop = GetIndicesByProperty(property);
-        for (const auto &[et, idx_id] : indices_by_prop) {
-          if (et != info.edge_type) continue;
+        const auto indices_by_prop = GetIndicesByProperty(property);
+        for (const auto &[idx_id, filter] : indices_by_prop) {
+          if (!filter->Matches(info.edge_type)) continue;
           RemoveEdgeFromIndex(edge, idx_id);
         }
       }
