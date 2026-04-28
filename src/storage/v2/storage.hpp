@@ -192,6 +192,7 @@ class Storage {
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
+          metrics::DatabaseMetricHandles *metric_handles,
           std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
 
   Storage(const Storage &) = delete;
@@ -202,8 +203,6 @@ class Storage {
   virtual ~Storage() = default;
 
   std::string name() const { return config_.salient.name.str(); }
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
   auto name_view() const { return config_.salient.name.str_view(); }
 
@@ -348,7 +347,6 @@ class Storage {
   StorageMode storage_mode_;
 
   metrics::DatabaseMetricHandles *metric_handles_{nullptr};
-  std::optional<double> snapshot_recovery_latency_s_;
 
   Indices indices_;
   Constraints constraints_;
@@ -378,7 +376,7 @@ class Storage {
   // A way to tell async operation to stop
   std::stop_source stop_source;
 
-  ttl::TTL ttl_{this};  // TTL handler
+  ttl::TTL ttl_{this, metric_handles_};  // TTL handler
 
   // Factory function to create database protectors for async operations
   // Used by async indexer and TTL system to get protectors for committing transactions

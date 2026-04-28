@@ -41,6 +41,9 @@ namespace memgraph::storage {
 
 class ExistenceConstraints {
  public:
+  explicit ExistenceConstraints(metrics::DatabaseMetricHandles *metric_handles = nullptr)
+      : metric_handles_{metric_handles} {}
+
   struct MultipleThreadsConstraintValidation {
     auto operator()(const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
@@ -131,8 +134,6 @@ class ExistenceConstraints {
   void LoadExistenceConstraints(const std::vector<std::string> &keys);
 
   void DropGraphClearConstraints();
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
  private:
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;

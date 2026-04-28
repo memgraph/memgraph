@@ -224,9 +224,9 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 
 }  // namespace
 
-DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
+DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles *metric_handles,
                          std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator),
+    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator), metric_handles,
               std::move(database_protector_factory)),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {

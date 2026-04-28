@@ -54,6 +54,9 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   };
 
  public:
+  explicit InMemoryEdgeTypeIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
+      : metric_handles_{metric_handles} {}
+
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
@@ -163,7 +166,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
  private:
   struct IndividualIndex {
-    ~IndividualIndex();
+    ~IndividualIndex() = default;
     void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
 
     utils::SkipList<Entry> skip_list_;
@@ -213,8 +216,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     std::shared_ptr<IndicesContainer const> index_container_;
   };
 
-  InMemoryEdgeTypeIndex() = default;
-
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
                           ActiveIndicesUpdater const &updater,
@@ -228,8 +229,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
       -> std::expected<void, IndexPopulateError>;
 
   bool PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp);
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
   /// Returns false if there was no index to drop
   bool DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) override;

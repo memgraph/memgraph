@@ -303,9 +303,10 @@ class DeltaVertexCache {
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override,
-                                 PlanInvalidatorPtr invalidator,
+                                 PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles *metric_handles,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : Storage(config, config.salient.storage_mode, std::move(invalidator), std::move(database_protector_factory)),
+    : Storage(config, config.salient.storage_mode, std::move(invalidator), metric_handles,
+              std::move(database_protector_factory)),
       recovery_{.snapshot_directory_ = config.durability.storage_directory / durability::kSnapshotDirectory,
                 .wal_directory_ = config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
@@ -364,7 +365,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         name(),
         &ttl_,
         &description_store_);
-    snapshot_recovery_latency_s_ = recovery_timer.Elapsed().count();
+    if (metric_handles_) {
+      metric_handles_->snapshot_recovery_latency_seconds->Observe(recovery_timer.Elapsed().count());
+    }
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);

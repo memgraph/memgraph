@@ -22,7 +22,7 @@ def scrape_json_metrics():
         return json.loads(response.read())
 
 
-def test_json_vertex_count_is_aggregate_across_databases(connect):
+def test_json_storage_fields_are_default_db_only(connect):
     cursor = connect.cursor()
 
     execute_and_fetch_all(cursor, "CREATE DATABASE db2")
@@ -34,7 +34,25 @@ def test_json_vertex_count_is_aggregate_across_databases(connect):
     execute_and_fetch_all(cursor, "CREATE (), ()")
 
     metrics = scrape_json_metrics()
-    assert metrics["General"]["vertex_count"] == 5
+    # Storage fields reflect the default DB only, not an aggregate across all databases
+    assert metrics["General"]["vertex_count"] == 3
+
+
+def test_json_transaction_counters_are_aggregate_across_databases(connect):
+    cursor = connect.cursor()
+
+    execute_and_fetch_all(cursor, "CREATE DATABASE db2")
+
+    execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+    before = scrape_json_metrics()["Transaction"]["CommitedTransactions"]
+
+    execute_and_fetch_all(cursor, "CREATE ()")
+    execute_and_fetch_all(cursor, "USE DATABASE db2")
+    execute_and_fetch_all(cursor, "CREATE ()")
+
+    after = scrape_json_metrics()["Transaction"]["CommitedTransactions"]
+    # Both commits from both databases are counted
+    assert after - before >= 2
 
 
 if __name__ == "__main__":

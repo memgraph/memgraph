@@ -18,13 +18,13 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "parameters/parameters.hpp"
 #include "replication/include/replication/state.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/handler.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_handler/system_rpc.hpp"
-#include "utils/metrics_timer.hpp"
 
 namespace memgraph::replication {
 
@@ -89,7 +89,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
   });
   try {
-    utils::MetricsTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
+    metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
     auto stream = std::invoke([&]() {
 #ifdef MG_ENTERPRISE

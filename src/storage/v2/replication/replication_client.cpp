@@ -318,7 +318,7 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
 auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, DatabaseProtector const &protector,
                                                            uint64_t const durability_commit_timestamp)
     -> std::expected<ReplicaStream, StartTxnReplicationError> {
-  utils::MetricsTimer const timer{metrics::Metrics().global.start_txn_replication_seconds};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.start_txn_replication_seconds};
   auto locked_state = replica_state_.Lock();
   spdlog::trace(
       "Starting transaction replication for replica {} in state {}", client_.name_, StateToString(*locked_state));

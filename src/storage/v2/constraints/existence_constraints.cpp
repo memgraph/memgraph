@@ -238,22 +238,6 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::SingleThreadConst
   return {};
 }
 
-void ExistenceConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
-  metric_handles_ = metric_handles;
-  if (!metric_handles_) return;
-  auto *gauge = metric_handles_->active_existence_constraints;
-  constraints_.WithReadLock([&](ContainerPtr const &ptr) {
-    double count = 0;
-    for (auto const &[key, constraint] : *ptr) {
-      if (constraint->status.IsReady()) {
-        constraint->gauge_ = metrics::ScopedGauge{gauge};
-        ++count;
-      }
-    }
-    gauge->Set(count);
-  });
-}
-
 void ExistenceConstraints::DropGraphClearConstraints() {
   constraints_.WithLock([](ContainerPtr &constraints) { constraints = std::make_shared<Container const>(); });
 }

@@ -230,22 +230,6 @@ bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeCon
   });
 }
 
-void TypeConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
-  metric_handles_ = metric_handles;
-  if (!metric_handles_) return;
-  auto *gauge = metric_handles_->active_type_constraints;
-  container_.WithReadLock([&](ContainerPtr const &ptr) {
-    double count = 0;
-    for (auto const &[key, constraint] : ptr->constraints_) {
-      if (constraint->status.IsReady()) {
-        constraint->gauge_ = metrics::ScopedGauge{gauge};
-        ++count;
-      }
-    }
-    gauge->Set(count);
-  });
-}
-
 void TypeConstraints::DropGraphClearConstraints() {
   container_.WithLock([](ContainerPtr &container) { container = std::make_shared<Container const>(); });
 }

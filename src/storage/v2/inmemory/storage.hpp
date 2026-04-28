@@ -154,6 +154,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
                            PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
+                           metrics::DatabaseMetricHandles *metric_handles = nullptr,
                            std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
 
   InMemoryStorage(const InMemoryStorage &) = delete;

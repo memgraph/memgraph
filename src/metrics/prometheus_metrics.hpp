@@ -29,7 +29,13 @@
 #include <prometheus/histogram.h>
 #include <prometheus/registry.h>
 
-#include "coordination/include/coordination/instance_status.hpp"
+#include "utils/uuid.hpp"
+
+#ifdef MG_ENTERPRISE
+namespace memgraph::coordination {
+struct InstanceStatus;
+}
+#endif
 
 namespace memgraph::metrics {
 
@@ -256,7 +262,7 @@ class PrometheusMetrics {
   PrometheusMetrics &operator=(PrometheusMetrics &&) = delete;
   ~PrometheusMetrics() = default;
 
-  DatabaseMetricHandles *AddDatabase(std::string_view db_name);
+  DatabaseMetricHandles *AddDatabase(utils::UUID const &uuid, std::string_view name);
   void RemoveDatabase(DatabaseMetricHandles const *handles);
   void UpdateGauges();
 
@@ -265,9 +271,21 @@ class PrometheusMetrics {
   void SetInstanceStatusResolver(InstanceStatusResolver resolver);
 #endif
 
-  std::expected<std::vector<MetricInfo>, std::string> GetDbMetricsInfo(std::string_view db_name) const;
+  // Returns per-database metrics for the named database (operators, indices,
+  // constraints, transactions, histograms, etc.).
+  std::expected<std::vector<MetricInfo>, std::string> GetDbMetricsInfo(utils::UUID const &uuid) const;
+
+  // Returns truly global metrics: session gauges, HA counters/histograms, and
+  // peak memory. Used by SHOW METRICS INFO (bare/ON CURRENT) alongside
+  // GetDbMetricsInfo for the current DB.
   std::vector<MetricInfo> GetGlobalMetricsInfo() const;
-  std::vector<MetricInfo> GetGlobalMetricsInfoForLegacyJson();
+
+  // Returns metrics for the legacy JSON endpoint. For backwards compatibility,
+  // storage fields (vertex/edge count, disk/memory usage) reflect the default
+  // database only. All other per-db counters and histograms are aggregated
+  // across all databases, matching the pre-multi-tenant behaviour where a
+  // single global counter tracked the entire process.
+  std::vector<MetricInfo> GetGlobalMetricsInfoForJson();
 
   prometheus::Registry &registry() { return registry_; }
 
@@ -275,27 +293,26 @@ class PrometheusMetrics {
 
  private:
   struct DatabaseEntry {
+    utils::UUID uuid;
     std::string db_name;
     DatabaseMetricHandles handles;
-    // Ref count to handle multiple Database instances with the same name
-    // sharing the same prometheus objects. This occurs only in unit tests that
-    // simulate multi-node setups (e.g. main + replicas) in-process.
-    uint32_t ref_count{1};
   };
 
   StorageSnapshot ResolveStorageSnapshot(std::string_view db_name) const;
 
   prometheus::Registry registry_;
-  mutable std::shared_mutex databases_mutex_;
-  mutable std::mutex legacy_json_delta_mutex_;
+
+  struct {
+    mutable std::shared_mutex mutex;
+    std::list<DatabaseEntry> entries;
+  } databases_;
+
+  mutable std::mutex json_ha_metrics_delta_mutex_;
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
-  mutable std::mutex snapshot_resolver_mutex_;
   StorageSnapshotResolver storage_snapshot_resolver_;
 #ifdef MG_ENTERPRISE
-  mutable std::mutex instance_resolver_mutex_;
   InstanceStatusResolver instance_status_resolver_;
 #endif
-  std::list<DatabaseEntry> databases_;
 
   // Per-database metric families — storage
   prometheus::Family<prometheus::Gauge> &vertex_count_family_;

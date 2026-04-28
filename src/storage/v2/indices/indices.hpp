@@ -31,7 +31,7 @@
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(const Config &config, StorageMode storage_mode);
+  Indices(const Config &config, StorageMode storage_mode, metrics::DatabaseMetricHandles *metric_handles);
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;
@@ -50,8 +50,6 @@ struct Indices {
   void RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
 
   void DropGraphClearIndices();
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
   /// Removes vertices from all vector indices. Must be called before
   /// the vertex is removed from the skip list (while the pointer is still valid).

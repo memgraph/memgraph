@@ -596,7 +596,8 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
       auto values = index->permutations_helper.Extract(vertex_after_update->properties);
       if (AnyNonNull(values)) {
         auto acc = index->skiplist.access();
-        acc.insert({index->permutations_helper.ApplyPermutation(std::move(values)), vertex_after_update, tx.start_timestamp});
+        acc.insert(
+            {index->permutations_helper.ApplyPermutation(std::move(values)), vertex_after_update, tx.start_timestamp});
       }
     }
   };
@@ -1246,24 +1247,6 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
       using Vec = std::decay_t<decltype(*indices)>;
       indices = std::make_shared<Vec>();
     });
-  });
-}
-
-void InMemoryLabelPropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
-  metric_handles_ = metric_handles;
-  if (!metric_handles_) return;
-  auto *gauge = metric_handles_->active_label_property_indices;
-  index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &ptr) {
-    double count = 0;
-    for (auto const &[label, by_properties] : ptr->indices_) {
-      for (auto const &[props, idx] : by_properties) {
-        if (idx->status.IsReady()) {
-          idx->gauge_ = metrics::ScopedGauge{gauge};
-          ++count;
-        }
-      }
-    }
-    gauge->Set(count);
   });
 }
 

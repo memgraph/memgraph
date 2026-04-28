@@ -88,6 +88,7 @@ auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::millis
 }  // namespace
 
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
+                 metrics::DatabaseMetricHandles *metric_handles,
                  std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory)
     : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
@@ -99,8 +100,9 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       config_(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
-      indices_(config, storage_mode),
-      constraints_(config, storage_mode),
+      metric_handles_{metric_handles},
+      indices_(config, storage_mode, metric_handles),
+      constraints_(config, storage_mode, metric_handles),
       invalidator_{std::move(invalidator)},
       database_protector_factory_{database_protector_factory ? std::move(database_protector_factory)
                                                              : []() -> std::unique_ptr<DatabaseProtector> {
@@ -787,21 +789,6 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
   return {};
-}
-
-}  // namespace memgraph::storage
-
-namespace memgraph::storage {
-
-void Storage::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
-  metric_handles_ = metric_handles;
-  indices_.SetMetricHandles(metric_handles);
-  constraints_.SetMetricHandles(metric_handles);
-  ttl_.SetMetricHandles(metric_handles);
-  if (metric_handles && snapshot_recovery_latency_s_) {
-    metric_handles->snapshot_recovery_latency_seconds->Observe(*snapshot_recovery_latency_s_);
-    snapshot_recovery_latency_s_.reset();
-  }
 }
 
 }  // namespace memgraph::storage

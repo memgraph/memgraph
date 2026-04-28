@@ -64,6 +64,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   using Entry = BasicEntry<false>;
   using DescEntry = BasicEntry<true>;
 
+ public:
+  explicit InMemoryLabelPropertyIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
+      : metric_handles_{metric_handles} {}
+
   template <typename EntryT = Entry>
   struct IndividualIndex {
     using EntryType = EntryT;
@@ -71,7 +75,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     explicit IndividualIndex(PropertiesPermutationHelper permutations_helper)
         : permutations_helper(std::move(permutations_helper)) {}
 
-    ~IndividualIndex();
+    ~IndividualIndex() = default;
     void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
 
     PropertiesPermutationHelper const permutations_helper;

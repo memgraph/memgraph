@@ -96,8 +96,6 @@ void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, pro
   gauge_ = metrics::ScopedGauge{gauge};
 }
 
-InMemoryLabelIndex::IndividualIndex::~IndividualIndex() = default;
-
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&index_accessor,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // observe regardless
@@ -430,22 +428,6 @@ void InMemoryLabelIndex::DropGraphClearIndices() {
   stats_->clear();
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &all_indices) {
     all_indices = std::make_unique<std::vector<AllIndicesEntry>>();
-  });
-}
-
-void InMemoryLabelIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
-  metric_handles_ = metric_handles;
-  if (!metric_handles_) return;
-  auto *gauge = metric_handles_->active_label_indices;
-  index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &ptr) {
-    double count = 0;
-    for (auto const &[label, idx] : *ptr) {
-      if (idx->status.IsReady()) {
-        idx->gauge_ = metrics::ScopedGauge{gauge};
-        ++count;
-      }
-    }
-    gauge->Set(count);
   });
 }
 

@@ -52,8 +52,6 @@ class EdgeTypeIndex {
 
   virtual ~EdgeTypeIndex() = default;
 
-  virtual void SetMetricHandles(metrics::DatabaseMetricHandles * /*metric_handles*/) {}
-
   virtual bool DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) = 0;
 
   virtual void DropGraphClearIndices() = 0;
