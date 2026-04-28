@@ -30,12 +30,20 @@
 #include "query/plan/planner.hpp"
 //////////////////////////////////////////////////////
 #include "communication/result_stream_faker.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpreter.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
+
+namespace {
+memgraph::metrics::DatabaseMetricHandles &BenchmarkMetricHandles() {
+  static memgraph::metrics::DatabaseMetricHandles h;
+  return h;
+}
+}  // namespace
 
 // The following classes are wrappers for memgraph::utils::MemoryResource, so that we can
 // use BENCHMARK_TEMPLATE
@@ -150,11 +158,13 @@ static void Distinct(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{
-        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
+    memgraph::query::ExecutionContext execution_context{.db_accessor = &dba,
+                                                        .symbol_table = symbol_table,
+                                                        .evaluation_context = evaluation_context,
+                                                        .metric_handles = &BenchmarkMetricHandles()};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = plan_and_cost.plan->MakeCursor(memory.get());
+    auto cursor = plan_and_cost.plan->MakeCursor(memory.get(), BenchmarkMetricHandles());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
@@ -209,12 +219,14 @@ static void ExpandVariable(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{
-        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
+    memgraph::query::ExecutionContext execution_context{.db_accessor = &dba,
+                                                        .symbol_table = symbol_table,
+                                                        .evaluation_context = evaluation_context,
+                                                        .metric_handles = &BenchmarkMetricHandles()};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
-    auto cursor = expand_variable.MakeCursor(memory.get());
+    auto cursor = expand_variable.MakeCursor(memory.get(), BenchmarkMetricHandles());
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
       frame_writer.Write(expand_variable.input_symbol_,
                          memgraph::query::TypedValue(memgraph::query::VertexAccessor(v)));
@@ -251,12 +263,14 @@ static void ExpandBfs(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{
-        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
+    memgraph::query::ExecutionContext execution_context{.db_accessor = &dba,
+                                                        .symbol_table = symbol_table,
+                                                        .evaluation_context = evaluation_context,
+                                                        .metric_handles = &BenchmarkMetricHandles()};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
-    auto cursor = expand_variable.MakeCursor(memory.get());
+    auto cursor = expand_variable.MakeCursor(memory.get(), BenchmarkMetricHandles());
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
       frame_writer.Write(expand_variable.input_symbol_,
                          memgraph::query::TypedValue(memgraph::query::VertexAccessor(v)));
@@ -289,11 +303,13 @@ static void ExpandShortest(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{
-        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
+    memgraph::query::ExecutionContext execution_context{.db_accessor = &dba,
+                                                        .symbol_table = symbol_table,
+                                                        .evaluation_context = evaluation_context,
+                                                        .metric_handles = &BenchmarkMetricHandles()};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = expand_variable.MakeCursor(memory.get());
+    auto cursor = expand_variable.MakeCursor(memory.get(), BenchmarkMetricHandles());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
       frame_writer.Write(expand_variable.input_symbol_,
@@ -334,12 +350,14 @@ static void ExpandWeightedShortest(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{
-        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
+    memgraph::query::ExecutionContext execution_context{.db_accessor = &dba,
+                                                        .symbol_table = symbol_table,
+                                                        .evaluation_context = evaluation_context,
+                                                        .metric_handles = &BenchmarkMetricHandles()};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
-    auto cursor = expand_variable.MakeCursor(memory.get());
+    auto cursor = expand_variable.MakeCursor(memory.get(), BenchmarkMetricHandles());
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
       frame_writer.Write(expand_variable.input_symbol_,
                          memgraph::query::TypedValue(memgraph::query::VertexAccessor(v)));
@@ -383,11 +401,13 @@ static void Accumulate(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{
-        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
+    memgraph::query::ExecutionContext execution_context{.db_accessor = &dba,
+                                                        .symbol_table = symbol_table,
+                                                        .evaluation_context = evaluation_context,
+                                                        .metric_handles = &BenchmarkMetricHandles()};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = accumulate.MakeCursor(memory.get());
+    auto cursor = accumulate.MakeCursor(memory.get(), BenchmarkMetricHandles());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
@@ -434,12 +454,14 @@ static void Aggregate(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{
-        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
+    memgraph::query::ExecutionContext execution_context{.db_accessor = &dba,
+                                                        .symbol_table = symbol_table,
+                                                        .evaluation_context = evaluation_context,
+                                                        .metric_handles = &BenchmarkMetricHandles()};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
-    auto cursor = aggregate.MakeCursor(memory.get());
+    auto cursor = aggregate.MakeCursor(memory.get(), BenchmarkMetricHandles());
     frame_writer.Write(symbols.front(), memgraph::query::TypedValue(0));  // initial group_by value
     while (cursor->Pull(frame, execution_context)) {
       frame_writer.Modify(symbols.front(),
@@ -487,11 +509,13 @@ static void OrderBy(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{
-        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
+    memgraph::query::ExecutionContext execution_context{.db_accessor = &dba,
+                                                        .symbol_table = symbol_table,
+                                                        .evaluation_context = evaluation_context,
+                                                        .metric_handles = &BenchmarkMetricHandles()};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = order_by.MakeCursor(memory.get());
+    auto cursor = order_by.MakeCursor(memory.get(), BenchmarkMetricHandles());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
@@ -526,13 +550,15 @@ static void Unwind(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{
-        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
+    memgraph::query::ExecutionContext execution_context{.db_accessor = &dba,
+                                                        .symbol_table = symbol_table,
+                                                        .evaluation_context = evaluation_context,
+                                                        .metric_handles = &BenchmarkMetricHandles()};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
     frame_writer.Write(list_sym, memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1))));
-    auto cursor = unwind.MakeCursor(memory.get());
+    auto cursor = unwind.MakeCursor(memory.get(), BenchmarkMetricHandles());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
@@ -564,13 +590,15 @@ static void Foreach(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{
-        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
+    memgraph::query::ExecutionContext execution_context{.db_accessor = &dba,
+                                                        .symbol_table = symbol_table,
+                                                        .evaluation_context = evaluation_context,
+                                                        .metric_handles = &BenchmarkMetricHandles()};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
     frame_writer.Write(list_sym, memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1))));
-    auto cursor = foreach->MakeCursor(memory.get());
+    auto cursor = foreach->MakeCursor(memory.get(), BenchmarkMetricHandles());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
