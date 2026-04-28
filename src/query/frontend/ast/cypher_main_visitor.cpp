@@ -1819,6 +1819,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   bool has_load_csv = false;
   bool has_load_parquet{false};
   bool has_load_jsonl{false};
+  bool subquery_has_update{false};
 
   auto check_write_procedure = [&calls_write_procedure](const std::string_view clause) {
     if (calls_write_procedure) {
@@ -1850,12 +1851,12 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       }
       const auto *single_query = call_subquery->cypher_query_->single_query_;
       if (single_query) {
-        has_update |= single_query->has_update;
+        subquery_has_update |= single_query->has_update;
         for (auto *cypher_union : call_subquery->cypher_query_->cypher_unions_) {
-          if (has_update) break;
+          if (subquery_has_update) break;
           const auto *single_query = cypher_union->single_query_;
           if (single_query) {
-            has_update |= single_query->has_update;
+            subquery_has_update |= single_query->has_update;
           }
         }
       }
@@ -1923,7 +1924,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !has_return && !is_standalone_call_procedure && !parsing_exists_subquery_) {
+  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure &&
+      !parsing_exists_subquery_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -1942,7 +1944,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
 
-  single_query->has_update = has_update;
+  single_query->has_update = has_update || subquery_has_update;
   return single_query;
 }
 
@@ -4117,6 +4119,34 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
 
   if (ctx->cypherQuery()->queryMemoryLimit()) {
     throw SyntaxException("Memory limit cannot be set on subqueries!");
+  }
+
+  // Parse the explicit scope clause. Forms (Cypher 5):
+  //   `CALL () { ... }`                  — no variables imported
+  //   `CALL (v1, v2, ...) { ... }`       — only the listed variables
+  //   `CALL (*) { ... }`                 — every variable in outer scope
+  // The grammar's `scopeClause` rule already restricts the input to either an
+  // asterisk or a list of plain variable names; aliases, expressions, and
+  // mixing `*` with explicit items fail at parse time.
+  if (ctx->LPAREN() != nullptr) {
+    call_subquery->has_variable_scope_ = true;
+    if (auto *scope_clause = ctx->scopeClause()) {
+      if (scope_clause->ASTERISK()) {
+        call_subquery->all_variables_scoped_ = true;
+      } else {
+        std::unordered_set<std::string> seen_inner_names;
+        for (auto *variable_ctx : scope_clause->variable()) {
+          auto name = std::any_cast<std::string>(variable_ctx->accept(this));
+          if (!seen_inner_names.insert(name).second) {
+            throw SyntaxException("Duplicate variable '{}' in CALL subquery scope clause.", name);
+          }
+          auto *named_expr = storage_->Create<NamedExpression>();
+          named_expr->name_ = name;
+          named_expr->expression_ = storage_->Create<Identifier>(name);
+          call_subquery->scoped_variables_.push_back(named_expr);
+        }
+      }
+    }
   }
 
   call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));

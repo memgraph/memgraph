@@ -7222,6 +7222,12 @@ TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) CALL { MATCH (m) RETURN m QUERY MEMORY UNLIMITED } RETURN n",
                                                ast_generator,
                                                "Memory limit cannot be set on subqueries!");
+
+  TestInvalidQuery<SyntaxException>("MATCH (t:Team) CALL (t AS teams) { RETURN 1 AS x } RETURN t", ast_generator);
+
+  TestInvalidQuery<SyntaxException>("MATCH (n) CALL (*, n) { RETURN 1 AS x } RETURN n", ast_generator);
+
+  TestInvalidQuery<SyntaxException>("MATCH (n) CALL (n.prop) { RETURN 1 AS x } RETURN n", ast_generator);
 }
 
 TEST_P(CypherMainVisitorTest, CallSubquery) {
