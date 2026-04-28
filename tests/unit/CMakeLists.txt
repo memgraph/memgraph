@@ -234,8 +234,8 @@ add_unit_test(query_procedures_mgp_graph
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
 
-add_unit_test(query_virtual_edge
-    SOURCES query_virtual_edge.cpp
+add_unit_test(query_virtual_graph
+    SOURCES query_virtual_graph.cpp
     LINK_TARGETS mg-query storage_test_utils
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
