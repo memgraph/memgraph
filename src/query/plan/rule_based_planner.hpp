@@ -838,7 +838,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     // input row, while still preserving View::NEW visibility of nodes created
     // by earlier clauses.
     std::vector<Symbol> accumulate_symbols = match_ctx.new_symbols;
-    accumulate_symbols.insert(accumulate_symbols.end(), bound_symbols.begin(), bound_symbols.end());
+    std::unordered_set<Symbol> seen_symbols(accumulate_symbols.begin(), accumulate_symbols.end());
+    for (const auto &symbol : bound_symbols) {
+      if (seen_symbols.insert(symbol).second) {
+        accumulate_symbols.push_back(symbol);
+      }
+    }
     on_match = std::make_unique<plan::Accumulate>(std::move(on_match),
                                                   accumulate_symbols,
                                                   /*advance_command=*/false);
