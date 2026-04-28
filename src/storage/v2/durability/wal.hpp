@@ -27,8 +27,10 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -44,6 +46,11 @@ class NameIdMapper;
 }  // namespace memgraph::storage
 
 namespace memgraph::storage::durability {
+
+struct WalDeltaData;
+
+/// True iff this pre-v15 delta marks the end of its implicit transaction.
+bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta);
 
 /// Structure used to hold information about a WAL.
 struct WalInfo {
@@ -132,9 +139,11 @@ struct LabelPropertyOpInfo {
 
 struct LabelOrderedPropertiesOpInfo {
   friend bool operator==(const LabelOrderedPropertiesOpInfo &, const LabelOrderedPropertiesOpInfo &) = default;
-  using ctr_types = std::tuple<std::string, CompositePropertyPaths>;
+  using ctr_types =
+      std::tuple<std::string, CompositePropertyPaths, VersionDependant<kDescriptionAndDescIndexSupport, IndexOrder>>;
   std::string label;
   CompositePropertyPaths composite_property_paths;
+  std::optional<IndexOrder> order;  // std::nullopt for pre-v34 WALs, defaults to ASC
 };
 
 struct LabelUnorderedPropertiesOpInfo {
@@ -418,16 +427,6 @@ struct WalTtlOperation {
 
 /// Structure used to return loaded WAL delta data.
 struct WalDeltaData {
-  friend bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
-    return std::visit(utils::Overloaded{
-                          []<typename T>(T const &lhs, T const &rhs) { return lhs == rhs; },
-                          [](auto const &, auto const &) { return false; },
-
-                      },
-                      a.data_,
-                      b.data_);
-  }
-
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
                WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd,
                WalLabelIndexCreate, WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear,
@@ -442,65 +441,9 @@ struct WalDeltaData {
       data_ = WalTransactionEnd{};
 };
 
-constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta) {
-  return std::visit(utils::Overloaded{
-                        // These delta actions are all found inside transactions so they don't
-                        // indicate a transaction end.
-                        [](WalVertexCreate const &) { return false; },
-                        [](WalVertexDelete const &) { return false; },
-                        [](WalVertexAddLabel const &) { return false; },
-                        [](WalVertexRemoveLabel const &) { return false; },
-                        [](WalVertexSetProperty const &) { return false; },
-                        [](WalEdgeCreate const &) { return false; },
-                        [](WalEdgeDelete const &) { return false; },
-                        [](WalEdgeSetProperty const &) { return false; },
-                        [](WalTransactionStart const &) { return false; },
+bool operator==(const WalDeltaData &a, const WalDeltaData &b);
 
-                        // This delta explicitly indicates that a transaction is done.
-                        [](WalTransactionEnd const &) { return true; },
-
-                        // These operations aren't transactional and they are encoded only using
-                        // a single delta, so they each individually mark the end of their
-                        // 'transaction'.
-                        [](WalLabelIndexCreate const &) { return true; },
-                        [](WalLabelIndexDrop const &) { return true; },
-                        [](WalLabelIndexStatsSet const &) { return true; },
-                        [](WalLabelIndexStatsClear const &) { return true; },
-                        [](WalLabelPropertyIndexCreate const &) { return true; },
-                        [](WalLabelPropertyIndexDrop const &) { return true; },
-                        [](WalLabelPropertyIndexStatsSet const &) { return true; },
-                        [](WalLabelPropertyIndexStatsClear const &) { return true; },
-                        [](WalEdgeTypeIndexCreate const &) { return true; },
-                        [](WalEdgeTypeIndexDrop const &) { return true; },
-                        [](WalEdgeTypePropertyIndexCreate const &) { return true; },
-                        [](WalEdgeTypePropertyIndexDrop const &) { return true; },
-                        [](WalEdgePropertyIndexCreate const &) { return true; },
-                        [](WalEdgePropertyIndexDrop const &) { return true; },
-                        [](WalTextIndexCreate const &) { return true; },
-                        [](WalTextIndexDrop const &) { return true; },
-                        [](WalTextEdgeIndexCreate const &) { return true; },
-                        [](WalExistenceConstraintCreate const &) { return true; },
-                        [](WalExistenceConstraintDrop const &) { return true; },
-                        [](WalUniqueConstraintCreate const &) { return true; },
-                        [](WalUniqueConstraintDrop const &) { return true; },
-                        [](WalEnumCreate const &) { return true; },
-                        [](WalEnumAlterAdd const &) { return true; },
-                        [](WalEnumAlterUpdate const &) { return true; },
-                        [](WalPointIndexCreate const &) { return true; },
-                        [](WalPointIndexDrop const &) { return true; },
-                        [](WalTypeConstraintCreate const &) { return true; },
-                        [](WalTypeConstraintDrop const &) { return true; },
-                        [](WalVectorIndexCreate const &) { return true; },
-                        [](WalVectorEdgeIndexCreate const &) { return true; },
-                        [](WalVectorIndexDrop const &) { return true; },
-                        [](WalTtlOperation const &) { return true; },
-                        [](WalDescriptionSet const &) { return true; },
-                        [](WalDescriptionDelete const &) { return true; },
-                    },
-                    delta.data_);
-}
-
-constexpr bool IsWalDeltaDataTransactionEnd(const WalDeltaData &delta, const uint64_t version = kVersion) {
+inline bool IsWalDeltaDataTransactionEnd(const WalDeltaData &delta, const uint64_t version = kVersion) {
   if (version < kMetaDataDeltasHaveExplicitTransactionEnd) [[unlikely]] {
     return IsWalDeltaDataImplicitTransactionEndVersion15(delta);
   }

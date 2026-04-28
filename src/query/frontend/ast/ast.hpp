@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <range/v3/view/transform.hpp>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -34,6 +35,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/description_store.hpp"
+#include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -2216,6 +2218,13 @@ class IndexQuery : public memgraph::query::Query {
   memgraph::query::IndexQuery::Action action_;
   memgraph::query::LabelIx label_;
   std::vector<query::PropertyIxPath> properties_;
+  std::optional<std::string> name_;
+  // Raw key/value pairs from `WITH CONFIG { ... }`. Resolved to an IndexOrder at execution time
+  // (can't be resolved here: string literals are stripped into parameters, and the AST is cached
+  // across calls — evaluating at parse time would bake the first call's parameters into the cache).
+  // For CREATE: absent/empty => IndexOrder::ASC.
+  // For DROP:   absent/empty => drop both ASC and DESC for (label, properties).
+  std::unordered_map<Expression *, Expression *> config_;
 
   IndexQuery *Clone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
@@ -2224,6 +2233,10 @@ class IndexQuery : public memgraph::query::Query {
     object->properties_.reserve(properties_.size());
     for (auto const &prop_path : properties_) {
       object->properties_.emplace_back(prop_path.Clone(storage));
+    }
+    object->name_ = name_;
+    for (auto const &[key_expr, value_expr] : config_) {
+      object->config_.emplace(key_expr->Clone(storage), value_expr->Clone(storage));
     }
     return object;
   }
@@ -2252,6 +2265,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
   memgraph::query::EdgeTypeIx edge_type_;
   std::vector<memgraph::query::PropertyIx> properties_;
   bool global_{false};
+  std::optional<std::string> name_;
 
   EdgeIndexQuery *Clone(AstStorage *storage) const override {
     EdgeIndexQuery *object = storage->Create<EdgeIndexQuery>();
@@ -2262,6 +2276,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
       object->properties_[i] = storage->GetPropertyIx(properties_[i].name);
     }
     object->global_ = global_;
+    object->name_ = name_;
     return object;
   }
 
@@ -2548,6 +2563,9 @@ class CallProcedure : public memgraph::query::Clause {
           }
         }
       }
+      if (cont && where_) {
+        where_->Accept(visitor);
+      }
     }
     return visitor.PostVisit(*this);
   }
@@ -2560,6 +2578,7 @@ class CallProcedure : public memgraph::query::Clause {
   size_t memory_scale_{1024U};
   bool is_write_;
   bool void_procedure_{false};
+  memgraph::query::Where *where_{nullptr};
 
   CallProcedure *Clone(AstStorage *storage) const override {
     CallProcedure *object = storage->Create<CallProcedure>();
@@ -2577,6 +2596,7 @@ class CallProcedure : public memgraph::query::Clause {
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
     object->void_procedure_ = void_procedure_;
+    object->where_ = where_ ? where_->Clone(storage) : nullptr;
     return object;
   }
 
@@ -3160,11 +3180,13 @@ class ConstraintQuery : public memgraph::query::Query {
 
   memgraph::query::ConstraintQuery::ActionType action_type_;
   memgraph::query::Constraint constraint_;
+  std::optional<std::string> name_;
 
   ConstraintQuery *Clone(AstStorage *storage) const override {
     ConstraintQuery *object = storage->Create<ConstraintQuery>();
     object->action_type_ = action_type_;
     object->constraint_ = constraint_.Clone(storage);
+    object->name_ = name_;
     return object;
   }
 };
@@ -3934,6 +3956,20 @@ class ShowConfigQuery : public memgraph::query::Query {
   }
 };
 
+class ShowQueryCallableMappingsQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowQueryCallableMappingsQuery *Clone(AstStorage *storage) const override {
+    ShowQueryCallableMappingsQuery *object = storage->Create<ShowQueryCallableMappingsQuery>();
+    return object;
+  }
+};
+
 class TransactionQueueQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -4266,6 +4302,22 @@ class ShowSchemaInfoQuery : public memgraph::query::Query {
     auto *object = storage->Create<ShowSchemaInfoQuery>();
     return object;
   }
+
+ private:
+  friend class AstStorage;
+};
+
+class ReloadSSLQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ReloadSSLQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ReloadSSLQuery *Clone(AstStorage *storage) const override { return storage->Create<ReloadSSLQuery>(); }
 
  private:
   friend class AstStorage;

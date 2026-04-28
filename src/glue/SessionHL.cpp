@@ -19,6 +19,7 @@
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
 #include "dbms/constants.hpp"
+#include "flags/coord_flag_env_handler.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "frontend/ast/ast.hpp"
 #include "glue/SessionHL.hpp"
@@ -180,7 +181,7 @@ std::string SessionHL::GetCurrentUser() const {
       // This is only used to figure out if the impersonated user is different from the main user. Since
       // this is a role; it will always be different since roles cannot be impersonated.
       std::string res;
-      std::for_each(names.begin(), names.end(), [&res](const auto &name) { res += name + ","; });
+      std::ranges::for_each(names, [&res](const auto &name) { res += name + ","; });
       return res.substr(0, res.size() - 1);
     }
   }
@@ -217,6 +218,7 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
                               return utils::Priority::LOW;
                             // For now return HIGH only for hand-picked queries (non-system and non-db queries)
                             auto high_priority = utils::Downcast<query::ShowConfigQuery>(query) ||
+                                                 utils::Downcast<query::ShowQueryCallableMappingsQuery>(query) ||
                                                  utils::Downcast<query::SettingQuery>(query) ||
                                                  utils::Downcast<query::VersionQuery>(query) ||
                                                  utils::Downcast<query::TransactionQueueQuery>(query) ||
@@ -546,6 +548,8 @@ void SessionHL::BeginTransaction(const bolt_map_t &extra) {
 
 void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #ifdef MG_ENTERPRISE
+  // Coordinators have no dbms_handler and no databases to switch to, so there is nothing to configure.
+  if (flags::CoordinationSetupInstance().IsCoordinator()) return;
   runtime_config_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
 #else
   (void)run_time_info;

@@ -27,6 +27,7 @@
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/query_user.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
@@ -1084,7 +1085,7 @@ struct ContainsPredicate {
 
   bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
-    return s1.find(s2) != std::string::npos;
+    return s1.contains(s2);
   }
 };
 

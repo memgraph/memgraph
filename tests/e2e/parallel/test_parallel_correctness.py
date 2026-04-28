@@ -299,6 +299,40 @@ class TestParallelIndices:
         """Test edge property index for all values."""
         verify_parallel_matches_serial(indexed_db, "MATCH ()-[e:KNOWS]->() WHERE e.since IS NOT NULL RETURN e")
 
+    @pytest.fixture
+    def desc_indexed_db(self, memgraph):
+        """Database with a DESC-ordered label+property index only."""
+        setup_thread_count_db(memgraph, thread_count=100)
+        memgraph.execute_query("CREATE (:Person {name: 'Alice', age: 30, city: 'London'})")
+        memgraph.execute_query("CREATE (:Person {name: 'Bob', age: 25, city: 'Paris'})")
+        memgraph.execute_query("CREATE (:Person {name: 'Charlie', age: 35, city: 'London'})")
+        memgraph.execute_query("CREATE (:Person {name: 'Dave', age: 30, city: 'Berlin'})")
+        memgraph.execute_query('CREATE INDEX ON :Person(age) WITH CONFIG {"order": "DESC"};')
+        return memgraph
+
+    def test_vertex_property_index_desc_specific(self, desc_indexed_db):
+        """DESC index with specific value — parallel matches serial."""
+        verify_parallel_matches_serial(desc_indexed_db, "MATCH (n:Person) WHERE n.age = 30 RETURN n")
+
+    def test_vertex_property_index_desc_range(self, desc_indexed_db):
+        """DESC index with range — parallel matches serial."""
+        verify_parallel_matches_serial(desc_indexed_db, "MATCH (n:Person) WHERE n.age > 25 RETURN n")
+
+    def test_vertex_property_index_desc_all(self, desc_indexed_db):
+        """DESC index IS NOT NULL scan — parallel matches serial."""
+        verify_parallel_matches_serial(desc_indexed_db, "MATCH (n:Person) WHERE n.age IS NOT NULL RETURN n")
+
+    def test_vertex_property_index_both_orders(self, memgraph):
+        """Both ASC and DESC indices exist on same (label, prop) — parallel matches serial."""
+        setup_thread_count_db(memgraph, thread_count=100)
+        memgraph.execute_query("CREATE (:Person {name: 'Alice', age: 30})")
+        memgraph.execute_query("CREATE (:Person {name: 'Bob', age: 25})")
+        memgraph.execute_query("CREATE (:Person {name: 'Charlie', age: 35})")
+        memgraph.execute_query("CREATE (:Person {name: 'Dave', age: 30})")
+        memgraph.execute_query("CREATE INDEX ON :Person(age);")
+        memgraph.execute_query('CREATE INDEX ON :Person(age) WITH CONFIG {"order": "DESC"};')
+        verify_parallel_matches_serial(memgraph, "MATCH (n:Person) WHERE n.age > 25 RETURN n")
+
 
 class TestParallelIndexFallback:
     """

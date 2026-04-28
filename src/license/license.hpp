@@ -11,9 +11,14 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <expected>
+#include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
@@ -22,7 +27,7 @@
 
 namespace memgraph::license {
 
-enum class LicenseType : uint8_t { ENTERPRISE, OEM };
+enum class LicenseType : uint8_t { ENTERPRISE, OEM, AI_PLATFORM };
 
 std::string LicenseTypeToString(LicenseType license_type);
 

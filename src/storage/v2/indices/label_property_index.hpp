@@ -12,11 +12,17 @@
 #pragma once
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/index_order.hpp"
+#include "storage/v2/indices/label_properties_indices_info.hpp"
+#include "storage/v2/indices/label_property_index_entry.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/bound.hpp"
 
 #include <cstdint>
+#include <range/v3/view/enumerate.hpp>
+#include <range/v3/view/transform.hpp>
 #include <ranges>
 
 namespace memgraph::storage {
@@ -82,15 +88,6 @@ struct PropertyValueRange {
   PropertyValueRange(Type type, std::optional<utils::Bound<PropertyValue>> lower,
                      std::optional<utils::Bound<PropertyValue>> upper)
       : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
-};
-
-// These positions are in reference to the // labels + properties passed into
-// `RelevantLabelPropertiesIndicesInfo`
-struct LabelPropertiesIndicesInfo {
-  std::size_t label_pos_;
-  std::vector<int64_t> properties_pos_;  // -1 means missing
-  LabelId label_;
-  std::vector<PropertyPath> properties_;
 };
 
 struct IndexOrderedPropertyValues {
@@ -159,7 +156,7 @@ struct PropertiesPermutationHelper {
    * element is a tuple comprising: (position, [property id path], and value).
    */
   auto WithPropertyId(IndexOrderedPropertyValues const &values) const {
-    return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
+    return ranges::views::enumerate(sorted_properties_) | ranges::views::transform([&](auto &&p) {
              return std::tuple{p.first, std::cref(p.second), std::cref(values.values_[position_lookup_[p.first]])};
            });
   }
@@ -196,8 +193,16 @@ class LabelPropertyIndex {
 
   virtual ~LabelPropertyIndex() = default;
 
-  virtual bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
-                         ActiveIndicesUpdater const &updater) = 0;
+  struct DropResult {
+    bool dropped_asc = false;
+    bool dropped_desc = false;
+
+    explicit operator bool() const { return dropped_asc || dropped_desc; }
+  };
+
+  // `order == nullopt` drops both ASC and DESC entries for (label, properties).
+  virtual DropResult DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
+                               ActiveIndicesUpdater const &updater, std::optional<IndexOrder> order = std::nullopt) = 0;
   virtual void DropGraphClearIndices() = 0;
   virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
 };
@@ -222,8 +227,8 @@ struct LabelPropertyIndexActiveIndices {
 
   virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
-  virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                   const Transaction &tx) = 0;
+  virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                                   Vertex *vertex, const Transaction &tx) = 0;
 
   virtual bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
@@ -233,8 +238,7 @@ struct LabelPropertyIndexActiveIndices {
                                                   std::span<PropertyPath const> properties) const
       -> std::vector<LabelPropertiesIndicesInfo> = 0;
 
-  virtual auto ListIndices(uint64_t start_timestamp) const
-      -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> = 0;
+  virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<LabelPropertyIndexEntry> = 0;
 
   virtual auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t = 0;
 

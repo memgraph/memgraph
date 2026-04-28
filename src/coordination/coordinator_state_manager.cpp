@@ -12,14 +12,30 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_state_manager.hpp"
+
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <sys/types.h>
+#include <filesystem>
+#include <libnuraft/srv_config.hxx>
+#include <libnuraft/srv_state.hxx>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <range/v3/iterator/basic_iterator.hpp>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/transform.hpp>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+#include <variant>
+
 #include "coordination/coordination_observer.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/log_level.hpp"
 #include "coordination/utils.hpp"
 #include "utils/logging.hpp"
-
-#include <spdlog/spdlog.h>
-#include <nlohmann/json.hpp>
-#include <range/v3/view.hpp>
 
 #include <cstdlib>
 
@@ -65,19 +81,19 @@ void from_json(nlohmann::json const &json_cluster_config, std::shared_ptr<cluste
   config = new_cluster_config;
 }
 
-void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
+void to_json(nlohmann::json &j, cluster_config const &config) {
   auto const servers_vec =
-      ranges::views::transform(cluster_config.get_servers(),
+      ranges::views::transform(config.get_servers(),
                                [](auto const &server) {
                                  return std::tuple{
                                      static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
                                }) |
       ranges::to_vector;
   j = nlohmann::json{{kServers, servers_vec},
-                     {kPrevLogIdx, cluster_config.get_prev_log_idx()},
-                     {kLogIdx, cluster_config.get_log_idx()},
-                     {kAsyncReplication, cluster_config.is_async_replication()},
-                     {kUserCtx, cluster_config.get_user_ctx()}};
+                     {kPrevLogIdx, config.get_prev_log_idx()},
+                     {kLogIdx, config.get_log_idx()},
+                     {kAsyncReplication, config.is_async_replication()},
+                     {kUserCtx, config.get_user_ctx()}};
 }
 
 auto CoordinatorStateManager::HandleVersionMigration() -> void {

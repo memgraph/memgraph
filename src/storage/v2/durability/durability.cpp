@@ -12,6 +12,7 @@
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <range/v3/all.hpp>
 
 #include <cerrno>
 #include <cstring>
@@ -236,6 +237,12 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
   RecoverUniqueConstraints(
       constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info, snapshot_info);
   RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info, snapshot_info);
+
+  // Publish recovered constraints to active_constraints_
+  auto updater = constraints->MakeUpdater();
+  updater(constraints->existence_constraints_->GetActiveConstraints());
+  updater(constraints->unique_constraints_->GetActiveConstraints());
+  updater(constraints->type_constraints_->GetActiveConstraints());
 }
 
 void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
@@ -279,6 +286,21 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
                    PropertyPathFormatter{properties, name_id_mapper});
     }
     spdlog::info("Label+property indices are recreated.");
+  }
+
+  // Recover DESC label+property indices.
+  {
+    spdlog::info("Recreating {} DESC label+property indices from metadata.",
+                 indices_metadata.label_properties_desc.size());
+    for (auto const &[label, properties] : indices_metadata.label_properties_desc) {
+      if (!mem_label_property_index->CreateIndexOnePass(
+              label, properties, vertices->access(), parallel_exec_info, updater, snapshot_info, IndexOrder::DESC))
+        throw RecoveryFailure("The DESC label+property index must be created here!");
+      spdlog::info("DESC index on :{}({}) is recreated from metadata",
+                   name_id_mapper->IdToName(label.AsUint()),
+                   PropertyPathFormatter{.data = properties, .name_mapper = name_id_mapper});
+    }
+    spdlog::info("DESC label+property indices are recreated.");
   }
 
   // Recover label+property indices statistics.
@@ -354,7 +376,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     for (const auto &index_info : index_metadata) {
       try {
         // TODO: parallel execution
-        text_index.RecoverIndex(index_info, vertices->access(), name_id_mapper, snapshot_info);
+        text_index.RecoverIndex(index_info, vertices->access(), name_id_mapper, updater, snapshot_info);
       } catch (...) {
         throw RecoveryFailure(fmt::format("The {} must be created here!", index_type).c_str());
       }
@@ -383,6 +405,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
       if (!indices->point_index_.CreatePointIndex(label, property, vertices->access(), snapshot_info)) {
         throw RecoveryFailure("The point index must be created here!");
       }
+      indices->point_index_.PublishActiveIndices(updater);
       spdlog::info("Point index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(label.AsUint()),
                    name_id_mapper->IdToName(property.AsUint()));
@@ -394,10 +417,8 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
     for (auto &recovery_info : indices_metadata.vector_indices) {
-      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, indices, name_id_mapper, snapshot_info);
-      spdlog::info("Vector index {} on ({}) is recreated from metadata",
-                   recovery_info.spec.index_name,
-                   name_id_mapper->IdToName(recovery_info.spec.property.AsUint()));
+      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, indices, name_id_mapper, updater, snapshot_info);
+      spdlog::info("Vector index {} is recreated from metadata", recovery_info.spec.index_name);
     }
     spdlog::info("Vector indices are recreated.");
   }
@@ -405,11 +426,9 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
   {
     spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
     auto vertices_acc = vertices->access();
-    for (const auto &spec : indices_metadata.vector_edge_indices) {
-      indices->vector_edge_index_.RecoverIndex(spec, vertices_acc, snapshot_info);
-      spdlog::info("Vector edge index {} on ({}) is recreated from metadata",
-                   spec.index_name,
-                   name_id_mapper->IdToName(spec.property.AsUint()));
+    for (auto &recovery_info : indices_metadata.vector_edge_indices) {
+      indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, updater, snapshot_info);
+      spdlog::info("Vector edge index {} is recreated from metadata", recovery_info.spec.index_name);
     }
     spdlog::info("Vector edge indices are recreated.");
   }

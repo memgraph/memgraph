@@ -9,11 +9,13 @@ target_sources(mg-storage-v2
         commit_log.cpp
         config.cpp
         constraint_verification_info.cpp
+        delta.cpp
         constraints/constraints.cpp
         constraints/existence_constraints.cpp
         constraints/type_constraints.cpp
         constraints/type_constraints_validator.cpp
         constraints/unique_constraints.cpp
+        disk/delta_utils.cpp
         disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
         disk/edge_property_index.cpp
@@ -22,6 +24,7 @@ target_sources(mg-storage-v2
         disk/label_index.cpp
         disk/label_property_index.cpp
         disk/rocksdb_storage.cpp
+        disk/rocksdb_utils.cpp
         disk/storage.cpp
         disk/unique_constraints.cpp
         durability/durability.cpp
@@ -69,12 +72,12 @@ target_sources(mg-storage-v2
         schema_info.cpp
         snapshot_progress.cpp
         storage.cpp
+        storage_error.cpp
         storage_mode.cpp
         temporal.cpp
         transaction.cpp
         vertex_accessor.cpp
         vertex_info_cache.cpp
-        vertices_iterable.cpp
         edge_ref.cpp
         indices/point_iterator.cpp
         property_value_utils.cpp
@@ -82,10 +85,12 @@ target_sources(mg-storage-v2
         id_types.cpp
         ttl.cpp
         all_vertices_chunked_iterable.cpp
-        vertices_chunked_iterable.cpp
         edges_chunked_iterable.cpp
 
         PUBLIC
+        FILE_SET CXX_MODULES FILES
+        property_value.cppm
+
         FILE_SET HEADERS
         BASE_DIRS ../../
         FILES
@@ -106,7 +111,9 @@ target_sources(mg-storage-v2
         id_types.hpp
         indices/active_indices.hpp
         indices/active_indices_updater.hpp
+        indices/index_order.hpp
         indices/indices_utils.hpp
+        indices/label_properties_indices_info.hpp
         indices/point_index.hpp
         indices/point_index_change_collector.hpp
         indices/point_index_expensive_header.hpp
@@ -155,6 +162,7 @@ target_link_libraries(mg-storage-v2
     mg::replication
     Threads::Threads
     mg-utils
+    mg-aws
     mg-flags
     gflags
     abseil::abseil
@@ -168,6 +176,8 @@ target_link_libraries(mg-storage-v2
     usearch
     rollbear::strong_type
     atomic
+    PRIVATE
+    ctre::ctre
 )
 
 add_subdirectory(fuzz EXCLUDE_FROM_ALL)

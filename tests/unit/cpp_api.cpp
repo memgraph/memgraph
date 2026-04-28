@@ -1602,3 +1602,139 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnEdges) {
     ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
+
+TYPED_TEST(CppApiTestFixture, TestPoint2d) {
+  auto pt_1 = mgp::Point2d(1.5, 2.5, 4326);
+  auto pt_2 = mgp::Point2d(1.5, 2.5, 4326);
+  auto pt_3 = mgp::Point2d(10.0, 20.0, 7203);
+
+  ASSERT_DOUBLE_EQ(pt_1.X(), 1.5);
+  ASSERT_DOUBLE_EQ(pt_1.Y(), 2.5);
+  ASSERT_EQ(pt_1.Srid(), 4326);
+
+  ASSERT_DOUBLE_EQ(pt_3.X(), 10.0);
+  ASSERT_EQ(pt_3.Srid(), 7203);
+
+  ASSERT_EQ(pt_1, pt_2);
+  ASSERT_NE(pt_1, pt_3);
+
+  // ToString
+  auto s = pt_1.ToString();
+  ASSERT_NE(s.find("1.5"), std::string::npos);
+  ASSERT_NE(s.find("2.5"), std::string::npos);
+  ASSERT_NE(s.find("4326"), std::string::npos);
+
+  // Copy assignment
+  auto pt_x = pt_1;
+  ASSERT_EQ(pt_x, pt_1);
+
+  // Move — push_back (not emplace_back) to exercise the move constructor
+  std::vector<mgp::Point2d> vec;
+  vec.push_back(mgp::Point2d(5.0, 6.0, 4326));
+  ASSERT_DOUBLE_EQ(vec[0].X(), 5.0);
+
+  // Value copy constructor
+  auto value_x = mgp::Value(pt_1);
+  ASSERT_TRUE(value_x.IsPoint2d());
+  ASSERT_FALSE(value_x.IsPoint3d());
+  ASSERT_EQ(value_x.Type(), mgp::Type::Point2d);
+  ASSERT_DOUBLE_EQ(value_x.ValuePoint2d().X(), 1.5);
+
+  // Value move constructor
+  auto value_y = mgp::Value(mgp::Point2d(7.0, 8.0, 4326));
+  ASSERT_TRUE(value_y.IsPoint2d());
+  ASSERT_DOUBLE_EQ(value_y.ValuePoint2d().Y(), 8.0);
+
+  // Hash
+  ASSERT_EQ(std::hash<mgp::Point2d>{}(pt_1), std::hash<mgp::Point2d>{}(pt_2));
+  ASSERT_NE(std::hash<mgp::Point2d>{}(pt_1), std::hash<mgp::Point2d>{}(pt_3));
+}
+
+TYPED_TEST(CppApiTestFixture, TestPoint3d) {
+  auto pt_1 = mgp::Point3d(1.0, 2.0, 3.0, 4979);
+  auto pt_2 = mgp::Point3d(1.0, 2.0, 3.0, 4979);
+  auto pt_3 = mgp::Point3d(10.0, 20.0, 30.0, 9157);
+
+  ASSERT_DOUBLE_EQ(pt_1.X(), 1.0);
+  ASSERT_DOUBLE_EQ(pt_1.Y(), 2.0);
+  ASSERT_DOUBLE_EQ(pt_1.Z(), 3.0);
+  ASSERT_EQ(pt_1.Srid(), 4979);
+
+  ASSERT_EQ(pt_1, pt_2);
+  ASSERT_NE(pt_1, pt_3);
+
+  // ToString
+  auto s = pt_1.ToString();
+  ASSERT_NE(s.find("3"), std::string::npos);
+  ASSERT_NE(s.find("4979"), std::string::npos);
+
+  // Copy assignment
+  auto pt_x = pt_1;
+  ASSERT_EQ(pt_x, pt_1);
+
+  // Move — push_back (not emplace_back) to exercise the move constructor
+  std::vector<mgp::Point3d> vec;
+  vec.push_back(mgp::Point3d(4.0, 5.0, 6.0, 9157));
+  ASSERT_DOUBLE_EQ(vec[0].Z(), 6.0);
+
+  // Value copy constructor
+  auto value_x = mgp::Value(pt_1);
+  ASSERT_TRUE(value_x.IsPoint3d());
+  ASSERT_FALSE(value_x.IsPoint2d());
+  ASSERT_EQ(value_x.Type(), mgp::Type::Point3d);
+  ASSERT_DOUBLE_EQ(value_x.ValuePoint3d().Z(), 3.0);
+
+  // Value move constructor
+  auto value_y = mgp::Value(mgp::Point3d(7.0, 8.0, 9.0, 4979));
+  ASSERT_TRUE(value_y.IsPoint3d());
+  ASSERT_DOUBLE_EQ(value_y.ValuePoint3d().Z(), 9.0);
+
+  // Hash
+  ASSERT_EQ(std::hash<mgp::Point3d>{}(pt_1), std::hash<mgp::Point3d>{}(pt_2));
+  ASSERT_NE(std::hash<mgp::Point3d>{}(pt_1), std::hash<mgp::Point3d>{}(pt_3));
+}
+
+TYPED_TEST(CppApiTestFixture, TestEnum) {
+  auto e_1 = mgp::Enum("Color", "Red");
+  auto e_2 = mgp::Enum("Color", "Red");
+  auto e_3 = mgp::Enum("Color", "Blue");
+  auto e_4 = mgp::Enum("Shape", "Red");
+
+  ASSERT_EQ(e_1.TypeName(), "Color");
+  ASSERT_EQ(e_1.ValueName(), "Red");
+
+  ASSERT_EQ(e_1, e_2);
+  ASSERT_NE(e_1, e_3);
+  ASSERT_NE(e_1, e_4);
+
+  // ToString
+  ASSERT_EQ(e_1.ToString(), "Color::Red");
+
+  // Copy assignment
+  auto e_x = e_1;
+  ASSERT_EQ(e_x, e_1);
+  ASSERT_EQ(e_x.TypeName(), "Color");
+
+  // Move — push_back (not emplace_back) to exercise the move constructor
+  std::vector<mgp::Enum> vec;
+  vec.push_back(mgp::Enum("Status", "Active"));
+  ASSERT_EQ(vec[0].TypeName(), "Status");
+  ASSERT_EQ(vec[0].ValueName(), "Active");
+
+  // Value copy constructor
+  auto value_x = mgp::Value(e_1);
+  ASSERT_TRUE(value_x.IsEnum());
+  ASSERT_FALSE(value_x.IsPoint2d());
+  ASSERT_EQ(value_x.Type(), mgp::Type::Enum);
+  ASSERT_EQ(value_x.ValueEnum().TypeName(), "Color");
+  ASSERT_EQ(value_x.ValueEnum().ValueName(), "Red");
+
+  // Value move constructor
+  auto value_y = mgp::Value(mgp::Enum("Priority", "High"));
+  ASSERT_TRUE(value_y.IsEnum());
+  ASSERT_EQ(value_y.ValueEnum().ToString(), "Priority::High");
+
+  // Hash
+  ASSERT_EQ(std::hash<mgp::Enum>{}(e_1), std::hash<mgp::Enum>{}(e_2));
+  ASSERT_NE(std::hash<mgp::Enum>{}(e_1), std::hash<mgp::Enum>{}(e_3));
+}

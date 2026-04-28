@@ -11,13 +11,20 @@
 
 #include "integrations/kafka/consumer.hpp"
 
-#include <algorithm>
-#include <chrono>
-#include <memory>
-#include <unordered_set>
-
+#include <fmt/format.h>
+#include <librdkafka/rdkafka.h>
 #include <librdkafka/rdkafkacpp.h>
 #include <spdlog/spdlog.h>
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <compare>
+#include <cstddef>
+#include <exception>
+#include <iterator>
+#include <memory>
+#include <unordered_set>
+#include <utility>
 
 #include "integrations/constants.hpp"
 #include "integrations/kafka/exceptions.hpp"
@@ -223,7 +230,7 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
 
   for (const auto &topic_name : info_.topics) {
     if (topic_name.size() > max_topic_name_length ||
-        std::any_of(topic_name.begin(), topic_name.end(), [&](const auto c) { return !is_valid_topic_name(c); })) {
+        std::ranges::any_of(topic_name, [&](const auto c) { return !is_valid_topic_name(c); })) {
       throw ConsumerFailedToInitializeException(info_.consumer_name,
                                                 fmt::format("'{}' is an invalid topic name", topic_name));
     }

@@ -1,6 +1,13 @@
-cmake_minimum_required(VERSION 3.23)
-cmake_policy(SET CMP0076 NEW)
-cmake_policy(SET CMP0135 NEW)
+cmake_minimum_required(VERSION 3.31)
+
+# Enable the built-in `codegen` target for add_custom_command(CODEGEN).
+cmake_policy(SET CMP0171 NEW)
+
+# Opt in to transitive LINK_LIBRARIES evaluation (CMake 4.1+).
+# Our CXX_MODULES targets are already structured to avoid cycles.
+if(POLICY CMP0189)
+  cmake_policy(SET CMP0189 NEW)
+endif()
 
 # !! IMPORTANT !! run ./project_root/init.sh before cmake command
 # to download dependencies
@@ -200,10 +207,13 @@ include(functions)
 
 # Load conan dependencies in the correct order using explicit find_package calls
 # Load dependencies that don't depend on others first
+find_package(ApprovalTests REQUIRED)
 find_package(benchmark REQUIRED)
 find_package(GTest REQUIRED)
+find_package(rapidcheck REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(fmt REQUIRED)
+find_package(gflags REQUIRED)
 find_package(strong_type REQUIRED)
 find_package(Boost REQUIRED)
 find_package(BZip2 REQUIRED)
@@ -214,7 +224,17 @@ find_package(absl REQUIRED)
 find_package(croncpp REQUIRED)
 find_package(range-v3 REQUIRED)
 find_package(asio REQUIRED)
+find_package(RocksDB REQUIRED CONFIG)
+find_package(usearch CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(RdKafka REQUIRED)
+find_package(jemalloc REQUIRED)
+find_package(libbcrypt REQUIRED)
+find_package(librdtsc REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(nuraft REQUIRED CONFIG)
+find_package(pulsar-client-cpp REQUIRED CONFIG)
+find_package(protobuf REQUIRED CONFIG)
 find_package(Snappy REQUIRED)
 find_package(Arrow REQUIRED)
 find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
@@ -263,6 +283,8 @@ add_compile_options(
         -Wno-missing-field-initializers # C++20 designated init, unspecified fields are zero-initialized
         -Wno-c99-designator
         -Werror=implicit-fallthrough
+        -Werror=deprecated
+        -Wno-error=deprecated-declarations
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
 )
 
@@ -276,7 +298,6 @@ add_link_options(LINKER:--build-id)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 
 # After linker is set, check we can use link-time optimization
-cmake_policy(SET CMP0138 NEW)
 include(CheckIPOSupported)
 message(STATUS "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: ${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
 check_ipo_supported(RESULT ipo_supported OUTPUT output) # fatal error if IPO is not supported
@@ -291,8 +312,6 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
-
-SET(CMAKE_CXX_LINK_FLAGS "${CMAKE_CXX_LINK_FLAGS} -pthread")
 
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING
@@ -443,8 +462,42 @@ if (UBSAN)
 endif()
 
 # absl library is sensitive to sanitisers, 3rd party libs need building with sanitizer options
-set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
-add_subdirectory(libs EXCLUDE_FROM_ALL)
+add_library(rocksdb INTERFACE IMPORTED GLOBAL)
+set_property(TARGET rocksdb PROPERTY INTERFACE_LINK_LIBRARIES RocksDB::rocksdb)
+
+add_library(usearch INTERFACE IMPORTED GLOBAL)
+set_property(TARGET usearch PROPERTY INTERFACE_LINK_LIBRARIES usearch::usearch)
+# Suppress the guarded #warning in usearch/index_plugins.hpp.
+target_compile_options(usearch INTERFACE [[-Wno-#warnings]])
+
+add_library(nuraft INTERFACE IMPORTED GLOBAL)
+set_property(TARGET nuraft PROPERTY INTERFACE_LINK_LIBRARIES nuraft::nuraft)
+
+add_library(protobuf INTERFACE IMPORTED GLOBAL)
+set_property(TARGET protobuf PROPERTY INTERFACE_LINK_LIBRARIES protobuf::libprotobuf)
+
+add_library(pulsar INTERFACE IMPORTED GLOBAL)
+set_property(TARGET pulsar PROPERTY INTERFACE_LINK_LIBRARIES pulsar-client-cpp::pulsar-client-cpp)
+
+# Build mgconsole in isolation using the install script to avoid target
+# conflicts with Memgraph's dependencies (e.g., gflags). Keep these placeholder
+# targets available during the normal build graph.
+if(NOT DEFINED MGCONSOLE_GIT_TAG)
+  # Default used by release/install_mgconsole.cmake.
+  set(MGCONSOLE_GIT_TAG "v1.5.0")
+endif()
+add_custom_target(mgconsole-proj)
+add_custom_target(mgconsole)
+
+set(SPDLOG_FMT_EXTERNAL ON)
+set(ABSL_PROPAGATE_CXX_STD ON)
+message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
+
+# Include mgcxx text search bridge as part of the main build.
+set(ENABLE_TESTS OFF CACHE BOOL "Enable tests" FORCE)
+add_subdirectory(${CMAKE_SOURCE_DIR}/mgcxx ${CMAKE_BINARY_DIR}/mgcxx EXCLUDE_FROM_ALL)
+target_link_libraries(mgcxx_text_search ${CMAKE_DL_LIBS})
+add_library(tantivy_text_search ALIAS mgcxx_text_search)
 
 set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by the query modules")
 set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")
@@ -474,9 +527,8 @@ if(QUERY_MODULES)
   add_subdirectory(query_modules)
 endif()
 
-# All targets which generate code, useful as a single target to build for clang-tidy analysis to work
-# NOTE: It's big because https://stackoverflow.com/questions/74870212/how-to-add-dependencies-to-a-custom-target-after-the-fact
-# NOTE: The rest of the generated code should already under toolchain.
+# Legacy target: prefer `ninja codegen` (CMake 3.31+ built-in, uses CODEGEN flag).
+# Kept for backwards compatibility with CI scripts.
 add_custom_target(generated_code DEPENDS
   generate_opencypher_parser
   mgcxx_text_search

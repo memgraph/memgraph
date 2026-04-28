@@ -195,7 +195,7 @@ jobs:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 80
+    timeout-minutes: 100
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -305,6 +305,106 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph upload-to-bench-graph \
           --benchmark-name "mgbench" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Run mgbench-vector-search-index
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench-vector-search-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload mgbench-vector-search-index results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "vector-search-index" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Run mgbench-vector-search-edge-index
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench-vector-search-edge-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload mgbench-vector-search-edge-index results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "vector-search-edge-index" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Run mgbench-text-search-index
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench-text-search-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload mgbench-text-search-index results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "text-search-index" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Run mgbench-text-search-edge-index
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench-text-search-edge-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload mgbench-text-search-edge-index results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "text-search-edge-index" \
           --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
           --github-run-id "${{ github.run_id }}" \
           --github-run-number "${{ github.run_number }}" \

@@ -149,7 +149,7 @@ def main():
         coordinators=COORDINATORS,
         show_replicas=True,
         verify_up=True,
-        storage_info=["vertex_count", "edge_count", "memory_res", "allocation_limit"],
+        storage_info=["vertex_count", "edge_count", "memory_res", "global_runtime_allocation_limit"],
         metrics_info=["FailedQuery", "TransientErrors"],
         interval=2,
     )

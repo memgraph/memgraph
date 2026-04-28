@@ -11,6 +11,8 @@
 
 #include "storage/v2/indices/edge_type_index.hpp"
 
+#include <utility>
+
 namespace memgraph::storage {
 void EdgeTypeIndexAbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
                                                        Edge *edge) {

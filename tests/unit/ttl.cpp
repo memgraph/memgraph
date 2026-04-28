@@ -17,8 +17,10 @@
 #include <type_traits>
 
 #include "dbms/database.hpp"
+#include "dbms/database_protector.hpp"
 #include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "query/auth_checker.hpp"
 #include "query/interpreter_context.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -192,10 +194,11 @@ class TTLFixture : public ::testing::Test {
                                                            nullptr,
                                                            nullptr,
                                                            nullptr,
-                                                           repl_state,
+                                                           &repl_state,
                                                            system_state,
+                                                           nullptr,
 #ifdef MG_ENTERPRISE
-                                                           std::nullopt,
+                                                           nullptr,
                                                            nullptr,
 #endif
                                                            nullptr,

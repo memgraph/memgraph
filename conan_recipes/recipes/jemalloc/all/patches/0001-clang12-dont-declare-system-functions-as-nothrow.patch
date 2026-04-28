@@ -1,0 +1,90 @@
+diff --git a/include/jemalloc/jemalloc_macros.h.in b/include/jemalloc/jemalloc_macros.h.in
+index 59e29558..1ceb7b17 100644
+--- a/include/jemalloc/jemalloc_macros.h.in
++++ b/include/jemalloc/jemalloc_macros.h.in
+@@ -71,6 +71,7 @@
+ #  endif
+ #  define JEMALLOC_FORMAT_ARG(i)
+ #  define JEMALLOC_FORMAT_PRINTF(s, i)
++#  define JEMALLOC_FALLTHROUGH
+ #  define JEMALLOC_NOINLINE __declspec(noinline)
+ #  ifdef __cplusplus
+ #    define JEMALLOC_NOTHROW __declspec(nothrow)
+@@ -109,6 +110,11 @@
+ #  else
+ #    define JEMALLOC_FORMAT_PRINTF(s, i)
+ #  endif
++#  ifdef JEMALLOC_HAVE_ATTR_FALLTHROUGH
++#    define JEMALLOC_FALLTHROUGH JEMALLOC_ATTR(fallthrough)
++#  else
++#    define JEMALLOC_FALLTHROUGH
++#  endif
+ #  define JEMALLOC_NOINLINE JEMALLOC_ATTR(noinline)
+ #  define JEMALLOC_NOTHROW JEMALLOC_ATTR(nothrow)
+ #  define JEMALLOC_SECTION(s) JEMALLOC_ATTR(section(s))
+@@ -121,9 +127,16 @@
+ #  define JEMALLOC_ALLOC_SIZE2(s1, s2)
+ #  define JEMALLOC_EXPORT
+ #  define JEMALLOC_FORMAT_PRINTF(s, i)
++#  define JEMALLOC_FALLTHROUGH
+ #  define JEMALLOC_NOINLINE
+ #  define JEMALLOC_NOTHROW
+ #  define JEMALLOC_SECTION(s)
+ #  define JEMALLOC_RESTRICT_RETURN
+ #  define JEMALLOC_ALLOCATOR
+ #endif
++
++#if defined(__APPLE__) && !defined(JEMALLOC_NO_RENAME)
++#  define JEMALLOC_SYS_NOTHROW
++#else
++#  define JEMALLOC_SYS_NOTHROW JEMALLOC_NOTHROW
++#endif
+diff --git a/include/jemalloc/jemalloc_protos.h.in b/include/jemalloc/jemalloc_protos.h.in
+index a78414b1..d75b2224 100644
+--- a/include/jemalloc/jemalloc_protos.h.in
++++ b/include/jemalloc/jemalloc_protos.h.in
+@@ -8,21 +8,22 @@ extern JEMALLOC_EXPORT void		(*@je_@malloc_message)(void *cbopaque,
+     const char *s);
+
+ JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+-    void JEMALLOC_NOTHROW	*@je_@malloc(size_t size)
++    void JEMALLOC_SYS_NOTHROW	*@je_@malloc(size_t size)
+     JEMALLOC_CXX_THROW JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1);
+ JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+-    void JEMALLOC_NOTHROW	*@je_@calloc(size_t num, size_t size)
++    void JEMALLOC_SYS_NOTHROW	*@je_@calloc(size_t num, size_t size)
+     JEMALLOC_CXX_THROW JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2);
+-JEMALLOC_EXPORT int JEMALLOC_NOTHROW	@je_@posix_memalign(void **memptr,
+-    size_t alignment, size_t size) JEMALLOC_CXX_THROW JEMALLOC_ATTR(nonnull(1));
++JEMALLOC_EXPORT int JEMALLOC_SYS_NOTHROW @je_@posix_memalign(
++    void **memptr, size_t alignment, size_t size) JEMALLOC_CXX_THROW
++    JEMALLOC_ATTR(nonnull(1));
+ JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+-    void JEMALLOC_NOTHROW	*@je_@aligned_alloc(size_t alignment,
++    void JEMALLOC_SYS_NOTHROW	*@je_@aligned_alloc(size_t alignment,
+     size_t size) JEMALLOC_CXX_THROW JEMALLOC_ATTR(malloc)
+     JEMALLOC_ALLOC_SIZE(2);
+ JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+-    void JEMALLOC_NOTHROW	*@je_@realloc(void *ptr, size_t size)
++    void JEMALLOC_SYS_NOTHROW	*@je_@realloc(void *ptr, size_t size)
+     JEMALLOC_CXX_THROW JEMALLOC_ALLOC_SIZE(2);
+-JEMALLOC_EXPORT void JEMALLOC_NOTHROW	@je_@free(void *ptr)
++JEMALLOC_EXPORT void JEMALLOC_SYS_NOTHROW	@je_@free(void *ptr)
+     JEMALLOC_CXX_THROW;
+
+ JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+@@ -55,12 +56,12 @@ JEMALLOC_EXPORT size_t JEMALLOC_NOTHROW	@je_@malloc_usable_size(
+
+ #ifdef JEMALLOC_OVERRIDE_MEMALIGN
+ JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+-    void JEMALLOC_NOTHROW	*@je_@memalign(size_t alignment, size_t size)
++    void JEMALLOC_SYS_NOTHROW	*@je_@memalign(size_t alignment, size_t size)
+     JEMALLOC_CXX_THROW JEMALLOC_ATTR(malloc);
+ #endif
+
+ #ifdef JEMALLOC_OVERRIDE_VALLOC
+ JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+-    void JEMALLOC_NOTHROW	*@je_@valloc(size_t size) JEMALLOC_CXX_THROW
++    void JEMALLOC_SYS_NOTHROW	*@je_@valloc(size_t size) JEMALLOC_CXX_THROW
+     JEMALLOC_ATTR(malloc);
+ #endif

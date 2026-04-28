@@ -56,7 +56,7 @@ struct Indices {
 
   /// Removes edges from all vector edge indices. Must be called before
   /// the edge is removed from the skip list (while the pointer is still valid).
-  void RemoveEdgesFromVectorEdgeIndices(std::list<Gid> const &deleted_edge_gids) const;
+  void RemoveEdgesFromVectorEdgeIndices(std::vector<Edge *> const &edges_to_remove);
 
   struct AbortProcessor {
     LabelIndex::AbortProcessor label_;
@@ -67,7 +67,7 @@ struct Indices {
     // TODO: point? Nothing to abort, it gets built in Commit
     // TODO: text?
     VectorIndex::AbortProcessor vector_;
-    VectorEdgeIndex::IndexStats vector_edge_;
+    VectorEdgeIndex::AbortProcessor vector_edge_;
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
@@ -75,7 +75,7 @@ struct Indices {
     void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
                                  Edge *edge);
-    bool IsInterestingEdgeProperty(PropertyId property);
+    bool IsInterestingEdgeProperty(PropertyId property) const;
 
     void Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
                  NameIdMapper *name_id_mapper);
@@ -96,8 +96,12 @@ struct Indices {
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper);
 
   /// This function should be called whenever a property is modified on a vertex.
+  /// @param old_value The value prior to the write. Used in IN_MEMORY_ANALYTICAL to
+  ///                  eagerly reclaim the stale label+property skiplist entry, since
+  ///                  there is no MVCC reader that could still observe it.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx);
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                           Vertex *vertex, Transaction &tx);
 
   /// This function should be called whenever a property is modified on an edge.
   /// @throw std::bad_alloc

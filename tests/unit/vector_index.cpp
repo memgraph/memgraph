@@ -15,6 +15,7 @@
 #include <thread>
 
 #include "flags/general.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -144,26 +145,22 @@ TEST_F(VectorIndexTest, ConcurrencyTest) {
 
 TEST_F(VectorIndexTest, DeleteVertexTest) {
   this->CreateIndex(2, 10);
-  auto acc = this->storage->Access(memgraph::storage::WRITE);
-
-  auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
-  auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
-
-  // Delete the vertex
-  auto maybe_deleted_vertex = acc->DeleteVertex(&vertex);
-  EXPECT_EQ(maybe_deleted_vertex.has_value(), true);
-  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-
-  // Vertex isn't deleted but can't be found
-  std::vector<float> query = {1.0F, 1.0F};
-  const auto result = acc->VectorIndexSearchOnNodes(test_index.data(), 1, query);
-  EXPECT_EQ(result.size(), 0);
-  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
-
-  // Vertex is deleted after gc runs
-  auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-  mem_storage->indices_.vector_index_.RemoveVertices({vertex.vertex_});
-  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
+    auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+    auto maybe_deleted_vertex = acc->DeleteVertex(&vertex);
+    EXPECT_EQ(maybe_deleted_vertex.has_value(), true);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->storage->FreeMemory();
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    std::vector<float> query = {1.0F, 1.0F};
+    const auto result = acc->VectorIndexSearchOnNodes(test_index.data(), 1, query);
+    EXPECT_EQ(result.size(), 0);
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+  }
 }
 
 TEST_F(VectorIndexTest, SimpleAbortTest) {
@@ -511,6 +508,90 @@ TEST_F(VectorIndexTest, IndexCreationFailsWhenNodeHasNonVectorPropertyAndDatabas
   }
 }
 
+TEST_F(VectorIndexTest, CreateIndexWithWrongDimensionRollsBack) {
+  PropertyValue good_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+  PropertyValue bad_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0), PropertyValue(3.0)});
+  Gid good_vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto v1 = this->CreateVertex(acc.get(), test_property, good_vec, test_label);
+    good_vertex_gid = v1.Gid();
+    [[maybe_unused]] auto v2 = this->CreateVertex(acc.get(), test_property, bad_vec, test_label);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_THROW(this->CreateIndex(2, 10), std::exception);
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
+    auto v1 = acc->FindVertex(good_vertex_gid, View::OLD).value();
+    auto prop = v1.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    EXPECT_TRUE(prop->IsDoubleList());
+    EXPECT_EQ(prop->ValueDoubleList().size(), 2);
+  }
+}
+
+TEST_F(VectorIndexTest, CreateIndexConvertsPropertiesToVectorIndexId) {
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    auto prop = vertex.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    EXPECT_TRUE(prop->IsList());
+  }
+  this->CreateIndex(2, 10);
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorIndices().size(), 1);
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    auto prop = vertex.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    EXPECT_TRUE(prop->IsVectorIndexId());
+    EXPECT_EQ(prop->ValueVectorIndexList().size(), 2);
+    EXPECT_FLOAT_EQ(prop->ValueVectorIndexList()[0], 1.0f);
+    EXPECT_FLOAT_EQ(prop->ValueVectorIndexList()[1], 2.0f);
+  }
+}
+
+TEST_F(VectorIndexTest, DropIndexRestoresPropertiesToLists) {
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateIndex(2, 10);
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    EXPECT_TRUE(vertex.GetProperty(acc->NameToProperty(test_property), View::OLD)->IsVectorIndexId());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(!unique_acc->DropVectorIndex(test_index.data()).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    auto prop = vertex.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    EXPECT_TRUE(prop->IsDoubleList());
+    auto list = prop->ValueDoubleList();
+    EXPECT_EQ(list.size(), 2);
+    EXPECT_DOUBLE_EQ(list[0], 1.0);
+    EXPECT_DOUBLE_EQ(list[1], 2.0);
+  }
+}
+
 class VectorIndexRecoveryTest : public testing::Test {
  public:
   static constexpr std::uint16_t kDimension = 2;
@@ -554,8 +635,11 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexSingleThreadTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo();
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -570,8 +654,11 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo();
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -586,8 +673,11 @@ TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo("resize_test_index", 10);  // Small capacity to force resize
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -619,8 +709,11 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
                                                                 .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
                                         .index_entries = std::move(index_entries)};
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);

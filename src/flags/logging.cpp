@@ -10,21 +10,32 @@
 // licenses/APL.txt.
 #include "flags/logging.hpp"
 
-#include "flags/run_time_configurable.hpp"
-#include "utils/enum.hpp"
-#include "utils/flag_validation.hpp"
-#include "utils/logging.hpp"
+#include <spdlog/async_logger.h>
+#include <spdlog/logger.h>
+#include <spdlog/sinks/sink.h>
+#include <spdlog/spdlog.h>
+#include <array>
+#include <cstdint>
+#include <ctime>
+#include <expected>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <string_view>
+#include <utility>
+#include <vector>
 
+#include "flags/run_time_configurable.hpp"
 #include "gflags/gflags.h"
 #include "spdlog/async.h"
 #include "spdlog/common.h"
 #include "spdlog/sinks/daily_file_sink.h"
 #include "spdlog/sinks/dist_sink.h"
-
-#include <array>
-#include <iostream>
-#include <string_view>
-#include <utility>
+#include "utils/enum.hpp"
+#include "utils/file.hpp"
+#include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
+#include "utils/string.hpp"
 
 using namespace std::string_view_literals;
 
@@ -157,6 +168,31 @@ void TurnOffStdErr() { stderr_sink()->set_level(spdlog::level::off); }
 void TurnOnStdErr() {
   // stderr level allows everything, will be filtered on logger's elvel
   stderr_sink()->set_level(spdlog::level::trace);
+}
+
+// Deletes old log files that should've been rotated by spdlog but aren't. Spdlog saves next rotation time in the memory
+// so if the instance restarts before the scheduled rotations the rotation event will never trigger. Therefore, we are
+// trying to fix this behavior by running manually rotation on the Memgraph startup
+// Assumes there are only log files in the directory.
+// Deletes all files whose last_write_time is older than --log-retention-days
+void CleanLogsDir() {
+  if (FLAGS_log_file.empty()) return;
+
+  auto const log_path = std::filesystem::path{FLAGS_log_file};
+  auto const log_directory = log_path.parent_path();
+  auto const cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::days(FLAGS_log_retention_days);
+
+  // Logs error only at the end, doesn't log for each file
+  std::error_code ec;
+  for (auto const &entry : std::filesystem::directory_iterator(log_directory, ec)) {
+    if (!entry.is_regular_file(ec)) continue;
+    if (entry.last_write_time(ec) < cutoff) {
+      memgraph::utils::DeleteFile(entry.path());
+    }
+  }
+  if (ec) {
+    spdlog::warn("Error occurred while trying to manually rotate old log files: {}", ec.message());
+  }
 }
 
 }  // namespace memgraph::flags

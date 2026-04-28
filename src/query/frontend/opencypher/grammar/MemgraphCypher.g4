@@ -36,10 +36,12 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
+                      | BOLT_SERVER
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
                       | BUILD
                       | CALL
+                      | CALLABLE
                       | CHECK
                       | CLEAR
                       | CLUSTER
@@ -59,6 +61,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DATABASES
                       | DATE
+                      | DEFAULT
                       | DEFINER
                       | DELIMITER
                       | DEMOTE
@@ -73,6 +76,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | DURATION
                       | EDGE
+                      | EDGE_TYPE
                       | EDGE_TYPES
                       | EDGES
                       | ENABLE
@@ -125,6 +129,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | MAPPINGS
                       | MATCHING
                       | METRICS
                       | MODE
@@ -136,7 +141,6 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NODES
-                      | NOTHING
                       | NULLIF
                       | OF_TOKEN
                       | OFF
@@ -149,24 +153,26 @@ memgraphCypherKeyword : cypherKeyword
                       | PARQUET
                       | PASSWORD
                       | PERIODIC
+                      | PERMISSIONS
                       | POINT
                       | PORT
-                      | PROPERTY
                       | PRIVILEGES
+                      | PROPERTY
                       | PROFILE_RESTRICTION
                       | PROFILES
                       | PULSAR
-                      | QUOTE
                       | QUOTE
                       | READ
                       | READ_FILE
                       | RECOVER
                       | REGISTER
+                      | RELOAD
                       | RENAME
                       | REPLACE
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
+                      | REQUIRE
                       | RESET
                       | RESOURCE
                       | REVOKE
@@ -200,6 +206,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TERMINATE
                       | TEXT
                       | TIMEOUT
+                      | TLS
                       | TO
                       | TOPICS
                       | TRACE
@@ -268,6 +275,7 @@ query : cypherQuery
       | parameterQuery
       | versionQuery
       | showConfigQuery
+      | showQueryCallableMappingsQuery
       | transactionQueueQuery
       | multiDatabaseQuery
       | useDatabase
@@ -289,6 +297,7 @@ query : cypherQuery
       | setSessionTraceQuery
       | userProfileQuery
       | descriptionQuery
+      | reloadSSLQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -385,7 +394,7 @@ hopsLimit: HOPS LIMIT literal ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
-indexHint: ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )*  ')' )? ;
+indexHint: ':' labelName nestedPropertyKeyList? ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
 
@@ -490,7 +499,7 @@ clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymboli
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM userOrRole=userOrRoleName ;
 
@@ -546,7 +555,7 @@ privilege : CREATE
           | SERVER_SIDE_PARAMETERS
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
+granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
 
 granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
 
@@ -744,6 +753,8 @@ deleteAllParameters : DELETE ALL PARAMETERS ;
 
 showConfigQuery : SHOW CONFIG ;
 
+showQueryCallableMappingsQuery : SHOW QUERY CALLABLE MAPPINGS ;
+
 versionQuery : SHOW VERSION ;
 
 transactionIdList : transactionId ( ',' transactionId )* ;
@@ -769,7 +780,21 @@ showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
+indexQuery : createIndex | dropIndex;
+
+nestedPropertyKeyList : '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' ;
+
+alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
+
+createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )?
+            | CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+            ;
+
+dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
+
+propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
+
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName nestedPropertyKeyList?;
 
 dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
@@ -777,17 +802,24 @@ createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')
 
 dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
 
-edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex;
+createEdgeIndexAlternativeSyntax : CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')' ;
+
+edgeIndexQuery : createEdgeIndex
+               | dropEdgeIndex
+               | createGlobalEdgeIndex
+               | dropGlobalEdgeIndex
+               | createEdgeIndexAlternativeSyntax
+               ;
 
 indexName : symbolicName ;
 
-createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName propertyKeyList* ;
 
 dropTextIndex : DROP TEXT INDEX indexName ;
 
 textIndexQuery : createTextIndex | dropTextIndex;
 
-createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
+createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName propertyKeyList* ;
 
 createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
 
@@ -814,6 +846,26 @@ vectorIndexQuery : createVectorIndex | dropVectorIndex ;
 dropAllIndexesQuery : DROP ALL INDEXES ;
 
 dropAllConstraintsQuery : DROP ALL CONSTRAINTS ;
+
+alternativePropertyRefList : alternativePropertyRef
+                             | '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+                             ;
+
+alternativeConstraintPattern : '(' variable ':' labelName ')'                                          # alternativeNodeConstraintPattern
+                       | '(' ')' dash '[' variable ':' labelName ']' dash '(' ')'               # alternativeEdgeConstraintPattern
+                       ;
+
+originalConstraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
+
+alternativeConstraintSyntax : CREATE CONSTRAINT ( symbolicName )? ifNotExists? FOR alternativeConstraintPattern REQUIRE
+                  ( alternativePropertyRefList IS UNIQUE
+                  | alternativePropertyRef IS NOT CYPHERNULL
+                  | alternativePropertyRef IS ':' ':' typeConstraintType
+                  ) ;
+
+constraintQuery : originalConstraintQuery
+                | alternativeConstraintSyntax
+                ;
 
 dropGraphQuery : DROP GRAPH ;
 
@@ -843,6 +895,8 @@ startTtlQuery: ENABLE TTL ( ( EVERY period=literal ) ( AT time=literal )?
 ttlQuery: stopTtlQuery
         | startTtlQuery
         ;
+
+reloadSSLQuery: RELOAD BOLT_SERVER TLS ;
 
 typeConstraintType : BOOLEAN
              | STRING
@@ -917,11 +971,11 @@ edgeTypePattern
 
 descriptionTarget
     : LABEL ':' labelName ( ':' labelName )*
-    | EDGE TYPE PROPERTY edgeTypePattern '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE PROPERTY edgeTypePattern propertyKeyList
     | EDGE TYPE edgeTypePattern
     | EDGE TYPE ':' labelName
-    | LABEL PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
-    | EDGE TYPE PROPERTY ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | LABEL PROPERTY ':' labelName ( ':' labelName )* propertyKeyList
+    | EDGE TYPE PROPERTY ':' labelName propertyKeyList
     | PROPERTY propertyKeyName
     | DATABASE symbolicName
     ;

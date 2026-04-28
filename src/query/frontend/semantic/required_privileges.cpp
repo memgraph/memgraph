@@ -11,6 +11,7 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 
@@ -111,6 +112,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(ShowConfigQuery & /*show_config_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
+  void Visit(ShowQueryCallableMappingsQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
+
   void Visit(TriggerQuery & /*trigger_query*/) override { AddPrivilege(AuthQuery::Privilege::TRIGGER); }
 
   void Visit(StreamQuery & /*stream_query*/) override { AddPrivilege(AuthQuery::Privilege::STREAM); }
@@ -185,6 +188,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(AlterEnumAddValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
 
   void Visit(AlterEnumUpdateValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
+
+  void Visit(ReloadSSLQuery & /*reload_ssl_query*/) override { /* no privilege needed to reload SSL */ }
 
   void Visit(TtlQuery & /*ttl_query*/) override {
     AddPrivilege(AuthQuery::Privilege::CONFIG);

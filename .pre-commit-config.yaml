@@ -1,3 +1,5 @@
+exclude: ^conan_recipes/
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
@@ -5,19 +7,21 @@ repos:
       - id: check-yaml
         args: [--allow-multiple-documents]
       - id: end-of-file-fixer
-        exclude: ^mage/cpp/community_detection_module/grappolo/
+        exclude: ^(mage/cpp/community_detection_module/grappolo/|src/planner/test/approval_tests/)
       - id: trailing-whitespace
         exclude: ^mage/cpp/community_detection_module/grappolo/
   - repo: https://github.com/psf/black
     rev: 23.1.0
     hooks:
       - id: black
+        exclude: ^conan_recipes/
   - repo: https://github.com/pycqa/isort
     rev: 5.12.0
     hooks:
       - id: isort
         name: isort (python)
         args: ["--profile", "black"]
+        exclude: ^conan_recipes/
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v20.1.7
     hooks:

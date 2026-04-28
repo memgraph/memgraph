@@ -406,8 +406,8 @@ void InMemoryUniqueConstraints::ActiveConstraints::AbortEntries(
 
 bool InMemoryUniqueConstraints::ActiveConstraints::empty() const { return container_->empty(); }
 
-auto InMemoryUniqueConstraints::GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> {
-  return std::make_unique<ActiveConstraints>(container_.ReadCopy());
+auto InMemoryUniqueConstraints::GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> {
+  return std::make_shared<ActiveConstraints>(container_.ReadCopy());
 }
 
 // --- InMemoryUniqueConstraints methods ---

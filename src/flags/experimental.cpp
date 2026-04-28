@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,19 +9,32 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fmt/format.h>
+#include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
+#include <cctype>
+#include <functional>
 #include <map>
+#include <nlohmann/json.hpp>
+#include <range/v3/algorithm/any_of.hpp>
+#include <range/v3/functional/bind_back.hpp>
+#include <range/v3/iterator/basic_iterator.hpp>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/utility/get.hpp>
+#include <range/v3/view/drop_while.hpp>
+#include <range/v3/view/single.hpp>
+#include <range/v3/view/split.hpp>
+#include <range/v3/view/take_while.hpp>
+#include <range/v3/view/transform.hpp>
+#include <range/v3/view/view.hpp>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
-#include <nlohmann/json.hpp>
 #include "flags/experimental.hpp"
-#include "range/v3/all.hpp"
 #include "utils/flag_validation.hpp"
-
-#include <spdlog/spdlog.h>
-#include <range/v3/view/split.hpp>
-#include <range/v3/view/transform.hpp>
 
 // Bolt server flags.
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -63,10 +76,8 @@ auto ExperimentsInstance() -> Experiments & {
 }
 
 bool AreExperimentsEnabled(Experiments experiments) {
-  using t = std::underlying_type_t<Experiments>;
-
-  auto actual = static_cast<t>(ExperimentsInstance());
-  auto check = static_cast<t>(experiments);
+  auto actual = std::to_underlying(ExperimentsInstance());
+  auto check = std::to_underlying(experiments);
 
   return (actual & check) == check;
 }
@@ -79,7 +90,7 @@ auto ReadExperimental(std::string const &flags_experimental) -> Experiments {
   for (auto &&experiment : flags_experimental | rv::split(',') | rv::transform(canonicalize_string)) {
     if (auto it = mapping.find(experiment); it != mapping_end) {
       spdlog::info(fmt::format("Experimental feature {} is enabled.", it->first));
-      to_set |= static_cast<underlying_type>(it->second);
+      to_set |= std::to_underlying(it->second);
     }
   }
 
@@ -90,8 +101,8 @@ void SetExperimental(Experiments const &experiments) { ExperimentsInstance() = e
 
 void AppendExperimental(Experiments const &experiments) {
   using underlying_type = std::underlying_type_t<Experiments>;
-  auto current_state = static_cast<underlying_type>(ExperimentsInstance());
-  auto new_experiments = static_cast<underlying_type>(experiments);
+  auto current_state = std::to_underlying(ExperimentsInstance());
+  auto new_experiments = std::to_underlying(experiments);
   auto to_set = underlying_type{};
   to_set |= current_state;
   to_set |= new_experiments;

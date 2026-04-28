@@ -368,6 +368,13 @@ class ShowConfigModificationInMulticommandTxException : public MulticommandTxExc
   SPECIALIZE_GET_EXCEPTION_NAME(ShowConfigModificationInMulticommandTxException)
 };
 
+class ShowQueryCallableMappingsInMulticommandTxException : public MulticommandTxException {
+ public:
+  ShowQueryCallableMappingsInMulticommandTxException()
+      : MulticommandTxException("Query callable mappings information query") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ShowQueryCallableMappingsInMulticommandTxException)
+};
+
 class TriggerModificationInMulticommandTxException : public MulticommandTxException {
  public:
   TriggerModificationInMulticommandTxException() : MulticommandTxException("Managing triggers") {}
@@ -552,6 +559,12 @@ class EnumModificationInMulticommandTxException : public MulticommandTxException
  public:
   EnumModificationInMulticommandTxException() : MulticommandTxException("Creating or modifying enums") {}
   SPECIALIZE_GET_EXCEPTION_NAME(EnumModificationInMulticommandTxException)
+};
+
+class ReloadSSLMulticommandTxException : public MulticommandTxException {
+ public:
+  ReloadSSLMulticommandTxException() : MulticommandTxException("Reloading SSL") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ReloadSSLMulticommandTxException)
 };
 
 class TtlInMulticommandTxException : public MulticommandTxException {

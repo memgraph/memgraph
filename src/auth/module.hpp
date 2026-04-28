@@ -9,14 +9,15 @@
 /// @file
 #pragma once
 
+#include <sys/types.h>
 #include <array>
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <mutex>
-#include <string>
-
 #include <nlohmann/json_fwd.hpp>
+#include <string>
 
 namespace memgraph::auth {
 struct TargetArguments {

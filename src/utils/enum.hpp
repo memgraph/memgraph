@@ -36,8 +36,7 @@ auto IsValidEnumValueString(const auto &value, const auto &mappings) -> std::exp
     return std::unexpected{ValidationError::EmptyValue};
   }
 
-  if (std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; }) ==
-      mappings.cend()) {
+  if (std::ranges::find_if(mappings, [&](const auto &mapping) { return mapping.first == value; }) == mappings.cend()) {
     return std::unexpected{ValidationError::InvalidValue};
   }
 
@@ -48,8 +47,7 @@ auto IsValidEnumValueString(const auto &value, const auto &mappings) -> std::exp
 // has been successful.
 template <typename Enum>
 auto StringToEnum(const auto &value, const auto &mappings) -> std::optional<Enum> {
-  const auto mapping_iter =
-      std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; });
+  const auto mapping_iter = std::ranges::find_if(mappings, [&](const auto &mapping) { return mapping.first == value; });
   if (mapping_iter == mappings.cend()) {
     return std::nullopt;
   }
@@ -63,7 +61,7 @@ template <typename Enum>
   requires std::is_enum_v<Enum>
 auto EnumToString(const auto &value, const auto &mappings) -> std::optional<std::string_view> {
   const auto mapping_iter =
-      std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.second == value; });
+      std::ranges::find_if(mappings, [&](const auto &mapping) { return mapping.second == value; });
   if (mapping_iter == mappings.cend()) [[unlikely]] {
     return std::nullopt;
   }

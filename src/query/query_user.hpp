@@ -11,8 +11,12 @@
 
 #pragma once
 
+#include <format>
+#include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "query/frontend/ast/query/auth_query.hpp"
@@ -63,6 +67,11 @@ struct QueryUserOrRole {
   operator bool() const { return username_.has_value(); }
 
  protected:
+  QueryUserOrRole(const QueryUserOrRole &) = default;
+  QueryUserOrRole(QueryUserOrRole &&) noexcept = default;
+  QueryUserOrRole &operator=(const QueryUserOrRole &) = default;
+  QueryUserOrRole &operator=(QueryUserOrRole &&) noexcept = default;
+
   std::optional<std::string> username_;
   std::vector<std::string> rolenames_;
 };

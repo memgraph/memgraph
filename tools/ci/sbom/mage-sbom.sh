@@ -4,6 +4,9 @@
 set -euo pipefail
 IMAGE_NAME=$1
 
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SOURCE_DIR="$( cd "$SCRIPT_DIR/../../.." && pwd )"
+
 function cleanup() {
     exit_code=$?
     rm -rf sbom/env || true
@@ -12,6 +15,7 @@ function cleanup() {
     rm -rf cyclonedx || true
     rm -rf sbom/docker-sbom.json || true
     rm -rf sbom/memgraph-sbom.json || true
+    rm -rf sbom/rust-mage-sbom-files || true
     exit $exit_code
 }
 trap cleanup ERR EXIT
@@ -39,13 +43,39 @@ fi
 curl -L -o cyclonedx "$CYCLONEDXURL"
 chmod +x cyclonedx
 
+SBOM_FILES=(
+  sbom/docker-sbom.json
+  sbom/memgraph-build-sbom.json
+)
+
+# collect Rust MAGE Cargo.toml files
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo not found, installing rust"
+  source "$SOURCE_DIR/environment/util.sh"
+  install_rust 1.95
+  . "$HOME/.cargo/env"
+fi
+cargo install --locked --version 0.5.9 cargo-cyclonedx
+mapfile -t RUST_MAGE_CARGO_MANIFEST_FILES < <(find mage/rust -name "Cargo.toml" -type f -print)
+mkdir -p sbom/rust-mage-sbom-files
+for cargo_manifest_file in "${RUST_MAGE_CARGO_MANIFEST_FILES[@]}"; do
+  ITEM_NAME=$(basename "$(dirname "$cargo_manifest_file")")
+  OUTPUT_FILE="sbom/rust-mage-sbom-files/${ITEM_NAME}.json"
+  GENERATED_FILE="$(dirname "$cargo_manifest_file")/${ITEM_NAME}.json"
+  echo "file: $cargo_manifest_file, output: $ITEM_NAME"
+  cargo cyclonedx --format json --override-filename "$ITEM_NAME" --manifest-path "$cargo_manifest_file" --no-build-deps
+  mv "$GENERATED_FILE" "$OUTPUT_FILE"
+  SBOM_FILES+=("$OUTPUT_FILE")
+  echo "Generated SBOM file: $OUTPUT_FILE"
+done
+
 ./cyclonedx merge --input-files \
-  sbom/docker-sbom.json \
-  sbom/memgraph-build-sbom.json \
+  "${SBOM_FILES[@]}" \
   --output-format json \
   --output-file sbom/mage-sbom.json
 echo "Generated SBOM file: sbom/mage-sbom.json"
 rm sbom/memgraph-build-sbom.json
+rm -rf sbom/rust-mage-sbom-files
 
 python3 -m venv sbom/env
 source sbom/env/bin/activate

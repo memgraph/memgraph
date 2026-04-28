@@ -1,0 +1,50 @@
+#!/bin/bash -e
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
+
+function print_help () {
+    echo "Usage: $0 [OPTION]"
+    echo -e "Setup development environment for Memgraph.\n"
+    echo "Optional arguments:"
+    echo -e "  -h\tdisplay this help and exit"
+    echo -e "  --ci\tscript is being run inside ci"
+}
+
+ci=false
+if [[ $# -eq 1 && "$1" == "-h" ]]; then
+    print_help
+    exit 0
+else
+    while (($#)); do
+        case "$1" in
+          --ci)
+              shift
+              ci=true
+          ;;
+          *)
+              echo "Invalid argument provided: $1"
+              print_help
+              exit 1
+          ;;
+        esac
+    done
+fi
+
+echo "Linking git hooks OR skip if .git folder is not there"
+if [ -d "$DIR/.git" ]; then
+  for hook in $(find "$DIR/.githooks" -type f -printf "%f\n"); do
+    ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
+    echo "Added $hook hook"
+  done
+else
+  echo "WARNING: .git folder not present, skip adding hooks"
+fi
+
+# Install pre-commit hooks only outside CI.
+if [[ "$ci" == "false" ]]; then
+  echo "Installing pre-commit hooks"
+  export PIP_BREAK_SYSTEM_PACKAGES=1
+  python3 -m pip install --upgrade pip
+  pip install pre-commit black==23.1.* isort==5.12.*
+  python3 -m pre_commit install
+fi

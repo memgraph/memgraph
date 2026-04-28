@@ -12,11 +12,12 @@ OPTIONS:
     --build-type TYPE       Build type: Release, RelWithDebInfo, or Debug (default: Release)
     --target TARGET         Specific CMake target to build (default: all targets)
     --reserve-cores N       Reserve N cores for other tasks (default: 0, uses all cores)
-    --skip-init             Skip running ./init to fetch non-Conan dependencies
     --skip-os-deps          Skip OS dependency checks
     --keep-build            Keep existing build directory for incremental builds
     --config-only           Only configure CMake, don't build
-    --dev                   Developer mode: enables --skip-init --skip-os-deps --keep-build
+    --dev                   Developer mode: enables --skip-os-deps --keep-build
+    --update-lockfile       Update conan.lock before installing dependencies
+    --graph-info            Generate dependency graph as graph.html and exit
     --help                  Show this help message
 
 ENVIRONMENT VARIABLES:
@@ -56,12 +57,13 @@ EOF
 BUILD_TYPE="Release"
 TARGET=""
 CMAKE_ARGS=""
-skip_init=false
 config_only=false
 keep_build=false
 skip_os_deps=false
 VENV_DIR="${VENV_DIR:-env}"
 offline=false
+update_lockfile=false
+graph_info=false
 RESERVE_CORES=0
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -73,10 +75,6 @@ while [[ $# -gt 0 ]]; do
         --target)
             TARGET="$2"
             shift 2
-            ;;
-        --skip-init)
-            skip_init=true
-            shift
             ;;
         --config-only)
             config_only=true
@@ -91,8 +89,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --dev)
-            # Developer mode: skip init, os deps checks, and keep build directory
-            skip_init=true
+            # Developer mode: skip os deps checks and keep build directory
             skip_os_deps=true
             keep_build=true
             shift
@@ -100,6 +97,14 @@ while [[ $# -gt 0 ]]; do
         --offline)
             skip_os_deps=true
             offline=true
+            shift
+            ;;
+        --update-lockfile)
+            update_lockfile=true
+            shift
+            ;;
+        --graph-info)
+            graph_info=true
             shift
             ;;
         --reserve-cores)
@@ -129,19 +134,15 @@ if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD
 fi
 
 # Initialize arrays for arguments
-INIT_ARGS=()
-CONAN_INSTALL_ARGS=(
-  .
-  --build=missing
-  -pr:h memgraph_template_profile
+HOST_PROFILES=("-pr:h" "memgraph_toolchain_v7")
+CONAN_COMMON_ARGS=(
   -pr:b memgraph_build_profile
   -s build_type="$BUILD_TYPE"
   -s os.distro="$DISTRO"
 )
 
 if [[ "$offline" = true ]]; then
-    INIT_ARGS+=("--offline")
-    CONAN_INSTALL_ARGS+=("--no-remote")
+    CONAN_COMMON_ARGS+=("--no-remote")
 fi
 
 # delete existing build directory
@@ -168,6 +169,12 @@ else
     echo "Skipping OS dependency checks"
 fi
 
+DEV_SETUP_ARGS=()
+if [[ -n "${CI:-}" ]]; then
+    DEV_SETUP_ARGS+=("--ci")
+fi
+bash ./init-dev "${DEV_SETUP_ARGS[@]}"
+
 if [[ -f "$VENV_DIR/bin/activate" ]]; then
     echo "Using existing virtual environment at $VENV_DIR"
     source "$VENV_DIR/bin/activate"
@@ -189,10 +196,9 @@ fi
 # Install custom conan settings
 conan config install conan_config
 
-# fetch libs that aren't provided by conan yet
-if [[ "$skip_init" = false ]]; then
-    ./init "${INIT_ARGS[@]}"
-fi
+# Register vendored recipes as a local-recipes-index remote
+# NOTE: also registered in release/package/mgbuild.sh — keep in sync
+conan remote add memgraph-recipes "$(pwd)/conan_recipes" -t local-recipes-index --force
 
 # Function to check if a CMake boolean variable is enabled
 # Handles various CMake boolean formats: ON, TRUE, YES, 1 (case insensitive)
@@ -208,29 +214,45 @@ cmake_var_enabled() {
     return 1
 }
 
-# Build sanitizer list from CMAKE_ARGS
-MG_SANITIZERS=""
-declare -A sanitizer_map=(
-    ["ASAN"]="address"
-    ["UBSAN"]="undefined"
-    ["TSAN"]="thread"
-)
+# Add sanitizer profiles based on CMAKE_ARGS
+if cmake_var_enabled "ASAN" "$CMAKE_ARGS"; then
+    HOST_PROFILES+=("-pr:h" "add_asan")
+    echo "ASAN enabled"
+fi
+if cmake_var_enabled "UBSAN" "$CMAKE_ARGS"; then
+    HOST_PROFILES+=("-pr:h" "add_ubsan")
+    echo "UBSAN enabled"
+fi
+if cmake_var_enabled "TSAN" "$CMAKE_ARGS"; then
+    HOST_PROFILES+=("-pr:h" "add_tsan")
+    echo "TSAN enabled"
+fi
 
-for cmake_var in "${!sanitizer_map[@]}"; do
-    if cmake_var_enabled "$cmake_var" "$CMAKE_ARGS"; then
-        MG_SANITIZERS="${MG_SANITIZERS:+$MG_SANITIZERS,}${sanitizer_map[$cmake_var]}"
-    fi
-done
+# generate dependency graph and exit early
+if [[ "$graph_info" = true ]]; then
+    echo "Generating dependency graph -> graph.html"
+    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan graph info . \
+      "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
+      --format=html > graph.html
+    echo "Open graph.html in a browser to view the dependency graph"
+    exit 0
+fi
 
-if [[ -n "$MG_SANITIZERS" ]]; then
-    echo "Sanitizers enabled: $MG_SANITIZERS"
-    export MG_SANITIZERS="$MG_SANITIZERS"
-else
-    echo "No sanitizers enabled"
+# update lockfile if requested
+if [[ "$update_lockfile" = true ]]; then
+    echo "Updating conan.lock"
+    # Resolve recipe revisions from remotes (including local-recipes-index),
+    # not from any stale local cache export, so lockfiles stay portable.
+    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan lock create . \
+      "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
+      --update \
+      --lockfile="" \
+      --lockfile-out=conan.lock
 fi
 
 # install conan dependencies
-MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install "${CONAN_INSTALL_ARGS[@]}"
+MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install . --build=missing \
+  "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}"
 
 source build/generators/conanbuild.sh
 

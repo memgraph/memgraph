@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,12 +12,16 @@
 #pragma once
 
 #include <chrono>
+#include <concepts>
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
-#include <nlohmann/json_fwd.hpp>
+#include "nlohmann/json_fwd.hpp"
 
 namespace memgraph::query::stream {
 

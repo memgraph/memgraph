@@ -15,13 +15,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
-#include <cstdlib>
 #include <exception>
 #include <limits>
 #include <type_traits>
 
-#include "flags/bolt.hpp"
+#include "utils/concurrency_hint.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::utils {
@@ -357,7 +355,7 @@ ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_ch
   if (pthread_key_create(&thread_local_key_, nullptr) != 0) {
     throw BadAlloc("Failed to create pthread key for thread-local storage");
   }
-  states_.reserve(FLAGS_bolt_num_workers);
+  states_.reserve(utils::GetNumWorkers());
 }
 
 ThreadSafePool::~ThreadSafePool() {

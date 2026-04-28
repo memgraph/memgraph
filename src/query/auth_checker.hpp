@@ -42,6 +42,13 @@ class AuthChecker {
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       const QueryUserOrRole &user, const DbAccessor *db_accessor) const = 0;
 #endif
+
+ protected:
+  AuthChecker() = default;
+  AuthChecker(const AuthChecker &) = default;
+  AuthChecker(AuthChecker &&) noexcept = default;
+  AuthChecker &operator=(const AuthChecker &) = default;
+  AuthChecker &operator=(AuthChecker &&) noexcept = default;
 };
 #ifdef MG_ENTERPRISE
 class FineGrainedAuthChecker {
@@ -70,10 +77,21 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool HasAllGlobalPrivilegesOnEdges() const = 0;
 
+  [[nodiscard]] virtual bool HasUnrestrictedAccessToVertices() const = 0;
+
+  [[nodiscard]] virtual bool HasUnrestrictedAccessToEdges() const = 0;
+
   // Used to make the auth checker thread safe
   // throw if not possible
   virtual void MakeThreadSafe() const = 0;
   virtual bool IsThreadSafe() const = 0;
+
+ protected:
+  FineGrainedAuthChecker() = default;
+  FineGrainedAuthChecker(const FineGrainedAuthChecker &) = default;
+  FineGrainedAuthChecker(FineGrainedAuthChecker &&) noexcept = default;
+  FineGrainedAuthChecker &operator=(const FineGrainedAuthChecker &) = default;
+  FineGrainedAuthChecker &operator=(FineGrainedAuthChecker &&) noexcept = default;
 };
 
 class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecker {
@@ -109,6 +127,10 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
   bool HasAllGlobalPrivilegesOnVertices() const override { return true; }
 
   bool HasAllGlobalPrivilegesOnEdges() const override { return true; }
+
+  bool HasUnrestrictedAccessToVertices() const override { return true; }
+
+  bool HasUnrestrictedAccessToEdges() const override { return true; }
 
   void MakeThreadSafe() const override {
     // No-op

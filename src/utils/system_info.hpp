@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,11 +12,11 @@
 #pragma once
 
 #include <cstdint>
+#include <format>
+#include <nlohmann/json_fwd.hpp>
 #include <string>
 #include <unordered_set>
 #include <vector>
-
-#include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::utils {
 
@@ -53,6 +53,17 @@ std::unordered_set<std::string> ExtractCPUFlags(const std::vector<std::string> &
 std::string ExtractArmCPUVariant(const std::vector<std::string> &cpu_data);
 
 RuntimeEnv DetectRuntimeEnv();
+
+/**
+ * Returns the number of hardware threads available, with a guaranteed
+ * non-zero result. Tries std::thread::hardware_concurrency() first,
+ * falls back to parsing /proc/cpuinfo, and finally uses the numeric
+ * fallback if neither source succeeds.
+ *
+ * @param fallback Value to use as a last resort (default: 2).
+ * @return Number of hardware threads, always > 0.
+ */
+unsigned GetSafeHardwareConcurrency(unsigned fallback = 2);
 
 /**
  * This function return a dictionary containing some basic system information

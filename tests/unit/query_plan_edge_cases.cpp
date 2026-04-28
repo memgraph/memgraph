@@ -26,6 +26,7 @@
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/stream/streams.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -74,11 +75,12 @@ class QueryExecution : public testing::Test {
                                  nullptr,
                                  nullptr,
                                  nullptr,
-                                 repl_state.value(),
-                                 *system_state
+                                 &repl_state.value(),
+                                 *system_state,
+                                 nullptr
 #ifdef MG_ENTERPRISE
                                  ,
-                                 std::nullopt,
+                                 nullptr,
                                  nullptr
 #endif
     );

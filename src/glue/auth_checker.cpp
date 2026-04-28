@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "glue/auth_checker.hpp"
+#include <range/v3/all.hpp>
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
@@ -50,7 +51,8 @@ bool IsAuthorizedLabels(memgraph::auth::FineGrainedAccessPermissions const &perm
                            r::to_vector;
 
   return permissions.Has(std::span<const std::string>(label_names),
-                         memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
+                         memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
+                             fine_grained_privilege, memgraph::glue::FineGrainedPermissionType::LABEL)) ==
          memgraph::auth::PermissionLevel::GRANT;
 }
 
@@ -79,7 +81,8 @@ bool IsAuthorizedEdgeType(memgraph::auth::FineGrainedAccessPermissions const &pe
 
   auto const &edge_type_name = dba->EdgeTypeToName(edgeType);
   return permissions.Has(std::span{&edge_type_name, 1},
-                         memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
+                         memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
+                             fine_grained_privilege, memgraph::glue::FineGrainedPermissionType::EDGE_TYPE)) ==
          memgraph::auth::PermissionLevel::GRANT;
 }
 }  // namespace
@@ -128,6 +131,7 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
   // update (if needed), so no need to update after that.
   try {
     auto glue_user = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
+    DMG_ASSERT(dba, "DbAccessor must be non-null for fine-grained auth checking");
     if (glue_user.user_) {
       return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba);
     }
@@ -169,7 +173,7 @@ bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Roles &roles,
   }
 #endif
   const auto roles_permissions = roles.GetPermissions(db_name);
-  return std::all_of(privileges.begin(), privileges.end(), [&roles_permissions](const auto privilege) {
+  return std::ranges::all_of(privileges, [&roles_permissions](const auto privilege) {
     return roles_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
            memgraph::auth::PermissionLevel::GRANT;
   });
@@ -204,12 +208,12 @@ bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgr
 
 #ifdef MG_ENTERPRISE
 FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba)
-    : user_or_role_{std::move(user_or_role)}, dba_(dba) {};
+    : user_or_role_{std::move(user_or_role)}, dba_(dba), db_name_{dba_->DatabaseName()} {};
 
 auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedLabelPermissions() const {
   if (!cached_label_permissions_) {
-    cached_label_permissions_ = std::visit(memgraph::utils::Overloaded{[](auto const &user_or_role) {
-                                             return user_or_role.GetFineGrainedAccessLabelPermissions();
+    cached_label_permissions_ = std::visit(memgraph::utils::Overloaded{[this](auto const &user_or_role) {
+                                             return user_or_role.GetFineGrainedAccessLabelPermissions(db_name_);
                                            }},
                                            user_or_role_);
   }
@@ -218,8 +222,8 @@ auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedLabel
 
 auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedEdgePermissions() const {
   if (!cached_edge_permissions_) {
-    cached_edge_permissions_ = std::visit(memgraph::utils::Overloaded{[](auto const &user_or_role) {
-                                            return user_or_role.GetFineGrainedAccessEdgeTypePermissions();
+    cached_edge_permissions_ = std::visit(memgraph::utils::Overloaded{[this](auto const &user_or_role) {
+                                            return user_or_role.GetFineGrainedAccessEdgeTypePermissions(db_name_);
                                           }},
                                           user_or_role_);
   }
@@ -265,8 +269,9 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnVertices(
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return IsAuthorizedGloballyLabels(GetCachedLabelPermissions(),
-                                    FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+  return IsAuthorizedGloballyLabels(
+      GetCachedLabelPermissions(),
+      FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege, FineGrainedPermissionType::LABEL));
 }
 
 bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
@@ -274,8 +279,9 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return IsAuthorizedGloballyEdges(GetCachedEdgePermissions(),
-                                   FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+  return IsAuthorizedGloballyEdges(
+      GetCachedEdgePermissions(),
+      FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege, FineGrainedPermissionType::EDGE_TYPE));
 }
 
 bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
@@ -283,9 +289,12 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
     return true;
   }
   auto const &permissions = GetCachedLabelPermissions();
-  auto const &global_permission = permissions.GetGlobalPermission();
-  return global_permission.has_value() && static_cast<memgraph::auth::FineGrainedPermission>(
-                                              global_permission.value()) == memgraph::auth::kAllPermissions;
+  auto const &global_grants = permissions.GetGlobalGrants();
+  auto const &global_denies = permissions.GetGlobalDenies();
+  return global_grants.has_value() &&
+         static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) ==
+             memgraph::auth::kAllLabelPermissions &&
+         !global_denies.has_value();
 }
 
 bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
@@ -293,10 +302,23 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
     return true;
   }
   auto const &permissions = GetCachedEdgePermissions();
-  auto const &global_permission = permissions.GetGlobalPermission();
-  return global_permission.has_value() && static_cast<memgraph::auth::FineGrainedPermission>(
-                                              global_permission.value()) == memgraph::auth::kAllPermissions;
-};
+  auto const &global_grants = permissions.GetGlobalGrants();
+  auto const &global_denies = permissions.GetGlobalDenies();
+  return global_grants.has_value() &&
+         static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) ==
+             memgraph::auth::kAllEdgeTypePermissions &&
+         !global_denies.has_value();
+}
+
+bool FineGrainedAuthChecker::HasUnrestrictedAccessToVertices() const {
+  auto const &permissions = GetCachedLabelPermissions();
+  return HasAllGlobalPrivilegesOnVertices() && permissions.GetRules().empty();
+}
+
+bool FineGrainedAuthChecker::HasUnrestrictedAccessToEdges() const {
+  auto const &permissions = GetCachedEdgePermissions();
+  return HasAllGlobalPrivilegesOnEdges() && permissions.GetRules().empty();
+}
 
 void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
 

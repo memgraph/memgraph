@@ -165,6 +165,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitConstraintQuery(MemgraphCypher::ConstraintQueryContext *ctx) override;
 
   /**
+   * @return ConstraintQuery*
+   */
+  antlrcpp::Any visitOriginalConstraintQuery(MemgraphCypher::OriginalConstraintQueryContext *ctx) override;
+
+  /**
+   * @return ConstraintQuery*
+   */
+  antlrcpp::Any visitAlternativeConstraintSyntax(MemgraphCypher::AlternativeConstraintSyntaxContext *ctx) override;
+
+  /**
    * @return TypeConstraintType
    */
   antlrcpp::Any visitTypeConstraintType(MemgraphCypher::TypeConstraintTypeContext *ctx) override;
@@ -595,6 +605,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return EdgeIndexQuery*
    */
   antlrcpp::Any visitCreateEdgeIndex(MemgraphCypher::CreateEdgeIndexContext *ctx) override;
+
+  /**
+   * @return EdgeIndexQuery*
+   */
+  antlrcpp::Any visitCreateEdgeIndexAlternativeSyntax(
+      MemgraphCypher::CreateEdgeIndexAlternativeSyntaxContext *ctx) override;
 
   /**
    * @return EdgeIndexQuery*
@@ -1207,6 +1223,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext *ctx) override;
 
   /**
+   * @return ShowQueryCallableMappingsQuery*
+   */
+  antlrcpp::Any visitShowQueryCallableMappingsQuery(
+      MemgraphCypher::ShowQueryCallableMappingsQueryContext *ctx) override;
+
+  /**
    * @return ParameterQuery*
    */
   antlrcpp::Any visitParameterQuery(MemgraphCypher::ParameterQueryContext *ctx) override;
@@ -1303,6 +1325,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ShowSchemaInfoQuery*
    */
   antlrcpp::Any visitShowSchemaInfoQuery(MemgraphCypher::ShowSchemaInfoQueryContext *ctx) override;
+
+  /**
+   * @return ReloadSSLQuery*
+   */
+  antlrcpp::Any visitReloadSSLQuery(MemgraphCypher::ReloadSSLQueryContext *ctx) override;
 
   /**
    * @return TtlQuery*

@@ -13,6 +13,8 @@ module;
 
 #include <bit>
 #include <cassert>
+#include <compare>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <limits>
@@ -23,6 +25,8 @@ module;
 export module memgraph.planner.core.union_find;
 
 export namespace memgraph::planner::core {
+
+struct UnionFind;
 
 /**
  * @brief Processing context for UnionFind operations
@@ -188,7 +192,7 @@ struct UnionFind {
 };
 }  // namespace memgraph::planner::core
 
-module : private;
+module :private;
 
 namespace memgraph::planner::core {
 
@@ -214,10 +218,10 @@ auto UnionFind::Find(id_t id) -> id_t {
   // Path halving is faster than full compression for find-heavy workloads
   auto current = id;
   while (parent_[current] != current) [[likely]] {
-      auto const next = parent_[current];
-      parent_[current] = parent_[next];
-      current = next;
-    }
+    auto const next = parent_[current];
+    parent_[current] = parent_[next];
+    current = next;
+  }
 
   return current;
 }

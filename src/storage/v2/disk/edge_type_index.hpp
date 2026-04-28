@@ -13,6 +13,8 @@
 
 #include "storage/v2/indices/edge_type_index.hpp"
 
+#include <cstdint>
+
 namespace memgraph::storage {
 
 class DiskEdgeTypeIndex : public EdgeTypeIndex {

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "storage_mode.hpp"
+
+#include <utility>
 
 namespace memgraph::storage {
 
@@ -26,7 +28,7 @@ std::string_view StorageModeToString(StorageMode storage_mode) {
     case StorageMode::ON_DISK_TRANSACTIONAL:
       return "ON_DISK_TRANSACTIONAL";
     case StorageMode::N:
-      __builtin_unreachable();
+      std::unreachable();
   }
 }
 

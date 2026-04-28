@@ -428,18 +428,18 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_THAT(
         indices.label_properties,
         UnorderedElementsAre(
-            std::make_pair(
+            memgraph::storage::LabelPropertyIndexEntry{
                 replica.db.storage()->NameToLabel(label),
-                std::vector{memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)}}),
-            std::make_pair(
+                std::vector{memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)}}},
+            memgraph::storage::LabelPropertyIndexEntry{
                 replica.db.storage()->NameToLabel(label),
                 std::vector{memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)},
-                            memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property_extra)}}),
-            std::make_pair(
+                            memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property_extra)}}},
+            memgraph::storage::LabelPropertyIndexEntry{
                 replica.db.storage()->NameToLabel(label),
                 std::vector{memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(nested_property1),
                                                             main.db.storage()->NameToProperty(nested_property2),
-                                                            main.db.storage()->NameToProperty(nested_property3)}})));
+                                                            main.db.storage()->NameToProperty(nested_property3)}}}));
     const auto &l_stats_rep =
         replica.db.Access(memgraph::storage::WRITE)->GetIndexStats(replica.db.storage()->NameToLabel(label));
     ASSERT_TRUE(l_stats_rep);
@@ -805,8 +805,6 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   }
 }
 
-// ASYNC replication currently doesn't work because tasks get pushed to thread pool with reference to replica
-// streams which get destroyed in between
 TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   MinMemgraph main(main_conf);
   MinMemgraph replica_async(repl_conf);

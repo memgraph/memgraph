@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,15 @@
 
 #include "utils/event_map.hpp"
 
+#include <algorithm>
+#include <cstddef>
+#include <iterator>
 #include <nlohmann/json.hpp>
 
 namespace {
 template <typename T, typename K>
 int NameToId(const T &names, const K &name) {
-  const auto &id = std::find(names.begin(), names.end(), name);
+  const auto &id = std::ranges::find(names, name);
   if (id == names.end()) return -1;
   return std::distance(names.begin(), id);
 }

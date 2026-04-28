@@ -15,6 +15,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <memory>
 #include <optional>

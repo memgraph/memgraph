@@ -1,0 +1,151 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 55d29a8..3af27be 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ cmake_minimum_required(VERSION 3.5)
+ project(NuRaft VERSION 1.0.0 LANGUAGES CXX)
++set (CMAKE_CXX_STANDARD 11)
+
+ # === Build type (default: RelWithDebInfo, O2) ===========
+ if (NOT CMAKE_BUILD_TYPE)
+@@ -26,41 +27,23 @@ endif()
+
+
+ # === Find ASIO ===
+-if (BOOST_INCLUDE_PATH AND BOOST_LIBRARY_PATH)
++find_package(OpenSSL CONFIG REQUIRED)
++find_package(Boost CONFIG)
++if (Boost_FOUND)
+     # If Boost path (both include and library) is given,
+     # use Boost's ASIO.
+-    message(STATUS "Boost include path: " ${BOOST_INCLUDE_PATH})
+-    message(STATUS "Boost library path: " ${BOOST_LIBRARY_PATH})
+-
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_BOOST_ASIO")
+-
+-    set(ASIO_INCLUDE_DIR ${BOOST_INCLUDE_PATH})
+-    set(LIBBOOST_SYSTEM "${BOOST_LIBRARY_PATH}/libboost_system.a")
+-
++    set(ASIO_DEP boost::boost)
+ else ()
+     # If not, ASIO standalone mode.
+-    FIND_PATH(ASIO_INCLUDE_DIR
+-              NAME asio.hpp
+-              HINTS ${PROJECT_SOURCE_DIR}/asio/asio/include
+-                    $ENV{HOME}/local/include
+-                    /opt/local/include
+-                    /usr/local/include
+-                    /usr/include)
+-
++    find_package(Asio CONFIG REQUIRED)
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DASIO_STANDALONE")
+-
+-endif ()
+-
+-if (NOT ASIO_INCLUDE_DIR)
+-    message(FATAL_ERROR "Can't find ASIO header files")
+-else ()
+-    message(STATUS "ASIO include path: " ${ASIO_INCLUDE_DIR})
++    set(ASIO_DEP asio::asio)
+ endif ()
+
+
+ # === Includes ===
+ include_directories(BEFORE ./)
+-include_directories(BEFORE ${ASIO_INCLUDE_DIR})
+ include_directories(BEFORE ${PROJECT_SOURCE_DIR}/include)
+ include_directories(BEFORE ${PROJECT_SOURCE_DIR}/include/libnuraft)
+ include_directories(BEFORE ${PROJECT_SOURCE_DIR}/examples)
+@@ -81,24 +64,11 @@ endif()
+ if (NOT WIN32)
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-pessimizing-move")
+-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+-    if (APPLE)
+-        include_directories(BEFORE
+-                /usr/local/opt/openssl/include
+-                )
+-        link_directories(
+-                /usr/local/opt/openssl/lib
+-                )
+-    else()
+-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
+-    endif ()
+
+ else ()
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd5045 /wd4571 /wd4774 /wd4820 /wd5039 /wd4626 /wd4625 /wd5026 /wd5027 /wd4623 /wd4996 /wd4530 /wd4267 /wd4244 /W3")
+     message(STATUS "---- WIN32 ----")
+-    set(DISABLE_SSL 1)
+ endif ()
+
+ # === Disable SSL ===
+@@ -254,6 +224,7 @@ set(RAFT_CORE
+     ${ROOT_SRC}/stat_mgr.cxx
+     )
+ add_library(RAFT_CORE_OBJ OBJECT ${RAFT_CORE})
++target_link_libraries(RAFT_CORE_OBJ ${ASIO_DEP} openssl::openssl)
+
+ set(STATIC_LIB_SRC
+     $<TARGET_OBJECTS:RAFT_CORE_OBJ>)
+@@ -261,54 +232,11 @@ set(STATIC_LIB_SRC
+ # === Executables ===
+ set(LIBRARY_NAME "nuraft")
+
+-add_library(static_lib ${STATIC_LIB_SRC})
+-set_target_properties(static_lib PROPERTIES OUTPUT_NAME ${LIBRARY_NAME} CLEAN_DIRECT_OUTPUT 1)
+-
+-add_library(shared_lib SHARED ${STATIC_LIB_SRC})
+-set_target_properties(shared_lib PROPERTIES OUTPUT_NAME ${LIBRARY_NAME} CLEAN_DIRECT_OUTPUT 1)
+-if (APPLE)
+-    target_link_libraries(shared_lib ${LIBRARIES})
+-endif ()
+-
+-if (WIN32)
+-    set(LIBRARY_OUTPUT_NAME "${LIBRARY_NAME}.lib")
+-else ()
+-    set(LIBRARY_OUTPUT_NAME "lib${LIBRARY_NAME}.a")
+-endif ()
+-message(STATUS "Output library file name: ${LIBRARY_OUTPUT_NAME}")
+-
+-# === Examples ===
+-add_subdirectory("${PROJECT_SOURCE_DIR}/examples")
++add_library(nuraft ${STATIC_LIB_SRC})
++target_link_libraries(nuraft ${ASIO_DEP} openssl::openssl)
+
+
+ # === Tests ===
+-add_subdirectory("${PROJECT_SOURCE_DIR}/tests")
+-
+-
+-if (CODE_COVERAGE GREATER 0)
+-    set(CODE_COVERAGE_DEPS
+-        raft_server_test
+-        failure_test
+-        asio_service_test
+-        buffer_test
+-        serialization_test
+-        timer_test
+-        strfmt_test
+-        stat_mgr_test
+-    )
+-
+-    # lcov
+-    SETUP_TARGET_FOR_COVERAGE(
+-        NAME raft_cov
+-        EXECUTABLE ./runtests.sh
+-        DEPENDENCIES ${CODE_COVERAGE_DEPS}
+-    )
+-endif()
+-
+-
+-# === Install Targets ===
+-install(TARGETS static_lib ARCHIVE DESTINATION lib)
+-install(TARGETS shared_lib LIBRARY DESTINATION lib)
++install(TARGETS nuraft ARCHIVE DESTINATION lib)
++install(TARGETS nuraft LIBRARY DESTINATION lib)
+ install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/libnuraft DESTINATION include)
+-
+-

@@ -12,14 +12,19 @@
 #include "flags/run_time_configurable.hpp"
 
 #include <atomic>
+#include <cstddef>
+#include <expected>
+#include <functional>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 
 #include "croncpp.h"
-#include "gflags/gflags.h"
-
+#include "flags/coord_flag_env_handler.hpp"
 #include "flags/logging.hpp"
+#include "gflags/gflags.h"
 #include "license/license.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
@@ -28,8 +33,10 @@
 #include "utils/observer.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/timezone.hpp"
 
 namespace {
 bool ValidTimezone(std::string_view tz);
@@ -435,6 +442,7 @@ void Initialize(utils::Settings &settings) {
       kRestore,
       [](const std::string &val) {
         timezone_ = ::GetTimezone(val);  // Cache for faster access
+        utils::SetTimezone(timezone_);   // Propagate to utils layer
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!ValidTimezone(in)) {
@@ -481,6 +489,12 @@ void Initialize(utils::Settings &settings) {
         }
       },
       [](auto in) -> utils::Settings::ValidatorResult {
+        auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
+        if (coordination_setup.IsCoordinator()) {
+          return std::unexpected{
+              "Snapshot interval cannot be set on coordinators. Coordinators don't support snapshots."};
+        }
+
         if (!ValidPeriodicSnapshot<false>(in)) {
           return std::unexpected{
               "Snapshot interval can be defined as an integer period in seconds or as a 6-field cron expression. "

@@ -75,7 +75,8 @@ class DiskStorage final : public Storage {
     VerticesIterable Vertices(LabelId label, View view) override;
 
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
-                              std::span<storage::PropertyValueRange const> property_ranges, View view) override;
+                              std::span<storage::PropertyValueRange const> property_ranges, View view,
+                              IndexOrder order) override;
 
     VerticesChunkedIterable ChunkedVertices(View /*view*/, size_t /*num_chunks*/) override {
       throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
@@ -87,7 +88,7 @@ class DiskStorage final : public Storage {
 
     VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
                                             std::span<storage::PropertyValueRange const> property_ranges, View view,
-                                            size_t num_chunks) override {
+                                            size_t num_chunks, IndexOrder /*order*/) override {
       throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
     }
 
@@ -294,11 +295,12 @@ class DiskStorage final : public Storage {
     // Bring base class convenience overloads into scope (they provide default neverCancel)
     using Storage::Accessor::CreateGlobalEdgeIndex;
     using Storage::Accessor::CreateIndex;
+    using Storage::Accessor::Vertices;
 
     std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
                                                                  CheckCancelFunction cancel_check) override;
 
-    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths,
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths, IndexOrder order,
                                                                  CheckCancelFunction cancel_check) override;
 
     std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
@@ -312,8 +314,9 @@ class DiskStorage final : public Storage {
 
     std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) override;
 
-    std::expected<void, StorageIndexDefinitionError> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                               std::vector<storage::PropertyPath> &&properties,
+                                                               std::optional<IndexOrder> order = std::nullopt) override;
 
     std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) override;
 
@@ -334,7 +337,6 @@ class DiskStorage final : public Storage {
     utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) override;
 
     utils::small_vector<float> GetVectorFromVectorIndex(Vertex *vertex, std::string_view index_name) const override;
-
     std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
 
     std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(

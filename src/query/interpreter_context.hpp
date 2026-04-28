@@ -37,7 +37,9 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #ifdef MG_ENTERPRISE
-#include "coordination/coordinator_state.hpp"
+namespace memgraph::coordination {
+class CoordinatorState;
+}  // namespace memgraph::coordination
 #endif
 
 namespace memgraph::dbms {
@@ -71,9 +73,9 @@ struct InterpreterContext {
   utils::SkipList<QueryCacheEntry> ast_cache;
 
   // GLOBAL
-  utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state;
+  utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *repl_state;
 #ifdef MG_ENTERPRISE
-  std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state_;
+  coordination::CoordinatorState *coordinator_state_ = nullptr;
   utils::ResourceMonitoring *resource_monitoring;
 #endif
 
@@ -81,6 +83,7 @@ struct InterpreterContext {
   AuthChecker *auth_checker;
   ReplicationQueryHandler *replication_handler_;
   system::System *system_;
+  communication::ServerContext *bolt_server_context_;
   utils::PriorityThreadPool *worker_pool;
 
   // Used to check active transactions
@@ -108,10 +111,10 @@ struct InterpreterContext {
   // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
                      memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
-                     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, system::System &system,
+                     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *rs, system::System &system,
+                     communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE
-                     std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
-                     utils::ResourceMonitoring *resource_monitoring,
+                     coordination::CoordinatorState *coordinator_state, utils::ResourceMonitoring *resource_monitoring,
 #endif
                      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
                      ReplicationQueryHandler *replication_handler = nullptr,
@@ -129,10 +132,10 @@ class InterpreterContextHolder {
  private:
   static void Initialize(InterpreterConfig interpreter_config, utils::Settings *settings,
                          parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
-                         utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
-                         system::System &system,
+                         utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *rs,
+                         system::System &system, communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE
-                         std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
+                         coordination::CoordinatorState *coordinator_state,
                          utils::ResourceMonitoring *resource_monitoring,
 #endif
                          AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
@@ -145,6 +148,7 @@ class InterpreterContextHolder {
                      dbms_handler,
                      rs,
                      system,
+                     bolt_server_context,
 #ifdef MG_ENTERPRISE
                      coordinator_state,
                      resource_monitoring,
@@ -168,22 +172,24 @@ class InterpreterContextHolder {
 };
 
 struct InterpreterContextLifetimeControl {
-  InterpreterContextLifetimeControl(
-      InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
-      memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
-      utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, system::System &system,
+  InterpreterContextLifetimeControl(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
+                                    memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
+                                    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *rs,
+                                    system::System &system, communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE
-      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
-      utils::ResourceMonitoring *resource_monitoring,
+                                    coordination::CoordinatorState *coordinator_state,
+                                    utils::ResourceMonitoring *resource_monitoring,
 #endif
-      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr, ReplicationQueryHandler *replication_handler = nullptr,
-      utils::PriorityThreadPool *worker_pool = nullptr) {
+                                    AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
+                                    ReplicationQueryHandler *replication_handler = nullptr,
+                                    utils::PriorityThreadPool *worker_pool = nullptr) {
     InterpreterContextHolder::Initialize(interpreter_config,
                                          settings,
                                          parameters,
                                          dbms_handler,
                                          rs,
                                          system,
+                                         bolt_server_context,
 #ifdef MG_ENTERPRISE
                                          coordinator_state,
                                          resource_monitoring,

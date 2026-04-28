@@ -165,6 +165,8 @@
 
         storage-backup-dir-enabled (:storage-backup-dir-enabled opts)
 
+        shutdown-signal (:shutdown-signal opts)
+
         test-opts (merge opts
                          {:workload workload
                           :nodes-config nodes-config
@@ -174,7 +176,8 @@
                           :num-tenants num-tenants
                           :recovery-time recovery-time
                           :nemesis-start-sleep nemesis-start-sleep
-                          :storage-backup-dir-enabled storage-backup-dir-enabled})]
+                          :storage-backup-dir-enabled storage-backup-dir-enabled
+                          :shutdown-signal shutdown-signal})]
 
     (memgraph-test test-opts)))
 
@@ -196,6 +199,7 @@
     :parse-fn #(-> % load-configuration)]
    ["-nt" "--num-tenants NUMBER" "Number of tenants that will be used in multi-tenant env." :default nil]
    ["-sebd" "--storage-backup-dir-enabled BOOL" "If enabled, .old dir will be used." :default true]
+   ["-ss" "--shutdown-signal SIGNAL" "Signal to use for terminating instances." :default :KILL :parse-fn keyword]
    ["-rt" "--recovery-time SECONDS" "Recovery time before calling final generator." :default nil]
    ["-nss" "--nemesis-start-sleep SECONDS" "The number of seconds nemesis will sleep before starting its disruptions." :default nil]])
 

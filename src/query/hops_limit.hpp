@@ -30,6 +30,11 @@ struct HopsLimit {
 
   ~HopsLimit() { Free(); }
 
+  HopsLimit(const HopsLimit &) = default;
+  HopsLimit(HopsLimit &&) noexcept = default;
+  HopsLimit &operator=(const HopsLimit &) = default;
+  HopsLimit &operator=(HopsLimit &&) noexcept = default;
+
   explicit HopsLimit(uint64_t limit, uint64_t batch = 1U)
       : limit(limit), batch(batch), shared_quota_{std::in_place, limit, std::max(batch, 1UL)} {}
 

@@ -9,10 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <fmt/format.h>
-
+#include <spdlog/spdlog.h>
+#include <mutex>
 #include <shared_mutex>
 
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/settings.hpp"
 
@@ -85,9 +86,13 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
 void Settings::SetValueForce(const std::string &setting_name, const std::string &new_value) {
   const std::lock_guard settings_guard{settings_lock_};
   if (!storage_) return;
-  MG_ASSERT(
-      storage_->Get(setting_name).has_value(), "SetValueForce called for unregistered setting '{}'", setting_name);
-  MG_ASSERT(storage_->Put(setting_name, new_value), "Failed to force-set setting '{}'", setting_name);
+  if (!storage_->Get(setting_name).has_value()) {
+    spdlog::error("SetValueForce called for unregistered setting '{}'", setting_name);
+    return;
+  }
+  if (!storage_->Put(setting_name, new_value)) {
+    spdlog::error("Failed to force-set setting '{}'", setting_name);
+  }
 }
 
 std::vector<std::pair<std::string, std::string>> Settings::AllSettings() const {

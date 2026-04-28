@@ -76,7 +76,7 @@ env:
 jobs:
   PackageAndUpload:
     runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON((inputs.os == 'centos-10' || inputs.os == 'rocky-10') && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
-    timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
+    timeout-minutes: 30
     outputs:
       package_s3_url: ${{ steps.output_package_s3_url.outputs.package_s3_url }}
     steps:
@@ -228,6 +228,20 @@ jobs:
             --conan-username $CONAN_USERNAME \
             --conan-password $CONAN_PASSWORD
 
+      - name: "Build gssapi wheel"
+        if: ${{ env.FOR_DOCKER == 'true' }}
+        run: |
+          # gssapi has no prebuilt linux wheels on PyPI, so build one in the
+          # MGBUILD container (which has libkrb5/krb5-devel) and drop it into
+          # release/docker/wheels so the python-base Dockerfile stage can
+          # install it from the local wheel rather than hitting PyPI.
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            build-gssapi \
+            --dest-dir release/docker/wheels
+
       - name: "Stop mgbuild container"
         if: always()
         run: |
@@ -283,6 +297,15 @@ jobs:
         with:
           name: memgraph-sbom
           path: sbom/
+
+      - name: "Upload SBOM to S3"
+        if: ${{ env.GENERATE_SBOM == 'true' && inputs.push_to_s3 == 'true' && startsWith(inputs.ref, 'v') && contains(inputs.ref, '-rc') }}
+        run: |
+          aws s3 sync sbom/ "s3://${S3_BUCKET}/${S3_DEST_DIR}/sbom/"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ inputs.s3_region }}
 
       - name: Run Docker smoke tests
         if: ${{ env.FOR_DOCKER == 'true' && inputs.run_smoke_tests }}

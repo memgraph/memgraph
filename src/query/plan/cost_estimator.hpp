@@ -11,7 +11,10 @@
 
 #pragma once
 
+#include <cmath>
+
 #include "query/parameters.hpp"
+#include "query/plan/cost_constants.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "utils/math.hpp"
@@ -67,11 +70,15 @@ struct PlanCost {
  * can never reduce it's input cardinality), but since Merge always happens
  * after the read part, and can't be reoredered, we can ignore that.
  *
- * Limiting and accumulating (Aggregate, OrderBy, Accumulate) operations are
+ * Limiting and accumulating (Aggregate, Accumulate) operations are
  * cardinality modifiers that always execute at the end of the query part. Their
  * cardinality influence is irrelevant because they execute the same
  * for all plans for a single query part, and query part reordering is not
  * allowed.
+ *
+ * OrderBy is an exception: index-scan rewriting can eliminate an OrderBy when
+ * the scan already provides the required order, so plans with and without
+ * OrderBy must have different costs. We model it as O(n log n) work.
  *
  * This kind of cost estimation can only be used for comparing logical plans.
  * It's aim is to estimate cost(A) to be less then cost(B) in every case where
@@ -81,42 +88,6 @@ struct PlanCost {
 template <class TDbAccessor>
 class CostEstimator : public HierarchicalLogicalOperatorVisitor {
  public:
-  struct CostParam {
-    static constexpr double kMinimumCost{0.001};  // everything has some runtime cost
-    static constexpr double kScanAll{1.0};
-    static constexpr double kScanAllByLabel{1.1};
-    static constexpr double kScanAllByLabelProperties{1.1};
-    static constexpr double kScanAllByPointDistance{1.1};
-    static constexpr double kScanAllByPointWithinbbox{1.1};
-    static constexpr double kScanAllByEdgeType{1.1};
-    static constexpr double kScanAllByEdgeTypePropertyValue{1.1};
-    static constexpr double kScanAllByEdgeTypePropertyRange{1.1};
-    static constexpr double kScanAllByEdgeTypeProperty{1.1};
-    static constexpr double kScanAllByEdgePropertyValue{1.1};
-    static constexpr double kScanAllByEdgePropertyRange{1.1};
-    static constexpr double kScanAllByEdgeProperty{1.1};
-    static constexpr double kExpand{2.0};
-    static constexpr double kExpandVariable{3.0};
-    static constexpr double kFilter{1.5};
-    static constexpr double kEdgeUniquenessFilter{1.5};
-    static constexpr double kUnwind{1.3};
-    static constexpr double kForeach{1.0};
-    static constexpr double kUnion{1.0};
-    static constexpr double kSubquery{1.0};
-  };
-
-  struct CardParam {
-    static constexpr double kExpand{3.0};
-    static constexpr double kExpandVariable{9.0};
-    static constexpr double kFilter{0.25};
-    static constexpr double kEdgeUniquenessFilter{0.95};
-  };
-
-  struct MiscParam {
-    static constexpr double kUnwindNoLiteral{10.0};
-    static constexpr double kForeachNoLiteral{10.0};
-  };
-
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
 
@@ -260,6 +231,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(OrderBy & /*op*/) override {
+    // OrderBy doesn't change cardinality; cardinality_ here is the sort input size
+    IncrementOrderByCost();
+    return true;
+  }
+
   bool PreVisit(AggregateParallel &op) override {
     // Start of parallel execution
     // Set parallel execution mode for cost calculation
@@ -272,7 +249,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // Start of parallel execution
     // Set parallel execution mode for cost calculation
     num_threads_ = op.num_threads_;
-    // NOTE No cost for OrderBy (regardless of parallel vs single threaded)
+    return true;
+  }
+
+  bool PostVisit(OrderByParallel & /*op*/) override {
+    IncrementOrderByCost();
     return true;
   }
 
@@ -594,6 +575,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   void IncrementCost(double param) {
     const auto delta = std::max(CostParam::kMinimumCost, param * cardinality_);
     cost_ += delta / num_threads_;
+  }
+
+  void IncrementOrderByCost() {
+    IncrementCost(CostParam::kOrderBy * std::log2(std::max(CostParam::kOrderByMinCardinality, cardinality_)));
   }
 
   CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {

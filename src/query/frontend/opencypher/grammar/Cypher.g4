@@ -129,7 +129,7 @@ callProcedure : CALL procedureName '(' ( expression ( ',' expression )* )? ')' (
 
 procedureName : symbolicName ( '.' symbolicName )* ;
 
-yieldProcedureResults : YIELD ( '*' | ( procedureResult ( ',' procedureResult )* ) ) ;
+yieldProcedureResults : YIELD ( '*' | ( procedureResult ( ',' procedureResult )* ) ) ( where )? ;
 
 memoryLimit : MEMORY ( UNLIMITED | LIMIT literal ( MB | KB ) ) ;
 
@@ -369,9 +369,9 @@ integerLiteral : DecimalLiteral
                | HexadecimalLiteral
                ;
 
-createIndex : CREATE INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ;
+createIndex : CREATE INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ( WITH CONFIG configsMap=configMap )? ;
 
-dropIndex : DROP INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ;
+dropIndex : DROP INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ( WITH CONFIG configsMap=configMap )? ;
 
 doubleLiteral : FloatingLiteral ;
 

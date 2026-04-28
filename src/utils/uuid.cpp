@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,9 +12,7 @@
 #include "utils/uuid.hpp"
 
 #include <array>
-
-#include "slk/serialization.hpp"
-
+#include <cstddef>
 #include <nlohmann/json.hpp>
 
 namespace memgraph::utils {
@@ -37,13 +35,3 @@ std::string GenerateUUID() {
 }
 
 }  // namespace memgraph::utils
-
-// Serialize UUID
-namespace memgraph::slk {
-void Save(const memgraph::utils::UUID &self, memgraph::slk::Builder *builder) {
-  const auto &arr = static_cast<utils::UUID::arr_t>(self);
-  memgraph::slk::Save(arr, builder);
-}
-
-void Load(memgraph::utils::UUID *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->uuid, reader); }
-}  // namespace memgraph::slk

@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <range/v3/all.hpp>
 #include <type_traits>
 #include <unordered_map>
 
@@ -40,6 +41,7 @@
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 #include "utils/tag.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -1002,6 +1004,73 @@ uint64_t ReadWalDeltaHeader(BaseDecoder *decoder) {
   return *timestamp;
 }
 
+bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
+  return std::visit(utils::Overloaded{
+                        []<typename T>(T const &lhs, T const &rhs) { return lhs == rhs; },
+                        [](auto const &, auto const &) { return false; },
+                    },
+                    a.data_,
+                    b.data_);
+}
+
+bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta) {
+  return std::visit(utils::Overloaded{
+                        // These delta actions are all found inside transactions so they don't
+                        // indicate a transaction end.
+                        [](WalVertexCreate const &) { return false; },
+                        [](WalVertexDelete const &) { return false; },
+                        [](WalVertexAddLabel const &) { return false; },
+                        [](WalVertexRemoveLabel const &) { return false; },
+                        [](WalVertexSetProperty const &) { return false; },
+                        [](WalEdgeCreate const &) { return false; },
+                        [](WalEdgeDelete const &) { return false; },
+                        [](WalEdgeSetProperty const &) { return false; },
+                        [](WalTransactionStart const &) { return false; },
+
+                        // This delta explicitly indicates that a transaction is done.
+                        [](WalTransactionEnd const &) { return true; },
+
+                        // These operations aren't transactional and they are encoded only using
+                        // a single delta, so they each individually mark the end of their
+                        // 'transaction'.
+                        [](WalLabelIndexCreate const &) { return true; },
+                        [](WalLabelIndexDrop const &) { return true; },
+                        [](WalLabelIndexStatsSet const &) { return true; },
+                        [](WalLabelIndexStatsClear const &) { return true; },
+                        [](WalLabelPropertyIndexCreate const &) { return true; },
+                        [](WalLabelPropertyIndexDrop const &) { return true; },
+                        [](WalLabelPropertyIndexStatsSet const &) { return true; },
+                        [](WalLabelPropertyIndexStatsClear const &) { return true; },
+                        [](WalEdgeTypeIndexCreate const &) { return true; },
+                        [](WalEdgeTypeIndexDrop const &) { return true; },
+                        [](WalEdgeTypePropertyIndexCreate const &) { return true; },
+                        [](WalEdgeTypePropertyIndexDrop const &) { return true; },
+                        [](WalEdgePropertyIndexCreate const &) { return true; },
+                        [](WalEdgePropertyIndexDrop const &) { return true; },
+                        [](WalTextIndexCreate const &) { return true; },
+                        [](WalTextIndexDrop const &) { return true; },
+                        [](WalTextEdgeIndexCreate const &) { return true; },
+                        [](WalExistenceConstraintCreate const &) { return true; },
+                        [](WalExistenceConstraintDrop const &) { return true; },
+                        [](WalUniqueConstraintCreate const &) { return true; },
+                        [](WalUniqueConstraintDrop const &) { return true; },
+                        [](WalEnumCreate const &) { return true; },
+                        [](WalEnumAlterAdd const &) { return true; },
+                        [](WalEnumAlterUpdate const &) { return true; },
+                        [](WalPointIndexCreate const &) { return true; },
+                        [](WalPointIndexDrop const &) { return true; },
+                        [](WalTypeConstraintCreate const &) { return true; },
+                        [](WalTypeConstraintDrop const &) { return true; },
+                        [](WalVectorIndexCreate const &) { return true; },
+                        [](WalVectorEdgeIndexCreate const &) { return true; },
+                        [](WalVectorIndexDrop const &) { return true; },
+                        [](WalTtlOperation const &) { return true; },
+                        [](WalDescriptionSet const &) { return true; },
+                        [](WalDescriptionDelete const &) { return true; },
+                    },
+                    delta.data_);
+}
+
 // Function used to read the current WAL delta data. The WAL delta header must
 // be read before calling this function.
 WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
@@ -1034,11 +1103,7 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       encoder->WriteMarker(Marker::DELTA_VERTEX_SET_PROPERTY);
       encoder->WriteUint(vertex->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
-      // The property value is the value that is currently stored in the
-      // vertex.
-      // TODO (mferencevic): Mitigate the memory allocation introduced here
-      // (with the `GetProperty` call). It is the only memory allocation in the
-      // entire WAL file writing logic.
+      // Use IndexedPropertyDecoder to resolve VectorIndexId vectors from vector index.
       auto property_value = vertex->properties.GetProperty(
           delta.property.key,
           IndexedPropertyDecoder<Vertex>{
@@ -1087,13 +1152,12 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
       encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
       encoder->WriteUint(edge->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
-      // The property value is the value that is currently stored in the
-      // edge.
-      // TODO (mferencevic): Mitigate the memory allocation introduced here
-      // (with the `GetProperty` call). It is the only memory allocation in the
-      // entire WAL file writing logic.
-      encoder->WriteExternalPropertyValue(
-          ToExternalPropertyValue(edge->properties.GetProperty(delta.property.key), storage->name_id_mapper_.get()));
+      // Use IndexedPropertyDecoder to resolve VectorIndexId vectors from vector index.
+      auto property_value = edge->properties.GetProperty(
+          delta.property.key,
+          IndexedPropertyDecoder<Edge>{
+              .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = edge});
+      encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
       encoder->WriteUint((*delta.property.out_vertex).gid.AsUint());
       // In-vertex GID for faster replica resolution (need only if edge was not created in this transaction)
@@ -1455,6 +1519,8 @@ std::optional<RecoveryInfo> LoadWal(
         }
 
         edge->properties.SetProperty(property_id, property_value);
+        VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
+            property_id, property_value, &*edge, indices_constraints->indices.vector_edge_indices);
       },
       [&](WalTransactionStart const &data) {
         should_commit = data.commit.value_or(true);
@@ -1521,16 +1587,20 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalLabelPropertyIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
-        AddRecoveredIndexConstraint(&indices_constraints->indices.label_properties,
-                                    {label_id, std::move(prop_ids)},
-                                    "The label property index already exists!");
+        auto order = data.order.value_or(IndexOrder::ASC);
+        auto &target = (order == IndexOrder::DESC) ? indices_constraints->indices.label_properties_desc
+                                                   : indices_constraints->indices.label_properties;
+        AddRecoveredIndexConstraint(
+            &target, {label_id, std::move(prop_ids)}, "The label property index already exists!");
       },
       [&](WalLabelPropertyIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_properties,
-                                       {label_id, std::move(prop_ids)},
-                                       "The label property index doesn't exist!");
+        auto order = data.order.value_or(IndexOrder::ASC);
+        auto &target = (order == IndexOrder::DESC) ? indices_constraints->indices.label_properties_desc
+                                                   : indices_constraints->indices.label_properties;
+        RemoveRecoveredIndexConstraint(
+            &target, {label_id, std::move(prop_ids)}, "The label property index doesn't exist!");
       },
       [&](WalPointIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1709,28 +1779,30 @@ std::optional<RecoveryInfo> LoadWal(
         auto mode = data.edge_type_mode ? static_cast<VectorEdgeTypeMode>(*data.edge_type_mode)
                                         : VectorEdgeTypeMode::SINGLE;
         std::vector<EdgeTypeId> edge_types;
-        if (!data.edge_type.empty()) edge_types.push_back(EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)));
+        if (!data.edge_type.empty()) {
+          edge_types.push_back(EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)));
+        }
         if (data.extra_edge_types) {
           for (const auto &extra : *data.extra_edge_types)
             edge_types.push_back(EdgeTypeId::FromUint(name_id_mapper->NameToId(extra)));
         }
-        indices_constraints->indices.vector_edge_indices.emplace_back(VectorEdgeIndexSpec{
-            .index_name = data.index_name,
-            .edge_type_filter = VectorEdgeTypeFilter{.mode = mode, .edge_types = std::move(edge_types)},
-            .property = property_id,
-            .metric_kind = unum_metric_kind,
-            .dimension = data.dimension,
-            .resize_coefficient = data.resize_coefficient,
-            .capacity = data.capacity,
-            .scalar_kind = scalar_kind});
+        indices_constraints->indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
+            .spec = VectorEdgeIndexSpec{
+                .index_name = data.index_name,
+                .edge_type_filter = VectorEdgeTypeFilter{.mode = mode, .edge_types = std::move(edge_types)},
+                .property = property_id,
+                .metric_kind = unum_metric_kind,
+                .dimension = data.dimension,
+                .resize_coefficient = data.resize_coefficient,
+                .capacity = data.capacity,
+                .scalar_kind = scalar_kind},
+            .index_entries = {}});
       },
       [&](WalVectorIndexDrop const &data) {
         VectorIndexRecovery::UpdateOnIndexDrop(
             data.index_name, name_id_mapper, indices_constraints->indices.vector_indices, vertex_acc);
-        indices_constraints->indices.vector_edge_indices.erase(
-            r::remove_if(indices_constraints->indices.vector_edge_indices,
-                         [&](const auto &recovery_info) { return recovery_info.index_name == data.index_name; }),
-            indices_constraints->indices.vector_edge_indices.end());
+        VectorEdgeIndexRecovery::UpdateOnIndexDrop(
+            data.index_name, name_id_mapper, indices_constraints->indices.vector_edge_indices, vertex_acc);
       },
       [&](WalTtlOperation const &data) {
         switch (data.operation_type) {
@@ -1905,7 +1977,7 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   utils::EnsureDirOrDie(wal_directory);
 
   // Initialize the WAL file.
-  wal_.Initialize(path_, kWalMagic, kVersion);
+  MG_ASSERT(wal_.Initialize(path_, kWalMagic, kVersion), "Failed to open WAL file {}", path_);
 
   // Write placeholder offsets.
   wal_.WriteMarker(Marker::SECTION_OFFSETS);
@@ -1944,7 +2016,7 @@ WalFile::WalFile(std::filesystem::path current_wal_path, SalientConfig::Items it
       count_(count),
       seq_num_(seq_num),
       file_retainer_(file_retainer) {
-  wal_.OpenExisting(path_);
+  MG_ASSERT(wal_.OpenExisting(path_), "Failed to open existing WAL file {}", path_);
 }
 
 void WalFile::FinalizeWal() {

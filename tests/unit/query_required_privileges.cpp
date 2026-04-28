@@ -299,3 +299,8 @@ TEST_F(TestPrivilegeExtractor, DescriptionQuery) {
   auto *query = storage.Create<DescriptionQuery>();
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS));
 }
+
+TEST_F(TestPrivilegeExtractor, ShowQueryCallableMappingsQuery) {
+  auto *query = storage.Create<ShowQueryCallableMappingsQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CONFIG));
+}

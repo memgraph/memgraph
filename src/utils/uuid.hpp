@@ -12,13 +12,14 @@
 #pragma once
 
 #include <uuid/uuid.h>
+// NOLINTNEXTLINE
+#include <array>
+#include <nlohmann/json_fwd.hpp>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 
 #include "fmt/format.h"
-
-#include <array>
-// NOLINTNEXTLINE
-#include <nlohmann/json_fwd.hpp>
-#include <string>
 
 namespace memgraph::utils {
 struct UUID;
@@ -27,6 +28,7 @@ struct UUID;
 namespace memgraph::slk {
 class Reader;
 class Builder;
+
 void Save(const ::memgraph::utils::UUID &self, Builder *builder);
 void Load(::memgraph::utils::UUID *self, Reader *reader);
 }  // namespace memgraph::slk

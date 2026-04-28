@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/dump.hpp"
+#include <range/v3/all.hpp>
 
 #include <algorithm>
 #include <limits>
@@ -29,7 +30,6 @@
 #include "query/trigger_context.hpp"
 #include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
-#include "range/v3/all.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/description_store.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -354,7 +354,8 @@ void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::Pr
 }
 
 void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                              std::span<storage::PropertyPath const> properties) {
+                              std::span<storage::PropertyPath const> properties,
+                              storage::IndexOrder order = storage::IndexOrder::ASC) {
   using namespace std::literals::string_view_literals;
   auto const concat_nested_props = [&](auto &&path) {
     return path | rv::transform([&](auto &&property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
@@ -363,7 +364,11 @@ void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage:
 
   auto prop_names = properties | rv::transform(concat_nested_props) | rv::join(", "sv) | r::to<std::string>();
 
-  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ");";
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ")";
+  if (order == storage::IndexOrder::DESC) {
+    *os << R"( WITH CONFIG {"order": "DESC"})";
+  }
+  *os << ";";
 }
 
 void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const storage::TextIndexSpec &text_index) {
@@ -722,8 +727,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertiesIndicesPullChunk() {
     size_t local_counter = 0;
     while (global_index < label_property.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
-      const auto &[label, properties] = label_property[global_index];
-      DumpLabelPropertiesIndex(&os, dba_, label, properties);
+      const auto &[label, properties, order] = label_property[global_index];
+      DumpLabelPropertiesIndex(&os, dba_, label, properties, order);
       stream->Result({TypedValue(os.str())});
 
       ++global_index;

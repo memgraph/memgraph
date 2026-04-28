@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <optional>
 #include <vector>
 
 #include <fmt/format.h>
@@ -916,4 +917,90 @@ TEST(SkipList, EstimateAverageNumberOfEquals5) {
         acc.estimate_average_number_of_equals([](const auto &a, const auto &b) { return a.key == b.key; }, 1);
     ASSERT_EQ(count, kMaxElements);
   }
+}
+
+namespace {
+
+class CountingResource : public memgraph::utils::MemoryResource {
+ public:
+  std::atomic<std::size_t> bytes_in_use{0};
+  std::atomic<std::size_t> allocs{0};
+  std::atomic<std::size_t> deallocs{0};
+
+ private:
+  void *do_allocate(std::size_t n, std::size_t align) override {
+    bytes_in_use.fetch_add(n, std::memory_order_relaxed);
+    allocs.fetch_add(1, std::memory_order_relaxed);
+    return memgraph::utils::NewDeleteResource()->allocate(n, align);
+  }
+
+  void do_deallocate(void *p, std::size_t n, std::size_t align) override {
+    bytes_in_use.fetch_sub(n, std::memory_order_relaxed);
+    deallocs.fetch_add(1, std::memory_order_relaxed);
+    memgraph::utils::NewDeleteResource()->deallocate(p, n, align);
+  }
+
+  bool do_is_equal(const memgraph::utils::MemoryResource &o) const noexcept override { return this == &o; }
+};
+
+}  // namespace
+
+// Releasing the removing accessor must unblock reclamation on the next run_gc.
+// Guards against re-regressing the tag/live_horizon off-by-one.
+TEST(SkipListGc, ReclaimHappensOnRunGcAfterAccessorRelease) {
+  CountingResource r;
+  memgraph::utils::SkipList<int> list{&r};
+
+  {
+    auto acc = list.access();
+    acc.insert(42);
+  }
+
+  {
+    auto acc = list.access();
+    ASSERT_TRUE(acc.remove(42));
+  }
+  // Logical size is 0 but the node is on the GC's deleted list.
+  ASSERT_EQ(list.size(), 0U);
+  ASSERT_EQ(r.deallocs.load(), 0U);
+
+  list.run_gc();
+  EXPECT_GT(r.deallocs.load(), 0U) << "run_gc() after the removing accessor released should free the node "
+                                      "immediately; if this fails, the SkipListGc off-by-one has regressed.";
+}
+
+// Safety invariant: a removed node must not be reclaimed while an accessor
+// alive at remove time is still alive (its iterators could still reference it).
+TEST(SkipListGc, ReclaimBlockedByAccessorAliveAtRemoveTime) {
+  CountingResource r;
+  memgraph::utils::SkipList<int> list{&r};
+
+  {
+    auto acc = list.access();
+    acc.insert(42);
+  }
+  ASSERT_EQ(r.deallocs.load(), 0U);
+
+  auto reader = std::make_optional(list.access());  // predates the remove
+
+  {
+    auto writer = list.access();
+    ASSERT_TRUE(writer.remove(42));
+  }
+  ASSERT_EQ(list.size(), 0U);
+
+  // Reader still alive: GC must not free the node across run_gc + cycles.
+  for (int i = 0; i < 5; ++i) {
+    {
+      auto tmp = list.access();
+    }
+    list.run_gc();
+  }
+  EXPECT_EQ(r.deallocs.load(), 0U) << "GC freed a node while an accessor alive at remove time was still alive: UAF.";
+
+  // After the reader releases, the next run_gc must reclaim.
+  reader.reset();
+  list.run_gc();
+  EXPECT_GT(r.deallocs.load(), 0U)
+      << "Releasing the last blocking accessor should unblock reclamation on the next run_gc.";
 }

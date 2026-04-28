@@ -9,8 +9,19 @@ def components(
 
 
 @mgp.function
+def version() -> str:
+    return "5.9.0"
+
+
+@mgp.function
 def validate_predicate(predicate: bool, message: str, params: list):
     if predicate:
         raise Exception(message % tuple(params))
     else:
         return True
+
+
+@mgp.read_proc
+def validate(ctx: mgp.ProcCtx, predicate: bool, message: str, params: mgp.List[mgp.Any]):
+    if predicate:
+        raise Exception(message % tuple(params))

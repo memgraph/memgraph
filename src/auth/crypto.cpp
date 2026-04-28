@@ -7,21 +7,29 @@
 //
 #include "auth/crypto.hpp"
 
-#include <iomanip>
-#include <sstream>
-
+#include <bcrypt.h>
 #include <gflags/gflags.h>
-#include <libbcrypt/bcrypt.h>
 #include <openssl/evp.h>
 #include <openssl/opensslv.h>
 #include <openssl/sha.h>
+#include <openssl/types.h>
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <expected>
+#include <functional>
+#include <iomanip>
+#include <iostream>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <random>
+#include <sstream>
+#include <utility>
 
 #include "auth/exceptions.hpp"
 #include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
-
-#include <nlohmann/json.hpp>
 
 namespace {
 using namespace std::literals;
@@ -193,7 +201,7 @@ auto ExtractSalt(std::string_view salt_durable) -> std::array<char, SALT_SIZE> {
       return 10 + (a - 'a');
     }
     MG_ASSERT(false, "Currupt hash, can't extract salt");
-    __builtin_unreachable();
+    std::unreachable();
   };
 
   for (; b != e; b += 2, ++inserter) {
@@ -268,7 +276,7 @@ std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgor
   const auto hash_size = HashSize(algo).unsalted;  // Support only unsalted hashes
   if (str.size() == header.size() + hash_size) {
     int i = 0;
-    if (std::all_of(header.begin(), header.end(), [&](const auto ch) { return tolower(ch) == str[i++]; })) {
+    if (std::ranges::all_of(header, [&](const auto ch) { return tolower(ch) == str[i++]; })) {
       return str.substr(header.size());
     }
   }

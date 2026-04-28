@@ -22,19 +22,24 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <gflags/gflags.h>
+#include <range/v3/all.hpp>
 
 #include "frontend/ast/ast.hpp"
 #include "frontend/ast/ast_storage.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
+#include "query/plan/rewrite/order_by_elimination.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_properties_indices_info.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 
 import memgraph.utils.fnv;
@@ -153,12 +158,13 @@ template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints,
-                      const Parameters &parameters)
+                      const Parameters &parameters, bool parallel_execution = false)
       : symbol_table_(symbol_table),
         ast_storage_(ast_storage),
         db_(db),
         index_hints_(std::move(index_hints)),
-        parameters_(parameters) {}
+        parameters_(parameters),
+        order_by_eliminator_(db, prev_ops_, parallel_execution) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -207,9 +213,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
         auto does_modify = [&]() {
           const auto &symbols = input->ModifiedSymbols(*symbol_table_);
-          return std::any_of(symbols.begin(), symbols.end(), [&modified_symbols](const auto &sym_in) {
-            return modified_symbols.contains(sym_in);
-          });
+          return std::ranges::any_of(
+              symbols, [&modified_symbols](const auto &sym_in) { return modified_symbols.contains(sym_in); });
         };
         if (does_modify()) {
           // if we removed something from filter in front of a Cartesian, then we are doing a join from
@@ -286,6 +291,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByEdgeTypePropertyRange &op) override {
     prev_ops_.pop_back();
+    // Edge range scans don't exist yet — they're created by EdgeIndexRewriter which runs after this pass.
+    // ORDER BY elimination for edge scans is handled there.
     return true;
   }
 
@@ -316,6 +323,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByEdgePropertyRange &op) override {
     prev_ops_.pop_back();
+    // See PostVisit(ScanAllByEdgeTypePropertyRange) above.
     return true;
   }
 
@@ -339,7 +347,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // should be the last thing ScanAll::Accept does, so it should be safe.
   bool PostVisit(ScanAll &scan) override {
     prev_ops_.pop_back();
-    auto indexed_scan = GenScanByIndex(scan);
+    auto [indexed_scan, has_in_filter] = GenScanByIndex(scan);
+
+    using ProvidedScan = OrderByEliminator<TDbAccessor>::ProvidedScan;
+    std::optional<ProvidedScan> provided;
+    if (indexed_scan && !has_in_filter) {
+      if (auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get())) {
+        provided = scan_by_props;
+      }
+    }
+    order_by_eliminator_.NotifyScan(provided);
+
     if (indexed_scan) {
       SetOnParent(std::move(indexed_scan));
     }
@@ -395,7 +413,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
       }
     } else {
-      auto indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
+      auto [indexed_scan, _] = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
       if (indexed_scan) {
         expand.set_input(std::move(indexed_scan));
         expand.common_.existing_node = true;
@@ -569,6 +587,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Produce &op) override {
     prev_ops_.push_back(&op);
+    order_by_eliminator_.ResolveAliases(&op);
     return true;
   }
 
@@ -699,11 +718,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
+    order_by_eliminator_.PushOrderBy(op);
     return true;
   }
 
-  bool PostVisit(OrderBy &) override {
+  bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
+    if (order_by_eliminator_.TryEliminate()) {
+      SetOnParent(op.input());
+    }
     return true;
   }
 
@@ -869,6 +892,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::vector<LogicalOperator *> prev_ops_;
   IndexHints index_hints_;
   const Parameters &parameters_;
+  OrderByEliminator<TDbAccessor> order_by_eliminator_;
 
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
@@ -881,6 +905,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<FilterInfo> filters;
     int64_t vertex_count;
     std::optional<storage::LabelPropertyIndexStats> index_stats;
+    storage::IndexOrder order{storage::IndexOrder::ASC};
   };
 
   struct PointLabelPropertyIndex {
@@ -1052,6 +1077,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   struct LabelPropertiesIndexInfo {
     storage::LabelId label_{};
     std::vector<storage::PropertyPath> properties_{};
+    storage::IndexOrder order_{storage::IndexOrder::ASC};
   };
 
   struct LabelPropertiesIndexCandidate {
@@ -1126,7 +1152,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     properties = filters_grouped_by_property | rv::keys | r::to_vector;
 
-    for (auto const &[label_pos, properties_poses, index_label, index_properties] :
+    for (auto const &[label_pos, properties_poses, index_label, index_properties, index_order] :
          db_->RelevantLabelPropertiesIndicesInfo(labels, properties)) {
       // properties_poses: [5,3,-1,4]
       constexpr long MISSING = -1;
@@ -1149,8 +1175,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
         candidate_label_properties_indices.insert(
             {std::make_pair(label, prop_ixs),
-             LabelPropertiesIndexCandidate{.filters_ = filters,
-                                           .info_ = {.label_ = index_label, .properties_ = index_properties}}});
+             LabelPropertiesIndexCandidate{
+                 .filters_ = filters,
+                 .info_ = {.label_ = index_label, .properties_ = index_properties, .order_ = index_order}}});
       });
     }
 
@@ -1201,7 +1228,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return LabelPropertyIndex{.label = label,
                                 .properties = it->second.info_.properties_,
                                 .filters = it->second.filters_,
-                                .vertex_count = std::numeric_limits<std::int64_t>::max()};
+                                .vertex_count = std::numeric_limits<std::int64_t>::max(),
+                                .order = it->second.info_.order_};
     }
 
     std::optional<LabelPropertyIndex> found;
@@ -1257,7 +1285,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
       std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
       auto const make_label_property_index = [&]() -> LabelPropertyIndex {
-        return {label_ix, candidate.info_.properties_, candidate.filters_, vertex_count, new_stats};
+        return {
+            label_ix, candidate.info_.properties_, candidate.filters_, vertex_count, new_stats, candidate.info_.order_};
       };
 
       if (!found) {
@@ -1291,6 +1320,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           (cmp_res == 0 && (vertex_count < found->vertex_count ||
                             (vertex_count == found->vertex_count && is_better_type(candidate.filters_, *found))))) {
         found = make_label_property_index();
+        continue;
+      }
+
+      // Tie-breaker: prefer the index whose order matches the pending ORDER BY direction.
+      if (auto pending_dir = order_by_eliminator_.PendingOrderDirection();
+          pending_dir && vertex_count == found->vertex_count && candidate.filters_.size() == found->filters.size()) {
+        auto desired_order = *pending_dir == Ordering::DESC ? storage::IndexOrder::DESC : storage::IndexOrder::ASC;
+        if (candidate.info_.order_ == desired_order && found->order != desired_order) {
+          found = make_label_property_index();
+          continue;
+        }
       }
     }
     return found;
@@ -1357,7 +1397,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                  .properties = std::move(best_label_property_index->info_.properties_),
                                  .filters = std::move(best_label_property_index->filters_),
                                  .vertex_count = best_vertex_count,
-                                 .index_stats = {}});
+                                 .index_stats = {},
+                                 .order = best_label_property_index->info_.order_});
         } else {  // Try LabelIndex as a fallback
           if (!label_index_exists) continue;
           best_vertex_count = db_->VerticesCount(label_id);
@@ -1507,11 +1548,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     Symbol node_symbol;                     // Needed for EraseLabelFilter/EraseOrLabelFilter
   };
 
-  // Finds the best indexed scan operator for the given ScanAll without applying side effects.
-  // Returns the operator and metadata about what needs to be erased.
   struct ScanByIndexResult {
     std::shared_ptr<LogicalOperator> operator_;
     ScanByIndexMetadata metadata_;
+    bool has_in_filter = false;  // true when an IN-list filter was rewritten to Unwind + equality scan
   };
 
   // Finds the best indexed scan operator for the given ScanAll without applying side effects.
@@ -1669,6 +1709,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       metadata.labels_to_erase.push_back(found_index->label);
 
+      const bool has_in = std::ranges::any_of(found_index->filters, [](const FilterInfo &f) {
+        return f.property_filter && f.property_filter->type_ == PropertyFilter::Type::IN;
+      });
       auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
       auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
 
@@ -1678,7 +1721,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            std::move(found_index->properties),
                                                            std::move(expr_ranges),
                                                            view);
-      return ScanByIndexResult{std::move(op), std::move(metadata)};
+      op->index_order_ = found_index->order;
+      return ScanByIndexResult{std::move(op), std::move(metadata), has_in};
     }
     if (!labels.empty()) {
       auto maybe_label = FindBestLabelIndex(labels);
@@ -1744,6 +1788,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            std::move(label_property_index.properties),
                                                            std::move(expr_ranges),
                                                            view);
+            label_property_index_scan->index_order_ = label_property_index.order;
             if (prev) {
               auto union_op = std::make_unique<Union>(std::move(prev),
                                                       std::move(label_property_index_scan),
@@ -1800,14 +1845,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // In case of a "or" expression on labels the Distinct operator will be returned with the
   // Union operator as input. Union will have as input the ScanAll operator.
   // TODO: Add new operator instead of Distinct + Union
-  std::shared_ptr<LogicalOperator> GenScanByIndex(const ScanAll &scan,
-                                                  const std::optional<int64_t> &max_vertex_count = std::nullopt) {
+  struct GenScanResult {
+    std::shared_ptr<LogicalOperator> op;
+    bool has_in_filter = false;
+  };
+
+  GenScanResult GenScanByIndex(const ScanAll &scan, const std::optional<int64_t> &max_vertex_count = std::nullopt) {
     auto result = FindBestScanByIndex(scan, max_vertex_count);
     if (!result) {
-      return nullptr;
+      return {};
     }
     ApplyScanByIndex(result->metadata_);
-    return std::move(result->operator_);
+    return {std::move(result->operator_), result->has_in_filter};
   }
 };
 
@@ -1817,15 +1866,15 @@ template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
                                                         TDbAccessor *db, IndexHints index_hints,
-                                                        const Parameters &parameters) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints, parameters);
+                                                        const Parameters &parameters, bool parallel_execution = false) {
+  impl::IndexLookupRewriter<TDbAccessor> rewriter(
+      symbol_table, ast_storage, db, index_hints, parameters, parallel_execution);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
-    // This shouldn't happen in real use case, because IndexLookupRewriter
-    // removes Filter operations and they cannot be the root op. In case we
-    // somehow missed this, raise NotYetImplemented instead of MG_ASSERT
-    // crashing the application.
-    throw utils::NotYetImplemented("optimizing index lookup");
+    // The root operator was removed (e.g., OrderBy elimination or Filter removal).
+    // Since the internal tree uses shared_ptr but this function returns unique_ptr,
+    // we clone the new root subtree to get a properly-owned unique_ptr hierarchy.
+    return rewriter.new_root_->Clone(ast_storage);
   }
   return root_op;
 }

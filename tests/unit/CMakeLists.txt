@@ -22,11 +22,14 @@ target_precompile_headers(memgraph_unit_main PRIVATE
 add_library(storage_test_utils storage_test_utils.cpp)
 target_link_libraries(storage_test_utils mg::storage)
 
+add_library(disk_test_utils disk_test_utils.cpp)
+target_link_libraries(disk_test_utils mg::storage)
+
 find_package(Boost REQUIRED CONFIG COMPONENTS filesystem)
 
 # Test integrations-kafka
 add_library(kafka-mock STATIC kafka_mock.cpp)
-target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads GTest::gtest)
+target_link_libraries(kafka-mock mg-utils RdKafka::rdkafka++ Threads::Threads GTest::gtest)
 
 # Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
 add_unit_test(integrations_kafka_consumer
@@ -47,22 +50,22 @@ add_unit_test(mgp_trans_c_api
 # Test mg-query
 add_unit_test(bfs_single_node
     SOURCES bfs_single_node.cpp
-    LINK_TARGETS mg-query mg-glue
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(bfs_fine_grained
     SOURCES bfs_fine_grained.cpp
-    LINK_TARGETS mg-query mg-glue
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
-    LINK_TARGETS mg-query mg-glue
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(kshortest_general
     SOURCES kshortest_general.cpp
-    LINK_TARGETS mg-query mg-glue
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(cypher_main_visitor
@@ -78,12 +81,12 @@ add_unit_test(event_map
 
 add_unit_test(interpreter
     SOURCES interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
-    LINK_TARGETS mg-communication mg-query mg-glue
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(plan_pretty_print
     SOURCES plan_pretty_print.cpp
-    LINK_TARGETS mg-query
+    LINK_TARGETS mg-query disk_test_utils
 )
 
 add_unit_test(query_cost_estimator
@@ -93,12 +96,12 @@ add_unit_test(query_cost_estimator
 
 add_unit_test(query_dump
     SOURCES query_dump.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
-    LINK_TARGETS mg-communication mg-query
+    LINK_TARGETS mg-communication mg-query disk_test_utils
 )
 
 add_unit_test(query_expression_evaluator
     SOURCES query_expression_evaluator.cpp
-    LINK_TARGETS mg-query
+    LINK_TARGETS mg-query disk_test_utils
 )
 
 add_unit_test(query_frame_change
@@ -116,6 +119,11 @@ add_unit_test(query_plan
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_plan_orderby_index
+    SOURCES query_plan_orderby_index.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_parallel_plan
     SOURCES query_parallel_plan.cpp
     LINK_TARGETS mg-query
@@ -123,52 +131,62 @@ add_unit_test(query_parallel_plan
 
 add_unit_test(query_plan_accumulate_aggregate
     SOURCES query_plan_accumulate_aggregate.cpp
-    LINK_TARGETS mg-query mg-glue
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(query_plan_bag_semantics
     SOURCES query_plan_bag_semantics.cpp
-    LINK_TARGETS mg-query mg-glue
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(query_plan_create_set_remove_delete
     SOURCES query_plan_create_set_remove_delete.cpp
-    LINK_TARGETS mg-query mg-glue
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(query_plan_edge_cases
     SOURCES query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
-    LINK_TARGETS mg-communication mg-query
+    LINK_TARGETS mg-communication mg-query disk_test_utils
 )
 
 add_unit_test(query_plan_match_filter_return
     SOURCES query_plan_match_filter_return.cpp
-    LINK_TARGETS mg-query mg-glue
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(query_plan_operator_to_string
     SOURCES query_plan_operator_to_string.cpp
-    LINK_TARGETS mg-query
+    LINK_TARGETS mg-query disk_test_utils
 )
 
 add_unit_test(query_plan_read_write_typecheck
     SOURCES query_plan_read_write_typecheck.cpp ${CMAKE_SOURCE_DIR}/src/query/plan/read_write_type_checker.cpp
-    LINK_TARGETS mg-query
+    LINK_TARGETS mg-query disk_test_utils
 )
 
 add_unit_test(query_plan_v2_create_set_remove_delete
     SOURCES query_plan_v2_create_set_remove_delete.cpp
-    LINK_TARGETS mg-query mg-glue
+    LINK_TARGETS mg-query mg-glue disk_test_utils
+)
+
+add_unit_test(query_plan_v2_rewrites
+    SOURCES query_plan_v2_rewrites.cpp
+    LINK_TARGETS mg-query mg-planner
+)
+
+add_unit_test(query_plan_v2_pipeline
+    SOURCES query_plan_v2_pipeline.cpp
+    LINK_TARGETS mg-query mg-planner
 )
 
 add_unit_test(query_pretty_print
     SOURCES query_pretty_print.cpp
-    LINK_TARGETS mg-query
+    LINK_TARGETS mg-query disk_test_utils
 )
 
 add_unit_test(query_trigger
     SOURCES query_trigger.cpp
-    LINK_TARGETS mg-query mg-glue
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(query_serialization_property_value
@@ -178,17 +196,17 @@ add_unit_test(query_serialization_property_value
 
 add_unit_test(query_streams
     SOURCES query_streams.cpp
-    LINK_TARGETS mg-query kafka-mock
+    LINK_TARGETS mg-query kafka-mock disk_test_utils
 )
 
 add_unit_test(transaction_queue
     SOURCES transaction_queue.cpp
-    LINK_TARGETS mg-communication mg-query mg-glue
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(transaction_queue_multiple
     SOURCES transaction_queue_multiple.cpp
-    LINK_TARGETS mg-communication mg-query mg-glue
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
 
@@ -203,7 +221,7 @@ add_unit_test(query_function_mgp_module
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type
     SOURCES query_procedure_mgp_type.cpp
-    LINK_TARGETS mg-query
+    LINK_TARGETS mg-query disk_test_utils
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
 
@@ -217,7 +235,7 @@ add_unit_test(query_procedure_mgp_module
 
 add_unit_test(query_procedure_py_module
     SOURCES query_procedure_py_module.cpp
-    LINK_TARGETS mg-query
+    LINK_TARGETS mg-query disk_test_utils
     CUSTOM_MAIN
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
@@ -225,7 +243,7 @@ add_unit_test(query_procedure_py_module
 
 add_unit_test(query_procedures_mgp_graph
     SOURCES query_procedures_mgp_graph.cpp
-    LINK_TARGETS mg-query storage_test_utils
+    LINK_TARGETS mg-query storage_test_utils disk_test_utils
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
 
@@ -243,12 +261,12 @@ add_unit_test(query_required_privileges
 
 add_unit_test(query_semantic
     SOURCES query_semantic.cpp
-    LINK_TARGETS mg-query
+    LINK_TARGETS mg-query disk_test_utils
 )
 
 add_unit_test(query_variable_start_planner
     SOURCES query_variable_start_planner.cpp
-    LINK_TARGETS mg-query mg-glue
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(stripped
@@ -258,7 +276,7 @@ add_unit_test(stripped
 
 add_unit_test(typed_value
     SOURCES typed_value.cpp
-    LINK_TARGETS mg-query
+    LINK_TARGETS mg-query disk_test_utils
 )
 
 # Test mg-communication
@@ -279,12 +297,12 @@ add_unit_test(bolt_decoder
 
 add_unit_test(bolt_encoder
     SOURCES bolt_encoder.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
-    LINK_TARGETS mg-communication mg-query
+    LINK_TARGETS mg-communication mg-query disk_test_utils
 )
 
 add_unit_test(bolt_session
     SOURCES bolt_session.cpp
-    LINK_TARGETS mg-communication mg-utils
+    LINK_TARGETS mg-communication mg-utils mg-storage-v2
 )
 
 add_unit_test(communication_buffer
@@ -334,7 +352,7 @@ add_unit_test(utils_algorithm
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
-    LINK_TARGETS mg-utils
+    LINK_TARGETS mg-utils mg-aws
 )
 
 add_unit_test(utils_barrier
@@ -415,7 +433,7 @@ add_unit_test(utils_rwlock
 
 add_unit_test(utils_scheduler
     SOURCES utils_scheduler.cpp
-    LINK_TARGETS mg-utils
+    LINK_TARGETS mg-utils mg-flags mg-settings
 )
 
 add_unit_test(utils_signals
@@ -485,7 +503,7 @@ add_unit_test(utils_async_timer
 
 add_unit_test(license
     SOURCES license.cpp
-    LINK_TARGETS mg-utils mg-license
+    LINK_TARGETS mg-utils mg-license mg-flags
 )
 
 add_unit_test(utils_settings
@@ -540,7 +558,7 @@ add_unit_test(utils_compressor
 
 add_unit_test(file_replication_handler
     SOURCES file_replication_handler.cpp
-    LINK_TARGETS mg-rpc mg-slk
+    LINK_TARGETS mg-rpc mg-slk mg-storage-v2
 )
 
 add_unit_test(utils_observer
@@ -561,7 +579,7 @@ add_unit_test(property_value_v2
 
 add_unit_test(storage_v2
     SOURCES storage_v2.cpp
-    LINK_TARGETS mg::storage storage_test_utils
+    LINK_TARGETS mg::storage storage_test_utils disk_test_utils
 )
 
 add_unit_test(storage_v2_acc
@@ -591,7 +609,7 @@ add_unit_test(storage_v2_enum_store
 
 add_unit_test(storage_v2_constraints
     SOURCES storage_v2_constraints.cpp
-    LINK_TARGETS mg::storage mg-dbms
+    LINK_TARGETS mg::storage mg-dbms disk_test_utils
 )
 
 add_unit_test(storage_v2_decoder_encoder
@@ -621,17 +639,17 @@ add_unit_test(storage_v2_retention.
 
 add_unit_test(storage_rocks
     SOURCES storage_rocks.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage disk_test_utils
 )
 
 add_unit_test(storage_v2_disk
     SOURCES storage_v2_disk.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage disk_test_utils
 )
 
 add_unit_test(clearing_old_disk_data
     SOURCES clearing_old_disk_data.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage disk_test_utils
 )
 
 add_unit_test(storage_v2_edge_inmemory
@@ -641,7 +659,7 @@ add_unit_test(storage_v2_edge_inmemory
 
 add_unit_test(storage_v2_edge_ondisk
     SOURCES storage_v2_edge_ondisk.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage disk_test_utils
 )
 
 add_unit_test(storage_v2_gc
@@ -661,7 +679,7 @@ add_unit_test(storage_v2_delta_correctness
 
 add_unit_test(storage_v2_indices
     SOURCES storage_v2_indices.cpp
-    LINK_TARGETS mg::storage mg-utils
+    LINK_TARGETS mg::storage mg-utils disk_test_utils
 )
 
 add_unit_test(storage_v2_name_id_mapper
@@ -685,14 +703,19 @@ add_unit_test(storage_v2_replication
     LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue
 )
 
+add_unit_test(storage_v2_error
+    SOURCES storage_v2_error.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_isolation_level
     SOURCES storage_v2_isolation_level.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage disk_test_utils
 )
 
 add_unit_test(storage_v2_show_storage_info
     SOURCES storage_v2_show_storage_info.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage disk_test_utils
 )
 
 add_unit_test(storage_v2_get_info
@@ -702,7 +725,7 @@ add_unit_test(storage_v2_get_info
 
 add_unit_test(database_get_info
     SOURCES database_get_info.cpp
-    LINK_TARGETS mg::storage mg-glue mg-dbms
+    LINK_TARGETS mg::storage mg-glue mg-dbms disk_test_utils
 )
 
 add_unit_test(storage_v2_storage_mode
@@ -722,12 +745,12 @@ add_unit_test(replication_persistence_helper
 
 add_unit_test(auth_checker
     SOURCES auth_checker.cpp
-    LINK_TARGETS mg-glue mg-auth
+    LINK_TARGETS mg-glue mg-auth mg-query disk_test_utils
 )
 
 add_unit_test(auth_handler
     SOURCES auth_handler.cpp
-    LINK_TARGETS mg-glue mg-auth
+    LINK_TARGETS mg-glue mg-auth mg-query
 )
 
 if (MG_ENTERPRISE)
@@ -744,7 +767,7 @@ endif ()
 
 add_unit_test(cpp_api
     SOURCES cpp_api.cpp
-    LINK_TARGETS mg-query
+    LINK_TARGETS mg-query disk_test_utils
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
 
@@ -819,19 +842,19 @@ endif ()
 # Test rpc-in-progress
 add_unit_test(rpc_in_progress
     SOURCES rpc_in_progress.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
 # Test replication-rpc-progress
 add_unit_test(replication_rpc_progress
     SOURCES replication_rpc_progress.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
 # Test snapshot-rpc-progress
 add_unit_test(snapshot_rpc_progress
     SOURCES snapshot_rpc_progress.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
 add_unit_test(snapshot_progress
@@ -848,7 +871,7 @@ add_unit_test(rpc_versioning
 
 add_unit_test(monitoring
     SOURCES monitoring.cpp
-    LINK_TARGETS mg-communication Boost::headers
+    LINK_TARGETS mg-communication mg-auth Boost::headers
 )
 
 # Test multi-database
@@ -1027,7 +1050,7 @@ endif ()
 if (MG_ENTERPRISE)
     add_unit_test(ttl
         SOURCES ttl.cpp
-        LINK_TARGETS mg-query
+        LINK_TARGETS mg-query disk_test_utils
         INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
     )
 
@@ -1062,3 +1085,13 @@ if (MG_ENTERPRISE)
         ${CMAKE_SOURCE_DIR}/query_modules/mg_utility
     )
 endif ()
+
+add_unit_test(safe_hardware_concurrency
+    SOURCES safe_hardware_concurrency.cpp
+    LINK_TARGETS mg-utils)
+
+# Test log retention cleanup
+add_unit_test(logging
+    SOURCES logging.cpp
+    LINK_TARGETS gflags mg-flags
+)

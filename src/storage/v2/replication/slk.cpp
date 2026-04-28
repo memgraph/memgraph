@@ -277,7 +277,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       size_t size = 0;
       slk::Load(&size, reader);
       std::vector<storage::ExternalPropertyValue> list(size);
-      for (size_t i = 0; i < size; ++i) {
+      for (size_t i = 0UZ; i < size; ++i) {
         slk::Load(&list[i], reader);
       }
       *value = storage::ExternalPropertyValue(std::move(list));
@@ -287,7 +287,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       size_t size = 0;
       slk::Load(&size, reader);
       storage::ExternalPropertyValue::int_list_t list(size);
-      for (size_t i = 0; i < size; ++i) {
+      for (size_t i = 0UZ; i < size; ++i) {
         slk::Load(&list[i], reader);
       }
       *value = storage::ExternalPropertyValue(std::move(list));
@@ -297,7 +297,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       size_t size = 0;
       slk::Load(&size, reader);
       storage::ExternalPropertyValue::double_list_t list(size);
-      for (size_t i = 0; i < size; ++i) {
+      for (size_t i = 0UZ; i < size; ++i) {
         slk::Load(&list[i], reader);
       }
       *value = storage::ExternalPropertyValue(std::move(list));
@@ -308,7 +308,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       slk::Load(&size, reader);
       storage::ExternalPropertyValue::numeric_list_t list;
       list.reserve(size);
-      for (size_t i = 0; i < size; ++i) {
+      for (size_t i = 0UZ; i < size; ++i) {
         storage::ExternalPropertyValue::Type type{};
         slk::Load(&type, reader);
         if (type == storage::ExternalPropertyValue::Type::Int) {
@@ -331,7 +331,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       slk::Load(&size, reader);
       auto map = storage::ExternalPropertyValue::map_t{};
       do_reserve(map, size);
-      for (size_t i = 0; i < size; ++i) {
+      for (size_t i = 0UZ; i < size; ++i) {
         std::pair<std::string, storage::ExternalPropertyValue> kv;
         slk::Load(&kv, reader);
         map.insert(kv);

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,10 +12,10 @@
 // Query memory tracking is supported only with jemalloc. Do not override malloc/free if jemalloc is not used.
 #if USE_JEMALLOC
 
+#include <jemalloc/jemalloc.h>
 #include <cerrno>
 #include <cstddef>
-
-#include <jemalloc/jemalloc.h>
+#include <cstdlib>
 
 #include "query_memory_control.hpp"
 

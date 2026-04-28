@@ -121,11 +121,9 @@ def multi_tenant_setup(request):
             # Limited database - limited has restricted access, admin has full access
             session.run("USE DATABASE limited_db;").consume()
             session.run("GRANT READ ON NODES CONTAINING LABELS :Person, :Company TO limited;").consume()
-            session.run("GRANT NOTHING ON NODES CONTAINING LABELS :Audit, :Admin TO limited;").consume()
+            session.run("DENY * ON NODES CONTAINING LABELS :Audit, :Admin TO limited;").consume()
             session.run("GRANT READ ON EDGES OF TYPE :WORKS_FOR, READ ON EDGES OF TYPE :OWNS TO limited;").consume()
-            session.run(
-                "GRANT NOTHING ON EDGES OF TYPE :AUDITS, NOTHING ON EDGES OF TYPE :ADMIN_ACCESS TO limited;"
-            ).consume()
+            session.run("DENY * ON EDGES OF TYPE :AUDITS, * ON EDGES OF TYPE :ADMIN_ACCESS TO limited;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
 
@@ -151,7 +149,7 @@ def multi_tenant_setup(request):
 def test_admin_full_privileges(multi_tenant_setup):
     """Test admin user with full privileges across all databases."""
 
-    response = base64.b64encode(b"multi_role_admin").decode("utf-8")
+    response = base64.b64encode(b"admin_user").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
@@ -277,9 +275,9 @@ def test_sso_show_current_role_with_multi_role(multi_tenant_setup):
 
 
 def test_architect_privileges(multi_tenant_setup):
-    """Test architect user with architect and user privileges."""
+    """Test architect role with full privileges in architect_db."""
 
-    response = base64.b64encode(b"multi_role_architect").decode("utf-8")
+    response = base64.b64encode(b"architect_user").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
@@ -844,23 +842,24 @@ def test_no_main_database_user(multi_tenant_setup):
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
         with client.session() as session:
-            # Verify current user
             current_user_result = list(session.run("SHOW CURRENT USER;"))
             assert len(current_user_result) == 1 and current_user_result[0]["user"] == "no_main_user"
 
-            # Should be able to access user_db
+            # On user_db, only the "user" role applies, which grants READ on
+            # :Review
             session.run("USE DATABASE user_db;").consume()
-            session.run("CREATE (n:TestNode {name: 'no_main_test'})").consume()
+            session.run("MATCH (n:Review) RETURN n").consume()
 
-            # Should be able to access architect_db
+            # On architect_db, only the "architect" role applies, which grants
+            # CREATE on all labels.
             session.run("USE DATABASE architect_db;").consume()
-            session.run("CREATE (n:TestNode {name: 'no_main_test'})").consume()
+            session.run("CREATE (n:Person {name: 'no_main_test'})").consume()
 
 
 def test_label_based_authorization_hierarchy(multi_tenant_setup):
     """Test the label-based authorization levels."""
 
-    response = base64.b64encode(b"multi_role_admin").decode("utf-8")
+    response = base64.b64encode(b"admin_user").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
@@ -958,7 +957,7 @@ def test_label_permission_denial(multi_tenant_setup):
 def test_edge_type_authorization_hierarchy(multi_tenant_setup):
     """Test the edge type authorization levels"""
 
-    response = base64.b64encode(b"multi_role_admin").decode("utf-8")
+    response = base64.b64encode(b"admin_user").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:

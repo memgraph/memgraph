@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/edge_accessor.hpp"
+#include <range/v3/all.hpp>
 
 #include <ranges>
 #include <tuple>
@@ -18,6 +19,8 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indexed_property_decoder.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
@@ -35,6 +38,17 @@ namespace rv = r::views;
 namespace memgraph::storage {
 
 namespace {
+
+std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storage, EdgeTypeId edge_type,
+                                                                 PropertyId property, const PropertyValue &value) {
+  if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
+  if (storage->indices_.vector_edge_index_.Empty()) return std::nullopt;
+  auto index_id = storage->indices_.vector_edge_index_.GetIndexIdForEdgeTypeProperty(edge_type, property);
+  if (!index_id) return std::nullopt;
+  return PropertyValue(
+      PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{*index_id}, .vector = ListToVector(value)});
+}
+
 void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, const Config &config, Edge *edge,
                                           Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type_id,
                                           PropertyId property, const PropertyValue &old_value) {
@@ -185,7 +199,10 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   std::optional<ReturnType> current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   utils::AtomicMemoryBlock([this, &current_value, &property, &value, skip_duplicate_write, &schema_acc]() {
-    current_value.emplace(edge_.ptr->properties.GetProperty(property));
+    current_value.emplace(edge_.ptr->properties.GetProperty(
+        property,
+        IndexedPropertyDecoder<Edge>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
     if (skip_duplicate_write && *current_value == value) {
       return;
     }
@@ -198,9 +215,11 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     DMG_ASSERT(from_vertex_, "Missing from vertex!");
     CreateAndLinkDeltaForEdgeSetProperty(
         transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, *current_value);
-    edge_.ptr->properties.SetProperty(property, value);
+    auto maybe_vector_index_value = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property, value);
+    const auto &value_to_store = maybe_vector_index_value.has_value() ? *maybe_vector_index_value : value;
+    edge_.ptr->properties.SetProperty(property, value_to_store);
     storage_->indices_.UpdateOnSetProperty(
-        edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
+        edge_type_, property, value_to_store, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
     if (schema_acc) {
       std::visit(
           utils::Overloaded{
@@ -224,6 +243,14 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
 
+  if (!storage_->indices_.vector_edge_index_.Empty()) {
+    for (auto &[property_id, property_value] : properties) {
+      if (auto converted = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property_id, property_value)) {
+        property_value = std::move(*converted);
+      }
+    }
+  }
+
   // This needs to happen before locking the object
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
 
@@ -245,14 +272,18 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
-        std::visit(
-            utils::Overloaded{
-                [this, property, new_type = ExtendedPropertyType{value}](SchemaInfo::VertexModifyingAccessor &acc) {
-                  acc.SetProperty(
-                      edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, ExtendedPropertyType{});
-                },
-                [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-            *schema_acc);
+        std::visit(utils::Overloaded{[this, property, new_type = ExtendedPropertyType{value}](
+                                         SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(edge_,
+                                                       edge_type_,
+                                                       from_vertex_,
+                                                       to_vertex_,
+                                                       property,  // NOLINT(clang-analyzer-core.CallAndMessage)
+                                                       new_type,
+                                                       ExtendedPropertyType{});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
       }
     }
     // TODO If the current implementation is too slow there is an InitProperties option
@@ -265,6 +296,14 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
     std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
+
+  if (!storage_->indices_.vector_edge_index_.Empty()) {
+    for (auto &[property_id, property_value] : properties) {
+      if (auto converted = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property_id, property_value)) {
+        property_value = std::move(*converted);
+      }
+    }
+  }
 
   // This needs to happen before locking the object
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
@@ -368,7 +407,10 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    value.emplace(edge_.ptr->properties.GetProperty(property));
+    value.emplace(edge_.ptr->properties.GetProperty(
+        property,
+        IndexedPropertyDecoder<Edge>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
@@ -432,7 +474,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    properties = edge_.ptr->properties.Properties();
+    properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {

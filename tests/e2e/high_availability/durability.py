@@ -12,6 +12,7 @@
 import os
 import sys
 from functools import partial
+from pathlib import Path
 
 import interactive_mg_runner
 import mgclient
@@ -56,8 +57,7 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
                 "10011",
                 "--storage-snapshot-interval-sec",
                 f"{snapshot_interval_sec}",
-                "--storage-snapshot-on-exit",
-                "false",
+                "--storage-snapshot-on-exit=false",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_1",
@@ -73,8 +73,7 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
                 "10012",
                 "--storage-snapshot-interval-sec",
                 f"{snapshot_interval_sec}",
-                "--storage-snapshot-on-exit",
-                "false",
+                "--storage-snapshot-on-exit=false",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_2",
@@ -90,6 +89,8 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
                 "--management-port=10121",
                 "--coordinator-hostname",
                 "localhost",
+                "--storage-snapshot-interval-sec",
+                f"{snapshot_interval_sec}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/coordinator_1.log",
             "data_directory": f"{get_data_path(file, test_name)}/coordinator_1",
@@ -105,6 +106,8 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
                 "--management-port=10122",
                 "--coordinator-hostname",
                 "localhost",
+                "--storage-snapshot-interval-sec",
+                f"{snapshot_interval_sec}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/coordinator_2.log",
             "data_directory": f"{get_data_path(file, test_name)}/coordinator_2",
@@ -120,6 +123,8 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
                 "--management-port=10123",
                 "--coordinator-hostname",
                 "localhost",
+                "--storage-snapshot-interval-sec",
+                f"{snapshot_interval_sec}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/coordinator_3.log",
             "data_directory": f"{get_data_path(file, test_name)}/coordinator_3",
@@ -140,8 +145,7 @@ def get_instances_description_no_setup_wal_files_recovery(test_name: str, storag
                 "10011",
                 "--storage-snapshot-interval-sec",
                 "100000",
-                "--storage-snapshot-on-exit",
-                "false",
+                "--storage-snapshot-on-exit=false",
                 "--storage-wal-file-size-kib",
                 "1",
                 f"--storage-backup-dir-enabled={storage_backup_dir_enabled}",
@@ -160,8 +164,7 @@ def get_instances_description_no_setup_wal_files_recovery(test_name: str, storag
                 "10012",
                 "--storage-snapshot-interval-sec",
                 "100000",
-                "--storage-snapshot-on-exit",
-                "false",
+                "--storage-snapshot-on-exit=false",
                 "--storage-wal-file-size-kib",
                 "1",
                 f"--storage-backup-dir-enabled={storage_backup_dir_enabled}",
@@ -224,6 +227,19 @@ def cleanup_after_test():
     yield
     # Stop + delete directories after running the test
     interactive_mg_runner.kill_all(keep_directories=True)
+
+
+def test_snapshots_on_coords(test_name):
+    # Test that coords don't even have snapshot dir
+    instances_description = get_instances_description_no_setup_snapshot_recovery(
+        test_name=test_name, snapshot_interval_sec="1"
+    )
+    interactive_mg_runner.start_all(instances_description, keep_directories=False)
+
+    build_dir = os.path.join(interactive_mg_runner.PROJECT_DIR, "build", "e2e", "data")
+    data_dir_coord_1 = f"{build_dir}/{get_data_path(file, test_name)}/coordinator_1"
+    snapshot_dir_coord_1 = Path(f"{data_dir_coord_1}/snapshots")
+    assert snapshot_dir_coord_1.exists() is False
 
 
 def test_snapshots_on_replica(test_name):

@@ -78,6 +78,12 @@
   [f]
   {:type :info :f f})
 
+
+(defn asked-to-abort-shutdown?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Transaction was asked to abort because of database shutdown"))
+
 (defn not-main-anymore?
   "Accepts exception e as argument."
   [e]
@@ -123,15 +129,18 @@
   [e]
   (string/includes? (str e) "Write queries are forbidden on the replica"))
 
-(defn strict-sync-replica-down?
+(defn main-reached-rpc-timeout?
   "Accepts exception e as argument."
   [e]
-  (string/includes? (str e) "At least one STRICT_SYNC replica has not confirmed committing last transaction."))
+  (string/includes? (str e) "Main reached an RPC timeout"))
 
-(defn sync-replica-down?
+(defn is-replica-down?
   "Accepts exception e as argument."
   [e]
-  (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction."))
+  (or (string/includes? (str e) "Failed to replicate to STRICT_SYNC replica")
+      (string/includes? (str e) "Failed to replicate to SYNC replica")
+      (string/includes? (str e) "Failed to replicate to ASYNC replica")))
+
 
 (defn main-became-replica?
   "Accepts exception e as argument."

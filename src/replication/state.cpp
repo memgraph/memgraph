@@ -49,12 +49,23 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
     switch (fetched_replication_data.error()) {
       using enum ReplicationState::FetchReplicationError;
       case NOTHING_FETCHED: {
-        spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
+        spdlog::warn("Cannot find data needed for restore replication role in persisted metadata.");
         replication_data_.data_ = RoleMainData{};
         return;
       }
       case PARSE_ERROR: {
         LOG_FATAL("Cannot parse previously saved configuration of replication role.");
+        return;
+      }
+      case REPL_SERVER_FAILURE: {
+        if (part_of_ha_cluster) {
+          spdlog::warn(
+              "Couldn't initialize replication server on replica. Defaulting role to non-writeable main. Coordinators "
+              "will automatically demote the instance to become replica.");
+          replication_data_.data_ = RoleMainData{};
+        } else {
+          LOG_FATAL("Couldn't initialize replication server on replica.");
+        }
         return;
       }
       default: {
@@ -182,7 +193,14 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               return {std::move(res)};
             },
             [&](durability::ReplicaRole &&r) -> FetchVariantResult_t {
-              auto server = std::make_unique<ReplicationServer>(r.config);
+              std::unique_ptr<ReplicationServer> server;
+              try {
+                // Creating Epoll object could throw an exception
+                server = std::make_unique<ReplicationServer>(r.config);
+              } catch (utils::BasicException const &e) {
+                spdlog::warn(e.what());
+                return std::unexpected{FetchReplicationError::REPL_SERVER_FAILURE};
+              }
               return {RoleReplicaData{.config = r.config, .server = std::move(server), .uuid_ = r.main_uuid}};
             },
         },
@@ -310,7 +328,6 @@ bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
 
 bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                  std::optional<utils::UUID> const &maybe_main_uuid) {
-  // False positive report for the std::make_unique
   // Random UUID when first setting replica role if main_uuid not provided already
   auto const main_uuid = std::invoke([&maybe_main_uuid]() -> utils::UUID {
     if (maybe_main_uuid) {
@@ -318,14 +335,24 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
     }
     return utils::UUID{};
   });
-  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+
+  // Creating Epoll object could throw an exception so we first check if we can create repl server. If not, we return
+  // immediately, if ok we persist replica data and create in-memory struct which should not fail
+  std::unique_ptr<ReplicationServer> new_repl_server;
+  try {
+    new_repl_server = std::make_unique<ReplicationServer>(config);
+  } catch (utils::BasicException const &e) {
+    spdlog::warn(e.what());
+    return false;
+  }
+
   if (!TryPersistRoleReplica(config, main_uuid)) {
     return false;
   }
-  // False positive report for the std::make_unique
-  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
-  replication_data_.data_ =
-      RoleReplicaData{.config = config, .server = std::make_unique<ReplicationServer>(config), .uuid_ = main_uuid};
+
+  // This should never throw an exception
+  replication_data_.data_ = RoleReplicaData{.config = config, .server = std::move(new_repl_server), .uuid_ = main_uuid};
+
   // DeltasBatchProgressSize stay untouched
   return true;
 }
@@ -339,7 +366,7 @@ std::expected<ReplicationClient *, RegisterReplicaStatus> ReplicationState::Regi
     // name check
     auto name_check = [&config](auto const &replicas) {
       auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
-      return std::any_of(replicas.begin(), replicas.end(), name_matches);
+      return std::ranges::any_of(replicas, name_matches);
     };
     if (name_check(mainData.registered_replicas_)) {
       return RegisterReplicaStatus::NAME_EXISTS;
@@ -351,7 +378,7 @@ std::expected<ReplicationClient *, RegisterReplicaStatus> ReplicationState::Regi
         const auto &ep = replica.rpc_client_.Endpoint();
         return ep == config.repl_server_endpoint;
       };
-      return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
+      return std::ranges::any_of(replicas, endpoint_matches);
     };
     if (endpoint_check(mainData.registered_replicas_)) {
       return RegisterReplicaStatus::ENDPOINT_EXISTS;
@@ -408,10 +435,10 @@ std::optional<nlohmann::json> ReplicationState::GetTelemetryJson() const {
   return std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_.data_);
 }
 
-void ReplicationState::Shutdown() {
-  auto const replica_handler = [](RoleReplicaData &replica) { replica.server->Shutdown(); };
-  auto const main_handler = [](RoleMainData &main) {
-    for (auto &repl_client : main.registered_replicas_) {
+void ReplicationState::Shutdown() const {
+  auto const replica_handler = [](const RoleReplicaData &replica) { replica.server->Shutdown(); };
+  auto const main_handler = [](const RoleMainData &main) {
+    for (auto const &repl_client : main.registered_replicas_) {
       repl_client.Shutdown();
     }
   };

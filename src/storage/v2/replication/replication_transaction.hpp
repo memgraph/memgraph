@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,8 @@
 #pragma once
 
 #include <optional>
+#include <unordered_set>
+#include <vector>
 
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -31,7 +33,7 @@ class TransactionReplication {
  public:
   // This will block until we retrieve RPC streams for all STRICT_SYNC and SYNC replicas. It is OK to not be able to
   // obtain the RPC lock for the ASYNC replica.
-  TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage, CommitArgs const &commit_args,
+  TransactionReplication(uint64_t durability_commit_timestamp, Storage *storage, CommitArgs const &commit_args,
                          ReplicationStorageClientList &clients);
 
   ~TransactionReplication() = default;
@@ -67,19 +69,40 @@ class TransactionReplication {
     }
   }
 
-  // RPC stream won't be destroyed at the end of this function
+  // RPC stream won't be destroyed at the end of this function.
+  // Returns true if all SYNC/STRICT_SYNC replicas succeeded, false otherwise.
+  // Failures are cached internally in ship_failures_ for CollectAllFailures.
   auto ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool;
 
-  auto FinalizeTransaction(bool const decision, utils::UUID const &storage_uuid, DatabaseProtector const &protector,
-                           uint64_t const durability_commit_timestamp) -> bool;
+  auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseProtector const &protector,
+                           uint64_t durability_commit_timestamp) -> bool;
 
   auto ShouldRunTwoPC() const -> bool { return run_two_phase_commit; }
+
+  // Returns all replication failures (start-txn + ship/finalize) and additionally
+  // marks 2nd-phase finalize failures in failed_replicas_ so UpdateCommitTsInfo skips them.
+  // Finalize failures are NOT included in the returned vector (no ReplicationException for them).
+  // Must be called after ShipDeltas and FinalizeTransaction (if applicable), and before UpdateCommitTsInfo.
+  auto CollectAllFailures() -> std::vector<ReplicaFailure>;
+
+  // Updates commit_ts_info only for replicas that committed successfully
+  // (i.e. not in failed_replicas_). Must be called after CollectAllFailures.
+  void UpdateCommitTsInfo(std::function<CommitTsInfo(CommitTsInfo const &)> const &cb);
 
  private:
   std::vector<std::optional<ReplicaStream>> streams;
   utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>::ReadLockedPtr
       locked_clients;
-  bool run_two_phase_commit = false;
+  bool run_two_phase_commit{false};
+  // Replicas that failed start-txn or ship/finalize (excludes ASYNC — fire-and-forget).
+  // Populated by the constructor and ShipDeltas. Returned by CollectAllFailures.
+  std::vector<ReplicaFailure> replication_failures_;
+  // Replicas that failed the 2nd phase of 2PC (SendFinalizeCommitRpc failed).
+  // Populated by FinalizeTransaction. NOT returned by CollectAllFailures (no ReplicationException),
+  // but added to failed_replicas_ so UpdateCommitTsInfo skips them.
+  std::vector<ReplicaFailure> finalize_failures_;
+  // Union of all failed replica names, built by CollectAllFailures.
+  std::unordered_set<std::string> failed_replicas_;
 };
 
 }  // namespace memgraph::storage

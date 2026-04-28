@@ -417,6 +417,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                                              call_proc->is_write_,
                                                              procedure_id++,
                                                              call_proc->void_procedure_);
+            if (call_proc->where_) {
+              auto *filter_expr = call_proc->where_->expression_;
+              Filters where_filters;
+              where_filters.CollectFilterExpression(filter_expr, *context.symbol_table);
+              input_op = std::make_unique<Filter>(std::move(input_op),
+                                                  std::vector<std::shared_ptr<LogicalOperator>>{},
+                                                  filter_expr,
+                                                  std::move(where_filters));
+            }
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
             context.bound_symbols.insert(row_sym);
@@ -1199,15 +1208,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         }
       }
 
-      filters.erase(std::remove_if(filters.begin(),
-                                   filters.end(),
-                                   [&inner_symbols](FilterInfo &fi) {
-                                     for (const auto &symbol : inner_symbols) {
-                                       if (fi.used_symbols.contains(symbol)) return true;
-                                     }
-                                     return false;
-                                   }),
-                    filters.end());
+      auto [rem_begin, rem_end] = std::ranges::remove_if(filters, [&inner_symbols](FilterInfo &fi) {
+        return std::ranges::any_of(inner_symbols, [&](auto const &symbol) { return fi.used_symbols.contains(symbol); });
+      });
+      filters.erase(rem_begin, rem_end);
 
       // Unbind the temporarily bound inner symbols for filtering.
       bound_symbols.erase(filter_lambda.inner_edge_symbol);

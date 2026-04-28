@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include <range/v3/all.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -93,8 +94,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(LABEL_INDEX_STATS_CLEAR);
     add_case(LABEL_INDEX_DROP);
     add_case(LABEL_PROPERTIES_INDEX_CREATE);
-    add_case(LABEL_PROPERTIES_INDEX_STATS_SET);
     add_case(LABEL_PROPERTIES_INDEX_DROP);
+    add_case(LABEL_PROPERTIES_INDEX_STATS_SET);
     add_case(LABEL_PROPERTIES_INDEX_STATS_CLEAR);
     add_case(EDGE_INDEX_CREATE);
     add_case(EDGE_INDEX_DROP);
@@ -312,8 +313,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  PlanInvalidatorPtr invalidator,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : Storage(config, config.salient.storage_mode, std::move(invalidator), std::move(database_protector_factory)),
-      recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
-                config.durability.storage_directory / durability::kWalDirectory},
+      recovery_{.snapshot_directory_ = config.durability.storage_directory / durability::kSnapshotDirectory,
+                .wal_directory_ = config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
       global_locker_(file_retainer_.AddLocker()) {
@@ -336,7 +337,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Create the lock file and open a handle to it. This will crash the
     // database if it can't open the file for writing or if any other process is
     // holding the file opened.
-    lock_file_handle_->Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    MG_ASSERT(lock_file_handle_->Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING),
+              "Failed to open {}",
+              lock_file_path_);
     MG_ASSERT(lock_file_handle_->AcquireLock(),
               "Couldn't acquire lock on the storage directory {}"
               "!\nAnother Memgraph process is currently running with the same "
@@ -896,7 +899,7 @@ void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from
 
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
   // ExistenceConstraints validation block
-  auto const has_any_existence_constraints = !transaction_.active_constraints_.existence_->empty();
+  auto const has_any_existence_constraints = !transaction_.active_constraints_->existence_->empty();
   if (has_any_existence_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
     auto validation_result = storage_->constraints_.existence_constraints_->Validate(
@@ -909,7 +912,7 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Exis
 }
 
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueConstraintsViolation() const {
-  auto const has_any_unique_constraints = !transaction_.active_constraints_.unique_->empty();
+  auto const has_any_unique_constraints = !transaction_.active_constraints_->unique_->empty();
   if (has_any_unique_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
     // Before committing and validating vertices against unique constraints,
@@ -918,7 +921,7 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Uniq
     const auto vertices_to_update = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
 
     for (auto const *vertex : vertices_to_update) {
-      transaction_.active_constraints_.unique_->UpdateBeforeCommit(vertex, transaction_);
+      transaction_.active_constraints_->unique_->UpdateBeforeCommit(vertex, transaction_);
     }
 
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -1039,7 +1042,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   // If main executes this: Block until we receive votes from all replicas.
   // If replica executes this:,
-  bool const repl_prepare_phase_status =
+  auto const repl_prepare_phase_ok =
       HandleDurabilityAndReplicate(durability_commit_timestamp, replicating_txn, commit_args);
 
   // If replica executes this
@@ -1064,16 +1067,25 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
           FinalizeCommitPhase(durability_commit_timestamp);
-          // Throw exception if we couldn't commit on one of SYNC replica
-          if (!repl_prepare_phase_status) {
-            return std::unexpected{SyncReplicationError{}};
+
+          auto failures = replicating_txn.CollectAllFailures();
+          auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
+            return CommitTsInfo{.ldt_ = durability_commit_timestamp,
+                                .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
+          };
+          // update replicas' cached commit info
+          replicating_txn.UpdateCommitTsInfo(update_func);
+
+          if (!failures.empty()) {
+            return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
           }
           return {};
         }
 
         // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
         // cluster.
-        if (repl_prepare_phase_status) {
+
+        if (repl_prepare_phase_ok) {
           // All replicas voted yes, hence they want to commit the current transaction
           FinalizeCommitPhase(durability_commit_timestamp);
         }
@@ -1084,14 +1096,23 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         }
         // Send to all replicas they can finalize a transaction
         replicating_txn.FinalizeTransaction(
-            repl_prepare_phase_status, mem_storage->uuid(), protector, durability_commit_timestamp);
+            repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
 
-        if (!repl_prepare_phase_status) {
+        auto failures = replicating_txn.CollectAllFailures();
+        auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
+          return CommitTsInfo{.ldt_ = durability_commit_timestamp,
+                              .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
+        };
+        // update replicas' cached commit info only if the txn was actually committed
+        if (repl_prepare_phase_ok) {
+          replicating_txn.UpdateCommitTsInfo(update_func);
+        }
+
+        if (!failures.empty()) {
           // Release engine lock because we don't have to hold it anymore for abort
           engine_guard.unlock();
           AbortAndResetCommitTs();
-
-          return std::unexpected{StrictSyncReplicationError{}};
+          return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = false}};
         }
 
         return {};
@@ -1171,11 +1192,13 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     return CommitTsInfo{.ldt_ = durability_commit_timestamp,
                         .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
   };
+  // update main's cached info
   atomic_struct_update<CommitTsInfo>(mem_storage->repl_storage_state_.commit_ts_info_, update_func);
 
   // Install the new point index, if needed
-  mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
-                                                          transaction_.point_index_ctx_);
+  auto point_updater = mem_storage->indices_.MakeUpdater();
+  mem_storage->indices_.point_index_.InstallNewPointIndex(
+      transaction_.point_index_change_collector_, transaction_.point_index_ctx_, point_updater);
 
   // Call other callbacks that publish/install upon commit
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
@@ -1196,8 +1219,14 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
 
   CheckForFastDiscardOfDeltas();
-  memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
-  memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  // Skip the virtual dispatch when the txn didn't touch any text/text-edge data
+  // (the common case for the commit hot path).
+  if (!transaction_.text_index_change_collector_.empty()) {
+    transaction_.active_indices_->text_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  }
+  if (!transaction_.text_edge_index_change_collector_.empty()) {
+    transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  }
   is_transaction_active_ = false;
 }
 
@@ -1206,14 +1235,16 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     CommitArgs commit_args) {
   auto result = PrepareForCommitPhase(std::move(commit_args));
 
-  const auto fatal_error =
-      !result && std::visit(
-                     [](const auto &e) {
-                       // All errors are handled at a higher level.
-                       // Replication errros are not fatal and should procede with finialize transaction
-                       return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
-                     },
-                     result.error());
+  const auto fatal_error = !result && std::visit(
+                                          [](const auto &e) {
+                                            using E = std::remove_cvref_t<decltype(e)>;
+                                            if constexpr (std::is_same_v<E, storage::ReplicationError>) {
+                                              // Replication errors are fatal only if the transaction was aborted
+                                              return !e.transaction_committed;
+                                            }
+                                            return true;  // all other errors are fatal
+                                          },
+                                          result.error());
 
   if (fatal_error) {
     // PrepareForCommitPhase aborted the transaction internally (e.g. constraint/serialization error).
@@ -1319,18 +1350,18 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   if (!transaction_.deltas.empty()) {
     auto index_abort_processor = storage_->indices_.GetAbortProcessor(*transaction_.active_indices_);
 
-    auto const has_any_unique_constraints = !transaction_.active_constraints_.unique_->empty();
+    auto const has_any_unique_constraints = !transaction_.active_constraints_->unique_->empty();
     if (has_any_unique_constraints && transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
       // Need to remove elements from constraints before handling of the deltas, so the elements match the correct
       // values. Use AbortProcessor pattern for efficient constraint-first iteration (one accessor per constraint).
       auto vertices_to_check = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
-      auto abort_processor = transaction_.active_constraints_.unique_->GetAbortProcessor();
+      auto abort_processor = transaction_.active_constraints_->unique_->GetAbortProcessor();
       for (auto const *vertex : vertices_to_check) {
-        transaction_.active_constraints_.unique_->CollectForAbort(abort_processor, vertex);
+        transaction_.active_constraints_->unique_->CollectForAbort(abort_processor, vertex);
       }
-      transaction_.active_constraints_.unique_->AbortEntries(std::move(abort_processor.abortable_info_),
-                                                             transaction_.start_timestamp);
+      transaction_.active_constraints_->unique_->AbortEntries(std::move(abort_processor.abortable_info_),
+                                                              transaction_.start_timestamp);
     }
 
     // We collect vertices and edges we've created here and then splice them into
@@ -1338,11 +1369,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // by one and acquiring lock every time.
     std::vector<Gid> my_deleted_vertices;
     std::vector<Gid> my_deleted_edges;
-
-    std::map<EdgeTypePropKey,
-             std::vector<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>>>>
-        vector_edge_type_property_restore;  // No need to cleanup, because edge type can't be removed and when null
-                                            // property is set, it's like removing the property from the index
 
     // TWO passes needed here
     // Abort will modify objects to restore state to how they were before this txn
@@ -1372,37 +1398,17 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 auto prop_id = current->property.key;
                 auto *from_vertex = current->property.out_vertex;
 
-                const auto &vector_indexed_edge_types = index_abort_processor.vector_edge_.p2et.find(prop_id);
-                auto vec_prop_is_interesting =
-                    vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end();
-
                 auto processor_prop_is_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
-                if (processor_prop_is_interesting || vec_prop_is_interesting) {
+                if (processor_prop_is_interesting) {
                   // TODO: MVCC collect out_edges (including ones deleted this txn)
                   //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
                   //       ATM we don't handle that corner case. Setting a property on an edge that would then be
                   //       removed
-
-                  if (processor_prop_is_interesting) {
-                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                      if (edge_ref.ptr != edge) continue;
-                      index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
-                    }
-                  }
-
-                  // Collect edge vector
-                  if (vec_prop_is_interesting) {
-                    // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
-                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                      if (edge_ref.ptr != edge) continue;
-                      // handle vector index -> we need to check if the edge type is indexed in the vector index
-                      if (r::find(vector_indexed_edge_types->second, edge_type) !=
-                          vector_indexed_edge_types->second.end()) {
-                        // this edge type is indexed in the vector index
-                        vector_edge_type_property_restore[EdgeTypePropKey{edge_type, prop_id}].emplace_back(
-                            *current->property.value, std::make_tuple(from_vertex, to_vertex, edge));
-                      }
-                    }
+                  for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                    if (edge_ref.ptr != edge) continue;
+                    index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
+                    index_abort_processor.vector_edge_.CollectOnPropertyChange(
+                        edge_type, prop_id, *current->property.value, from_vertex, to_vertex, edge);
                   }
                 }
 
@@ -1665,10 +1671,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                   *transaction_.active_indices_,
                                   transaction_.start_timestamp,
                                   mem_storage->name_id_mapper_.get());
-    for (auto const &[edge_type_prop, prop_edges] : vector_edge_type_property_restore) {
-      storage_->indices_.vector_edge_index_.RestoreEntries(edge_type_prop, prop_edges);
-    }
-
     // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
     if (!my_deleted_edges.empty() && mem_storage->config_.salient.items.enable_edges_metadata) {
       auto edges_metadata_acc = mem_storage->edges_metadata_.access();
@@ -1783,7 +1785,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   return {};
 }
 
-auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties,
+auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties, IndexOrder order,
                                                     CheckCancelFunction cancel_check)
     -> std::expected<void, StorageIndexDefinitionError> {
   // UNIQUE access will be done only through schema.assert
@@ -1793,7 +1795,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  if (!mem_label_property_index->RegisterIndex(label, properties, updater)) {
+  if (!mem_label_property_index->RegisterIndex(label, properties, updater, order)) {
     return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
   DowngradeToReadIfValid();
@@ -1804,6 +1806,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
                            std::nullopt,
                            updater,
                            std::nullopt,
+                           order,
                            &transaction_,
                            std::move(cancel_check))
            .has_value()) {
@@ -1811,11 +1814,11 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
-    return mem_label_property_index->PublishIndex(label, properties, commit_timestamp);
+    return mem_label_property_index->PublishIndex(label, properties, commit_timestamp, order);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties), order);
   // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
@@ -1944,7 +1947,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping label-property index requires a unique or read access to the storage!");
@@ -1953,14 +1956,27 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
 
-  // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto was_dropped = storage_->invalidator_->invalidate_now(
-      [&] { return mem_label_property_index->DropIndex(label, properties, updater); });
-  if (!was_dropped) {
+  LabelPropertyIndex::DropResult drop_result;
+  storage_->invalidator_->invalidate_now([&] {
+    drop_result = mem_label_property_index->DropIndex(label, properties, updater, order);
+    return static_cast<bool>(drop_result);
+  });
+  if (!drop_result) {
     return std::unexpected{IndexDefinitionError{}};
   }
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
+  if (drop_result.dropped_asc) {
+    transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop,
+                                        label,
+                                        std::vector<storage::PropertyPath>(properties),
+                                        IndexOrder::ASC);
+  }
+  if (drop_result.dropped_desc) {
+    transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop,
+                                        label,
+                                        std::vector<storage::PropertyPath>(properties),
+                                        IndexOrder::DESC);
+  }
   // We don't care if there is a replication error because on main node the change will go through
 
   return {};
@@ -2038,9 +2054,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time so concurrent readers don't observe a
+  // create that gets rolled back. Matches the constraint / vector-index paths.
+  auto updater = in_memory->indices_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([&point_index, updater](uint64_t /*commit_ts*/) {
+    point_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
   return {};
 }
 
@@ -2052,9 +2073,13 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   if (!point_index.DropPointIndex(label, property)) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time. See CreatePointIndex above.
+  auto updater = in_memory->indices_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([&point_index, updater](uint64_t /*commit_ts*/) {
+    point_index.PublishActiveIndices(updater);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
   return {};
 }
 
@@ -2070,9 +2095,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       !vector_index.CreateIndex(spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time so concurrent readers don't observe a
+  // create that gets rolled back. Matches the constraint CREATE/DROP paths below.
+  auto updater = in_memory->indices_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([&vector_index, updater](uint64_t /*commit_ts*/) {
+    vector_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
   return {};
 }
 
@@ -2082,16 +2112,21 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
-  auto vertices_acc = in_memory->vertices_.access();
-  if (vector_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
-  } else if (vector_edge_index.DropIndex(index_name)) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+  auto updater = in_memory->indices_.MakeUpdater();
+  if (vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
+    transaction_.commit_callbacks_.Add([&vector_index, updater](uint64_t /*commit_ts*/) {
+      vector_index.PublishActiveIndices(updater);
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
+    });
+  } else if (vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
+    transaction_.commit_callbacks_.Add([&vector_edge_index, updater](uint64_t /*commit_ts*/) {
+      vector_edge_index.PublishActiveIndices(updater);
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+    });
   } else {
     return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
-  // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
 
@@ -2117,12 +2152,16 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector edge index with the same name as vector index on nodes
   if (vector_index.IndexExists(spec.index_name, in_memory->name_id_mapper_.get()) ||
-      !vector_edge_index.CreateIndex(spec, vertices_acc)) {
+      !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time. See CreateVectorIndex above.
+  auto updater = in_memory->indices_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([&vector_edge_index, updater](uint64_t /*commit_ts*/) {
+    vector_edge_index.PublishActiveIndices(updater);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
-  // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   return {};
 }
 
@@ -2148,8 +2187,10 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
     throw;
   }
   // Defer publication to commit time for MVCC correctness
-  auto publisher = [existence_constraints, label, property](uint64_t commit_ts) {
+  auto updater = in_memory->constraints_.MakeUpdater();
+  auto publisher = [existence_constraints, label, property, updater](uint64_t commit_ts) {
     existence_constraints->PublishConstraint(label, property, commit_ts);
+    updater(existence_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
@@ -2166,6 +2207,12 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
   if (!existence_constraints->DropConstraint(label, property)) {
     return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
+  // Defer publication to commit time so concurrent readers don't observe the
+  // drop if the DDL transaction aborts. Matches the CREATE path above.
+  auto updater = in_memory->constraints_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([existence_constraints, updater](uint64_t /*commit_ts*/) {
+    updater(existence_constraints->GetActiveConstraints());
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
   return {};
 }
@@ -2186,8 +2233,10 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
     return ret.value();
   }
   // Defer publication to commit time for MVCC correctness
-  auto publisher = [mem_unique_constraints, label, properties](uint64_t commit_ts) {
+  auto updater = in_memory->constraints_.MakeUpdater();
+  auto publisher = [mem_unique_constraints, label, properties, updater](uint64_t commit_ts) {
     mem_unique_constraints->PublishConstraint(label, properties, commit_ts);
+    updater(mem_unique_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
@@ -2206,6 +2255,12 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
+  // Defer publication to commit time so concurrent readers don't observe the
+  // drop if the DDL transaction aborts. Matches the CREATE path above.
+  auto updater = in_memory->constraints_.MakeUpdater();
+  transaction_.commit_callbacks_.Add([mem_unique_constraints, updater](uint64_t /*commit_ts*/) {
+    updater(mem_unique_constraints->GetActiveConstraints());
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
@@ -2232,8 +2287,10 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
     throw;
   }
   // Defer publication to commit time for MVCC correctness
-  auto publisher = [type_constraints, label, property, kind](uint64_t commit_ts) {
+  auto updater = in_memory->constraints_.MakeUpdater();
+  auto publisher = [type_constraints, label, property, kind, updater](uint64_t commit_ts) {
     type_constraints->PublishConstraint(label, property, kind, commit_ts);
+    updater(type_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
@@ -2251,6 +2308,11 @@ std::expected<void, StorageTypeConstraintDroppingError> InMemoryStorage::InMemor
   if (!deleted_constraint) {
     return std::unexpected{StorageTypeConstraintDroppingError{ConstraintDefinitionError{}}};
   }
+  // Defer publication to commit time so concurrent readers don't observe the
+  // drop if the DDL transaction aborts. Matches the CREATE path above.
+  auto updater = in_memory->constraints_.MakeUpdater();
+  transaction_.commit_callbacks_.Add(
+      [type_constraints, updater](uint64_t /*commit_ts*/) { updater(type_constraints->GetActiveConstraints()); });
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, kind);
   return {};
 }
@@ -2262,10 +2324,15 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, std::span<storage::PropertyPath const> properties,
-    std::span<storage::PropertyValueRange const> property_ranges, View view) {
+    std::span<storage::PropertyValueRange const> property_ranges, View view, IndexOrder order) {
   auto *active_indices =
       static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
-  return VerticesIterable(active_indices->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
+  if (order == IndexOrder::DESC) {
+    return VerticesIterable(active_indices->Vertices<InMemoryLabelPropertyIndex::DescEntry>(
+        label, properties, property_ranges, view, storage_, &transaction_));
+  }
+  return VerticesIterable(active_indices->Vertices<InMemoryLabelPropertyIndex::Entry>(
+      label, properties, property_ranges, view, storage_, &transaction_));
 }
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(View view, size_t num_chunks) {
@@ -2284,11 +2351,15 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(Label
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
     LabelId label, std::span<storage::PropertyPath const> properties,
-    std::span<storage::PropertyValueRange const> property_ranges, View view, size_t num_chunks) {
+    std::span<storage::PropertyValueRange const> property_ranges, View view, size_t num_chunks, IndexOrder order) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto *active_indices =
       static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
-  return VerticesChunkedIterable(active_indices->ChunkedVertices(
+  if (order == IndexOrder::DESC) {
+    return VerticesChunkedIterable(active_indices->ChunkedVertices<InMemoryLabelPropertyIndex::DescEntry>(
+        label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
+  }
+  return VerticesChunkedIterable(active_indices->ChunkedVertices<InMemoryLabelPropertyIndex::Entry>(
       label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
 }
 
@@ -2478,7 +2549,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   uint64_t last_durable_ts = 0;
   std::optional<PointIndexContext> point_index_context;
   ActiveIndicesPtr active_indices;
-  std::optional<ActiveConstraints> active_constraints;
+  ActiveConstraintsPtr active_constraints;
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
@@ -2501,7 +2572,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           false,
           *std::move(point_index_context),
           std::move(active_indices),
-          *std::move(active_constraints),
+          std::move(active_constraints),
           std::move(async_index_helper),
           last_durable_ts};
 }
@@ -2517,7 +2588,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto active_constraints = GetActiveConstraints();
       // Constraints violation require deltas so we can abort. Hence in analytical can not support any constraint
-      if (!active_constraints.empty()) {
+      if (active_constraints && !active_constraints->empty()) {
         throw utils::BasicException(
             "Constraints are not supported in analytical storage mode. Please drop them before "
             "changing storage mode to analytical or use transactional mode.");
@@ -2963,7 +3034,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto vertex_acc = vertices_.access();
 
     if (!indices_.vector_index_.Empty()) {
-      // Remove from vector indices BEFORE skip list removal while Vertex* is still valid.
       auto const vertices_to_remove = current_deleted_vertices |
                                       std::ranges::views::transform([&vertex_acc](auto const gid) {
                                         auto it = vertex_acc.find(gid);
@@ -2975,6 +3045,20 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       indices_.RemoveVerticesFromVectorIndices(vertices_to_remove);
     }
 
+    // Remove edges from vector edge index BEFORE vertex skip-list removal.
+    // edge_endpoints_ stores Vertex* — freeing vertices first would leave dangling pointers.
+    if (!current_deleted_edges.empty() && !indices_.vector_edge_index_.Empty()) {
+      auto edge_acc = edges_.access();
+      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
+                                     auto it = edge_acc.find(gid);
+                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
+                                     return &*it;
+                                   }) |
+                                   std::ranges::to<std::vector>();
+
+      indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
+    }
+
     for (auto vertex : current_deleted_vertices) {
       MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
     }
@@ -2982,11 +3066,19 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   // EDGES
   if (!current_deleted_edges.empty()) {
-    if (!indices_.vector_edge_index_.Empty()) {
-      indices_.RemoveEdgesFromVectorEdgeIndices(current_deleted_edges);
+    auto edge_acc = edges_.access();
+
+    if (current_deleted_vertices.empty() && !indices_.vector_edge_index_.Empty()) {
+      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
+                                     auto it = edge_acc.find(gid);
+                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
+                                     return &*it;
+                                   }) |
+                                   std::ranges::to<std::vector>();
+
+      indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
     }
 
-    auto edge_acc = edges_.access();
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
@@ -3001,7 +3093,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto vertex_acc = vertices_.access();
 
     if (!indices_.vector_index_.Empty()) {
-      // Collect deleted vertex pointers BEFORE skip-list removal while Vertex* is still valid.
       auto const analytical_deleted_vertices =
           vertex_acc | std::ranges::views::filter([](auto const &v) { return v.delta() == nullptr && v.deleted(); }) |
           std::ranges::views::transform([](auto &v) { return &v; }) | std::ranges::to<std::vector>();
@@ -3011,8 +3102,19 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       }
     }
 
+    // Remove edges from vector edge index BEFORE vertex skip-list removal.
+    if (!indices_.vector_edge_index_.Empty()) {
+      auto edge_acc = edges_.access();
+      auto const analytical_deleted_edges =
+          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
+          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
+
+      if (!analytical_deleted_edges.empty()) {
+        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
+      }
+    }
+
     for (auto &vertex : vertex_acc) {
-      // a deleted vertex which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
       if (vertex.delta() == nullptr && vertex.deleted()) {
         vertex_acc.remove(vertex);
       }
@@ -3023,22 +3125,18 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   if (need_full_scan_edges) {
     auto edge_acc = edges_.access();
 
-    if (!indices_.vector_edge_index_.Empty()) {
-      // Collect deleted edge GIDs BEFORE skip-list removal while Edge* is still valid.
-      std::list<Gid> analytical_deleted_edge_gids;
-      for (auto const &edge : edge_acc) {
-        if (edge.delta() == nullptr && edge.deleted()) {
-          analytical_deleted_edge_gids.push_back(edge.gid);
-        }
-      }
-      if (!analytical_deleted_edge_gids.empty()) {
-        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edge_gids);
+    if (!need_full_scan_vertices && !indices_.vector_edge_index_.Empty()) {
+      auto const analytical_deleted_edges =
+          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
+          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
+
+      if (!analytical_deleted_edges.empty()) {
+        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
       }
     }
 
     auto edge_metadata_acc = edges_metadata_.access();
     for (auto &edge : edge_acc) {
-      // a deleted edge which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
       if (edge.delta() == nullptr && edge.deleted()) {
         edge_acc.remove(edge);
         edge_metadata_acc.remove(edge.gid);
@@ -3147,9 +3245,9 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
-bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
+auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                                      TransactionReplication &replicating_txn,
-                                                                     CommitArgs const &commit_args) {
+                                                                     CommitArgs const &commit_args) -> bool {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // If replica executes this:
@@ -3254,6 +3352,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
                                 *mem_storage->name_id_mapper_,
                                 md_delta.label_ordered_properties.label,
                                 md_delta.label_ordered_properties.properties);
+          encoder.WriteUint(static_cast<uint64_t>(md_delta.label_ordered_properties.order));
         });
         break;
       }
@@ -3989,7 +4088,9 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
     if (uuid() != loaded_snapshot_uuid) {
       // Rewrite the UUID in the snapshot file
-      durability::OverwriteSnapshotUUID(local_path, uuid());
+      if (!durability::OverwriteSnapshotUUID(local_path, uuid())) {
+        return std::unexpected{InMemoryStorage::RecoverSnapshotError::FailedOverwritingUUID};
+      }
     }
     // Generate new name for the snapshot file
     // Must be after moving to .old, otherwise you will move the file itself
@@ -4249,11 +4350,12 @@ void InMemoryStorage::Clear() {
   commit_log_.reset();
   commit_log_.emplace();
 
-  // Drop any pending GC work (committed_transactions_ is holding on to old deltas)
+  // Drop any pending GC work
   deleted_vertices_->clear();
   deleted_edges_->clear();
   garbage_undo_buffers_->clear();
   committed_transactions_->clear();
+  waiting_gc_deltas_->clear();
 
   // Clear incoming async index creation requests
   async_indexer_.Clear();
@@ -4281,7 +4383,7 @@ void InMemoryStorage::Clear() {
 }
 
 bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, PropertyId property) const {
-  return storage_->indices_.point_index_.PointIndexExists(label, property);
+  return transaction_.active_indices_->point_->PointIndexExists(label, property);
 }
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
@@ -4292,17 +4394,17 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       .edge_type_property =
           transaction_.active_indices_->edge_type_properties_->ListIndices(transaction_.start_timestamp),
       .edge_property = transaction_.active_indices_->edge_property_->ListIndices(transaction_.start_timestamp),
-      .text_indices = storage_->indices_.text_index_.ListIndices(),
-      .text_edge_indices = storage_->indices_.text_edge_index_.ListIndices(),
-      .point_label_property = storage_->indices_.point_index_.ListIndices(),
-      .vector_indices_spec = storage_->indices_.vector_index_.ListIndices(),
-      .vector_edge_indices_spec = storage_->indices_.vector_edge_index_.ListIndices()};
+      .text_indices = transaction_.active_indices_->text_->ListIndices(),
+      .text_edge_indices = transaction_.active_indices_->text_edge_->ListIndices(),
+      .point_label_property = transaction_.active_indices_->point_->ListIndices(),
+      .vector_indices_spec = transaction_.active_indices_->vector_->ListIndices(),
+      .vector_edge_indices_spec = transaction_.active_indices_->vector_edge_->ListIndices()};
 }
 
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
-  return {.existence = transaction_.active_constraints_.existence_->ListConstraints(transaction_.start_timestamp),
-          .unique = transaction_.active_constraints_.unique_->ListConstraints(transaction_.start_timestamp),
-          .type = transaction_.active_constraints_.type_->ListConstraints(transaction_.start_timestamp)};
+  return {.existence = transaction_.active_constraints_->existence_->ListConstraints(transaction_.start_timestamp),
+          .unique = transaction_.active_constraints_->unique_->ListConstraints(transaction_.start_timestamp),
+          .type = transaction_.active_constraints_->type_->ListConstraints(transaction_.start_timestamp)};
 }
 
 void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
@@ -4314,8 +4416,8 @@ void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
     [[maybe_unused]] auto maybe_error = DropIndex(label_id);
   }
 
-  for (auto &[label_id, properties] : indices_info.label_properties) {
-    [[maybe_unused]] auto maybe_error = DropIndex(label_id, std::move(properties));
+  for (auto &entry : indices_info.label_properties) {
+    [[maybe_unused]] auto maybe_error = DropIndex(entry.label, std::move(entry.properties));
   }
 
   for (const auto &edge_type_id : indices_info.edge_type) {
@@ -4410,6 +4512,7 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 
   mem_storage->vertices_.clear();
+  mem_storage->waiting_gc_deltas_->clear();
   mem_storage->edges_.clear();
   mem_storage->edge_count_.store(0, std::memory_order_release);
   mem_storage->description_store_.Clear();

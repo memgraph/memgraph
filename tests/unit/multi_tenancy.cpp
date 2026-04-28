@@ -18,7 +18,6 @@
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
@@ -119,11 +118,12 @@ class MultiTenantTest : public ::testing::Test {
                               &settings,
                               &parameters,
                               &dbms,
-                              repl_state,
-                              system
+                              &repl_state,
+                              system,
+                              nullptr
 #ifdef MG_ENTERPRISE
                               ,
-                              std::nullopt,
+                              nullptr,
                               nullptr
 #endif
           } {

@@ -627,17 +627,20 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     // Verify indices info.
     {
       auto info = acc->ListAllIndices();
+      auto lp_entry = [](auto label, auto properties) {
+        return memgraph::storage::LabelPropertyIndexEntry{label, std::move(properties)};
+      };
       switch (type) {
         case DatasetType::ONLY_BASE:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
           ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(
-                          std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
-                          std::make_pair(base_label_indexed,
-                                         std::vector{memgraph::storage::PropertyPath{property_b},
-                                                     memgraph::storage::PropertyPath{property_a},
-                                                     memgraph::storage::PropertyPath{property_c}}),
-                          std::make_pair(base_label_indexed, std::vector{property_path})));
+                          lp_entry(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
+                          lp_entry(base_label_indexed,
+                                   std::vector{memgraph::storage::PropertyPath{property_b},
+                                               memgraph::storage::PropertyPath{property_a},
+                                               memgraph::storage::PropertyPath{property_c}}),
+                          lp_entry(base_label_indexed, std::vector{property_path})));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
@@ -648,26 +651,26 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(extended_label_unused));
-          ASSERT_THAT(info.label_properties,
-                      UnorderedElementsAre(
-                          std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
-                          std::make_pair(extended_label_indexed,
-                                         std::vector{memgraph::storage::PropertyPath{property_count}})));
+          ASSERT_THAT(
+              info.label_properties,
+              UnorderedElementsAre(
+                  lp_entry(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
+                  lp_entry(extended_label_indexed, std::vector{memgraph::storage::PropertyPath{property_count}})));
           break;
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed, extended_label_unused));
-          ASSERT_THAT(info.label_properties,
-                      UnorderedElementsAre(
-                          std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
-                          std::make_pair(base_label_indexed,
-                                         std::vector{memgraph::storage::PropertyPath{property_b},
-                                                     memgraph::storage::PropertyPath{property_a},
-                                                     memgraph::storage::PropertyPath{property_c}}),
-                          std::make_pair(base_label_indexed, std::vector{property_path}),
-                          std::make_pair(extended_label_indexed,
-                                         std::vector{memgraph::storage::PropertyPath{property_count}})));
+          ASSERT_THAT(
+              info.label_properties,
+              UnorderedElementsAre(
+                  lp_entry(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
+                  lp_entry(base_label_indexed,
+                           std::vector{memgraph::storage::PropertyPath{property_b},
+                                       memgraph::storage::PropertyPath{property_a},
+                                       memgraph::storage::PropertyPath{property_c}}),
+                  lp_entry(base_label_indexed, std::vector{property_path}),
+                  lp_entry(extended_label_indexed, std::vector{memgraph::storage::PropertyPath{property_count}})));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
@@ -680,12 +683,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
           ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(
-                          std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
-                          std::make_pair(base_label_indexed,
-                                         std::vector{memgraph::storage::PropertyPath{property_b},
-                                                     memgraph::storage::PropertyPath{property_a},
-                                                     memgraph::storage::PropertyPath{property_c}}),
-                          std::make_pair(base_label_indexed, std::vector{property_path})));
+                          lp_entry(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
+                          lp_entry(base_label_indexed,
+                                   std::vector{memgraph::storage::PropertyPath{property_b},
+                                               memgraph::storage::PropertyPath{property_a},
+                                               memgraph::storage::PropertyPath{property_c}}),
+                          lp_entry(base_label_indexed, std::vector{property_path})));
           ASSERT_THAT(info.edge_type, UnorderedElementsAre(et1));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
@@ -699,12 +702,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
           ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(
-                          std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
-                          std::make_pair(base_label_indexed,
-                                         std::vector{memgraph::storage::PropertyPath{property_b},
-                                                     memgraph::storage::PropertyPath{property_a},
-                                                     memgraph::storage::PropertyPath{property_c}}),
-                          std::make_pair(base_label_indexed, std::vector{property_path})));
+                          lp_entry(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
+                          lp_entry(base_label_indexed,
+                                   std::vector{memgraph::storage::PropertyPath{property_b},
+                                               memgraph::storage::PropertyPath{property_a},
+                                               memgraph::storage::PropertyPath{property_c}}),
+                          lp_entry(base_label_indexed, std::vector{property_path})));
           ASSERT_THAT(info.edge_type_property, UnorderedElementsAre(std::make_pair(et1, property_id)));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
@@ -2362,7 +2365,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       ASSERT_TRUE(acc->DropIndex(index).has_value());
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    for (const auto &[label, properties] : indices.label_properties) {
+    for (const auto &[label, properties, order] : indices.label_properties) {
       auto acc = db.Access(memgraph::storage::StorageAccessType::READ);
       ASSERT_TRUE(acc->DropIndex(label, std::vector(properties)).has_value());
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());

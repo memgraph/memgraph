@@ -14,10 +14,12 @@
 #include <gflags/gflags.h>
 
 #include "dbms/database.hpp"
+#include "dbms/database_protector.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/query_logger.hpp"
 #include "query/stream.hpp"
+#include "query/trigger_context.hpp"
 #include "system/transaction.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_trigger.hpp"
@@ -28,8 +30,8 @@
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
-#include "coordination/raft_state.hpp"
 #include "coordination/replication_lag_info.hpp"
+#include "coordination/utils.hpp"
 #include "utils/resource_monitoring.hpp"
 #endif
 
@@ -450,6 +452,11 @@ class Interpreter final {
           expected, original_status_, std::memory_order_release, std::memory_order_relaxed);
     }
 
+    TxVerifier(const TxVerifier &) = delete;
+    TxVerifier(TxVerifier &&) = delete;
+    TxVerifier &operator=(const TxVerifier &) = delete;
+    TxVerifier &operator=(TxVerifier &&) = delete;
+
     TransactionStatus status() const { return original_status_; }
 
    private:
@@ -567,9 +574,8 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
   size_t ActiveQueryExecutions() {
-    return std::count_if(query_executions_.begin(), query_executions_.end(), [](const auto &execution) {
-      return execution && execution->prepared_query;
-    });
+    return std::ranges::count_if(query_executions_,
+                                 [](const auto &execution) { return execution && execution->prepared_query; });
   }
 
   std::optional<std::function<void(std::string_view)>> on_change_{};

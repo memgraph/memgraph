@@ -67,11 +67,14 @@ class TextIndexTest : public testing::Test {
     // deleted. Correct approach would be to wait for the merging threads to finish on the mgcxx side.
     constexpr auto max_retries = 5;
     constexpr auto retry_delay = std::chrono::milliseconds(100);
-    auto unique_acc = this->storage->UniqueAccess();
     for (int i = 0; i < max_retries; ++i) {
+      auto unique_acc = this->storage->UniqueAccess();
       auto status = unique_acc->DropTextIndex(test_index.data());
       if (status.has_value()) {
-        return;  // Successfully cleared the index
+        // The drop is deferred to commit time — we must commit to actually
+        // flip deferred_drop and tear down the on-disk tantivy directory.
+        ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+        return;
       }
       std::this_thread::sleep_for(retry_delay);
     }
@@ -161,6 +164,44 @@ TEST_F(TextIndexTest, ConcurrencyTest) {
   auto acc = this->storage->Access(memgraph::storage::WRITE);
   auto results = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_limit);
   EXPECT_EQ(results.size(), index_size);
+}
+
+TEST_F(TextIndexTest, PinnedSearcherSnapshotConsistency) {
+  this->CreateIndex();
+
+  // Commit initial data
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    TextIndexTest_PinnedSearcherSnapshotConsistency_Test::CreateVertex(acc.get(), "Alpha", "first document");
+    TextIndexTest_PinnedSearcherSnapshotConsistency_Test::CreateVertex(acc.get(), "Beta", "second document");
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Open a search accessor — its searcher snapshot is pinned on first search
+  auto search_acc = this->storage->Access(memgraph::storage::WRITE);
+  auto first_search = search_acc->TextIndexSearch(
+      test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+  ASSERT_EQ(first_search.size(), 2);
+
+  // Meanwhile, another transaction adds more data and commits
+  {
+    auto writer_acc = this->storage->Access(memgraph::storage::WRITE);
+    TextIndexTest_PinnedSearcherSnapshotConsistency_Test::CreateVertex(writer_acc.get(), "Gamma", "third document");
+    ASSERT_NO_ERROR(writer_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Second search in the same accessor should see the SAME snapshot (2 results, not 3)
+  auto second_search = search_acc->TextIndexSearch(
+      test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+  EXPECT_EQ(second_search.size(), 2);
+
+  // A fresh accessor should see the new data
+  {
+    auto fresh_acc = this->storage->Access(memgraph::storage::WRITE);
+    auto fresh_search = fresh_acc->TextIndexSearch(
+        test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+    EXPECT_EQ(fresh_search.size(), 3);
+  }
 }
 
 TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {

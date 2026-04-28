@@ -38,7 +38,7 @@ using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
-using memgraph::rpc::GenericRpcFailedException;
+using memgraph::rpc::RpcTimeoutException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
 using memgraph::storage::ActiveIndices;
@@ -129,7 +129,12 @@ class SnapshotRpcProgressTest : public ::testing::Test {
                                            std::make_shared<InMemoryLabelPropertyIndex::ActiveIndices>(),
                                            std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
                                            std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
-                                           std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>());
+                                           std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::TextIndex::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::PointIndexStorage::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::VectorIndex::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::VectorEdgeIndex::ActiveIndices>());
     });
   }
 };
@@ -440,7 +445,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SnapshotRpc>(UUID{}, UUID{});
-  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedNoVertices) {
@@ -537,6 +542,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
+  InitActiveIndicesStore();
   ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
 }
 
@@ -564,6 +570,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 40);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  InitActiveIndicesStore();
   ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
 }
 

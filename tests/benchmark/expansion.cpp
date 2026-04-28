@@ -13,6 +13,7 @@
 #include <memory>
 
 #include "communication/result_stream_faker.hpp"
+#include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
@@ -48,11 +49,12 @@ class ExpansionBenchFixture : public benchmark::Fixture {
                                 nullptr,
                                 nullptr,
                                 nullptr,
-                                repl_state.value(),
-                                *system
+                                &repl_state.value(),
+                                *system,
+                                nullptr
 #ifdef MG_ENTERPRISE
                                 ,
-                                std::nullopt,
+                                nullptr,
                                 nullptr
 #endif
     );

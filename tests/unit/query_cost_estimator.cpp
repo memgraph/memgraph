@@ -25,9 +25,6 @@
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
-using CardParam = CostEstimator<memgraph::query::DbAccessor>::CardParam;
-using CostParam = CostEstimator<memgraph::query::DbAccessor>::CostParam;
-using MiscParam = CostEstimator<memgraph::query::DbAccessor>::MiscParam;
 namespace ms = memgraph::storage;
 
 /** A fixture for cost estimation. Sets up the database
@@ -448,6 +445,48 @@ TEST_F(QueryCostEstimator, UnwindNoLiteral) {
 
 #undef TEST_OP
 #undef EXPECT_COST
-//
+
+TEST_F(QueryCostEstimator, OrderByHasNonZeroCost) {
+  // A plan with OrderBy should have higher cost than the same plan without it.
+  // This matters because index-scan rewriting can eliminate an OrderBy when the
+  // scan already provides the required order; if OrderBy is free the cost
+  // estimator cannot prefer the plan without the sort.
+  AddVertices(100, 30, 20);  // ScanAll cardinality ~ 100
+  MakeOp<ScanAll>(last_op_, NextSymbol());
+  const auto cost_without_order_by = Cost();
+
+  // add an OrderBy on top of the same ScanAll
+  const auto sym = NextSymbol();
+  MakeOp<OrderBy>(last_op_, std::vector<SortItem>{{Ordering::ASC, Literal(1)}}, std::vector<Symbol>{sym});
+  const auto cost_with_order_by = Cost();
+
+  EXPECT_GT(cost_with_order_by, cost_without_order_by);
+}
+
+// DESC index should produce the same cost as ASC index for the same data.
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesDescSameCostAsAsc) {
+  AddVertices(100, 30, 20);
+
+  // ASC cost (index already created in SetUp)
+  MakeOp<ScanAllByLabelProperties>(nullptr,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::Equal(Literal(12))});
+  static_cast<ScanAllByLabelProperties *>(last_op_.get())->index_order_ = ms::IndexOrder::ASC;
+  auto asc_cost = Cost();
+
+  // DESC cost — uses the same VerticesCount path (order-independent), so cost must match
+  MakeOp<ScanAllByLabelProperties>(nullptr,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::Equal(Literal(12))});
+  static_cast<ScanAllByLabelProperties *>(last_op_.get())->index_order_ = ms::IndexOrder::DESC;
+  auto desc_cost = Cost();
+
+  EXPECT_FLOAT_EQ(asc_cost, desc_cost);
+}
+
 // TODO test cost when ScanAll, Expand, Accumulate, Limit
 // vs cost for SA, Expand, Limit

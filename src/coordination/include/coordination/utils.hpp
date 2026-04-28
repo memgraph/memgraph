@@ -11,22 +11,25 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
+#include <concepts>
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/filter.hpp>
+#include <range/v3/view/transform.hpp>
+#include <ranges>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
 #include "coordination/coordinator_instance_context.hpp"
 #include "coordination/data_instance_context.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/logging.hpp"
-
-#include <functional>
-#include <map>
-#include <string>
-#include <string_view>
-#include <vector>
-
-#include <spdlog/spdlog.h>
-#include <range/v3/range/conversion.hpp>
-#include <range/v3/view/filter.hpp>
-#include <range/v3/view/transform.hpp>
 
 #ifdef MG_ENTERPRISE
 
@@ -75,9 +78,9 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
         if (db_it == replica_it->second.end()) {
           return true;
         }
-
-        // return true if cached lag is smaller than max_allowed_replica_read_lag
-        return db_it->second < max_replica_read_lag;
+        // return true if cached lag is smaller than max_allowed_replica_read_lag. Forbid routing to replicas
+        // with negative lag. A negative lag can occur when an instance becomes main without comitting all txns.
+        return db_it->second >= 0 && db_it->second <= max_replica_read_lag;
       };
 
   auto readers = raft_log_data_instances | ranges::views::filter(std::not_fn(is_instance_main_func)) |
