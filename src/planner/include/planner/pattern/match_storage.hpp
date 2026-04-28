@@ -16,9 +16,9 @@
 #include <span>
 #include <vector>
 
-import memgraph.planner.core.eids;
-
 #include "planner/pattern/types.hpp"
+
+import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core::pattern {
 

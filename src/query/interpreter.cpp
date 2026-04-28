@@ -8328,7 +8328,7 @@ PreparedQuery PrepareTenantProfileQuery([[maybe_unused]] ParsedQuery parsed_quer
 
   auto *query = utils::Downcast<TenantProfileQuery>(parsed_query.query);
   auto *db_handler = interpreter_context->dbms_handler;
-  const bool is_replica = interpreter_context->repl_state.ReadLock()->IsReplica();
+  const bool is_replica = interpreter_context->repl_state->ReadLock()->IsReplica();
 
   EvaluationContext eval_ctx;
   eval_ctx.timestamp = QueryTimestamp();

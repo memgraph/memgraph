@@ -11,8 +11,6 @@
 
 #pragma once
 
-import memgraph.planner.core.eids;
-
 #include <cstddef>
 #include <format>
 #include <iostream>
@@ -22,6 +20,8 @@ import memgraph.planner.core.eids;
 #include <vector>
 
 #include "planner/pattern/vm/instruction.hpp"
+
+import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core::pattern::vm {
 
