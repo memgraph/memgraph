@@ -478,7 +478,20 @@ def remote_compute(
 
     def _call(chunk_texts):
         resp = litellm.embedding(input=chunk_texts, **base_kwargs)
-        return [d["embedding"] for d in resp["data"]]
+        data = resp["data"]
+        # Defensive: count mismatch silently truncates the vertex write-back loop;
+        # out-of-order responses misalign embeddings to inputs. OpenAI's schema
+        # exposes an `index` field for exactly this reason — sort by it when
+        # every item has one, otherwise fall back to provider order.
+        if len(data) != len(chunk_texts):
+            raise ValueError(f"Embedding provider returned {len(data)} vectors for {len(chunk_texts)} inputs")
+
+        def _idx(item):
+            return item.get("index") if isinstance(item, dict) else getattr(item, "index", None)
+
+        if data and all(_idx(d) is not None for d in data):
+            data = sorted(data, key=_idx)
+        return [d["embedding"] for d in data]
 
     results = [None] * len(chunks)
     ex = ThreadPoolExecutor(max_workers=cfg["concurrency"])
