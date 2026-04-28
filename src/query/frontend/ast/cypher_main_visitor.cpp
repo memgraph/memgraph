@@ -4125,35 +4125,26 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   //   `CALL () { ... }`                  — no variables imported
   //   `CALL (v1, v2, ...) { ... }`       — only the listed variables
   //   `CALL (*) { ... }`                 — every variable in outer scope
-  // `returnItems` is reused from the Cypher grammar because it already encodes
-  // `*` plus a list with optional aliases. We reject non-identifier
-  // expressions (e.g. `n.prop`) and aliased entries (e.g. `t AS teams`).
+  // The grammar's `scopeClause` rule already restricts the input to either an
+  // asterisk or a list of plain variable names; aliases, expressions, and
+  // mixing `*` with explicit items fail at parse time.
   if (ctx->LPAREN() != nullptr) {
     call_subquery->has_variable_scope_ = true;
-    if (auto *return_items = ctx->returnItems()) {
-      auto [has_asterisk, named_expressions] =
-          std::any_cast<std::pair<bool, std::vector<NamedExpression *>>>(return_items->accept(this));
-      if (has_asterisk) {
-        if (!named_expressions.empty()) {
-          throw SyntaxException(
-              "Asterisk cannot be combined with other variables in the CALL subquery scope clause. Use either '*' or "
-              "explicit variable references.");
-        }
+    if (auto *scope_clause = ctx->scopeClause()) {
+      if (scope_clause->ASTERISK()) {
         call_subquery->all_variables_scoped_ = true;
-      }
-      std::unordered_set<std::string> seen_inner_names;
-      for (auto *named_expr : named_expressions) {
-        if (!utils::Downcast<Identifier>(named_expr->expression_)) {
-          throw SyntaxException("Only variable references are allowed in the CALL subquery scope clause.");
+      } else {
+        std::unordered_set<std::string> seen_inner_names;
+        for (auto *variable_ctx : scope_clause->variable()) {
+          auto name = std::any_cast<std::string>(variable_ctx->accept(this));
+          if (!seen_inner_names.insert(name).second) {
+            throw SyntaxException("Duplicate variable '{}' in CALL subquery scope clause.", name);
+          }
+          auto *named_expr = storage_->Create<NamedExpression>();
+          named_expr->name_ = name;
+          named_expr->expression_ = storage_->Create<Identifier>(name);
+          call_subquery->scoped_variables_.push_back(named_expr);
         }
-        if (named_expr->is_aliased_) {
-          throw SyntaxException(
-              "Scoped variables in the CALL clause can not be aliased. Only simple variable references are allowed.");
-        }
-        if (!seen_inner_names.insert(named_expr->name_).second) {
-          throw SyntaxException("Duplicate variable '{}' in CALL subquery scope clause.", named_expr->name_);
-        }
-        call_subquery->scoped_variables_.push_back(named_expr);
       }
     }
   }
