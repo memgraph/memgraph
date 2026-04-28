@@ -470,6 +470,9 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
   // add nodes which need to be detached on the other end of the edge
   if (detach) {
     for (auto *vertex_ptr : vertices) {
+      // TODO: This local/run-time objects are tracked as if they were long-lived storage objects.
+      // Ideally we move away from the TLS query tracker used for query limit and have everything
+      // go through the db memory trackers. That means we need to pipe in a run-time allocator here.
       utils::small_vector<EdgeTriple, memory::DbAwareAllocator<EdgeTriple>> in_edges;
       utils::small_vector<EdgeTriple, memory::DbAwareAllocator<EdgeTriple>> out_edges;
 

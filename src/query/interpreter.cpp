@@ -8433,7 +8433,7 @@ PreparedQuery PrepareTenantProfileQuery([[maybe_unused]] ParsedQuery parsed_quer
           auto limit_str = profile.memory_limit > 0 ? utils::GetReadableSize(static_cast<double>(profile.memory_limit))
                                                     : std::string("unlimited");
           auto dbs = profile.databases | std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
-          results.push_back({TypedValue(profile.name), TypedValue(limit_str), TypedValue(std::move(dbs))});
+          results.push_back({TypedValue(profile.name), TypedValue(limit_str), TypedValue(dbs)});
         }
         return results;
       };
@@ -8447,7 +8447,7 @@ PreparedQuery PrepareTenantProfileQuery([[maybe_unused]] ParsedQuery parsed_quer
         auto limit_str = profile->memory_limit > 0 ? utils::GetReadableSize(static_cast<double>(profile->memory_limit))
                                                    : std::string("unlimited");
         auto dbs = profile->databases | std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
-        return {{TypedValue(profile->name), TypedValue(limit_str), TypedValue(std::move(dbs))}};
+        return {{TypedValue(profile->name), TypedValue(limit_str), TypedValue(dbs)}};
       };
     } break;
 
