@@ -559,7 +559,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
       for (const auto &role : roles) {
         if (auto role_obj = locked_auth->GetRole(role)) {
           if (!roles_obj) roles_obj.emplace();
-          roles_obj->AddRole(std::move(*role_obj));
+          roles_obj->AddRole(*role_obj);
         }
       }
     }
@@ -696,8 +696,8 @@ std::vector<query::RolenameResult> AuthQueryHandler::GetRolenames() {
   }
 }
 
-std::vector<query::RolenameResult> AuthQueryHandler::GetRolenamesForUser(const std::string &username,
-                                                                         std::optional<std::string> db_name) {
+std::vector<query::RolenameResult> AuthQueryHandler::GetRolenamesForUser(
+    const std::string &username, [[maybe_unused]] std::optional<std::string> db_name) {
   try {
     auto locked_auth = auth_->ReadLock();
     auto user = locked_auth->GetUser(username);
@@ -815,7 +815,8 @@ void AuthQueryHandler::ClearRoles(const std::string &username, const std::unorde
 }
 
 void AuthQueryHandler::AddRoles(const std::string &username, const std::vector<std::string> &roles,
-                                const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) {
+                                [[maybe_unused]] const std::unordered_set<std::string> &role_databases,
+                                system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
@@ -853,7 +854,7 @@ void AuthQueryHandler::AddRoles(const std::string &username, const std::vector<s
 }
 
 void AuthQueryHandler::RevokeRoles(const std::string &username, const std::vector<std::string> &roles,
-                                   const std::unordered_set<std::string> &role_databases,
+                                   [[maybe_unused]] const std::unordered_set<std::string> &role_databases,
                                    system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
