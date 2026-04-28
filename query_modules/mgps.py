@@ -1,3 +1,5 @@
+import time
+
 import mgp
 
 
@@ -5,7 +7,15 @@ import mgp
 def components(
     context: mgp.ProcCtx,
 ) -> mgp.Record(versions=list, edition=str, name=str):
-    return mgp.Record(versions=["5.9.0"], edition="community", name="Memgraph")
+    return [
+        mgp.Record(versions=["5.9.0"], edition="community", name="Memgraph"),
+        mgp.Record(versions=["5.9.0"], edition="community", name="Neo4j Kernel"),
+    ]
+
+
+@mgp.read_proc
+def await_indexes(context: mgp.ProcCtx, seconds: int):
+    time.sleep(1)
 
 
 @mgp.function
