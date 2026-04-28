@@ -217,6 +217,13 @@ class NamedLogicalOperator {
   mutable const DbAccessor *dba_{nullptr};
   virtual std::string ToString() const = 0;
   virtual ~NamedLogicalOperator() = default;
+
+ protected:
+  NamedLogicalOperator() = default;
+  NamedLogicalOperator(const NamedLogicalOperator &) = default;
+  NamedLogicalOperator(NamedLogicalOperator &&) noexcept = default;
+  NamedLogicalOperator &operator=(const NamedLogicalOperator &) = default;
+  NamedLogicalOperator &operator=(NamedLogicalOperator &&) noexcept = default;
 };
 
 /// Base class for logical operators.
@@ -304,6 +311,13 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
   std::string ToString() const override;
 
   virtual std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const = 0;
+
+ protected:
+  LogicalOperator() = default;
+  LogicalOperator(const LogicalOperator &) = default;
+  LogicalOperator(LogicalOperator &&) noexcept = default;
+  LogicalOperator &operator=(const LogicalOperator &) = default;
+  LogicalOperator &operator=(LogicalOperator &&) noexcept = default;
 };
 
 /// A logical operator whose Cursor returns true on the first Pull

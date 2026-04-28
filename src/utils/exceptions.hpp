@@ -90,6 +90,11 @@ class BasicException : public std::exception {
   virtual std::string name() const { return "BasicException"; }
 
  protected:
+  BasicException(const BasicException &) = default;
+  BasicException(BasicException &&) noexcept = default;
+  BasicException &operator=(const BasicException &) = default;
+  BasicException &operator=(BasicException &&) noexcept = default;
+
   /**
    * @brief Error message.
    */

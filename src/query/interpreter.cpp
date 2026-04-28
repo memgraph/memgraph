@@ -9414,10 +9414,12 @@ std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() 
     // Transaction is not in a state we can verify
     return std::nullopt;
   }
-  // CAS to VERIFYING to own the transaction
+  // CAS to VERIFYING to own the transaction; in-place construction of the
+  // optional avoids any copy/move of the RAII guard, which would prematurely
+  // run the destructor's CAS and collapse the verification window.
   if (transaction_status_.compare_exchange_strong(
           status, TransactionStatus::VERIFYING, std::memory_order_acq_rel, std::memory_order_acquire)) {
-    return TxVerifier{status, transaction_status_};
+    return std::optional<TxVerifier>(std::in_place, status, transaction_status_);
   }
   // CAS failed, return to avoid busy loops
   return std::nullopt;
