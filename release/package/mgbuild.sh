@@ -140,6 +140,7 @@ print_help () {
   echo -e "  --ubsan                       Build with UBSAN"
   echo -e "  --disable-jemalloc            Build without jemalloc"
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
+  echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
   echo -e "  --conan-username string       Specify conan username (default \"\")"
   echo -e "  --conan-password string       Specify conan password (default \"\")"
@@ -452,6 +453,7 @@ build_memgraph () {
   local conan_username=""
   local conan_password=""
   local build_dependency=""
+  local link_threads=0
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -509,6 +511,10 @@ build_memgraph () {
       ;;
       --build-dependency)
         build_dependency=$2
+        shift 2
+      ;;
+      --link-threads)
+        link_threads=$2
         shift 2
       ;;
       *)
@@ -665,6 +671,11 @@ build_memgraph () {
       additional_options="$additional_options $flag"
     fi
   done
+
+  # Cap link concurrency via Ninja job pools, leaving compile parallelism untouched.
+  if [[ "$link_threads" -gt 0 ]]; then
+    additional_options="$additional_options -DCMAKE_JOB_POOLS=link=$link_threads -DCMAKE_JOB_POOL_LINK=link"
+  fi
 
   if [[ -n "$additional_options" ]]; then
     echo "Adding additional CMake options: $additional_options"
