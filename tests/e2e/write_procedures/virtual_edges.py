@@ -16,16 +16,24 @@ from common import execute_and_fetch_all
 
 
 class TestVirtualEdgesWithProcedures:
-    def test_procedure_sees_virtual_edges(self, connection):
-        """A procedure iterating a virtual node's out_edges should see virtual edges."""
+    @pytest.mark.parametrize(
+        "extra_options, expected_weight",
+        [
+            ("", None),
+            (", relationshipProperties: {weight: 99}", 99),
+        ],
+    )
+    def test_procedure_sees_virtual_edges(self, connection, extra_options, expected_weight):
+        """A procedure iterating a virtual node's out_edges should see virtual edges,
+        optionally carrying relationshipProperties."""
         cursor = connection.cursor()
         execute_and_fetch_all(cursor, "CREATE (:N {id: 1})-[:R]->(:N {id: 2})-[:R]->(:N {id: 3});")
 
         results = execute_and_fetch_all(
             cursor,
-            """
-            MATCH p=(:N {id: 1})-[*]->(:N {id: 3})
-            WITH derive(p, {virtualEdgeType: 'DERIVED'}) AS graph
+            f"""
+            MATCH p=(:N {{id: 1}})-[*]->(:N {{id: 3}})
+            WITH derive(p, {{virtualEdgeType: 'DERIVED'{extra_options}}}) AS graph
             UNWIND graph.nodes AS n
             CALL read.subgraph_edge_info(graph, n) YIELD edge_type, weight
             RETURN edge_type, weight
@@ -34,27 +42,7 @@ class TestVirtualEdgesWithProcedures:
 
         assert len(results) == 1
         assert results[0][0] == "DERIVED"
-        assert results[0][1] is None  # no properties set
-
-    def test_procedure_sees_virtual_edge_properties(self, connection):
-        """Virtual edge properties set via relationshipProperties should be visible to procedures."""
-        cursor = connection.cursor()
-        execute_and_fetch_all(cursor, "CREATE (:N {id: 1})-[:R]->(:N {id: 2})-[:R]->(:N {id: 3});")
-
-        results = execute_and_fetch_all(
-            cursor,
-            """
-            MATCH p=(:N {id: 1})-[*]->(:N {id: 3})
-            WITH derive(p, {virtualEdgeType: 'DERIVED', relationshipProperties: {weight: 99}}) AS graph
-            UNWIND graph.nodes AS n
-            CALL read.subgraph_edge_info(graph, n) YIELD edge_type, weight
-            RETURN edge_type, weight
-            """,
-        )
-
-        assert len(results) == 1
-        assert results[0][0] == "DERIVED"
-        assert results[0][1] == 99
+        assert results[0][1] == expected_weight
 
     def test_procedure_sees_virtual_node_labels_and_properties(self, connection):
         """Virtual node labels and properties should be visible to procedures."""
