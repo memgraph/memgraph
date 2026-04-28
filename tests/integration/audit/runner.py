@@ -61,7 +61,7 @@ AUTH_QUERIES = [
     ("CREATE USER admin", {}),
     ("CREATE USER user1", {}),
     ("CREATE USER user2", {}),
-    ("GRANT IMPERSONATE_USER * TO admin", {}),
+    ("GRANT IMPERSONATE_USER * TO USER admin", {}),
     ("GRANT MULTI_DATABASE_USE TO user1", {}),
     ("GRANT MULTI_DATABASE_USE TO user2", {}),
     ("GRANT DATABASE memgraph TO user1", {}),
