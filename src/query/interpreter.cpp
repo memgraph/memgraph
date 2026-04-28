@@ -6650,28 +6650,41 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                TypedValue(static_cast<int>(ai->point_->ApproximatePointCount(label_id, prop_id).value_or(0)))});
         }
 
+        // Build name -> size map once so multi-label / wildcard indices report the actual
+        // index population (ApproximateNodesVectorCount is keyed on (label, prop) and only fires
+        // for SINGLE filters).
+        const auto vector_node_sizes = std::invoke([&] {
+          std::unordered_map<std::string, std::size_t> result;
+          for (const auto &index_info : ai->vector_->ListVectorIndicesInfo()) {
+            result.emplace(index_info.index_name, index_info.size);
+          }
+          return result;
+        });
+        const auto vector_edge_sizes = std::invoke([&] {
+          std::unordered_map<std::string, std::size_t> result;
+          for (const auto &index_info : ai->vector_edge_->ListVectorIndicesInfo()) {
+            result.emplace(index_info.index_name, index_info.size);
+          }
+          return result;
+        });
+
         for (const auto &spec : info.vector_indices_spec) {
-          results.push_back(
-              {TypedValue(vector_label_property_index_mark),
-               TypedValue(spec.label_filter.Format([&](auto id) { return storage->LabelToName(id); })),
-               TypedValue(storage->PropertyToName(spec.property)),
-               TypedValue(static_cast<int>(
-                   spec.label_filter.mode == storage::VectorLabelMode::SINGLE
-                       ? ai->vector_->ApproximateNodesVectorCount(spec.label_filter.labels[0], spec.property)
-                             .value_or(0)
-                       : 0))});
+          const auto it = vector_node_sizes.find(spec.index_name);
+          const auto count = it != vector_node_sizes.end() ? it->second : 0;
+          results.push_back({TypedValue(vector_label_property_index_mark),
+                             TypedValue(spec.label_filter.Format([&](auto id) { return storage->LabelToName(id); })),
+                             TypedValue(storage->PropertyToName(spec.property)),
+                             TypedValue(static_cast<int>(count))});
         }
 
         for (const auto &spec : info.vector_edge_indices_spec) {
+          const auto it = vector_edge_sizes.find(spec.index_name);
+          const auto count = it != vector_edge_sizes.end() ? it->second : 0;
           results.push_back(
               {TypedValue(vector_edge_property_index_mark),
                TypedValue(spec.edge_type_filter.Format([&](auto id) { return storage->EdgeTypeToName(id); })),
                TypedValue(storage->PropertyToName(spec.property)),
-               TypedValue(static_cast<int>(
-                   spec.edge_type_filter.mode == storage::VectorEdgeTypeMode::SINGLE
-                       ? ai->vector_edge_->ApproximateEdgesVectorCount(spec.edge_type_filter.edge_types[0], spec.property)
-                             .value_or(0)
-                       : 0))});
+               TypedValue(static_cast<int>(count))});
         }
 
         std::ranges::sort(results, [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -8010,6 +8023,13 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
 
       // Vertex label property_vector
+      const auto vector_node_sizes = std::invoke([&] {
+        std::unordered_map<std::string, std::size_t> result;
+        for (const auto &index_info : storage_acc->ListAllVectorIndices()) {
+          result.emplace(index_info.index_name, index_info.size);
+        }
+        return result;
+      });
       for (const auto &spec : index_info.vector_indices_spec) {
 #ifdef MG_ENTERPRISE
         if (auth_checker && !spec.label_filter.labels.empty() &&
@@ -8023,15 +8043,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           for (const auto &label : spec.label_filter.labels) {
             label_names.push_back(storage->LabelToName(label));
           }
-          node_indexes.push_back(nlohmann::json::object(
-              {{"labels", std::move(label_names)},
-               {"properties", {storage->PropertyToName(spec.property)}},
-               {"count",
-                spec.label_filter.mode == storage::VectorLabelMode::SINGLE
-                    ? storage_acc->ApproximateVerticesVectorCount(spec.label_filter.labels[0], spec.property)
-                          .value_or(0)
-                    : 0},
-               {"type", "label+property_vector"}}));
+          const auto it = vector_node_sizes.find(spec.index_name);
+          const auto count = it != vector_node_sizes.end() ? it->second : 0;
+          node_indexes.push_back(nlohmann::json::object({{"labels", std::move(label_names)},
+                                                         {"properties", {storage->PropertyToName(spec.property)}},
+                                                         {"count", count},
+                                                         {"type", "label+property_vector"}}));
         }
       }
 
@@ -8072,6 +8089,13 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         }));
       }
       // Edge type property_vector
+      const auto vector_edge_sizes = std::invoke([&] {
+        std::unordered_map<std::string, std::size_t> result;
+        for (const auto &index_info : storage_acc->ListAllVectorEdgeIndices()) {
+          result.emplace(index_info.index_name, index_info.size);
+        }
+        return result;
+      });
       for (const auto &spec : index_info.vector_edge_indices_spec) {
 #ifdef MG_ENTERPRISE
         if (auth_checker && !spec.edge_type_filter.edge_types.empty() &&
@@ -8086,9 +8110,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           for (const auto &et : spec.edge_type_filter.edge_types) {
             edge_type_names.push_back(storage->EdgeTypeToName(et));
           }
+          const auto it = vector_edge_sizes.find(spec.index_name);
+          const auto count = it != vector_edge_sizes.end() ? it->second : 0;
           edge_indexes.push_back(nlohmann::json::object({{"edge_type", std::move(edge_type_names)},
                                                          {"properties", {storage->PropertyToName(spec.property)}},
-                                                         {"count", 0},
+                                                         {"count", count},
                                                          {"type", "edge_type+property_vector"}}));
         }
       }

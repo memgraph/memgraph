@@ -452,13 +452,13 @@ void VectorEdgeIndex::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_ty
   info.properties[property] = old_value;
 }
 
-EdgeTypeId VectorEdgeIndex::GetEdgeTypeId(std::string_view index_name) {
+std::optional<EdgeTypeId> VectorEdgeIndex::GetEdgeTypeId(std::string_view index_name) {
   for (const auto &[_, item_ptr] : *index_) {
     if (item_ptr->spec.index_name == index_name) {
       const auto &filter = item_ptr->spec.edge_type_filter;
-      if (filter.edge_types.empty()) {
-        throw query::VectorSearchException("Vector edge index {} has no edge type (wildcard).", index_name);
-      }
+      // Only meaningful for SINGLE-type indices; multi-type and wildcard need per-edge resolution.
+      if (filter.mode != VectorEdgeTypeMode::SINGLE) return std::nullopt;
+      if (filter.edge_types.empty()) return std::nullopt;
       return filter.edge_types[0];
     }
   }

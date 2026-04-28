@@ -282,8 +282,9 @@ class VectorEdgeIndex {
   /// @brief Checks if any vector index exists.
   bool Empty() const;
 
-  /// @brief Returns the EdgeTypeId for the given index name.
-  EdgeTypeId GetEdgeTypeId(std::string_view index_name);
+  /// @brief Returns the EdgeTypeId for SINGLE-mode indices. nullopt for wildcard or multi-type:
+  ///        callers must resolve the edge type per-edge in those cases.
+  std::optional<EdgeTypeId> GetEdgeTypeId(std::string_view index_name);
 
   /// @brief Checks if a vector index exists for the given name.
   bool IndexExists(std::string_view index_name) const;
