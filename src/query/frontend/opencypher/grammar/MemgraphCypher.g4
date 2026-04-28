@@ -157,13 +157,11 @@ memgraphCypherKeyword : cypherKeyword
                       | PERMISSIONS
                       | POINT
                       | PORT
-                      | PROPERTY
                       | PRIVILEGES
                       | PROPERTY
                       | PROFILE_RESTRICTION
                       | PROFILES
                       | PULSAR
-                      | QUOTE
                       | QUOTE
                       | READ
                       | READ_FILE
@@ -175,6 +173,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
+                      | REQUIRE
                       | RESET
                       | RESOURCE
                       | REVOKE
@@ -399,7 +398,7 @@ hopsLimit: HOPS LIMIT literal ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
-indexHint: ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )*  ')' )? ;
+indexHint: ':' labelName nestedPropertyKeyList? ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
 
@@ -787,7 +786,21 @@ showMemoryInfo : SHOW MEMORY INFO ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
+indexQuery : createIndex | dropIndex;
+
+nestedPropertyKeyList : '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' ;
+
+alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
+
+createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )?
+            | CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+            ;
+
+dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
+
+propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
+
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName nestedPropertyKeyList?;
 
 dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
@@ -795,17 +808,24 @@ createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')
 
 dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
 
-edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex;
+createEdgeIndexAlternativeSyntax : CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')' ;
+
+edgeIndexQuery : createEdgeIndex
+               | dropEdgeIndex
+               | createGlobalEdgeIndex
+               | dropGlobalEdgeIndex
+               | createEdgeIndexAlternativeSyntax
+               ;
 
 indexName : symbolicName ;
 
-createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName propertyKeyList* ;
 
 dropTextIndex : DROP TEXT INDEX indexName ;
 
 textIndexQuery : createTextIndex | dropTextIndex;
 
-createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
+createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName propertyKeyList* ;
 
 createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
 
@@ -824,6 +844,26 @@ vectorIndexQuery : createVectorIndex | dropVectorIndex ;
 dropAllIndexesQuery : DROP ALL INDEXES ;
 
 dropAllConstraintsQuery : DROP ALL CONSTRAINTS ;
+
+alternativePropertyRefList : alternativePropertyRef
+                             | '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+                             ;
+
+alternativeConstraintPattern : '(' variable ':' labelName ')'                                          # alternativeNodeConstraintPattern
+                       | '(' ')' dash '[' variable ':' labelName ']' dash '(' ')'               # alternativeEdgeConstraintPattern
+                       ;
+
+originalConstraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
+
+alternativeConstraintSyntax : CREATE CONSTRAINT ( symbolicName )? ifNotExists? FOR alternativeConstraintPattern REQUIRE
+                  ( alternativePropertyRefList IS UNIQUE
+                  | alternativePropertyRef IS NOT CYPHERNULL
+                  | alternativePropertyRef IS ':' ':' typeConstraintType
+                  ) ;
+
+constraintQuery : originalConstraintQuery
+                | alternativeConstraintSyntax
+                ;
 
 dropGraphQuery : DROP GRAPH ;
 
@@ -951,11 +991,11 @@ edgeTypePattern
 
 descriptionTarget
     : LABEL ':' labelName ( ':' labelName )*
-    | EDGE TYPE PROPERTY edgeTypePattern '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE PROPERTY edgeTypePattern propertyKeyList
     | EDGE TYPE edgeTypePattern
     | EDGE TYPE ':' labelName
-    | LABEL PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
-    | EDGE TYPE PROPERTY ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | LABEL PROPERTY ':' labelName ( ':' labelName )* propertyKeyList
+    | EDGE TYPE PROPERTY ':' labelName propertyKeyList
     | PROPERTY propertyKeyName
     | DATABASE symbolicName
     ;

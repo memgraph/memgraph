@@ -2218,6 +2218,7 @@ class IndexQuery : public memgraph::query::Query {
   memgraph::query::IndexQuery::Action action_;
   memgraph::query::LabelIx label_;
   std::vector<query::PropertyIxPath> properties_;
+  std::optional<std::string> name_;
   // Raw key/value pairs from `WITH CONFIG { ... }`. Resolved to an IndexOrder at execution time
   // (can't be resolved here: string literals are stripped into parameters, and the AST is cached
   // across calls — evaluating at parse time would bake the first call's parameters into the cache).
@@ -2233,6 +2234,7 @@ class IndexQuery : public memgraph::query::Query {
     for (auto const &prop_path : properties_) {
       object->properties_.emplace_back(prop_path.Clone(storage));
     }
+    object->name_ = name_;
     for (auto const &[key_expr, value_expr] : config_) {
       object->config_.emplace(key_expr->Clone(storage), value_expr->Clone(storage));
     }
@@ -2263,6 +2265,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
   memgraph::query::EdgeTypeIx edge_type_;
   std::vector<memgraph::query::PropertyIx> properties_;
   bool global_{false};
+  std::optional<std::string> name_;
 
   EdgeIndexQuery *Clone(AstStorage *storage) const override {
     EdgeIndexQuery *object = storage->Create<EdgeIndexQuery>();
@@ -2273,6 +2276,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
       object->properties_[i] = storage->GetPropertyIx(properties_[i].name);
     }
     object->global_ = global_;
+    object->name_ = name_;
     return object;
   }
 
@@ -3160,11 +3164,13 @@ class ConstraintQuery : public memgraph::query::Query {
 
   memgraph::query::ConstraintQuery::ActionType action_type_;
   memgraph::query::Constraint constraint_;
+  std::optional<std::string> name_;
 
   ConstraintQuery *Clone(AstStorage *storage) const override {
     ConstraintQuery *object = storage->Create<ConstraintQuery>();
     object->action_type_ = action_type_;
     object->constraint_ = constraint_.Clone(storage);
+    object->name_ = name_;
     return object;
   }
 };

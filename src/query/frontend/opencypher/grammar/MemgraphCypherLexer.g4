@@ -172,6 +172,7 @@ REPLACE                 : R E P L A C E ;
 REPLICA                 : R E P L I C A ;
 REPLICAS                : R E P L I C A S ;
 REPLICATION             : R E P L I C A T I O N ;
+REQUIRE                 : R E Q U I R E ;
 RESET                   : R E S E T;
 RESOURCE                : R E S O U R C E ;
 REVOKE                  : R E V O K E ;
