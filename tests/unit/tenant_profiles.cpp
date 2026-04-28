@@ -35,6 +35,8 @@ class TenantProfilesTest : public ::testing::Test {
 
 }  // namespace
 
+// This test verifies that created profiles and their database mappings are correctly persisted to the KVStore and
+// can be read back after a restart.
 TEST_F(TenantProfilesTest, PersistsProfileAndDatabaseMapping) {
   const auto store_path = test_folder_ / "profiles";
   const auto db_prefix = std::string{memgraph::dbms::TenantProfiles::kDbMappingPrefix};
