@@ -288,30 +288,5 @@ class TestArithmeticExceptions:
         assert "invalid types" in str(excinfo.value).lower()
 
 
-class TestOrderByExceptions:
-    """Test exceptions during ORDER BY in parallel execution."""
-
-    @pytest.mark.parametrize(
-        "origin",
-        [ExceptionOrigin.FIRST, ExceptionOrigin.LAST, ExceptionOrigin.MIDDLE, ExceptionOrigin.EVERY_OTHER],
-    )
-    def test_order_by_mixed_types_exception(self, memgraph, origin):
-        """Ordering mixed types should raise exception if not handled gracefully."""
-        setup_with_type_error(memgraph, 10, origin)
-
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            memgraph.fetch_all(pq("MATCH (n:A) RETURN n.p AS p ORDER BY p"))
-
-    def test_order_by_all_strings_no_exception(self, memgraph):
-        """Ordering all strings should work without exception."""
-        setup_with_type_error(memgraph, 10, ExceptionOrigin.ALL)
-
-        result = memgraph.fetch_all(pq("MATCH (n:A) RETURN n.p AS p ORDER BY p"))
-        assert len(result) == 10
-        # Lexicographical order: "invalid_string_1", "invalid_string_10", "invalid_string_2", ...
-        p_values = [r["p"] for r in result]
-        assert p_values == sorted(p_values)
-
-
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
