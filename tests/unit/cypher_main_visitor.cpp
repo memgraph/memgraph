@@ -7226,7 +7226,13 @@ TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
   TestInvalidQueryWithMessage<SyntaxException>(
       "MATCH (t:Team) CALL (t AS teams) { RETURN 1 AS x } RETURN t",
       ast_generator,
-      "Variables cannot be aliased in the scope clause. Only simple variable references are allowed.");
+      "Scoped variables in the CALL clause can not be aliased. Only simple variable references are allowed.");
+
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) CALL (*, n) { RETURN 1 AS x } RETURN n",
+      ast_generator,
+      "Asterisk cannot be combined with other variables in the CALL subquery scope clause. Use either '*' or "
+      "explicit variable references.");
 }
 
 TEST_P(CypherMainVisitorTest, CallSubquery) {

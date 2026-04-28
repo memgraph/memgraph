@@ -4134,6 +4134,11 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
       auto [has_asterisk, named_expressions] =
           std::any_cast<std::pair<bool, std::vector<NamedExpression *>>>(return_items->accept(this));
       if (has_asterisk) {
+        if (!named_expressions.empty()) {
+          throw SyntaxException(
+              "Asterisk cannot be combined with other variables in the CALL subquery scope clause. Use either '*' or "
+              "explicit variable references.");
+        }
         call_subquery->all_variables_scoped_ = true;
       }
       std::unordered_set<std::string> seen_inner_names;

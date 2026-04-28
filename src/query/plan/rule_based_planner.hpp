@@ -465,21 +465,22 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                            merge_id,
                                            pending_comprehensions);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
-            std::optional<std::unordered_set<Symbol>> scoped_variables;
-            if (call_sub->has_variable_scope_) {
+            auto scoped_variables = std::invoke([&]() -> std::optional<std::unordered_set<Symbol>> {
+              if (!call_sub->has_variable_scope_) {
+                return std::nullopt;
+              }
               if (call_sub->all_variables_scoped_) {
                 // `CALL (*) { ... }`: carry every user-declared outer symbol.
-                scoped_variables = context.bound_symbols |
-                                   std::views::filter([](const Symbol &sym) { return sym.user_declared(); }) |
-                                   std::ranges::to<std::unordered_set<Symbol>>();
-              } else {
-                scoped_variables = call_sub->scoped_variables_ | std::views::transform([&](query::NamedExpression *ne) {
-                                     auto *ident = utils::Downcast<query::Identifier>(ne->expression_);
-                                     return context.symbol_table->at(*ident);
-                                   }) |
-                                   std::ranges::to<std::unordered_set<Symbol>>();
+                return context.bound_symbols |
+                       std::views::filter([](const Symbol &sym) { return sym.user_declared(); }) |
+                       std::ranges::to<std::unordered_set<Symbol>>();
               }
-            }
+              return call_sub->scoped_variables_ | std::views::transform([&](query::NamedExpression *ne) {
+                       auto *ident = utils::Downcast<query::Identifier>(ne->expression_);
+                       return context.symbol_table->at(*ident);
+                     }) |
+                     std::ranges::to<std::unordered_set<Symbol>>();
+            });
             input_op = HandleSubquery(std::move(input_op),
                                       single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table,
