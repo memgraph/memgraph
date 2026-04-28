@@ -37,7 +37,7 @@ def subgraph_get_out_edges(ctx: mgp.ProcCtx, vertex: mgp.Vertex) -> mgp.Record(e
     return [mgp.Record(edge=edge) for edge in vertex.out_edges]
 
 
-# Used by virtual_edges.py e2e tests to verify that virtual edges
+# Used by virtual_graph.py e2e tests to verify that virtual edges
 # and virtual nodes created by derive() are visible through the MGP API.
 
 

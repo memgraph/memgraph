@@ -6708,7 +6708,7 @@ class AggregateCursor : public Cursor {
         if (elem.type() != TypedValue::Type::String) {
           throw QueryRuntimeException("derive() option '{}' entries must be strings.", kUndirectedEdgeTypes);
         }
-        if (elem.ValueString() == type_name) return true;
+        if (elem.ValueString() == "*" || elem.ValueString() == type_name) return true;
       }
       return false;
     }();
