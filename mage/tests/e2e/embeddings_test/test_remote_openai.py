@@ -1,16 +1,17 @@
-"""Opt-in e2e test: embeddings.* against the real OpenAI embeddings API.
+"""E2E test: embeddings.* against the real OpenAI embeddings API.
 
-Skipped by default. To run locally:
+Runs whenever Memgraph is reachable AND its process environment carries a
+working ``OPENAI_API_KEY``. The CI workflow forwards the secret into the
+container's env (see ``.github/workflows/reusable_package_mage.yaml``);
+locally:
 
-    export OPENAI_API_KEY=sk-...
-    # Ensure Memgraph+MAGE is running on localhost:7687 with OPENAI_API_KEY
-    # available inside the Memgraph process environment (e.g.
-    #   docker run -e OPENAI_API_KEY=$OPENAI_API_KEY ... memgraph/memgraph-mage
-    # or run Memgraph natively with the var exported).
+    docker run -e OPENAI_API_KEY=$OPENAI_API_KEY ... memgraph/memgraph-mage
     pytest tests/e2e/embeddings_test/test_remote_openai.py -v
 
-Not run in CI: the gating env var is unset in the CI workflow, so pytest
-collects and immediately skips these tests.
+If the key is missing or the OpenAI probe call fails, the suite skips with
+a clear message rather than failing — local devs without a key won't see
+spurious red, but CI failures (where the key is supposed to be set) still
+surface as real regressions.
 """
 
 import os
@@ -21,11 +22,6 @@ import pytest
 MEMGRAPH_HOST = os.environ.get("MAGE_E2E_MEMGRAPH_HOST", "127.0.0.1")
 MEMGRAPH_PORT = int(os.environ.get("MAGE_E2E_MEMGRAPH_PORT", "7687"))
 MODEL = os.environ.get("MAGE_E2E_OPENAI_MODEL", "openai/text-embedding-3-small")
-
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("OPENAI_API_KEY"),
-    reason="OPENAI_API_KEY not set — skipping opt-in OpenAI e2e test",
-)
 
 
 def _connect():
@@ -41,10 +37,26 @@ def db():
         cur = conn.cursor()
         cur.execute("CALL mg.procedures() YIELD name RETURN name")
         names = {row[0] for row in cur.fetchall()}
+        conn.close()
         if "embeddings.text" not in names:
             pytest.skip("embeddings module not loaded in Memgraph")
     except Exception as e:
         pytest.skip(f"Memgraph not reachable: {e}")
+
+    # Probe OpenAI through the Memgraph process. Skips (rather than fails) when
+    # OPENAI_API_KEY is missing from Memgraph's env or OpenAI is unreachable —
+    # so local devs without a key see "skipped" instead of red, while a CI run
+    # that *should* have the key forwarded gets real assertion failures below.
+    rows = _run(
+        "CALL embeddings.text(['probe'], {model_name: $m}) YIELD success RETURN success",
+        {"m": MODEL},
+    )
+    if not rows or not rows[0][0]:
+        pytest.skip(
+            f"OpenAI probe via {MODEL} returned success=false — is OPENAI_API_KEY "
+            "set in the Memgraph process environment?"
+        )
+
     yield
     # cleanup any fixture data the tests created
     c = _connect()
