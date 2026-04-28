@@ -35,6 +35,7 @@ function(add_custom_library NAME SRC)
 
     # Apply post-build strip in release mode
     add_post_build_strip_in_release(${NAME} CMAKE_BUILD_TYPE)
+    mg_split_debug(${NAME})
 
     set_target_properties(${NAME} PROPERTIES
         PREFIX ""
@@ -69,6 +70,7 @@ function(add_query_module target_name version src)
   target_compile_options(${target_name} PRIVATE -Wall)
 
   add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
+  mg_split_debug(${target_name})
 
   set_target_properties(${target_name} PROPERTIES
       PREFIX "" # remove "lib" prefix

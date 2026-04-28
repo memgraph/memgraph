@@ -7,7 +7,9 @@ include(FetchContent)
 
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cugraph_cmake)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cugraph_cmake ${PROJECT_SOURCE_DIR}/../../cmake)
+
+include(SplitDebug)
 
 # Export the compile commands so that we can use clang-tidy. Additional benefit
 # is easier debugging of compilation and linker flags.
@@ -100,6 +102,7 @@ function(add_query_module target_name version src)
   add_library(${target_name} SHARED ${src})
   set_target_properties(${target_name} PROPERTIES SOVERSION "${version}")
   target_link_libraries(${target_name} PRIVATE mg_utility)
+  mg_split_debug(${target_name})
 endfunction()
 
 # Available query modules.

@@ -8,49 +8,49 @@ PR_BUILDS = ["amd", "arm", "cuda", "cugraph"]
 MATRIX_BUILDS = [
     {
         "arch": "amd",
-        "build_type": "Release",
+        "package_flavour": "prod",
         "cuda": False,
         "cugraph": False,
         "malloc": False,
     },
     {
         "arch": "arm",
-        "build_type": "Release",
+        "package_flavour": "prod",
         "cuda": False,
         "cugraph": False,
         "malloc": False,
     },
     {
         "arch": "amd",
-        "build_type": "RelWithDebInfo",
+        "package_flavour": "debug",
         "cuda": False,
         "cugraph": False,
         "malloc": False,
     },
     {
         "arch": "arm",
-        "build_type": "RelWithDebInfo",
+        "package_flavour": "debug",
         "cuda": False,
         "cugraph": False,
         "malloc": False,
     },
     {
         "arch": "amd",
-        "build_type": "RelWithDebInfo",
+        "package_flavour": "debug",
         "cuda": True,
         "cugraph": False,
         "malloc": False,
     },
     {
         "arch": "amd",
-        "build_type": "Release",
+        "package_flavour": "prod",
         "cuda": False,
         "cugraph": False,
         "malloc": True,
     },
     {
         "arch": "amd",
-        "build_type": "Release",
+        "package_flavour": "prod",
         "cuda": False,
         "cugraph": True,
         "malloc": False,
@@ -107,7 +107,7 @@ class PackageMageSetup:
         if f"CI -package=mage-{package}" in pr_labels:
             print(f'Found label for "{package}"')
             out = {
-                "build_type": "Release",
+                "package_flavour": "prod",
                 "arch": "arm" if package == "arm" else "amd",
                 "cuda": package == "cuda",
                 "cugraph": package == "cugraph",
@@ -133,7 +133,7 @@ class PackageMageSetup:
             return MATRIX_BUILDS
         return [
             {
-                "build_type": self.workflow_inputs.get("build_type", "Release"),
+                "package_flavour": self.workflow_inputs.get("package_flavour", "prod"),
                 "arch": self.workflow_inputs.get("build_arch", "amd"),
                 "cuda": self.workflow_inputs.get("cuda", False),
                 "cugraph": self.workflow_inputs.get("cugraph", False),
@@ -186,7 +186,7 @@ def print_package_suite(package_suite: dict) -> None:
     for build in package_suite:
         print("--------------------------------")
         print(f"Build: {build}")
-        print(f"Build type: {build.get('build_type')}")
+        print(f"Package flavour: {build.get('package_flavour')}")
         print(f"Arch: {build.get('arch')}")
         print(f"CUDA: {build.get('cuda')}")
         print(f"Malloc: {build.get('malloc')}")

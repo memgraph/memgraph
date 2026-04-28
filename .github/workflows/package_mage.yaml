@@ -11,13 +11,13 @@ on:
         options:
           - "amd"
           - "arm"
-      build_type:
+      package_flavour:
         type: choice
-        description: "Mage build type"
-        default: 'Release'
+        description: "Package flavour. 'prod' = stripped binary, symbols archived separately. 'debug' = symbols embedded, '-relwithdebinfo' suffix on filenames."
+        default: 'prod'
         options:
-          - "Release"
-          - "RelWithDebInfo"
+          - "prod"
+          - "debug"
       memgraph_download_link:
         description: "Memgraph package download link. Leave empty to use the official download link."
         default: ""
@@ -65,10 +65,10 @@ on:
         type: string
         description: "Architecture to build the image for"
         required: true
-      build_type:
+      package_flavour:
         type: string
-        description: "Mage build type"
-        default: 'Release'
+        description: "Package flavour: 'prod' (stripped binary, symbols archived separately) or 'debug' (symbols embedded, '-relwithdebinfo' suffix)."
+        default: 'prod'
       memgraph_download_link:
         description: "Memgraph package download link. Leave empty to use the official download link."
         default: ""
@@ -137,7 +137,7 @@ jobs:
   BuildMage:
     needs: PackageSetup
     if: ${{ needs.PackageSetup.outputs.build_packages == 'true' }}
-    name: Build MAGE for ${{ matrix.arch }} ${{ matrix.build_type }}${{ matrix.cuda == 'true' && ' CUDA' || '' }}${{ matrix.cugraph == 'true' && ' CuGraph' || '' }}${{ matrix.malloc == 'true' && ' Malloc' || '' }}
+    name: Build MAGE for ${{ matrix.arch }} ${{ matrix.package_flavour }}${{ matrix.cuda == 'true' && ' CUDA' || '' }}${{ matrix.cugraph == 'true' && ' CuGraph' || '' }}${{ matrix.malloc == 'true' && ' Malloc' || '' }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       fail-fast: false
@@ -145,7 +145,9 @@ jobs:
         include: ${{ fromJson(needs.PackageSetup.outputs.package_suite) }}
     with:
       arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
+      build_type: RelWithDebInfo
+      split_debug: ${{ matrix.package_flavour == 'prod' }}
+      package_flavour: ${{ matrix.package_flavour }}
       memgraph_download_link: ${{ matrix.memgraph_download_link }}
       s3_dest_dir: ${{ matrix.s3_dest_dir }}
       cuda: ${{ matrix.cuda == 'true' }}

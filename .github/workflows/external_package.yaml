@@ -14,13 +14,13 @@ on:
         type: boolean
         description: "Base master?"
         default: false
-      build_type:
+      package_flavour:
         type: choice
-        description: "Memgraph Build type."
-        default: 'Release'
+        description: "Package flavour. 'prod' = stripped binary, symbols archived separately. 'debug' = symbols embedded, '-relwithdebinfo' suffix on filenames."
+        default: 'prod'
         options:
-          - Release
-          - RelWithDebInfo
+          - prod
+          - debug
       os:
         type: choice
         description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS."
@@ -66,7 +66,7 @@ jobs:
     needs: CallCreateStagingBranch
     uses: ./.github/workflows/package_memgraph.yaml
     with:
-      build_type: ${{ inputs.build_type }}
+      package_flavour: ${{ inputs.package_flavour }}
       os: ${{ inputs.os }}
       toolchain: ${{ inputs.toolchain }}
       push_to_s3: ${{ inputs.push_to_s3 }}

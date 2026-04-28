@@ -88,7 +88,7 @@ jobs:
       os: 'ubuntu-24.04'
       arch: amd
       threads: 24
-      build_type: 'Release'
+      build_type: 'RelWithDebInfo'
       run_release_tests: 'true'
       run_stress_large: 'true'
     secrets: inherit
@@ -101,50 +101,56 @@ jobs:
       matrix:
         os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04, ubuntu-24.04]
         arch: [amd]
-        build_type: [Release]
+        # package_flavour names the shipping intent:
+        #   prod  = stripped binary, symbols archived to symbol store (default for customers)
+        #   debug = symbols embedded in binary (interactive-debug variant)
+        # Both compile as RelWithDebInfo; flavour drives strip vs no-strip + filename suffix.
+        package_flavour: [prod]
         additional_build_args: ['']
-        include: # Additional matrix entries for arm builds and RelWithDebInfo
+        include: # arm builds and the symbols-embedded debug variant
           - os: debian-12
-            build_type: Release
+            package_flavour: prod
             arch: arm
             additional_build_args: ''
           - os: debian-13
-            build_type: Release
+            package_flavour: prod
             arch: arm
             additional_build_args: ''
           - os: fedora-42
-            build_type: Release
+            package_flavour: prod
             arch: arm
             additional_build_args: ''
           - os: ubuntu-24.04
-            build_type: Release
+            package_flavour: prod
             arch: arm
             additional_build_args: ''
           - os: ubuntu-24.04
-            build_type: Release
+            package_flavour: prod
             arch: amd
             additional_build_args: '--disable-jemalloc'
           - os: ubuntu-24.04
-            build_type: RelWithDebInfo
+            package_flavour: debug
             arch: arm
             additional_build_args: ''
           - os: ubuntu-24.04
-            build_type: RelWithDebInfo
+            package_flavour: debug
             arch: amd
             additional_build_args: ''
           - os: ubuntu-24.04
-            build_type: RelWithDebInfo
+            package_flavour: debug
             arch: amd
             additional_build_args: '--disable-jemalloc'
           - os: ubuntu-24.04
-            build_type: RelWithDebInfo
+            package_flavour: debug
             arch: arm
             additional_build_args: '--disable-jemalloc'
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
+      build_type: RelWithDebInfo
+      split_debug: ${{ matrix.package_flavour == 'prod' }}
+      package_flavour: ${{ matrix.package_flavour }}
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
@@ -162,19 +168,21 @@ jobs:
       matrix:
         os: [ubuntu-24.04]
         arch: [amd, arm]
-        build_type: [Release, RelWithDebInfo]
+        package_flavour: [prod, debug]
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
+      build_type: RelWithDebInfo
+      split_debug: ${{ matrix.package_flavour == 'prod' }}
+      package_flavour: ${{ matrix.package_flavour }}
       additional_build_args: '--for-docker'
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
-      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.build_type == 'Release' && matrix.arch == 'amd') && true || false }}
+      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.package_flavour == 'prod' && matrix.arch == 'amd') && true || false }}
       run_smoke_tests: ${{ !inputs.skip_smoke_tests }}
     secrets: inherit
 
@@ -225,40 +233,42 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build_type: ["Release", "RelWithDebInfo"]
+        package_flavour: ["prod", "debug"]
         build_arch: ["amd", "arm"]
         malloc: [false]
         cuda: [false]
         cugraph: [false]
         include:
-          - build_type: "Release"
+          - package_flavour: "prod"
             build_arch: "amd"
             malloc: true
             cuda: false
             cugraph: false
-          - build_type: "RelWithDebInfo"
+          - package_flavour: "debug"
             build_arch: "amd"
             cuda: true
             malloc: false
             cugraph: false
-          - build_type: "RelWithDebInfo"
+          - package_flavour: "debug"
             build_arch: "amd"
             cuda: false
             malloc: true
             cugraph: false
-          - build_type: "RelWithDebInfo"
+          - package_flavour: "debug"
             build_arch: "arm"
             cuda: false
             malloc: true
             cugraph: false
-          - build_type: "RelWithDebInfo"
+          - package_flavour: "debug"
             build_arch: "amd"
             cuda: false
             malloc: false
             cugraph: true
     with:
       arch: ${{ matrix.build_arch }}
-      build_type: ${{ matrix.build_type }}
+      build_type: RelWithDebInfo
+      split_debug: ${{ matrix.package_flavour == 'prod' }}
+      package_flavour: ${{ matrix.package_flavour }}
       s3_dest_dir: "daily-build/mage${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       cuda: ${{ matrix.cuda }}
       cugraph: ${{ matrix.cugraph }}
@@ -267,7 +277,7 @@ jobs:
       run_smoke_tests: ${{ !matrix.cugraph && !inputs.skip_smoke_tests }}
       run_tests: true
       package_deb: "default"
-      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.package_flavour == 'prod' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
     secrets: inherit
 
   AggregateMAGEBuildTests:

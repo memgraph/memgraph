@@ -22,6 +22,7 @@ custom_mirror=false
 generate_sbom=false
 malloc=false
 keep_image_loaded=false
+package_flavour="prod"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --latest)
@@ -69,12 +70,24 @@ while [[ $# -gt 0 ]]; do
         keep_image_loaded=$2
         shift 2
     ;;
+    --package-flavour)
+        package_flavour=$2
+        shift 2
+    ;;
     *)
         echo -e "Error: Unknown option '$1'"
         exit 1
     ;;
   esac
 done
+
+case "$package_flavour" in
+  prod|debug) ;;
+  *)
+    echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')"
+    exit 1
+  ;;
+esac
 echo "latest_image: $latest_image, latest_tag: $latest_tag, package_path: $package_path, src_path: $src_path, toolchain: $toolchain, arch: $arch, custom_mirror: $custom_mirror"
 if [[ "$package_path" == "" || ! -f "$package_path" ]]; then
   echo "File '$package_path' does not exist!"
@@ -84,7 +97,11 @@ fi
 dockerfile_path_rwdi_extension=""
 docker_arg_source_code=""
 tag_extension=""
-if [[ -n "$src_path" ]]; then
+if [[ "$package_flavour" == "debug" ]]; then
+  if [[ -z "$src_path" ]]; then
+    echo "Error: --package-flavour debug requires --src-path"
+    exit 1
+  fi
   cp -r "$src_path" "${working_dir}/src"
   dockerfile_path_rwdi_extension="_relwithdebinfo"
   docker_arg_source_code="--build-arg SOURCE_CODE=src"

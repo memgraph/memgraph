@@ -13,6 +13,7 @@ MEMGRAPH_URL=""
 MEMGRAPH_REF="$(git branch --show-current)"
 BUILD_TYPE="Release"
 CUGRAPH=false
+PACKAGE_FLAVOUR="prod"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build-type)
@@ -31,19 +32,34 @@ while [[ $# -gt 0 ]]; do
       CUGRAPH=true
       shift 1
     ;;
+    --package-flavour)
+      PACKAGE_FLAVOUR=$2
+      shift 2
+    ;;
     *)
-      echo "Unknown option: $1"
+      echo "Unknown option: $1" >&2
       exit 1
     ;;
   esac
 done
+
+case "$PACKAGE_FLAVOUR" in
+  prod|debug) ;;
+  *)
+    echo "Error: --package-flavour must be 'prod' or 'debug' (got '$PACKAGE_FLAVOUR')" >&2
+    exit 1
+  ;;
+esac
 
 # Fetch Memgraph package
 if [[ -z "$MEMGRAPH_URL" ]]; then
   echo "Warning using latest Memgraph release"
   VERSION=$(./tools/ci/get_latest_tag.sh)
   OS_PATH="$OS"
-  if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+  # The -relwithdebinfo URL path holds the symbols-embedded package variant.
+  # Prod flavour always fetches the stripped package (no suffix), even when
+  # the underlying build was RelWithDebInfo+split-debug.
+  if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$PACKAGE_FLAVOUR" == "debug" ]]; then
     OS_PATH="${OS_PATH}-relwithdebinfo"
   fi
   MEMGRAPH_URL="https://download.memgraph.com/memgraph/v${VERSION}/${OS_PATH}/memgraph_${VERSION}-1_${ARCH}64.deb"
@@ -74,7 +90,9 @@ fi
   ${MGBUILD_ARGS[*]} \
   build-gssapi
 
-if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+# Heaptrack ships only with the symbols-embedded debug variant. Prod-flavour
+# RWD builds are stripped and don't need heaptrack tooling in the image.
+if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$PACKAGE_FLAVOUR" == "debug" ]]; then
   ./release/package/mgbuild.sh \
     ${MGBUILD_ARGS[*]} \
     build-heaptrack

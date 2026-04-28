@@ -86,7 +86,7 @@ class PackageSetup:
         else:
             # For pull_request events, return default values
             return {
-                "build_type": "Release",
+                "package_flavour": "prod",
                 "toolchain": "v6",
                 "push_to_s3": "false",
                 "s3_dest_dir": "",

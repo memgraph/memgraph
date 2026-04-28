@@ -5,6 +5,7 @@ config_only=false
 BUILD_TYPE="Release"
 RUST_VERSION="1.85"
 CUGRAPH=false
+SPLIT_DEBUG=false
 
 # Process flags first
 while [[ $# -gt 0 ]]; do
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
       CUGRAPH=true
       shift 1
     ;;
+    --split-debug)
+      SPLIT_DEBUG=true
+      shift 1
+    ;;
     *)
       echo "Unknown option: $1"
       exit 1
@@ -32,13 +37,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Build the cpp-build-flags list. mage/setup accepts nargs="+" so each entry
+# becomes a separate -D<flag> when invoking cmake.
+cpp_build_flags=("CMAKE_BUILD_TYPE=${BUILD_TYPE}")
+if [[ "$SPLIT_DEBUG" = true ]]; then
+    cpp_build_flags+=("MG_SPLIT_DEBUG=ON")
+fi
+
 # Extract positional arguments after flags have been processed
 build_args=(
     "build"
     "-p"
     "$HOME/query_modules/"
     "--cpp-build-flags"
-    "CMAKE_BUILD_TYPE=${BUILD_TYPE}"
+    "${cpp_build_flags[@]}"
 )
 if [[ "$config_only" = true ]]; then
     build_args+=("--config-only")
