@@ -724,29 +724,36 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
            utils::Downcast<query::RemoveLabels>(clause);
   }
 
-  // True if any nested clause inside the FOREACH body could append a vertex/edge.
+  // true if any nested clause inside the FOREACH body could append a vertex/edge. FOREACH bodies
+  // grammatically only contain CREATE/MERGE/SET/REMOVE/DELETE/FOREACH; SET/REMOVE/DELETE never
+  // append, so they're correctly absorbed by the default-false branch.
   static bool ForeachContainsAppendingWrite(const query::Foreach &fe) {
-    return std::ranges::any_of(fe.clauses_, [](auto *c) {
-      if (utils::IsSubtype(*c, query::Create::kType) || utils::IsSubtype(*c, query::Merge::kType)) return true;
-      auto *nested = utils::Downcast<query::Foreach>(c);
+    return std::ranges::any_of(fe.clauses_, [](auto *clause) {
+      if (utils::IsSubtype(*clause, query::Create::kType) || utils::IsSubtype(*clause, query::Merge::kType))
+        return true;
+      const auto *nested = utils::Downcast<query::Foreach>(clause);
       return nested != nullptr && ForeachContainsAppendingWrite(*nested);
     });
   }
 
-  // Decide whether merge_match for the MERGE at `merge_idx` must be materialized via Accumulate.
-  // The bug (issue #1333) fires when a downstream clause appends to storage while merge_match's
-  // ScanAll/Expand iterator (View::NEW, nullptr-sentinel end) is still alive — the iterator then
-  // re-observes the newly written vertices/edges. WITH and RETURN already insert their own
-  // Accumulate barrier, so anything past them is harmless.
+  // decide whether merge_match for the MERGE at `merge_idx` must be materialized via Accumulate.
+  // issue #1333: merge_match's ScanAll/Expand iterator (View::NEW, nullptr-sentinel end) is alive
+  // across downstream pulls; any clause that appends to graph storage during those pulls feeds
+  // newly written vertices/edges back into the iterator, producing unbounded creation. WITH and
+  // RETURN already emit their own Accumulate barrier when the prior part is a write, so anything
+  // past them is harmless. Newly added appending clause types must be added to this whitelist.
   static bool MergeMatchNeedsAccumulate(const std::vector<Clause *> &clauses, size_t merge_idx) {
     for (size_t i = merge_idx + 1; i < clauses.size(); ++i) {
-      auto *c = clauses[i];
-      if (utils::IsSubtype(*c, query::With::kType) || utils::IsSubtype(*c, query::Return::kType)) return false;
-      if (utils::IsSubtype(*c, query::Create::kType) || utils::IsSubtype(*c, query::Merge::kType) ||
-          utils::IsSubtype(*c, query::CallSubquery::kType))
+      auto *const clause = clauses[i];
+      if (utils::IsSubtype(*clause, query::With::kType) || utils::IsSubtype(*clause, query::Return::kType))
+        return false;
+      if (utils::IsSubtype(*clause, query::Create::kType) || utils::IsSubtype(*clause, query::Merge::kType) ||
+          utils::IsSubtype(*clause, query::CallSubquery::kType))
         return true;
-      if (auto *cp = utils::Downcast<query::CallProcedure>(c); cp && cp->is_write_) return true;
-      if (auto *fe = utils::Downcast<query::Foreach>(c); fe && ForeachContainsAppendingWrite(*fe)) return true;
+      if (const auto *proc = utils::Downcast<query::CallProcedure>(clause); proc && proc->is_write_) return true;
+      if (const auto *nested_foreach = utils::Downcast<query::Foreach>(clause);
+          nested_foreach && ForeachContainsAppendingWrite(*nested_foreach))
+        return true;
     }
     return false;
   }
@@ -861,12 +868,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto once_with_symbols = std::make_unique<Once>(bound_symbols);
     auto on_match = PlanMatching(match_ctx, std::move(once_with_symbols));
 
-    // Materialize merge_match per input row when a downstream clause may append to storage.
-    // Without this, the underlying ScanAll keeps a live skip-list iterator with a nullptr-sentinel
-    // end; any node created downstream (e.g. `MERGE (a) MERGE (b) CREATE (c)`) gets appended during
-    // iteration and fed back into merge_match, producing unbounded node creation. Accumulating
-    // freezes the scan to nodes that existed when MERGE started yielding for the current input row,
-    // while preserving View::NEW visibility of nodes created by earlier clauses. See issue #1333.
+    // freeze merge_match per input row so a downstream append (e.g. `MERGE (a) MERGE (b) CREATE
+    // (c)`) cannot feed new vertices back into the live ScanAll iterator and loop. View::NEW
+    // visibility of nodes from earlier clauses is preserved because we don't advance the command.
+    // see issue #1333.
     if (insert_match_accumulate) {
       std::vector<Symbol> accumulate_symbols = match_ctx.new_symbols;
       std::unordered_set<Symbol> seen_symbols(accumulate_symbols.begin(), accumulate_symbols.end());
@@ -875,7 +880,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
           accumulate_symbols.push_back(symbol);
         }
       }
-      on_match = std::make_unique<plan::Accumulate>(std::move(on_match), accumulate_symbols,
+      on_match = std::make_unique<plan::Accumulate>(std::move(on_match),
+                                                    accumulate_symbols,
                                                     /*advance_command=*/false);
     }
 

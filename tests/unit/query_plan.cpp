@@ -761,10 +761,7 @@ TYPED_TEST(TestPlanner, MatchMerge) {
 }
 
 TYPED_TEST(TestPlanner, MergeWithDownstreamCreateAccumulatesMatch) {
-  // Test MERGE (n) CREATE (c)
-  // Regression for issue #1333: when a clause downstream of MERGE may append to storage,
-  // merge_match must materialize via Accumulate to stop the live ScanAll iterator from
-  // re-observing newly-written vertices and producing unbounded creation.
+  // MERGE (n) CREATE (c)
   FakeDbAccessor dba;
   auto node_n = NODE("n");
   auto *query = QUERY(SINGLE_QUERY(MERGE(PATTERN(node_n)), CREATE(PATTERN(NODE("c")))));
@@ -779,9 +776,7 @@ TYPED_TEST(TestPlanner, MergeWithDownstreamCreateAccumulatesMatch) {
 }
 
 TYPED_TEST(TestPlanner, MergeFollowedByWithSkipsMatchAccumulate) {
-  // Test MERGE (n) WITH n CREATE (c)
-  // WITH already inserts an Accumulate barrier, so merge_match does not need its own —
-  // the downstream CREATE cannot pollute the (already drained) ScanAll iterator.
+  // MERGE (n) WITH n CREATE (c) — WITH is its own Accumulate barrier
   FakeDbAccessor dba;
   auto node_n = NODE("n");
   auto *query = QUERY(SINGLE_QUERY(MERGE(PATTERN(node_n)), WITH(IDENT("n"), AS("n")), CREATE(PATTERN(NODE("c")))));
