@@ -55,10 +55,10 @@ TenantProfiles::TenantProfiles(kvstore::KVStore &durability) : durability_{&dura
 }
 
 std::expected<void, TenantProfiles::CreateError> TenantProfiles::Create(std::string_view name, int64_t memory_limit) {
-  std::unique_lock lock{mutex_};
+  const std::unique_lock lock{mutex_};
   if (durability_->Get(ProfileKey(name))) return std::unexpected{CreateError::ALREADY_EXISTS};
 
-  Profile profile{.name = std::string{name}, .memory_limit = memory_limit};
+  const Profile profile{.name = std::string{name}, .memory_limit = memory_limit};
   if (!durability_->Put(ProfileKey(profile.name), ProfileToJson(profile).dump())) {
     return std::unexpected{CreateError::DURABILITY_ERROR};
   }
@@ -67,7 +67,7 @@ std::expected<void, TenantProfiles::CreateError> TenantProfiles::Create(std::str
 
 std::expected<std::unordered_set<std::string>, TenantProfiles::AlterError> TenantProfiles::Alter(std::string_view name,
                                                                                                  int64_t memory_limit) {
-  std::unique_lock lock{mutex_};
+  const std::unique_lock lock{mutex_};
   auto stored = durability_->Get(ProfileKey(name));
   if (!stored) return std::unexpected{AlterError::NOT_FOUND};
 
@@ -80,11 +80,11 @@ std::expected<std::unordered_set<std::string>, TenantProfiles::AlterError> Tenan
 }
 
 std::expected<void, TenantProfiles::DropError> TenantProfiles::Drop(std::string_view name) {
-  std::unique_lock lock{mutex_};
+  const std::unique_lock lock{mutex_};
   auto stored = durability_->Get(ProfileKey(name));
   if (!stored) return std::unexpected{DropError::NOT_FOUND};
 
-  Profile profile = FromJson(nlohmann::json::parse(*stored), name);
+  const Profile profile = FromJson(nlohmann::json::parse(*stored), name);
   if (!profile.databases.empty()) return std::unexpected{DropError::HAS_ATTACHED_DATABASES};
 
   if (!durability_->Delete(ProfileKey(name))) return std::unexpected{DropError::DURABILITY_ERROR};
@@ -92,7 +92,7 @@ std::expected<void, TenantProfiles::DropError> TenantProfiles::Drop(std::string_
 }
 
 std::optional<TenantProfiles::Profile> TenantProfiles::Get(std::string_view name) const {
-  std::shared_lock lock{mutex_};
+  const std::shared_lock lock{mutex_};
   auto stored = durability_->Get(ProfileKey(name));
   if (!stored) return std::nullopt;
   try {
@@ -104,7 +104,7 @@ std::optional<TenantProfiles::Profile> TenantProfiles::Get(std::string_view name
 }
 
 std::vector<TenantProfiles::Profile> TenantProfiles::GetAll() const {
-  std::shared_lock lock{mutex_};
+  const std::shared_lock lock{mutex_};
   std::vector<Profile> result;
   for (auto it = durability_->begin(std::string{kPrefix}); it != durability_->end(std::string{kPrefix}); ++it) {
     const auto &[key, value] = *it;
@@ -120,13 +120,13 @@ std::vector<TenantProfiles::Profile> TenantProfiles::GetAll() const {
 
 std::expected<int64_t, TenantProfiles::AttachError> TenantProfiles::AttachToDatabase(std::string_view profile_name,
                                                                                      std::string_view db_name) {
-  std::unique_lock lock{mutex_};
+  const std::unique_lock lock{mutex_};
   auto new_stored = durability_->Get(ProfileKey(profile_name));
   if (!new_stored) return std::unexpected{AttachError::PROFILE_NOT_FOUND};
   Profile new_profile = FromJson(nlohmann::json::parse(*new_stored), profile_name);
 
   std::map<std::string, std::string> to_put;
-  if (auto old_profile_name = durability_->Get(DbMappingKey(db_name));
+  if (const auto old_profile_name = durability_->Get(DbMappingKey(db_name));
       old_profile_name && *old_profile_name != profile_name) {
     if (auto old_stored = durability_->Get(ProfileKey(*old_profile_name))) {
       Profile old_profile = FromJson(nlohmann::json::parse(*old_stored), *old_profile_name);
@@ -143,7 +143,7 @@ std::expected<int64_t, TenantProfiles::AttachError> TenantProfiles::AttachToData
 }
 
 std::expected<void, TenantProfiles::DetachError> TenantProfiles::DetachFromDatabase(std::string_view db_name) {
-  std::unique_lock lock{mutex_};
+  const std::unique_lock lock{mutex_};
   auto profile_name = durability_->Get(DbMappingKey(db_name));
   if (!profile_name) return std::unexpected{DetachError::NOT_ATTACHED};
 
@@ -153,15 +153,15 @@ std::expected<void, TenantProfiles::DetachError> TenantProfiles::DetachFromDatab
   Profile profile = FromJson(nlohmann::json::parse(*profile_stored), *profile_name);
   profile.databases.erase(std::string{db_name});
 
-  std::map<std::string, std::string> to_put{{ProfileKey(profile.name), ProfileToJson(profile).dump()}};
-  std::vector<std::string> to_delete{DbMappingKey(db_name)};
+  const std::map<std::string, std::string> to_put{{ProfileKey(profile.name), ProfileToJson(profile).dump()}};
+  const std::vector<std::string> to_delete{DbMappingKey(db_name)};
   if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return std::unexpected{DetachError::DURABILITY_ERROR};
   return {};
 }
 
 std::expected<void, TenantProfiles::RenameError> TenantProfiles::RenameDatabase(std::string_view old_name,
                                                                                 std::string_view new_name) {
-  std::unique_lock lock{mutex_};
+  const std::unique_lock lock{mutex_};
   auto profile_name = durability_->Get(DbMappingKey(old_name));
   if (!profile_name) return std::unexpected{RenameError::NOT_ATTACHED};
 
@@ -172,17 +172,17 @@ std::expected<void, TenantProfiles::RenameError> TenantProfiles::RenameDatabase(
   profile.databases.erase(std::string{old_name});
   profile.databases.insert(std::string{new_name});
 
-  std::map<std::string, std::string> to_put{
+  const std::map<std::string, std::string> to_put{
       {ProfileKey(profile.name), ProfileToJson(profile).dump()},
       {DbMappingKey(new_name), *profile_name},
   };
-  std::vector<std::string> to_delete{DbMappingKey(old_name)};
+  const std::vector<std::string> to_delete{DbMappingKey(old_name)};
   if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return std::unexpected{RenameError::DURABILITY_ERROR};
   return {};
 }
 
 std::optional<std::string> TenantProfiles::GetProfileForDatabase(std::string_view db_name) const {
-  std::shared_lock lock{mutex_};
+  const std::shared_lock lock{mutex_};
   return durability_->Get(DbMappingKey(db_name));
 }
 

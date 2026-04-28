@@ -8454,8 +8454,8 @@ PreparedQuery PrepareTenantProfileQuery([[maybe_unused]] ParsedQuery parsed_quer
     case TenantProfileQuery::Action::SET_ON_DATABASE: {
       if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
       callback.fn = [db_handler,
-                     profile_name = std::move(query->profile_name_),
-                     db_name = std::move(query->db_name_),
+                     profile_name = query->profile_name_,
+                     db_name = query->db_name_,
                      interpreter]() -> std::vector<std::vector<TypedValue>> {
         auto result =
             db_handler->SetTenantProfileOnDatabase(profile_name, db_name, interpreter->system_transaction_ptr());
@@ -8474,8 +8474,7 @@ PreparedQuery PrepareTenantProfileQuery([[maybe_unused]] ParsedQuery parsed_quer
 
     case TenantProfileQuery::Action::REMOVE_FROM_DATABASE: {
       if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
-      callback.fn =
-          [db_handler, db_name = std::move(query->db_name_), interpreter]() -> std::vector<std::vector<TypedValue>> {
+      callback.fn = [db_handler, db_name = query->db_name_, interpreter]() -> std::vector<std::vector<TypedValue>> {
         auto result = db_handler->RemoveTenantProfileFromDatabase(db_name, interpreter->system_transaction_ptr());
         if (!result) {
           switch (result.error()) {

@@ -118,9 +118,7 @@ void TrackFreeOnCurrentThread(size_t /*size*/) {}
 
 #endif  // USE_JEMALLOC
 
-void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker) {
-  SetQueryTracker(tracker);
-}
+void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker) { SetQueryTracker(tracker); }
 
 void StopTrackingCurrentThread() { SetQueryTracker(nullptr); }
 
@@ -150,7 +148,7 @@ void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit) {
 void PauseProcedureTracking() {
   if constexpr (kUseJemalloc) {
     DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
-    GetQueryTracker()->StopProcTracking();
+    utils::QueryMemoryTracker::StopProcTracking();
   }
 }
 
