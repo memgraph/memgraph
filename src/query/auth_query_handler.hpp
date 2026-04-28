@@ -150,8 +150,8 @@ class AuthQueryHandler {
   virtual void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void ClearRoles(const std::string &username, const std::vector<std::string> &roles,
-                          const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
+  virtual void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
+                          system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void AddRoles(const std::string &username, const std::vector<std::string> &roles,

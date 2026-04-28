@@ -954,6 +954,7 @@ void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
       "{} is the first created user. Granting all privileges. The official advice and intention is to use this "
       "first user as the superuser with full privileges and capabilities on the Memgraph database.",
       user.username());
+#ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast()) {
     auto admin = GetRole("admin");
     if (admin && admin->IsBuiltIn()) {
@@ -961,14 +962,13 @@ void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
       SaveUser(user, system_tx);
       return;
     }
-  }
-  for (auto const permission : kPermissionsAll) {
-    user.permissions().Grant(permission);
-  }
-  if (license::global_license_checker.IsEnterpriseValidFast()) {
     user.fine_grained_access_handler().label_permissions().GrantGlobal(kAllLabelPermissions);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(kAllEdgeTypePermissions);
     user.db_access().GrantAll();
+  }
+#endif
+  for (auto const permission : kPermissionsAll) {
+    user.permissions().Grant(permission);
   }
   SaveUser(user, system_tx);
 }
@@ -1240,6 +1240,7 @@ std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transacti
   return new_role;
 }
 
+#ifdef MG_ENTERPRISE
 bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
   if (!license::global_license_checker.IsEnterpriseValidFast()) return false;
   if (!AllRolenames().empty()) {
@@ -1289,6 +1290,7 @@ bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
 
   return true;
 }
+#endif
 
 bool Auth::RemoveRole(const std::string &rolename_orig, bool force, system::Transaction *system_tx) {
   auto rolename = utils::ToLowerCase(rolename_orig);

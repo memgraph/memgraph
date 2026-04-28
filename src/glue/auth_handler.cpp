@@ -411,12 +411,17 @@ query::CreateUserResult AuthQueryHandler::CreateUser(const std::string &username
     const auto first_user = !locked_auth->HasUsers();
 
     auto new_user = locked_auth->AddUser(username, password, system_tx);
-    bool builtin_roles_created = false;
     if (first_user && new_user) {
-      builtin_roles_created = locked_auth->CreateBuiltinRoles(system_tx);
+#ifdef MG_ENTERPRISE
+      bool const builtin_roles_created = locked_auth->CreateBuiltinRoles(system_tx);
       locked_auth->InitialiseFirstUser(*new_user, system_tx);
+      return {
+          .created = new_user.has_value(), .first_user = first_user, .builtin_roles_created = builtin_roles_created};
+#else
+      locked_auth->InitialiseFirstUser(*new_user, system_tx);
+#endif
     }
-    return {.created = new_user.has_value(), .first_user = first_user, .builtin_roles_created = builtin_roles_created};
+    return {.created = new_user.has_value(), .first_user = first_user};
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -783,8 +788,7 @@ void AuthQueryHandler::SetRoles(const std::string &username, const std::vector<s
   }
 }
 
-void AuthQueryHandler::ClearRoles(const std::string &username, const std::vector<std::string> &,
-                                  const std::unordered_set<std::string> &role_databases,
+void AuthQueryHandler::ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
                                   system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();

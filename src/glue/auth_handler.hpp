@@ -80,8 +80,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) override;
 
-  void ClearRoles(const std::string &username, const std::vector<std::string> &roles,
-                  const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) override;
+  void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
+                  system::Transaction *system_tx) override;
 
   void AddRoles(const std::string &username, const std::vector<std::string> &roles,
                 const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) override;

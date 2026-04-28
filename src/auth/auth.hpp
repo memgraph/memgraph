@@ -331,11 +331,13 @@ class Auth final {
    */
   std::optional<Role> AddRole(const std::string &rolename, system::Transaction *system_tx = nullptr);
 
+#ifdef MG_ENTERPRISE
   /**
    * Creates the built-in roles.
    * @return true if the roles were created, false if they already existed or license is invalid.
    */
   bool CreateBuiltinRoles(system::Transaction *system_tx = nullptr);
+#endif
 
   /**
    * Removes a role from the storage.

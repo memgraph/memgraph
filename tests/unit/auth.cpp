@@ -1095,6 +1095,24 @@ TEST_F(AuthWithStorage, UserPasswordCreation) {
   }
 }
 
+#ifndef MG_ENTERPRISE
+TEST_F(AuthWithStorage, CommunityFirstUserHasAllPermissions) {
+  memgraph::license::global_license_checker.DisableTesting();
+  ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
+
+  auto user = auth->AddUser("admin");
+  ASSERT_TRUE(user);
+  auth->InitialiseFirstUser(*user, nullptr);
+
+  auto saved = auth->GetUser("admin");
+  ASSERT_TRUE(saved);
+  for (auto const permission : memgraph::auth::kPermissionsAll) {
+    EXPECT_EQ(saved->permissions().Has(permission), memgraph::auth::PermissionLevel::GRANT);
+  }
+  EXPECT_EQ(saved->permissions().denies(), 0);
+}
+#endif
+
 TEST_F(AuthWithStorage, PasswordStrength) {
   const std::string kWeakRegex = ".+";
   // https://stackoverflow.com/questions/5142103/regex-to-validate-password-strength

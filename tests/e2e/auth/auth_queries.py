@@ -1034,6 +1034,23 @@ def test_show_role_no_database_specification_required(memgraph):
     memgraph.execute("DROP DATABASE test_db;")
 
 
+def test_first_user_creates_and_assigns_builtin_roles(memgraph):
+    memgraph.execute("CREATE USER alice;")
+
+    roles = list(memgraph.execute_and_fetch("SHOW ROLES;"))
+    role_map = {r["role"]: r for r in roles}
+
+    builtin_names = {"admin", "readwrite", "readonly"}
+    assert builtin_names.issubset(role_map.keys()), f"Expected builtin roles, found: {list(role_map.keys())}"
+    for name in builtin_names:
+        assert role_map[name]["builtin"] is True, f"Expected '{name}' to be builtin"
+
+    user_roles = list(memgraph.execute_and_fetch("SHOW ROLE FOR alice;"))
+    assert "admin" in [r["role"] for r in user_roles], "Expected first user to have builtin admin role"
+
+    memgraph.execute("DROP USER alice;")
+
+
 def test_show_roles_builtin_column(memgraph):
     memgraph.execute("CREATE ROLE regular_role;")
 

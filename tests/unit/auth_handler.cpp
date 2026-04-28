@@ -1868,7 +1868,7 @@ TEST_F(AuthQueryHandlerFixture, ClearRole_WithDatabaseSpecification_Success) {
 
   // Clear roles for specific database
   std::unordered_set<std::string> databases = {"db1"};
-  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {}, databases, nullptr));
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", databases, nullptr));
 
   // Verify roles are cleared for db1 but remain for db2
   auto updated_user = auth.value()->GetUser("test_user");
@@ -2024,7 +2024,7 @@ TEST_F(AuthQueryHandlerFixture, ClearRolesRemovesAllRoles) {
   user.AddMultiTenantRole(role2, "db2");
   auth.value()->SaveUser(user);
 
-  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {}, {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {}, nullptr));
 
   auto updated_user = auth.value()->GetUser("test_user");
   ASSERT_TRUE(updated_user);
@@ -2044,7 +2044,7 @@ TEST_F(AuthQueryHandlerFixture, ClearRoleOnDatabaseLeavesOtherDatabases) {
   user.AddMultiTenantRole(role1, "db2");
   auth.value()->SaveUser(user);
 
-  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {}, {"db1"}, nullptr));
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {"db1"}, nullptr));
 
   auto updated_user = auth.value()->GetUser("test_user");
   ASSERT_TRUE(updated_user);
