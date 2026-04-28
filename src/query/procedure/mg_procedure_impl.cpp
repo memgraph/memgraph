@@ -3485,7 +3485,7 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
       throw std::logic_error("Listing all label+property indices failed due to failure of creating list");
     }
 
-    for (const auto &[label, property_paths] : index_res) {
+    for (const auto &[label, property_paths, order] : index_res) {
       if (property_paths.size() != 1) {  // TODO: Support composite indices
         continue;
       }

@@ -17,10 +17,11 @@
 #include "storage/v2/delta_action.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/property_value_fwd.hpp"
 #include "utils/allocator/page_slab_memory_resource.hpp"
 #include "utils/logging.hpp"
 #include "utils/spin_lock.hpp"
+
+import memgraph.storage.property_value;
 
 namespace memgraph::storage {
 

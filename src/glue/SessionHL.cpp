@@ -19,6 +19,7 @@
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
 #include "dbms/constants.hpp"
+#include "flags/coord_flag_env_handler.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "frontend/ast/ast.hpp"
 #include "glue/SessionHL.hpp"
@@ -547,6 +548,8 @@ void SessionHL::BeginTransaction(const bolt_map_t &extra) {
 
 void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #ifdef MG_ENTERPRISE
+  // Coordinators have no dbms_handler and no databases to switch to, so there is nothing to configure.
+  if (flags::CoordinationSetupInstance().IsCoordinator()) return;
   runtime_config_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
 #else
   (void)run_time_info;

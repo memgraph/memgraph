@@ -19,7 +19,6 @@
 #include "disk_test_utils.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "storage/v2/delta.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_store.hpp"
@@ -40,7 +39,7 @@ class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
 
   RocksDBStorageTest() {
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
-    storage = std::make_unique<DiskStorage>(config_);
+    storage = disk_test_utils::CreateDiskStorage(config_);
   }
 
   void TearDown() override {

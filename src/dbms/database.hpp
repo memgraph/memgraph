@@ -11,12 +11,31 @@
 
 #pragma once
 
+#include <chrono>
+#include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 
 #include "query/cypher_query_interpreter.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v2/access_type.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/database_protector.hpp"
+#include "storage/v2/isolation_level.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/gatekeeper.hpp"
+#include "utils/safe_string.hpp"
+#include "utils/thread_pool.hpp"
+#include "utils/uuid.hpp"
+
+namespace memgraph::storage {
+class Storage;
+class Accessor;
+
+namespace ttl {
+class TTL;
+}  // namespace ttl
+}  // namespace memgraph::storage
 
 namespace memgraph::query {
 struct TriggerStore;
@@ -28,13 +47,7 @@ class Streams;
 
 namespace memgraph::dbms {
 
-struct DatabaseInfo {
-  storage::StorageInfo storage_info;
-  uint64_t triggers;
-  uint64_t streams;
-};
-
-static inline nlohmann::json ToJson(const DatabaseInfo &info) { return ToJson(info.storage_info); }
+struct DatabaseInfo;
 
 /**
  * @brief Class containing everything associated with a single Database
@@ -68,56 +81,48 @@ class Database {
    * @brief Storage's Accessor
    *
    * @param override_isolation_level
-   * @return std::unique_ptr<storage::Storage::Accessor>
+   * @return std::unique_ptr<storage::Accessor>
    */
-  std::unique_ptr<storage::Storage::Accessor> Access(
-      storage::StorageAccessType rw_type = storage::StorageAccessType::WRITE,
-      std::optional<storage::IsolationLevel> override_isolation_level = {},
-      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
-    return storage_->Access(rw_type, override_isolation_level, timeout);
-  }
+  std::unique_ptr<storage::Accessor> Access(storage::StorageAccessType rw_type = storage::StorageAccessType::WRITE,
+                                            std::optional<storage::IsolationLevel> override_isolation_level = {},
+                                            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
-  std::unique_ptr<storage::Storage::Accessor> UniqueAccess(
-      std::optional<storage::IsolationLevel> override_isolation_level = {},
-      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
-    return storage_->UniqueAccess(override_isolation_level, timeout);
-  }
+  std::unique_ptr<storage::Accessor> UniqueAccess(std::optional<storage::IsolationLevel> override_isolation_level = {},
+                                                  std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
-  std::unique_ptr<storage::Storage::Accessor> ReadOnlyAccess(
+  std::unique_ptr<storage::Accessor> ReadOnlyAccess(
       std::optional<storage::IsolationLevel> override_isolation_level = {},
-      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
-    return storage_->ReadOnlyAccess(override_isolation_level, timeout);
-  }
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
   /**
    * @brief Unique storage identified (name)
    *
    * @return std::string
    */
-  std::string name() const { return storage_->name(); }
+  std::string name() const;
 
-  auto name_view() const { return storage_->name_view(); }
+  utils::SafeString::ConstSafeWrapper name_view() const;
 
   /**
    * @brief Unique storage identified (uuid)
    *
    * @return const utils::UUID&
    */
-  const utils::UUID &uuid() const { return storage_->uuid(); }
+  const utils::UUID &uuid() const;
 
   /**
    * @brief Returns the storage configuration
    *
    * @return const storage::Config&
    */
-  const storage::Config &config() const { return storage_->config_; }
+  const storage::Config &config() const;
 
   /**
    * @brief Get the storage mode
    *
    * @return storage::StorageMode
    */
-  storage::StorageMode GetStorageMode() const noexcept { return storage_->GetStorageMode(); }
+  storage::StorageMode GetStorageMode() const noexcept;
 
   /**
    * @brief Get the storage info
@@ -168,7 +173,7 @@ class Database {
    */
   query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 
-  storage::ttl::TTL &ttl() { return storage_->ttl_; }
+  storage::ttl::TTL &ttl();
 
   /**
    * @brief Useful when trying to gracefully destroy Database.

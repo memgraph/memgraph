@@ -1638,7 +1638,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
       return std::nullopt;
     }
 
-    return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges));
+    return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabelProperties");
@@ -1651,10 +1651,12 @@ std::string ScanAllByLabelProperties::ToString() const {
                               }) |
                               ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
-  return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}})",
+  std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
+  return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}}){3}",
                      output_symbol_.name(),
                      dba_->LabelToName(label_),
-                     properties_stringified);
+                     properties_stringified,
+                     suffix);
 }
 
 std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *storage) const {
@@ -1667,6 +1669,7 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
   object->expression_ranges_ = expression_ranges_ |
                                rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
+  object->index_order_ = index_order_;
   return object;
 }
 
@@ -7545,18 +7548,18 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   AbortCheck(context);
 
   utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
-  if (left_cursor_->Pull(frame, context)) {
+  if (!is_left_exhausted_ && left_cursor_->Pull(frame, context)) {
     // collect values from the left child
     for (const auto &output_symbol : self_.left_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
     }
-  } else if (right_cursor_->Pull(frame, context)) {
+  } else {
+    is_left_exhausted_ = true;
+    if (!right_cursor_->Pull(frame, context)) return false;
     // collect values from the right child
     for (const auto &output_symbol : self_.right_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
     }
-  } else {
-    return false;
   }
 
   // put collected values on frame under union symbols
@@ -7575,6 +7578,7 @@ void Union::UnionCursor::Shutdown() {
 void Union::UnionCursor::Reset() {
   left_cursor_->Reset();
   right_cursor_->Reset();
+  is_left_exhausted_ = false;
 }
 
 std::vector<Symbol> Cartesian::ModifiedSymbols(const SymbolTable &table) const {
@@ -8087,6 +8091,14 @@ class CallProcedureCursor : public Cursor {
         memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
       }
+
+      if (self_->void_procedure_) {
+        // we do not throw if a void procedure returns something, so we clear the iterators here
+        result_.rows.clear();
+        result_row_it_ = result_.rows.end();
+        return true;
+      }
+
       result_row_it_ = result_.rows.begin();
       if (!result_.is_transactional) {
         skip_rows_with_deleted_values();
@@ -8128,78 +8140,9 @@ class CallProcedureCursor : public Cursor {
   }
 };
 
-class CallValidateProcedureCursor : public Cursor {
-  const CallProcedure *self_;
-  UniqueCursorPtr input_cursor_;
-
- public:
-  CallValidateProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
-
-  bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("CallValidateProcedureCursor");
-
-    AbortCheck(context);
-    if (!input_cursor_->Pull(frame, context)) {
-      return false;
-    }
-
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::NEW,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user);
-
-    const auto args = self_->arguments_;
-    if (args.size() != 3U) {
-      throw QueryRuntimeException("'mgps.validate' requires exactly 3 arguments.");
-    }
-
-    const auto predicate = args[0]->Accept(evaluator);
-    const bool predicate_val = predicate.ValueBool();
-
-    if (predicate_val) [[unlikely]] {
-      const auto &message = args[1]->Accept(evaluator);
-      const auto &message_args = args[2]->Accept(evaluator);
-
-      using TString = std::remove_cvref_t<decltype(message.ValueString())>;
-      using TElement = std::remove_cvref_t<decltype(message_args.ValueList()[0])>;
-
-      utils::JStringFormatter<TString, TElement> formatter;
-
-      try {
-        const auto &msg = formatter.FormatString(message.ValueString(), message_args.ValueList());
-        throw QueryRuntimeException(msg);
-      } catch (const utils::JStringFormatException &e) {
-        throw QueryRuntimeException(e.what());
-      }
-    }
-
-    return true;
-  }
-
-  void Reset() override { input_cursor_->Reset(); }
-
-  void Shutdown() override {}
-};
-
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CallProcedureOperator);
   CallProcedure::IncrementCounter(procedure_name_);
-
-  if (void_procedure_) {
-    // Currently we do not support Call procedures that do not return
-    // anything. This cursor is way too specific, but it provides a workaround
-    // to ensure GraphQL compatibility until we start supporting truly void
-    // procedures.
-    return MakeUniqueCursorPtr<CallValidateProcedureCursor>(mem, this, mem);
-  }
-
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }
 
@@ -9872,11 +9815,13 @@ ScanParallelByLabelProperties::ScanParallelByLabelProperties(const std::shared_p
                                                              storage::View view, size_t num_threads,
                                                              Symbol state_symbol, storage::LabelId label,
                                                              std::vector<storage::PropertyPath> properties,
-                                                             std::vector<ExpressionRange> expression_ranges)
+                                                             std::vector<ExpressionRange> expression_ranges,
+                                                             storage::IndexOrder index_order)
     : ScanParallel(input, view, num_threads, state_symbol),
       label_(label),
       properties_(std::move(properties)),
-      expression_ranges_(std::move(expression_ranges)) {}
+      expression_ranges_(std::move(expression_ranges)),
+      index_order_(index_order) {}
 
 ACCEPT_WITH_INPUT(ScanParallelByLabelProperties)
 
@@ -9902,7 +9847,8 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
                                label_,
                                properties_,
                                maybe_prop_value_ranges.value_or(std::vector<storage::PropertyValueRange>{}),
-                               num_threads_);
+                               num_threads_,
+                               index_order_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
 #else
@@ -9917,10 +9863,12 @@ std::string ScanParallelByLabelProperties::ToString() const {
                               }) |
                               ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
-  return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {{{2}}})",
+  std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
+  return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {{{2}}}){3}",
                      num_threads_,
                      dba_->LabelToName(label_),
-                     properties_stringified);
+                     properties_stringified,
+                     suffix);
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage *storage) const {
@@ -9934,6 +9882,7 @@ std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage
   object->expression_ranges_ = expression_ranges_ |
                                rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
+  object->index_order_ = index_order_;
   return object;
 }
 

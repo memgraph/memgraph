@@ -67,11 +67,14 @@ class TextIndexTest : public testing::Test {
     // deleted. Correct approach would be to wait for the merging threads to finish on the mgcxx side.
     constexpr auto max_retries = 5;
     constexpr auto retry_delay = std::chrono::milliseconds(100);
-    auto unique_acc = this->storage->UniqueAccess();
     for (int i = 0; i < max_retries; ++i) {
+      auto unique_acc = this->storage->UniqueAccess();
       auto status = unique_acc->DropTextIndex(test_index.data());
       if (status.has_value()) {
-        return;  // Successfully cleared the index
+        // The drop is deferred to commit time — we must commit to actually
+        // flip deferred_drop and tear down the on-disk tantivy directory.
+        ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+        return;
       }
       std::this_thread::sleep_for(retry_delay);
     }

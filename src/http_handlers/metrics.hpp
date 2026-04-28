@@ -123,6 +123,19 @@ class MetricsService {
   storage::Storage *const db_;
 
   MetricsResponse GetMetrics() {
+    if (!db_) {
+      return MetricsResponse{.vertex_count = 0,
+                             .edge_count = 0,
+                             .average_degree = 0,
+                             .memory_usage = 0,
+                             .peak_memory_usage = 0,
+                             .unreleased_delta_objects = 0,
+                             .disk_usage = 0,
+                             .event_counters = GetEventCounters(),
+                             .event_gauges = GetEventGauges(),
+                             .event_histograms = GetEventHistograms()};
+    }
+
     auto info = db_->GetBaseInfo();
 
     return MetricsResponse{.vertex_count = info.vertex_count,
@@ -137,7 +150,7 @@ class MetricsService {
                            .event_histograms = GetEventHistograms()};
   }
 
-  inline static nlohmann::json AsJson(MetricsResponse response) {
+  static nlohmann::json AsJson(MetricsResponse response) {
     auto metrics_response = nlohmann::json();
     const auto *general_type = "General";
 
@@ -292,7 +305,7 @@ class MetricsRequestHandler final {
     res.set(boost::beast::http::field::content_type, "application/json");
     res.content_length(size);
     res.keep_alive(req.keep_alive());
-    return send(std::move(res));
+    send(std::move(res));
   }
 
  private:

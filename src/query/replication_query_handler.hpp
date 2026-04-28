@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -114,6 +114,13 @@ struct ReplicationQueryHandler {
   virtual bool IsReplica() const = 0;
 
   virtual auto ShowReplicas() const -> std::expected<ReplicasInfos, ShowReplicaError> = 0;
+
+ protected:
+  ReplicationQueryHandler() = default;
+  ReplicationQueryHandler(const ReplicationQueryHandler &) = default;
+  ReplicationQueryHandler(ReplicationQueryHandler &&) noexcept = default;
+  ReplicationQueryHandler &operator=(const ReplicationQueryHandler &) = default;
+  ReplicationQueryHandler &operator=(ReplicationQueryHandler &&) noexcept = default;
 };
 
 }  // namespace memgraph::query

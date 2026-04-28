@@ -15,6 +15,11 @@
 #include "query/graph.hpp"
 #include "query/virtual_graph.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::query {
@@ -218,6 +223,54 @@ storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storag
       filteredOutEdges, std::back_inserter(resulting_edges), [](auto const &edge) { return EdgeAccessor(edge); });
 
   return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
+}
+
+bool DbAccessor::TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
+
+std::vector<storage::TextSearchResult> DbAccessor::TextIndexSearch(const std::string &index_name,
+                                                                   const std::string &search_query,
+                                                                   text_search_mode search_mode,
+                                                                   std::size_t limit) const {
+  return accessor_->TextIndexSearch(index_name, search_query, search_mode, limit);
+}
+
+std::string DbAccessor::TextIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                           const std::string &aggregation_query) const {
+  return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
+}
+
+std::string DbAccessor::TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                               const std::string &aggregation_query) {
+  return accessor_->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
+}
+
+std::vector<storage::TextEdgeSearchResult> DbAccessor::SearchEdgeTextIndex(const std::string &index_name,
+                                                                           const std::string &search_query,
+                                                                           text_search_mode search_mode,
+                                                                           std::size_t limit) const {
+  return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, limit);
+}
+
+bool DbAccessor::PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
+  return accessor_->PointIndexExists(label, prop);
+}
+
+std::vector<std::tuple<storage::VertexAccessor, double, double>> DbAccessor::VectorIndexSearchOnNodes(
+    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+  return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
+}
+
+std::vector<std::tuple<storage::EdgeAccessor, double, double>> DbAccessor::VectorIndexSearchOnEdges(
+    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+  return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
+}
+
+std::vector<storage::VectorIndexInfo> DbAccessor::ListAllVectorIndices() const {
+  return accessor_->ListAllVectorIndices();
+}
+
+std::vector<storage::VectorEdgeIndexInfo> DbAccessor::ListAllVectorEdgeIndices() const {
+  return accessor_->ListAllVectorEdgeIndices();
 }
 
 auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId property,

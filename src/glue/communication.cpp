@@ -154,7 +154,7 @@ communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const s
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
   auto check_db = [db]() {
     if (db == nullptr) [[unlikely]]
-      throw communication::bolt::ValueException("Database needed for TypeValue conversion.");
+      throw communication::bolt::ValueException("Database needed for TypedValue conversion.");
   };
 
   switch (value.type()) {
@@ -193,7 +193,6 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
 
     // Database is required
     case query::TypedValue::Type::List: {
-      check_db();
       std::vector<Value> values;
       values.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) {

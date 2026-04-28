@@ -1,0 +1,30 @@
+--- a/src/ccache/ccache.cpp
++++ b/src/ccache/ccache.cpp
+@@ -2154,6 +2154,27 @@
+     return {};
+   }
+
++  // C++20 named modules: -fmodule-file=[<name>=]<file>
++  // The PCM is a content-bearing input that affects code generation
++  // (struct layouts, template instantiations). Hash its content so
++  // the manifest key changes when the PCM is rebuilt.
++  if (util::starts_with(args[i], "-fmodule-file=")) {
++    std::string_view val = std::string_view(args[i]).substr(14);
++    // -fmodule-file=<file> or -fmodule-file=<name>=<file>
++    auto eq_pos = val.find('=');
++    std::string_view pcm_path = (eq_pos != std::string_view::npos)
++                                  ? val.substr(eq_pos + 1)
++                                  : val;
++    if (!pcm_path.empty()) {
++      hash.hash_delimiter("module_file");
++      if (!hash_binary_file(ctx, hash, std::string(pcm_path))) {
++        LOG("Failed to hash module file {}", pcm_path);
++        return tl::unexpected(Statistic::bad_input_file);
++      }
++      return {};
++    }
++  }
++
+   if (util::starts_with(args[i], "-fplugin=")) {
+     DirEntry dir_entry(&args[i][9], DirEntry::LogOnError::yes);
+     if (dir_entry.is_regular_file()) {

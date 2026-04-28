@@ -37,8 +37,9 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
-    void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                             const Transaction &tx) override {};
+    void UpdateOnSetProperty(PropertyId /*property*/, const PropertyValue & /*old_value*/,
+                             const PropertyValue & /*new_value*/, Vertex * /*vertex*/,
+                             const Transaction & /*tx*/) override {}
 
     bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
 
@@ -48,8 +49,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> override;
 
-    auto ListIndices(uint64_t start_timestamp) const
-        -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override;
+    auto ListIndices(uint64_t start_timestamp) const -> std::vector<LabelPropertyIndexEntry> override;
 
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t override;
 
@@ -84,8 +84,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
                                                             uint64_t transaction_commit_timestamp,
                                                             EntriesForDeletion const &entries_for_deletion);
 
-  bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
-                 ActiveIndicesUpdater const &updater) override;
+  DropResult DropIndex(LabelId label, std::vector<PropertyPath> const &properties, ActiveIndicesUpdater const &updater,
+                       std::optional<IndexOrder> order = std::nullopt) override;
 
   RocksDBStorage *GetRocksDBStorage() const;
 
