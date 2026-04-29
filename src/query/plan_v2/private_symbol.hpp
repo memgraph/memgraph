@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cassert>
+#include <concepts>
 #include <cstdint>
 #include <functional>
 #include <utility>
@@ -196,18 +198,16 @@ concept HasDescriptor = requires {
   { symbol_descriptor<S>::cost_class } -> std::convertible_to<CostClass>;
 };
 
+/// Fold the concept check across the canonical sequence.  Defined as a
+/// function template so the fold is *not* instantiated by merely including
+/// this header — only the TU that actually evaluates this function pays the
+/// cost.  The check fires from src/query/plan_v2/private_symbol.cpp.
 template <symbol... Ss>
 constexpr auto AllHaveDescriptorsImpl(symbol_sequence<Ss...>) -> bool {
   return (HasDescriptor<Ss> && ...);
 }
 
-constexpr bool AllHaveDescriptors = AllHaveDescriptorsImpl(AllSymbolsSeq{});
-
 }  // namespace detail
-
-static_assert(detail::AllHaveDescriptors,
-              "every `symbol` enum value must have a `symbol_descriptor` specialisation; "
-              "see private_symbol.hpp");
 
 // ============================================================================
 // Runtime symbol → CostClass dispatch.

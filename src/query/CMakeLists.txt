@@ -76,6 +76,7 @@ target_sources(mg-query
     plan_v2/egraph.cpp
     plan_v2/ast_converter.cpp
     plan_v2/egraph_converter.cpp
+    plan_v2/private_symbol.cpp
     plan_v2/rewrites.cpp
     plan/parallel_checker.cpp
     procedure/mg_procedure_impl.cpp
