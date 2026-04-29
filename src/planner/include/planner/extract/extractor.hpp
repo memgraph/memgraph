@@ -16,13 +16,13 @@
 #include <queue>
 #include <span>
 #include <type_traits>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include <cassert>
 
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 #include "planner/extract/pareto_frontier.hpp"
 
@@ -110,7 +110,7 @@ struct Selection {
 
 /// Map from EClassId to the enode chosen by a Resolver, with its cost.
 template <typename CostType>
-using SelectionMap = std::unordered_map<EClassId, Selection<CostType>>;
+using SelectionMap = boost::unordered_flat_map<EClassId, Selection<CostType>>;
 
 // ============================================================================
 // Resolver contract
@@ -159,7 +159,7 @@ struct DefaultResolver {
 
     auto resolved = SelectionMap<CostType>{};
     auto to_visit = std::vector{root};
-    auto visited = std::unordered_set{root};
+    auto visited = boost::unordered_flat_set{root};
 
     while (!to_visit.empty()) {
       auto current = to_visit.back();
@@ -194,7 +194,7 @@ struct DefaultResolver {
 namespace detail {
 
 /// In-degree map for topological sorting.
-using InDegreeMap = std::unordered_map<EClassId, int>;
+using InDegreeMap = boost::unordered_flat_map<EClassId, int>;
 
 /// Bottom-up cost propagation. Calls cost_model(enode, enode_id, children) for each enode,
 /// merges results via CostResult::merge across enodes in the same eclass.
@@ -259,7 +259,7 @@ template <typename Symbol, typename Analysis, typename CostResult>
                                        SelectionMap<CostResult> const &enode_selection, EClassId root) -> InDegreeMap {
   auto in_degree = InDegreeMap{{root, 0}};
   auto bfs = std::vector{root};
-  auto visited = std::unordered_set{root};
+  auto visited = boost::unordered_flat_set{root};
   bfs.reserve(enode_selection.size());
   visited.reserve(enode_selection.size());
 

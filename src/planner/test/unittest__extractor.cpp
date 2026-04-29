@@ -407,7 +407,7 @@ TEST(Extract_Cost, FullyCyclicEClassInfiniteCost) {
 TEST(Extract_Dependencies, SingleLeafNode) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
-  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
+  SelectionMap<double> cheapest_enode;
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
 
   auto in_degree = extract::detail::CollectDependencies(egraph, cheapest_enode, leaf_class);
@@ -422,7 +422,7 @@ TEST(Extract_Dependencies, LinearChain) {
   auto [mid_class, mid_node, mid_new] = egraph.emplace(symbol::B, {leaf_class});
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {mid_class});
 
-  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
+  SelectionMap<double> cheapest_enode;
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   cheapest_enode[mid_class] = {mid_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -442,7 +442,7 @@ TEST(Extract_Dependencies, SimpleTree) {
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B);
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
+  SelectionMap<double> cheapest_enode;
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -463,7 +463,7 @@ TEST(Extract_Dependencies, DiamondDAG) {
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
+  SelectionMap<double> cheapest_enode;
   cheapest_enode[shared_class] = {shared_node, 1.0};
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
@@ -494,7 +494,7 @@ TEST(Extract_Dependencies, DeadBindChildrenSkipped) {
 
   // Selection: bind and input are resolved, sym and expr are NOT (dead Bind)
   using Sel = Selection<double>;
-  std::unordered_map<EClassId, Sel> selection;
+  SelectionMap<double> selection;
   selection[bind_class] = Sel{bind_node, 1.0};
   selection[input_class] = Sel{input_node, 1.0};
   // sym_class and expr_class intentionally absent — dead Bind
@@ -535,7 +535,7 @@ TEST(Extract_Dependencies, DeadBindChildrenSkipped) {
 TEST(Extract_TopologicalSort, SingleNode) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
-  std::unordered_map<EClassId, Selection<double>> cheapest_enode{};
+  SelectionMap<double> cheapest_enode{};
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   auto in_degree = extract::detail::CollectDependencies(egraph, cheapest_enode, leaf_class);
   auto result = extract::detail::TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
@@ -551,7 +551,7 @@ TEST(Extract_TopologicalSort, LinearChainOrdering) {
   auto [mid_class, mid_node, mid_new] = egraph.emplace(symbol::B, {leaf_class});
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {mid_class});
 
-  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
+  SelectionMap<double> cheapest_enode;
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   cheapest_enode[mid_class] = {mid_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -571,7 +571,7 @@ TEST(Extract_TopologicalSort, SimpleTreeOrdering) {
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B);
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
+  SelectionMap<double> cheapest_enode;
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -591,7 +591,7 @@ TEST(Extract_TopologicalSort, DiamondTopology) {
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
+  SelectionMap<double> cheapest_enode;
   cheapest_enode[shared_class] = {shared_node, 1.0};
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
@@ -614,8 +614,7 @@ TEST(Extract_TopologicalSort, CycleDetection_IncompleteResult) {
   auto [a_class, a_node, a_new] = egraph.emplace(symbol::A);
   auto [b_class, b_node, b_new] = egraph.emplace(symbol::B, {a_class});
 
-  using Sel = Selection<double>;
-  std::unordered_map<EClassId, Sel> selection;
+  SelectionMap<double> selection;
   selection[a_class] = {a_node, 1.0};
   selection[b_class] = {b_node, 1.0};
 

@@ -168,4 +168,37 @@ static void BM_Extract_WideMerge(benchmark::State &state) {
 
 BENCHMARK(BM_Extract_WideMerge)->RangeMultiplier(4)->Range(8, 128)->Unit(benchmark::kMicrosecond);
 
+// ---------------------------------------------------------------------------
+// Full-pipeline shapes — Extract() invokes all four stages:
+//   1. ComputeFrontiers        (already covered above in isolation)
+//   2. Resolver                (DefaultResolver: picks min-cost alt per eclass)
+//   3. CollectDependencies     (in-degree counting over selected children)
+//   4. TopologicalSort         (Kahn-style emit order)
+// ---------------------------------------------------------------------------
+using memgraph::planner::core::extract::DefaultResolver;
+using memgraph::planner::core::extract::Extract;
+using memgraph::planner::core::extract::ExtractionContext;
+
+static void BM_Extract_FullPipeline_DeepChain(benchmark::State &state) {
+  auto [egraph, root] = BuildDeepChain(state.range(0));
+  ExtractionContext<DemandFrontier> ctx;
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(Extract(egraph, root, CostModel{}, DefaultResolver{}, ctx));
+  }
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+
+BENCHMARK(BM_Extract_FullPipeline_DeepChain)->RangeMultiplier(8)->Range(64, 4096)->Unit(benchmark::kMicrosecond);
+
+static void BM_Extract_FullPipeline_WideMerge(benchmark::State &state) {
+  auto [egraph, root] = BuildWideMerge(state.range(0));
+  ExtractionContext<DemandFrontier> ctx;
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(Extract(egraph, root, CostModel{}, DefaultResolver{}, ctx));
+  }
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+
+BENCHMARK(BM_Extract_FullPipeline_WideMerge)->RangeMultiplier(4)->Range(8, 128)->Unit(benchmark::kMicrosecond);
+
 }  // namespace
