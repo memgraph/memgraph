@@ -192,6 +192,11 @@ class Auth final {
                               system::Transaction *system_tx = nullptr);
 
   /**
+   * Initializes the first user, which will be the super admin.
+   */
+  void InitialiseFirstUser(User &user, system::Transaction *system_tx = nullptr);
+
+  /**
    * Removes a user from the storage.
    *
    * @param username
@@ -326,6 +331,14 @@ class Auth final {
    */
   std::optional<Role> AddRole(const std::string &rolename, system::Transaction *system_tx = nullptr);
 
+#ifdef MG_ENTERPRISE
+  /**
+   * Creates the built-in roles.
+   * @return true if the roles were created, false if they already existed or license is invalid.
+   */
+  bool CreateBuiltinRoles(system::Transaction *system_tx = nullptr);
+#endif
+
   /**
    * Removes a role from the storage.
    *
@@ -335,7 +348,7 @@ class Auth final {
    *         doesn't exist
    * @throw AuthException if unable to remove the role.
    */
-  bool RemoveRole(const std::string &rolename, system::Transaction *system_tx = nullptr);
+  bool RemoveRole(const std::string &rolename, bool force = false, system::Transaction *system_tx = nullptr);
 
   /**
    * Gets all roles from the storage.
@@ -373,7 +386,8 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  Result GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  Result GrantDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                       system::Transaction *system_tx = nullptr);
   void GrantDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
   void GrantDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
@@ -385,7 +399,8 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  Result DenyDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  Result DenyDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                      system::Transaction *system_tx = nullptr);
   void DenyDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
   void DenyDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
@@ -397,7 +412,8 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  Result RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  Result RevokeDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                        system::Transaction *system_tx = nullptr);
   void RevokeDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
   void RevokeDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
@@ -417,7 +433,8 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  Result SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx = nullptr);
+  Result SetMainDatabase(std::string_view db, const std::string &name, UserOrRoleType type,
+                         system::Transaction *system_tx = nullptr);
   void SetMainDatabase(std::string_view db, User &user, system::Transaction *system_tx = nullptr);
   void SetMainDatabase(std::string_view db, Role &role, system::Transaction *system_tx = nullptr);
 #endif

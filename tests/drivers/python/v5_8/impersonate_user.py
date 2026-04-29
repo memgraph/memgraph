@@ -52,7 +52,7 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) a
 with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) as driver:
     with driver.session() as session:
         session.run("CREATE USER admin;").consume()  # Has all permissions
-        session.run("GRANT IMPERSONATE_USER * TO admin;").consume()
+        session.run("GRANT IMPERSONATE_USER * TO USER admin;").consume()
         session.run("CREATE USER user;").consume()
         session.run("GRANT MATCH, SET, DELETE TO user;").consume()
         session.run("CREATE USER user2;").consume()
@@ -88,7 +88,7 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
 # Try to impersonate a user you don't have access to
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
     with driver.session() as session:
-        session.run("GRANT IMPERSONATE_USER user2,user3 TO admin;").consume()
+        session.run("GRANT IMPERSONATE_USER user2,user3 TO USER admin;").consume()
 
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
     failed = False
@@ -111,7 +111,7 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
 # Try to impersonate a user you are explicitly denied
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
     with driver.session() as session:
-        session.run("DENY IMPERSONATE_USER user3 TO admin;").consume()
+        session.run("DENY IMPERSONATE_USER user3 TO USER admin;").consume()
 
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
     failed = False
@@ -133,9 +133,13 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
 
 
 # Try to impersonate a user without the correct permissions
+# The first user has both USER admin (direct GRANT ... TO USER admin) and the
+# built-in ROLE admin; effective permissions merge both, so IMPERSONATE must be
+# revoked from each namespace.
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
     with driver.session() as session:
-        session.run("REVOKE IMPERSONATE_USER FROM admin;").consume()
+        session.run("REVOKE IMPERSONATE_USER FROM USER admin;").consume()
+        session.run("REVOKE IMPERSONATE_USER FROM ROLE admin;").consume()
 
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
     failed = False
@@ -154,7 +158,7 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
 # Try to impersonate a different user with the same username
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
     with driver.session() as session:
-        session.run("GRANT IMPERSONATE_USER user,user2,user3 TO admin;").consume()
+        session.run("GRANT IMPERSONATE_USER user,user2,user3 TO USER admin;").consume()
 
 
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
@@ -192,6 +196,15 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
         session.run("CREATE DATABASE db1").consume()
         session.run("CREATE DATABASE db2").consume()
 
+        # Admin only had database access via the built-in admin role; for a
+        # named database, User::GetPermissions(db) folds to role-only unless the
+        # user has direct GRANT DATABASE on that db.  After REVOKE
+        # IMPERSONATE_USER FROM ROLE admin, impersonation on db1/db2 must come
+        # from USER admin.
+        session.run("GRANT DATABASE memgraph TO USER admin").consume()
+        session.run("GRANT DATABASE db1 TO USER admin").consume()
+        session.run("GRANT DATABASE db2 TO USER admin").consume()
+
         session.run("GRANT DATABASE memgraph TO user").consume()
         session.run("GRANT DATABASE db1 TO user").consume()
         session.run("GRANT DATABASE db2 TO user").consume()
@@ -206,7 +219,7 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
         session.run("SET MAIN DATABASE db1 FOR user2").consume()
         session.run("SET MAIN DATABASE db2 FOR user3").consume()
 
-        session.run("GRANT IMPERSONATE_USER * TO admin;").consume()
+        session.run("GRANT IMPERSONATE_USER * TO USER admin;").consume()
         session.run("GRANT MULTI_DATABASE_USE TO user;").consume()
         session.run("GRANT MULTI_DATABASE_USE TO user2;").consume()
         session.run("GRANT MULTI_DATABASE_USE TO user3;").consume()
@@ -295,8 +308,12 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
         session.run("GRANT IMPERSONATE_USER user2 TO db2_role;").consume()
         session.run("GRANT IMPERSONATE_USER user3 TO memgraph_role;").consume()
 
-        # Add roles to admin
-        session.run("SET ROLE FOR admin TO db1_role, db2_role, memgraph_role;").consume()
+        # Attach test roles per database only. A global SET ROLE would
+        # ClearAllRoles() and drop the built-in admin role, leaving admin
+        # without AUTH (cannot run SET ROLE / GRANT to recover).
+        session.run("SET ROLE FOR USER admin TO db1_role ON db1").consume()
+        session.run("SET ROLE FOR USER admin TO db2_role ON db2").consume()
+        session.run("SET ROLE FOR USER admin TO memgraph_role ON memgraph").consume()
 
 # Test database-specific impersonation through roles
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
@@ -356,7 +373,7 @@ print("Testing database access control during impersonation...")
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
     with driver.session() as session:
         # Grant all impersonation permissions back for the rest of the tests
-        session.run("GRANT IMPERSONATE_USER * TO admin;").consume()
+        session.run("GRANT IMPERSONATE_USER * TO USER admin;").consume()
 
     # Test user access (has access to memgraph, db1, db2)
     with driver.session(impersonated_user="user") as session:
@@ -419,6 +436,9 @@ print("Testing database-specific permissions during impersonation...")
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
     with driver.session() as session:
         # Grant different permissions per database
+        # Remove per-DB role links from the database-specific impersonation test
+        # so roles can be dropped.
+        session.run("CLEAR ROLES FOR USER admin ON db1, db2, memgraph").consume()
         session.run("DROP ROLE db1_role;").consume()
         session.run("DROP ROLE db2_role;").consume()
 
@@ -598,7 +618,7 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
         session.run("SET PROFILE FOR admin TO admin_profile;").consume()
 
         # Grant impersonation permissions
-        session.run("GRANT IMPERSONATE_USER limit_user1,limit_user2 TO admin;").consume()
+        session.run("GRANT IMPERSONATE_USER limit_user1,limit_user2 TO USER admin;").consume()
 
 # Test user limits with impersonated users
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
