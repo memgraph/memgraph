@@ -38,6 +38,14 @@ concept DominanceRelation =
     std::invocable<Fn, Alt const &, Alt const &> &&
     std::convertible_to<std::invoke_result_t<Fn, Alt const &, Alt const &>, bool> && std::default_initializable<Fn>;
 
+/// A combine function for ParetoFrontier::combine: produces a new Alt from a
+/// pair of input Alts (one cartesian-product element).  Callable repeatedly
+/// over the n × m product, so the operator must be const-callable on whatever
+/// state the functor carries.
+template <typename Fn, typename Alt>
+concept Combiner = std::invocable<Fn const &, Alt const &, Alt const &> &&
+                   std::convertible_to<std::invoke_result_t<Fn const &, Alt const &, Alt const &>, Alt>;
+
 /// Generic Pareto frontier over alternatives of type Alt.
 ///
 /// DominanceFn must satisfy `DominanceRelation<DominanceFn, Alt>` — see the
@@ -54,7 +62,7 @@ concept DominanceRelation =
 ///   };
 ///   using Frontier = ParetoFrontier<MyAlt, MyDominance>;
 template <typename Alt, typename DominanceFn>
-  requires DominanceRelation<DominanceFn, Alt>
+  requires std::copyable<Alt> && DominanceRelation<DominanceFn, Alt>
 struct ParetoFrontier {
   ParetoFrontier() = default;
 
@@ -114,6 +122,7 @@ struct ParetoFrontier {
   /// Cartesian product of two frontiers. For each (l, r) pair, calls combine_fn(l, r)
   /// to produce a new alternative, then prunes the result.
   template <typename CombineFn>
+    requires Combiner<CombineFn, Alt>
   [[nodiscard]] static auto combine(ParetoFrontier const &lhs, ParetoFrontier const &rhs, CombineFn &&combine_fn)
       -> ParetoFrontier {
     auto result = ParetoFrontier{};
@@ -170,10 +179,15 @@ struct ParetoFrontier {
   }
 };
 
-/// Concept for alternatives usable with CostResultBase.
-/// Alt must have a totally_ordered `.cost` and an `.enode_id` field.
+/// Concept for alternatives usable with CostResultBase.  Beyond what
+/// ParetoFrontier needs (copyable; a totally-ordered cost), CostResultBase
+/// projects via `&Alt::cost` in resolve_with_cost — so `cost` must be a
+/// non-static data member (not a property/function).  The concept doesn't
+/// spell that out directly because the constraint is exercised at use site
+/// in resolve_with_cost; a non-member `cost` would produce a clear error
+/// pointing at the projection.
 template <typename Alt>
-concept ParetoAlt = requires(Alt const &a) {
+concept ParetoAlt = std::copyable<Alt> && requires(Alt const &a) {
   { a.cost } -> std::totally_ordered;
   { a.enode_id };
 };
