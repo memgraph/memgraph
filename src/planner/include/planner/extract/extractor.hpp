@@ -49,18 +49,18 @@ namespace memgraph::planner::core::extract {
 ///   resolve_with_cost(r)   — paired (enode_id, cost) so callers needing both
 ///                            avoid scanning the frontier twice
 template <typename CR>
-concept CostResultType = requires(CR const &a, CR const &b) {
+concept CostResultType = std::copyable<CR> && requires(CR const &a, CR const &b) {
   typename CR::cost_t;
   requires std::totally_ordered<typename CR::cost_t>;
-  { CR::merge(a, b) } -> std::convertible_to<CR>;
-  { CR::resolve(a) } -> std::convertible_to<ENodeId>;
-  { CR::min_cost(a) } -> std::convertible_to<typename CR::cost_t>;
-  { CR::resolve_with_cost(a) } -> std::convertible_to<std::pair<ENodeId, typename CR::cost_t>>;
+  { CR::merge(a, b) } -> std::same_as<CR>;
+  { CR::resolve(a) } noexcept -> std::same_as<ENodeId>;
+  { CR::min_cost(a) } noexcept -> std::same_as<typename CR::cost_t>;
+  { CR::resolve_with_cost(a) } -> std::same_as<std::pair<ENodeId, typename CR::cost_t>>;
 };
 
 /// Default scalar CostResult — wraps a cost value with enode metadata.
 /// Reference adapter for cost models that don't need Pareto frontiers.
-template <typename T>
+template <std::totally_ordered T>
 struct DefaultCostResult {
   using cost_t = T;
 
@@ -75,12 +75,10 @@ struct DefaultCostResult {
     return {r.enode_id, r.cost};
   }
 
-  static auto resolve(DefaultCostResult const &r) -> ENodeId { return r.enode_id; }
+  static auto resolve(DefaultCostResult const &r) noexcept -> ENodeId { return r.enode_id; }
 
-  static auto min_cost(DefaultCostResult const &r) -> cost_t { return r.cost; }
+  static auto min_cost(DefaultCostResult const &r) noexcept -> cost_t { return r.cost; }
 };
-
-static_assert(CostResultType<DefaultCostResult<double>>);
 
 // ============================================================================
 // Extraction pipeline types
@@ -150,7 +148,7 @@ struct DefaultResolver {
   template <typename Symbol, typename Analysis, CostResultType CostResult>
   auto operator()(EGraph<Symbol, Analysis> const &egraph, FrontierMap<CostResult> const &frontier_map,
                   EClassId root) const -> SelectionMap<typename CostResult::cost_t> {
-    using CostType = typename CostResult::cost_t;
+    using CostType = CostResult::cost_t;
 
     auto resolved = SelectionMap<CostType>{};
     auto to_visit = std::vector{root};
@@ -202,7 +200,7 @@ template <typename Symbol, typename Analysis, typename CostModel>
 [[nodiscard]] auto ComputeFrontiers(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_model,
                                     EClassId eclass_id, FrontierMap<typename CostModel::CostResult> &frontier_map)
     -> std::optional<typename CostModel::CostResult> {
-  using CostResult = typename CostModel::CostResult;
+  using CostResult = CostModel::CostResult;
 
   assert(!egraph.needs_rebuild() && "egraph must be rebuilt before extraction");
 
@@ -357,7 +355,7 @@ struct ExtractionContext {
 template <CostResultType CostResult>
 struct ExtractView {
   std::span<std::pair<EClassId, ENodeId> const> order;
-  typename CostResult::cost_t root_cost;
+  CostResult::cost_t root_cost;
 };
 
 /// Owned extraction result — independent of any ExtractionContext.
@@ -365,7 +363,7 @@ struct ExtractView {
 template <CostResultType CostResult>
 struct ExtractResult {
   std::vector<std::pair<EClassId, ENodeId>> order;
-  typename CostResult::cost_t root_cost;
+  CostResult::cost_t root_cost;
 };
 
 /// Primary entry point.  Caller owns `ctx`; the returned view points into
@@ -376,7 +374,7 @@ template <typename Symbol, typename Analysis, typename CostModel, typename Resol
 [[nodiscard]] auto Extract(EGraph<Symbol, Analysis> const &egraph, EClassId root, CostModel const &cost_model,
                            ResolverFn resolver, ExtractionContext<typename CostModel::CostResult> &ctx)
     -> ExtractView<typename CostModel::CostResult> {
-  using CostResult = typename CostModel::CostResult;
+  using CostResult = CostModel::CostResult;
 
   ctx.clear();
 
@@ -408,7 +406,7 @@ template <typename Symbol, typename Analysis, typename CostModel, typename Resol
            Resolver<ResolverFn, Symbol, Analysis, typename CostModel::CostResult>
 [[nodiscard]] auto Extract(EGraph<Symbol, Analysis> const &egraph, EClassId root, CostModel const &cost_model,
                            ResolverFn resolver) -> ExtractResult<typename CostModel::CostResult> {
-  using CostResult = typename CostModel::CostResult;
+  using CostResult = CostModel::CostResult;
   ExtractionContext<CostResult> ctx;
   auto view = Extract(egraph, root, cost_model, std::move(resolver), ctx);
   return ExtractResult<CostResult>{std::move(ctx.order), view.root_cost};

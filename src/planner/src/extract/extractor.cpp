@@ -15,4 +15,8 @@
 #include <queue>
 #include <vector>
 
-namespace memgraph::planner::core::extract {}  // namespace memgraph::planner::core::extract
+namespace memgraph::planner::core::extract {
+
+static_assert(CostResultType<DefaultCostResult<double>>);
+
+}  // namespace memgraph::planner::core::extract

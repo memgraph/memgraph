@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <cassert>
 #include <concepts>
-#include <limits>
 #include <utility>
 #include <vector>
 
@@ -176,19 +175,22 @@ struct CostResultBase : ParetoFrontier<Alt, DominanceFn> {
 
   CostResultBase(std::initializer_list<Alt> init) : Base{std::vector<Alt>(init)} {}
 
+  /// Hides Base::merge so the static return type matches Derived (required by CostResultType concept).
+  [[nodiscard]] static auto merge(Derived const &a, Derived const &b) -> Derived { return Derived{Base::merge(a, b)}; }
+
   static auto resolve_with_cost(Derived const &f) -> std::pair<decltype(Alt::enode_id), cost_t> {
     auto it = std::ranges::min_element(f.alts, {}, &Alt::cost);
     assert(it != f.alts.end() && "resolve_with_cost called on empty frontier");
     return {it->enode_id, it->cost};
   }
 
-  static auto resolve(Derived const &f) -> decltype(Alt::enode_id) { return resolve_with_cost(f).first; }
+  static auto resolve(Derived const &f) noexcept -> decltype(Alt::enode_id) { return resolve_with_cost(f).first; }
 
   /// Asserts non-empty (consistent with resolve / resolve_with_cost). An empty
   /// frontier at the cost-model layer indicates a structural bug in the caller
   /// (e.g., handing in a child enode with zero alternatives) — we want a loud
   /// failure, not a silent +infinity that propagates upward and corrupts costs.
-  static auto min_cost(Derived const &f) -> cost_t { return resolve_with_cost(f).second; }
+  static auto min_cost(Derived const &f) noexcept -> cost_t { return resolve_with_cost(f).second; }
 };
 
 }  // namespace memgraph::planner::core::extract
