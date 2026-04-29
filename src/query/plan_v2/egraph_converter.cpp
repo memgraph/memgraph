@@ -55,7 +55,7 @@ static auto IsBindAlive(Alternative const &input_alt, planner::core::EClassId sy
 
 /// Cost of a Symbol leaf alternative.  Three call sites depend on the
 /// "Symbol eclass = single leaf alt with required={}" invariant; see the
-/// comment on ComputeBindBranchCosts for the full list.
+/// comment on BestBindBranchCostsForResolve for the full list.
 static constexpr double kSymbolCost = 1.0;
 
 /// CostFrontier: ParetoFrontier with resolve/min_cost for the extraction contract.
@@ -100,8 +100,11 @@ static auto BestBindBranchCostsForResolve(CostFrontier const &input_frontier, do
   // provided ∪ {sym_eclass}.  For the dead branch we check against provided directly.
   bool const filtering = !provided.empty();
 
-  auto alive_provided = provided;
-  if (filtering) alive_provided.insert(sym_eclass);
+  SymbolSet alive_provided;
+  if (filtering) {
+    alive_provided = provided;
+    alive_provided.insert(sym_eclass);
+  }
 
   auto best_alive = std::numeric_limits<double>::infinity();
   auto best_dead = std::numeric_limits<double>::infinity();
@@ -126,14 +129,23 @@ static auto BestBindBranchCostsForResolve(CostFrontier const &input_frontier, do
 // Stateful functor: a single scratch buffer is reused across every (l, r) call
 // in the cartesian-product loop inside ParetoFrontier::combine, avoiding
 // per-call heap traffic when the union exceeds the SymbolSet inline buffer.
+//
+// Non-copyable: the scratch is per-call mutable state. Callers must move the
+// functor into combine() rather than copy it; this turns accidental concurrent
+// reuse into a compile error rather than a data race.
 struct CombineAltsFn {
   double extra_cost;
   planner::core::ENodeId enode_id;
-  // mutable: the scratch is a logically transient buffer — operator() is
-  // semantically const for callers (combine() captures a const&).
-  mutable boost::container::small_vector<planner::core::EClassId, 16> scratch;
+  boost::container::small_vector<planner::core::EClassId, 16> scratch;
 
-  auto operator()(Alternative const &l, Alternative const &r) const -> Alternative {
+  CombineAltsFn(double cost, planner::core::ENodeId id) : extra_cost(cost), enode_id(id) {}
+
+  CombineAltsFn(CombineAltsFn const &) = delete;
+  auto operator=(CombineAltsFn const &) -> CombineAltsFn & = delete;
+  CombineAltsFn(CombineAltsFn &&) = default;
+  auto operator=(CombineAltsFn &&) -> CombineAltsFn & = default;
+
+  auto operator()(Alternative const &l, Alternative const &r) -> Alternative {
     scratch.clear();
     scratch.reserve(l.required.size() + r.required.size());
     std::ranges::set_union(l.required, r.required, std::back_inserter(scratch));
@@ -145,7 +157,7 @@ struct CombineAltsFn {
 };
 
 auto CombineAlts(double extra_cost, planner::core::ENodeId enode_id) -> CombineAltsFn {
-  return {.extra_cost = extra_cost, .enode_id = enode_id, .scratch = {}};
+  return CombineAltsFn{extra_cost, enode_id};
 }
 
 struct PlanCostModel {
@@ -157,7 +169,7 @@ struct PlanCostModel {
       // Leaf nodes: single alternative, no demand
       case symbol::Once:
       case symbol::Literal:
-      case symbol::Symbol:  // Leaf invariant — see ComputeBindBranchCosts.
+      case symbol::Symbol:  // Leaf invariant — see BestBindBranchCostsForResolve.
       case symbol::ParamLookup:
         return CostResult{{{.cost = kSymbolCost, .required = {}, .enode_id = enode_id}}};
 
@@ -244,6 +256,8 @@ struct PlanCostModel {
         // enode_id is the reconstruction key (see unary case above). All
         // alternatives for the Output eclass must point at *this* enode so the
         // Builder dispatches Output::symbol() — not the input enode's symbol.
+        // The pre-loop rewrite is only load-bearing when children.size() == 1;
+        // otherwise CombineAlts re-stamps enode_id on every produced alt.
         auto result = children[0];
         for (auto &alt : result.alts) alt.enode_id = enode_id;
         for (size_t i = 1; i < children.size(); ++i) {
@@ -326,11 +340,11 @@ struct PlanResolver {
 
     auto sym_it = frontier_map.find(sym_eclass);
     assert(sym_it != frontier_map.end() && sym_it->second.has_value());
-    // Symbol leaf invariant — see ComputeBindBranchCosts. If this fires, a
+    // Symbol leaf invariant — see BestBindBranchCostsForResolve. If this fires, a
     // rewrite has introduced Symbol alternatives and the Bind cost / resolve
     // logic must be generalised to enumerate them.
     assert(sym_it->second->alts.size() == 1 && sym_it->second->alts.front().required.empty() &&
-           "Symbol eclass invariant violated: see ComputeBindBranchCosts");
+           "Symbol eclass invariant violated: see BestBindBranchCostsForResolve");
     auto sym_cost = CostFrontier::min_cost(*sym_it->second);
 
     auto expr_it = frontier_map.find(expr_eclass);
@@ -760,7 +774,8 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
 
   auto unique_result = result->Clone(&builder.ast_storage_);
   // TODO: return real cost from resolved root once Selection::cost type stabilises
-  auto root_cost = resolved.contains(true_root) ? resolved[true_root].cost : 0.0;
+  auto root_cost = 0.0;
+  if (auto it = resolved.find(true_root); it != resolved.end()) root_cost = it->second.cost;
   return {std::move(unique_result), root_cost, std::move(builder.ast_storage_), std::move(builder.symbol_table_)};
 }
 }  // namespace memgraph::query::plan::v2

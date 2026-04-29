@@ -18,17 +18,25 @@
 #include <utility>
 #include <vector>
 
+#include <boost/container/small_vector.hpp>
+
 namespace memgraph::planner::core::extract {
 
-/// A dominance relation over Alt: a default-constructible binary predicate
-/// (Alt const&, Alt const&) -> bool returning true when the first argument is
-/// dominated by the second. The relation MUST be transitive — if dominates(a, b)
-/// and dominates(b, c) then dominates(a, c). prune()'s early break relies on
-/// this property and on nothing else; reflexivity is permitted (a may dominate
-/// itself), and antisymmetry is not required. Reflexive duplicates resolve to
-/// "the later index in iteration order survives."
+/// A dominance relation over Alt: a default-constructible binary callable
+/// (Alt const&, Alt const&) -> convertible-to-bool returning true when the
+/// first argument is dominated by the second. The relation MUST be transitive
+/// — if dominates(a, b) and dominates(b, c) then dominates(a, c). prune()'s
+/// early break relies on this property and on nothing else; reflexivity is
+/// permitted (a may dominate itself), and antisymmetry is not required.
+/// Reflexive duplicates resolve to "the later index in iteration order survives."
+///
+/// We use std::invocable (not std::predicate): std::predicate requires
+/// regular_invocable which implies semantic equality preservation, but a
+/// dominance relation is reflexive and not equality-preserving in that sense.
 template <typename Fn, typename Alt>
-concept DominanceRelation = std::predicate<Fn, Alt const &, Alt const &> && std::default_initializable<Fn>;
+concept DominanceRelation =
+    std::invocable<Fn, Alt const &, Alt const &> &&
+    std::convertible_to<std::invoke_result_t<Fn, Alt const &, Alt const &>, bool> && std::default_initializable<Fn>;
 
 /// Generic Pareto frontier over alternatives of type Alt.
 ///
@@ -55,25 +63,15 @@ struct ParetoFrontier {
   /// moved-from elements (std::erase_if/remove_if moves elements during its pass).
   void prune() {
     auto const n = alts.size();
-    // Stack buffer for typical frontier sizes — avoids heap allocation for the
-    // dominated[] flag array in the common case. Frontiers rarely exceed 64
-    // alternatives after pruning; larger ones fall back to heap_buf.
-    constexpr size_t kSmallSize = 64;
-    char small_buf[kSmallSize] = {};
-    std::vector<char> heap_buf;
-    char *dominated;
-    if (n <= kSmallSize) {
-      dominated = small_buf;
-    } else {
-      heap_buf.assign(n, 0);
-      dominated = heap_buf.data();
-    }
+    // SBO buffer for the dominated-flag array. Frontiers rarely exceed 64
+    // alternatives after pruning; larger ones fall back to heap.
+    boost::container::small_vector<bool, 64> dominated(n, false);
     for (size_t i = 0; i < n; ++i) {
-      if (dominated[i] != 0) continue;
+      if (dominated[i]) continue;
       for (size_t j = i + 1; j < n; ++j) {
-        if (dominated[j] != 0) continue;
+        if (dominated[j]) continue;
         if (DominanceFn{}(alts[i], alts[j])) {
-          dominated[i] = 1;
+          dominated[i] = true;
           // Safe to break by transitivity of DominanceFn (enforced by the
           // DominanceRelation concept). If alts[i] is dominated by alts[j],
           // anything alts[i] would have dominated at higher j is either
@@ -82,13 +80,13 @@ struct ParetoFrontier {
           break;
         }
         if (DominanceFn{}(alts[j], alts[i])) {
-          dominated[j] = 1;
+          dominated[j] = true;
         }
       }
     }
     size_t write = 0;
     for (size_t read = 0; read < n; ++read) {
-      if (dominated[read] == 0) {
+      if (!dominated[read]) {
         if (write != read) alts[write] = std::move(alts[read]);
         ++write;
       }

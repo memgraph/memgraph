@@ -15,12 +15,15 @@
 #include <limits>
 #include <set>
 
+#include "extractor_test_helpers.hpp"
 #include "planner/extract/extractor.hpp"
 
 import memgraph.planner.core.egraph;
 
 using namespace memgraph::planner::core;
 using namespace memgraph::planner::core::extract;
+using memgraph::planner::core::extract::testing::DefaultCostResult;
+using memgraph::planner::core::extract::testing::ResolveSelection;
 
 enum struct symbol : std::uint8_t { A, B, ADD, LITERAL };
 
@@ -78,7 +81,6 @@ auto Extract(EGraph<symbol, analysis> const &egraph, CostModel cost_model, EClas
 TEST(Extract_Basic, BasicLeafExtraction) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [root_class, root_enode, root_new] = egraph.emplace(symbol::A);
-  // using Extract helper
   auto extracted = Extract(egraph, UniformCostModel{}, root_class);
   ASSERT_EQ(extracted.size(), 1);
   ASSERT_EQ(extracted[0].first, root_class);
@@ -92,7 +94,6 @@ TEST(Extract_Basic, CheapestRootSelected) {
   auto [root, _] = egraph.merge(aclass, bclass);
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
-  // using Extract helper
   auto extracted = Extract(egraph, SymbolCostModel{1.0, 2.0}, root);
   ASSERT_EQ(extracted.size(), 1);
   ASSERT_EQ(extracted[0].first, root);
@@ -646,7 +647,6 @@ TEST(Extract_Basic, IntegrationComplexTree) {
   auto [mid_class, mid_node, mid_new] = egraph.emplace(symbol::A, {l1_class, l2_class});
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::B, {mid_class});
 
-  // using Extract helper
   auto extracted = Extract(egraph, UniformCostModel{}, root_class);
 
   ASSERT_EQ(extracted.size(), 4);
@@ -662,7 +662,6 @@ TEST(Extract_Basic, IntegrationDiamondDAG) {
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  // using Extract helper
   auto extracted = Extract(egraph, UniformCostModel{}, root_class);
 
   ASSERT_EQ(extracted.size(), 4);
@@ -685,7 +684,6 @@ TEST(Extract_Basic, IntegrationNestedEquivalence) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  // using Extract helper
   auto extracted = Extract(egraph, SymbolCostModel{1.0, 5.0}, root);
 
   ASSERT_EQ(extracted.size(), 2);
@@ -873,6 +871,12 @@ struct TestFrontier : CostResultBase<TestFrontier, TestDemandAlt, TestDominance>
 /// nullptr when no compatible alt exists. Shared by the DAG-resolution tests
 /// below — extracted once because each test re-implementing this lambda hides
 /// the actual variation in resolver behaviour.
+///
+/// NOTE: production `PlanResolver::pick_compatible` (egraph_converter.cpp)
+/// throws QueryException on no-match instead of returning nullptr. The tests
+/// below `ASSERT_NE(chosen, nullptr)` to mirror "infeasible" without coupling
+/// to the production exception type. If feasibility logic changes in
+/// production, update both this helper and pick_compatible.
 inline auto PickBestCompatible(TestFrontier const &frontier, std::set<int> const &provided) -> TestDemandAlt const * {
   TestDemandAlt const *best = nullptr;
   for (auto const &alt : frontier.alts) {
@@ -1084,7 +1088,6 @@ TEST(Extract_MultiAlt, SingleAlternative_BehavesLikeSingleBest) {
   auto [l2_class, l2_node, l2_new] = egraph.emplace(symbol::B);
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {l1_class, l2_class});
 
-  // using Extract helper
   auto extracted = Extract(egraph, SimpleMultiAltCostModel{}, root_class);
 
   ASSERT_EQ(extracted.size(), 3);
@@ -1112,7 +1115,6 @@ TEST(Extract_MultiAlt, TwoAlternatives_MergeFrontier) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  // using Extract helper
   auto extracted = Extract(egraph, DemandAwareMultiAltCostModel{}, root);
 
   ASSERT_EQ(extracted.size(), 1);
@@ -1135,7 +1137,6 @@ TEST(Extract_MultiAlt, DemandPropagation) {
 
   auto [parent_class, parent_node, parent_new] = egraph.emplace(symbol::B, {child_class});
 
-  // using Extract helper
   auto extracted = Extract(egraph, DemandAwareMultiAltCostModel{}, parent_class);
 
   ASSERT_EQ(extracted.size(), 2);
@@ -1201,7 +1202,6 @@ TEST(Extract_MultiAlt, DiamondDAG_WithDemand) {
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::B, {left_class, right_class});
 
-  // using Extract helper
   auto extracted = Extract(egraph, DemandAwareMultiAltCostModel{}, root_class);
 
   // Should have 4 nodes: root, left, right, shared
@@ -1271,7 +1271,6 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
   ASSERT_DOUBLE_EQ(TestFrontier::min_cost(frontier), 1.0);
 
   // Full extraction should still work and select the min-cost alternative
-  // using Extract helper
   auto extracted = Extract(egraph, ThreeAltCostModel{}, a_class);
   ASSERT_EQ(extracted.size(), 1);
   ASSERT_EQ(extracted[0].second, a_node);
@@ -1562,7 +1561,6 @@ TEST(Extract_MultiAlt, CyclicEClass) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  // using Extract helper
   auto extracted = Extract(egraph, SimpleMultiAltCostModel{}, cyclic_class);
 
   // Should select the non-cyclic LITERAL node

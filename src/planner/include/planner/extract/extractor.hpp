@@ -30,36 +30,13 @@ namespace memgraph::planner::core::extract {
 // ============================================================================
 //
 // Every cost model defines:
-//   using CostResult = ...; // must satisfy:
-//     CostResult::merge(a, b) -> CostResult   — combine frontiers from different enodes
-//     CostResult::resolve(r)  -> ENodeId       — pick the best enode from the frontier
-//     CostResult::min_cost(r) -> <totally_ordered> — extract comparable cost
-//
+//   using CostResult = ...;
 //   operator()(ENode const &, ENodeId, span<CostResult const>) -> CostResult
 //
-// DefaultCostResult<T> provides all three for simple scalar cost models.
-// ParetoFrontier users provide resolve/min_cost via their CostModel's CostResult.
-
-/// Default CostResult for simple cost models. Wraps a scalar cost with enode metadata.
-template <typename T>
-struct DefaultCostResult {
-  using cost_t = T;
-
-  T cost;
-  ENodeId enode_id;
-
-  static auto merge(DefaultCostResult const &a, DefaultCostResult const &b) -> DefaultCostResult {
-    return a.cost <= b.cost ? a : b;
-  }
-
-  static auto resolve_with_cost(DefaultCostResult const &r) -> std::pair<ENodeId, cost_t> {
-    return {r.enode_id, r.cost};
-  }
-
-  static auto resolve(DefaultCostResult const &r) -> ENodeId { return r.enode_id; }
-
-  static auto min_cost(DefaultCostResult const &r) -> cost_t { return r.cost; }
-};
+// CostResult must satisfy CostResultType (defined below).  Production users
+// derive from CostResultBase (planner/extract/pareto_frontier.hpp).  A simple
+// scalar fallback (DefaultCostResult) is available to test code only — see
+// src/planner/test/extractor_test_helpers.hpp.
 
 /// CostResult contract — enforced at compile time.
 /// Every CostResult type must provide:
@@ -78,8 +55,6 @@ concept CostResultType = requires(CR const &a, CR const &b) {
   { CR::min_cost(a) } -> std::convertible_to<typename CR::cost_t>;
   { CR::resolve_with_cost(a) } -> std::convertible_to<std::pair<ENodeId, typename CR::cost_t>>;
 };
-
-static_assert(CostResultType<DefaultCostResult<double>>);
 
 /// In-degree map for topological sorting.
 using InDegreeMap = std::unordered_map<EClassId, int>;
@@ -162,50 +137,9 @@ template <typename Symbol, typename Analysis, typename CostModel>
   return std::nullopt;
 }
 
-/// Generic top-down resolver. Picks the best enode at each eclass via CostResult::resolve.
-///
-/// Used by the unit test helper Extract() in unittest__extractor.cpp for cost-model tests
-/// that do not require context-sensitive child visitation.
-///
-/// For production use, see PlanResolver in egraph_converter.cpp, which handles Bind
-/// alive/dead decisions by propagating a "provided" SymbolSet top-down.
-///
-/// NOTE: If you are adding a new cost model that has special child semantics (e.g., a
-/// Bind-like construct with conditional child visitation), do not use ResolveSelection.
-/// Implement a custom resolver like PlanResolver instead.
-template <typename Symbol, typename Analysis, typename CostResult>
-  requires CostResultType<CostResult>
-[[nodiscard]] auto ResolveSelection(EGraph<Symbol, Analysis> const &egraph,
-                                    std::unordered_map<EClassId, EClassFrontier<CostResult>> const &frontier_map,
-                                    EClassId root)
-    -> std::unordered_map<EClassId, Selection<typename CostResult::cost_t>> {
-  using CostType = typename CostResult::cost_t;
-
-  auto resolved = std::unordered_map<EClassId, Selection<CostType>>{};
-  auto to_visit = std::vector{root};
-  auto visited = std::unordered_set{root};
-
-  while (!to_visit.empty()) {
-    auto current = to_visit.back();
-    to_visit.pop_back();
-
-    auto it = frontier_map.find(current);
-    assert(it != frontier_map.end() && it->second.has_value());
-
-    auto const &frontier = *it->second;
-    auto [enode_id, cost] = CostResult::resolve_with_cost(frontier);
-    resolved[current] = Selection<CostType>{enode_id, cost};
-
-    auto const &enode = egraph.get_enode(enode_id);
-    for (auto child : enode.children()) {
-      if (visited.insert(child).second) {
-        to_visit.push_back(child);
-      }
-    }
-  }
-
-  return resolved;
-}
+/// Generic top-down resolver lives in src/planner/test/extractor_test_helpers.hpp.
+/// Production code uses PlanResolver (egraph_converter.cpp), which handles
+/// Bind alive/dead decisions by propagating a "provided" SymbolSet top-down.
 
 template <typename Symbol, typename Analysis, typename CostResult>
 [[nodiscard]] auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
