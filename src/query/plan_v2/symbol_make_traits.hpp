@@ -23,8 +23,6 @@
 
 #include "query/plan_v2/egraph.hpp"
 #include "query/plan_v2/private_symbol.hpp"
-#include "storage/v2/property_value.hpp"
-#include "utils/small_vector.hpp"
 
 namespace memgraph::query::plan::v2 {
 
@@ -116,7 +114,7 @@ struct symbol_make_traits<symbol::Bind> {
   struct storage_type {};
 
   static auto make(storage_type &, eclass input, eclass sym, eclass expr) -> lowered_node {
-    return {.children = utils::small_vector<eclass>{input, sym, expr}, .disambiguator = std::nullopt};
+    return {.children = utils::small_vector{input, sym, expr}, .disambiguator = std::nullopt};
   }
 };
 
@@ -126,7 +124,7 @@ struct symbol_make_traits<symbol::Identifier> {
   struct storage_type {};
 
   static auto make(storage_type &, eclass sym) -> lowered_node {
-    return {.children = utils::small_vector<eclass>{sym}, .disambiguator = std::nullopt};
+    return {.children = utils::small_vector{sym}, .disambiguator = std::nullopt};
   }
 };
 
@@ -155,7 +153,7 @@ struct symbol_make_traits<symbol::NamedOutput> {
   static auto make(storage_type &s, std::string_view name, eclass sym, eclass expr) -> lowered_node {
     auto [it, inserted] = s.store.try_emplace(std::string{name}, s.next_id);
     if (inserted) ++s.next_id;
-    return {.children = utils::small_vector<eclass>{sym, expr}, .disambiguator = it->second};
+    return {.children = utils::small_vector{sym, expr}, .disambiguator = it->second};
   }
 };
 
@@ -166,7 +164,7 @@ struct symbol_make_traits<S> {
   struct storage_type {};
 
   static auto make(storage_type & /*s*/, eclass lhs, eclass rhs) -> lowered_node {
-    return {.children = utils::small_vector<eclass>{lhs, rhs}, .disambiguator = std::nullopt};
+    return {.children = utils::small_vector{lhs, rhs}, .disambiguator = std::nullopt};
   }
 };
 
@@ -177,7 +175,7 @@ struct symbol_make_traits<S> {
   struct storage_type {};
 
   static auto make(storage_type & /*s*/, eclass operand) -> lowered_node {
-    return {.children = utils::small_vector<eclass>{operand}, .disambiguator = std::nullopt};
+    return {.children = utils::small_vector{operand}, .disambiguator = std::nullopt};
   }
 };
 
@@ -206,6 +204,6 @@ struct SymbolStorageFromSeq<symbol_sequence<Ss...>> {
 
 }  // namespace detail
 
-using symbol_storage = typename detail::SymbolStorageFromSeq<AllSymbolsSeq>::type;
+using symbol_storage = detail::SymbolStorageFromSeq<AllSymbolsSeq>::type;
 
 }  // namespace memgraph::query::plan::v2

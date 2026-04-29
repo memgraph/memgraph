@@ -12,7 +12,6 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <limits>
 #include <set>
 
 #include "extractor_test_helpers.hpp"
@@ -71,7 +70,7 @@ struct SymbolCostModel {
 template <typename CostModel>
 auto Extract(EGraph<symbol, analysis> const &egraph, CostModel cost_model, EClassId root)
     -> std::vector<std::pair<EClassId, ENodeId>> {
-  using CostResult = typename CostModel::CostResult;
+  using CostResult = CostModel::CostResult;
   auto frontier_map = std::unordered_map<EClassId, EClassFrontier<CostResult>>{};
   (void)extract::detail::ComputeFrontiers(egraph, cost_model, root, frontier_map);
   auto resolved = ResolveSelection<symbol, analysis, CostResult>(egraph, frontier_map, root);
