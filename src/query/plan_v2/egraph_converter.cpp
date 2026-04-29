@@ -109,32 +109,20 @@ static auto BestBindBranchCostsForResolve(CostFrontier const &input_frontier, do
 }
 
 // Combine two frontiers with cost summation and required-set union.
-// Stateful functor: a single scratch buffer is reused across every (l, r) call
-// in the cartesian-product loop inside ParetoFrontier::combine, avoiding
-// per-call heap traffic when the union exceeds the SymbolSet inline buffer.
-//
-// Non-copyable: the scratch is per-call mutable state. Callers must move the
-// functor into combine() rather than copy it; this turns accidental concurrent
-// reuse into a compile error rather than a data race.
+// Stateless functor — set_union's intermediate buffer is stack-allocated per
+// call.  Typical demand-union sizes fit in the inline capacity; queries that
+// exceed it pay one extra heap event over the SymbolSet's own allocation.
 struct CombineAltsFn {
   double extra_cost;
   planner::core::ENodeId enode_id;
-  boost::container::small_vector<planner::core::EClassId, 16> scratch;
 
-  CombineAltsFn(double cost, planner::core::ENodeId id) : extra_cost(cost), enode_id(id) {}
-
-  CombineAltsFn(CombineAltsFn const &) = delete;
-  auto operator=(CombineAltsFn const &) -> CombineAltsFn & = delete;
-  CombineAltsFn(CombineAltsFn &&) = default;
-  auto operator=(CombineAltsFn &&) -> CombineAltsFn & = default;
-
-  auto operator()(Alternative const &l, Alternative const &r) -> Alternative {
-    scratch.clear();
-    scratch.reserve(l.required.size() + r.required.size());
-    std::ranges::set_union(l.required, r.required, std::back_inserter(scratch));
+  auto operator()(Alternative const &l, Alternative const &r) const -> Alternative {
+    boost::container::small_vector<planner::core::EClassId, 16> buf;
+    buf.reserve(l.required.size() + r.required.size());
+    std::ranges::set_union(l.required, r.required, std::back_inserter(buf));
     // set_union on two sorted flat_sets produces sorted unique output —
     // ordered_unique_range skips redundant sorting in the flat_set constructor.
-    SymbolSet required(boost::container::ordered_unique_range, scratch.begin(), scratch.end());
+    SymbolSet required(boost::container::ordered_unique_range, buf.begin(), buf.end());
     return {.cost = extra_cost + l.cost + r.cost, .required = std::move(required), .enode_id = enode_id};
   }
 };
@@ -187,14 +175,10 @@ struct PlanCostModel {
         auto sym_eclass = current.children()[1];
         auto sym_cost = CostFrontier::min_cost(sym_frontier);
 
-        // Scratch reused across every (input_alt, expr_alt) pair by bind::AliveRequired
-        // to avoid per-call heap traffic.
-        boost::container::small_vector<planner::core::EClassId, 16> scratch;
-
         return CostFrontier::flat_map(input_frontier, [&](auto const &input_alt, auto emit) {
           if (bind::IsAlive(input_alt.required, sym_eclass)) {
             for (auto const &expr_alt : expr_frontier.alts) {
-              auto required = bind::AliveRequired(input_alt.required, sym_eclass, expr_alt.required, scratch);
+              auto required = bind::AliveRequired(input_alt.required, sym_eclass, expr_alt.required);
               emit({.cost = bind::AliveCost(input_alt.cost, sym_cost, expr_alt.cost),
                     .required = std::move(required),
                     .enode_id = enode_id});

@@ -87,18 +87,19 @@ inline auto DeadCost(double input_cost) -> double { return input_cost; }
 /// Removing `sym` reflects that the Bind itself supplies that symbol; whatever
 /// `expr` demands flows up because the binding does not satisfy expr's needs.
 ///
-/// `scratch` is a caller-supplied buffer reused across calls to avoid per-call
-/// heap traffic in the cartesian-product loop in PlanCostModel::Bind.  The two
-/// inputs are sorted (flat_set invariant); the merged output is sorted-unique
-/// so the resulting flat_set is constructed via `ordered_unique_range`,
-/// skipping the redundant sort.
-inline auto AliveRequired(SymbolSet const &input_required, planner::core::EClassId sym, SymbolSet const &expr_required,
-                          boost::container::small_vector<planner::core::EClassId, 16> &scratch) -> SymbolSet {
-  scratch.clear();
-  scratch.reserve(input_required.size() + expr_required.size());
+/// The two inputs are sorted (flat_set invariant); the merged output is
+/// sorted-unique so the resulting flat_set is constructed via
+/// `ordered_unique_range`, skipping the redundant sort.  The intermediate
+/// buffer is stack-allocated — typical demand-union sizes sit well within the
+/// inline capacity, and queries that exceed it pay one extra heap event over
+/// the SymbolSet's own allocation.
+inline auto AliveRequired(SymbolSet const &input_required, planner::core::EClassId sym, SymbolSet const &expr_required)
+    -> SymbolSet {
+  boost::container::small_vector<planner::core::EClassId, 16> buf;
+  buf.reserve(input_required.size() + expr_required.size());
   auto input_minus_sym = input_required | std::views::filter([sym](planner::core::EClassId id) { return id != sym; });
-  std::ranges::set_union(input_minus_sym, expr_required, std::back_inserter(scratch));
-  return SymbolSet(boost::container::ordered_unique_range, scratch.begin(), scratch.end());
+  std::ranges::set_union(input_minus_sym, expr_required, std::back_inserter(buf));
+  return SymbolSet(boost::container::ordered_unique_range, buf.begin(), buf.end());
 }
 
 }  // namespace memgraph::query::plan::v2::bind

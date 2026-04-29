@@ -17,8 +17,6 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/container/small_vector.hpp>
-
 #include "query/plan_v2/bind_semantics.hpp"
 
 import memgraph.planner.core.egraph;
@@ -63,27 +61,18 @@ TEST(BindAlgebra_Cost, kSymbolCostIsOne) {
 }
 
 TEST(BindAlgebra_AliveRequired, RemovesSymFromInput) {
-  auto input = MakeSet({1, 2, 3});
-  auto expr = MakeSet({});
-  boost::container::small_vector<EClassId, 16> scratch;
-  auto result = AliveRequired(input, EClassId{2}, expr, scratch);
+  auto result = AliveRequired(MakeSet({1, 2, 3}), EClassId{2}, MakeSet({}));
   EXPECT_EQ(result, MakeSet({1, 3}));
 }
 
 TEST(BindAlgebra_AliveRequired, AddsExprDemandsToOutput) {
-  auto input = MakeSet({1, 2});
-  auto expr = MakeSet({4, 5});
-  boost::container::small_vector<EClassId, 16> scratch;
-  auto result = AliveRequired(input, EClassId{2}, expr, scratch);
+  auto result = AliveRequired(MakeSet({1, 2}), EClassId{2}, MakeSet({4, 5}));
   EXPECT_EQ(result, MakeSet({1, 4, 5}));
 }
 
 TEST(BindAlgebra_AliveRequired, ExprDemandOverlapsInputProducesUnion) {
-  auto input = MakeSet({1, 2, 3});
-  auto expr = MakeSet({3, 4});
-  boost::container::small_vector<EClassId, 16> scratch;
-  auto result = AliveRequired(input, EClassId{2}, expr, scratch);
   // (input \ {2}) ∪ expr = {1, 3} ∪ {3, 4} = {1, 3, 4}
+  auto result = AliveRequired(MakeSet({1, 2, 3}), EClassId{2}, MakeSet({3, 4}));
   EXPECT_EQ(result, MakeSet({1, 3, 4}));
 }
 
@@ -92,36 +81,14 @@ TEST(BindAlgebra_AliveRequired, ExprDemandReintroducesSym) {
   // happens when expr is e.g. Identifier(sym) referencing the same sym.
   // Result: sym ends up in the required set after all (because expr demands
   // it, even though input no longer does post-removal).
-  auto input = MakeSet({1, 2});
-  auto expr = MakeSet({2});
-  boost::container::small_vector<EClassId, 16> scratch;
-  auto result = AliveRequired(input, EClassId{2}, expr, scratch);
   // (input \ {2}) ∪ expr = {1} ∪ {2} = {1, 2}
+  auto result = AliveRequired(MakeSet({1, 2}), EClassId{2}, MakeSet({2}));
   EXPECT_EQ(result, MakeSet({1, 2}));
 }
 
 TEST(BindAlgebra_AliveRequired, EmptyInputAndExprYieldsEmpty) {
-  auto input = MakeSet({});
-  auto expr = MakeSet({});
-  boost::container::small_vector<EClassId, 16> scratch;
-  auto result = AliveRequired(input, EClassId{2}, expr, scratch);
+  auto result = AliveRequired(MakeSet({}), EClassId{2}, MakeSet({}));
   EXPECT_EQ(result, MakeSet({}));
-}
-
-TEST(BindAlgebra_AliveRequired, ScratchReusedAcrossCalls) {
-  // The scratch buffer is reused across calls; each call clears it.
-  // This test ensures repeated calls produce correct results without
-  // contamination from prior iterations.
-  boost::container::small_vector<EClassId, 16> scratch;
-
-  auto r1 = AliveRequired(MakeSet({1, 2, 3}), EClassId{2}, MakeSet({4}), scratch);
-  EXPECT_EQ(r1, MakeSet({1, 3, 4}));
-
-  auto r2 = AliveRequired(MakeSet({5}), EClassId{5}, MakeSet({}), scratch);
-  EXPECT_EQ(r2, MakeSet({}));
-
-  auto r3 = AliveRequired(MakeSet({1, 2}), EClassId{1}, MakeSet({3, 4}), scratch);
-  EXPECT_EQ(r3, MakeSet({2, 3, 4}));
 }
 
 }  // namespace
