@@ -673,7 +673,15 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
     if (enode.symbol() == symbol::Bind) {
       assert(enode.children().size() == 3 && "Bind must have exactly 3 children");
       if (!build_cache.contains(enode.children()[1])) {  // sym absent => dead Bind
-        build_cache[eclass_id] = build_cache.at(enode.children()[0]);
+        // Take the input's BuildResult by value before inserting under eclass_id —
+        // boost::unordered_flat_map's open-addressing layout invalidates all
+        // references on rehash, and `m[k] = m.at(c)` evaluates the LHS lookup
+        // (which may rehash) before reading the RHS, leaving the LHS reference
+        // dangling.  The bug surfaced at chain depths past the initial rehash
+        // threshold (≥ 31 in the focused bench) as a corrupted variant in the
+        // cache that then fails ExtractAndValidate downstream.
+        auto input_result = build_cache.at(enode.children()[0]);
+        build_cache[eclass_id] = std::move(input_result);
         continue;
       }
     }
@@ -681,7 +689,11 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
     children_refs.clear();
     children_refs.reserve(enode.children().size());
     std::ranges::copy(enode.children() | std::views::transform(cache_lookup), std::back_inserter(children_refs));
-    build_cache[eclass_id] = builder.Build(enode, children_refs);
+    // Build before the LHS [] insertion to keep children_refs (which alias
+    // into build_cache) valid — boost::unordered_flat_map rehashes on insert
+    // and invalidates all live references.
+    auto build_result = builder.Build(enode, children_refs);
+    build_cache[eclass_id] = std::move(build_result);
   }
 
   // STAGE: Get the built root as std::unique_ptr<LogicalOperator>

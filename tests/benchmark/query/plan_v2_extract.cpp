@@ -99,10 +99,7 @@ static void BM_PlanV2_BindChain(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations() * state.range(0));
 }
 
-// Note: depth > 30 hits a "child node is incorrect type" exception in the
-// Builder.  Likely an internal small_vector capacity boundary in the Output
-// node's children layout — orthogonal to extraction perf, so capped here.
-BENCHMARK(BM_PlanV2_BindChain)->RangeMultiplier(2)->Range(4, 30)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_PlanV2_BindChain)->RangeMultiplier(2)->Range(4, 256)->Unit(benchmark::kMicrosecond);
 
 }  // namespace
 
