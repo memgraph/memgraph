@@ -20,20 +20,33 @@
 
 namespace memgraph::planner::core::extract {
 
+/// A dominance relation over Alt: a default-constructible binary predicate
+/// (Alt const&, Alt const&) -> bool returning true when the first argument is
+/// dominated by the second. The relation MUST be transitive — if dominates(a, b)
+/// and dominates(b, c) then dominates(a, c). prune()'s early break relies on
+/// this property and on nothing else; reflexivity is permitted (a may dominate
+/// itself), and antisymmetry is not required. Reflexive duplicates resolve to
+/// "the later index in iteration order survives."
+template <typename Fn, typename Alt>
+concept DominanceRelation = std::predicate<Fn, Alt const &, Alt const &> && std::default_initializable<Fn>;
+
 /// Generic Pareto frontier over alternatives of type Alt.
 ///
-/// DominanceFn: (Alt const&, Alt const&) -> bool
-///   Returns true if the first argument is dominated by the second.
-///   Must be transitive: if a is dominated by b and b is dominated by c,
-///   then a must be dominated by c. The prune() algorithm relies on this.
+/// DominanceFn must satisfy `DominanceRelation<DominanceFn, Alt>` — see the
+/// concept above for the transitivity contract.
 ///
-/// CombineFn: (Alt const&, Alt const&) -> Alt
+/// CombineFn (used by combine/flat_map, not part of the type): (Alt, Alt) -> Alt
 ///   Produces a new alternative from two parent alternatives (Cartesian product element).
 ///
 /// Example:
-///   using Frontier = ParetoFrontier<MyAlt,
-///     [](MyAlt const &a, MyAlt const &b) { return b.cost <= a.cost && b.req ⊆ a.req; }>;
+///   struct MyDominance {
+///     static auto operator()(MyAlt const &a, MyAlt const &b) -> bool {
+///       return b.cost <= a.cost && b.req.contains_all_of(a.req);
+///     }
+///   };
+///   using Frontier = ParetoFrontier<MyAlt, MyDominance>;
 template <typename Alt, typename DominanceFn>
+  requires DominanceRelation<DominanceFn, Alt>
 struct ParetoFrontier {
   std::vector<Alt> alts;
 
@@ -61,10 +74,11 @@ struct ParetoFrontier {
         if (dominated[j] != 0) continue;
         if (DominanceFn{}(alts[i], alts[j])) {
           dominated[i] = 1;
-          // Safe to break: DominanceFn must be transitive (see class doc). If alts[i] is
-          // dominated by alts[j], anything alts[i] would have dominated at higher j is
-          // either dominated by alts[j] (transitivity) or will be discovered when the
-          // outer loop reaches those indices as i. Continuing past j would be redundant.
+          // Safe to break by transitivity of DominanceFn (enforced by the
+          // DominanceRelation concept). If alts[i] is dominated by alts[j],
+          // anything alts[i] would have dominated at higher j is either
+          // dominated by alts[j] (transitivity) or will be discovered when the
+          // outer loop reaches those indices as i. Continuing past j is redundant.
           break;
         }
         if (DominanceFn{}(alts[j], alts[i])) {
@@ -172,10 +186,11 @@ struct CostResultBase : ParetoFrontier<Alt, DominanceFn> {
 
   static auto resolve(Derived const &f) -> decltype(Alt::enode_id) { return resolve_with_cost(f).first; }
 
-  static auto min_cost(Derived const &f) -> cost_t {
-    if (f.alts.empty()) return std::numeric_limits<cost_t>::infinity();
-    return resolve_with_cost(f).second;
-  }
+  /// Asserts non-empty (consistent with resolve / resolve_with_cost). An empty
+  /// frontier at the cost-model layer indicates a structural bug in the caller
+  /// (e.g., handing in a child enode with zero alternatives) — we want a loud
+  /// failure, not a silent +infinity that propagates upward and corrupts costs.
+  static auto min_cost(Derived const &f) -> cost_t { return resolve_with_cost(f).second; }
 };
 
 }  // namespace memgraph::planner::core::extract

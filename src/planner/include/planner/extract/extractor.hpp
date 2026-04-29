@@ -52,6 +52,10 @@ struct DefaultCostResult {
     return a.cost <= b.cost ? a : b;
   }
 
+  static auto resolve_with_cost(DefaultCostResult const &r) -> std::pair<ENodeId, cost_t> {
+    return {r.enode_id, r.cost};
+  }
+
   static auto resolve(DefaultCostResult const &r) -> ENodeId { return r.enode_id; }
 
   static auto min_cost(DefaultCostResult const &r) -> cost_t { return r.cost; }
@@ -59,10 +63,12 @@ struct DefaultCostResult {
 
 /// CostResult contract — enforced at compile time.
 /// Every CostResult type must provide:
-///   cost_t          — the scalar cost type (must be totally_ordered)
-///   merge(a, b)     — combine frontiers
-///   resolve(r)      — pick the best enode
-///   min_cost(r)     — extract the comparable cost
+///   cost_t                 — the scalar cost type (must be totally_ordered)
+///   merge(a, b)            — combine frontiers
+///   resolve(r)             — pick the best enode
+///   min_cost(r)            — extract the comparable cost (asserts non-empty for frontiers)
+///   resolve_with_cost(r)   — paired (enode_id, cost) so callers needing both
+///                            avoid scanning the frontier twice
 template <typename CR>
 concept CostResultType = requires(CR const &a, CR const &b) {
   typename CR::cost_t;
@@ -70,6 +76,7 @@ concept CostResultType = requires(CR const &a, CR const &b) {
   { CR::merge(a, b) } -> std::convertible_to<CR>;
   { CR::resolve(a) } -> std::convertible_to<ENodeId>;
   { CR::min_cost(a) } -> std::convertible_to<typename CR::cost_t>;
+  { CR::resolve_with_cost(a) } -> std::convertible_to<std::pair<ENodeId, typename CR::cost_t>>;
 };
 
 static_assert(CostResultType<DefaultCostResult<double>>);
@@ -186,14 +193,13 @@ template <typename Symbol, typename Analysis, typename CostResult>
     assert(it != frontier_map.end() && it->second.has_value());
 
     auto const &frontier = *it->second;
-    auto enode_id = CostResult::resolve(frontier);
-    resolved[current] = Selection<CostType>{enode_id, CostResult::min_cost(frontier)};
+    auto [enode_id, cost] = CostResult::resolve_with_cost(frontier);
+    resolved[current] = Selection<CostType>{enode_id, cost};
 
     auto const &enode = egraph.get_enode(enode_id);
     for (auto child : enode.children()) {
-      if (!visited.contains(child)) {
+      if (visited.insert(child).second) {
         to_visit.push_back(child);
-        visited.insert(child);
       }
     }
   }
@@ -226,9 +232,8 @@ template <typename Symbol, typename Analysis, typename CostResult>
       // Count the in-degree, used for Kahn's topological sorting
       ++in_degree[child];
       // Only add to BFS if not already added
-      if (!visited.contains(child)) {
+      if (visited.insert(child).second) {
         bfs.emplace_back(child);
-        visited.insert(child);
       }
     }
   }

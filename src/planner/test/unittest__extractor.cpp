@@ -869,6 +869,20 @@ struct TestFrontier : CostResultBase<TestFrontier, TestDemandAlt, TestDominance>
   using CostResultBase::CostResultBase;
 };
 
+/// Pick the cheapest alt whose required set is a subset of `provided`. Returns
+/// nullptr when no compatible alt exists. Shared by the DAG-resolution tests
+/// below — extracted once because each test re-implementing this lambda hides
+/// the actual variation in resolver behaviour.
+inline auto PickBestCompatible(TestFrontier const &frontier, std::set<int> const &provided) -> TestDemandAlt const * {
+  TestDemandAlt const *best = nullptr;
+  for (auto const &alt : frontier.alts) {
+    if (std::ranges::includes(provided, alt.required)) {
+      if (!best || alt.cost < best->cost) best = &alt;
+    }
+  }
+  return best;
+}
+
 // Simple multi-alt cost model: each enode produces a single alternative with cost=1,
 // required={} and the enode_id. This should behave identically to single-best extraction.
 // resolve/min_cost live on TestFrontier (the CostResult type).
@@ -1296,16 +1310,6 @@ TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
   auto resolved = std::unordered_map<EClassId, std::pair<ENodeId, double>>{};
   auto resolved_required = std::unordered_map<EClassId, std::set<int>>{};
 
-  auto pick_best_compatible = [](TestFrontier const &frontier, std::set<int> const &provided) -> TestDemandAlt const * {
-    TestDemandAlt const *best = nullptr;
-    for (auto const &alt : frontier.alts) {
-      if (std::ranges::includes(provided, alt.required)) {
-        if (!best || alt.cost < best->cost) best = &alt;
-      }
-    }
-    return best;
-  };
-
   // DFS resolver where the Root node provides different contexts per child:
   //   Left child gets provided={1} (mimics alive Bind providing a symbol)
   //   Right child gets provided={} (no extra symbols)
@@ -1315,14 +1319,14 @@ TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
       if (std::ranges::includes(provided, resolved_required[id])) return;  // still feasible
       // Incompatible: re-resolve with more restrictive provided
       auto const &frontier = *frontier_map.at(id);
-      auto const *chosen = pick_best_compatible(frontier, provided);
+      auto const *chosen = PickBestCompatible(frontier, provided);
       ASSERT_NE(chosen, nullptr);
       existing->second = {chosen->enode_id, chosen->cost};
       resolved_required[id] = chosen->required;
       return;
     }
     auto const &frontier = *frontier_map.at(id);
-    auto const *chosen = pick_best_compatible(frontier, provided);
+    auto const *chosen = PickBestCompatible(frontier, provided);
     ASSERT_NE(chosen, nullptr);
     resolved[id] = {chosen->enode_id, chosen->cost};
     resolved_required[id] = chosen->required;
@@ -1389,21 +1393,11 @@ TEST(Extract_MultiAlt, DAGResolution_CascadesToChildren) {
   auto resolved = std::unordered_map<EClassId, std::pair<ENodeId, double>>{};
   auto resolved_required = std::unordered_map<EClassId, std::set<int>>{};
 
-  auto pick_best_compatible = [](TestFrontier const &frontier, std::set<int> const &provided) -> TestDemandAlt const * {
-    TestDemandAlt const *best = nullptr;
-    for (auto const &alt : frontier.alts) {
-      if (std::ranges::includes(provided, alt.required)) {
-        if (!best || alt.cost < best->cost) best = &alt;
-      }
-    }
-    return best;
-  };
-
   auto resolve_no_cascade = [&](this auto const &self, EClassId id, std::set<int> const &provided) -> void {
     if (auto existing = resolved.find(id); existing != resolved.end()) {
       if (std::ranges::includes(provided, resolved_required[id])) return;
       auto const &frontier = *frontier_map.at(id);
-      auto const *chosen = pick_best_compatible(frontier, provided);
+      auto const *chosen = PickBestCompatible(frontier, provided);
       ASSERT_NE(chosen, nullptr);
       existing->second = {chosen->enode_id, chosen->cost};
       resolved_required[id] = chosen->required;
@@ -1411,7 +1405,7 @@ TEST(Extract_MultiAlt, DAGResolution_CascadesToChildren) {
       return;
     }
     auto const &frontier = *frontier_map.at(id);
-    auto const *chosen = pick_best_compatible(frontier, provided);
+    auto const *chosen = PickBestCompatible(frontier, provided);
     ASSERT_NE(chosen, nullptr);
     resolved[id] = {chosen->enode_id, chosen->cost};
     resolved_required[id] = chosen->required;
@@ -1442,7 +1436,7 @@ TEST(Extract_MultiAlt, DAGResolution_CascadesToChildren) {
     if (auto existing = resolved.find(id); existing != resolved.end()) {
       if (std::ranges::includes(provided, resolved_required[id])) return;
       auto const &frontier = *frontier_map.at(id);
-      auto const *chosen = pick_best_compatible(frontier, provided);
+      auto const *chosen = PickBestCompatible(frontier, provided);
       ASSERT_NE(chosen, nullptr);
       existing->second = {chosen->enode_id, chosen->cost};
       resolved_required[id] = chosen->required;
@@ -1454,7 +1448,7 @@ TEST(Extract_MultiAlt, DAGResolution_CascadesToChildren) {
       return;
     }
     auto const &frontier = *frontier_map.at(id);
-    auto const *chosen = pick_best_compatible(frontier, provided);
+    auto const *chosen = PickBestCompatible(frontier, provided);
     ASSERT_NE(chosen, nullptr);
     resolved[id] = {chosen->enode_id, chosen->cost};
     resolved_required[id] = chosen->required;
@@ -1507,21 +1501,11 @@ TEST(Extract_MultiAlt, DAGResolution_AliveToDeadErasesStaleChildren) {
   auto resolved = std::unordered_map<EClassId, std::pair<ENodeId, double>>{};
   auto resolved_required = std::unordered_map<EClassId, std::set<int>>{};
 
-  auto pick_best_compatible = [](TestFrontier const &frontier, std::set<int> const &provided) -> TestDemandAlt const * {
-    TestDemandAlt const *best = nullptr;
-    for (auto const &alt : frontier.alts) {
-      if (std::ranges::includes(provided, alt.required)) {
-        if (!best || alt.cost < best->cost) best = &alt;
-      }
-    }
-    return best;
-  };
-
   auto resolve = [&](this auto const &self, EClassId id, std::set<int> const &provided) -> void {
     if (auto existing = resolved.find(id); existing != resolved.end()) {
       if (std::ranges::includes(provided, resolved_required[id])) return;
       auto const &frontier = *frontier_map.at(id);
-      auto const *chosen = pick_best_compatible(frontier, provided);
+      auto const *chosen = PickBestCompatible(frontier, provided);
       ASSERT_NE(chosen, nullptr);
       existing->second = {chosen->enode_id, chosen->cost};
       resolved_required[id] = chosen->required;
@@ -1542,7 +1526,7 @@ TEST(Extract_MultiAlt, DAGResolution_AliveToDeadErasesStaleChildren) {
       return;
     }
     auto const &frontier = *frontier_map.at(id);
-    auto const *chosen = pick_best_compatible(frontier, provided);
+    auto const *chosen = PickBestCompatible(frontier, provided);
     ASSERT_NE(chosen, nullptr);
     resolved[id] = {chosen->enode_id, chosen->cost};
     resolved_required[id] = chosen->required;
