@@ -182,12 +182,15 @@ struct DefaultResolver {
 // ============================================================================
 // Extraction stages — internal, called by Extract().
 // ============================================================================
-// Public for now (commit 1 is additive).  Will move to extract::detail:: in
-// commit 2.  Tests reach in via the qualified name; production callers should
-// use Extract().
+// Production callers should use Extract().  The stages survive in detail:: so
+// existing per-stage tests and ConvertToLogicalOperator (which has a
+// planner-v2-specific validation step between ComputeFrontiers and resolve)
+// can compose them directly.
 // TODO: frontier_map and other std::unordered_map parameters could be switched
 // to boost::unordered_flat_map for better cache locality, but the type change
 // propagates through template signatures to all callers.
+
+namespace detail {
 
 /// In-degree map for topological sorting.
 using InDegreeMap = std::unordered_map<EClassId, int>;
@@ -322,6 +325,8 @@ template <typename Symbol, typename Analysis, typename CostResult>
   return result;
 }
 
+}  // namespace detail
+
 // ============================================================================
 // Extract — single deep entry point
 // ============================================================================
@@ -336,7 +341,7 @@ template <CostResultType CostResult>
 struct ExtractionContext {
   FrontierMap<CostResult> frontier_map;
   SelectionMap<typename CostResult::cost_t> selection;
-  InDegreeMap in_degree;
+  detail::InDegreeMap in_degree;
   std::vector<std::pair<EClassId, ENodeId>> order;
 
   void clear() {
@@ -376,17 +381,17 @@ template <typename Symbol, typename Analysis, typename CostModel, typename Resol
   ctx.clear();
 
   // Stage 1: bottom-up cost propagation.
-  (void)ComputeFrontiers(egraph, cost_model, root, ctx.frontier_map);
+  (void)detail::ComputeFrontiers(egraph, cost_model, root, ctx.frontier_map);
 
   // Stage 2: top-down resolution.  Resolver is responsible for the contract
   // documented above (chosen-coverage selection map).
   ctx.selection = resolver(egraph, ctx.frontier_map, root);
 
   // Stage 3: count in-degrees over the resolver-chosen child set.
-  ctx.in_degree = CollectDependencies(egraph, ctx.selection, root);
+  ctx.in_degree = detail::CollectDependencies(egraph, ctx.selection, root);
 
   // Stage 4: topological sort.
-  ctx.order = TopologicalSort(egraph, ctx.selection, std::move(ctx.in_degree));
+  ctx.order = detail::TopologicalSort(egraph, ctx.selection, std::move(ctx.in_degree));
 
   auto root_cost = typename CostResult::cost_t{};
   if (auto it = ctx.selection.find(root); it != ctx.selection.end()) {

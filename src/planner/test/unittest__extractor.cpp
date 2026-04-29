@@ -73,10 +73,10 @@ auto Extract(EGraph<symbol, analysis> const &egraph, CostModel cost_model, EClas
     -> std::vector<std::pair<EClassId, ENodeId>> {
   using CostResult = typename CostModel::CostResult;
   auto frontier_map = std::unordered_map<EClassId, EClassFrontier<CostResult>>{};
-  (void)ComputeFrontiers(egraph, cost_model, root, frontier_map);
+  (void)extract::detail::ComputeFrontiers(egraph, cost_model, root, frontier_map);
   auto resolved = ResolveSelection<symbol, analysis, CostResult>(egraph, frontier_map, root);
-  auto in_degree = CollectDependencies(egraph, resolved, root);
-  return TopologicalSort(egraph, resolved, std::move(in_degree));
+  auto in_degree = extract::detail::CollectDependencies(egraph, resolved, root);
+  return extract::detail::TopologicalSort(egraph, resolved, std::move(in_degree));
 }
 
 TEST(Extract_Basic, BasicLeafExtraction) {
@@ -143,7 +143,7 @@ TEST(Extract_Cost, SingleLeafNode) {
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
 
   TestFrontierMap<CostModel> frontiers;
-  auto cost = ComputeFrontiers(egraph, cost_model, leaf_class, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, cost_model, leaf_class, frontiers);
 
   ASSERT_TRUE(cost.has_value());
   ASSERT_EQ(cost->cost, 5.0);
@@ -162,7 +162,7 @@ TEST(Extract_Cost, SimpleTree) {
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
   TestFrontierMap<CostModel> frontiers;
-  auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
   // Cost should be: 1 (root) + 1 (left) + 1 (right) = 3
   ASSERT_TRUE(cost.has_value());
@@ -180,7 +180,7 @@ TEST(Extract_Cost, DeepTree) {
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {mid_class});
 
   TestFrontierMap<CostModel> frontiers;
-  auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
   // Cost should be: 1 (root) + 1 (mid) + 1 (leaf) = 3
   ASSERT_TRUE(cost.has_value());
@@ -199,7 +199,7 @@ TEST(Extract_Cost, DiamondDAGSharedNode) {
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
   TestFrontierMap<CostModel> frontiers;
-  auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
   // Shared node should only be computed once via memoization
   // Cost: root=1 + (left=1+shared=1) + (right=1+shared=1) = 1+2+2 = 5
@@ -222,8 +222,8 @@ TEST(Extract_Cost, VariableCostBySymbol) {
 
   TestFrontierMap<CostModel> frontiers;
 
-  auto cost_a = ComputeFrontiers(egraph, cost_model, aclass, frontiers);
-  auto cost_b = ComputeFrontiers(egraph, cost_model, bclass, frontiers);
+  auto cost_a = extract::detail::ComputeFrontiers(egraph, cost_model, aclass, frontiers);
+  auto cost_b = extract::detail::ComputeFrontiers(egraph, cost_model, bclass, frontiers);
 
   ASSERT_TRUE(cost_a.has_value());
   ASSERT_TRUE(cost_b.has_value());
@@ -244,7 +244,7 @@ TEST(Extract_Cost, SelectsCheapestAmongEquivalents) {
 
   TestFrontierMap<CostModel> frontiers;
 
-  auto cost = ComputeFrontiers(egraph, cost_model, root, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, cost_model, root, frontiers);
 
   ASSERT_TRUE(cost.has_value());
   ASSERT_EQ(cost->cost, 1.0);
@@ -263,7 +263,7 @@ TEST(Extract_Cost, CostAccumulationWithVariableCosts) {
 
   TestFrontierMap<CostModel> frontiers;
 
-  auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
   // Cost: 2 (root, symbol A) + 2 (leaf1, symbol A) + 3 (leaf2, symbol B) = 7
   ASSERT_TRUE(cost.has_value());
@@ -300,7 +300,7 @@ TEST(Extract_Cost, CyclicEGraphInfiniteCost) {
   TestFrontierMap<CostModel> frontiers;
 
   // Process the cyclic e-class
-  auto cost = ComputeFrontiers(egraph, cost_model, cyclic_class, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, cost_model, cyclic_class, frontiers);
 
   // The cyclic 'ADD' node should have infinite cost (or very large)
   // The non-cyclic LITERAL node should be selected with cost 1
@@ -342,7 +342,7 @@ TEST(Extract_Cost, CyclicEGraphInfiniteCostComplex) {
   TestFrontierMap<CostModel> frontiers;
 
   // Process the cyclic e-class
-  auto cost = ComputeFrontiers(egraph, cost_model, merged_class, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, cost_model, merged_class, frontiers);
 
   // The cyclic 'ADD' node should have infinite cost (or very large)
   // The non-cyclic LITERAL node should be selected with cost 1
@@ -392,7 +392,7 @@ TEST(Extract_Cost, FullyCyclicEClassInfiniteCost) {
   // This should either:
   // 1. Return infinity/max double if all nodes are cyclic
   // 2. Select the original X node if it still exists in the e-class
-  auto cost = ComputeFrontiers(egraph, cost_model, fully_cyclic, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, cost_model, fully_cyclic, frontiers);
 
   // After merges, the original x_node should still be selectable
   // It has cost 1 (no children), while the 'ADD' nodes have infinite cost
@@ -411,7 +411,7 @@ TEST(Extract_Dependencies, SingleLeafNode) {
   std::unordered_map<EClassId, Selection<double>> cheapest_enode;
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
 
-  auto in_degree = CollectDependencies(egraph, cheapest_enode, leaf_class);
+  auto in_degree = extract::detail::CollectDependencies(egraph, cheapest_enode, leaf_class);
 
   // Leaf has no children, so in_degree should be empty
   ASSERT_EQ(in_degree.size(), 1);
@@ -428,7 +428,7 @@ TEST(Extract_Dependencies, LinearChain) {
   cheapest_enode[mid_class] = {mid_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
 
-  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
+  auto in_degree = extract::detail::CollectDependencies(egraph, cheapest_enode, root_class);
 
   // mid has in_degree 1 (from root), leaf has in_degree 1 (from mid)
   ASSERT_EQ(in_degree.size(), 3);
@@ -448,7 +448,7 @@ TEST(Extract_Dependencies, SimpleTree) {
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
 
-  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
+  auto in_degree = extract::detail::CollectDependencies(egraph, cheapest_enode, root_class);
 
   // Both left and right have in_degree 1 (from root)
   ASSERT_EQ(in_degree.size(), 3);
@@ -470,7 +470,7 @@ TEST(Extract_Dependencies, DiamondDAG) {
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
 
-  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
+  auto in_degree = extract::detail::CollectDependencies(egraph, cheapest_enode, root_class);
 
   // shared has in_degree 2 (from left and right)
   // left and right each have in_degree 1 (from root)
@@ -500,7 +500,7 @@ TEST(Extract_Dependencies, DeadBindChildrenSkipped) {
   selection[input_class] = Sel{input_node, 1.0};
   // sym_class and expr_class intentionally absent — dead Bind
 
-  auto in_degree = CollectDependencies(egraph, selection, bind_class);
+  auto in_degree = extract::detail::CollectDependencies(egraph, selection, bind_class);
 
   // Only bind and input should be in in_degree
   ASSERT_EQ(in_degree.size(), 2);
@@ -513,7 +513,7 @@ TEST(Extract_Dependencies, DeadBindChildrenSkipped) {
   // TopologicalSort should produce exactly [bind, input] and not corrupt in_degree
   // with default-inserted entries for dead sym/expr children.
   auto in_degree_copy = in_degree;  // TopologicalSort takes by value — keep a copy
-  auto topo = TopologicalSort(egraph, selection, std::move(in_degree_copy));
+  auto topo = extract::detail::TopologicalSort(egraph, selection, std::move(in_degree_copy));
   ASSERT_EQ(topo.size(), 2);
   ASSERT_EQ(topo[0].first, bind_class);
   ASSERT_EQ(topo[1].first, input_class);
@@ -538,8 +538,8 @@ TEST(Extract_TopologicalSort, SingleNode) {
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
   std::unordered_map<EClassId, Selection<double>> cheapest_enode{};
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
-  auto in_degree = CollectDependencies(egraph, cheapest_enode, leaf_class);
-  auto result = TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
+  auto in_degree = extract::detail::CollectDependencies(egraph, cheapest_enode, leaf_class);
+  auto result = extract::detail::TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
 
   ASSERT_EQ(result.size(), 1);
   ASSERT_EQ(result[0].first, leaf_class);
@@ -556,8 +556,8 @@ TEST(Extract_TopologicalSort, LinearChainOrdering) {
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   cheapest_enode[mid_class] = {mid_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
-  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
-  auto result = TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
+  auto in_degree = extract::detail::CollectDependencies(egraph, cheapest_enode, root_class);
+  auto result = extract::detail::TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
 
   ASSERT_EQ(result.size(), 3);
   // Order should be: root, mid, leaf
@@ -576,8 +576,8 @@ TEST(Extract_TopologicalSort, SimpleTreeOrdering) {
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
-  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
-  auto result = TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
+  auto in_degree = extract::detail::CollectDependencies(egraph, cheapest_enode, root_class);
+  auto result = extract::detail::TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
 
   ASSERT_EQ(result.size(), 3);
   // Root should come first
@@ -597,8 +597,8 @@ TEST(Extract_TopologicalSort, DiamondTopology) {
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
-  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
-  auto result = TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
+  auto in_degree = extract::detail::CollectDependencies(egraph, cheapest_enode, root_class);
+  auto result = extract::detail::TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
 
   ASSERT_EQ(result.size(), 4);
   // Root comes first
@@ -608,7 +608,7 @@ TEST(Extract_TopologicalSort, DiamondTopology) {
 }
 
 TEST(Extract_TopologicalSort, CycleDetection_IncompleteResult) {
-  // Construct an InDegreeMap that simulates a cycle: both nodes have in-degree 1,
+  // Construct an extract::detail::InDegreeMap that simulates a cycle: both nodes have in-degree 1,
   // so neither ever enters the queue. Documents the silent-truncation behaviour
   // that the post-condition assertion in TopologicalSort is designed to catch.
   auto egraph = EGraph<symbol, analysis>{};
@@ -621,7 +621,7 @@ TEST(Extract_TopologicalSort, CycleDetection_IncompleteResult) {
   selection[b_class] = {b_node, 1.0};
 
   // Manually construct in_degree with a cycle: both stuck at 1
-  InDegreeMap in_degree;
+  extract::detail::InDegreeMap in_degree;
   in_degree[a_class] = 1;
   in_degree[b_class] = 1;
 
@@ -631,11 +631,11 @@ TEST(Extract_TopologicalSort, CycleDetection_IncompleteResult) {
   // In release builds (NDEBUG defined), assert is compiled out and TopologicalSort
   // silently returns an incomplete result — the test verifies the truncation instead.
 #ifdef NDEBUG
-  auto result = TopologicalSort(egraph, selection, std::move(in_degree));
+  auto result = extract::detail::TopologicalSort(egraph, selection, std::move(in_degree));
   // Without the assertion, the cycle causes silent truncation: no nodes emitted
   EXPECT_EQ(result.size(), 0);
 #else
-  ASSERT_DEATH(TopologicalSort(egraph, selection, std::move(in_degree)), "cycle detected");
+  ASSERT_DEATH(extract::detail::TopologicalSort(egraph, selection, std::move(in_degree)), "cycle detected");
 #endif
 }
 
@@ -733,7 +733,7 @@ TEST(Extract_Safety, ComputeFrontiers_FullyCyclicReturnsNullopt) {
   egraph.rebuild(ctx);
 
   TestFrontierMap<UniformCostModel> frontiers;
-  auto cost = ComputeFrontiers(egraph, UniformCostModel{}, merged_class, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, UniformCostModel{}, merged_class, frontiers);
 
   // merged_class has LITERAL(1) as a leaf escape - should succeed
   ASSERT_TRUE(cost.has_value());
@@ -789,7 +789,7 @@ TEST(Extract_Safety, ComputeFrontiers_CyclicChildCostsCached) {
   egraph.rebuild(ctx);
 
   TestFrontierMap<UniformCostModel> frontiers;
-  auto cost = ComputeFrontiers(egraph, UniformCostModel{}, merged, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, UniformCostModel{}, merged, frontiers);
 
   // merged has A(leaf_d) as non-cyclic escape
   ASSERT_TRUE(cost.has_value());
@@ -830,7 +830,7 @@ TEST(Extract_Safety, ComputeFrontiers_CyclicExprChildOfBind) {
   auto [bind_class, bind_node, bind_new] = egraph.emplace(symbol::A, {input_class, sym_class, cyclic_expr});
 
   TestFrontierMap<UniformCostModel> frontiers;
-  auto cost = ComputeFrontiers(egraph, UniformCostModel{}, bind_class, frontiers);
+  auto cost = extract::detail::ComputeFrontiers(egraph, UniformCostModel{}, bind_class, frontiers);
 
   // cyclic_expr has LITERAL(99) as an escape — it resolves, so the Bind enode is NOT
   // skipped. The Bind enode's cost = 1 (self) + 1 (input) + 1 (sym) + 1 (cyclic_expr LITERAL) = 4.
@@ -1169,7 +1169,7 @@ TEST(Extract_MultiAlt, DominatedPruning) {
   // The frontier should have: from a1: {1,{1}},{2,{}} and from a2: {1,{1}},{2,{}}
   // After Pareto pruning, effectively 2 unique alternatives
   std::unordered_map<EClassId, EClassFrontier<DemandAwareMultiAltCostModel::CostResult>> frontier_map;
-  (void)ComputeFrontiers(egraph, DemandAwareMultiAltCostModel{}, merged, frontier_map);
+  (void)extract::detail::ComputeFrontiers(egraph, DemandAwareMultiAltCostModel{}, merged, frontier_map);
 
   auto it = frontier_map.find(merged);
   ASSERT_NE(it, frontier_map.end());
@@ -1249,7 +1249,7 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
 
   // Directly compute frontiers to inspect the Pareto set
   std::unordered_map<EClassId, EClassFrontier<ThreeAltCostModel::CostResult>> frontier_map;
-  (void)ComputeFrontiers(egraph, ThreeAltCostModel{}, a_class, frontier_map);
+  (void)extract::detail::ComputeFrontiers(egraph, ThreeAltCostModel{}, a_class, frontier_map);
 
   auto it = frontier_map.find(a_class);
   ASSERT_NE(it, frontier_map.end());
@@ -1301,7 +1301,7 @@ TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
   // Compute frontiers bottom-up
   using CM = DemandAwareMultiAltCostModel;
   std::unordered_map<EClassId, EClassFrontier<CM::CostResult>> frontier_map;
-  (void)ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
+  (void)extract::detail::ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
 
   // Verify shared eclass has both non-dominated alternatives
   auto const &shared_frontier = *frontier_map.at(shared_class);
@@ -1383,7 +1383,7 @@ TEST(Extract_MultiAlt, DAGResolution_CascadesToChildren) {
   // Compute frontiers bottom-up
   using CM = DemandAwareMultiAltCostModel;
   std::unordered_map<EClassId, EClassFrontier<CM::CostResult>> frontier_map;
-  (void)ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
+  (void)extract::detail::ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
 
   // Verify both Shared and Leaf have two non-dominated alternatives
   auto const &shared_frontier = *frontier_map.at(shared_class);
@@ -1498,7 +1498,7 @@ TEST(Extract_MultiAlt, DAGResolution_AliveToDeadErasesStaleChildren) {
 
   using CM = DemandAwareMultiAltCostModel;
   std::unordered_map<EClassId, EClassFrontier<CM::CostResult>> frontier_map;
-  (void)ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
+  (void)extract::detail::ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
 
   auto resolved = std::unordered_map<EClassId, std::pair<ENodeId, double>>{};
   auto resolved_required = std::unordered_map<EClassId, std::set<int>>{};
