@@ -356,10 +356,10 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   return has_label;
 }
 
-Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
+Result<VertexKey> VertexAccessor::Labels(View view) const {
   bool exists = true;
   bool deleted = false;
-  utils::small_vector<LabelId> labels;
+  VertexKey labels;
   Delta *delta = nullptr;
   VertexReadLock read_lock{vertex_};
   {

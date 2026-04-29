@@ -1,5 +1,3 @@
-diff --git a/include/usearch/index_dense.hpp b/include/usearch/index_dense.hpp
-index 3094494..4e7f743 100644
 --- a/include/usearch/index_dense.hpp
 +++ b/include/usearch/index_dense.hpp
 @@ -18,7 +18,7 @@
@@ -11,7 +9,7 @@ index 3094494..4e7f743 100644
  
  /**
   *  @brief  The "magic" sequence helps infer the type of the file.
-@@ -384,7 +384,10 @@ inline index_dense_metadata_result_t index_dense_metadata_from_buffer(memory_map
+@@ -384,7 +384,10 @@
   *  The second (2.) starts with @b "usearch"-magic-string, used to infer the file type on open.
   *  The third (3.) is implemented by the underlying `index_gt` class.
   */
@@ -23,7 +21,7 @@ index 3094494..4e7f743 100644
  class index_dense_gt {
    public:
      using vector_key_t = key_at;
-@@ -403,7 +406,7 @@ class index_dense_gt {
+@@ -403,7 +406,7 @@
      using serialization_config_t = index_dense_serialization_config_t;
  
      using dynamic_allocator_t = aligned_allocator_gt<byte_t, 64>;
@@ -32,7 +30,7 @@ index 3094494..4e7f743 100644
  
    private:
      /// @brief Punned index.
-@@ -449,6 +452,6 @@ class index_dense_gt {
+@@ -449,7 +452,7 @@
      /// @brief An instance of a potentially stateful `metric_t` used to initialize copies and forks.
      metric_t metric_;
  
@@ -40,3 +38,29 @@ index 3094494..4e7f743 100644
 +    using vectors_tape_allocator_t = vectors_tape_allocator_at;
      /// @brief Allocator for the copied vectors, aligned to widest double-precision scalars.
      vectors_tape_allocator_t vectors_tape_allocator_;
+ 
+@@ -644,7 +647,9 @@
+     static state_result_t make(           //
+         metric_t metric = {},             //
+         index_dense_config_t config = {}, //
+-        vector_key_t free_key = default_free_value<vector_key_t>()) {
++        vector_key_t free_key = default_free_value<vector_key_t>(),
++        tape_allocator_t tape_allocator = {},
++        vectors_tape_allocator_t vectors_tape_allocator = {}) {
+ 
+         if (metric.missing())
+             return state_result_t{}.failed("Metric won't be initialized!");
+@@ -667,8 +672,12 @@
+             index.metric_ = metric;
+         }
+ 
+-        new (raw) index_t(config);
++        // Pass tape_allocator to underlying index_t; vectors_tape_allocator is stored
++        // in index_dense_gt's member and assigned after placement-new.
++        new (raw) index_t(config, dynamic_allocator_t{}, std::move(tape_allocator));
+         index.typed_ = raw;
++        // Move vectors allocator into member
++        index.vectors_tape_allocator_ = std::move(vectors_tape_allocator);
+         return result;
+     }
+ 

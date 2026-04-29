@@ -125,7 +125,7 @@ class NameIdMapper {
   }
 
   std::atomic<uint64_t> counter_{0};
-  utils::SkipList<MapNameToId> name_to_id_;
-  utils::SkipList<MapIdToName> id_to_name_;
+  utils::SkipListDb<MapNameToId> name_to_id_;
+  utils::SkipListDb<MapIdToName> id_to_name_;
 };
 }  // namespace memgraph::storage

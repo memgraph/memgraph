@@ -110,6 +110,7 @@ struct Transaction {
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
+        deltas(),
         md_deltas(utils::NewDeleteResource()),
         has_serialization_error(false),
         isolation_level(isolation_level),
@@ -119,13 +120,14 @@ struct Transaction {
                                          ? std::optional<ConstraintVerificationInfo>{std::in_place}
                                          : std::nullopt},
         vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
-                      ? std::optional<utils::SkipList<Vertex>>{std::in_place}
+                      ? std::optional<utils::SkipListDb<Vertex>>{std::in_place}
                       : std::nullopt},
         edges_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
-                   ? std::optional<utils::SkipList<Edge>>{std::in_place}
+                   ? std::optional<utils::SkipListDb<Edge>>{std::in_place}
                    : std::nullopt},
         point_index_ctx_{std::move(point_index_ctx)},
         point_index_change_collector_{point_index_ctx_},
+        query_memory_tracker_{},
         last_durable_ts_{last_durable_ts},
         active_indices_{std::move(active_indices)},
         active_constraints_{std::move(active_constraints)},
@@ -218,13 +220,13 @@ struct Transaction {
   std::unordered_map<Gid, EdgeSetPropertyInfo> edge_set_property_info_{};
   rocksdb::Transaction *disk_transaction_{};
   /// Main storage
-  std::optional<utils::SkipList<Vertex>> vertices_{};
-  std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_{};
+  std::optional<utils::SkipListDb<Vertex>> vertices_{};
+  std::vector<std::unique_ptr<utils::SkipListDb<Vertex>>> index_storage_{};
 
   /// We need them because query context for indexed reading is cleared after the query is done not after the
   /// transaction is done
   std::vector<delta_container> index_deltas_storage_{};
-  std::optional<utils::SkipList<Edge>> edges_{};
+  std::optional<utils::SkipListDb<Edge>> edges_{};
   std::map<std::string, std::pair<std::string, std::string>, std::less<>> edges_to_delete_{};
   std::map<std::string, std::string, std::less<>> vertices_to_delete_{};
   bool scanned_all_vertices_ = false;
@@ -237,7 +239,7 @@ struct Transaction {
   SchemaInfoPostProcess post_process_;
 
   /// Query memory tracker
-  utils::QueryMemoryTracker query_memory_tracker_{};
+  utils::QueryMemoryTracker query_memory_tracker_;
 
   /// Text index change tracking (batched apply on commit)
   TextIndexChangeCollector text_index_change_collector_;

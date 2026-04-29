@@ -147,6 +147,15 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return SystemInfoQuery*
    */
   antlrcpp::Any visitSystemInfoQuery(MemgraphCypher::SystemInfoQueryContext *ctx) override;
+  antlrcpp::Any visitTenantProfileQuery(MemgraphCypher::TenantProfileQueryContext *ctx) override;
+  antlrcpp::Any visitCreateTenantProfile(MemgraphCypher::CreateTenantProfileContext *ctx) override;
+  antlrcpp::Any visitAlterTenantProfile(MemgraphCypher::AlterTenantProfileContext *ctx) override;
+  antlrcpp::Any visitDropTenantProfile(MemgraphCypher::DropTenantProfileContext *ctx) override;
+  antlrcpp::Any visitShowTenantProfiles(MemgraphCypher::ShowTenantProfilesContext *ctx) override;
+  antlrcpp::Any visitShowTenantProfile(MemgraphCypher::ShowTenantProfileContext *ctx) override;
+  antlrcpp::Any visitSetTenantProfileOnDatabase(MemgraphCypher::SetTenantProfileOnDatabaseContext *ctx) override;
+  antlrcpp::Any visitRemoveTenantProfileFromDatabase(
+      MemgraphCypher::RemoveTenantProfileFromDatabaseContext *ctx) override;
 
   /**
    * @return Constraint
@@ -157,6 +166,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ConstraintQuery*
    */
   antlrcpp::Any visitConstraintQuery(MemgraphCypher::ConstraintQueryContext *ctx) override;
+
+  /**
+   * @return ConstraintQuery*
+   */
+  antlrcpp::Any visitOriginalConstraintQuery(MemgraphCypher::OriginalConstraintQueryContext *ctx) override;
+
+  /**
+   * @return ConstraintQuery*
+   */
+  antlrcpp::Any visitAlternativeConstraintSyntax(MemgraphCypher::AlternativeConstraintSyntaxContext *ctx) override;
 
   /**
    * @return TypeConstraintType
@@ -589,6 +608,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return EdgeIndexQuery*
    */
   antlrcpp::Any visitCreateEdgeIndex(MemgraphCypher::CreateEdgeIndexContext *ctx) override;
+
+  /**
+   * @return EdgeIndexQuery*
+   */
+  antlrcpp::Any visitCreateEdgeIndexAlternativeSyntax(
+      MemgraphCypher::CreateEdgeIndexAlternativeSyntaxContext *ctx) override;
 
   /**
    * @return EdgeIndexQuery*
@@ -1266,6 +1291,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ShowDatabasesQuery*
    */
   antlrcpp::Any visitShowDatabases(MemgraphCypher::ShowDatabasesContext *ctx) override;
+
+  antlrcpp::Any visitShowMemoryInfo(MemgraphCypher::ShowMemoryInfoContext *ctx) override;
 
   /**
    * @return CreateEnumQuery*

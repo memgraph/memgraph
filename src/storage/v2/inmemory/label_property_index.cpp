@@ -432,7 +432,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
-    LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info, IndexOrder order) {
   auto res = RegisterIndex(label, properties, updater, order);
@@ -494,7 +494,7 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
 }
 
 auto InMemoryLabelPropertyIndex::PopulateIndex(
-    LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info, IndexOrder order,
     Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
@@ -978,7 +978,7 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
 
 template <typename EntryT>
 InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::Iterator(
-    Iterable *self, typename utils::SkipList<EntryT>::Iterator index_iterator)
+    Iterable *self, typename utils::SkipListDb<EntryT>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, self_->storage_, nullptr),
@@ -1013,8 +1013,8 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
 }
 
 template <typename EntryT>
-InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipList<EntryT>::Accessor index_accessor,
-                                                       utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
+InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListDb<EntryT>::Accessor index_accessor,
+                                                       utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor,
                                                        LabelId label, PropertiesPaths const *properties,
                                                        PropertiesPermutationHelper const *permutation_helper,
                                                        std::span<PropertyValueRange const> ranges, View view,
@@ -1207,10 +1207,11 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(LabelId label, std::spa
 }
 
 template <typename EntryT>
-auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(
-    LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
-    Transaction *transaction) -> Iterable<EntryT> {
+auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(LabelId label, std::span<PropertyPath const> properties,
+                                                         std::span<PropertyValueRange const> range,
+                                                         utils::SkipListDb<Vertex>::ConstAccessor vertices_acc,
+                                                         View view, Storage *storage, Transaction *transaction)
+    -> Iterable<EntryT> {
   auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
   return {it->second->skiplist.access(),
           std::move(vertices_acc),
@@ -1226,8 +1227,8 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(
 template <typename EntryT>
 InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
-    Transaction *transaction, size_t num_chunks) {
+    utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage, Transaction *transaction,
+    size_t num_chunks) {
   auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
   return {it->second->skiplist.access(),
           std::move(vertices_acc),
@@ -1320,7 +1321,7 @@ template <typename EntryT>
 void InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::Iterator::AdvanceUntilValid() {
   constexpr bool is_desc = std::same_as<EntryT, DescEntry>;
   AdvanceUntilValid_(index_iterator_,
-                     typename utils::SkipList<EntryT>::ChunkedIterator{},
+                     typename utils::SkipListDb<EntryT>::ChunkedIterator{},
                      current_vertex_,
                      current_vertex_accessor_,
                      self_->storage_,
@@ -1336,10 +1337,10 @@ void InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::Iterator::AdvanceUntil
 
 template <typename EntryT>
 InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
-    typename utils::SkipList<EntryT>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
-    LabelId label, PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
-    std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction,
-    size_t num_chunks)
+    typename utils::SkipListDb<EntryT>::Accessor index_accessor,
+    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, PropertiesPaths const *properties,
+    PropertiesPermutationHelper const *permutation_helper, std::span<PropertyValueRange const> ranges, View view,
+    Storage *storage, Transaction *transaction, size_t num_chunks)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -1358,7 +1359,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
     chunks_ = index_accessor_.create_chunks(
         num_chunks, GenerateBounds(lower_bound_, kSmallestProperty), GenerateBounds(upper_bound_, kLargestProperty));
   }
-  RechunkIndex<utils::SkipList<EntryT>>(
+  RechunkIndex<utils::SkipListDb<EntryT>>(
       chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex && a.values == b.values; });
 }
 
@@ -1383,19 +1384,19 @@ template auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices<InMemoryLabelP
     -> Iterable<DescEntry>;
 template auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices<InMemoryLabelPropertyIndex::Entry>(
     LabelId, std::span<PropertyPath const>, std::span<PropertyValueRange const>,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *)
+    memgraph::utils::SkipListDb<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *)
     -> Iterable<Entry>;
 template auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices<InMemoryLabelPropertyIndex::DescEntry>(
     LabelId, std::span<PropertyPath const>, std::span<PropertyValueRange const>,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *)
+    memgraph::utils::SkipListDb<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *)
     -> Iterable<DescEntry>;
 template InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>
 InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices<InMemoryLabelPropertyIndex::Entry>(
     LabelId, std::span<PropertyPath const>, std::span<PropertyValueRange const>,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *, size_t);
+    memgraph::utils::SkipListDb<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *, size_t);
 template InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>
 InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices<InMemoryLabelPropertyIndex::DescEntry>(
     LabelId, std::span<PropertyPath const>, std::span<PropertyValueRange const>,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *, size_t);
+    memgraph::utils::SkipListDb<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *, size_t);
 
 }  // namespace memgraph::storage

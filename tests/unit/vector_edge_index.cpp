@@ -283,7 +283,7 @@ TEST_F(VectorEdgeIndexTest, RemoveEntriesTest) {
     EXPECT_EQ(maybe_deleted_edge.has_value(), true);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    mem_storage->indices_.vector_edge_index_.RemoveEdges({edge.edge_.ptr});
+    mem_storage->indices_.vector_edge_index_.RemoveEdges(std::array<Edge *, 1>{edge.edge_.ptr});
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -542,8 +542,8 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
                                .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
   }
 
-  memgraph::utils::SkipList<Vertex> vertices_;
-  memgraph::utils::SkipList<Edge> edges_;
+  memgraph::utils::SkipListDb<Vertex> vertices_;
+  memgraph::utils::SkipListDb<Edge> edges_;
   VectorEdgeIndex vector_edge_index_;
   NameIdMapper name_id_mapper_;
   ActiveIndicesStore active_indices_store_;

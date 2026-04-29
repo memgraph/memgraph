@@ -191,6 +191,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(ReloadSSLQuery & /*reload_ssl_query*/) override { /* no privilege needed to reload SSL */ }
 
+  void Visit(ShowMemoryInfoQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
+
   void Visit(TtlQuery & /*ttl_query*/) override {
     AddPrivilege(AuthQuery::Privilege::CONFIG);
     AddPrivilege(AuthQuery::Privilege::INDEX);
@@ -211,6 +213,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   }
 
   void Visit(UserProfileQuery & /*user_profile_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::PROFILE_RESTRICTION);
+  }
+
+  void Visit(TenantProfileQuery & /*tenant_profile_query*/) override {
     AddPrivilege(AuthQuery::Privilege::PROFILE_RESTRICTION);
   }
 

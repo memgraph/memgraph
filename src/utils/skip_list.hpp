@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <optional>
@@ -31,6 +32,7 @@
 
 #include "utils/bound.hpp"
 #include "utils/counter.hpp"
+#include "utils/db_aware_allocator.hpp"
 #include "utils/linux.hpp"
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
@@ -114,6 +116,24 @@ struct SkipListNode_base {
     return static_cast<uint8_t>(__builtin_ffs(value));
   }
 };
+
+template <typename Alloc>
+void *allocate_bytes(Alloc &alloc, size_t size, size_t align) {
+  if constexpr (requires { alloc.allocate_bytes(size, align); }) {
+    return alloc.allocate_bytes(size, align);
+  } else {
+    return alloc.resource()->allocate(size, align);
+  }
+}
+
+template <typename Alloc>
+void deallocate_bytes(Alloc &alloc, void *ptr, size_t size, size_t align) {
+  if constexpr (requires { alloc.deallocate_bytes(ptr, size, align); }) {
+    alloc.deallocate_bytes(ptr, size, align);
+  } else {
+    alloc.resource()->deallocate(ptr, size, align);
+  }
+}
 }  // namespace detail
 
 /// This is the Node object that represents each element stored in the list. The
@@ -233,7 +253,7 @@ constexpr uint64_t ExpectedSizeAtLayer(const uint64_t N, const uint8_t k) {
 /// released id) and frees every pending node whose tag is < live_horizon.
 /// Fully-dead interior blocks are destroyed in the same pass; the most recent
 /// block is kept so the head pointer stays valid for concurrent ReleaseId.
-template <typename TObj>
+template <typename TObj, typename Alloc = utils::Allocator<char>>
 class SkipListGc final {
  private:
   using TNode = SkipListNode<TObj>;
@@ -257,13 +277,13 @@ class SkipListGc final {
     Block *curr_head = head_.load(std::memory_order_acquire);
     if (curr_head != expected_head) return curr_head;
 
-    // Construct through allocator so it propagates if needed.
-    Allocator<Block> block_allocator(memory_);
+    using BlockAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<Block>;
+    BlockAlloc block_allocator(alloc_);
     Block *block = block_allocator.allocate(1);
     // `calloc` would be faster, but the API has no such call.
     memset(block, 0, sizeof(Block));
     // Block constructor should not throw.
-    block_allocator.construct(block);
+    new (block) Block{};
     block->prev.store(curr_head, std::memory_order_release);
     block->succ.store(nullptr, std::memory_order_release);
     block->first_id = last_id_;
@@ -278,12 +298,14 @@ class SkipListGc final {
   }
 
  public:
-  explicit SkipListGc(MemoryResource *memory) : memory_(memory) {
+  explicit SkipListGc(Alloc alloc = Alloc{}) noexcept : alloc_(alloc) {
     static_assert(sizeof(Block) % kLinuxPageSize == 0,
                   "It is recommended that you set the kSkipListGcBlockSize "
                   "constant so that the size of SkipListGc::Block is a "
                   "multiple of the page size.");
   }
+
+  Alloc get_allocator() const noexcept { return alloc_; }
 
   SkipListGc(const SkipListGc &) = delete;
   SkipListGc &operator=(const SkipListGc &) = delete;
@@ -383,7 +405,8 @@ class SkipListGc final {
       // thread doesn't have a pointer to the block that it got from reading
       // `head_`. We bail out here, this block will be freed next time.
       if (remove_block && next != nullptr) {
-        Allocator<Block> block_allocator(memory_);
+        using BlockAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<Block>;
+        BlockAlloc block_allocator(alloc_);
         MG_ASSERT(tail == tail_.load(std::memory_order_acquire),
                   "Can't remove SkipListGc block that is in the middle!");
         next->prev.store(nullptr, std::memory_order_release);
@@ -398,17 +421,16 @@ class SkipListGc final {
                      [this](const TDeleted &item) {
                        size_t bytes = SkipListNodeSize(*item.second);
                        item.second->~TNode();
-                       memory_->deallocate(item.second, bytes, SkipListNodeAlign<TObj>());
+                       detail::deallocate_bytes(alloc_, item.second, bytes, SkipListNodeAlign<TObj>());
                      });
   }
 
-  MemoryResource *GetMemoryResource() const { return memory_; }
-
   void Clear() {
+    using BlockAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<Block>;
     // Delete all allocated blocks.
     Block *block = head_.load(std::memory_order_acquire);
     while (block != nullptr) {
-      Allocator<Block> block_allocator(memory_);
+      BlockAlloc block_allocator(alloc_);
       Block *prev = block->prev.load(std::memory_order_acquire);
       block->~Block();
       block_allocator.deallocate(block, 1);
@@ -422,7 +444,7 @@ class SkipListGc final {
       while ((item = deleted_.Pop())) {
         size_t bytes = SkipListNodeSize(*item->second);
         item->second->~TNode();
-        memory_->deallocate(item->second, bytes, SkipListNodeAlign<TObj>());
+        detail::deallocate_bytes(alloc_, item->second, bytes, SkipListNodeAlign<TObj>());
       }
     }
 
@@ -434,7 +456,7 @@ class SkipListGc final {
   }
 
  private:
-  MemoryResource *memory_;
+  [[no_unique_address]] Alloc alloc_;
   RWSpinLock lock_;
   std::atomic<uint64_t> accessor_id_{0};
   std::atomic<Block *> head_{nullptr};
@@ -607,14 +629,14 @@ class SkipListGc final {
 /// change must be implemented thread-safe inside the object.
 ///
 /// @tparam TObj object type that is stored in the list
-template <typename TObj>
+template <typename TObj, typename Alloc = utils::Allocator<char>>
 class SkipList final : detail::SkipListNode_base {
  private:
   using TNode = SkipListNode<TObj>;
 
  public:
   /// Allocator type so that STL containers are aware that we need one.
-  using allocator_type = Allocator<TNode>;
+  using allocator_type = Alloc;
 
   class ConstIterator;
 
@@ -1148,11 +1170,11 @@ class SkipList final : detail::SkipListNode_base {
     uint64_t id_{0};
   };
 
-  SkipList() : SkipList(NewDeleteResource()) {}
+  SkipList() : SkipList(Alloc{}) {}
 
-  explicit SkipList(MemoryResource *memory) : gc_(memory) {
+  explicit SkipList(Alloc alloc) : gc_(alloc) {
     static_assert(kSkipListMaxHeight <= 32, "The SkipList height must be less or equal to 32!");
-    void *ptr = memory->allocate(MaxSkipListNodeSize<TObj>(), SkipListNodeAlign<TObj>());
+    void *ptr = detail::allocate_bytes(alloc, MaxSkipListNodeSize<TObj>(), SkipListNodeAlign<TObj>());
     // `calloc` would be faster, but the API has no such call.
     memset(ptr, 0, MaxSkipListNodeSize<TObj>());
     // Here we don't call the `SkipListNode` constructor so that the `TObj`
@@ -1161,24 +1183,23 @@ class SkipList final : detail::SkipListNode_base {
     // NOTE: The `head_` node doesn't have a valid `TObj` (because we didn't
     // call the constructor), so you mustn't perform any comparisons using its
     // value.
-    head_ = static_cast<TNode *>(ptr);
+    head_ = reinterpret_cast<TNode *>(ptr);
     head_->height = kSkipListMaxHeight;
     new (&head_->lock) utils::SpinLock();
   }
 
-  SkipList(SkipList &&other) noexcept : head_(other.head_), gc_(other.GetMemoryResource()), size_(other.size_.load()) {
+  SkipList(SkipList &&other) noexcept : head_(other.head_), gc_(other.gc_.get_allocator()), size_(other.size_.load()) {
     other.head_ = nullptr;
   }
 
   SkipList &operator=(SkipList &&other) noexcept {
-    MG_ASSERT(other.GetMemoryResource() == GetMemoryResource(),
-              "Move assignment with different MemoryResource is not supported");
+    auto alloc = gc_.get_allocator();
     TNode *head = head_;
     while (head != nullptr) {
       TNode *succ = head->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*head);
       head->~TNode();
-      GetMemoryResource()->deallocate(head, bytes, SkipListNodeAlign<TObj>());
+      detail::deallocate_bytes(alloc, head, bytes, SkipListNodeAlign<TObj>());
       head = succ;
     }
     head_ = other.head_;
@@ -1199,7 +1220,8 @@ class SkipList final : detail::SkipListNode_base {
       // constructor (see the note in the `SkipList` constructor). We mustn't
       // call the `TObj` destructor because we didn't call its constructor.
       head_->lock.~SpinLock();
-      GetMemoryResource()->deallocate(head_, SkipListNodeSize(*head_), SkipListNodeAlign<TObj>());
+      auto alloc = gc_.get_allocator();
+      detail::deallocate_bytes(alloc, head_, SkipListNodeSize(*head_), SkipListNodeAlign<TObj>());
     }
   }
 
@@ -1213,18 +1235,19 @@ class SkipList final : detail::SkipListNode_base {
   /// atomic operation.
   uint64_t size() const { return size_.load(std::memory_order_acquire); }
 
-  MemoryResource *GetMemoryResource() const { return gc_.GetMemoryResource(); }
+  Alloc get_allocator() const noexcept { return gc_.get_allocator(); }
 
   /// This function removes all elements from the list.
   /// NOTE: The function *isn't* thread-safe. It must be called only if there are
   /// no more active accessors using the list.
   void clear() {
+    auto alloc = gc_.get_allocator();
     TNode *curr = head_->nexts[0].load(std::memory_order_acquire);
     while (curr != nullptr) {
       TNode *succ = curr->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*curr);
       curr->~TNode();
-      GetMemoryResource()->deallocate(curr, bytes, SkipListNodeAlign<TObj>());
+      detail::deallocate_bytes(alloc, curr, bytes, SkipListNodeAlign<TObj>());
       curr = succ;
     }
     for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
@@ -1331,14 +1354,15 @@ class SkipList final : detail::SkipListNode_base {
         if (!valid) continue;
 
         size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
+        auto alloc = gc_.get_allocator();
+        void *raw = detail::allocate_bytes(alloc, node_bytes, SkipListNodeAlign<TObj>());
+        new_node = reinterpret_cast<TNode *>(raw);
 
-        MemoryResource *memoryResource = GetMemoryResource();
-        void *ptr = memoryResource->allocate(node_bytes, SkipListNodeAlign<TObj>());
-        new_node = static_cast<TNode *>(ptr);
-
-        // Construct through allocator so it propagates if needed.
-        Allocator<TNode> allocator(memoryResource);
-        allocator.construct(new_node, top_layer, std::forward<TObjUniv>(object));
+        // Construct through allocator traits so it propagates if needed.
+        using TNodeAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<TNode>;
+        TNodeAlloc node_allocator(alloc);
+        std::allocator_traits<TNodeAlloc>::construct(
+            node_allocator, new_node, top_layer, std::forward<TObjUniv>(object));
 
         // The paper is also wrong here. It states that the loop should go up to
         // `top_layer` which is wrong.
@@ -1796,10 +1820,14 @@ class SkipList final : detail::SkipListNode_base {
 
  private:
   TNode *head_{nullptr};
-  // gc_ also stores the only copy of `MemoryResource *`, to save space.
-  mutable SkipListGc<TObj> gc_;
+  mutable SkipListGc<TObj, Alloc> gc_;
 
   std::atomic<uint64_t> size_{0};
 };
 
+template <typename TObj>
+using SkipListDb = SkipList<TObj, memory::DbAwareAllocator<char>>;
+
+template <typename TObj>
+using SkipListGcDb = SkipListGc<TObj, memory::DbAwareAllocator<char>>;
 }  // namespace memgraph::utils

@@ -11,6 +11,7 @@
 
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include <expected>
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
@@ -183,7 +184,7 @@ ExistenceConstraints::GetCreationFunction(
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::ValidateVerticesOnConstraint(
-    utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
+    utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto calling_existence_validation_function = GetCreationFunction(parallel_exec_info);
@@ -193,7 +194,7 @@ ExistenceConstraints::GetCreationFunction(
 }
 
 std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
     std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
@@ -206,11 +207,12 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
   std::atomic<uint64_t> batch_counter = 0;
   utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> maybe_error{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back(
+          parallel_exec_info.arena_pool,
           [&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property, &snapshot_info]() {
             do_per_thread_validation(maybe_error,
                                      ValidateVertexOnConstraint,
@@ -227,7 +229,7 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
 }
 
 std::expected<void, ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
     std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   for (const Vertex &vertex : vertices) {
     if (auto validation_result = ValidateVertexOnConstraint(vertex, label, property); !validation_result.has_value()) {

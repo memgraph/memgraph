@@ -2042,6 +2042,122 @@ TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
             expected_properties);
 }
 
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntax) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("CREATE INDEX node_range_index FOR (n:Person) ON (n.surname)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
+}
+
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntaxNoName) {
+  auto &ast_generator = *GetParam();
+  auto *index_query =
+      dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("CREATE INDEX FOR (n:Person) ON (n.surname)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
+}
+
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntaxComposite) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("CREATE INDEX composite_idx FOR (n:Person) ON (n.age, n.country)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  auto expected = std::vector{PropertyIxPath{ast_generator.Prop("age")}, PropertyIxPath{ast_generator.Prop("country")}};
+  EXPECT_EQ(index_query->properties_, expected);
+}
+
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntaxCompositeNestedProperties) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("CREATE INDEX nested_idx FOR (n:Person) ON (n.name.first, n.address.city)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  auto expected = std::vector{PropertyIxPath{ast_generator.Prop("name"), ast_generator.Prop("first")},
+                              PropertyIxPath{ast_generator.Prop("address"), ast_generator.Prop("city")}};
+  EXPECT_EQ(index_query->properties_, expected);
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntax) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<EdgeIndexQuery *>(
+      ast_generator.ParseQuery("CREATE INDEX rel_range_index FOR ()-[r:KNOWS]-() ON (r.since)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, EdgeIndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->edge_type_, ast_generator.EdgeType("KNOWS"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], ast_generator.Prop("since"));
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxNoName) {
+  auto &ast_generator = *GetParam();
+  auto *index_query =
+      dynamic_cast<EdgeIndexQuery *>(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (r.since)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, EdgeIndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->edge_type_, ast_generator.EdgeType("KNOWS"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], ast_generator.Prop("since"));
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxComposite) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<EdgeIndexQuery *>(
+      ast_generator.ParseQuery("CREATE INDEX composite_rel_idx FOR ()-[r:PURCHASED]-() ON (r.date, r.amount)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, EdgeIndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->edge_type_, ast_generator.EdgeType("PURCHASED"));
+  ASSERT_EQ(index_query->properties_.size(), 2U);
+  EXPECT_EQ(index_query->properties_[0], ast_generator.Prop("date"));
+  EXPECT_EQ(index_query->properties_[1], ast_generator.Prop("amount"));
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxVariableMismatch) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (x.since)"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexNestedPropertyNotSupported) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE EDGE INDEX ON :KNOWS(prop1.prop2)"), SemanticException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (r.address.city)"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexComposite) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE EDGE INDEX ON :KNOWS(since, weight)"), SemanticException);
+  EXPECT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (r.since, r.weight)"));
+}
+
+TEST_P(CypherMainVisitorTest, CreateIndexAlternativeSyntaxVariableMismatch) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR (n:Person) ON (x.surname)"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateIndexAlternativeSyntaxNumericNameNotAllowed) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX 1 FOR (n:Person) ON (n.surname)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX 1 FOR ()-[r:KNOWS]-() ON (r.since)"), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeNumericNameNotAllowed) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT 1 FOR (n:Book) REQUIRE n.isbn IS UNIQUE"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT 1 FOR (n:Author) REQUIRE n.name IS NOT NULL"),
+               SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT 1 FOR (n:Movie) REQUIRE n.title IS :: STRING"),
+               SyntaxException);
+}
+
 TEST_P(CypherMainVisitorTest, ReturnAll) {
   {
     auto &ast_generator = *GetParam();
@@ -4800,6 +4916,130 @@ TEST_P(CypherMainVisitorTest, DropConstraint) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeUniqueNode) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT book_isbn FOR (book:Book) REQUIRE book.isbn IS UNIQUE"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::UNIQUE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Book"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("isbn")));
+  }
+  {
+    // without name
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT FOR (book:Book) REQUIRE book.isbn IS UNIQUE"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::UNIQUE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Book"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("isbn")));
+  }
+  {
+    // composite
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.ParseQuery(
+        "CREATE CONSTRAINT book_title_year FOR (book:Book) REQUIRE (book.title, book.publicationYear) IS UNIQUE"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::UNIQUE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Book"));
+    EXPECT_THAT(query->constraint_.properties,
+                UnorderedElementsAre(ast_generator.Prop("title"), ast_generator.Prop("publicationYear")));
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeUniqueEdgeNotSupported) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT sequels FOR ()-[s:SEQUEL_OF]-() REQUIRE s.order IS UNIQUE"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeUniqueWrongVariable) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT FOR (n:Book) REQUIRE m.isbn IS UNIQUE"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeExistenceNode) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT author_name FOR (author:Author) REQUIRE author.name IS NOT NULL"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::EXISTS);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Author"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("name")));
+  }
+  {
+    // without name
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT FOR (author:Author) REQUIRE author.name IS NOT NULL"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::EXISTS);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Author"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("name")));
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeExistenceEdgeNotSupported) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(
+      ast_generator.ParseQuery("CREATE CONSTRAINT wrote_year FOR ()-[wrote:WROTE]-() REQUIRE wrote.year IS NOT NULL"),
+      SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeExistenceWrongVariable) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT FOR (n:Author) REQUIRE m.name IS NOT NULL"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeTypeNode) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT movie_title FOR (movie:Movie) REQUIRE movie.title IS :: STRING"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::TYPE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Movie"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("title")));
+    EXPECT_TRUE(query->constraint_.type_constraint.has_value());
+    EXPECT_EQ(query->constraint_.type_constraint, memgraph::storage::TypeConstraintKind::STRING);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT FOR (movie:Movie) REQUIRE movie.year IS :: INTEGER"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::TYPE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Movie"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("year")));
+    EXPECT_TRUE(query->constraint_.type_constraint.has_value());
+    EXPECT_EQ(query->constraint_.type_constraint, memgraph::storage::TypeConstraintKind::INTEGER);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeTypeEdgeNotSupported) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(
+      ast_generator.ParseQuery("CREATE CONSTRAINT part_of FOR ()-[part:PART_OF]-() REQUIRE part.order IS :: INTEGER"),
+      SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeTypeWrongVariable) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT FOR (n:Movie) REQUIRE m.title IS :: STRING"),
+               SemanticException);
+}
+
 TEST_P(CypherMainVisitorTest, RegexMatch) {
   {
     auto &ast_generator = *GetParam();
@@ -6982,6 +7222,12 @@ TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) CALL { MATCH (m) RETURN m QUERY MEMORY UNLIMITED } RETURN n",
                                                ast_generator,
                                                "Memory limit cannot be set on subqueries!");
+
+  TestInvalidQuery<SyntaxException>("MATCH (t:Team) CALL (t AS teams) { RETURN 1 AS x } RETURN t", ast_generator);
+
+  TestInvalidQuery<SyntaxException>("MATCH (n) CALL (*, n) { RETURN 1 AS x } RETURN n", ast_generator);
+
+  TestInvalidQuery<SyntaxException>("MATCH (n) CALL (n.prop) { RETURN 1 AS x } RETURN n", ast_generator);
 }
 
 TEST_P(CypherMainVisitorTest, CallSubquery) {

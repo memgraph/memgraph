@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <variant>
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
@@ -44,8 +45,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   };
 
   struct MultipleThreadsConstraintValidation {
-    auto operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+                    utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
@@ -54,8 +55,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   };
 
   struct SingleThreadConstraintValidation {
-    auto operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+                    utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
@@ -65,16 +66,23 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   // a status is needed to not drop the constraint before it gets validated
   // new writes can't happen during this time due to read only access
   struct IndividualConstraint {
+    explicit IndividualConstraint() : skiplist{} {}
+
     ~IndividualConstraint();
     void Publish(uint64_t commit_timestamp);
 
-    utils::SkipList<Entry> skiplist;
+    utils::SkipListDb<Entry> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
 
-  using Container = std::map<LabelId, std::map<std::set<PropertyId>, IndividualConstraintPtr>>;
+  using PropertiesConstraints =
+      std::map<std::set<PropertyId>, IndividualConstraintPtr, std::less<std::set<PropertyId>>,
+               memory::DbAwareAllocator<std::pair<const std::set<PropertyId>, IndividualConstraintPtr>>>;
+
+  using Container = std::map<LabelId, PropertiesConstraints, std::less<LabelId>,
+                             memory::DbAwareAllocator<std::pair<const LabelId, PropertiesConstraints>>>;
 
   using ContainerPtr = std::shared_ptr<Container const>;
 
@@ -105,6 +113,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     ContainerPtr container_;
   };
 
+  InMemoryUniqueConstraints() = default;
+
   /// Creates an ActiveConstraints snapshot for transaction use.
   auto GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> override;
 
@@ -118,7 +128,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
   auto CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
-                        const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+                        const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
                         const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt)
       -> std::expected<CreationStatus, ConstraintViolation>;

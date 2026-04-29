@@ -2,11 +2,17 @@ import multiprocessing as mp
 import os
 import sys
 import threading
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from typing import List
 
 import huggingface_hub  # noqa: F401
+import litellm
 import mgp
+import numpy as np
+
+# Suppress LiteLLM's "Provider List: ..." banner that fires on every
+# get_llm_provider() miss — we probe deliberately for local names.
+litellm.suppress_debug_info = True
 
 # We need to import huggingface_hub, otherwise sentence_transformers will fail to load the model.
 
@@ -200,7 +206,7 @@ def cpu_compute(
     batch_size: int = 2000,
     return_embeddings: bool = False,
     dimension: int = None,
-) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
     model = _get_or_load_model(model_name, "cpu")
     vertex_input = isinstance(embedding_property, str)
     if vertex_input:
@@ -242,7 +248,7 @@ def single_gpu_compute(
     device: int = 0,
     return_embeddings: bool = False,
     dimension: int = None,
-) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
     vertex_input = isinstance(embedding_property, str)
     try:
         model = _get_or_load_model(model_name, f"cuda:{device}")
@@ -305,7 +311,7 @@ def multi_gpu_compute(
     gpus: List[int] = [0],
     return_embeddings: bool = False,
     dimension: int = None,
-) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
     vertex_input = isinstance(embedding_property, str)
 
     try:
@@ -407,6 +413,125 @@ def multi_gpu_compute(
     )
 
 
+def resolve_remote_model(model_name):
+    """Ask LiteLLM whether ``model_name`` belongs to one of its providers.
+
+    Returns ``(model, provider, default_api_base)`` if recognized (e.g.
+    ``"openai/text-embedding-3-small"``), otherwise ``None`` — in which case
+    the caller should fall through to the local SentenceTransformer path.
+    """
+    if not isinstance(model_name, str) or not model_name:
+        return None
+    try:
+        model, provider, _dynamic_key, default_api_base = litellm.get_llm_provider(model_name)
+    except Exception:
+        return None
+    return model, provider, default_api_base
+
+
+def remote_compute(
+    input_items: mgp.Any,
+    cfg: mgp.Map,
+    dimension: int,
+    resolved,
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
+    """LiteLLM-routed remote embedding path.
+
+    Fans chunks across a small thread pool, preserves input order, and
+    L2-normalizes client-side when ``cfg["normalize"]`` (default) so behavior
+    matches the local sentence_transformers path. Raises on permanent failure
+    — the caller catches and converts to ``success=False``.
+    """
+
+    _model, provider, default_api_base = resolved
+    vertex_input = isinstance(cfg["embedding_property"], str)
+    texts = build_texts(input_items, cfg["excluded_properties"]) if vertex_input else list(input_items)
+
+    n = len(texts)
+    if n == 0:
+        return return_data(
+            input_items if vertex_input else [],
+            embedding_property_name=cfg["embedding_property"] if vertex_input else None,
+            return_embeddings=cfg["return_embeddings"],
+            success=True,
+            dimension=dimension,
+        )
+
+    # Cohere's /embed endpoint enforces a hard 96-item cap (HTTP 400 above).
+    # 256 is a conservative default for everyone else; users tune via
+    # `remote_batch_size` for throughput.
+    chunk_size = cfg["remote_batch_size"] or (96 if provider == "cohere" else 256)
+    chunks = [texts[i : i + chunk_size] for i in range(0, n, chunk_size)]
+
+    api_base = cfg["api_base"] or default_api_base
+    base_kwargs = {
+        "model": cfg["model_name"],
+        "num_retries": cfg["num_retries"],
+        "timeout": cfg["timeout"],
+    }
+    if api_base:
+        base_kwargs["api_base"] = api_base
+    if cfg["input_type"]:
+        base_kwargs["input_type"] = cfg["input_type"]
+    if cfg["dimensions"]:
+        base_kwargs["dimensions"] = cfg["dimensions"]
+
+    def _call(chunk_texts):
+        resp = litellm.embedding(input=chunk_texts, **base_kwargs)
+        data = resp["data"]
+        # Defensive: count mismatch silently truncates the vertex write-back loop;
+        # out-of-order responses misalign embeddings to inputs. OpenAI's schema
+        # exposes an `index` field for exactly this reason — sort by it when
+        # every item has one, otherwise fall back to provider order.
+        if len(data) != len(chunk_texts):
+            raise ValueError(f"Embedding provider returned {len(data)} vectors for {len(chunk_texts)} inputs")
+
+        def _idx(item):
+            return item.get("index") if isinstance(item, dict) else getattr(item, "index", None)
+
+        if data and all(_idx(d) is not None for d in data):
+            data = sorted(data, key=_idx)
+        return [d["embedding"] for d in data]
+
+    results = [None] * len(chunks)
+    ex = ThreadPoolExecutor(max_workers=cfg["concurrency"])
+    try:
+        fut2idx = {ex.submit(_call, c): i for i, c in enumerate(chunks)}
+        for fut in as_completed(fut2idx):
+            results[fut2idx[fut]] = fut.result()  # raises on permanent failure
+    except Exception:
+        # Cancel queued chunks and return promptly. In-flight chunks will
+        # complete in the background and be discarded — Python can't safely
+        # interrupt running threads, but we don't want to wait for a stuck
+        # request to hit `timeout` before surfacing success=False.
+        ex.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        ex.shutdown(wait=True)
+
+    flat = [e for part in results for e in part]
+    if cfg["normalize"]:
+        # Vectorized L2 normalization via numpy (transitively available
+        # through sentence_transformers/torch). Substitute 1.0 for any
+        # zero norms to leave zero vectors untouched after division.
+        arr = np.asarray(flat, dtype=np.float64)
+        norms = np.linalg.norm(arr, axis=1, keepdims=True)
+        flat = (arr / np.where(norms == 0.0, 1.0, norms)).tolist()
+
+    if vertex_input:
+        for v, e in zip(input_items, flat):
+            v.properties[cfg["embedding_property"]] = e
+
+    logger.info(f"Processed {n} items via LiteLLM provider '{provider}' (model={cfg['model_name']}).")
+    return return_data(
+        input_items if vertex_input else flat,
+        embedding_property_name=cfg["embedding_property"] if vertex_input else None,
+        return_embeddings=cfg["return_embeddings"],
+        success=True,
+        dimension=dimension or (len(flat[0]) if flat else None),
+    )
+
+
 def return_data(
     input_items: mgp.Any,
     embedding_property_name: mgp.Nullable[str] = "embedding",
@@ -440,6 +565,7 @@ def return_data(
 
 def validate_configuration(configuration: mgp.Map):
     default_configuration = {
+        # Local path
         "embedding_property": "embedding",
         "excluded_properties": ["embedding"],
         "model_name": "all-MiniLM-L6-v2",
@@ -447,6 +573,18 @@ def validate_configuration(configuration: mgp.Map):
         "chunk_size": 48,
         "device": None,
         "return_embeddings": False,
+        # Remote path (via LiteLLM). These are only used when model_name resolves
+        # to a LiteLLM-known provider (e.g. "openai/text-embedding-3-small").
+        # API keys are NOT accepted here — LiteLLM reads canonical provider env
+        # vars (OPENAI_API_KEY, COHERE_API_KEY, VOYAGE_API_KEY, ...).
+        "api_base": None,
+        "input_type": "document",
+        "dimensions": None,
+        "timeout": 60,
+        "num_retries": 3,
+        "normalize": True,
+        "remote_batch_size": None,
+        "concurrency": 4,
     }
     configuration = {**default_configuration, **configuration}
 
@@ -463,21 +601,125 @@ def validate_configuration(configuration: mgp.Map):
     if configuration["embedding_property"] is not None and configuration["embedding_property"] not in excluded:
         excluded.append(configuration["embedding_property"])
 
-    logger.debug(f"Using embedding configuration: {configuration}")
+    # Validate numeric remote-path keys at config time so we fail loudly with
+    # a clear message rather than producing weird runtime errors downstream
+    # (e.g. range(0, n, 0) raises, ThreadPoolExecutor(max_workers=0) raises).
+    _require_positive_number(configuration, "timeout")
+    _require_int_ge(configuration, "num_retries", minimum=0)
+    _require_int_ge(configuration, "concurrency", minimum=1, maximum=_CONCURRENCY_MAX)
+    _require_int_ge(configuration, "remote_batch_size", minimum=1, allow_none=True)
+    _require_int_ge(configuration, "dimensions", minimum=1, allow_none=True)
+
+    # When routing remote, a local `device` setting has no meaning — warn so the
+    # user knows we're ignoring it rather than silently doing the wrong thing.
+    if resolve_remote_model(configuration["model_name"]) is not None and configuration["device"] is not None:
+        logger.warning(
+            f"'device' is ignored when model_name '{configuration['model_name']}' routes to a remote provider."
+        )
+
+    logger.debug(f"Using embedding configuration: {_redacted_config(configuration)}")
 
     return configuration
 
 
-def compute_embeddings(
+# Upper bound on `concurrency` (in-flight HTTP requests per remote_compute call).
+_CONCURRENCY_MAX = 32
+
+
+def _require_int_ge(cfg, key, minimum, allow_none=False, maximum=None):
+    value = cfg[key]
+    if value is None:
+        if allow_none:
+            return
+        raise ValueError(f"'{key}' must be an integer >= {minimum}, got None")
+    # bool is a subclass of int — reject explicitly.
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise ValueError(f"'{key}' must be an integer >= {minimum}, got {value!r}")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"'{key}' must be <= {maximum}, got {value}")
+
+
+def _require_positive_number(cfg, key):
+    value = cfg[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise ValueError(f"'{key}' must be a positive number, got {value!r}")
+
+
+def _redacted_config(cfg):
+    """Return a shallow-copied config with credentials in ``api_base`` masked.
+
+    The only vector for leaks is the api_base URL — we don't accept any
+    secret-bearing config keys (credentials come from provider env vars).
+    Covers all three places auth can hide in a URL: userinfo
+    (``user:pass@host``), query string (``?token=...``, ``?api_key=...``),
+    and fragment. Scheme/host/port/path are preserved so the log line is
+    still useful for debugging where Memgraph thinks it's calling.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    api_base = cfg.get("api_base")
+    if not isinstance(api_base, str):
+        return cfg
+    try:
+        parts = urlsplit(api_base)
+    except ValueError:
+        return cfg
+    if not (parts.username or parts.password or parts.query or parts.fragment):
+        return cfg
+    netloc = parts.hostname or ""
+    if parts.port is not None:
+        netloc = f"{netloc}:{parts.port}"
+    if parts.username or parts.password:
+        netloc = f"<redacted>@{netloc}"
+    query = "<redacted>" if parts.query else ""
+    fragment = "<redacted>" if parts.fragment else ""
+    return {**cfg, "api_base": urlunsplit((parts.scheme, netloc, parts.path, query, fragment))}
+
+
+def compute_embeddings(  # noqa: C901
     input_items: mgp.Any,
     configuration: mgp.Map,
 ) -> mgp.Any:
-    dimension = get_model_info(configuration).get("dimension", None)
-    if dimension is None:
-        logger.warning("Failed to get model dimension.")
-
+    # Initialized up front so the outer except handler can reference it even
+    # if we raise before the local-path assignment below.
+    dimension = None
     try:
         n = len(input_items)
+
+        # Route to LiteLLM if model_name names a known remote provider
+        # (e.g. "openai/text-embedding-3-small", "ollama/nomic-embed-text").
+        # Bare names and HF-style names like "BAAI/bge-small-en-v1.5" fall
+        # through to the local SentenceTransformer path below.
+        resolved = resolve_remote_model(configuration["model_name"])
+        if resolved is not None:
+            if n == 0:
+                logger.info("No items to process.")
+                return return_data(
+                    input_items,
+                    configuration["embedding_property"],
+                    configuration["return_embeddings"],
+                    True,
+                    dimension=None,
+                )
+            try:
+                # Dimension is derived from the encode response inside
+                # remote_compute — no separate probe needed.
+                return remote_compute(input_items, configuration, None, resolved)
+            except Exception as e:
+                logger.error(f"Remote path failed: {e}")
+                return return_data(
+                    input_items,
+                    configuration["embedding_property"],
+                    configuration["return_embeddings"],
+                    False,
+                    dimension=None,
+                )
+
+        # Local path: probe the SentenceTransformer for dimension up front.
+        dimension = get_model_info(configuration).get("dimension", None)
+        if dimension is None:
+            logger.warning("Failed to get model dimension.")
+
         if n == 0:
             logger.info("No vertices to process.")
             return return_data(
@@ -579,7 +821,15 @@ def compute_embeddings(
         )
 
 
+_remote_info_cache = {}
+_remote_info_lock = threading.Lock()
+
+
 def get_model_info(configuration: mgp.Map):
+    resolved = resolve_remote_model(configuration["model_name"])
+    if resolved is not None:
+        return _remote_model_info(configuration, resolved)
+
     model = _get_or_load_model(configuration["model_name"], "cpu")
 
     info = {
@@ -588,6 +838,44 @@ def get_model_info(configuration: mgp.Map):
         "max_sequence_length": model.get_max_seq_length(),
     }
 
+    return info
+
+
+def _remote_model_info(configuration, resolved):
+    """Probe a remote provider once to learn its embedding dimension.
+
+    Cached per (model_name, api_base) so subsequent calls don't re-hit the API.
+    """
+    _model, _provider, default_api_base = resolved
+    api_base = configuration.get("api_base") or default_api_base
+    cache_key = (configuration["model_name"], api_base)
+
+    with _remote_info_lock:
+        cached = _remote_info_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    kwargs = {
+        "model": configuration["model_name"],
+        "input": ["probe"],
+        "num_retries": configuration.get("num_retries", 3),
+        "timeout": configuration.get("timeout", 60),
+    }
+    if api_base:
+        kwargs["api_base"] = api_base
+    if configuration.get("dimensions"):
+        kwargs["dimensions"] = configuration["dimensions"]
+
+    resp = litellm.embedding(**kwargs)
+    dim = len(resp["data"][0]["embedding"])
+    info = {
+        "model_name": configuration["model_name"],
+        "dimension": dim,
+        "max_sequence_length": None,
+    }
+
+    with _remote_info_lock:
+        _remote_info_cache[cache_key] = info
     return info
 
 
@@ -606,7 +894,7 @@ def node_sentence(
     ctx: mgp.ProcCtx,
     input_nodes: mgp.Nullable[mgp.List[mgp.Vertex]] = None,
     configuration: mgp.Map = {},
-) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
     logger.info(f"compute_embeddings: starting (py_exec={sys.executable}, py_ver={sys.version.split()[0]})")
 
     configuration = validate_configuration(configuration)
@@ -623,7 +911,7 @@ def text(
     ctx: mgp.ProcCtx,
     input_strings: mgp.List[str],
     configuration: mgp.Map = {},
-) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=mgp.Nullable[int]):
     logger.info(f"embed: starting (py_exec={sys.executable}, py_ver={sys.version.split()[0]})")
 
     # hard code embedding_property to None for string input

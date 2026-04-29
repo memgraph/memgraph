@@ -17,6 +17,7 @@
 #include <optional>
 #include <string>
 
+#include "memory/db_arena_fwd.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
@@ -185,7 +186,48 @@ class Database {
    */
   void StopAllBackgroundTasks();
 
+  /// Returns the database arena pool for per-thread arena management
+  memory::ArenaPool &Arena() noexcept;
+  memory::ArenaPool &Arena() const noexcept;
+
+  /// Total memory tracked for this database (storage + embeddings + query).
+  /// This is the sum of all per-DB trackers and represents the tenant enforcement total.
+  /// Note: Allocations from unpinned query threads may not be fully captured.
+  int64_t DbMemoryUsage() const noexcept { return db_total_memory_tracker_.Amount(); }
+
+  /// Peak of total memory tracked for this database.
+  int64_t DbPeakMemoryUsage() const noexcept { return db_total_memory_tracker_.Peak(); }
+
+  /// Storage memory only (vertices, edges, indices). Tracked via per-DB arena hooks.
+  int64_t DbStorageMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
+
+  /// Vector index (embedding) memory only. Tracked via per-DB arena hooks.
+  int64_t DbEmbeddingMemoryUsage() const noexcept { return db_embedding_memory_tracker_.Amount(); }
+
+  /// Query execution (PMR) memory only. Tracked via TrackingMemoryResource.
+  int64_t DbQueryMemoryUsage() const noexcept { return db_query_memory_tracker_.Amount(); }
+
+  utils::MemoryTracker *DbQueryMemoryTracker() noexcept { return &db_query_memory_tracker_; }
+
+  void SetTenantMemoryLimit(int64_t bytes) { db_total_memory_tracker_.SetHardLimit(bytes); }
+
+  int64_t TenantMemoryLimit() const noexcept { return db_total_memory_tracker_.HardLimit(); }
+
  private:
+  // Enforcement-only: caps total per-DB memory (tenant profile limit).
+  // No parent — does not roll up to any global. Per-DB domain trackers list this
+  // as their second parent so every allocation is counted here AND in the domain global.
+  utils::MemoryTracker db_total_memory_tracker_;
+  // Domain trackers: parent1 = global domain aggregator (for AI_PLATFORM license limits),
+  //                  parent2 = db_total_memory_tracker_ (for tenant limit enforcement).
+  utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker, &db_total_memory_tracker_};
+  utils::MemoryTracker db_embedding_memory_tracker_{&utils::vector_index_memory_tracker, &db_total_memory_tracker_};
+  // Query memory tracker: only enforces tenant limits. Domain aggregation happens via
+  // extent hooks on the default arena (global_graph_arena_hooks → graph_memory_tracker).
+  // Avoids double-counting: if this had graph_memory_tracker as parent, we'd count each
+  // query PMR byte twice (once via TrackingMemoryResource::Alloc, once via arena hooks).
+  utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
+  std::unique_ptr<memory::ArenaPool> db_arena_;         //!< Per-DB jemalloc arena pool with tracking hooks
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers

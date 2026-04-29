@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/disk//edge_import_mode_cache.hpp"
+#include "storage/v2/disk/edge_import_mode_cache.hpp"
 
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
@@ -77,9 +77,13 @@ bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
 
 bool EdgeImportModeCache::AllVerticesScanned() const { return scanned_all_vertices_; }
 
-utils::SkipList<Vertex>::Accessor EdgeImportModeCache::AccessToVertices() { return vertices_.access(); }
+utils::SkipListDb<Vertex>::Accessor EdgeImportModeCache::AccessToVertices() {
+  return vertices_.access();
+}
 
-utils::SkipList<Edge>::Accessor EdgeImportModeCache::AccessToEdges() { return edges_.access(); }
+utils::SkipListDb<Edge>::Accessor EdgeImportModeCache::AccessToEdges() {
+  return edges_.access();
+}
 
 void EdgeImportModeCache::SetScannedAllVertices() { scanned_all_vertices_ = true; }
 

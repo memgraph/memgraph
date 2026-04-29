@@ -19,8 +19,8 @@
 
 namespace memgraph::utils {
 
-// TODO Expand template to alloc hash eq
-template <typename K, typename T>
+template <typename K, typename T, typename Hash = std::hash<K>, typename KeyEqual = std::equal_to<K>,
+          typename Allocator = std::allocator<std::pair<const K, T>>>
 class ConcurrentUnorderedMap {
  public:
   template <typename TAnyKey>
@@ -109,9 +109,11 @@ class ConcurrentUnorderedMap {
     using pointer = value_type *;
     using difference_type = std::ptrdiff_t;
 
-    Iterator(auto itr, auto lock) : itr_{std::move(itr)}, lock_{std::move(lock)} {}
+    Iterator(typename std::unordered_map<K, T, Hash, KeyEqual, Allocator>::iterator itr,
+             std::unique_lock<ReadPrioritizedRWLock> lock)
+        : itr_{std::move(itr)}, lock_{std::move(lock)} {}
 
-    Iterator(auto itr) : itr_{std::move(itr)} {}
+    Iterator(typename std::unordered_map<K, T, Hash, KeyEqual, Allocator>::iterator itr) : itr_{std::move(itr)} {}
 
     auto operator++() -> Iterator & {
       ++itr_;
@@ -125,7 +127,7 @@ class ConcurrentUnorderedMap {
     friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.itr_ == rhs.itr_; }
 
    private:
-    std::unordered_map<K, T>::iterator itr_;
+    typename std::unordered_map<K, T, Hash, KeyEqual, Allocator>::iterator itr_;
     std::unique_lock<ReadPrioritizedRWLock> lock_;
   };
 
@@ -137,9 +139,12 @@ class ConcurrentUnorderedMap {
     using pointer = value_type *;
     using difference_type = std::ptrdiff_t;
 
-    ConstIterator(auto itr, auto lock) : itr_{std::move(itr)}, lock_{std::move(lock)} {}
+    ConstIterator(typename std::unordered_map<K, T, Hash, KeyEqual, Allocator>::const_iterator itr,
+                  std::shared_lock<ReadPrioritizedRWLock> lock)
+        : itr_{std::move(itr)}, lock_{std::move(lock)} {}
 
-    ConstIterator(auto itr) : itr_{std::move(itr)} {}
+    ConstIterator(typename std::unordered_map<K, T, Hash, KeyEqual, Allocator>::const_iterator itr)
+        : itr_{std::move(itr)} {}
 
     auto operator++() -> ConstIterator & {
       ++itr_;
@@ -153,7 +158,7 @@ class ConcurrentUnorderedMap {
     friend bool operator==(ConstIterator const &lhs, ConstIterator const &rhs) { return lhs.itr_ == rhs.itr_; }
 
    private:
-    std::unordered_map<K, T>::const_iterator itr_;
+    typename std::unordered_map<K, T, Hash, KeyEqual, Allocator>::const_iterator itr_;
     std::shared_lock<ReadPrioritizedRWLock> lock_;
   };
 
@@ -172,7 +177,7 @@ class ConcurrentUnorderedMap {
   Iterator end() { return Iterator{map_.end()}; }
 
  private:
-  std::unordered_map<K, T> map_;
+  std::unordered_map<K, T, Hash, KeyEqual, Allocator> map_;
   mutable ReadPrioritizedRWLock mtx_;
 };
 

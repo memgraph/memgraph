@@ -148,7 +148,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedNoVertices) {
   InMemoryLabelIndex label_idx;
 
   auto label = LabelId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
   std::optional<SnapshotObserverInfo> snapshot_info;
@@ -163,7 +163,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedVertices) {
   InMemoryLabelIndex label_idx;
 
   auto label = LabelId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 5; i++) {
@@ -186,7 +186,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexMultiThreadedVertices) {
   InMemoryLabelIndex label_idx;
 
   auto label = LabelId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 5; i++) {
@@ -212,7 +212,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) 
 
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
   std::optional<SnapshotObserverInfo> snapshot_info;
@@ -229,7 +229,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
 
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 5; i++) {
@@ -256,7 +256,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) 
   auto prop_a = PropertyId::FromUint(1);
   auto prop_b = PropertyId::FromUint(2);
   auto prop_c = PropertyId::FromUint(3);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 5; i++) {
@@ -286,7 +286,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
 
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 5; i++) {
@@ -315,7 +315,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
   auto prop_a = PropertyId::FromUint(1);
   auto prop_b = PropertyId::FromUint(2);
   auto prop_c = PropertyId::FromUint(3);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 5; i++) {
@@ -450,7 +450,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedNoVertices) {
   InMemoryEdgeTypeIndex etype_idx;
 
   auto etype = EdgeTypeId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 3);
@@ -464,7 +464,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedVerticesEdges) {
   InMemoryEdgeTypeIndex etype_idx;
 
   auto etype = EdgeTypeId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 11; i++) {
@@ -489,7 +489,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedNoVertice
 
   auto etype = EdgeTypeId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 3);
@@ -504,8 +504,8 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
 
   auto etype = EdgeTypeId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
-  auto edges = SkipList<Edge>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
+  auto edges = memgraph::utils::SkipListDb<Edge>();
   {
     auto acc = vertices.access();
     auto edge_acc = edges.access();
@@ -534,7 +534,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {
 
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 3);
@@ -549,7 +549,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
 
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
       {prop, PropertyValue{Point2d{CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}}},
   };
@@ -581,7 +581,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   auto spec =
       VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity, kScalarKind};
 
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto vertices_acc = vertices.access();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
   std::optional<SnapshotObserverInfo> snapshot_info;
@@ -601,7 +601,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   auto spec =
       VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity, kScalarKind};
 
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto vertices_acc = vertices.access();
 
   const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
@@ -629,7 +629,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 3);
@@ -644,7 +644,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
       {prop, PropertyValue{2}},
   };
@@ -673,7 +673,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
       {prop, PropertyValue{2}},
   };
@@ -706,7 +706,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
 TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedNoVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto vertices_acc = vertices.access();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
   std::optional<SnapshotObserverInfo> snapshot_info;
@@ -724,7 +724,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedNoVertices) {
 TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto vertices_acc = vertices.access();
 
   {
@@ -756,7 +756,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedVertices) {
 TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsMultiThreadedVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto vertices_acc = vertices.access();
 
   {
@@ -792,7 +792,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsMultiThreadedVertices) {
 TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto vertices_acc = vertices.access();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
   std::optional<SnapshotObserverInfo> snapshot_info;
@@ -809,7 +809,7 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
 TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
-  auto vertices = SkipList<Vertex>();
+  auto vertices = memgraph::utils::SkipListDb<Vertex>();
   auto vertices_acc = vertices.access();
 
   {
