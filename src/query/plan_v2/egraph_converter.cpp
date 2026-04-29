@@ -94,13 +94,13 @@ static auto BestBindBranchCostsForResolve(CostFrontier const &input_frontier, do
 
   for (auto const &input_alt : input_frontier.alts()) {
     if (bind::IsAlive(input_alt.required, sym_eclass)) {
-      if (filtering && !std::ranges::includes(alive_provided, input_alt.required)) continue;
+      if (filtering && !bind::IsCompatible(input_alt.required, alive_provided)) continue;
       for (auto const &expr_alt : expr_frontier.alts()) {
-        if (filtering && !std::ranges::includes(provided, expr_alt.required)) continue;
+        if (filtering && !bind::IsCompatible(expr_alt.required, provided)) continue;
         best_alive = std::min(best_alive, bind::AliveCost(input_alt.cost, sym_cost, expr_alt.cost));
       }
     } else {
-      if (filtering && !std::ranges::includes(provided, input_alt.required)) continue;
+      if (filtering && !bind::IsCompatible(input_alt.required, provided)) continue;
       best_dead = std::min(best_dead, bind::DeadCost(input_alt.cost));
     }
   }
@@ -294,7 +294,7 @@ struct PlanResolver {
     auto pick_compatible(CostFrontier const &frontier, SymbolSet const &provided) -> Alternative const & {
       Alternative const *best = nullptr;
       for (auto const &alt : frontier.alts()) {
-        if (std::ranges::includes(provided, alt.required)) {
+        if (bind::IsCompatible(alt.required, provided)) {
           if (!best || alt.cost < best->cost) {
             best = &alt;
           }
@@ -359,7 +359,7 @@ struct PlanResolver {
       if (auto existing = resolved.find(eclass_id); existing != resolved.end()) {
         // DAG: this eclass was already resolved from a different parent.
         // Check if the cached selection is compatible with this parent's provided set.
-        if (std::ranges::includes(provided, existing->second.required)) return;  // still feasible
+        if (bind::IsCompatible(existing->second.required, provided)) return;  // still feasible
         // Incompatible: the cached alt demands symbols this parent doesn't provide.
         // Re-resolve with the more restrictive provided set, then cascade to children
         // so they are also re-resolved with the new context.

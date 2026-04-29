@@ -64,6 +64,17 @@ using SymbolSet = boost::container::flat_set<planner::core::EClassId, std::less<
 /// loud canary.
 inline constexpr double kSymbolCost = 1.0;
 
+/// Predicate — is an alternative's `required` satisfied by `provided`?
+///
+/// The subset test `required ⊆ provided` says: every symbol this alternative
+/// demands has been bound by some ancestor in the resolver's `provided`
+/// context.  Used by pick_compatible (filtering frontier alts to feasible
+/// candidates) and by BestBindBranchCostsForResolve (excluding alts whose
+/// demands the current Bind branch can't satisfy).
+inline auto IsCompatible(SymbolSet const &required, SymbolSet const &provided) -> bool {
+  return std::ranges::includes(provided, required);
+}
+
 /// Predicate — is the Bind alive given the input alt's demand set?
 ///
 /// A Bind is *alive* when the input demands the symbol it would bind: the
