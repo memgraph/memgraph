@@ -176,9 +176,9 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
 }
 }  // namespace
 
-bool InMemoryEdgePropertyIndex::CreateIndexOnePass(
-    PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
+bool InMemoryEdgePropertyIndex::CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+                                                   ActiveIndicesUpdater const &updater,
+                                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(property, updater);
   if (!res) return false;
   auto res2 = PopulateIndex(property, std::move(vertices), updater, snapshot_info);
@@ -219,7 +219,7 @@ bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property, ActiveIndices
                                  /*register_in_all_indices=*/true);
 }
 
-auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                                               ActiveIndicesUpdater const &updater,
                                               std::optional<SnapshotObserverInfo> const &snapshot_info,
                                               Transaction const *tx, CheckCancelFunction cancel_check)
@@ -428,9 +428,8 @@ void InMemoryEdgePropertyIndex::DropGraphClearIndices() {
 
 InMemoryEdgePropertyIndex::Iterable::Iterable(
     utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, PropertyId property,
-    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction)
     : pin_accessor_edge_(std::move(edge_accessor)),
@@ -445,8 +444,7 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(
       transaction_(transaction) {}
 
 InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(
-    Iterable *self,
-    utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Iterator index_iterator)
+    Iterable *self, utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_edge_(nullptr),
@@ -486,8 +484,7 @@ void InMemoryEdgePropertyIndex::RunGC() {
 
 InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Edges(
     PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_container_->indices_.find(property);
@@ -505,8 +502,7 @@ InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Ed
 
 InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndices::ChunkedEdges(
     PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
   auto it = index_container_->indices_.find(property);
@@ -567,9 +563,8 @@ void InMemoryEdgePropertyIndex::CleanupAllIndicies() {
 
 InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, PropertyId property,
-    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks)
     : pin_accessor_edge_(std::move(edge_accessor)),
@@ -596,17 +591,16 @@ InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
 void InMemoryEdgePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
-  AdvanceUntilValid_(
-      index_iterator_,
-      utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::ChunkedIterator{},
-      current_edge_,
-      current_edge_accessor_,
-      self_->storage_,
-      self_->transaction_,
-      self_->view_,
-      self_->property_,
-      self_->lower_bound_,
-      self_->upper_bound_);
+  AdvanceUntilValid_(index_iterator_,
+                     utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::ChunkedIterator{},
+                     current_edge_,
+                     current_edge_accessor_,
+                     self_->storage_,
+                     self_->transaction_,
+                     self_->view_,
+                     self_->property_,
+                     self_->lower_bound_,
+                     self_->upper_bound_);
 }
 
 }  // namespace memgraph::storage
