@@ -279,7 +279,7 @@ struct PlanResolver {
     EGraph const &egraph;
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
     FrontierMap const &frontier_map;
-    std::unordered_map<EClassId, ResolvedEntry> resolved;
+    boost::unordered_flat_map<EClassId, ResolvedEntry> resolved;
 
     auto take() && -> SelectionMap {
       SelectionMap result;
