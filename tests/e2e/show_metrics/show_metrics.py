@@ -379,58 +379,19 @@ def test_operator_counters_are_updated(memgraph):
 
 
 def test_general_gauges_reflect_graph_state(memgraph):
-    initial_vertices = get_metric_value(memgraph, "VertexCount", "ON CURRENT")
-    initial_edges = get_metric_value(memgraph, "EdgeCount", "ON CURRENT")
+    initial_vertices = get_metric_value(memgraph, "VertexCount")
+    initial_edges = get_metric_value(memgraph, "EdgeCount")
 
     memgraph.execute("CREATE (a), (b)")
-    assert get_metric_value(memgraph, "VertexCount", "ON CURRENT") == initial_vertices + 2
+    assert get_metric_value(memgraph, "VertexCount") == initial_vertices + 2
 
     memgraph.execute("MATCH (a), (b) WHERE id(a) < id(b) WITH a, b LIMIT 1 CREATE (a)-[:R]->(b)")
-    assert get_metric_value(memgraph, "EdgeCount", "ON CURRENT") == initial_edges + 1
+    assert get_metric_value(memgraph, "EdgeCount") == initial_edges + 1
 
     memgraph.execute("MATCH (n) DETACH DELETE n")
     memgraph.execute("FREE MEMORY")
-    assert get_metric_value(memgraph, "VertexCount", "ON CURRENT") == 0
-    assert get_metric_value(memgraph, "EdgeCount", "ON CURRENT") == 0
-
-
-def test_on_current_syntax(memgraph):
-    initial = get_metric_value(memgraph, "VertexCount", "ON CURRENT")
-    memgraph.execute("CREATE (n:TestNode)")
-    assert get_metric_value(memgraph, "VertexCount", "ON CURRENT") == initial + 1
-
-
-def test_on_database_syntax(memgraph):
-    initial = get_metric_value(memgraph, "VertexCount", "ON DATABASE memgraph")
-    memgraph.execute("CREATE (n:TestNode)")
-    assert get_metric_value(memgraph, "VertexCount", "ON DATABASE memgraph") == initial + 1
-
-
-def test_per_database_metric_isolation(connect):
-    cursor = connect.cursor()
-
-    execute_and_fetch_all(cursor, "USE DATABASE memgraph")
-    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
-    execute_and_fetch_all(cursor, "FREE MEMORY")
-
-    def get_value(on_clause, name):
-        rows = execute_and_fetch_all(cursor, f"SHOW METRICS INFO {on_clause}")
-        for row in rows:
-            if row[0] == name:
-                return row[3]
-        return None
-
-    execute_and_fetch_all(cursor, "CREATE (n:A), (n2:A), (n3:A)")
-
-    execute_and_fetch_all(cursor, "CREATE DATABASE alt")
-    execute_and_fetch_all(cursor, "USE DATABASE alt")
-    execute_and_fetch_all(cursor, "CREATE (n:B)")
-
-    execute_and_fetch_all(cursor, "USE DATABASE memgraph")
-
-    assert get_value("ON DATABASE memgraph", "VertexCount") == 3
-    assert get_value("ON DATABASE alt", "VertexCount") == 1
-    assert get_value("", "VertexCount") == 3
+    assert get_metric_value(memgraph, "VertexCount") == 0
+    assert get_metric_value(memgraph, "EdgeCount") == 0
 
 
 def test_query_execution_latency_histogram_has_observations(memgraph):
@@ -445,32 +406,24 @@ def test_session_metrics_reflect_active_connection(memgraph):
 
 def test_failed_query_incremented_on_parse_error(connect):
     cursor = connect.cursor()
-    initial = next(
-        row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO ON CURRENT") if row[0] == "FailedQuery"
-    )
+    initial = next(row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO") if row[0] == "FailedQuery")
     try:
         cursor.execute("METCH (n) RETURN n")
     except Exception:
         pass
-    after = next(
-        row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO ON CURRENT") if row[0] == "FailedQuery"
-    )
+    after = next(row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO") if row[0] == "FailedQuery")
     assert after == initial + 1
 
 
 def test_failed_prepare_incremented_on_prepare_error(connect):
     cursor = connect.cursor()
-    initial = next(
-        row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO ON CURRENT") if row[0] == "FailedPrepare"
-    )
+    initial = next(row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO") if row[0] == "FailedPrepare")
     try:
         cursor.execute("BEGIN")
         cursor.execute("CREATE USER test_user")
     except Exception:
         pass
-    after = next(
-        row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO ON CURRENT") if row[0] == "FailedPrepare"
-    )
+    after = next(row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO") if row[0] == "FailedPrepare")
     assert after == initial + 1
 
 

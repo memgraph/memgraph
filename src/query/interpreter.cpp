@@ -6746,45 +6746,22 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         throw QueryRuntimeException(license::LicenseCheckErrorToString(
             license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "SHOW METRICS INFO"));
       }
-      auto *db_handler = interpreter_context->dbms_handler;
-      std::optional<utils::UUID> target_uuid;
-      switch (info_query->database_specification_) {
-        case DatabaseInfoQuery::DatabaseSpecification::NONE:
-          if (current_db.db_acc_) {
-            target_uuid = (*current_db.db_acc_)->uuid();
-          }
-          break;
-        case DatabaseInfoQuery::DatabaseSpecification::CURRENT:
-          if (!current_db.db_acc_) {
-            throw QueryRuntimeException("No current database for SHOW METRICS INFO ON CURRENT");
-          }
-          target_uuid = (*current_db.db_acc_)->uuid();
-          break;
-        case DatabaseInfoQuery::DatabaseSpecification::DATABASE: {
-          auto acc = db_handler->Get(info_query->database_);
-          if (!acc) {
-            throw QueryRuntimeException("Database '{}' does not exist.", info_query->database_);
-          }
-          target_uuid = acc->uuid();
-          break;
-        }
+      std::optional<utils::UUID> current_uuid;
+      if (current_db.db_acc_) {
+        current_uuid = (*current_db.db_acc_)->uuid();
       }
-      bool const include_global_only =
-          info_query->database_specification_ != DatabaseInfoQuery::DatabaseSpecification::DATABASE;
       header = {"name", "type", "metric type", "value"};
-      handler = [target_uuid = std::move(target_uuid), include_global_only] {
+      handler = [current_uuid] {
         std::vector<metrics::MetricInfo> metric_rows;
-        if (target_uuid) {
-          auto result = metrics::Metrics().GetDbMetricsInfo(*target_uuid);
+        if (current_uuid) {
+          auto result = metrics::Metrics().GetDbMetricsInfo(*current_uuid);
           if (!result) {
             throw QueryRuntimeException("{}", result.error());
           }
           metric_rows = std::move(*result);
         }
-        if (include_global_only) {
-          auto const global_only = metrics::Metrics().GetGlobalMetricsInfo();
-          metric_rows.insert(metric_rows.end(), global_only.begin(), global_only.end());
-        }
+        auto const global = metrics::Metrics().GetGlobalMetricsInfo();
+        metric_rows.insert(metric_rows.end(), global.begin(), global.end());
         std::vector<std::vector<TypedValue>> results;
         results.reserve(metric_rows.size());
         for (auto const &m : metric_rows) {

@@ -336,13 +336,10 @@ class PrometheusMetrics {
   void SetInstanceStatusResolver(InstanceStatusResolver resolver);
 #endif
 
-  // Returns per-database metrics for the named database (operators, indices,
-  // constraints, transactions, histograms, etc.).
+  // Returns metrics for the current database for SHOW METRICS INFO.
   std::expected<std::vector<MetricInfo>, std::string> GetDbMetricsInfo(utils::UUID const &uuid) const;
 
-  // Returns truly global metrics: session gauges, HA counters/histograms, and
-  // peak memory. Used by SHOW METRICS INFO (bare/ON CURRENT) alongside
-  // GetDbMetricsInfo for the current DB.
+  // Returns truly global metrics: session gauges, HA counters/histograms, and peak memory.
   std::vector<MetricInfo> GetGlobalMetricsInfo() const;
 
   // Returns metrics for the legacy JSON endpoint. For backwards compatibility,

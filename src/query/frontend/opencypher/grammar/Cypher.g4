@@ -56,7 +56,7 @@ edgetypeInfo : EDGE_TYPES INFO ;
 
 nodelabelInfo : NODE_LABELS INFO ;
 
-metricsInfo : ( METRICS INFO | METRICS ) ( ON ( CURRENT | DATABASE db=symbolicName ) )? ;
+metricsInfo : METRICS INFO | METRICS ;
 
 vectorIndexInfo : VECTOR INDEX INFO | VECTOR INDEXES ;
 

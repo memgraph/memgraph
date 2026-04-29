@@ -163,16 +163,8 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
     info_query->info_type_ = DatabaseInfoQuery::InfoType::NODE_LABELS;
     return info_query;
   }
-  if (auto *metrics = ctx->metricsInfo()) {
+  if (ctx->metricsInfo()) {
     info_query->info_type_ = DatabaseInfoQuery::InfoType::METRICS;
-    if (metrics->ON()) {
-      if (metrics->DATABASE()) {
-        info_query->database_specification_ = DatabaseInfoQuery::DatabaseSpecification::DATABASE;
-        info_query->database_ = std::any_cast<std::string>(metrics->db->accept(this));
-      } else if (metrics->CURRENT()) {
-        info_query->database_specification_ = DatabaseInfoQuery::DatabaseSpecification::CURRENT;
-      }
-    }
     return info_query;
   }
   if (ctx->vectorIndexInfo()) {

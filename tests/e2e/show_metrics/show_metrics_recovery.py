@@ -68,10 +68,10 @@ def test_index_and_constraint_gauges_correct_after_recovery():
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "main")
     instance = interactive_mg_runner.MEMGRAPH_INSTANCES["main"]
 
-    assert get_metric_value(instance, "ActiveLabelIndices", "ON CURRENT") == 1
-    assert get_metric_value(instance, "ActiveLabelPropertyIndices", "ON CURRENT") == 1
-    assert get_metric_value(instance, "ActiveExistenceConstraints", "ON CURRENT") == 1
-    assert get_metric_value(instance, "ActiveUniqueConstraints", "ON CURRENT") == 1
+    assert get_metric_value(instance, "ActiveLabelIndices") == 1
+    assert get_metric_value(instance, "ActiveLabelPropertyIndices") == 1
+    assert get_metric_value(instance, "ActiveExistenceConstraints") == 1
+    assert get_metric_value(instance, "ActiveUniqueConstraints") == 1
     assert get_metric_value(instance, "SnapshotRecoveryLatency_us_50p") > 0
 
 

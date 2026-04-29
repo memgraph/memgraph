@@ -710,6 +710,7 @@ bool DropFromIndicesMap(IndicesMap &indices_map_for_label, ReverseLookup &revers
     }
   }
 
+  properties_it->second->gauge_ = {};
   indices_map_for_label.erase(properties_it);
   return true;
 }
