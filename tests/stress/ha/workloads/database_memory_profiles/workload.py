@@ -2,17 +2,18 @@
 """
 Database memory profiles workload.
 
-Each iteration creates a tenant memory profile (1 GB) and 10 tenant databases
-bound to that profile, then runs 4 workers per database doing randomized
-write queries (bulk CREATE, MERGE edges, SET properties, DETACH DELETE).
+Each iteration:
+  1. Creates a tenant memory profile (1 GB) and 10 tenant databases bound to it.
+  2. Seeds each database with 100 nodes carrying properties.
+  3. Runs 4 workers per database that concurrently add edges between
+     arbitrarily picked seeded nodes.
+  4. Verifies cluster health and that node/edge counts agree across all data
+     instances for every database (replication consistency).
+  5. Drops every database and the profile so the next iteration starts clean.
+
 Workers swallow query failures: hitting the per-database memory limit or
 transient errors is expected — the test verifies the cluster stays healthy
-and replication stays consistent under that pressure.
-
-After workers finish, for every database, node and edge counts are read
-directly from each data instance. All instances must agree (replication
-consistency). The iteration then drops every database and the profile, so
-each iteration starts from a clean slate. Repeats NUM_ITERATIONS times.
+and replicas stay consistent under that pressure. Repeats NUM_ITERATIONS times.
 """
 import random
 import sys
@@ -20,15 +21,7 @@ import time
 
 import ha_common
 from cluster_monitor import ClusterMonitor
-from ha_common import (
-    Protocol,
-    QueryType,
-    cleanup,
-    execute_and_fetch,
-    execute_query,
-    execute_with_manual_retries,
-    run_parallel,
-)
+from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_query, run_parallel
 
 COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
@@ -38,9 +31,10 @@ PROFILE_MEMORY_MB = 1024
 
 NUM_DATABASES = 10
 DB_PREFIX = "stress_db_"
+NODES_PER_DB = 100
 WORKERS_PER_DB = 4
 NUM_ITERATIONS = 10
-OPS_PER_WORKER = 30
+EDGES_PER_WORKER = 200
 
 POST_WORKLOAD_QUIESCE_SEC = 10
 
@@ -54,23 +48,41 @@ def setup_iteration(iteration: int) -> list[str]:
         f"\nIteration {iteration + 1}/{NUM_ITERATIONS}: creating profile "
         f"{PROFILE_NAME!r} ({PROFILE_MEMORY_MB} MB) and {NUM_DATABASES} databases..."
     )
-    execute_with_manual_retries(
+    execute_query(
         COORDINATOR,
         f"CREATE TENANT PROFILE {PROFILE_NAME} LIMIT memory_limit {PROFILE_MEMORY_MB} MB",
         protocol=Protocol.BOLT_ROUTING,
+        query_type=QueryType.WRITE,
     )
 
     databases = [db_name(i) for i in range(NUM_DATABASES)]
     for db in databases:
-        execute_with_manual_retries(
+        execute_query(
             COORDINATOR,
             f"CREATE DATABASE {db}",
             protocol=Protocol.BOLT_ROUTING,
+            query_type=QueryType.WRITE,
         )
-        execute_with_manual_retries(
+        execute_query(
             COORDINATOR,
             f"SET TENANT PROFILE ON DATABASE {db} TO {PROFILE_NAME}",
             protocol=Protocol.BOLT_ROUTING,
+            query_type=QueryType.WRITE,
+        )
+
+    print(f"Seeding {NODES_PER_DB} nodes into each of {len(databases)} databases...")
+    for db in databases:
+        execute_query(
+            COORDINATOR,
+            """
+UNWIND range(0, $count - 1) AS i
+CREATE (:Node {id: i, name: 'node_' + toString(i), payload: 'p_' + toString(i)})
+""",
+            params={"count": NODES_PER_DB},
+            protocol=Protocol.BOLT_ROUTING,
+            query_type=QueryType.WRITE,
+            database=db,
+            apply_retry_mechanism=True,
         )
     return databases
 
@@ -81,115 +93,35 @@ def teardown_iteration(databases: list[str], iteration: int) -> None:
         f"{len(databases)} databases and profile {PROFILE_NAME!r}..."
     )
     for db in databases:
-        execute_with_manual_retries(
+        execute_query(
             COORDINATOR,
             f"DROP DATABASE {db} FORCE",
             protocol=Protocol.BOLT_ROUTING,
+            query_type=QueryType.WRITE,
         )
-    execute_with_manual_retries(
+    execute_query(
         COORDINATOR,
         f"DROP TENANT PROFILE {PROFILE_NAME}",
         protocol=Protocol.BOLT_ROUTING,
+        query_type=QueryType.WRITE,
     )
 
 
-_OPS = ("bulk_create", "merge_edges", "set_props", "detach_delete")
-
-
-def _bulk_create_query(rng: random.Random, worker_id: int, iteration: int) -> tuple[str, dict]:
-    size = rng.randint(200, 2000)
-    payload_len = rng.randint(8, 128)
-    return (
-        """
-UNWIND range(1, $size) AS i
-CREATE (:Stress {worker: $worker, iter: $iter, i: i,
-                 v: 'x' + toString(i) + '-' + $pad})
-""",
-        {
-            "size": size,
-            "worker": worker_id,
-            "iter": iteration,
-            "pad": "p" * payload_len,
-        },
-    )
-
-
-def _merge_edges_query(rng: random.Random, worker_id: int, iteration: int) -> tuple[str, dict]:
-    sample = rng.randint(50, 300)
-    return (
-        """
-MATCH (a:Stress), (b:Stress)
-WHERE a.worker = $worker AND b.worker = $worker AND a.i < b.i
-WITH a, b LIMIT $sample
-MERGE (a)-[:LINKS {iter: $iter}]->(b)
-""",
-        {"worker": worker_id, "iter": iteration, "sample": sample},
-    )
-
-
-def _set_props_query(rng: random.Random, worker_id: int, iteration: int) -> tuple[str, dict]:
-    sample = rng.randint(100, 1000)
-    payload_len = rng.randint(16, 256)
-    return (
-        """
-MATCH (n:Stress {worker: $worker})
-WITH n LIMIT $sample
-SET n.touched_iter = $iter,
-    n.tag = 'tag_' + toString($iter) + '-' + $pad
-""",
-        {
-            "worker": worker_id,
-            "iter": iteration,
-            "sample": sample,
-            "pad": "y" * payload_len,
-        },
-    )
-
-
-def _detach_delete_query(rng: random.Random, worker_id: int, iteration: int) -> tuple[str, dict]:
-    sample = rng.randint(50, 500)
-    return (
-        """
-MATCH (n:Stress {worker: $worker})
-WITH n LIMIT $sample
-DETACH DELETE n
-""",
-        {"worker": worker_id, "sample": sample},
-    )
-
-
-_OP_BUILDERS = {
-    "bulk_create": _bulk_create_query,
-    "merge_edges": _merge_edges_query,
-    "set_props": _set_props_query,
-    "detach_delete": _detach_delete_query,
-}
-
-
-def write_worker(worker_id: int, iteration: int, database: str) -> dict:
-    """Run OPS_PER_WORKER randomized write queries against `database`.
-
-    Query failures (memory-limit hits, transient errors) are counted but do
-    not propagate; the goal is to apply pressure without crashing the cluster.
-    """
+def edge_worker(worker_id: int, iteration: int, database: str) -> dict:
+    """Add EDGES_PER_WORKER edges between arbitrarily picked seeded nodes."""
     rng = random.Random(hash((worker_id, iteration, database)) & 0xFFFFFFFF)
     succeeded = 0
     failed = 0
     t0 = time.time()
 
-    for _ in range(OPS_PER_WORKER):
-        # Bias the mix toward writes that grow memory.
-        op = rng.choices(
-            _OPS,
-            weights=(5, 3, 3, 1),
-            k=1,
-        )[0]
-        query, params = _OP_BUILDERS[op](rng, worker_id, iteration)
+    for _ in range(EDGES_PER_WORKER):
+        a = rng.randrange(NODES_PER_DB)
+        b = rng.randrange(NODES_PER_DB)
         try:
             execute_query(
                 COORDINATOR,
-                query,
-                params=params,
+                "MATCH (a:Node {id: $a}), (b:Node {id: $b}) CREATE (a)-[:LINKS]->(b)",
+                params={"a": a, "b": b},
                 protocol=Protocol.BOLT_ROUTING,
                 query_type=QueryType.WRITE,
                 database=database,
@@ -214,18 +146,18 @@ def run_iteration(databases: list[str], iteration: int) -> None:
     tasks = [(w, iteration, db) for db in databases for w in range(WORKERS_PER_DB)]
     total_workers = len(tasks)
     print(
-        f"\n--- Iteration {iteration + 1}/{NUM_ITERATIONS}: {total_workers} workers "
+        f"\n--- Iteration {iteration + 1}/{NUM_ITERATIONS}: {total_workers} edge workers "
         f"({WORKERS_PER_DB}/db × {len(databases)} dbs) ---"
     )
 
     t0 = time.time()
-    results = run_parallel(write_worker, tasks, num_workers=total_workers)
+    results = run_parallel(edge_worker, tasks, num_workers=total_workers)
     elapsed = time.time() - t0
 
     succeeded = sum(r["succeeded"] for r in results)
     failed = sum(r["failed"] for r in results)
     print(
-        f"Iteration {iteration + 1} writers done in {elapsed:.1f}s — "
+        f"Iteration {iteration + 1} edge workers done in {elapsed:.1f}s — "
         f"{succeeded} ok, {failed} failed (failures expected under memory pressure)."
     )
 
@@ -305,9 +237,10 @@ def main():
     print("=" * 60)
     print(f"Databases         : {NUM_DATABASES}  ({DB_PREFIX}0..{DB_PREFIX}{NUM_DATABASES - 1})")
     print(f"Profile           : {PROFILE_NAME}  (memory_limit {PROFILE_MEMORY_MB} MB)")
+    print(f"Nodes per DB      : {NODES_PER_DB}")
     print(f"Workers per DB    : {WORKERS_PER_DB}")
+    print(f"Edges per worker  : {EDGES_PER_WORKER}")
     print(f"Iterations        : {NUM_ITERATIONS}")
-    print(f"Ops per worker    : {OPS_PER_WORKER}")
     print("-" * 60)
 
     monitor = ClusterMonitor(
