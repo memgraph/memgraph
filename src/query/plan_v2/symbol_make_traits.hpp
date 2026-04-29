@@ -191,11 +191,21 @@ struct combined_storage : Ts... {};
 template <symbol... Ss>
 using symbol_storage_for = combined_storage<typename symbol_make_traits<Ss>::storage_type...>;
 
-using symbol_storage =
-    symbol_storage_for<symbol::Once, symbol::Symbol, symbol::Literal, symbol::ParamLookup, symbol::Bind,
-                       symbol::Identifier, symbol::Output, symbol::NamedOutput, symbol::Add, symbol::Sub, symbol::Mul,
-                       symbol::Div, symbol::Mod, symbol::Exp, symbol::Eq, symbol::Neq, symbol::Lt, symbol::Lte,
-                       symbol::Gt, symbol::Gte, symbol::And, symbol::Or, symbol::Xor, symbol::Not, symbol::UnaryMinus,
-                       symbol::UnaryPlus>;
+namespace detail {
+
+// Derive symbol_storage from the canonical AllSymbolsSeq instead of repeating
+// the full list here.  Adding a symbol to AllSymbolsSeq picks up its storage
+// automatically; no second manual list to keep in sync.
+template <typename>
+struct SymbolStorageFromSeq;
+
+template <symbol... Ss>
+struct SymbolStorageFromSeq<symbol_sequence<Ss...>> {
+  using type = symbol_storage_for<Ss...>;
+};
+
+}  // namespace detail
+
+using symbol_storage = typename detail::SymbolStorageFromSeq<AllSymbolsSeq>::type;
 
 }  // namespace memgraph::query::plan::v2

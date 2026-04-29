@@ -205,36 +205,38 @@ struct PlanCostModel {
         });
       }
 
-      // Binary arithmetic: lhs × rhs cartesian product, +kArithmetic per pair.
+      // Binary expression operators (arithmetic / comparison / boolean):
+      // lhs × rhs cartesian product, with the per-class cost looked up via the
+      // symbol's descriptor.  Adding a new binary operator is one descriptor
+      // specialisation in private_symbol.hpp — no new case arms here.
       case symbol::Add:
       case symbol::Sub:
       case symbol::Mul:
       case symbol::Div:
       case symbol::Mod:
       case symbol::Exp:
-        return CostFrontier::combine(children[0], children[1], CombineAlts(expression_cost::kArithmetic, enode_id));
-
-      // Binary comparison: lhs × rhs cartesian product, +kComparison per pair.
       case symbol::Eq:
       case symbol::Neq:
       case symbol::Lt:
       case symbol::Lte:
       case symbol::Gt:
       case symbol::Gte:
-        return CostFrontier::combine(children[0], children[1], CombineAlts(expression_cost::kComparison, enode_id));
-
-      // Binary boolean: lhs × rhs cartesian product, +kBoolean per pair.
       case symbol::And:
       case symbol::Or:
-      case symbol::Xor:
-        return CostFrontier::combine(children[0], children[1], CombineAlts(expression_cost::kBoolean, enode_id));
+      case symbol::Xor: {
+        auto const cost = expression_cost::FromClass(CostClassOf(current.symbol()));
+        return CostFrontier::combine(children[0], children[1], CombineAlts(cost, enode_id));
+      }
 
-      // Unary operators: pass through child, +kUnary, re-stamp enode_id so the
-      // Builder dispatches *this* unary node (not the child) via enode.symbol().
+      // Unary expression operators: pass through child, +kUnary, re-stamp
+      // enode_id so the Builder dispatches *this* unary node via enode.symbol().
+      // Same dispatch story as binary: cost via descriptor.
       case symbol::Not:
       case symbol::UnaryMinus:
-      case symbol::UnaryPlus:
-        return MapAlts(children[0], expression_cost::kUnary, enode_id);
+      case symbol::UnaryPlus: {
+        auto const cost = expression_cost::FromClass(CostClassOf(current.symbol()));
+        return MapAlts(children[0], cost, enode_id);
+      }
 
       // Output: re-stamp child[0]'s frontier (no extra cost) so all alternatives
       // dispatch through this Output enode in the Builder, then fold in each

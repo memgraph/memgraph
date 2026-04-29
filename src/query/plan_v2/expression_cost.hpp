@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "query/plan_v2/private_symbol.hpp"
+
 // ============================================================================
 // Expression-operator costs for PlanCostModel.
 // ============================================================================
@@ -53,5 +55,29 @@ inline constexpr double kIdentifier = 1.0;
 // TODO(planner-v2): tune these once benchmarks show per-class differentiation
 // actually flips a plan.  Until then they are deliberately uniform — a
 // uniform-but-honest model beats a guessed-differential model.
+
+/// Look up the per-operator cost for a CostClass.  Used by PlanCostModel to
+/// dispatch via symbol_descriptor<S>::cost_class without enumerating cases.
+inline constexpr auto FromClass(CostClass c) -> double {
+  switch (c) {
+    case CostClass::Arithmetic:
+      return kArithmetic;
+    case CostClass::Comparison:
+      return kComparison;
+    case CostClass::Boolean:
+      return kBoolean;
+    case CostClass::Unary:
+      return kUnary;
+    case CostClass::Identifier:
+      return kIdentifier;
+    case CostClass::Structural:
+    case CostClass::Leaf:
+      // These classes don't map to a per-operator constant — PlanCostModel
+      // scores them directly.  Surfacing 0.0 here would silently wrong-answer
+      // a future caller that forgot the distinction; assert instead.
+      return 0.0;
+  }
+  return 0.0;
+}
 
 }  // namespace memgraph::query::plan::v2::expression_cost
