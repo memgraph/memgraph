@@ -36,6 +36,9 @@ target_link_libraries(${test_prefix}execution mg-query mg-communication)
 add_benchmark(query/planner.cpp)
 target_link_libraries(${test_prefix}planner mg-query)
 
+add_benchmark(query/plan_v2_extract.cpp)
+target_link_libraries(${test_prefix}plan_v2_extract mg-query)
+
 add_benchmark(query/profile.cpp)
 target_link_libraries(${test_prefix}profile mg-query)
 
