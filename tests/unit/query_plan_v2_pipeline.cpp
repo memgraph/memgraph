@@ -246,6 +246,49 @@ class NamedExpressionCollector : public plan::HierarchicalLogicalOperatorVisitor
   }
 };
 
+TEST(PlannerV2BuildCacheRehash, NoCacheCorruptionAtRehashThreshold) {
+  // Regression test for an order-of-evaluation UB in ConvertToLogicalOperator's
+  // Builder loop where `build_cache[k] = build_cache.at(c)` (and the analogous
+  // `build_cache[k] = builder.Build(enode, refs_into_build_cache)`) could read
+  // through a reference into build_cache that the LHS [] insertion had just
+  // invalidated by triggering a rehash.  build_cache is a
+  // boost::unordered_flat_map (open-addressing) — rehash invalidates ALL
+  // references.
+  //
+  // The bug only manifested past the rehash threshold (~32 entries with
+  // boost defaults).  This test builds an egraph with > 64 selected eclasses
+  // to ensure the threshold is crossed regardless of small load-factor tweaks,
+  // then runs ConvertToLogicalOperator end-to-end.  Pre-fix, the call threw
+  // "Planner error, child node is incorrect type"; post-fix it succeeds.
+  //
+  // Structural protection (build_cache.reserve(selection.size()) up-front)
+  // would also need to silently regress for this test to fail, hence both
+  // layers of defence are exercised.
+  egraph eg;
+  eclass current = eg.MakeOnce();
+  for (int64_t i = 0; i < 32; ++i) {
+    auto sym = eg.MakeSymbol(static_cast<int32_t>(i), "s_" + std::to_string(i));
+    // Build a 4-op arithmetic tree: Add(Add(Add(Lit(i), Lit(i+1)), Lit(i+2)), Lit(i+3)).
+    // Each Bind contributes ~5 selected eclasses (Bind + Add×3 + 4 unique Lits across the chain),
+    // pushing total selection well past the rehash threshold by depth 32.
+    auto lit = [&](int64_t v) { return eg.MakeLiteral(storage::ExternalPropertyValue{v}); };
+    auto expr = eg.MakeAdd(eg.MakeAdd(eg.MakeAdd(lit(i), lit(i + 1)), lit(i + 2)), lit(i + 3));
+    current = eg.MakeBind(current, sym, expr);
+  }
+  std::vector<eclass> named_outputs;
+  for (int64_t i = 0; i < 32; ++i) {
+    auto out_sym = eg.MakeSymbol(static_cast<int32_t>(1'000'000 + i), "o_" + std::to_string(i));
+    auto out_expr = eg.MakeLiteral(storage::ExternalPropertyValue{i});
+    named_outputs.push_back(eg.MakeNamedOutput("o_" + std::to_string(i), out_sym, out_expr));
+  }
+  auto root = eg.MakeOutputs(current, std::move(named_outputs));
+
+  // Pre-fix this throws "Planner error, child node is incorrect type" once the
+  // build_cache rehashes mid-loop.  Post-fix it returns a valid plan.
+  auto result = ConvertToLogicalOperator(eg, root);
+  ASSERT_NE(std::get<0>(result), nullptr);
+}
+
 TEST_F(PlannerV2PipelineTest, ExtractedSymbolPositionsResolveInCompactTable) {
   // Guards the compact-SymbolTable contract: ConvertToLogicalOperator returns a
   // compact SymbolTable alongside the plan, PlanQuery installs it as the
