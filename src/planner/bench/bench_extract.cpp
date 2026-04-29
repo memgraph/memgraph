@@ -115,9 +115,12 @@ static auto BuildDeepChain(int64_t depth) -> std::pair<TestEGraph, EClassId> {
 
 static void BM_Extract_DeepChain(benchmark::State &state) {
   auto [egraph, root] = BuildDeepChain(state.range(0));
+  // Out-of-loop map mirrors production (ExtractionContext owns frontier_map across
+  // calls); clear() each iter retains bucket capacity.
+  FrontierMap<DemandFrontier> frontier_map;
+  frontier_map.reserve(egraph.num_classes());
   for (auto _ : state) {
-    FrontierMap<DemandFrontier> frontier_map;
-    frontier_map.reserve(egraph.num_classes());
+    frontier_map.clear();
     benchmark::DoNotOptimize(
         memgraph::planner::core::extract::detail::ComputeFrontiers(egraph, CostModel{}, root, frontier_map));
   }
@@ -153,9 +156,10 @@ static auto BuildWideMerge(int64_t fanout) -> std::pair<TestEGraph, EClassId> {
 
 static void BM_Extract_WideMerge(benchmark::State &state) {
   auto [egraph, root] = BuildWideMerge(state.range(0));
+  FrontierMap<DemandFrontier> frontier_map;
+  frontier_map.reserve(egraph.num_classes());
   for (auto _ : state) {
-    FrontierMap<DemandFrontier> frontier_map;
-    frontier_map.reserve(egraph.num_classes());
+    frontier_map.clear();
     benchmark::DoNotOptimize(
         memgraph::planner::core::extract::detail::ComputeFrontiers(egraph, CostModel{}, root, frontier_map));
   }
