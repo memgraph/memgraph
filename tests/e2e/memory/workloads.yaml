@@ -5,6 +5,7 @@ args: &args
   - "--memory-limit=1024"
   - "--storage-gc-cycle-sec=180"
   - "--log-level=TRACE"
+  - "--also-log-to-stderr"
 
 args_100_MiB_limit: &args_100_MiB_limit
   - "--bolt-port"
@@ -82,7 +83,8 @@ args_300_MiB_limit: &args_300_MiB_limit
   - *bolt_port
   - "--memory-limit=300"
   - "--storage-gc-cycle-sec=180"
-  - "--log-level=INFO"
+  - "--log-level=TRACE"
+  - "--also-log-to-stderr=true"
 
 in_memory_300_MiB_limit_cluster: &in_memory_300_MiB_limit_cluster
   cluster:
@@ -239,3 +241,9 @@ workloads:
   - name: "Index cleanup and RSS reclamation"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["memory/index_cleanup_memory.py"]
+
+  - name: "Per-DB memory tracking check"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/db_memory_tracking.py"]
+    proc: "tests/e2e/memory/procedures"
+    <<: *in_memory_1024_MiB_limit_cluster

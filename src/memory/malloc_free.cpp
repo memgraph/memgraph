@@ -79,6 +79,18 @@ extern "C" void *malloc(size_t size) {
   return res;
 }
 
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+__attribute__((visibility("default"))) void *JeMalloc(size_t size, int flags) {
+  if (!alloc_tracking(size, flags)) [[unlikely]] {
+    return nullptr;
+  }
+  void *const res = je_mallocx(size, flags);
+  if (res == nullptr) [[unlikely]] {
+    failed_alloc_tracking(size, flags);
+  }
+  return res;
+}
+
 extern "C" void *calloc(size_t count, size_t size) {
   if (!alloc_tracking(count * size)) [[unlikely]] {
     return nullptr;
@@ -165,6 +177,14 @@ extern "C" void dallocx(void *ptr, int flags) {
 
 extern "C" void sdallocx(void *ptr, size_t size, int flags) {
   if (!ptr) [[unlikely]]
+    return;
+  free_tracking(ptr, flags);
+  je_sdallocx(ptr, size, flags);
+}
+
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+__attribute__((visibility("default"))) void JeDealloc(void *ptr, size_t size, int flags) noexcept {
+  if (ptr == nullptr) [[unlikely]]
     return;
   free_tracking(ptr, flags);
   je_sdallocx(ptr, size, flags);

@@ -31,14 +31,14 @@ namespace memgraph::storage {
 class TypeConstraints {
  public:
   struct MultipleThreadsConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
+    std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
                                                   const LabelId &label, const PropertyId &property);
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
 
   struct SingleThreadConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
+    std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
                                                   const LabelId &label, const PropertyId &property);
   };
 
@@ -84,11 +84,11 @@ class TypeConstraints {
 
   auto GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints>;
 
-  [[nodiscard]] static auto ValidateVerticesOnConstraint(utils::SkipList<Vertex>::Accessor vertices, LabelId label,
+  [[nodiscard]] static auto ValidateVerticesOnConstraint(utils::SkipListDb<Vertex>::Accessor vertices, LabelId label,
                                                          PropertyId property, TypeConstraintKind type)
       -> std::expected<void, ConstraintViolation>;
 
-  [[nodiscard]] auto ValidateAllVertices(utils::SkipList<Vertex>::Accessor vertices,
+  [[nodiscard]] auto ValidateAllVertices(utils::SkipListDb<Vertex>::Accessor vertices,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
       -> std::expected<void, ConstraintViolation>;
 

@@ -29,6 +29,10 @@
 #include <optional>
 #include <string>
 
+namespace memgraph::memory {
+class ArenaPool;
+}  // namespace memgraph::memory
+
 namespace memgraph::storage {
 
 struct Delta;
@@ -65,6 +69,8 @@ class ReplicaStream {
   replication::PrepareCommitRes Finalize();
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
+
+  auto DbArenaPool() const -> memory::ArenaPool *;
 
   auto encoder() -> replication::Encoder { return replication::Encoder{stream_.GetBuilder()}; }
 

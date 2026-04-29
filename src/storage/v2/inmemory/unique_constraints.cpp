@@ -15,6 +15,7 @@
 #include <bitset>
 #include <ranges>
 #include <tuple>
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -30,7 +31,7 @@ namespace memgraph::storage {
 
 namespace {
 
-auto DoValidate(const Vertex &vertex, utils::SkipList<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
+auto DoValidate(const Vertex &vertex, utils::SkipListDb<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
                 const LabelId &label, const std::set<PropertyId> &properties)
     -> std::expected<void, ConstraintViolation> {
   if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
@@ -435,7 +436,7 @@ auto InMemoryUniqueConstraints::GetCreationFunction(
 }
 
 auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
+    const utils::SkipListDb<Vertex>::Accessor &vertex_accessor, utils::SkipListDb<Entry>::Accessor &constraint_accessor,
     const LabelId &label, const std::set<PropertyId> &properties,
     std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -448,10 +449,11 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
   std::atomic<uint64_t> batch_counter = 0;
   utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> result{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&result,
+      threads.emplace_back(parallel_exec_info.arena_pool,
+                           [&result,
                             &vertex_batches,
                             &batch_counter,
                             &vertex_accessor,
@@ -459,23 +461,23 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
                             &label,
                             &properties,
                             &snapshot_info]() {
-        do_per_thread_validation(result,
-                                 DoValidate,
-                                 vertex_batches,
-                                 batch_counter,
-                                 vertex_accessor,
-                                 snapshot_info,
-                                 constraint_accessor,
-                                 label,
-                                 properties);
-      });
+                             do_per_thread_validation(result,
+                                                      DoValidate,
+                                                      vertex_batches,
+                                                      batch_counter,
+                                                      vertex_accessor,
+                                                      snapshot_info,
+                                                      constraint_accessor,
+                                                      label,
+                                                      properties);
+                           });
     }
   }
   return *result.Lock();
 }
 
 auto InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
+    const utils::SkipListDb<Vertex>::Accessor &vertex_accessor, utils::SkipListDb<Entry>::Accessor &constraint_accessor,
     const LabelId &label, const std::set<PropertyId> &properties,
     std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
   for (const Vertex &vertex : vertex_accessor) {
@@ -490,7 +492,7 @@ auto InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
 }
 
 auto InMemoryUniqueConstraints::CreateConstraint(
-    LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+    LabelId label, const std::set<PropertyId> &properties, const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) -> std::expected<CreationStatus, ConstraintViolation> {
   // TODO: we should do the proper register -> populate(with cancel + parallel) -> publish pattern

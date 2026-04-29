@@ -19,6 +19,7 @@
 #include "dbms/rpc.hpp"
 #include "license/license.hpp"
 #include "query/db_accessor.hpp"
+#include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -202,6 +203,12 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
    */
   // Setup the default DB
   SetupDefault_();
+
+  /*
+   * TENANT PROFILES
+   */
+  tenant_profiles_ = std::make_unique<TenantProfiles>(*durability_);
+  RestoreTenantProfiles_();
 }
 
 struct DropDatabase : memgraph::system::ISystemAction {
@@ -286,6 +293,13 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
   (void)std::filesystem::remove_all(storage_path, ec);
   if (ec) {
     spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
+  }
+
+  // Detach from tenant profile. Return value is safe to ignore here because this
+  // code path (TryDelete) is exclusive with the DetachFromDatabase call in Delete_
+  // below. If the DB is not attached, detaching is a no-op.
+  if (tenant_profiles_) {
+    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
   }
 
   // Success
@@ -374,6 +388,11 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
     }
   }
 
+  // Update tenant profile membership (no-op if database had no profile attached).
+  if (tenant_profiles_) {
+    [[maybe_unused]] auto renamed = tenant_profiles_->RenameDatabase(old_name, new_name);
+  }
+
   // Add system action for replication
   if (txn) {
     txn->AddAction<RenameDatabase>(std::string{old_name}, std::string{new_name});
@@ -415,6 +434,107 @@ struct CreateDatabase : memgraph::system::ISystemAction {
   DatabaseAccess db_acc;
 };
 
+constexpr int64_t kUnusedMemoryLimit = 0;
+
+struct TenantProfileAction : memgraph::system::ISystemAction {
+  using Action = storage::replication::TenantProfileReq::Action;
+
+  TenantProfileAction(Action action, std::string_view profile_name, std::string_view db_name, int64_t memory_limit)
+      : action_{action}, profile_{.name = std::string{profile_name}, .memory_limit = memory_limit}, db_name_{db_name} {}
+
+  void DoDurability() override {}
+
+  bool ShouldReplicateInCommunity() const override { return false; }
+
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     memgraph::system::Transaction const &txn) const override {
+    return client.StreamAndFinalizeDelta<storage::replication::TenantProfileRpc>(
+        [](const storage::replication::TenantProfileRes &response) { return response.success; },
+        main_uuid,
+        txn.last_committed_system_timestamp(),
+        txn.timestamp(),
+        action_,
+        profile_,
+        db_name_);
+  }
+
+  void PostReplication(replication::RoleMainData & /*mainData*/) const override {}
+
+ private:
+  Action action_;
+  TenantProfiles::Profile profile_;
+  std::string db_name_;
+};
+
+std::expected<void, TenantProfiles::CreateError> DbmsHandler::CreateTenantProfile(std::string_view name,
+                                                                                  int64_t memory_limit,
+                                                                                  system::Transaction *sys_txn) {
+  auto result = tenant_profiles_->Create(name, memory_limit);
+  if (!result) return std::unexpected{result.error()};
+  if (sys_txn) {
+    sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::CREATE, name, "", memory_limit);
+  }
+  return {};
+}
+
+std::expected<void, TenantProfiles::AlterError> DbmsHandler::AlterTenantProfile(std::string_view name,
+                                                                                int64_t memory_limit,
+                                                                                system::Transaction *sys_txn) {
+  auto result = tenant_profiles_->Alter(name, memory_limit);
+  if (!result) return std::unexpected{result.error()};
+  for (const auto &db_name : *result) {
+    try {
+      auto db_acc = Get(db_name);
+      db_acc.get()->SetTenantMemoryLimit(memory_limit);
+    } catch (const UnknownDatabaseException &) {
+      // DB was dropped concurrently — the profile change is already durable and will not
+      // be re-applied on restart (the DB no longer exists). Skip gracefully.
+      spdlog::warn("AlterTenantProfile: database '{}' not found while applying profile '{}' — skipping", db_name, name);
+    }
+  }
+  if (sys_txn) {
+    sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::ALTER, name, "", memory_limit);
+  }
+  return {};
+}
+
+std::expected<void, TenantProfiles::DropError> DbmsHandler::DropTenantProfile(std::string_view name,
+                                                                              system::Transaction *sys_txn) {
+  auto result = tenant_profiles_->Drop(name);
+  if (!result) return std::unexpected{result.error()};
+  if (sys_txn) {
+    sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::DROP, name, "", kUnusedMemoryLimit);
+  }
+  return {};
+}
+
+std::expected<void, TenantProfiles::AttachError> DbmsHandler::SetTenantProfileOnDatabase(std::string_view profile_name,
+                                                                                         std::string_view db_name,
+                                                                                         system::Transaction *sys_txn) {
+  auto db_acc = Get(db_name);
+  auto result = tenant_profiles_->AttachToDatabase(profile_name, db_name);
+  if (!result) return std::unexpected{result.error()};
+  db_acc.get()->SetTenantMemoryLimit(*result);
+  if (sys_txn) {
+    sys_txn->AddAction<TenantProfileAction>(
+        TenantProfileAction::Action::SET_ON_DATABASE, profile_name, db_name, *result);
+  }
+  return {};
+}
+
+std::expected<void, TenantProfiles::DetachError> DbmsHandler::RemoveTenantProfileFromDatabase(
+    std::string_view db_name, system::Transaction *sys_txn) {
+  auto result = tenant_profiles_->DetachFromDatabase(db_name);
+  if (!result) return std::unexpected{result.error()};
+  auto db_acc = Get(db_name);
+  db_acc.get()->SetTenantMemoryLimit(0);
+  if (sys_txn) {
+    sys_txn->AddAction<TenantProfileAction>(
+        TenantProfileAction::Action::REMOVE_FROM_DATABASE, "", db_name, kUnusedMemoryLimit);
+  }
+  return {};
+}
+
 DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system::Transaction *txn) {
   auto new_db = db_handler_.New(storage_config);
 
@@ -452,6 +572,13 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
 
   // Remove from durability list
   if (durability_) durability_->Delete(Durability::GenKey(db_name));
+
+  // Detach from tenant profile. Return value is safe to ignore here because this
+  // code path (Delete_) is exclusive with the TryDelete path above. If the DB is
+  // not attached, detaching is a no-op.
+  if (tenant_profiles_) {
+    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
+  }
 
   // Check if db exists
   // Low level handlers

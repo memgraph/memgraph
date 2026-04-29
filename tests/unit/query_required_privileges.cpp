@@ -16,6 +16,7 @@
 #include "license/license.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/ast/query/tenant_profile.hpp"
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 
@@ -268,6 +269,11 @@ TEST_F(TestPrivilegeExtractor, CallProcedureQuery) {
 
 TEST_F(TestPrivilegeExtractor, UserProfile) {
   auto *query = storage.Create<UserProfileQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::PROFILE_RESTRICTION));
+}
+
+TEST_F(TestPrivilegeExtractor, TenantProfile) {
+  auto *query = storage.Create<TenantProfileQuery>();
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::PROFILE_RESTRICTION));
 }
 

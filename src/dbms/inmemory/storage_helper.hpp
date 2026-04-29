@@ -20,11 +20,15 @@ namespace memgraph::dbms {
 inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::Config config,
     storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
-    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr) {
+    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
+    memgraph::memory::ArenaPool *db_arena = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr) {
   // Use default safe factory from Storage constructor for basic usage
-  auto storage = std::make_unique<storage::InMemoryStorage>(
-      std::move(config), std::nullopt, std::move(invalidator), std::move(database_protector_factory));
-
+  auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config),
+                                                            std::nullopt,
+                                                            std::move(invalidator),
+                                                            std::move(database_protector_factory),
+                                                            db_arena,
+                                                            db_embedding_memory_tracker);
   storage->CreateSnapshotHandler(
       [storage = storage.get()]() -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
         auto result = storage->CreateSnapshot();
@@ -33,7 +37,6 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
         }
         return {};
       });
-
   return storage;
 }
 

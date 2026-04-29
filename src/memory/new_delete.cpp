@@ -176,6 +176,35 @@ inline void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unuse
 
 }  // namespace
 
+#if USE_JEMALLOC
+void *JeMalloc(size_t size, int flags);
+
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+__attribute__((visibility("default"))) void *JeNew(size_t size, int flags) {
+  auto *ptr = JeMalloc(size, flags);
+  if (ptr != nullptr) [[likely]] {
+    return ptr;
+  }
+
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+  auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg();
+  if (maybe_msg) {
+    throw memgraph::utils::OutOfMemoryException{std::move(*maybe_msg)};
+  }
+
+  throw std::bad_alloc{};
+}
+
+void JeDealloc(void *ptr, size_t size, int flags) noexcept;
+
+// Sized deallocation with explicit flags (e.g. MALLOCX_TCACHE_NONE).
+// Mirrors JeNew: calls through JeDealloc (query tracking + je_sdallocx).
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+__attribute__((visibility("default"))) void JeFree(void *ptr, size_t size, int flags) noexcept {
+  JeDealloc(ptr, size, flags);
+}
+#endif
+
 __attribute__((visibility("default"))) void *operator new(const std::size_t size) {
   TrackMemory(size);
   return newImpl(size);

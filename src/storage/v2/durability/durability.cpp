@@ -229,7 +229,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // recovery process.
 
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                        Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                        Constraints *constraints, utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                         std::optional<SnapshotObserverInfo> const &snapshot_info) {
   RecoverExistenceConstraints(
@@ -246,7 +246,7 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 }
 
 void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
-                            utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
+                            utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
@@ -441,7 +441,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
 }
 
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                                 Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                                 Constraints *constraints, utils::SkipListDb<Vertex> *vertices,
                                  NameIdMapper *name_id_mapper,
                                  const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
@@ -469,7 +469,7 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
 }
 
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                              Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                              Constraints *constraints, utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper,
                               const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::info("Recreating {} unique constraints from metadata.", constraints_metadata.unique.size());
@@ -499,7 +499,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
 }
 
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                            Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                            Constraints *constraints, utils::SkipListDb<Vertex> *vertices,
                             const std::optional<ParallelizedSchemaCreationInfo> & /**/,
                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // TODO: parallel recovery
@@ -523,9 +523,9 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
   spdlog::info("Type constraints are recreated from metadata.");
 }
 
-void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+void RecoverIndicesStatsAndConstraints(utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper,
                                        Indices *indices, Constraints *constraints, Config const &config,
-                                       RecoveryInfo const &recovery_info,
+                                       RecoveryInfo const &recovery_info, memory::ArenaPool *db_arena_pool,
                                        RecoveredIndicesAndConstraints &indices_constraints, bool properties_on_edges,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
   RecoverIndicesAndStats(indices_constraints.indices,
@@ -533,29 +533,32 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
                          vertices,
                          name_id_mapper,
                          properties_on_edges,
-                         GetParallelExecInfo(recovery_info, config),
+                         GetParallelExecInfo(recovery_info, config, db_arena_pool),
                          snapshot_info);
   RecoverConstraints(indices_constraints.constraints,
                      constraints,
                      vertices,
                      name_id_mapper,
-                     GetParallelExecInfo(recovery_info, config),
+                     GetParallelExecInfo(recovery_info, config, db_arena_pool),
                      snapshot_info);
 }
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
-                                                                  const Config &config) {
+                                                                  const Config &config,
+                                                                  memory::ArenaPool *db_arena_pool) {
   return (config.durability.allow_parallel_schema_creation && recovery_info.vertex_batches.size() > 1)
-             ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
-                                                                 config.durability.recovery_thread_count})
+             ? std::make_optional(
+                   ParallelizedSchemaCreationInfo{.vertex_recovery_info = recovery_info.vertex_batches,
+                                                  .thread_count = config.durability.recovery_thread_count,
+                                                  .arena_pool = db_arena_pool})
              : std::nullopt;
 }
 
 std::optional<RecoveryInfo> Recovery::RecoverData(
-    utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
-    utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
+    utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipListDb<Vertex> *vertices,
+    utils::SkipListDb<Edge> *edges, utils::SkipListDb<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
-    uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+    memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
     std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
     memgraph::storage::DescriptionStore *description_store) {
@@ -795,6 +798,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                                     constraints,
                                     config,
                                     recovery_info,
+                                    db_arena_pool,
                                     indices_constraints,
                                     config.salient.items.properties_on_edges);
 

@@ -135,7 +135,7 @@ inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t com
 }
 
 // Keep v locked as we could return a reference to labels
-inline const utils::small_vector<LabelId> *GetLabelsViewOld(const Vertex *v, uint64_t start_timestamp, auto &cache) {
+inline const VertexKey *GetLabelsViewOld(const Vertex *v, uint64_t start_timestamp, auto &cache) {
   // Check if already cached
   auto v_cached = cache.find(v);
   if (v_cached != cache.end()) return &v_cached->second;
@@ -153,8 +153,8 @@ inline const utils::small_vector<LabelId> *GetLabelsViewOld(const Vertex *v, uin
 }
 
 // Keep v locked as we could return a reference to labels
-inline std::pair<const utils::small_vector<LabelId> *, bool> GetLabels(const Vertex *v, uint64_t start_timestamp,
-                                                                       uint64_t commit_timestamp, auto &cache) {
+inline std::pair<const VertexKey *, bool> GetLabels(const Vertex *v, uint64_t start_timestamp,
+                                                    uint64_t commit_timestamp, auto &cache) {
   const auto state = GetState(v->delta(), start_timestamp, commit_timestamp);
   const auto *labels = &v->labels;
   if (state == ANOTHER_TX) {
@@ -164,8 +164,8 @@ inline std::pair<const utils::small_vector<LabelId> *, bool> GetLabels(const Ver
 }
 
 struct Labels {
-  const utils::small_vector<LabelId> *from;
-  const utils::small_vector<LabelId> *to;
+  const VertexKey *from;
+  const VertexKey *to;
   bool needs_pp{false};
 };
 
@@ -178,8 +178,8 @@ inline Labels GetLabels(const Vertex *from, const Vertex *to, uint64_t start_tim
 }
 
 struct LabelsDiff {
-  const utils::small_vector<LabelId> *pre;
-  const utils::small_vector<LabelId> *post;
+  const VertexKey *pre;
+  const VertexKey *post;
 };
 
 // Cache needs to be reference stable because we are using it as a key
@@ -395,10 +395,9 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, 
 }
 
 template <template <class...> class TContainer>
-nlohmann::json SchemaTracking<TContainer>::ToJson(
-    NameIdMapper &name_id_mapper, const EnumStore &enum_store,
-    const std::function<bool(utils::small_vector<LabelId> const &)> &node_predicate,
-    const std::function<bool(EdgeTypeId)> &edge_predicate) const {
+nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
+                                                  const std::function<bool(VertexKey const &)> &node_predicate,
+                                                  const std::function<bool(EdgeTypeId)> &edge_predicate) const {
   auto json = nlohmann::json::object();
 
   // Handle NODES
@@ -468,8 +467,8 @@ void SchemaTracking<TContainer>::DeleteVertex(Vertex *vertex) {
 }
 
 template <template <class...> class TContainer>
-void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
-                                              const utils::small_vector<LabelId> &new_labels) {
+void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const VertexKey &old_labels,
+                                              const VertexKey &new_labels) {
   // Move all stats to new labels
   auto &old_tracking = vertex_state_[old_labels];
   auto &new_tracking = vertex_state_[new_labels];
@@ -486,8 +485,8 @@ void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const utils::small
 }
 
 template <template <class...> class TContainer>
-void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
-                                              const utils::small_vector<LabelId> &new_labels, bool prop_on_edges) {
+void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const VertexKey &old_labels, const VertexKey &new_labels,
+                                              bool prop_on_edges) {
   // Update vertex stats
   UpdateLabels(vertex, old_labels, new_labels);
   // Update edge stats
@@ -495,8 +494,8 @@ void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const utils::small
                          EdgeRef edge_ref,
                          Vertex *from,
                          Vertex *to,
-                         const utils::small_vector<LabelId> *old_from_labels,
-                         const utils::small_vector<LabelId> *old_to_labels) {
+                         const VertexKey *old_from_labels,
+                         const VertexKey *old_to_labels) {
     auto &old_tracking = edge_lookup(EdgeKeyRef(
         edge_type, old_from_labels ? *old_from_labels : from->labels, old_to_labels ? *old_to_labels : to->labels));
     auto &new_tracking = edge_lookup(EdgeKeyRef(edge_type, from->labels, to->labels));
@@ -594,10 +593,9 @@ void SchemaTracking<TContainer>::SetProperty(EdgeTypeId type, Vertex *from, Vert
 }
 
 template <template <class...> class TContainer>
-void SchemaTracking<TContainer>::SetProperty(EdgeTypeId type, const utils::small_vector<LabelId> &from,
-                                             const utils::small_vector<LabelId> &to, PropertyId property,
-                                             const ExtendedPropertyType &now, const ExtendedPropertyType &before,
-                                             bool prop_on_edges) {
+void SchemaTracking<TContainer>::SetProperty(EdgeTypeId type, const VertexKey &from, const VertexKey &to,
+                                             PropertyId property, const ExtendedPropertyType &now,
+                                             const ExtendedPropertyType &before, bool prop_on_edges) {
   if (prop_on_edges) {
     auto &tracking_info = edge_lookup(EdgeKeyRef{type, from, to});
     SetProperty(tracking_info, property, now, before);
@@ -724,7 +722,7 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::RemoveLabel(Vertex *vertex,
 }
 
 void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
-    Vertex *vertex, const utils::small_vector<LabelId> &old_labels, std::unique_lock<utils::RWSpinLock> v_lock) {
+    Vertex *vertex, const VertexKey &old_labels, std::unique_lock<utils::RWSpinLock> v_lock) {
   DMG_ASSERT(post_process_, "Missing post process in transactional accessor");
   static constexpr bool InEdge = true;
   static constexpr bool OutEdge = !InEdge;
@@ -774,8 +772,7 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
   }
 }
 
-void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(
-    Vertex *vertex, const utils::small_vector<LabelId> &old_labels) {
+void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(Vertex *vertex, const VertexKey &old_labels) {
   // No need to lock anything, we are here, meaning this is the only modifying function currently active
   constexpr bool InEdge = true;
   constexpr bool OutEdge = !InEdge;

@@ -17,11 +17,17 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
+#include "utils/db_aware_allocator.hpp"
 #include "utils/pointer_pack.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
+
+struct Vertex;
+
+using EdgeTriple = std::tuple<EdgeTypeId, Vertex *, EdgeRef>;
+using Edges = utils::small_vector<EdgeTriple, memory::DbAwareAllocator<EdgeTriple>>;
 
 struct Vertex {
   Vertex(Gid gid, Delta *delta) : gid(gid), delta_(delta) {
@@ -32,12 +38,10 @@ struct Vertex {
 
   const Gid gid;
 
-  utils::small_vector<LabelId> labels;
+  utils::small_vector<LabelId, memory::DbAwareAllocator<LabelId>> labels;
 
-  using EdgeTriple = std::tuple<EdgeTypeId, Vertex *, EdgeRef>;
-
-  utils::small_vector<EdgeTriple> in_edges;
-  utils::small_vector<EdgeTriple> out_edges;
+  Edges in_edges;
+  Edges out_edges;
 
   PropertyStore properties;
   mutable utils::RWSpinLock lock;

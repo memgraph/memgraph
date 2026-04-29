@@ -24,6 +24,7 @@
 #include <spdlog/common.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
+
 #include <chrono>
 #include <compare>
 #include <concepts>
@@ -146,10 +147,17 @@ std::span<const char> Message::Payload() const {
 
 std::string_view Message::TopicName() const { return message_.getTopicName(); }
 
-Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
+namespace {
+ConsumerThreadFactory DefaultThreadFactory() {
+  return [](std::function<void()> task) { return std::thread(std::move(task)); };
+}
+}  // namespace
+
+Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function, ConsumerThreadFactory thread_factory)
     : info_{std::move(info)},
       client_{CreateClient(info_.service_url)},
-      consumer_function_{std::move(consumer_function)} {
+      consumer_function_{std::move(consumer_function)},
+      thread_factory_(thread_factory ? std::move(thread_factory) : DefaultThreadFactory()) {
   pulsar_client::ConsumerConfiguration config;
   config.setSubscriptionInitialPosition(pulsar_client::InitialPositionLatest);
   config.setConsumerType(pulsar_client::ConsumerType::ConsumerExclusive);
@@ -168,6 +176,10 @@ Consumer::~Consumer() {
 bool Consumer::IsRunning() const { return is_running_; }
 
 const ConsumerInfo &Consumer::Info() const { return info_; }
+
+void Consumer::SetThreadFactory(ConsumerThreadFactory thread_factory) {
+  thread_factory_ = thread_factory ? std::move(thread_factory) : DefaultThreadFactory();
+}
 
 void Consumer::Start() {
   if (is_running_) {
@@ -288,7 +300,7 @@ void Consumer::StartConsuming() {
 
   is_running_.store(true);
 
-  thread_ = std::thread([this] {
+  thread_ = thread_factory_([this] {
     static constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 

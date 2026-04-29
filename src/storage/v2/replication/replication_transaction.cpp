@@ -12,6 +12,7 @@
 #include "storage/v2/replication/replication_transaction.hpp"
 
 #include "storage/v2/commit_args.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -130,6 +131,7 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
       strict_sync_replicas_succ &= commit_res;
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       if (decision) {
+        // NOLINTNEXTLINE(bugprone-unused-return-value)
         client->FinalizeTransactionReplication(protector, std::move(replica_stream), durability_commit_timestamp);
       } else if (replica_stream) {
         // Reconnect needed because we optimistically prepared PrepareCommitReq message already.

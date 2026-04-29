@@ -19,6 +19,7 @@
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -80,7 +81,7 @@ struct VectorIndexRecovery {
   /// @param vertices Accessor to the vertices skip list.
   static void UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                 std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
-                                utils::SkipList<Vertex>::Accessor &vertices);
+                                utils::SkipListDb<Vertex>::Accessor &vertices);
 
   /// @brief Updates recovery info when a label is added to a vertex.
   /// @param label The label being added.
@@ -173,6 +174,8 @@ class VectorIndex {
 
   using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
 
+  explicit VectorIndex(utils::MemoryTracker *memory_tracker = nullptr);
+  ~VectorIndex();
   /// Concrete ActiveIndices implementation holding a shared reference to the live index container.
   struct ActiveIndices : VectorIndexActiveIndices {
     ActiveIndices() = default;
@@ -188,8 +191,6 @@ class VectorIndex {
     std::shared_ptr<VectorIndexContainer const> index_container_;
   };
 
-  VectorIndex() = default;
-  ~VectorIndex() = default;
   VectorIndex(VectorIndex &&) noexcept = default;
   VectorIndex &operator=(VectorIndex &&) noexcept = default;
 
@@ -216,7 +217,7 @@ class VectorIndex {
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @param snapshot_info
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
+  bool CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
                    NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
@@ -226,8 +227,9 @@ class VectorIndex {
   /// @param indices Indices (for property decoding).
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @param snapshot_info The snapshot information to use.
-  void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
-                    Indices *indices, NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+  void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
+                    Indices *indices, NameIdMapper *name_id_mapper,
+                    ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
@@ -353,6 +355,7 @@ class VectorIndex {
   void AddVertexToIndex(uint64_t index_id, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
                         std::optional<std::size_t> thread_id = std::nullopt);
 
+  utils::MemoryTracker *memory_tracker_{nullptr};
   // Invariant: `index_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
   // InMemoryAccessor::CreateVectorIndex / DropVectorIndex and in DropGraphClearIndices). Reads
   // from other contexts (regular READ/WRITE accessors, DatabaseInfoQuery) MUST go through the

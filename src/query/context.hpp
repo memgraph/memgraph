@@ -27,6 +27,10 @@
 #include "query/frame_change.hpp"
 #include "query/hops_limit.hpp"
 
+namespace memgraph::memory {
+class ArenaPool;
+}  // namespace memgraph::memory
+
 namespace memgraph::query {
 
 class FineGrainedAuthChecker;
@@ -128,6 +132,10 @@ struct ExecutionContext {
   bool is_main{true};
   std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
   utils::PriorityThreadPool *worker_pool{nullptr};
+  // Arena pool for the database owning this query. Parallel query workers
+  // acquire from it when work leaves the main query thread, so TLS-scoped
+  // allocations still attribute to the parent DB.
+  memgraph::memory::ArenaPool *db_arena_pool{nullptr};
 
   auto commit_args() -> storage::CommitArgs;
 };

@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -23,6 +24,10 @@
 #include "integrations/pulsar/consumer.hpp"
 #include "nlohmann/json_fwd.hpp"
 #include "query/stream/common.hpp"
+
+namespace memgraph::memory {
+class ArenaPool;
+}  // namespace memgraph::memory
 
 namespace memgraph::query::stream {
 
@@ -39,7 +44,8 @@ struct KafkaStream {
   using Message = integrations::kafka::Message;
 
   KafkaStream(std::string stream_name, StreamInfo stream_info,
-              ConsumerFunction<integrations::kafka::Message> consumer_function);
+              ConsumerFunction<integrations::kafka::Message> consumer_function,
+              memory::ArenaPool *arena_pool = nullptr);
 
   StreamInfo Info(std::string transformation_name) const;
 
@@ -75,7 +81,8 @@ struct PulsarStream {
 
   using Message = integrations::pulsar::Message;
 
-  PulsarStream(std::string stream_name, StreamInfo stream_info, ConsumerFunction<Message> consumer_function);
+  PulsarStream(std::string stream_name, StreamInfo stream_info, ConsumerFunction<Message> consumer_function,
+               memory::ArenaPool *arena_pool = nullptr);
 
   StreamInfo Info(std::string transformation_name) const;
 
