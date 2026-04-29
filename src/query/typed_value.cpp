@@ -2048,34 +2048,75 @@ bool TypedValue::Equivalent::operator()(const TypedValue &lhs, const TypedValue 
   // is reflexive — any two nulls are equivalent (recursively into containers),
   // and NaN is equivalent to NaN even though IEEE-754 says NaN == NaN is false.
   // Used by DISTINCT, GROUP BY and hash-based set membership where null and NaN
-  // grouping keys must collapse together.
-  if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && rhs.IsNull();
+  // grouping keys must collapse together. Hot path — compare leaf values directly
+  // instead of round-tripping through `TypedValue operator==` (which builds an
+  // allocator-aware TypedValue per call).
+  using Type = TypedValue::Type;
+  const auto type_a = lhs.type();
+  const auto type_b = rhs.type();
 
-  if (lhs.type() != rhs.type() && !(lhs.IsNumeric() && rhs.IsNumeric())) {
-    return false;
+  // Null reflexivity (recursive into containers via the List/Map branches below).
+  if (type_a == Type::Null || type_b == Type::Null) return type_a == type_b;
+
+  // Int/Int fast path — the common DISTINCT/GROUP BY key case. Skips double
+  // conversion since Int can never be NaN.
+  if (type_a == Type::Int && type_b == Type::Int) {
+    return lhs.UnsafeValueInt() == rhs.UnsafeValueInt();
   }
 
-  // NaN reflexivity: required to keep Hash and Equivalent consistent so that
-  // DISTINCT collapses NaN values that hash to the same bucket.
-  if (lhs.IsNumeric() && rhs.IsNumeric()) {
-    const double da = lhs.IsDouble() ? lhs.UnsafeValueDouble() : static_cast<double>(lhs.UnsafeValueInt());
-    const double db = rhs.IsDouble() ? rhs.UnsafeValueDouble() : static_cast<double>(rhs.UnsafeValueInt());
-    if (std::isnan(da) && std::isnan(db)) return true;
+  // Numeric coercion (Int <-> Double) with NaN reflexivity. NaN check only kicks
+  // in when at least one side is Double; required to keep Hash and Equivalent
+  // consistent so DISTINCT collapses NaN keys that hash to the same bucket.
+  const bool a_double = type_a == Type::Double;
+  const bool b_double = type_b == Type::Double;
+  if ((a_double || type_a == Type::Int) && (b_double || type_b == Type::Int)) {
+    const double da = a_double ? lhs.UnsafeValueDouble() : static_cast<double>(lhs.UnsafeValueInt());
+    const double db = b_double ? rhs.UnsafeValueDouble() : static_cast<double>(rhs.UnsafeValueInt());
+    if (da == db) return true;
+    return std::isnan(da) && std::isnan(db);
   }
 
-  switch (lhs.type()) {
-    case TypedValue::Type::List: {
-      const auto &la = lhs.ValueList();
-      const auto &lb = rhs.ValueList();
+  if (type_a != type_b) return false;
+
+  switch (type_a) {
+    case Type::Bool:
+      return lhs.UnsafeValueBool() == rhs.UnsafeValueBool();
+    case Type::String:
+      return lhs.UnsafeValueString() == rhs.UnsafeValueString();
+    case Type::Vertex:
+      return lhs.UnsafeValueVertex() == rhs.UnsafeValueVertex();
+    case Type::Edge:
+      return lhs.UnsafeValueEdge() == rhs.UnsafeValueEdge();
+    case Type::Path:
+      return lhs.UnsafeValuePath() == rhs.UnsafeValuePath();
+    case Type::Date:
+      return lhs.UnsafeValueDate() == rhs.UnsafeValueDate();
+    case Type::LocalTime:
+      return lhs.UnsafeValueLocalTime() == rhs.UnsafeValueLocalTime();
+    case Type::LocalDateTime:
+      return lhs.UnsafeValueLocalDateTime() == rhs.UnsafeValueLocalDateTime();
+    case Type::ZonedDateTime:
+      return lhs.UnsafeValueZonedDateTime() == rhs.UnsafeValueZonedDateTime();
+    case Type::Duration:
+      return lhs.UnsafeValueDuration() == rhs.UnsafeValueDuration();
+    case Type::Enum:
+      return lhs.UnsafeValueEnum() == rhs.UnsafeValueEnum();
+    case Type::Point2d:
+      return lhs.UnsafeValuePoint2d() == rhs.UnsafeValuePoint2d();
+    case Type::Point3d:
+      return lhs.UnsafeValuePoint3d() == rhs.UnsafeValuePoint3d();
+    case Type::List: {
+      const auto &la = lhs.UnsafeValueList();
+      const auto &lb = rhs.UnsafeValueList();
       if (la.size() != lb.size()) return false;
       for (size_t i = 0; i < la.size(); ++i) {
         if (!(*this)(la[i], lb[i])) return false;
       }
       return true;
     }
-    case TypedValue::Type::Map: {
-      const auto &ma = lhs.ValueMap();
-      const auto &mb = rhs.ValueMap();
+    case Type::Map: {
+      const auto &ma = lhs.UnsafeValueMap();
+      const auto &mb = rhs.UnsafeValueMap();
       if (ma.size() != mb.size()) return false;
       for (const auto &kv : ma) {
         auto it = mb.find(kv.first);
@@ -2084,30 +2125,17 @@ bool TypedValue::Equivalent::operator()(const TypedValue &lhs, const TypedValue 
       }
       return true;
     }
-    case TypedValue::Type::Bool:
-    case TypedValue::Type::Int:
-    case TypedValue::Type::Double:
-    case TypedValue::Type::String:
-    case TypedValue::Type::Vertex:
-    case TypedValue::Type::Edge:
-    case TypedValue::Type::Path:
-    case TypedValue::Type::Date:
-    case TypedValue::Type::LocalTime:
-    case TypedValue::Type::LocalDateTime:
-    case TypedValue::Type::ZonedDateTime:
-    case TypedValue::Type::Duration:
-    case TypedValue::Type::Enum:
-    case TypedValue::Type::Point2d:
-    case TypedValue::Type::Point3d:
-    case TypedValue::Type::Graph:
-    case TypedValue::Type::Function: {
+    case Type::Int:
+    case Type::Double:
+    case Type::Null:
+      // Int/Double handled by the numeric branch above; Null handled at entry.
+      std::unreachable();
+    case Type::Graph:
+    case Type::Function:
+      // Preserve the original diagnostics for these unreachable-in-practice types.
       TypedValue eq = lhs == rhs;
       DMG_ASSERT(eq.IsBool() || eq.IsNull(), "Equality between two TypedValues must result in either Null or Bool");
       return eq.IsBool() && eq.ValueBool();
-    }
-    case TypedValue::Type::Null:
-      // Handled by the early null check above.
-      break;
   }
   std::unreachable();
 }

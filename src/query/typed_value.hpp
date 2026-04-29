@@ -87,7 +87,7 @@ class TypedValue {
    * TypedValue. Pairs with `Hash`: `Equivalent(a,b) ⇒ Hash(a) == Hash(b)`.
    */
   struct Equivalent {
-    bool operator()(const TypedValue &left, const TypedValue &right) const;
+    bool operator()(const TypedValue &lhs, const TypedValue &rhs) const;
   };
 
   /** Hash operator for TypedValue.
