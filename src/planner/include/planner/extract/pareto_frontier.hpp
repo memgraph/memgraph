@@ -123,12 +123,20 @@ struct ParetoFrontier {
   /// extractor.hpp's ComputeFrontiers folds owned `enode_frontier` into the
   /// running `merged_frontier` and discards both, so moving avoids two
   /// vector copies per multi-enode eclass.
+  ///
+  /// Both inputs are already Pareto-pruned, so the merged result only needs
+  /// cross-pair checks (a-elements vs b-elements) plus within-b pair checks
+  /// (a is fully pruned, but b might be revealed as needing internal
+  /// dominance work after we've removed some a-elements... actually no, b was
+  /// pruned in isolation, and removing a-elements doesn't introduce
+  /// within-b dominance).  prune_with_pruned_prefix(M) handles this.
   [[nodiscard]] static auto merge(ParetoFrontier &&a, ParetoFrontier &&b) -> ParetoFrontier {
     auto result = ParetoFrontier{std::move(a)};
-    result.alts_.reserve(result.alts_.size() + b.alts_.size());
+    auto const pruned_prefix = result.alts_.size();
+    result.alts_.reserve(pruned_prefix + b.alts_.size());
     result.alts_.insert(
         result.alts_.end(), std::make_move_iterator(b.alts_.begin()), std::make_move_iterator(b.alts_.end()));
-    result.prune();
+    result.prune_with_pruned_prefix(pruned_prefix);
     return result;
   }
 
@@ -158,23 +166,43 @@ struct ParetoFrontier {
   /// moved-from elements (std::erase_if/remove_if moves elements during its pass).
   /// Private — there is no path to seed an unpruned frontier from outside, so
   /// external prune() calls would always be no-ops.
-  void prune() {
+  void prune() { prune_with_pruned_prefix(0); }
+
+  /// Prune assuming `alts_[0..pruned_prefix)` is already Pareto-pruned.  Saves
+  /// the within-prefix pair checks (those would never find dominance because
+  /// the prefix is known pruned).  Used by `merge` where two pre-pruned sets
+  /// are concatenated — only A × B cross-pairs and within-B pairs need
+  /// checking, dropping merge's prune from O((M+K)²) to O(M·K + K²).
+  void prune_with_pruned_prefix(size_t pruned_prefix) {
     auto const n = alts_.size();
-    if (n <= 1) return;  // 0 or 1 alts: nothing can dominate; skip the SBO setup.
+    if (n - pruned_prefix == 0) return;                        // nothing newly added
+    if (pruned_prefix + 1 >= n && pruned_prefix == 0) return;  // 0 or 1 total alt
     // SBO buffer for the dominated-flag array. Frontiers rarely exceed 64
     // alternatives after pruning; larger ones fall back to heap.
     boost::container::small_vector<bool, 64> dominated(n, false);
-    for (size_t i = 0; i < n; ++i) {
+    // Cross-checks: prefix × new (i in [0, pruned_prefix), j in [pruned_prefix, n))
+    for (size_t i = 0; i < pruned_prefix; ++i) {
+      if (dominated[i]) continue;
+      for (size_t j = pruned_prefix; j < n; ++j) {
+        if (dominated[j]) continue;
+        if (DominanceFn{}(alts_[i], alts_[j])) {
+          dominated[i] = true;
+          break;
+        }
+        if (DominanceFn{}(alts_[j], alts_[i])) {
+          dominated[j] = true;
+        }
+      }
+    }
+    // Within-new checks: (i, j) both >= pruned_prefix.  When pruned_prefix==0
+    // this is the full O(N²) pass; when pruned_prefix==M it's the K² portion.
+    for (size_t i = pruned_prefix; i < n; ++i) {
       if (dominated[i]) continue;
       for (size_t j = i + 1; j < n; ++j) {
         if (dominated[j]) continue;
         if (DominanceFn{}(alts_[i], alts_[j])) {
           dominated[i] = true;
-          // Safe to break by transitivity of DominanceFn (enforced by the
-          // DominanceRelation concept). If alts_[i] is dominated by alts_[j],
-          // anything alts_[i] would have dominated at higher j is either
-          // dominated by alts_[j] (transitivity) or will be discovered when the
-          // outer loop reaches those indices as i. Continuing past j is redundant.
+          // Transitivity break — see prune() / DominanceRelation concept.
           break;
         }
         if (DominanceFn{}(alts_[j], alts_[i])) {
