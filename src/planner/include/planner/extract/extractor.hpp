@@ -227,7 +227,7 @@ template <typename Symbol, typename Analysis, typename CostModel>
         // N.B. intentionally no break — continue processing remaining children
         // so their costs are computed and cached for other extraction paths
       } else {
-        children_frontiers.emplace_back(*frontier);
+        children_frontiers.emplace_back(std::move(*frontier));
       }
     }
     if (has_cyclic_child) continue;
@@ -237,7 +237,7 @@ template <typename Symbol, typename Analysis, typename CostModel>
     if (!merged_frontier) {
       merged_frontier = std::move(enode_frontier);
     } else {
-      merged_frontier = CostResult::merge(*merged_frontier, enode_frontier);
+      merged_frontier = CostResult::merge(std::move(*merged_frontier), std::move(enode_frontier));
     }
   }
 

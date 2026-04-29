@@ -119,6 +119,19 @@ struct ParetoFrontier {
     return result;
   }
 
+  /// Rvalue overload — moves alts from both inputs instead of copying.  Hot path:
+  /// extractor.hpp's ComputeFrontiers folds owned `enode_frontier` into the
+  /// running `merged_frontier` and discards both, so moving avoids two
+  /// vector copies per multi-enode eclass.
+  [[nodiscard]] static auto merge(ParetoFrontier &&a, ParetoFrontier &&b) -> ParetoFrontier {
+    auto result = ParetoFrontier{std::move(a)};
+    result.alts_.reserve(result.alts_.size() + b.alts_.size());
+    result.alts_.insert(
+        result.alts_.end(), std::make_move_iterator(b.alts_.begin()), std::make_move_iterator(b.alts_.end()));
+    result.prune();
+    return result;
+  }
+
   /// Cartesian product of two frontiers. For each (l, r) pair, calls combine_fn(l, r)
   /// to produce a new alternative, then prunes the result.
   template <typename CombineFn>
@@ -213,6 +226,12 @@ struct CostResultBase : ParetoFrontier<Alt, DominanceFn> {
 
   /// Hides Base::merge so the static return type matches Derived (required by CostResultType concept).
   [[nodiscard]] static auto merge(Derived const &a, Derived const &b) -> Derived { return Derived{Base::merge(a, b)}; }
+
+  /// Rvalue overload — forwards to Base's move-merge to avoid copying alts when
+  /// both inputs are owned (e.g. ComputeFrontiers folding accumulated frontier).
+  [[nodiscard]] static auto merge(Derived &&a, Derived &&b) -> Derived {
+    return Derived{Base::merge(std::move(static_cast<Base &>(a)), std::move(static_cast<Base &>(b)))};
+  }
 
   /// Derived-returning analogue of Base::from_unpruned.  Tests use this to
   /// seed Pareto-pruned frontiers from raw alternative lists.
