@@ -633,7 +633,7 @@ TEST(Extract_TopologicalSort, CycleDetection_IncompleteResult) {
   // Without the assertion, the cycle causes silent truncation: no nodes emitted
   EXPECT_EQ(result.size(), 0);
 #else
-  ASSERT_DEATH(extract::detail::TopologicalSort(egraph, selection, std::move(in_degree)), "cycle detected");
+  ASSERT_DEATH((void)extract::detail::TopologicalSort(egraph, selection, std::move(in_degree)), "cycle detected");
 #endif
 }
 
