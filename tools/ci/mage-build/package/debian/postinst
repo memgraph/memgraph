@@ -5,7 +5,8 @@ case "$1" in
     configure)
         # install requirements as user memgraph
         CUDA=@CUDA@
-        su - memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA"
+        ARCH=@ARCH@
+        su - memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA --arch $ARCH"
         systemctl restart memgraph.service
     ;;
 esac
