@@ -34,9 +34,6 @@ workloads:
   - config: ../workloads/concurrent_index_creation/workload.yaml
     enabled: true
 
-  - config: ../workloads/database_memory_profiles/workload.yaml
-    enabled: true
-
     # Running currently only as the native test. Too complex at the moment to set-up root access for EKS
   - config: ../workloads/rpc_timeout/workload.yaml
     enabled: false
@@ -47,3 +44,6 @@ workloads:
   # queries can continue executing
   - config: ../workloads/responsive_reads/workload.yaml
     enabled: false
+
+  - config: ../workloads/database_memory_profiles/workload.yaml
+    enabled: true
