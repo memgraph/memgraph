@@ -89,19 +89,34 @@ static auto BestBindBranchCostsForResolve(CostFrontier const &input_frontier, do
     alive_provided.insert(sym_eclass);
   }
 
-  auto best_alive = std::numeric_limits<double>::infinity();
-  auto best_dead = std::numeric_limits<double>::infinity();
+  // The alive cost is `input.cost + sym_cost + expr.cost`.  The min over
+  // independent input/expr feasibility filters decomposes into two separate
+  // passes, dropping cartesian O(I × E) → linear O(I + E).
+  auto inf = std::numeric_limits<double>::infinity();
+  auto min_alive_input_cost = inf;
+  auto best_dead = inf;
 
   for (auto const &input_alt : input_frontier.alts()) {
     if (bind::IsAlive(input_alt.required, sym_eclass)) {
       if (filtering && !bind::IsCompatible(input_alt.required, alive_provided)) continue;
-      for (auto const &expr_alt : expr_frontier.alts()) {
-        if (filtering && !bind::IsCompatible(expr_alt.required, provided)) continue;
-        best_alive = std::min(best_alive, bind::AliveCost(input_alt.cost, sym_cost, expr_alt.cost));
-      }
+      min_alive_input_cost = std::min(min_alive_input_cost, input_alt.cost);
     } else {
       if (filtering && !bind::IsCompatible(input_alt.required, provided)) continue;
       best_dead = std::min(best_dead, bind::DeadCost(input_alt.cost));
+    }
+  }
+
+  // No feasible alive input → alive branch infeasible regardless of expr.
+  // Skip the expr scan entirely in that case.
+  auto best_alive = inf;
+  if (min_alive_input_cost != inf) {
+    auto min_expr_cost = inf;
+    for (auto const &expr_alt : expr_frontier.alts()) {
+      if (filtering && !bind::IsCompatible(expr_alt.required, provided)) continue;
+      min_expr_cost = std::min(min_expr_cost, expr_alt.cost);
+    }
+    if (min_expr_cost != inf) {
+      best_alive = bind::AliveCost(min_alive_input_cost, sym_cost, min_expr_cost);
     }
   }
 
