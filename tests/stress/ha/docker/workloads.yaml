@@ -27,6 +27,9 @@ workloads:
   - config: ../workloads/concurrent_index_creation/workload.yaml
     enabled: true
 
+  - config: ../workloads/database_memory_profiles/workload.yaml
+    enabled: true
+
   - config: ../workloads/rag/workload.yaml
     enabled: true
 

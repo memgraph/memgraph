@@ -31,6 +31,9 @@ workloads:
   - config: ../workloads/concurrent_index_creation/workload.yaml
     enabled: true
 
+  - config: ../workloads/database_memory_profiles/workload.yaml
+    enabled: true
+
   # Native deployment does not have Memgraph MAGE included so we will not run this one
   - config: ../workloads/publications/workload.yaml
     enabled: false
