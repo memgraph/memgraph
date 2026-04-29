@@ -87,18 +87,9 @@ CREATE (:Node {id: i, name: 'node_' + toString(i), payload: 'p_' + toString(i)})
     return databases
 
 
-def teardown_iteration(databases: list[str], iteration: int) -> None:
-    print(
-        f"Iteration {iteration + 1}/{NUM_ITERATIONS}: dropping "
-        f"{len(databases)} databases and profile {PROFILE_NAME!r}..."
-    )
-    for db in databases:
-        execute_query(
-            COORDINATOR,
-            f"DROP DATABASE {db} FORCE",
-            protocol=Protocol.BOLT_ROUTING,
-            query_type=QueryType.WRITE,
-        )
+def teardown_iteration(iteration: int) -> None:
+    print(f"Iteration {iteration + 1}/{NUM_ITERATIONS}: wiping cluster " f"and dropping profile {PROFILE_NAME!r}...")
+    cleanup(coordinator=COORDINATOR)
     execute_query(
         COORDINATOR,
         f"DROP TENANT PROFILE {PROFILE_NAME}",
@@ -228,7 +219,7 @@ def run_workload(monitor: ClusterMonitor) -> None:
             print(f"ERROR: replication consistency check failed at iteration {iteration + 1}")
             sys.exit(1)
 
-        teardown_iteration(databases, iteration)
+        teardown_iteration(iteration)
 
 
 def main():
