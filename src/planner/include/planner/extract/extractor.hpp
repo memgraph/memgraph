@@ -378,7 +378,9 @@ template <typename Symbol, typename Analysis, typename CostModel, typename Resol
 
   ctx.clear();
 
-  // Stage 1: bottom-up cost propagation.
+  // Stage 1: bottom-up cost propagation.  Reserve up-front so the recursive
+  // descent doesn't re-hash as eclasses are inserted.
+  ctx.frontier_map.reserve(egraph.num_classes());
   (void)detail::ComputeFrontiers(egraph, cost_model, root, ctx.frontier_map);
 
   // Stage 2: top-down resolution.  Resolver is responsible for the contract

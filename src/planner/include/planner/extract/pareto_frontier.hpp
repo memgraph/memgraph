@@ -160,6 +160,7 @@ struct ParetoFrontier {
   /// external prune() calls would always be no-ops.
   void prune() {
     auto const n = alts_.size();
+    if (n <= 1) return;  // 0 or 1 alts: nothing can dominate; skip the SBO setup.
     // SBO buffer for the dominated-flag array. Frontiers rarely exceed 64
     // alternatives after pruning; larger ones fall back to heap.
     boost::container::small_vector<bool, 64> dominated(n, false);
