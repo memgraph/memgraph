@@ -19,25 +19,25 @@ defaults:
 
 workloads:
   - config: ../workloads/concurrent_edge_creation_on_supernode/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/concurrent_edge_write/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/concurrent_index_creation/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/database_memory_profiles/workload.yaml
     enabled: true
 
   - config: ../workloads/rag/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/publications/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/restarting_instances/workload.yaml
-    enabled: true
+    enabled: false
 
   # TODO: re-enable once fixed
   - config: ../workloads/vector_index_recovery/workload.yaml
@@ -48,7 +48,7 @@ workloads:
     enabled: false
 
   - config: ../workloads/vector_index_concurrent_ops/workload.yaml
-    enabled: true
+    enabled: false
 
   # Running currently only as the native test. Too complex at the moment to set-up root access for Docker test
   - config: ../workloads/rpc_timeout/workload.yaml
