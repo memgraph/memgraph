@@ -23,6 +23,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan_v2/bind_semantics.hpp"
 #include "query/plan_v2/egraph_internal.hpp"
+#include "query/plan_v2/expression_cost.hpp"
 #include "utils/tag.hpp"
 
 namespace memgraph::query::plan::v2 {
@@ -142,6 +143,18 @@ auto CombineAlts(double extra_cost, planner::core::ENodeId enode_id) -> CombineA
   return CombineAltsFn{extra_cost, enode_id};
 }
 
+/// Map over a single frontier — adjust each alternative's cost by `extra_cost`
+/// and re-stamp `enode_id`.  The 1-frontier sibling of CombineAlts; used for
+/// pass-through nodes (unary operators, Output's input child) where the output
+/// frontier shape mirrors a single input.
+auto MapAlts(CostFrontier input, double extra_cost, planner::core::ENodeId enode_id) -> CostFrontier {
+  for (auto &alt : input.alts) {
+    alt.cost += extra_cost;
+    alt.enode_id = enode_id;
+  }
+  return input;
+}
+
 struct PlanCostModel {
   using CostResult = CostFrontier;
 
@@ -159,8 +172,9 @@ struct PlanCostModel {
       case symbol::Identifier: {
         assert(!children.empty() && "Identifier must have its symbol child frontier");
         auto sym_eclass = current.children()[0];
-        return CostResult{
-            {{.cost = 1.0 + CostFrontier::min_cost(children[0]), .required = {sym_eclass}, .enode_id = enode_id}}};
+        return CostResult{{{.cost = expression_cost::kIdentifier + CostFrontier::min_cost(children[0]),
+                            .required = {sym_eclass},
+                            .enode_id = enode_id}}};
       }
 
       // Bind: alive if sym demanded, dead otherwise.
@@ -191,56 +205,53 @@ struct PlanCostModel {
         });
       }
 
-      // Binary operators: combine lhs × rhs + 1
+      // Binary arithmetic: lhs × rhs cartesian product, +kArithmetic per pair.
       case symbol::Add:
       case symbol::Sub:
       case symbol::Mul:
       case symbol::Div:
       case symbol::Mod:
       case symbol::Exp:
+        return CostFrontier::combine(children[0], children[1], CombineAlts(expression_cost::kArithmetic, enode_id));
+
+      // Binary comparison: lhs × rhs cartesian product, +kComparison per pair.
       case symbol::Eq:
       case symbol::Neq:
       case symbol::Lt:
       case symbol::Lte:
       case symbol::Gt:
       case symbol::Gte:
+        return CostFrontier::combine(children[0], children[1], CombineAlts(expression_cost::kComparison, enode_id));
+
+      // Binary boolean: lhs × rhs cartesian product, +kBoolean per pair.
       case symbol::And:
       case symbol::Or:
       case symbol::Xor:
-        return CostFrontier::combine(children[0], children[1], CombineAlts(1.0, enode_id));
+        return CostFrontier::combine(children[0], children[1], CombineAlts(expression_cost::kBoolean, enode_id));
 
-      // Unary operators: pass through child + 1
+      // Unary operators: pass through child, +kUnary, re-stamp enode_id so the
+      // Builder dispatches *this* unary node (not the child) via enode.symbol().
       case symbol::Not:
       case symbol::UnaryMinus:
-      case symbol::UnaryPlus: {
-        // enode_id is the reconstruction key consumed by ConvertToLogicalOperator's
-        // build phase: it dispatches via egraph.get_enode(enode_id).symbol(). We
-        // reuse children[0]'s frontier shape but rewrite enode_id so the Builder
-        // dispatches *this* unary node, not the child.
-        auto result = children[0];
-        for (auto &alt : result.alts) {
-          alt.cost += 1.0;
-          alt.enode_id = enode_id;
-        }
-        return result;
-      }
+      case symbol::UnaryPlus:
+        return MapAlts(children[0], expression_cost::kUnary, enode_id);
 
-      // Output: fold input × named_output₁ × named_output₂ × ...
+      // Output: re-stamp child[0]'s frontier (no extra cost) so all alternatives
+      // dispatch through this Output enode in the Builder, then fold in each
+      // NamedOutput child via CombineAlts (which re-stamps again per pair).
+      // The MapAlts pass is required when children.size() == 1 (no NamedOutputs);
+      // otherwise CombineAlts would handle re-stamping on its own.
       case symbol::Output: {
-        // enode_id is the reconstruction key (see unary case above). All
-        // alternatives for the Output eclass must point at *this* enode so the
-        // Builder dispatches Output::symbol() — not the input enode's symbol.
-        // The pre-loop rewrite is only load-bearing when children.size() == 1;
-        // otherwise CombineAlts re-stamps enode_id on every produced alt.
-        auto result = children[0];
-        for (auto &alt : result.alts) alt.enode_id = enode_id;
+        auto result = MapAlts(children[0], 0.0, enode_id);
         for (size_t i = 1; i < children.size(); ++i) {
           result = CostFrontier::combine(result, children[i], CombineAlts(0.0, enode_id));
         }
         return result;
       }
 
-      // NamedOutput: combine sym × expr + 1
+      // NamedOutput: sym × expr cartesian product, +1 per pair.  Structural
+      // (not an expression operator), so kept at a fixed cost rather than
+      // sourced from expression_cost.
       case symbol::NamedOutput:
         return CostFrontier::combine(children[0], children[1], CombineAlts(1.0, enode_id));
     }
