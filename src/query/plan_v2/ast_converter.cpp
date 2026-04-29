@@ -317,10 +317,6 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(UnaryMinusOperator & /*unary_minus_operator*/) override { return true; }
-
-  bool PreVisit(UnaryPlusOperator & /*unary_plus_operator*/) override { return true; }
-
   bool PreVisit(IfOperator & /*if_operator*/) override {
     MG_ASSERT(false, "not implemented yet");
     return true;
@@ -345,38 +341,6 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
     MG_ASSERT(false, "not implemented yet");
     return true;
   }
-
-  bool PreVisit(GreaterEqualOperator & /*greater_equal_operator*/) override { return true; }
-
-  bool PreVisit(LessEqualOperator & /*less_equal_operator*/) override { return true; }
-
-  bool PreVisit(GreaterOperator & /*greater_operator*/) override { return true; }
-
-  bool PreVisit(LessOperator & /*less_operator*/) override { return true; }
-
-  bool PreVisit(EqualOperator & /*equal_operator*/) override { return true; }
-
-  bool PreVisit(NotEqualOperator & /*not_equal_operator*/) override { return true; }
-
-  bool PreVisit(ExponentiationOperator & /*exponentiation_operator*/) override { return true; }
-
-  bool PreVisit(ModOperator & /*mod_operator*/) override { return true; }
-
-  bool PreVisit(DivisionOperator & /*division_operator*/) override { return true; }
-
-  bool PreVisit(MultiplicationOperator & /*multiplication_operator*/) override { return true; }
-
-  bool PreVisit(SubtractionOperator & /*subtraction_operator*/) override { return true; }
-
-  bool PreVisit(AdditionOperator & /*addition_operator*/) override { return true; }
-
-  bool PreVisit(NotOperator & /*not_operator*/) override { return true; }
-
-  bool PreVisit(AndOperator & /*and_operator*/) override { return true; }
-
-  bool PreVisit(XorOperator & /*xor_operator*/) override { return true; }
-
-  bool PreVisit(OrOperator & /*or_operator*/) override { return true; }
 
   bool PreVisit(CypherUnion & /*cypher_union*/) override {
     MG_ASSERT(false, "not implemented yet");
