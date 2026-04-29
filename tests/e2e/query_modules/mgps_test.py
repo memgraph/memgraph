@@ -15,14 +15,14 @@ import pytest
 from common import connect, execute_and_fetch_all
 
 
-def test_mgps1():
+def test_mgps_components():
     cursor = connect().cursor()
-    result = list(
-        execute_and_fetch_all(
-            cursor, f"CALL mgps.components() YIELD edition, name, versions RETURN edition, name, versions;"
-        )[0]
+    results = execute_and_fetch_all(
+        cursor, f"CALL mgps.components() YIELD edition, name, versions RETURN edition, name, versions;"
     )
-    assert (result) == ["community", "Memgraph", ["5.9.0"]]
+    rows = [list(r) for r in results]
+    assert ["community", "Memgraph", ["5.9.0"]] in rows
+    assert ["community", "Neo4j Kernel", ["5.9.0"]] in rows
 
 
 def test_mgps_validate_py_false():
@@ -96,6 +96,11 @@ def test_apoc_version_mapping():
     cursor = connect().cursor()
     result = execute_and_fetch_all(cursor, "RETURN apoc.version();")
     assert list(result[0]) == ["5.9.0"]
+
+
+def test_mgps_await_indexes():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CALL mgps.await_indexes(1);")
 
 
 if __name__ == "__main__":
