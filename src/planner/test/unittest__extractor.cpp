@@ -71,7 +71,7 @@ template <typename CostModel>
 auto Extract(EGraph<symbol, analysis> const &egraph, CostModel cost_model, EClassId root)
     -> std::vector<std::pair<EClassId, ENodeId>> {
   using CostResult = CostModel::CostResult;
-  auto frontier_map = std::unordered_map<EClassId, EClassFrontier<CostResult>>{};
+  auto frontier_map = FrontierMap<CostResult>{};
   (void)extract::detail::ComputeFrontiers(egraph, cost_model, root, frontier_map);
   auto resolved = ResolveSelection<symbol, analysis, CostResult>(egraph, frontier_map, root);
   auto in_degree = extract::detail::CollectDependencies(egraph, resolved, root);
@@ -1159,7 +1159,7 @@ TEST(Extract_MultiAlt, DominatedPruning) {
 
   // The frontier should have: from a1: {1,{1}},{2,{}} and from a2: {1,{1}},{2,{}}
   // After Pareto pruning, effectively 2 unique alternatives
-  std::unordered_map<EClassId, EClassFrontier<DemandAwareMultiAltCostModel::CostResult>> frontier_map;
+  FrontierMap<DemandAwareMultiAltCostModel::CostResult> frontier_map;
   (void)extract::detail::ComputeFrontiers(egraph, DemandAwareMultiAltCostModel{}, merged, frontier_map);
 
   auto it = frontier_map.find(merged);
@@ -1239,7 +1239,7 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
   auto [a_class, a_node, a_new] = egraph.emplace(symbol::A);
 
   // Directly compute frontiers to inspect the Pareto set
-  std::unordered_map<EClassId, EClassFrontier<ThreeAltCostModel::CostResult>> frontier_map;
+  FrontierMap<ThreeAltCostModel::CostResult> frontier_map;
   (void)extract::detail::ComputeFrontiers(egraph, ThreeAltCostModel{}, a_class, frontier_map);
 
   auto it = frontier_map.find(a_class);
@@ -1291,7 +1291,7 @@ TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
 
   // Compute frontiers bottom-up
   using CM = DemandAwareMultiAltCostModel;
-  std::unordered_map<EClassId, EClassFrontier<CM::CostResult>> frontier_map;
+  FrontierMap<CM::CostResult> frontier_map;
   (void)extract::detail::ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
 
   // Verify shared eclass has both non-dominated alternatives
@@ -1373,7 +1373,7 @@ TEST(Extract_MultiAlt, DAGResolution_CascadesToChildren) {
 
   // Compute frontiers bottom-up
   using CM = DemandAwareMultiAltCostModel;
-  std::unordered_map<EClassId, EClassFrontier<CM::CostResult>> frontier_map;
+  FrontierMap<CM::CostResult> frontier_map;
   (void)extract::detail::ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
 
   // Verify both Shared and Leaf have two non-dominated alternatives
@@ -1488,7 +1488,7 @@ TEST(Extract_MultiAlt, DAGResolution_AliveToDeadErasesStaleChildren) {
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::B, {left_class, right_class});
 
   using CM = DemandAwareMultiAltCostModel;
-  std::unordered_map<EClassId, EClassFrontier<CM::CostResult>> frontier_map;
+  FrontierMap<CM::CostResult> frontier_map;
   (void)extract::detail::ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
 
   auto resolved = std::unordered_map<EClassId, std::pair<ENodeId, double>>{};

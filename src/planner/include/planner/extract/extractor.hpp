@@ -22,6 +22,8 @@
 
 #include <cassert>
 
+#include <boost/unordered/unordered_flat_map.hpp>
+
 #include "planner/extract/pareto_frontier.hpp"
 
 import memgraph.planner.core.egraph;
@@ -91,8 +93,13 @@ using EClassFrontier = std::optional<CostResult>;
 
 /// Map from EClassId to its computed frontier.  Part of the Resolver contract:
 /// resolvers receive `FrontierMap<CR> const &` after ComputeFrontiers populates it.
+///
+/// boost::unordered_flat_map (open-addressing) gives much better cache locality
+/// than std::unordered_map (chained buckets, one heap node per entry) — the
+/// recursive ComputeFrontiers walk is dominated by the lookup pattern, and the
+/// per-iter clear() in production's ExtractionContext keeps reuse common.
 template <typename CostResult>
-using FrontierMap = std::unordered_map<EClassId, EClassFrontier<CostResult>>;
+using FrontierMap = boost::unordered_flat_map<EClassId, EClassFrontier<CostResult>>;
 
 /// Selection: one enode chosen per eclass, with its cost.
 template <typename CostType>
@@ -184,10 +191,6 @@ struct DefaultResolver {
 // existing per-stage tests and ConvertToLogicalOperator (which has a
 // planner-v2-specific validation step between ComputeFrontiers and resolve)
 // can compose them directly.
-// TODO: frontier_map and other std::unordered_map parameters could be switched
-// to boost::unordered_flat_map for better cache locality, but the type change
-// propagates through template signatures to all callers.
-
 namespace detail {
 
 /// In-degree map for topological sorting.
