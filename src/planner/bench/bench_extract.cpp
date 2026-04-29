@@ -97,10 +97,11 @@ struct CostModel {
   }
 };
 
-// Build a deep linear chain F(F(...const)) once; the bench loop just calls
-// ComputeFrontiers on a fresh frontier_map.  Avoids per-iter rebuild dominating
-// wall time, and keeps the shape simple (no merge() footguns) so we can isolate
-// ComputeFrontiers' own copy/move overhead.
+// Build helpers — invoked once per benchmark size; the for-loop body just
+// calls ComputeFrontiers on a fresh frontier_map.  Avoids per-iter rebuild
+// dominating wall time.
+
+// Deep linear chain F(F(...const)).
 static auto BuildDeepChain(int64_t depth) -> std::pair<TestEGraph, EClassId> {
   TestEGraph egraph;
   ProcessingContext<Op> ctx;
@@ -123,5 +124,42 @@ static void BM_Extract_DeepChain(benchmark::State &state) {
 }
 
 BENCHMARK(BM_Extract_DeepChain)->RangeMultiplier(8)->Range(64, 4096)->Unit(benchmark::kMicrosecond);
+
+// ---------------------------------------------------------------------------
+// Wide multi-enode eclass — N enodes (each F(const_i) with a distinct leaf)
+// share a single canonical eclass via merge().  ComputeFrontiers must merge()
+// the per-enode frontiers N-1 times to fold them.  Stresses the rvalue-merge
+// path inside the eclass-level accumulation loop.
+//
+// merge() canonicalises internally (Find on both args), so passing the
+// non-canonical `root` repeatedly is safe; we just need to use the latest
+// canonical id to ensure the final eclass ID is stable for ComputeFrontiers.
+// ---------------------------------------------------------------------------
+static auto BuildWideMerge(int64_t fanout) -> std::pair<TestEGraph, EClassId> {
+  TestEGraph egraph;
+  ProcessingContext<Op> ctx;
+  EClassId root = egraph.emplace(Op::F, {egraph.emplace(Op::Const, uint64_t{0}).eclass_id}).eclass_id;
+  for (int64_t i = 1; i < fanout; ++i) {
+    EClassId leaf = egraph.emplace(Op::Const, static_cast<uint64_t>(i)).eclass_id;
+    EClassId sibling = egraph.emplace(Op::F, {leaf}).eclass_id;
+    auto result = egraph.merge(root, sibling);
+    root = result.eclass_id;  // canonical id after merge
+  }
+  egraph.rebuild(ctx);
+  root = egraph.find(root);  // canonical after rebuild
+  return {std::move(egraph), root};
+}
+
+static void BM_Extract_WideMerge(benchmark::State &state) {
+  auto [egraph, root] = BuildWideMerge(state.range(0));
+  for (auto _ : state) {
+    FrontierMap<DemandFrontier> frontier_map;
+    benchmark::DoNotOptimize(
+        memgraph::planner::core::extract::detail::ComputeFrontiers(egraph, CostModel{}, root, frontier_map));
+  }
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+
+BENCHMARK(BM_Extract_WideMerge)->RangeMultiplier(4)->Range(8, 128)->Unit(benchmark::kMicrosecond);
 
 }  // namespace
