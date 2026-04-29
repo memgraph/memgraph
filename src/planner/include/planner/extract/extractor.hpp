@@ -11,8 +11,11 @@
 
 #pragma once
 
+#include <concepts>
 #include <functional>
 #include <queue>
+#include <span>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -33,10 +36,9 @@ namespace memgraph::planner::core::extract {
 //   using CostResult = ...;
 //   operator()(ENode const &, ENodeId, span<CostResult const>) -> CostResult
 //
-// CostResult must satisfy CostResultType (defined below).  Production users
-// derive from CostResultBase (planner/extract/pareto_frontier.hpp).  A simple
-// scalar fallback (DefaultCostResult) is available to test code only — see
-// src/planner/test/extractor_test_helpers.hpp.
+// CostResult must satisfy CostResultType (defined below).  ParetoFrontier-based
+// cost models derive from CostResultBase (planner/extract/pareto_frontier.hpp).
+// DefaultCostResult<T> is the scalar reference adapter.
 
 /// CostResult contract — enforced at compile time.
 /// Every CostResult type must provide:
@@ -56,20 +58,43 @@ concept CostResultType = requires(CR const &a, CR const &b) {
   { CR::resolve_with_cost(a) } -> std::convertible_to<std::pair<ENodeId, typename CR::cost_t>>;
 };
 
-/// In-degree map for topological sorting.
-using InDegreeMap = std::unordered_map<EClassId, int>;
+/// Default scalar CostResult — wraps a cost value with enode metadata.
+/// Reference adapter for cost models that don't need Pareto frontiers.
+template <typename T>
+struct DefaultCostResult {
+  using cost_t = T;
+
+  T cost;
+  ENodeId enode_id;
+
+  static auto merge(DefaultCostResult const &a, DefaultCostResult const &b) -> DefaultCostResult {
+    return a.cost <= b.cost ? a : b;
+  }
+
+  static auto resolve_with_cost(DefaultCostResult const &r) -> std::pair<ENodeId, cost_t> {
+    return {r.enode_id, r.cost};
+  }
+
+  static auto resolve(DefaultCostResult const &r) -> ENodeId { return r.enode_id; }
+
+  static auto min_cost(DefaultCostResult const &r) -> cost_t { return r.cost; }
+};
+
+static_assert(CostResultType<DefaultCostResult<double>>);
 
 // ============================================================================
-// Extraction pipeline
+// Extraction pipeline types
 // ============================================================================
-// TODO: frontier_map and other std::unordered_map parameters could be switched
-// to boost::unordered_flat_map for better cache locality, but the type change
-// propagates through template signatures to all callers.
 
 /// Per-eclass frontier during cost propagation.
 /// nullopt means "in progress" (cycle detection).
 template <typename CostResult>
 using EClassFrontier = std::optional<CostResult>;
+
+/// Map from EClassId to its computed frontier.  Part of the Resolver contract:
+/// resolvers receive `FrontierMap<CR> const &` after ComputeFrontiers populates it.
+template <typename CostResult>
+using FrontierMap = std::unordered_map<EClassId, EClassFrontier<CostResult>>;
 
 /// Selection: one enode chosen per eclass, with its cost.
 template <typename CostType>
@@ -78,13 +103,101 @@ struct Selection {
   CostType cost;
 };
 
+/// Map from EClassId to the enode chosen by a Resolver, with its cost.
+template <typename CostType>
+using SelectionMap = std::unordered_map<EClassId, Selection<CostType>>;
+
+// ============================================================================
+// Resolver contract
+// ============================================================================
+//
+// A Resolver is a stateless functor `r(egraph, frontier_map, root)` that
+// returns a SelectionMap.  It chooses one enode per eclass (typically by cost),
+// and decides which children of that enode are part of the extracted tree.
+//
+// Contract on the returned SelectionMap:
+//   - root is in the map.
+//   - For each (id, sel) in the map, sel.enode_id is a valid enode in eclass id.
+//   - For each (id, sel) in the map, every child of sel.enode_id that the
+//     resolver wishes to be part of the extracted tree is also in the map.
+//   - Children absent from the map are deliberately excluded ("dead").
+//
+// Downstream stages (CollectDependencies, TopologicalSort) skip absent children
+// — that is how the contract surfaces in the rest of the pipeline.
+//
+// Two production adapters:
+//   * DefaultResolver       — walks all children of the chosen enode.
+//   * PlanResolver (in query::plan::v2) — Bind-aware; honours alive/dead and
+//                                          re-resolves shared eclasses on
+//                                          incompatible re-visits.
+
+template <typename R, typename Symbol, typename Analysis, typename CostResult>
+concept Resolver =
+    CostResultType<CostResult> &&
+    std::invocable<R, EGraph<Symbol, Analysis> const &, FrontierMap<CostResult> const &, EClassId> &&
+    std::convertible_to<
+        std::invoke_result_t<R, EGraph<Symbol, Analysis> const &, FrontierMap<CostResult> const &, EClassId>,
+        SelectionMap<typename CostResult::cost_t>>;
+
+/// Generic Resolver that selects each eclass via CostResult::resolve_with_cost
+/// and walks every child of the chosen enode.  Safe for any cost model whose
+/// children are unconditionally part of the extracted tree.
+///
+/// NOT safe for cost models with conditional child semantics (e.g., Bind
+/// alive/dead in query::plan::v2).  Those need a context-aware resolver such
+/// as PlanResolver.
+struct DefaultResolver {
+  template <typename Symbol, typename Analysis, CostResultType CostResult>
+  auto operator()(EGraph<Symbol, Analysis> const &egraph, FrontierMap<CostResult> const &frontier_map,
+                  EClassId root) const -> SelectionMap<typename CostResult::cost_t> {
+    using CostType = typename CostResult::cost_t;
+
+    auto resolved = SelectionMap<CostType>{};
+    auto to_visit = std::vector{root};
+    auto visited = std::unordered_set{root};
+
+    while (!to_visit.empty()) {
+      auto current = to_visit.back();
+      to_visit.pop_back();
+
+      auto it = frontier_map.find(current);
+      assert(it != frontier_map.end() && it->second.has_value());
+
+      auto const &frontier = *it->second;
+      auto [enode_id, cost] = CostResult::resolve_with_cost(frontier);
+      resolved[current] = Selection<CostType>{enode_id, cost};
+
+      auto const &enode = egraph.get_enode(enode_id);
+      for (auto child : enode.children()) {
+        if (visited.insert(child).second) {
+          to_visit.push_back(child);
+        }
+      }
+    }
+
+    return resolved;
+  }
+};
+
+// ============================================================================
+// Extraction stages — internal, called by Extract().
+// ============================================================================
+// Public for now (commit 1 is additive).  Will move to extract::detail:: in
+// commit 2.  Tests reach in via the qualified name; production callers should
+// use Extract().
+// TODO: frontier_map and other std::unordered_map parameters could be switched
+// to boost::unordered_flat_map for better cache locality, but the type change
+// propagates through template signatures to all callers.
+
+/// In-degree map for topological sorting.
+using InDegreeMap = std::unordered_map<EClassId, int>;
+
 /// Bottom-up cost propagation. Calls cost_model(enode, enode_id, children) for each enode,
 /// merges results via CostResult::merge across enodes in the same eclass.
 template <typename Symbol, typename Analysis, typename CostModel>
   requires CostResultType<typename CostModel::CostResult>
-[[nodiscard]] auto ComputeFrontiers(
-    EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_model, EClassId eclass_id,
-    std::unordered_map<EClassId, EClassFrontier<typename CostModel::CostResult>> &frontier_map)
+[[nodiscard]] auto ComputeFrontiers(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_model,
+                                    EClassId eclass_id, FrontierMap<typename CostModel::CostResult> &frontier_map)
     -> std::optional<typename CostModel::CostResult> {
   using CostResult = typename CostModel::CostResult;
 
@@ -137,15 +250,10 @@ template <typename Symbol, typename Analysis, typename CostModel>
   return std::nullopt;
 }
 
-/// Generic top-down resolver lives in src/planner/test/extractor_test_helpers.hpp.
-/// Production code uses PlanResolver (egraph_converter.cpp), which handles
-/// Bind alive/dead decisions by propagating a "provided" SymbolSet top-down.
-
 template <typename Symbol, typename Analysis, typename CostResult>
 [[nodiscard]] auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
-                                       std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection,
-                                       EClassId root) -> InDegreeMap {
-  auto in_degree = std::unordered_map<EClassId, int>{{root, 0}};
+                                       SelectionMap<CostResult> const &enode_selection, EClassId root) -> InDegreeMap {
+  auto in_degree = InDegreeMap{{root, 0}};
   auto bfs = std::vector{root};
   auto visited = std::unordered_set{root};
   bfs.reserve(enode_selection.size());
@@ -162,10 +270,9 @@ template <typename Symbol, typename Analysis, typename CostResult>
     auto const &enode = egraph.get_enode(enode_it->second.enode_id);
     for (auto child : enode.children()) {
       // Only walk children that were resolved — dead Bind's sym/expr are skipped
+      // (Resolver contract: absent children are deliberately excluded).
       if (!enode_selection.contains(child)) continue;
-      // Count the in-degree, used for Kahn's topological sorting
       ++in_degree[child];
-      // Only add to BFS if not already added
       if (visited.insert(child).second) {
         bfs.emplace_back(child);
       }
@@ -176,8 +283,8 @@ template <typename Symbol, typename Analysis, typename CostResult>
 
 template <typename Symbol, typename Analysis, typename CostResult>
 [[nodiscard]] auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
-                                   std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection,
-                                   InDegreeMap in_degree) -> std::vector<std::pair<EClassId, ENodeId>> {
+                                   SelectionMap<CostResult> const &enode_selection, InDegreeMap in_degree)
+    -> std::vector<std::pair<EClassId, ENodeId>> {
   auto result = std::vector<std::pair<EClassId, ENodeId>>{};
   result.reserve(in_degree.size());
 
@@ -198,7 +305,7 @@ template <typename Symbol, typename Analysis, typename CostResult>
     auto const &enode = egraph.get_enode(enode_id);
     for (EClassId child : enode.children()) {
       auto deg_it = in_degree.find(child);
-      if (deg_it == in_degree.end()) continue;  // dead Bind child — not in resolved set
+      if (deg_it == in_degree.end()) continue;  // resolver excluded child — see Resolver contract
       if (--deg_it->second == 0) {
         queue.emplace(child);
       }
@@ -206,13 +313,100 @@ template <typename Symbol, typename Analysis, typename CostResult>
   }
 
   // Post-condition: all nodes must have been emitted. If not, the input contained a cycle,
-  // which means an upstream stage (ComputeFrontiers, PlanResolver, or CollectDependencies)
-  // admitted a cyclic dependency into the resolved selection — a bug in that stage.
+  // which means an upstream stage (ComputeFrontiers or the Resolver) admitted a cyclic
+  // dependency into the resolved selection — a bug in that stage.
   assert(result.size() == in_degree.size() &&
          "TopologicalSort: cycle detected — resolved selection is not a DAG; "
-         "check ComputeFrontiers and PlanResolver for upstream bug");
+         "check ComputeFrontiers and the Resolver for upstream bug");
 
   return result;
+}
+
+// ============================================================================
+// Extract — single deep entry point
+// ============================================================================
+//
+// The pipeline (frontier-build → resolve → collect-deps → topo-sort) lives
+// here as one function so the order, the invariants, and the contract between
+// stages are all in one place.  Two customisation points: the `cost_model`
+// (CostResultType) and the `resolver` (Resolver).
+
+/// Caller-owned buffer for stage state, reused across Extract() calls.
+template <CostResultType CostResult>
+struct ExtractionContext {
+  FrontierMap<CostResult> frontier_map;
+  SelectionMap<typename CostResult::cost_t> selection;
+  InDegreeMap in_degree;
+  std::vector<std::pair<EClassId, ENodeId>> order;
+
+  void clear() {
+    frontier_map.clear();
+    selection.clear();
+    in_degree.clear();
+    order.clear();
+  }
+};
+
+/// View over ExtractionContext-owned storage.  Valid until the next Extract()
+/// call on the same context.
+template <CostResultType CostResult>
+struct ExtractView {
+  std::span<std::pair<EClassId, ENodeId> const> order;
+  typename CostResult::cost_t root_cost;
+};
+
+/// Owned extraction result — independent of any ExtractionContext.
+/// Returned by the convenience overload that doesn't take a ctx.
+template <CostResultType CostResult>
+struct ExtractResult {
+  std::vector<std::pair<EClassId, ENodeId>> order;
+  typename CostResult::cost_t root_cost;
+};
+
+/// Primary entry point.  Caller owns `ctx`; the returned view points into
+/// ctx-owned storage and is valid until the next Extract() call on `ctx`.
+template <typename Symbol, typename Analysis, typename CostModel, typename ResolverFn>
+  requires CostResultType<typename CostModel::CostResult> &&
+           Resolver<ResolverFn, Symbol, Analysis, typename CostModel::CostResult>
+[[nodiscard]] auto Extract(EGraph<Symbol, Analysis> const &egraph, EClassId root, CostModel const &cost_model,
+                           ResolverFn resolver, ExtractionContext<typename CostModel::CostResult> &ctx)
+    -> ExtractView<typename CostModel::CostResult> {
+  using CostResult = typename CostModel::CostResult;
+
+  ctx.clear();
+
+  // Stage 1: bottom-up cost propagation.
+  (void)ComputeFrontiers(egraph, cost_model, root, ctx.frontier_map);
+
+  // Stage 2: top-down resolution.  Resolver is responsible for the contract
+  // documented above (chosen-coverage selection map).
+  ctx.selection = resolver(egraph, ctx.frontier_map, root);
+
+  // Stage 3: count in-degrees over the resolver-chosen child set.
+  ctx.in_degree = CollectDependencies(egraph, ctx.selection, root);
+
+  // Stage 4: topological sort.
+  ctx.order = TopologicalSort(egraph, ctx.selection, std::move(ctx.in_degree));
+
+  auto root_cost = typename CostResult::cost_t{};
+  if (auto it = ctx.selection.find(root); it != ctx.selection.end()) {
+    root_cost = it->second.cost;
+  }
+
+  return ExtractView<CostResult>{ctx.order, root_cost};
+}
+
+/// Convenience overload — single-shot, returns owned data.  Suitable for tests
+/// and one-shot callers that don't want to manage an ExtractionContext.
+template <typename Symbol, typename Analysis, typename CostModel, typename ResolverFn>
+  requires CostResultType<typename CostModel::CostResult> &&
+           Resolver<ResolverFn, Symbol, Analysis, typename CostModel::CostResult>
+[[nodiscard]] auto Extract(EGraph<Symbol, Analysis> const &egraph, EClassId root, CostModel const &cost_model,
+                           ResolverFn resolver) -> ExtractResult<typename CostModel::CostResult> {
+  using CostResult = typename CostModel::CostResult;
+  ExtractionContext<CostResult> ctx;
+  auto view = Extract(egraph, root, cost_model, std::move(resolver), ctx);
+  return ExtractResult<CostResult>{std::move(ctx.order), view.root_cost};
 }
 
 }  // namespace memgraph::planner::core::extract

@@ -11,91 +11,28 @@
 
 #pragma once
 
-// Test-only helpers for the extraction pipeline.
+// Compatibility shim.  DefaultCostResult and the generic resolver were
+// previously test-only; both are now promoted to the production extract::
+// namespace as reference adapters for CostResultType / Resolver.
 //
-// DefaultCostResult and ResolveSelection were promoted out of the production
-// header (planner/extract/extractor.hpp) once it was clear they exist solely
-// to drive the cost-model unit tests in unittest__extractor.cpp:
-//
-//   * Production cost models (PlanCostModel in egraph_converter.cpp) use a
-//     ParetoFrontier-derived CostResult, not DefaultCostResult.
-//   * Production resolution (PlanResolver) is context-aware and handles
-//     Bind alive/dead decisions; the generic ResolveSelection here is not
-//     safe for cost models with conditional child semantics.
-//
-// Keeping these here prevents new production cost models from picking up the
-// generic resolver "by accident" and getting subtly wrong results.
-
-#include <utility>
+// New code should refer to extract::DefaultCostResult and extract::DefaultResolver
+// directly.  This file remains so that existing tests continue to compile.
 
 #include "planner/extract/extractor.hpp"
 
-import memgraph.planner.core.egraph;
-
 namespace memgraph::planner::core::extract::testing {
 
-/// Default CostResult for simple scalar cost-model tests.
 template <typename T>
-struct DefaultCostResult {
-  using cost_t = T;
+using DefaultCostResult = ::memgraph::planner::core::extract::DefaultCostResult<T>;
 
-  T cost;
-  ENodeId enode_id;
-
-  static auto merge(DefaultCostResult const &a, DefaultCostResult const &b) -> DefaultCostResult {
-    return a.cost <= b.cost ? a : b;
-  }
-
-  static auto resolve_with_cost(DefaultCostResult const &r) -> std::pair<ENodeId, cost_t> {
-    return {r.enode_id, r.cost};
-  }
-
-  static auto resolve(DefaultCostResult const &r) -> ENodeId { return r.enode_id; }
-
-  static auto min_cost(DefaultCostResult const &r) -> cost_t { return r.cost; }
-};
-
-static_assert(CostResultType<DefaultCostResult<double>>);
-
-/// Generic top-down resolver. Picks the best enode at each eclass via
-/// CostResult::resolve_with_cost. Used by Extract() in unittest__extractor.cpp
-/// for cost-model tests that do not require context-sensitive child visitation.
-///
-/// NOTE: cost models with conditional child semantics (e.g., Bind alive/dead)
-/// must use a custom resolver (see PlanResolver in egraph_converter.cpp) —
-/// this generic resolver will silently produce wrong selections for them.
+/// Free-function wrapper around DefaultResolver{} so old test call sites
+/// `ResolveSelection<S, A, CR>(g, fm, root)` keep working.  Prefer
+/// `extract::DefaultResolver{}(g, fm, root)` in new code.
 template <typename Symbol, typename Analysis, typename CostResult>
   requires CostResultType<CostResult>
-[[nodiscard]] auto ResolveSelection(EGraph<Symbol, Analysis> const &egraph,
-                                    std::unordered_map<EClassId, EClassFrontier<CostResult>> const &frontier_map,
-                                    EClassId root)
-    -> std::unordered_map<EClassId, Selection<typename CostResult::cost_t>> {
-  using CostType = typename CostResult::cost_t;
-
-  auto resolved = std::unordered_map<EClassId, Selection<CostType>>{};
-  auto to_visit = std::vector{root};
-  auto visited = std::unordered_set{root};
-
-  while (!to_visit.empty()) {
-    auto current = to_visit.back();
-    to_visit.pop_back();
-
-    auto it = frontier_map.find(current);
-    assert(it != frontier_map.end() && it->second.has_value());
-
-    auto const &frontier = *it->second;
-    auto [enode_id, cost] = CostResult::resolve_with_cost(frontier);
-    resolved[current] = Selection<CostType>{enode_id, cost};
-
-    auto const &enode = egraph.get_enode(enode_id);
-    for (auto child : enode.children()) {
-      if (visited.insert(child).second) {
-        to_visit.push_back(child);
-      }
-    }
-  }
-
-  return resolved;
+[[nodiscard]] auto ResolveSelection(EGraph<Symbol, Analysis> const &egraph, FrontierMap<CostResult> const &frontier_map,
+                                    EClassId root) -> SelectionMap<typename CostResult::cost_t> {
+  return DefaultResolver{}(egraph, frontier_map, root);
 }
 
 }  // namespace memgraph::planner::core::extract::testing

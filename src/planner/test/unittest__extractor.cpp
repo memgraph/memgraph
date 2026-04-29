@@ -22,7 +22,8 @@ import memgraph.planner.core.egraph;
 
 using namespace memgraph::planner::core;
 using namespace memgraph::planner::core::extract;
-using memgraph::planner::core::extract::testing::DefaultCostResult;
+// DefaultCostResult is in extract:: directly (already in scope via using-namespace).
+// ResolveSelection survives as a free-function shim in extract::testing for legacy callers.
 using memgraph::planner::core::extract::testing::ResolveSelection;
 
 enum struct symbol : std::uint8_t { A, B, ADD, LITERAL };
@@ -119,16 +120,18 @@ struct SimpleCostModel {
 };
 
 // Helper: keep test assertions readable.
+// FrontierMap<CostResult> is now provided by extract::; the test-local typedef
+// keyed by CostModel is a thin convenience around it.
 template <typename CostModel>
-using FrontierMap = std::unordered_map<EClassId, EClassFrontier<typename CostModel::CostResult>>;
+using TestFrontierMap = FrontierMap<typename CostModel::CostResult>;
 
 template <typename CostModel>
-auto frontier_cost(FrontierMap<CostModel> const &m, EClassId id) {
+auto frontier_cost(TestFrontierMap<CostModel> const &m, EClassId id) {
   return CostModel::CostResult::min_cost(*m.at(id));
 }
 
 template <typename CostModel>
-auto frontier_enode(FrontierMap<CostModel> const &m, EClassId id) {
+auto frontier_enode(TestFrontierMap<CostModel> const &m, EClassId id) {
   return CostModel::CostResult::resolve(*m.at(id));
 }
 
@@ -139,7 +142,7 @@ TEST(Extract_Cost, SingleLeafNode) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
 
-  FrontierMap<CostModel> frontiers;
+  TestFrontierMap<CostModel> frontiers;
   auto cost = ComputeFrontiers(egraph, cost_model, leaf_class, frontiers);
 
   ASSERT_TRUE(cost.has_value());
@@ -158,7 +161,7 @@ TEST(Extract_Cost, SimpleTree) {
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B);
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  FrontierMap<CostModel> frontiers;
+  TestFrontierMap<CostModel> frontiers;
   auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
   // Cost should be: 1 (root) + 1 (left) + 1 (right) = 3
@@ -176,7 +179,7 @@ TEST(Extract_Cost, DeepTree) {
   auto [mid_class, mid_node, mid_new] = egraph.emplace(symbol::B, {leaf_class});
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {mid_class});
 
-  FrontierMap<CostModel> frontiers;
+  TestFrontierMap<CostModel> frontiers;
   auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
   // Cost should be: 1 (root) + 1 (mid) + 1 (leaf) = 3
@@ -195,7 +198,7 @@ TEST(Extract_Cost, DiamondDAGSharedNode) {
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  FrontierMap<CostModel> frontiers;
+  TestFrontierMap<CostModel> frontiers;
   auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
   // Shared node should only be computed once via memoization
@@ -217,7 +220,7 @@ TEST(Extract_Cost, VariableCostBySymbol) {
   auto [aclass, anode, a_new] = egraph.emplace(symbol::A);
   auto [bclass, bnode, b_new] = egraph.emplace(symbol::B);
 
-  FrontierMap<CostModel> frontiers;
+  TestFrontierMap<CostModel> frontiers;
 
   auto cost_a = ComputeFrontiers(egraph, cost_model, aclass, frontiers);
   auto cost_b = ComputeFrontiers(egraph, cost_model, bclass, frontiers);
@@ -239,7 +242,7 @@ TEST(Extract_Cost, SelectsCheapestAmongEquivalents) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  FrontierMap<CostModel> frontiers;
+  TestFrontierMap<CostModel> frontiers;
 
   auto cost = ComputeFrontiers(egraph, cost_model, root, frontiers);
 
@@ -258,7 +261,7 @@ TEST(Extract_Cost, CostAccumulationWithVariableCosts) {
   auto [leaf2_class, leaf2_node, leaf2_new] = egraph.emplace(symbol::B);
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {leaf1_class, leaf2_class});
 
-  FrontierMap<CostModel> frontiers;
+  TestFrontierMap<CostModel> frontiers;
 
   auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
@@ -294,7 +297,7 @@ TEST(Extract_Cost, CyclicEGraphInfiniteCost) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  FrontierMap<CostModel> frontiers;
+  TestFrontierMap<CostModel> frontiers;
 
   // Process the cyclic e-class
   auto cost = ComputeFrontiers(egraph, cost_model, cyclic_class, frontiers);
@@ -336,7 +339,7 @@ TEST(Extract_Cost, CyclicEGraphInfiniteCostComplex) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  FrontierMap<CostModel> frontiers;
+  TestFrontierMap<CostModel> frontiers;
 
   // Process the cyclic e-class
   auto cost = ComputeFrontiers(egraph, cost_model, merged_class, frontiers);
@@ -384,7 +387,7 @@ TEST(Extract_Cost, FullyCyclicEClassInfiniteCost) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  FrontierMap<CostModel> frontiers;
+  TestFrontierMap<CostModel> frontiers;
 
   // This should either:
   // 1. Return infinity/max double if all nodes are cyclic
@@ -729,7 +732,7 @@ TEST(Extract_Safety, ComputeFrontiers_FullyCyclicReturnsNullopt) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  FrontierMap<UniformCostModel> frontiers;
+  TestFrontierMap<UniformCostModel> frontiers;
   auto cost = ComputeFrontiers(egraph, UniformCostModel{}, merged_class, frontiers);
 
   // merged_class has LITERAL(1) as a leaf escape - should succeed
@@ -785,7 +788,7 @@ TEST(Extract_Safety, ComputeFrontiers_CyclicChildCostsCached) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  FrontierMap<UniformCostModel> frontiers;
+  TestFrontierMap<UniformCostModel> frontiers;
   auto cost = ComputeFrontiers(egraph, UniformCostModel{}, merged, frontiers);
 
   // merged has A(leaf_d) as non-cyclic escape
@@ -826,7 +829,7 @@ TEST(Extract_Safety, ComputeFrontiers_CyclicExprChildOfBind) {
   // Bind-like: symbol A with 3 children [input, sym, cyclic_expr]
   auto [bind_class, bind_node, bind_new] = egraph.emplace(symbol::A, {input_class, sym_class, cyclic_expr});
 
-  FrontierMap<UniformCostModel> frontiers;
+  TestFrontierMap<UniformCostModel> frontiers;
   auto cost = ComputeFrontiers(egraph, UniformCostModel{}, bind_class, frontiers);
 
   // cyclic_expr has LITERAL(99) as an escape — it resolves, so the Bind enode is NOT
