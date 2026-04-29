@@ -55,5 +55,22 @@ def test_json_transaction_counters_are_aggregate_across_databases(connect):
     assert after - before >= 2
 
 
+def test_json_query_type_counters_are_aggregate_across_databases(connect):
+    cursor = connect.cursor()
+
+    execute_and_fetch_all(cursor, "CREATE DATABASE db2")
+
+    execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+    before = scrape_json_metrics()["QueryType"]["WriteQuery"]
+
+    execute_and_fetch_all(cursor, "CREATE ()")
+    execute_and_fetch_all(cursor, "USE DATABASE db2")
+    execute_and_fetch_all(cursor, "CREATE ()")
+
+    after = scrape_json_metrics()["QueryType"]["WriteQuery"]
+    # Write queries from both databases are counted
+    assert after - before >= 2
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

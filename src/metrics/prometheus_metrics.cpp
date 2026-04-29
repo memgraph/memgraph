@@ -847,9 +847,6 @@ StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(std::string_view db_na
 }
 
 DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
-  // Legacy JSON endpoint only supports the default database
-  if (FLAGS_metrics_format != "OpenMetrics" && name != dbms::kDefaultDB) return {};
-
   std::lock_guard const lock{databases_.mutex};
   prometheus::Labels const labels{{"database", std::string(name)}};
   databases_.entries.push_back(
@@ -969,7 +966,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
 void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   std::lock_guard const lock{databases_.mutex};
   auto it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
-  if (it == databases_.entries.end()) return;  // Not registered (e.g. non-default db in JSON mode)
+  if (it == databases_.entries.end()) return;
   // Database name is not a unique identity (e.g. main + replica can coexist in
   // same process in unit tests).  Prometheus metrics are keyed by labels, so
   // equal db_name values point to the same metric objects.  Remove those
@@ -1545,6 +1542,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_failed_pull = 0;
   int64_t total_successful_query = 0;
   int64_t total_write_write_conflicts = 0;
+  int64_t total_transient_errors = 0;
   int64_t total_read_query = 0;
   int64_t total_write_query = 0;
   int64_t total_read_write_query = 0;
@@ -1647,6 +1645,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_failed_pull += static_cast<int64_t>(h.failed_pull.Value());
       total_successful_query += static_cast<int64_t>(h.successful_query.Value());
       total_write_write_conflicts += static_cast<int64_t>(h.write_write_conflicts.Value());
+      total_transient_errors += static_cast<int64_t>(h.transient_errors.Value());
       total_read_query += static_cast<int64_t>(h.read_query.Value());
       total_write_query += static_cast<int64_t>(h.write_query.Value());
       total_read_write_query += static_cast<int64_t>(h.read_write_query.Value());
@@ -1764,16 +1763,32 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   // in OpenMetrics endpoint.
   out.push_back({"CommitedTransactions", "Transaction", "Counter", total_committed_transactions});
   out.push_back({"RolledBackTransactions", "Transaction", "Counter", total_rolled_back_transactions});
-  out.push_back({"FailedQuery", "Transaction", "Counter", total_failed_query});
-  out.push_back({"FailedPrepare", "Transaction", "Counter", total_failed_prepare});
+  // Add global fallback counters (fired when no db context is available) to the per-db totals
+  out.push_back({"TransientErrors",
+                 "Transaction",
+                 "Counter",
+                 total_transient_errors + static_cast<int64_t>(global.transient_errors->Value())});
+  out.push_back({"FailedQuery",
+                 "Transaction",
+                 "Counter",
+                 total_failed_query + static_cast<int64_t>(global.failed_query->Value())});
+  out.push_back({"FailedPrepare",
+                 "Transaction",
+                 "Counter",
+                 total_failed_prepare + static_cast<int64_t>(global.failed_prepare->Value())});
   out.push_back({"FailedPull", "Transaction", "Counter", total_failed_pull});
   out.push_back({"SuccessfulQuery", "Transaction", "Counter", total_successful_query});
   out.push_back({"WriteWriteConflicts", "Transaction", "Counter", total_write_write_conflicts});
 
-  // QueryType
-  out.push_back({"ReadQuery", "QueryType", "Counter", total_read_query});
-  out.push_back({"WriteQuery", "QueryType", "Counter", total_write_query});
-  out.push_back({"ReadWriteQuery", "QueryType", "Counter", total_read_write_query});
+  // QueryType — include global fallback counters for queries fired without a db context
+  out.push_back(
+      {"ReadQuery", "QueryType", "Counter", total_read_query + static_cast<int64_t>(global.read_query->Value())});
+  out.push_back(
+      {"WriteQuery", "QueryType", "Counter", total_write_query + static_cast<int64_t>(global.write_query->Value())});
+  out.push_back({"ReadWriteQuery",
+                 "QueryType",
+                 "Counter",
+                 total_read_write_query + static_cast<int64_t>(global.read_write_query->Value())});
 
   // TTL
   out.push_back({"DeletedNodes", "TTL", "Counter", total_deleted_nodes});
@@ -1834,14 +1849,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   out.push_back(
       {"ActiveWebSocketSessions", "Session", "Gauge", static_cast<int64_t>(global.active_websocket_sessions->Value())});
   out.push_back({"BoltMessages", "Session", "Counter", static_cast<int64_t>(global.bolt_messages->Value())});
-
-  // Transaction (global) — no-db fallback counters, incremented when no database context is available
-  out.push_back({"TransientErrors", "Transaction", "Counter", static_cast<int64_t>(global.transient_errors->Value())});
-  out.push_back({"FailedQuery", "Transaction", "Counter", static_cast<int64_t>(global.failed_query->Value())});
-  out.push_back({"FailedPrepare", "Transaction", "Counter", static_cast<int64_t>(global.failed_prepare->Value())});
-  out.push_back({"ReadQuery", "QueryType", "Counter", static_cast<int64_t>(global.read_query->Value())});
-  out.push_back({"WriteQuery", "QueryType", "Counter", static_cast<int64_t>(global.write_query->Value())});
-  out.push_back({"ReadWriteQuery", "QueryType", "Counter", static_cast<int64_t>(global.read_write_query->Value())});
 
   // HighAvailability counters
   out.push_back({"SuccessfulFailovers",
