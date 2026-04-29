@@ -462,18 +462,6 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
 
   bool PostVisit(IsNullOperator & /*is_null_operator*/) override { return true; }
 
-  bool PostVisit(UnaryMinusOperator & /*unary_minus_operator*/) override {
-    auto operand = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeUnaryMinus(operand));
-    return true;
-  }
-
-  bool PostVisit(UnaryPlusOperator & /*unary_plus_operator*/) override {
-    auto operand = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeUnaryPlus(operand));
-    return true;
-  }
-
   bool PostVisit(IfOperator & /*if_operator*/) override { return true; }
 
   bool PostVisit(ListSlicingOperator & /*list_slicing_operator*/) override { return true; }
@@ -484,116 +472,28 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
 
   bool PostVisit(RangeOperator & /*range_operator*/) override { return true; }
 
-  bool PostVisit(GreaterEqualOperator & /*greater_equal_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeGte(lhs, rhs));
-    return true;
+  // Binary / unary AST-operator PostVisits — generated from the X-lists.
+  // NOLINTBEGIN(cppcoreguidelines-macro-usage)
+#define MG_POST_VISIT_BINARY(Name, AstOp)                      \
+  bool PostVisit(AstOp & /*op*/) override {                    \
+    auto rhs = PopStack();                                     \
+    auto lhs = PopStack();                                     \
+    builder_stack_.emplace_back(egraph_.Make##Name(lhs, rhs)); \
+    return true;                                               \
   }
+  EGRAPH_BINARY_OPS(MG_POST_VISIT_BINARY)
+#undef MG_POST_VISIT_BINARY
 
-  bool PostVisit(LessEqualOperator & /*less_equal_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeLte(lhs, rhs));
-    return true;
+#define MG_POST_VISIT_UNARY(Name, AstOp)                      \
+  bool PostVisit(AstOp & /*op*/) override {                   \
+    auto operand = PopStack();                                \
+    builder_stack_.emplace_back(egraph_.Make##Name(operand)); \
+    return true;                                              \
   }
+  EGRAPH_UNARY_OPS(MG_POST_VISIT_UNARY)
+#undef MG_POST_VISIT_UNARY
 
-  bool PostVisit(GreaterOperator & /*greater_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeGt(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(LessOperator & /*less_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeLt(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(EqualOperator & /*equal_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeEq(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(NotEqualOperator & /*not_equal_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeNeq(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(ExponentiationOperator & /*exponentiation_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeExp(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(ModOperator & /*mod_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeMod(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(DivisionOperator & /*division_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeDiv(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(MultiplicationOperator & /*multiplication_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeMul(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(SubtractionOperator & /*subtraction_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeSub(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(AdditionOperator & /*addition_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeAdd(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(NotOperator & /*not_operator*/) override {
-    auto operand = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeNot(operand));
-    return true;
-  }
-
-  bool PostVisit(AndOperator & /*and_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeAnd(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(XorOperator & /*xor_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeXor(lhs, rhs));
-    return true;
-  }
-
-  bool PostVisit(OrOperator & /*or_operator*/) override {
-    auto rhs = PopStack();
-    auto lhs = PopStack();
-    builder_stack_.emplace_back(egraph_.MakeOr(lhs, rhs));
-    return true;
-  }
+  // NOLINTEND(cppcoreguidelines-macro-usage)
 
   bool PostVisit(CypherUnion & /*cypher_union*/) override { return true; }
 

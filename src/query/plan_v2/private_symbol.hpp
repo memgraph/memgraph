@@ -13,6 +13,7 @@
 
 #include <cassert>
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <utility>
@@ -155,6 +156,21 @@ constexpr bool is_unary_op_v = symbol_descriptor<S>::arity == Arity::Unary;
 template <symbol S>
 constexpr bool is_leaf_v = symbol_descriptor<S>::arity == Arity::Leaf;
 
+/// A binary *expression* operator: arithmetic, comparison, or boolean. Excludes
+/// structural binary symbols (none today, but the predicate is more specific
+/// than is_binary_op_v which only checks arity). This is the predicate that
+/// matches the EGRAPH_BINARY_OPS X-list.
+template <symbol S>
+constexpr bool is_binary_expr_op_v = is_binary_op_v<S> && (symbol_descriptor<S>::cost_class == CostClass::Arithmetic ||
+                                                           symbol_descriptor<S>::cost_class == CostClass::Comparison ||
+                                                           symbol_descriptor<S>::cost_class == CostClass::Boolean);
+
+/// A unary *expression* operator: Not, UnaryMinus, UnaryPlus. Excludes
+/// Identifier (which is structurally unary but not an expression operator).
+/// This is the predicate that matches the EGRAPH_UNARY_OPS X-list.
+template <symbol S>
+constexpr bool is_unary_expr_op_v = is_unary_op_v<S> && symbol_descriptor<S>::cost_class == CostClass::Unary;
+
 // ============================================================================
 // Canonical enumeration of all symbols.
 // ============================================================================
@@ -207,7 +223,25 @@ constexpr auto AllHaveDescriptorsImpl(symbol_sequence<Ss...>) -> bool {
   return (HasDescriptor<Ss> && ...);
 }
 
+template <symbol... Ss>
+constexpr auto CountBinaryExprImpl(symbol_sequence<Ss...>) -> std::size_t {
+  return (std::size_t{0} + ... + (is_binary_expr_op_v<Ss> ? 1U : 0U));
+}
+
+template <symbol... Ss>
+constexpr auto CountUnaryExprImpl(symbol_sequence<Ss...>) -> std::size_t {
+  return (std::size_t{0} + ... + (is_unary_expr_op_v<Ss> ? 1U : 0U));
+}
+
 }  // namespace detail
+
+/// Count of binary expression operators in AllSymbolsSeq — cross-checked against
+/// EGRAPH_BINARY_OPS in egraph.cpp.
+constexpr std::size_t binary_expr_op_count_v = detail::CountBinaryExprImpl(AllSymbolsSeq{});
+
+/// Count of unary expression operators in AllSymbolsSeq — cross-checked against
+/// EGRAPH_UNARY_OPS in egraph.cpp.
+constexpr std::size_t unary_expr_op_count_v = detail::CountUnaryExprImpl(AllSymbolsSeq{});
 
 // ============================================================================
 // Runtime symbol → CostClass dispatch.

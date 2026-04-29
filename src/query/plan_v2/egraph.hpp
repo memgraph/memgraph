@@ -16,6 +16,7 @@
 #include <string_view>
 #include <vector>
 
+#include "query/plan_v2/egraph_ops.hpp"
 #include "storage/v2/property_value.hpp"
 #include "strong_type/strong_type.hpp"
 
@@ -43,31 +44,15 @@ struct egraph {
   auto MakeOutputs(eclass input, std::vector<eclass> named_outputs) -> eclass;
   auto MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> eclass;
 
-  // Arithmetic operators
-  auto MakeAdd(eclass lhs, eclass rhs) -> eclass;
-  auto MakeSub(eclass lhs, eclass rhs) -> eclass;
-  auto MakeMul(eclass lhs, eclass rhs) -> eclass;
-  auto MakeDiv(eclass lhs, eclass rhs) -> eclass;
-  auto MakeMod(eclass lhs, eclass rhs) -> eclass;
-  auto MakeExp(eclass lhs, eclass rhs) -> eclass;
+  // Binary operators (arithmetic / comparison / boolean) — generated from EGRAPH_BINARY_OPS.
+#define MG_DECL_MAKE_BINARY(Name, ...) auto Make##Name(eclass lhs, eclass rhs) -> eclass;
+  EGRAPH_BINARY_OPS(MG_DECL_MAKE_BINARY)
+#undef MG_DECL_MAKE_BINARY
 
-  // Comparison operators
-  auto MakeEq(eclass lhs, eclass rhs) -> eclass;
-  auto MakeNeq(eclass lhs, eclass rhs) -> eclass;
-  auto MakeLt(eclass lhs, eclass rhs) -> eclass;
-  auto MakeLte(eclass lhs, eclass rhs) -> eclass;
-  auto MakeGt(eclass lhs, eclass rhs) -> eclass;
-  auto MakeGte(eclass lhs, eclass rhs) -> eclass;
-
-  // Boolean operators
-  auto MakeAnd(eclass lhs, eclass rhs) -> eclass;
-  auto MakeOr(eclass lhs, eclass rhs) -> eclass;
-  auto MakeXor(eclass lhs, eclass rhs) -> eclass;
-  auto MakeNot(eclass operand) -> eclass;
-
-  // Unary operators
-  auto MakeUnaryMinus(eclass operand) -> eclass;
-  auto MakeUnaryPlus(eclass operand) -> eclass;
+  // Unary operators — generated from EGRAPH_UNARY_OPS.
+#define MG_DECL_MAKE_UNARY(Name, ...) auto Make##Name(eclass operand) -> eclass;
+  EGRAPH_UNARY_OPS(MG_DECL_MAKE_UNARY)
+#undef MG_DECL_MAKE_UNARY
 
  private:
   struct impl;

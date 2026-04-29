@@ -55,45 +55,40 @@ auto egraph::MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> 
   return pimpl_->Make<symbol::NamedOutput>(name, sym, expr);
 }
 
-// Arithmetic operators
-auto egraph::MakeAdd(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Add>(lhs, rhs); }
+// Binary / unary public-API definitions — generated from EGRAPH_*_OPS.
+// NOLINTBEGIN(cppcoreguidelines-macro-usage)
+#define MG_DEFN_MAKE_BINARY(Name, ...) \
+  auto egraph::Make##Name(eclass lhs, eclass rhs)->eclass { return pimpl_->Make<symbol::Name>(lhs, rhs); }
+EGRAPH_BINARY_OPS(MG_DEFN_MAKE_BINARY)
+#undef MG_DEFN_MAKE_BINARY
 
-auto egraph::MakeSub(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Sub>(lhs, rhs); }
+#define MG_DEFN_MAKE_UNARY(Name, ...) \
+  auto egraph::Make##Name(eclass operand)->eclass { return pimpl_->Make<symbol::Name>(operand); }
+EGRAPH_UNARY_OPS(MG_DEFN_MAKE_UNARY)
+#undef MG_DEFN_MAKE_UNARY
 
-auto egraph::MakeMul(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Mul>(lhs, rhs); }
+// Cross-check: every entry in the X-lists must be the right arity, and the
+// list count must match the count of binary/unary symbols in AllSymbolsSeq.
+// Forward + count together imply set equality, so a missing or extra entry
+// breaks the build at this site.
+#define MG_ASSERT_BINARY(Name, ...) \
+  static_assert(is_binary_expr_op_v<symbol::Name>, "EGRAPH_BINARY_OPS contains non-binary-expr symbol: " #Name);
+EGRAPH_BINARY_OPS(MG_ASSERT_BINARY)
+#undef MG_ASSERT_BINARY
 
-auto egraph::MakeDiv(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Div>(lhs, rhs); }
+#define MG_ASSERT_UNARY(Name, ...) \
+  static_assert(is_unary_expr_op_v<symbol::Name>, "EGRAPH_UNARY_OPS contains non-unary-expr symbol: " #Name);
+EGRAPH_UNARY_OPS(MG_ASSERT_UNARY)
+#undef MG_ASSERT_UNARY
 
-auto egraph::MakeMod(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Mod>(lhs, rhs); }
+#define MG_COUNT_ONE(...) +1
+static_assert((0 EGRAPH_BINARY_OPS(MG_COUNT_ONE)) == binary_expr_op_count_v,
+              "EGRAPH_BINARY_OPS count does not match binary expr symbols in AllSymbolsSeq");
+static_assert((0 EGRAPH_UNARY_OPS(MG_COUNT_ONE)) == unary_expr_op_count_v,
+              "EGRAPH_UNARY_OPS count does not match unary expr symbols in AllSymbolsSeq");
+#undef MG_COUNT_ONE
 
-auto egraph::MakeExp(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Exp>(lhs, rhs); }
-
-// Comparison operators
-auto egraph::MakeEq(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Eq>(lhs, rhs); }
-
-auto egraph::MakeNeq(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Neq>(lhs, rhs); }
-
-auto egraph::MakeLt(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Lt>(lhs, rhs); }
-
-auto egraph::MakeLte(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Lte>(lhs, rhs); }
-
-auto egraph::MakeGt(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Gt>(lhs, rhs); }
-
-auto egraph::MakeGte(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Gte>(lhs, rhs); }
-
-// Boolean operators
-auto egraph::MakeAnd(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::And>(lhs, rhs); }
-
-auto egraph::MakeOr(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Or>(lhs, rhs); }
-
-auto egraph::MakeXor(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Xor>(lhs, rhs); }
-
-auto egraph::MakeNot(eclass operand) -> eclass { return pimpl_->Make<symbol::Not>(operand); }
-
-// Unary operators
-auto egraph::MakeUnaryMinus(eclass operand) -> eclass { return pimpl_->Make<symbol::UnaryMinus>(operand); }
-
-auto egraph::MakeUnaryPlus(eclass operand) -> eclass { return pimpl_->Make<symbol::UnaryPlus>(operand); }
+// NOLINTEND(cppcoreguidelines-macro-usage)
 
 // ========================================================================
 // Internal accessor implementations
