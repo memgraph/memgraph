@@ -455,7 +455,7 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
     if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(
             vertices->access(), label, property, parallel_exec_info, snapshot_info);
         !validation_result.has_value()) [[unlikely]] {
-      constraints->existence_constraints_->DropConstraint(label, property);
+      (void)constraints->existence_constraints_->DropConstraint(label, property);
       throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
     }
 

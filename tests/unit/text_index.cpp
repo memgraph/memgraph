@@ -20,6 +20,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/unit/ddl_abort_helpers.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -267,5 +268,76 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
     // Total should be 3 nodes (1 original + 2 new)
     auto all_results = acc->TextIndexSearch(test_index.data(), "*", text_search_mode::ALL_PROPERTIES, default_limit);
     EXPECT_EQ(all_results.size(), 3);
+  }
+}
+
+TEST_F(TextIndexTest, CreateTextIndexAbortLeavesNoGhostEntry) {
+  TextIndexSpec spec{};
+  {
+    auto acc = this->storage->UniqueAccess();
+    spec = TextIndexSpec{test_index.data(), acc->NameToLabel(test_label.data()), {}};
+  }
+  memgraph::tests::ExpectCreateAbortLeavesNoGhostEntry(
+      this, memgraph::tests::UniqueAcc, [&](auto *acc) { return acc->CreateTextIndex(spec); });
+}
+
+TEST_F(TextIndexTest, CreateTextEdgeIndexAbortLeavesNoGhostEntry) {
+  static constexpr std::string_view edge_index_name = "test_edge_index";
+  TextEdgeIndexSpec spec{};
+  {
+    auto acc = this->storage->UniqueAccess();
+    spec = TextEdgeIndexSpec{
+        edge_index_name.data(), acc->NameToEdgeType("TEST_EDGE"), std::vector{acc->NameToProperty("text_prop")}};
+  }
+  memgraph::tests::ExpectCreateAbortLeavesNoGhostEntry(
+      this, memgraph::tests::UniqueAcc, [&](auto *acc) { return acc->CreateTextEdgeIndex(spec); });
+  // Drop on commit so TearDown's Drop loop only cleans up the vertex text index.
+  {
+    auto drop_acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(drop_acc->DropTextIndex(edge_index_name.data()).has_value());
+    ASSERT_NO_ERROR(drop_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TEST_F(TextIndexTest, DropTextEdgeIndexAbortRestoresIndex) {
+  static constexpr std::string_view edge_index_name = "test_edge_index";
+  static constexpr std::string_view edge_type_name = "TEST_EDGE";
+  {
+    auto acc = this->storage->UniqueAccess();
+    auto const edge_type = acc->NameToEdgeType(edge_type_name.data());
+    auto const prop = acc->NameToProperty("text_prop");
+    ASSERT_TRUE(
+        acc->CreateTextEdgeIndex(TextEdgeIndexSpec{edge_index_name.data(), edge_type, std::vector{prop}}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropTextIndex(edge_index_name.data()).has_value());
+    acc->Abort();
+  }
+  {
+    // Retry DROP must succeed — the aborted drop should have re-installed the
+    // entry so it's visible and droppable again.
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropTextIndex(edge_index_name.data()).has_value())
+        << "After an aborted DROP, the text edge index must be visible again and droppable.";
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TEST_F(TextIndexTest, DropTextIndexAbortRestoresIndex) {
+  this->CreateIndex();
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropTextIndex(test_index.data()).has_value());
+    acc->Abort();
+  }
+  {
+    // Retry DROP must succeed — the aborted drop should have re-installed
+    // the entry so it's visible and droppable again.
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropTextIndex(test_index.data()).has_value())
+        << "After an aborted DROP, the text index must be visible again and droppable.";
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }

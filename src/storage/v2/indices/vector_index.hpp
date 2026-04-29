@@ -195,13 +195,6 @@ class VectorIndex {
   VectorIndex &operator=(VectorIndex &&) noexcept = default;
 
   /// Returns the current active indices snapshot for use in transactions.
-  // TODO(follow-up): return `shared_ptr<VectorIndexActiveIndices const>` -- all
-  // methods on the snapshot are const, the inner container is already
-  // `shared_ptr<VectorIndexContainer const>`, so the outer non-const shared_ptr
-  // is a weak const-correctness wart. Requires threading `const` through
-  // `ActiveIndices::vector_`, `ActiveIndicesUpdater::operator()`, and the 4
-  // other sub-indices (text, text_edge, point, vector_edge) for consistency.
-  // Do all 5 in one sweep.
   auto GetActiveIndices() const -> std::shared_ptr<VectorIndexActiveIndices> {
     return std::make_shared<ActiveIndices>(index_);
   }
@@ -232,11 +225,25 @@ class VectorIndex {
                     ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  /// @brief Drops an existing index.
-  /// @param index_name The name of the index to be dropped.
-  /// @param name_id_mapper Name id mapper (for property decoding).
-  /// @return true if the index was dropped successfully, false otherwise.
-  bool DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+  /// Captured state from DropIndex. evicted_item keeps the usearch state alive;
+  /// rewritten_vertices is the list whose properties were demoted to plain Vector
+  /// and that RestoreIndex must promote back.
+  struct DroppedIndexCapture {
+    uint64_t index_id;
+    std::shared_ptr<IndexItem> evicted_item;
+    std::vector<Vertex *> rewritten_vertices;
+  };
+
+  /// @brief Drops an existing index. Returns enough state to undo the drop on
+  /// transaction abort, or std::nullopt if the index doesn't exist. Callers that
+  /// only need a fire-and-forget drop (e.g. CreateIndex's exception rollback)
+  /// can discard the return value.
+  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+
+  /// @brief Reinstalls an index previously evicted by DropIndex. Re-adds the
+  /// captured index_id to each rewritten vertex's property and re-inserts the
+  /// IndexItem into the container.
+  void RestoreIndex(DroppedIndexCapture &&capture);
 
   /// @brief Drops all existing indexes.
   void Clear();

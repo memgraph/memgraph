@@ -259,8 +259,12 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(PropertyId property, uint64_t commit_timestamp);
 
-  /// Returns false if there was no index to drop
-  bool DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) override;
+  /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
+  /// Caller can re-install via RestoreIndex on abort. The returned shared_ptr keeps
+  /// the entry alive in all_indices_, so RestoreIndex must not re-append there.
+  [[nodiscard]] auto DropIndex(PropertyId property, ActiveIndicesUpdater const &updater)
+      -> std::shared_ptr<IndividualIndex>;
+  void RestoreIndex(PropertyId property, std::shared_ptr<IndividualIndex> evicted, ActiveIndicesUpdater const &updater);
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
@@ -272,6 +276,11 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
 
  private:
   auto GetIndividualIndex(PropertyId property) const -> std::shared_ptr<IndividualIndex>;
+
+  // Atomic install into index_ + (optional) all_indices_. Returns false if the slot
+  // is taken. Shared by RegisterIndex (true) and RestoreIndex (false).
+  bool InstallIndividualIndex_(PropertyId property, std::shared_ptr<IndividualIndex> entry,
+                               ActiveIndicesUpdater const &updater, bool register_in_all_indices);
   void CleanupAllIndicies();
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{

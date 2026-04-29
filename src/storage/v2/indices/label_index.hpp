@@ -32,7 +32,6 @@ class LabelIndex {
 
   virtual ~LabelIndex() = default;
 
-  virtual bool DropIndex(LabelId label, ActiveIndicesUpdater const &updater) = 0;
   virtual void DropGraphClearIndices() = 0;
 
   using AbortableInfo = LabelIndexAbortableInfo;
