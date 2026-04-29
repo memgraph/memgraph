@@ -646,7 +646,44 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   auto builder = Builder{impl.storage<symbol::Literal>().store,
                          impl.storage<symbol::NamedOutput>().store,
                          impl.storage<symbol::Symbol>().store};
+
+  // ---------------------------------------------------------------------------
+  // build_cache reference-stability contract — DO NOT REGRESS.
+  // ---------------------------------------------------------------------------
+  //
+  // build_cache uses open-addressing (boost::unordered_flat_map).  On rehash,
+  // ALL references / iterators / pointers into the table are invalidated —
+  // there are no stable nodes to fall back to.  Two consequences for the
+  // Builder loop:
+  //
+  //   (1) Never write `cache[k] = cache.at(other_k)` or any expression where
+  //       the LHS subscript and the RHS read the same map.  The LHS [] may
+  //       insert (rehashing), invalidating the RHS reference before the
+  //       assignment runs.  Always sequence: read RHS into a local first,
+  //       then assign.
+  //
+  //   (2) Never hold a reference into build_cache across an insertion
+  //       (including via children_refs / reference_wrapper / span).  If the
+  //       insert rehashes, the captured ref dangles and any subsequent read
+  //       through it is undefined.  The builder.Build() call below takes a
+  //       span of refs into build_cache; we materialise its return into a
+  //       local BEFORE the LHS [] runs.
+  //
+  // Belt-and-braces: we reserve(selection.size()) up-front.  A single
+  // reservation sized to the final entry count means the loop's [] inserts
+  // can never trigger a rehash, so the constraints above can never fire in
+  // practice.  Both protections matter — the reserve makes the bug
+  // structurally impossible at our current call sites; the read-then-assign
+  // pattern is what keeps it impossible if a future caller forgets the
+  // reserve, or if the reserve count is ever wrong.
+  //
+  // Original bug surfaced as "Planner error, child node is incorrect type"
+  // at chain depths past the first rehash (≥ 31 in the focused bench),
+  // because the corrupted variant in the cache no longer held the type the
+  // parent's Build expected.  Caught by tests/benchmark/query/plan_v2_extract.cpp.
   auto build_cache = boost::unordered_flat_map<planner::core::EClassId, BuildResult>{};
+  build_cache.reserve(selection.size());
+
   auto const cache_lookup = [&](const planner::core::EClassId id) {
     auto const it = build_cache.find(id);
     DMG_ASSERT(it != build_cache.end(), "Building bottom up we should be able to find our child");
@@ -673,13 +710,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
     if (enode.symbol() == symbol::Bind) {
       assert(enode.children().size() == 3 && "Bind must have exactly 3 children");
       if (!build_cache.contains(enode.children()[1])) {  // sym absent => dead Bind
-        // Take the input's BuildResult by value before inserting under eclass_id —
-        // boost::unordered_flat_map's open-addressing layout invalidates all
-        // references on rehash, and `m[k] = m.at(c)` evaluates the LHS lookup
-        // (which may rehash) before reading the RHS, leaving the LHS reference
-        // dangling.  The bug surfaced at chain depths past the initial rehash
-        // threshold (≥ 31 in the focused bench) as a corrupted variant in the
-        // cache that then fails ExtractAndValidate downstream.
+        // See contract (1) above: read first, then assign.
         auto input_result = build_cache.at(enode.children()[0]);
         build_cache[eclass_id] = std::move(input_result);
         continue;
@@ -689,9 +720,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
     children_refs.clear();
     children_refs.reserve(enode.children().size());
     std::ranges::copy(enode.children() | std::views::transform(cache_lookup), std::back_inserter(children_refs));
-    // Build before the LHS [] insertion to keep children_refs (which alias
-    // into build_cache) valid — boost::unordered_flat_map rehashes on insert
-    // and invalidates all live references.
+    // See contract (2) above: materialise Build's result before the LHS [] runs.
     auto build_result = builder.Build(enode, children_refs);
     build_cache[eclass_id] = std::move(build_result);
   }
