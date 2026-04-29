@@ -21,6 +21,7 @@
 
 #include "planner/extract/extractor.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan_v2/bind_semantics.hpp"
 #include "query/plan_v2/egraph_internal.hpp"
 #include "utils/tag.hpp"
 
@@ -31,8 +32,7 @@ namespace memgraph::query::plan::v2 {
 // ============================================================================
 namespace {
 
-using SymbolSet = boost::container::flat_set<planner::core::EClassId, std::less<>,
-                                             boost::container::small_vector<planner::core::EClassId, 8>>;
+using bind::SymbolSet;
 
 struct Alternative {
   double cost;
@@ -47,16 +47,6 @@ struct Alternative {
 struct AlternativeDominance {
   static auto operator()(Alternative const &a, Alternative const &b) -> bool { return a.dominated_by(b); }
 };
-
-/// Helper: a Bind is "alive" if the input alternative demands the symbol it defines.
-static auto IsBindAlive(Alternative const &input_alt, planner::core::EClassId sym_eclass) -> bool {
-  return input_alt.required.contains(sym_eclass);
-}
-
-/// Cost of a Symbol leaf alternative.  Three call sites depend on the
-/// "Symbol eclass = single leaf alt with required={}" invariant; see the
-/// comment on BestBindBranchCostsForResolve for the full list.
-static constexpr double kSymbolCost = 1.0;
 
 /// CostFrontier: ParetoFrontier with resolve/min_cost for the extraction contract.
 /// merge is inherited from ParetoFrontier (union + prune).
@@ -75,16 +65,8 @@ struct CostFrontier : planner::core::extract::CostResultBase<CostFrontier, Alter
 /// and skips filtering — the resolver will rely on the per-eclass pick_compatible
 /// pass to enforce feasibility on the chosen branch.
 ///
-/// Invariant: Symbol eclasses are always leaf nodes with a single alternative
-/// {cost=kSymbolCost, required={}}. Three sites depend on this:
-///   1. PlanCostModel::operator() case symbol::Symbol — emits the leaf alt.
-///   2. PlanCostModel::operator() case symbol::Bind   — collapses sym to a scalar via min_cost.
-///   3. PlanResolver::visit_bind_children             — asserts the invariant; passes
-///                                                      bind_provided (not alive_provided)
-///                                                      to sym_eclass on this basis.
-/// If Symbol ever gains multiple alternatives, sym_cost must become a frontier and
-/// the alive-branch cost in this function must enumerate it alongside expr_frontier;
-/// the assert in visit_bind_children will fire to flag the missing update.
+/// The alive/dead algebra (predicate, cost formulas, kSymbolCost invariant) lives
+/// in bind:: — see src/query/plan_v2/bind_semantics.hpp.
 ///
 /// Tie-break rule: ties go to dead (less work). Callers compare with strict `<`.
 struct BindBranchCosts {
@@ -110,15 +92,15 @@ static auto BestBindBranchCostsForResolve(CostFrontier const &input_frontier, do
   auto best_dead = std::numeric_limits<double>::infinity();
 
   for (auto const &input_alt : input_frontier.alts) {
-    if (IsBindAlive(input_alt, sym_eclass)) {
+    if (bind::IsAlive(input_alt.required, sym_eclass)) {
       if (filtering && !std::ranges::includes(alive_provided, input_alt.required)) continue;
       for (auto const &expr_alt : expr_frontier.alts) {
         if (filtering && !std::ranges::includes(provided, expr_alt.required)) continue;
-        best_alive = std::min(best_alive, input_alt.cost + sym_cost + expr_alt.cost);
+        best_alive = std::min(best_alive, bind::AliveCost(input_alt.cost, sym_cost, expr_alt.cost));
       }
     } else {
       if (filtering && !std::ranges::includes(provided, input_alt.required)) continue;
-      best_dead = std::min(best_dead, input_alt.cost);
+      best_dead = std::min(best_dead, bind::DeadCost(input_alt.cost));
     }
   }
 
@@ -169,9 +151,9 @@ struct PlanCostModel {
       // Leaf nodes: single alternative, no demand
       case symbol::Once:
       case symbol::Literal:
-      case symbol::Symbol:  // Leaf invariant — see BestBindBranchCostsForResolve.
+      case symbol::Symbol:  // Leaf invariant — see bind::kSymbolCost.
       case symbol::ParamLookup:
-        return CostResult{{{.cost = kSymbolCost, .required = {}, .enode_id = enode_id}}};
+        return CostResult{{{.cost = bind::kSymbolCost, .required = {}, .enode_id = enode_id}}};
 
       // Identifier: demands its symbol child to be bound
       case symbol::Identifier: {
@@ -191,28 +173,20 @@ struct PlanCostModel {
         auto sym_eclass = current.children()[1];
         auto sym_cost = CostFrontier::min_cost(sym_frontier);
 
-        // Scratch reused across every (input_alt, expr_alt) pair to avoid
-        // copy-then-mutate on input_alt.required in the inner loop.
+        // Scratch reused across every (input_alt, expr_alt) pair by bind::AliveRequired
+        // to avoid per-call heap traffic.
         boost::container::small_vector<planner::core::EClassId, 16> scratch;
 
         return CostFrontier::flat_map(input_frontier, [&](auto const &input_alt, auto emit) {
-          if (IsBindAlive(input_alt, sym_eclass)) {
-            // Alive: required = (input_alt.required \ {sym_eclass}) ∪ expr_alt.required
-            // Both operands sorted → single merge into scratch, no copy/erase/insert.
-            auto input_minus_sym =
-                input_alt.required | std::views::filter([sym_eclass](auto id) { return id != sym_eclass; });
+          if (bind::IsAlive(input_alt.required, sym_eclass)) {
             for (auto const &expr_alt : expr_frontier.alts) {
-              scratch.clear();
-              scratch.reserve(input_alt.required.size() + expr_alt.required.size());
-              std::ranges::set_union(input_minus_sym, expr_alt.required, std::back_inserter(scratch));
-              SymbolSet required(boost::container::ordered_unique_range, scratch.begin(), scratch.end());
-              emit({.cost = input_alt.cost + sym_cost + expr_alt.cost,
+              auto required = bind::AliveRequired(input_alt.required, sym_eclass, expr_alt.required, scratch);
+              emit({.cost = bind::AliveCost(input_alt.cost, sym_cost, expr_alt.cost),
                     .required = std::move(required),
                     .enode_id = enode_id});
             }
           } else {
-            // Dead: sym not needed — skip sym+expr cost entirely
-            emit({.cost = input_alt.cost, .required = input_alt.required, .enode_id = enode_id});
+            emit({.cost = bind::DeadCost(input_alt.cost), .required = input_alt.required, .enode_id = enode_id});
           }
         });
       }
@@ -345,11 +319,11 @@ struct PlanResolver {
 
       auto sym_it = frontier_map.find(sym_eclass);
       assert(sym_it != frontier_map.end() && sym_it->second.has_value());
-      // Symbol leaf invariant — see BestBindBranchCostsForResolve. If this fires, a
-      // rewrite has introduced Symbol alternatives and the Bind cost / resolve
-      // logic must be generalised to enumerate them.
+      // Symbol leaf invariant — see bind::kSymbolCost.  If this fires, a
+      // rewrite has introduced Symbol alternatives and the Bind algebra must be
+      // generalised to enumerate them in the alive-branch cost.
       assert(sym_it->second->alts.size() == 1 && sym_it->second->alts.front().required.empty() &&
-             "Symbol eclass invariant violated: see BestBindBranchCostsForResolve");
+             "Symbol eclass invariant violated: see bind::kSymbolCost");
       auto sym_cost = CostFrontier::min_cost(*sym_it->second);
 
       auto expr_it = frontier_map.find(expr_eclass);
@@ -763,9 +737,11 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
     // builder loop never inserts them into build_cache.
     //
     // Invariant: sym (children()[1]) is in build_cache <-> Bind is alive.
-    // Checking sym is consistent with IsBindAlive() in PlanCostModel, which uses sym
-    // membership as the canonical alive predicate. Checking expr would be equivalent
-    // but redundant and inconsistent with that convention.
+    // Note: this is the *post-resolution observation* of aliveness — the resolver
+    // has already decided alive vs dead via bind::IsAlive on the input alt's demand
+    // set, and the topo-sort either includes or excludes sym based on that.  We
+    // observe the result here rather than re-deciding.  Checking sym (not expr) is
+    // consistent with the resolver's predicate which keys on the symbol being bound.
     if (enode.symbol() == symbol::Bind) {
       assert(enode.children().size() == 3 && "Bind must have exactly 3 children");
       if (!build_cache.contains(enode.children()[1])) {  // sym absent => dead Bind
