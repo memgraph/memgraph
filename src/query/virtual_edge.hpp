@@ -18,6 +18,7 @@
 #include "query/virtual_node.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/unordered_map.hpp"
@@ -37,9 +38,8 @@ class VirtualEdge final {
               utils::pmr::string edge_type_name, allocator_type alloc = {})
       : from_(std::move(from)),
         to_(std::move(to)),
-        edge_type_name_(std::move(edge_type_name), alloc),
-        gid_(NextSyntheticGid()),
-        properties_(alloc) {}
+        impl_(std::make_unique<Impl>(std::move(edge_type_name), property_map{alloc}, alloc)),
+        gid_(NextSyntheticGid()) {}
 
   // Rebound copy: preserves identity (gid, type, props) but repoints from_/to_
   // at different VirtualNodes. Used when VirtualGraph duplicates its node map
@@ -49,29 +49,37 @@ class VirtualEdge final {
               std::shared_ptr<const VirtualNode> new_to, allocator_type alloc)
       : from_(std::move(new_from)),
         to_(std::move(new_to)),
-        edge_type_name_(other.edge_type_name_, alloc),
-        gid_(other.gid_),
-        properties_(other.properties_, alloc) {}
+        impl_(std::make_unique<Impl>(other.impl_->edge_type_name, other.impl_->properties, alloc)),
+        gid_(other.gid_) {}
 
   VirtualEdge(const VirtualEdge &other, allocator_type alloc)
       : from_(other.from_),
         to_(other.to_),
-        edge_type_name_(other.edge_type_name_, alloc),
-        gid_(other.gid_),
-        properties_(other.properties_, alloc) {}
+        impl_(std::make_unique<Impl>(other.impl_->edge_type_name, other.impl_->properties, alloc)),
+        gid_(other.gid_) {}
 
   VirtualEdge(VirtualEdge &&other, allocator_type alloc)
       : from_(std::move(other.from_)),
         to_(std::move(other.to_)),
-        edge_type_name_(std::move(other.edge_type_name_), alloc),
-        gid_(other.gid_),
-        properties_(std::move(other.properties_), alloc) {}
+        impl_(
+            std::make_unique<Impl>(std::move(other.impl_->edge_type_name), std::move(other.impl_->properties), alloc)),
+        gid_(other.gid_) {}
 
-  VirtualEdge(const VirtualEdge &other) : VirtualEdge(other, other.edge_type_name_.get_allocator()) {}
+  VirtualEdge(const VirtualEdge &other) : VirtualEdge(other, other.impl_->edge_type_name.get_allocator()) {}
 
   VirtualEdge(VirtualEdge &&) noexcept = default;
 
-  VirtualEdge &operator=(const VirtualEdge &) = default;
+  VirtualEdge &operator=(const VirtualEdge &other) {
+    if (this != &other) {
+      DMG_ASSERT(impl_ && other.impl_, "Assignment to/from moved-from VirtualEdge");
+      from_ = other.from_;
+      to_ = other.to_;
+      *impl_ = *other.impl_;
+      gid_ = other.gid_;
+    }
+    return *this;
+  }
+
   VirtualEdge &operator=(VirtualEdge &&) = default;
   ~VirtualEdge() = default;
 
@@ -83,27 +91,27 @@ class VirtualEdge final {
 
   [[nodiscard]] auto ToGid() const noexcept -> storage::Gid { return to_->Gid(); }
 
-  [[nodiscard]] auto EdgeTypeName() const noexcept -> const utils::pmr::string & { return edge_type_name_; }
+  [[nodiscard]] auto EdgeTypeName() const noexcept -> const utils::pmr::string & { return impl_->edge_type_name; }
 
   [[nodiscard]] auto Gid() const noexcept -> storage::Gid { return gid_; }
 
-  [[nodiscard]] size_t Hash() const noexcept { return HashKey(from_->Gid(), to_->Gid(), edge_type_name_); }
+  [[nodiscard]] size_t Hash() const noexcept { return HashKey(from_->Gid(), to_->Gid(), impl_->edge_type_name); }
 
   [[nodiscard]] auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
-    if (const auto it = properties_.find(key); it != properties_.end()) return it->second;
+    if (const auto it = impl_->properties.find(key); it != impl_->properties.end()) return it->second;
     return storage::PropertyValue{};
   }
 
   void SetProperty(storage::PropertyId key, storage::PropertyValue value) {
-    properties_.insert_or_assign(key, std::move(value));
+    impl_->properties.insert_or_assign(key, std::move(value));
   }
 
-  [[nodiscard]] auto Properties() const noexcept -> const property_map & { return properties_; }
+  [[nodiscard]] auto Properties() const noexcept -> const property_map & { return impl_->properties; }
 
   // Semantic equality on (from_gid, to_gid, type). Drives dedup via unordered_set<VirtualEdge>.
   bool operator==(const VirtualEdge &other) const noexcept {
     return from_->Gid() == other.from_->Gid() && to_->Gid() == other.to_->Gid() &&
-           edge_type_name_ == other.edge_type_name_;
+           impl_->edge_type_name == other.impl_->edge_type_name;
   }
 
  private:
@@ -115,11 +123,25 @@ class VirtualEdge final {
     return seed;
   }
 
+  // Heavy state lives behind a single pointer so VirtualEdge stays small.
+  // Variants holding VirtualEdge by value (mgp_edge::impl, TypedValue's union) then
+  // keep their sizeof tied to their other arms instead of paying for inline edge-type
+  // string + properties storage, which would push them into coarser pool bins.
+  struct Impl {
+    utils::pmr::string edge_type_name;
+    property_map properties;
+
+    Impl(const utils::pmr::string &name, const property_map &props, allocator_type alloc)
+        : edge_type_name(name, alloc), properties(props, alloc) {}
+
+    Impl(utils::pmr::string &&name, property_map &&props, allocator_type alloc)
+        : edge_type_name(std::move(name), alloc), properties(std::move(props), alloc) {}
+  };
+
   std::shared_ptr<const VirtualNode> from_;
   std::shared_ptr<const VirtualNode> to_;
-  utils::pmr::string edge_type_name_;
+  std::unique_ptr<Impl> impl_;
   storage::Gid gid_;
-  property_map properties_;
 };
 
 }  // namespace memgraph::query

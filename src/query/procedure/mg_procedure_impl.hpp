@@ -728,6 +728,8 @@ struct mgp_vertex {
   mgp_graph *graph;
 };
 
+static_assert(sizeof(mgp_vertex) == 64, "mgp_vertex size changed — update intentionally");
+
 struct mgp_edge {
   /// Allocator type so that STL containers are aware that we need one.
   /// We don't actually need this, but it simplifies the C API, because we store
@@ -795,6 +797,8 @@ struct mgp_edge {
   mgp_vertex from;
   mgp_vertex to;
 };
+
+static_assert(sizeof(mgp_edge) == 192, "mgp_edge size changed — update intentionally");
 
 struct mgp_path {
   /// Allocator type so that STL containers are aware that we need one.
