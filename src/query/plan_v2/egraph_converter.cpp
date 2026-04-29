@@ -92,10 +92,10 @@ static auto BestBindBranchCostsForResolve(CostFrontier const &input_frontier, do
   auto best_alive = std::numeric_limits<double>::infinity();
   auto best_dead = std::numeric_limits<double>::infinity();
 
-  for (auto const &input_alt : input_frontier.alts) {
+  for (auto const &input_alt : input_frontier.alts()) {
     if (bind::IsAlive(input_alt.required, sym_eclass)) {
       if (filtering && !std::ranges::includes(alive_provided, input_alt.required)) continue;
-      for (auto const &expr_alt : expr_frontier.alts) {
+      for (auto const &expr_alt : expr_frontier.alts()) {
         if (filtering && !std::ranges::includes(provided, expr_alt.required)) continue;
         best_alive = std::min(best_alive, bind::AliveCost(input_alt.cost, sym_cost, expr_alt.cost));
       }
@@ -134,13 +134,16 @@ auto CombineAlts(double extra_cost, planner::core::ENodeId enode_id) -> CombineA
 /// Map over a single frontier — adjust each alternative's cost by `extra_cost`
 /// and re-stamp `enode_id`.  The 1-frontier sibling of CombineAlts; used for
 /// pass-through nodes (unary operators, Output's input child) where the output
-/// frontier shape mirrors a single input.
-auto MapAlts(CostFrontier input, double extra_cost, planner::core::ENodeId enode_id) -> CostFrontier {
-  for (auto &alt : input.alts) {
-    alt.cost += extra_cost;
-    alt.enode_id = enode_id;
+/// frontier shape mirrors a single input.  The transformation is monotone in
+/// cost and preserves the required-set, so the Pareto invariant is preserved
+/// — from_unpruned's prune pass is a no-op on already-Pareto-pruned input.
+auto MapAlts(CostFrontier const &input, double extra_cost, planner::core::ENodeId enode_id) -> CostFrontier {
+  std::vector<Alternative> out;
+  out.reserve(input.alts().size());
+  for (auto const &alt : input.alts()) {
+    out.push_back({.cost = alt.cost + extra_cost, .required = alt.required, .enode_id = enode_id});
   }
-  return input;
+  return CostFrontier::from_unpruned(std::move(out));
 }
 
 struct PlanCostModel {
@@ -177,7 +180,7 @@ struct PlanCostModel {
 
         return CostFrontier::flat_map(input_frontier, [&](auto const &input_alt, auto emit) {
           if (bind::IsAlive(input_alt.required, sym_eclass)) {
-            for (auto const &expr_alt : expr_frontier.alts) {
+            for (auto const &expr_alt : expr_frontier.alts()) {
               auto required = bind::AliveRequired(input_alt.required, sym_eclass, expr_alt.required);
               emit({.cost = bind::AliveCost(input_alt.cost, sym_cost, expr_alt.cost),
                     .required = std::move(required),
@@ -290,7 +293,7 @@ struct PlanResolver {
     /// Pick cheapest alt whose required is a subset of provided.
     auto pick_compatible(CostFrontier const &frontier, SymbolSet const &provided) -> Alternative const & {
       Alternative const *best = nullptr;
-      for (auto const &alt : frontier.alts) {
+      for (auto const &alt : frontier.alts()) {
         if (std::ranges::includes(provided, alt.required)) {
           if (!best || alt.cost < best->cost) {
             best = &alt;
@@ -319,7 +322,7 @@ struct PlanResolver {
       // Symbol leaf invariant — see bind::kSymbolCost.  If this fires, a
       // rewrite has introduced Symbol alternatives and the Bind algebra must be
       // generalised to enumerate them in the alive-branch cost.
-      assert(sym_it->second->alts.size() == 1 && sym_it->second->alts.front().required.empty() &&
+      assert(sym_it->second->alts().size() == 1 && sym_it->second->alts().front().required.empty() &&
              "Symbol eclass invariant violated: see bind::kSymbolCost");
       auto sym_cost = CostFrontier::min_cost(*sym_it->second);
 
@@ -620,7 +623,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   }
   auto const &root_frontier = *root_it->second;
   bool root_satisfiable =
-      std::ranges::any_of(root_frontier.alts, [](Alternative const &a) { return a.required.empty(); });
+      std::ranges::any_of(root_frontier.alts(), [](Alternative const &a) { return a.required.empty(); });
   if (!root_satisfiable) {
     throw QueryException{
         "Plan extraction failed: root frontier has no self-contained alternative. "

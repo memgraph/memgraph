@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cassert>
 #include <concepts>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -55,57 +56,34 @@ concept DominanceRelation =
 template <typename Alt, typename DominanceFn>
   requires DominanceRelation<DominanceFn, Alt>
 struct ParetoFrontier {
-  std::vector<Alt> alts;
+  ParetoFrontier() = default;
 
-  /// Remove alternatives dominated by any other alternative in the frontier.
-  /// Two-pass: first mark dominated indices, then erase. This avoids reading
-  /// moved-from elements (std::erase_if/remove_if moves elements during its pass).
-  void prune() {
-    auto const n = alts.size();
-    // SBO buffer for the dominated-flag array. Frontiers rarely exceed 64
-    // alternatives after pruning; larger ones fall back to heap.
-    boost::container::small_vector<bool, 64> dominated(n, false);
-    for (size_t i = 0; i < n; ++i) {
-      if (dominated[i]) continue;
-      for (size_t j = i + 1; j < n; ++j) {
-        if (dominated[j]) continue;
-        if (DominanceFn{}(alts[i], alts[j])) {
-          dominated[i] = true;
-          // Safe to break by transitivity of DominanceFn (enforced by the
-          // DominanceRelation concept). If alts[i] is dominated by alts[j],
-          // anything alts[i] would have dominated at higher j is either
-          // dominated by alts[j] (transitivity) or will be discovered when the
-          // outer loop reaches those indices as i. Continuing past j is redundant.
-          break;
-        }
-        if (DominanceFn{}(alts[j], alts[i])) {
-          dominated[j] = true;
-        }
-      }
-    }
-    size_t write = 0;
-    for (size_t read = 0; read < n; ++read) {
-      if (!dominated[read]) {
-        if (write != read) alts[write] = std::move(alts[read]);
-        ++write;
-      }
-    }
-    alts.resize(write);
+  /// Read-only view over the (Pareto-pruned) alternatives.  Returning span keeps
+  /// the storage choice (currently std::vector) out of the public contract.
+  [[nodiscard]] auto alts() const noexcept -> std::span<Alt const> { return alts_; }
+
+  /// Construct from an unpruned list of alternatives.  Prunes on construction
+  /// so the resulting frontier satisfies the Pareto invariant.  This is the
+  /// only public way to seed a frontier from raw data; the static factories
+  /// below (flat_map / merge / combine) handle compositional construction.
+  [[nodiscard]] static auto from_unpruned(std::vector<Alt> alts) -> ParetoFrontier {
+    auto result = ParetoFrontier{};
+    result.alts_ = std::move(alts);
+    result.prune();
+    return result;
   }
 
-  /// Beam limit: after pruning, if the frontier still exceeds max_alts,
-  /// keep only the top-N alternatives by the given cost projection (beam search).
-  /// This is a principled approximation — we keep the cheapest alternatives.
-  /// @param max_alts  Maximum number of alternatives to keep. 0 means no limit.
-  /// @param proj      Projection from Alt to a comparable cost value.
+  /// Beam limit: trim to the top-N alternatives by the given cost projection.
+  /// Pruned-invariant preserving (a subset of a Pareto-pruned set is still
+  /// Pareto-pruned).  No-op when max_alts == 0 or already within budget.
   template <typename CostProjection>
     requires std::invocable<CostProjection, Alt const &>
   void beam(size_t max_alts, CostProjection &&proj) {
-    if (max_alts == 0 || alts.size() <= max_alts) return;
-    std::partial_sort(alts.begin(), alts.begin() + max_alts, alts.end(), [&](Alt const &a, Alt const &b) {
+    if (max_alts == 0 || alts_.size() <= max_alts) return;
+    std::partial_sort(alts_.begin(), alts_.begin() + max_alts, alts_.end(), [&](Alt const &a, Alt const &b) {
       return proj(a) < proj(b);
     });
-    alts.resize(max_alts);
+    alts_.resize(max_alts);
   }
 
   /// Flat-map: for each alternative, produce zero or more new alternatives via a callback,
@@ -115,9 +93,9 @@ struct ParetoFrontier {
   template <typename Fn>
   [[nodiscard]] static auto flat_map(ParetoFrontier const &input, Fn &&fn) -> ParetoFrontier {
     auto result = ParetoFrontier{};
-    result.alts.reserve(input.alts.size());  // heuristic: at least one output per input
-    for (auto const &alt : input.alts) {
-      fn(alt, [&](Alt &&out) { result.alts.push_back(std::move(out)); });
+    result.alts_.reserve(input.alts_.size());  // heuristic: at least one output per input
+    for (auto const &alt : input.alts_) {
+      fn(alt, [&](Alt &&out) { result.alts_.push_back(std::move(out)); });
     }
     result.prune();
     return result;
@@ -126,9 +104,9 @@ struct ParetoFrontier {
   /// Union two frontiers from different enodes in the same eclass, then prune.
   [[nodiscard]] static auto merge(ParetoFrontier const &a, ParetoFrontier const &b) -> ParetoFrontier {
     auto result = ParetoFrontier{};
-    result.alts.reserve(a.alts.size() + b.alts.size());
-    result.alts.append_range(a.alts);
-    result.alts.append_range(b.alts);
+    result.alts_.reserve(a.alts_.size() + b.alts_.size());
+    result.alts_.append_range(a.alts_);
+    result.alts_.append_range(b.alts_);
     result.prune();
     return result;
   }
@@ -139,14 +117,56 @@ struct ParetoFrontier {
   [[nodiscard]] static auto combine(ParetoFrontier const &lhs, ParetoFrontier const &rhs, CombineFn &&combine_fn)
       -> ParetoFrontier {
     auto result = ParetoFrontier{};
-    result.alts.reserve(lhs.alts.size() * rhs.alts.size());
-    for (auto const &l : lhs.alts) {
-      for (auto const &r : rhs.alts) {
-        result.alts.push_back(combine_fn(l, r));
+    result.alts_.reserve(lhs.alts_.size() * rhs.alts_.size());
+    for (auto const &l : lhs.alts_) {
+      for (auto const &r : rhs.alts_) {
+        result.alts_.push_back(combine_fn(l, r));
       }
     }
     result.prune();
     return result;
+  }
+
+ protected:
+  std::vector<Alt> alts_;
+
+ private:
+  /// Remove alternatives dominated by any other alternative in the frontier.
+  /// Two-pass: first mark dominated indices, then erase. This avoids reading
+  /// moved-from elements (std::erase_if/remove_if moves elements during its pass).
+  /// Private — there is no path to seed an unpruned frontier from outside, so
+  /// external prune() calls would always be no-ops.
+  void prune() {
+    auto const n = alts_.size();
+    // SBO buffer for the dominated-flag array. Frontiers rarely exceed 64
+    // alternatives after pruning; larger ones fall back to heap.
+    boost::container::small_vector<bool, 64> dominated(n, false);
+    for (size_t i = 0; i < n; ++i) {
+      if (dominated[i]) continue;
+      for (size_t j = i + 1; j < n; ++j) {
+        if (dominated[j]) continue;
+        if (DominanceFn{}(alts_[i], alts_[j])) {
+          dominated[i] = true;
+          // Safe to break by transitivity of DominanceFn (enforced by the
+          // DominanceRelation concept). If alts_[i] is dominated by alts_[j],
+          // anything alts_[i] would have dominated at higher j is either
+          // dominated by alts_[j] (transitivity) or will be discovered when the
+          // outer loop reaches those indices as i. Continuing past j is redundant.
+          break;
+        }
+        if (DominanceFn{}(alts_[j], alts_[i])) {
+          dominated[j] = true;
+        }
+      }
+    }
+    size_t write = 0;
+    for (size_t read = 0; read < n; ++read) {
+      if (!dominated[read]) {
+        if (write != read) alts_[write] = std::move(alts_[read]);
+        ++write;
+      }
+    }
+    alts_.resize(write);
   }
 };
 
@@ -173,14 +193,23 @@ struct CostResultBase : ParetoFrontier<Alt, DominanceFn> {
   // NOLINTNEXTLINE(google-explicit-constructor)
   CostResultBase(Base base) : Base(std::move(base)) {}
 
-  CostResultBase(std::initializer_list<Alt> init) : Base{std::vector<Alt>(init)} {}
+  /// Initializer-list construction prunes on construction — no path to a
+  /// non-pruned frontier from outside the class hierarchy.
+  CostResultBase(std::initializer_list<Alt> init) : Base(Base::from_unpruned(std::vector<Alt>(init))) {}
 
   /// Hides Base::merge so the static return type matches Derived (required by CostResultType concept).
   [[nodiscard]] static auto merge(Derived const &a, Derived const &b) -> Derived { return Derived{Base::merge(a, b)}; }
 
+  /// Derived-returning analogue of Base::from_unpruned.  Tests use this to
+  /// seed Pareto-pruned frontiers from raw alternative lists.
+  [[nodiscard]] static auto from_unpruned(std::vector<Alt> alts) -> Derived {
+    return Derived{Base::from_unpruned(std::move(alts))};
+  }
+
   static auto resolve_with_cost(Derived const &f) -> std::pair<decltype(Alt::enode_id), cost_t> {
-    auto it = std::ranges::min_element(f.alts, {}, &Alt::cost);
-    assert(it != f.alts.end() && "resolve_with_cost called on empty frontier");
+    auto const alts = f.alts();
+    auto it = std::ranges::min_element(alts, {}, &Alt::cost);
+    assert(it != alts.end() && "resolve_with_cost called on empty frontier");
     return {it->enode_id, it->cost};
   }
 

@@ -881,7 +881,7 @@ struct TestFrontier : CostResultBase<TestFrontier, TestDemandAlt, TestDominance>
 /// production, update both this helper and pick_compatible.
 inline auto PickBestCompatible(TestFrontier const &frontier, std::set<int> const &provided) -> TestDemandAlt const * {
   TestDemandAlt const *best = nullptr;
-  for (auto const &alt : frontier.alts) {
+  for (auto const &alt : frontier.alts()) {
     if (std::ranges::includes(provided, alt.required)) {
       if (!best || alt.cost < best->cost) best = &alt;
     }
@@ -929,15 +929,13 @@ struct DemandAwareMultiAltCostModel {
 
 TEST(ParetoFrontier_Prune, EmptyFrontier) {
   auto frontier = TestFrontier{};
-  frontier.prune();
-  ASSERT_TRUE(frontier.alts.empty());
+  ASSERT_TRUE(frontier.alts().empty());
 }
 
 TEST(ParetoFrontier_Prune, SingleElement) {
   auto frontier = TestFrontier{{{.cost = 5.0, .required = {1}, .enode_id = ENodeId{0}}}};
-  frontier.prune();
-  ASSERT_EQ(frontier.alts.size(), 1);
-  ASSERT_EQ(frontier.alts[0].cost, 5.0);
+  ASSERT_EQ(frontier.alts().size(), 1);
+  ASSERT_EQ(frontier.alts()[0].cost, 5.0);
 }
 
 TEST(ParetoFrontier_Prune, NoneDominated) {
@@ -947,8 +945,7 @@ TEST(ParetoFrontier_Prune, NoneDominated) {
       {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // medium
       {.cost = 3.0, .required = {}, .enode_id = ENodeId{2}},      // expensive, no demands
   }};
-  frontier.prune();
-  ASSERT_EQ(frontier.alts.size(), 3) << "All three Pareto-incomparable alts should survive";
+  ASSERT_EQ(frontier.alts().size(), 3) << "All three Pareto-incomparable alts should survive";
 }
 
 TEST(ParetoFrontier_Prune, AllDominatedByOne) {
@@ -961,9 +958,8 @@ TEST(ParetoFrontier_Prune, AllDominatedByOne) {
       {.cost = 1.0, .required = {}, .enode_id = ENodeId{1}},   // B: dominator
       {.cost = 3.0, .required = {2}, .enode_id = ENodeId{2}},  // C: dominated by B
   }};
-  frontier.prune();
-  ASSERT_EQ(frontier.alts.size(), 1);
-  ASSERT_EQ(frontier.alts[0].enode_id, ENodeId{1}) << "Only the dominator (B) should survive";
+  ASSERT_EQ(frontier.alts().size(), 1);
+  ASSERT_EQ(frontier.alts()[0].enode_id, ENodeId{1}) << "Only the dominator (B) should survive";
 }
 
 TEST(ParetoFrontier_Prune, DuplicateAlternatives) {
@@ -978,7 +974,6 @@ TEST(ParetoFrontier_Prune, DuplicateAlternatives) {
       {.cost = 2.0, .required = {1}, .enode_id = ENodeId{0}},
       {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},
   }};
-  frontier.prune();
   // When both dominate each other, the algorithm processes i=0 first:
   //   j=1: DominanceFn(alts[0], alts[1]) → true (0 dominated by 1) → mark 0, break
   // Then i=1 survives. So the SECOND alt wins (the one that dominates i=0).
@@ -988,8 +983,8 @@ TEST(ParetoFrontier_Prune, DuplicateAlternatives) {
   //     = 2.0 <= 2.0 && {1} ⊇ {1} → true → dominated[0] = true, break
   //   i=1: not dominated → survives
   // Result: the second alt (enode_id=1) survives.
-  ASSERT_EQ(frontier.alts.size(), 1) << "One of the duplicates should be pruned";
-  ASSERT_EQ(frontier.alts[0].enode_id, ENodeId{1}) << "Second alt survives (first is marked dominated)";
+  ASSERT_EQ(frontier.alts().size(), 1) << "One of the duplicates should be pruned";
+  ASSERT_EQ(frontier.alts()[0].enode_id, ENodeId{1}) << "Second alt survives (first is marked dominated)";
 }
 
 TEST(ParetoFrontier_Prune, TransitiveDominance) {
@@ -1005,9 +1000,8 @@ TEST(ParetoFrontier_Prune, TransitiveDominance) {
       {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // B
       {.cost = 3.0, .required = {1, 2}, .enode_id = ENodeId{2}},  // C
   }};
-  frontier.prune();
-  ASSERT_EQ(frontier.alts.size(), 1);
-  ASSERT_EQ(frontier.alts[0].enode_id, ENodeId{0}) << "Only A should survive (dominates B and C)";
+  ASSERT_EQ(frontier.alts().size(), 1);
+  ASSERT_EQ(frontier.alts()[0].enode_id, ENodeId{0}) << "Only A should survive (dominates B and C)";
 
   // Also test with reversed input order to exercise the break optimization path.
   // When C is at index 0: i=0(C), j=1(B): C.dominated_by(B) → true → dominated[0]=true, break
@@ -1018,9 +1012,8 @@ TEST(ParetoFrontier_Prune, TransitiveDominance) {
       {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // B
       {.cost = 1.0, .required = {}, .enode_id = ENodeId{0}},      // A
   }};
-  frontier_reversed.prune();
-  ASSERT_EQ(frontier_reversed.alts.size(), 1);
-  ASSERT_EQ(frontier_reversed.alts[0].enode_id, ENodeId{0}) << "Only A should survive regardless of input order";
+  ASSERT_EQ(frontier_reversed.alts().size(), 1);
+  ASSERT_EQ(frontier_reversed.alts()[0].enode_id, ENodeId{0}) << "Only A should survive regardless of input order";
 }
 
 TEST(ParetoFrontier_Prune, TransitiveDominance_AllPermutations) {
@@ -1035,33 +1028,33 @@ TEST(ParetoFrontier_Prune, TransitiveDominance_AllPermutations) {
   std::array<std::array<int, 3>, 6> perms{{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}};
   for (auto const &perm : perms) {
     auto frontier = TestFrontier{{elems[perm[0]], elems[perm[1]], elems[perm[2]]}};
-    frontier.prune();
-    ASSERT_EQ(frontier.alts.size(), 1) << "permutation " << perm[0] << perm[1] << perm[2];
-    ASSERT_EQ(frontier.alts[0].enode_id, ENodeId{0}) << "Only A (cost=1, req={}) should survive";
+    ASSERT_EQ(frontier.alts().size(), 1) << "permutation " << perm[0] << perm[1] << perm[2];
+    ASSERT_EQ(frontier.alts()[0].enode_id, ENodeId{0}) << "Only A (cost=1, req={}) should survive";
   }
 }
 
 TEST(ParetoFrontier_Prune, BeamLimit) {
   // 10 Pareto-incomparable alternatives: each has a unique required set (disjoint),
   // so no dominance pruning occurs. Costs increase from 1.0 to 10.0.
-  auto frontier = TestFrontier{};
+  std::vector<TestDemandAlt> alts;
+  alts.reserve(10);
   for (int i = 0; i < 10; ++i) {
-    frontier.alts.push_back({.cost = static_cast<double>(i + 1),
-                             .required = {static_cast<uint16_t>(i + 100)},  // disjoint required sets
-                             .enode_id = ENodeId{static_cast<uint32_t>(i)}});
+    alts.push_back({.cost = static_cast<double>(i + 1),
+                    .required = {static_cast<uint16_t>(i + 100)},  // disjoint required sets
+                    .enode_id = ENodeId{static_cast<uint32_t>(i)}});
   }
+  auto frontier = TestFrontier::from_unpruned(std::move(alts));
 
   // Verify prune alone doesn't reduce (all are Pareto-incomparable)
-  frontier.prune();
-  ASSERT_EQ(frontier.alts.size(), 10) << "Dominance pruning should not remove any (all incomparable)";
+  ASSERT_EQ(frontier.alts().size(), 10) << "Dominance pruning should not remove any (all incomparable)";
 
   // Apply beam limit of 5 — should keep the 5 cheapest
   frontier.beam(5, [](TestDemandAlt const &a) { return a.cost; });
-  ASSERT_EQ(frontier.alts.size(), 5) << "Beam limit should reduce to 5 alternatives";
+  ASSERT_EQ(frontier.alts().size(), 5) << "Beam limit should reduce to 5 alternatives";
 
   // Verify the survivors are the 5 cheapest (costs 1..5)
   auto costs = std::vector<double>{};
-  for (auto const &alt : frontier.alts) {
+  for (auto const &alt : frontier.alts()) {
     costs.push_back(alt.cost);
   }
   std::ranges::sort(costs);
@@ -1075,11 +1068,10 @@ TEST(ParetoFrontier_Prune, BeamLimitNoEffectWhenSmall) {
       {.cost = 2.0, .required = {3}, .enode_id = ENodeId{1}},
       {.cost = 3.0, .required = {4}, .enode_id = ENodeId{2}},
   }};
-  frontier.prune();
-  ASSERT_EQ(frontier.alts.size(), 3) << "All three are Pareto-incomparable";
+  ASSERT_EQ(frontier.alts().size(), 3) << "All three are Pareto-incomparable";
 
   frontier.beam(10, [](TestDemandAlt const &a) { return a.cost; });
-  ASSERT_EQ(frontier.alts.size(), 3) << "Beam limit of 10 should not reduce 3 alternatives";
+  ASSERT_EQ(frontier.alts().size(), 3) << "Beam limit of 10 should not reduce 3 alternatives";
 }
 
 TEST(Extract_MultiAlt, SingleAlternative_BehavesLikeSingleBest) {
@@ -1176,13 +1168,13 @@ TEST(Extract_MultiAlt, DominatedPruning) {
   auto const &frontier = *it->second;
   // After pruning, exactly 2 non-dominated alternatives should survive:
   //   {cost=1, required={1}} and {cost=2, required={}}
-  ASSERT_EQ(frontier.alts.size(), 2);
+  ASSERT_EQ(frontier.alts().size(), 2);
 
   // Verify both specific alternatives are present
   auto has_demand_alt = std::ranges::any_of(
-      frontier.alts, [](auto const &alt) { return alt.cost == 1.0 && alt.required == std::set<int>{1}; });
+      frontier.alts(), [](auto const &alt) { return alt.cost == 1.0 && alt.required == std::set<int>{1}; });
   auto has_no_demand_alt =
-      std::ranges::any_of(frontier.alts, [](auto const &alt) { return alt.cost == 2.0 && alt.required.empty(); });
+      std::ranges::any_of(frontier.alts(), [](auto const &alt) { return alt.cost == 2.0 && alt.required.empty(); });
   ASSERT_TRUE(has_demand_alt) << "Expected alternative with cost=1.0, required={1}";
   ASSERT_TRUE(has_no_demand_alt) << "Expected alternative with cost=2.0, required={}";
 
@@ -1256,15 +1248,15 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
   auto const &frontier = *it->second;
 
   // All 3 alternatives are Pareto-incomparable: none dominates another
-  ASSERT_EQ(frontier.alts.size(), 3);
+  ASSERT_EQ(frontier.alts().size(), 3);
 
   // Verify each specific alternative is present
   auto has_alt_1_2 = std::ranges::any_of(
-      frontier.alts, [](auto const &alt) { return alt.cost == 1.0 && alt.required == std::set<int>{1, 2}; });
+      frontier.alts(), [](auto const &alt) { return alt.cost == 1.0 && alt.required == std::set<int>{1, 2}; });
   auto has_alt_1 = std::ranges::any_of(
-      frontier.alts, [](auto const &alt) { return alt.cost == 2.0 && alt.required == std::set<int>{1}; });
+      frontier.alts(), [](auto const &alt) { return alt.cost == 2.0 && alt.required == std::set<int>{1}; });
   auto has_alt_none =
-      std::ranges::any_of(frontier.alts, [](auto const &alt) { return alt.cost == 3.0 && alt.required.empty(); });
+      std::ranges::any_of(frontier.alts(), [](auto const &alt) { return alt.cost == 3.0 && alt.required.empty(); });
   ASSERT_TRUE(has_alt_1_2) << "Expected alternative with cost=1.0, required={1,2}";
   ASSERT_TRUE(has_alt_1) << "Expected alternative with cost=2.0, required={1}";
   ASSERT_TRUE(has_alt_none) << "Expected alternative with cost=3.0, required={}";
@@ -1304,7 +1296,7 @@ TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
 
   // Verify shared eclass has both non-dominated alternatives
   auto const &shared_frontier = *frontier_map.at(shared_class);
-  ASSERT_EQ(shared_frontier.alts.size(), 2);
+  ASSERT_EQ(shared_frontier.alts().size(), 2);
 
   // Context-aware resolver with re-resolve on incompatible re-visit.
   // Mimics the fixed ResolvePlanSelection pattern.
@@ -1386,9 +1378,9 @@ TEST(Extract_MultiAlt, DAGResolution_CascadesToChildren) {
 
   // Verify both Shared and Leaf have two non-dominated alternatives
   auto const &shared_frontier = *frontier_map.at(shared_class);
-  ASSERT_EQ(shared_frontier.alts.size(), 2);
+  ASSERT_EQ(shared_frontier.alts().size(), 2);
   auto const &leaf_frontier = *frontier_map.at(leaf_class);
-  ASSERT_EQ(leaf_frontier.alts.size(), 2);
+  ASSERT_EQ(leaf_frontier.alts().size(), 2);
 
   // Context-aware resolver — WITHOUT cascade fix (reproduces the bug).
   auto resolved = std::unordered_map<EClassId, std::pair<ENodeId, double>>{};
