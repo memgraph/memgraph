@@ -158,6 +158,15 @@ struct ParetoFrontier {
   }
 
  protected:
+  // Storage: std::vector, NOT small_vector.  Tried small_vector<Alt, N> for
+  // N ∈ {1, 4} to absorb typical 1–4-alt frontiers without heap; both
+  // regressed 5–50% across DeepChain and WideMerge benches.  Reason: Alt is
+  // ~100B with non-trivial move (SymbolSet contains its own small_vector),
+  // and ParetoFrontier objects are moved frequently (frontier_map inserts,
+  // merge rvalue overload, MapAlts return).  std::vector's move is a
+  // pointer-swap; small_vector with inline storage requires element-wise
+  // moves.  The inline-storage saving on heap allocs was outweighed by the
+  // per-move cost.
   std::vector<Alt> alts_;
 
  private:
