@@ -165,9 +165,8 @@ template <symbol S>
 struct symbol_make_traits<S> {
   struct storage_type {};
 
-  template <typename Emplacer>
-  static auto make(storage_type & /*s*/, Emplacer &&emplace, eclass lhs, eclass rhs) -> eclass {
-    return emplace(lhs, rhs);
+  static auto make(storage_type & /*s*/, eclass lhs, eclass rhs) -> lowered_node {
+    return {.children = utils::small_vector<eclass>{lhs, rhs}, .disambiguator = std::nullopt};
   }
 };
 
@@ -177,9 +176,8 @@ template <symbol S>
 struct symbol_make_traits<S> {
   struct storage_type {};
 
-  template <typename Emplacer>
-  static auto make(storage_type & /*s*/, Emplacer &&emplace, eclass operand) -> eclass {
-    return emplace(operand);
+  static auto make(storage_type & /*s*/, eclass operand) -> lowered_node {
+    return {.children = utils::small_vector<eclass>{operand}, .disambiguator = std::nullopt};
   }
 };
 
