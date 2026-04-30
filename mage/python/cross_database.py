@@ -1,0 +1,1248 @@
+import base64
+import csv
+import datetime
+import hashlib
+import io
+import json
+import os
+import re
+from decimal import Decimal
+from typing import Any, Dict, List
+
+import boto3
+import duckdb as duckDB
+import mgp
+import mysql.connector as mysql_connector
+import oracledb
+import psycopg2
+import pyarrow.flight as flight
+import pyodbc
+from neo4j import GraphDatabase
+from neo4j.spatial import Point as Neo4jPoint
+from neo4j.time import Date as Neo4jDate
+from neo4j.time import DateTime as Neo4jDateTime
+from neo4j.time import Duration as Neo4jDuration
+from neo4j.time import Time as Neo4jTime
+
+import requests
+
+
+class Constants:
+    BATCH_SIZE = 1000
+    COLUMN_NAMES = "column_names"
+    CONNECTION = "connection"
+    CURSOR = "cursor"
+    DATABASE = "database"
+    DRIVER = "driver"
+    HOST = "host"
+    I_COLUMN_NAME = 0
+    PASSWORD = "password"
+    PORT = "port"
+    RESULT = "result"
+    SESSION = "session"
+    URI_SCHEME = "uri_scheme"
+    USERNAME = "username"
+    ALREADY_RUNNING_ERROR = (
+        "Migrate module with these parameters is already running. "
+        "Please wait for it to finish before starting a new one."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_cache_key(tx_id: int, query: str, config: mgp.Map, params: mgp.Nullable[mgp.Any] = None) -> str:
+    """
+    Create a cache key from the transaction ID, query, config, and params.
+
+    The transaction ID isolates concurrent transactions so they don't interfere
+    with each other's connections or cursors. The query/config/params hash
+    distinguishes multiple cross-database calls within the same transaction.
+
+    :param tx_id: Memgraph transaction ID (unique per transaction)
+    :param query: The query string (or table name, endpoint, file path, etc.)
+    :param config: Configuration map
+    :param params: Optional query parameters
+    """
+    config_dict = dict(config)
+    config_str = json.dumps(config_dict, sort_keys=True, default=str)
+
+    params_str = ""
+    if params is not None:
+        if isinstance(params, dict):
+            params_str = json.dumps(params, sort_keys=True, default=str)
+        elif isinstance(params, (list, tuple)):
+            params_str = json.dumps(list(params), sort_keys=False, default=str)
+        else:
+            params_str = str(params)
+
+    hash_input = f"{tx_id}|{query}|{config_str}|{params_str}"
+    return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
+
+
+def _query_is_table(table_or_sql: str) -> bool:
+    return len(table_or_sql.split()) == 1
+
+
+def _combine_config(config: mgp.Map, config_path: str) -> Dict[str, Any]:
+    assert len(config_path), "Path must not be empty"
+
+    file_config = None
+    try:
+        with open(config_path, "r") as file:
+            file_config = json.load(file)
+    except Exception:
+        raise OSError("Could not open/read file.")
+
+    config.update(file_config)
+    return config
+
+
+def _name_row_cells(row_cells, column_names) -> Dict[str, Any]:
+    return {
+        column: (value if not isinstance(value, Decimal) else float(value))
+        for column, value in zip(column_names, row_cells)
+    }
+
+
+def _name_row_cells_mysql(row_cells, column_names) -> Dict[str, Any]:
+    """
+    Convert MySQL row cells to Memgraph-compatible types.
+    Handles MySQL-specific types that might cause PyObject conversion errors.
+    """
+    return {column: _convert_mysql_value(value) for column, value in zip(column_names, row_cells)}
+
+
+def _convert_mysql_value(value: Any) -> Any:
+    """
+    Convert a MySQL value to a Memgraph-compatible type.
+    Returns None for unsupported types and logs a warning.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    if isinstance(value, datetime.timedelta):
+        return str(value)
+
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return base64.b64encode(value).decode("ascii")
+
+    if hasattr(value, "__class__") and "geometry" in str(value.__class__).lower():
+        return str(value) if value else None
+
+    if isinstance(value, (int, float, bool)):
+        return value
+
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, (list, tuple)):
+        return [_convert_mysql_value(item) for item in value]
+
+    if isinstance(value, dict):
+        return {k: _convert_mysql_value(v) for k, v in value.items()}
+
+    try:
+        str_value = str(value)
+        return str_value
+    except (ValueError, TypeError):
+        return None
+
+
+def _convert_row_types(row_cells) -> Dict[str, Any]:
+    return {column: (value if not isinstance(value, Decimal) else float(value)) for column, value in row_cells.items()}
+
+
+def _check_params_type(params: Any, types=(dict, list, tuple)) -> None:
+    if not isinstance(params, types):
+        raise TypeError(
+            "Database query parameter values must be passed in a container of type List[Any] (or Map, if migrating from MySQL or Oracle DB)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Bolt-protocol helpers (Neo4j / Memgraph)
+# ---------------------------------------------------------------------------
+
+
+def _formulate_cypher_query(label_or_rel_or_query: str) -> str:
+    words = label_or_rel_or_query.split()
+    if len(words) > 1:
+        return label_or_rel_or_query
+
+    node_match = re.match(r"^\(\s*:(\w+)\s*\)$", label_or_rel_or_query)
+    rel_match = re.match(r"^\[\s*:(\w+)\s*\]$", label_or_rel_or_query)
+
+    if node_match:
+        label = node_match.group(1)
+        return f"MATCH (n:{label}) RETURN labels(n) as labels, properties(n) as properties"
+
+    if rel_match:
+        rel_type = rel_match.group(1)
+        return f"""
+    MATCH (n)-[r:{rel_type}]->(m)
+    RETURN
+        labels(n) as from_labels,
+        labels(m) as to_labels,
+        properties(n) as from_properties,
+        properties(r) as edge_properties,
+        properties(m) as to_properties
+    """
+    return label_or_rel_or_query
+
+
+def _convert_bolt_value(value):
+    """Convert Bolt protocol values (Neo4j/Memgraph) to Python-compatible formats."""
+    if value is None:
+        return None
+
+    try:
+        if isinstance(value, (Neo4jDateTime, Neo4jDate, Neo4jTime)):
+            return value.to_native()
+        if isinstance(value, Neo4jDuration):
+            return datetime.timedelta(days=value.days, seconds=value.seconds, microseconds=value.nanoseconds // 1000)
+    except ImportError:
+        pass
+
+    if isinstance(value, Neo4jPoint):
+        raise ValueError(f"Point type is not yet supported in cross-database queries: {value}")
+
+    if isinstance(value, list):
+        return [_convert_bolt_value(item) for item in value]
+
+    if isinstance(value, dict):
+        if value.get("__type") == "mg_enum":
+            raise ValueError(f"Enum type is not yet supported in cross-database queries: {value.get('__value')}")
+        return {key: _convert_bolt_value(val) for key, val in value.items()}
+
+    return value
+
+
+def _convert_bolt_record(record):
+    """Convert a Bolt protocol record to a Python dict with proper type conversion."""
+    return {key: _convert_bolt_value(value) for key, value in record.items()}
+
+
+def _build_uri(config: mgp.Map) -> str:
+    host = config.get(Constants.HOST, "localhost")
+    port = config.get(Constants.PORT, 7687)
+    uri_scheme = config.get(Constants.URI_SCHEME, "bolt")
+    return f"{uri_scheme}://{host}:{port}"
+
+
+def _bolt_init_state(
+    state_dict: dict,
+    tx_id: int,
+    label_or_rel_or_query: str,
+    config: mgp.Map,
+    config_path: str,
+    params: mgp.Nullable[mgp.Any],
+    default_username: str = "",
+    default_password: str = "",
+):
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    query = _formulate_cypher_query(label_or_rel_or_query)
+    cache_key = _get_cache_key(tx_id, query, config, params)
+
+    if cache_key in state_dict:
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
+
+    uri = _build_uri(config)
+    username = config.get(Constants.USERNAME, default_username)
+    password = config.get(Constants.PASSWORD, default_password)
+    database = config.get(Constants.DATABASE, None)
+
+    driver = GraphDatabase.driver(uri, auth=(username, password))
+
+    if database:
+        session = driver.session(database=database)
+    else:
+        session = driver.session()
+
+    cypher_params = params if params is not None else {}
+    result = session.run(query, parameters=cypher_params)
+
+    state_dict[cache_key] = {
+        Constants.DRIVER: driver,
+        Constants.SESSION: session,
+        Constants.RESULT: result,
+    }
+
+
+def _bolt_fetch_batch(
+    state_dict: dict,
+    tx_id: int,
+    label_or_rel_or_query: str,
+    config: mgp.Map,
+    config_path: str,
+    params: mgp.Nullable[mgp.Any],
+):
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    query = _formulate_cypher_query(label_or_rel_or_query)
+    cache_key = _get_cache_key(tx_id, query, config, params)
+    result = state_dict[cache_key][Constants.RESULT]
+
+    batch = []
+    for record in result:
+        batch.append(mgp.Record(row=_convert_bolt_record(record)))
+        if len(batch) >= Constants.BATCH_SIZE:
+            break
+
+    if not batch:
+        _bolt_cleanup_by_key(state_dict, cache_key)
+
+    return batch
+
+
+def _bolt_cleanup_by_key(state_dict: dict, cache_key: str):
+    if cache_key in state_dict:
+        session = state_dict[cache_key].get(Constants.SESSION)
+        driver = state_dict[cache_key].get(Constants.DRIVER)
+        if session:
+            session.close()
+        if driver:
+            driver.close()
+        state_dict.pop(cache_key, None)
+
+
+# ---------------------------------------------------------------------------
+# Bolt proc (cross_database.bolt)
+# ---------------------------------------------------------------------------
+
+_bolt_state = {}
+
+
+def _init_bolt(
+    ctx: mgp.ProcCtx,
+    label_or_rel_or_query: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+):
+    _bolt_init_state(_bolt_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
+
+
+def bolt(
+    ctx: mgp.ProcCtx,
+    label_or_rel_or_query: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+) -> mgp.Record(row=mgp.Map):
+    """
+    Query any Bolt-compatible database (Memgraph, Neo4j). Can fetch a specific node label, relationship type, or execute a custom Cypher query.
+
+    :param label_or_rel_or_query: Node label, relationship type, or a Cypher query
+    :param config: Connection configuration (host, port, username, password, database, uri_scheme)
+    :param config_path: Path to a JSON file containing connection parameters
+    :param params: Optional query parameters
+    :return: Stream of rows from the remote database
+    """
+    return _bolt_fetch_batch(_bolt_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
+
+
+def _cleanup_bolt():
+    """Cleanup function called by mgp framework (no parameters)."""
+    print("Cleanup bolt")
+    pass
+
+
+mgp.add_batch_read_proc(bolt, _init_bolt, _cleanup_bolt)
+
+
+# ---------------------------------------------------------------------------
+# Neo4j proc (cross_database.neo4j)
+# ---------------------------------------------------------------------------
+
+_neo4j_state = {}
+
+
+def _init_neo4j(
+    ctx: mgp.ProcCtx,
+    label_or_rel_or_query: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+):
+    _bolt_init_state(_neo4j_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
+
+
+def neo4j(
+    ctx: mgp.ProcCtx,
+    label_or_rel_or_query: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+) -> mgp.Record(row=mgp.Map):
+    """
+    Migrate data from Neo4j to Memgraph. Can migrate a specific node label, relationship type, or execute a custom Cypher query.
+
+    :param label_or_rel_or_query: Node label, relationship type, or a Cypher query
+    :param config: Connection configuration for Neo4j
+    :param config_path: Path to a JSON file containing connection parameters
+    :param params: Optional query parameters
+    :return: Stream of rows from Neo4j
+    """
+    return _bolt_fetch_batch(_neo4j_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
+
+
+def _cleanup_neo4j():
+    """Cleanup function called by mgp framework (no parameters)."""
+    pass
+
+
+mgp.add_batch_read_proc(neo4j, _init_neo4j, _cleanup_neo4j)
+
+
+# ---------------------------------------------------------------------------
+# MySQL
+# ---------------------------------------------------------------------------
+
+mysql_dict = {}
+
+
+def init_migrate_mysql(
+    ctx: mgp.ProcCtx,
+    table_or_sql: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+):
+    global mysql_dict
+
+    if params:
+        _check_params_type(params)
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    if _query_is_table(table_or_sql):
+        table_or_sql = f"SELECT * FROM {table_or_sql};"
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+
+    if cache_key in mysql_dict:
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
+
+    mysql_dict[cache_key] = {}
+
+    connection = mysql_connector.connect(**config)
+    cursor = connection.cursor()
+    cursor.execute(table_or_sql, params)
+
+    mysql_dict[cache_key][Constants.CONNECTION] = connection
+    mysql_dict[cache_key][Constants.CURSOR] = cursor
+    mysql_dict[cache_key][Constants.COLUMN_NAMES] = [column[Constants.I_COLUMN_NAME] for column in cursor.description]
+
+
+def mysql(
+    ctx: mgp.ProcCtx,
+    table_or_sql: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+) -> mgp.Record(row=mgp.Map):
+    """
+    With cross_database.mysql you can access MySQL and execute queries.
+    The result table is converted into a stream, and returned rows can be
+    used to create graph structures. Config must be at least empty map.
+    If config_path is passed, every key,value pair from JSON file will
+    overwrite any values in config file.
+
+    :param table_or_sql: Table name or an SQL query
+    :param config: Connection configuration parameters
+                   (as in mysql.connector.connect)
+    :param config_path: Path to the JSON file containing configuration
+                        parameters (as in mysql.connector.connect)
+    :param params: Optionally, queries may be parameterized. In that case,
+                   `params` provides parameter values
+    :return: The result table as a stream of rows
+    """
+    global mysql_dict
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    if _query_is_table(table_or_sql):
+        table_or_sql = f"SELECT * FROM {table_or_sql};"
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cursor = mysql_dict[cache_key][Constants.CURSOR]
+    column_names = mysql_dict[cache_key][Constants.COLUMN_NAMES]
+
+    rows = cursor.fetchmany(Constants.BATCH_SIZE)
+
+    result = [mgp.Record(row=_name_row_cells_mysql(row, column_names)) for row in rows]
+
+    if not result:
+        _cleanup_mysql_by_key(cache_key)
+
+    return result
+
+
+def _cleanup_mysql_by_key(cache_key: str):
+    global mysql_dict
+
+    if cache_key in mysql_dict:
+        mysql_dict[cache_key][Constants.CURSOR] = None
+        mysql_dict[cache_key][Constants.CONNECTION].commit()
+        mysql_dict[cache_key][Constants.CONNECTION].close()
+        mysql_dict[cache_key][Constants.CONNECTION] = None
+        mysql_dict[cache_key][Constants.COLUMN_NAMES] = None
+        mysql_dict.pop(cache_key, None)
+
+
+def cleanup_migrate_mysql():
+    """Cleanup function called by mgp framework (no parameters)."""
+    pass
+
+
+mgp.add_batch_read_proc(mysql, init_migrate_mysql, cleanup_migrate_mysql)
+
+
+# ---------------------------------------------------------------------------
+# SQL Server
+# ---------------------------------------------------------------------------
+
+sql_server_dict = {}
+
+
+def init_migrate_sql_server(
+    ctx: mgp.ProcCtx,
+    table_or_sql: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+):
+    global sql_server_dict
+
+    if params:
+        _check_params_type(params, (list, tuple))
+    else:
+        params = []
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    if _query_is_table(table_or_sql):
+        table_or_sql = f"SELECT * FROM {table_or_sql};"
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+
+    if cache_key in sql_server_dict:
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
+
+    sql_server_dict[cache_key] = {}
+
+    connection = pyodbc.connect(**config)
+    cursor = connection.cursor()
+    cursor.execute(table_or_sql, *params)
+
+    sql_server_dict[cache_key][Constants.CONNECTION] = connection
+    sql_server_dict[cache_key][Constants.CURSOR] = cursor
+    sql_server_dict[cache_key][Constants.COLUMN_NAMES] = [
+        column[Constants.I_COLUMN_NAME] for column in cursor.description
+    ]
+
+
+def sql_server(
+    ctx: mgp.ProcCtx,
+    table_or_sql: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+) -> mgp.Record(row=mgp.Map):
+    """
+    With cross_database.sql_server you can access SQL Server and execute queries.
+    The result table is converted into a stream, and returned rows can be
+    used to create graph structures. Config must be at least empty map.
+    If config_path is passed, every key,value pair from JSON file will
+    overwrite any values in config file.
+
+    :param table_or_sql: Table name or an SQL query
+    :param config: Connection configuration parameters (as in pyodbc.connect)
+    :param config_path: Path to the JSON file containing configuration
+                        parameters (as in pyodbc.connect)
+    :param params: Optionally, queries may be parameterized. In that case,
+                   `params` provides parameter values
+    :return: The result table as a stream of rows
+    """
+    global sql_server_dict
+
+    if not params:
+        params = []
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    if _query_is_table(table_or_sql):
+        table_or_sql = f"SELECT * FROM {table_or_sql};"
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cursor = sql_server_dict[cache_key][Constants.CURSOR]
+    column_names = sql_server_dict[cache_key][Constants.COLUMN_NAMES]
+    rows = cursor.fetchmany(Constants.BATCH_SIZE)
+
+    result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
+
+    if not result:
+        _cleanup_sql_server_by_key(cache_key)
+
+    return result
+
+
+def _cleanup_sql_server_by_key(cache_key: str):
+    global sql_server_dict
+
+    if cache_key in sql_server_dict:
+        sql_server_dict[cache_key][Constants.CURSOR] = None
+        sql_server_dict[cache_key][Constants.CONNECTION].commit()
+        sql_server_dict[cache_key][Constants.CONNECTION].close()
+        sql_server_dict[cache_key][Constants.CONNECTION] = None
+        sql_server_dict[cache_key][Constants.COLUMN_NAMES] = None
+        sql_server_dict.pop(cache_key, None)
+
+
+def cleanup_migrate_sql_server():
+    """Cleanup function called by mgp framework (no parameters)."""
+    pass
+
+
+mgp.add_batch_read_proc(sql_server, init_migrate_sql_server, cleanup_migrate_sql_server)
+
+
+# ---------------------------------------------------------------------------
+# Oracle DB
+# ---------------------------------------------------------------------------
+
+oracle_db_dict = {}
+
+
+def init_migrate_oracle_db(
+    ctx: mgp.ProcCtx,
+    table_or_sql: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+):
+    global oracle_db_dict
+
+    if params:
+        _check_params_type(params)
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    if _query_is_table(table_or_sql):
+        table_or_sql = f"SELECT * FROM {table_or_sql}"
+
+    if not config:
+        config = {}
+
+    config["disable_oob"] = True
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+
+    if cache_key in oracle_db_dict:
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
+
+    oracle_db_dict[cache_key] = {}
+
+    connection = oracledb.connect(**config)
+    cursor = connection.cursor()
+
+    if not params:
+        cursor.execute(table_or_sql)
+    elif isinstance(params, (list, tuple)):
+        cursor.execute(table_or_sql, params)
+    else:
+        cursor.execute(table_or_sql, **params)
+
+    oracle_db_dict[cache_key][Constants.CONNECTION] = connection
+    oracle_db_dict[cache_key][Constants.CURSOR] = cursor
+    oracle_db_dict[cache_key][Constants.COLUMN_NAMES] = [
+        column[Constants.I_COLUMN_NAME] for column in cursor.description
+    ]
+
+
+def oracle_db(
+    ctx: mgp.ProcCtx,
+    table_or_sql: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+) -> mgp.Record(row=mgp.Map):
+    """
+    With cross_database.oracle_db you can access Oracle DB and execute queries.
+    The result table is converted into a stream, and returned rows can be
+    used to create graph structures. Config must be at least empty map.
+    If config_path is passed, every key,value pair from JSON file will
+    overwrite any values in config file.
+
+    :param table_or_sql: Table name or an SQL query
+    :param config: Connection configuration parameters (as in oracledb.connect)
+    :param config_path: Path to the JSON file containing configuration
+                        parameters (as in oracledb.connect)
+    :param params: Optionally, queries may be parameterized. In that case,
+                   `params` provides parameter values
+    :return: The result table as a stream of rows
+    """
+    global oracle_db_dict
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    if _query_is_table(table_or_sql):
+        table_or_sql = f"SELECT * FROM {table_or_sql}"
+
+    if not config:
+        config = {}
+    config["disable_oob"] = True
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cursor = oracle_db_dict[cache_key][Constants.CURSOR]
+    column_names = oracle_db_dict[cache_key][Constants.COLUMN_NAMES]
+    rows = cursor.fetchmany(Constants.BATCH_SIZE)
+
+    result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
+
+    if not result:
+        _cleanup_oracle_db_by_key(cache_key)
+
+    return result
+
+
+def _cleanup_oracle_db_by_key(cache_key: str):
+    global oracle_db_dict
+
+    if cache_key in oracle_db_dict:
+        oracle_db_dict[cache_key][Constants.CURSOR] = None
+        oracle_db_dict[cache_key][Constants.CONNECTION].commit()
+        oracle_db_dict[cache_key][Constants.CONNECTION].close()
+        oracle_db_dict[cache_key][Constants.CONNECTION] = None
+        oracle_db_dict[cache_key][Constants.COLUMN_NAMES] = None
+        oracle_db_dict.pop(cache_key, None)
+
+
+def cleanup_migrate_oracle_db():
+    """Cleanup function called by mgp framework (no parameters)."""
+    pass
+
+
+mgp.add_batch_read_proc(oracle_db, init_migrate_oracle_db, cleanup_migrate_oracle_db)
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL
+# ---------------------------------------------------------------------------
+
+postgres_dict = {}
+
+
+def init_migrate_postgresql(
+    ctx: mgp.ProcCtx,
+    table_or_sql: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+):
+    global postgres_dict
+
+    if params:
+        _check_params_type(params, (list, tuple))
+    else:
+        params = []
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    if _query_is_table(table_or_sql):
+        table_or_sql = f"SELECT * FROM {table_or_sql};"
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+
+    if cache_key in postgres_dict:
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
+
+    postgres_dict[cache_key] = {}
+
+    connection = psycopg2.connect(**config)
+    cursor = connection.cursor()
+    cursor.execute(table_or_sql, params)
+
+    postgres_dict[cache_key][Constants.CONNECTION] = connection
+    postgres_dict[cache_key][Constants.CURSOR] = cursor
+    postgres_dict[cache_key][Constants.COLUMN_NAMES] = [column.name for column in cursor.description]
+
+
+def postgresql(
+    ctx: mgp.ProcCtx,
+    table_or_sql: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+) -> mgp.Record(row=mgp.Map):
+    """
+    With cross_database.postgresql you can access PostgreSQL and execute queries.
+    The result table is converted into a stream, and returned rows can be
+    used to create graph structures. Config must be at least empty map.
+    If config_path is passed, every key,value pair from JSON file will
+    overwrite any values in config file.
+
+    :param table_or_sql: Table name or an SQL query
+    :param config: Connection configuration parameters (as in psycopg2.connect)
+    :param config_path: Path to the JSON file containing configuration
+                        parameters (as in psycopg2.connect)
+    :param params: Optionally, queries may be parameterized. In that case,
+                   `params` provides parameter values
+    :return: The result table as a stream of rows
+    """
+    global postgres_dict
+
+    if not params:
+        params = []
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    if _query_is_table(table_or_sql):
+        table_or_sql = f"SELECT * FROM {table_or_sql};"
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cursor = postgres_dict[cache_key][Constants.CURSOR]
+    column_names = postgres_dict[cache_key][Constants.COLUMN_NAMES]
+
+    rows = cursor.fetchmany(Constants.BATCH_SIZE)
+
+    result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
+
+    if not result:
+        _cleanup_postgresql_by_key(cache_key)
+
+    return result
+
+
+def _cleanup_postgresql_by_key(cache_key: str):
+    global postgres_dict
+
+    if cache_key in postgres_dict:
+        postgres_dict[cache_key][Constants.CURSOR] = None
+        postgres_dict[cache_key][Constants.CONNECTION].commit()
+        postgres_dict[cache_key][Constants.CONNECTION].close()
+        postgres_dict[cache_key][Constants.CONNECTION] = None
+        postgres_dict[cache_key][Constants.COLUMN_NAMES] = None
+        postgres_dict.pop(cache_key, None)
+
+
+def cleanup_migrate_postgresql():
+    """Cleanup function called by mgp framework (no parameters)."""
+    pass
+
+
+mgp.add_batch_read_proc(postgresql, init_migrate_postgresql, cleanup_migrate_postgresql)
+
+
+# ---------------------------------------------------------------------------
+# S3
+# ---------------------------------------------------------------------------
+
+s3_dict = {}
+
+
+def init_migrate_s3(
+    ctx: mgp.ProcCtx,
+    file_path: str,
+    config: mgp.Map,
+    config_path: str = "",
+):
+    """
+    Initialize an S3 connection and prepare to stream a CSV file.
+
+    :param file_path: S3 file path in the format
+                      's3://bucket-name/path/to/file.csv'
+    :param config: Configuration map containing AWS credentials
+                   (access_key, secret_key, region, etc.)
+    :param config_path: Path to a JSON file containing configuration parameters
+    """
+    global s3_dict
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    if not file_path.startswith("s3://"):
+        raise ValueError("Invalid S3 path format. " "Expected 's3://bucket-name/path'.")
+
+    file_path_no_protocol = file_path[5:]
+    bucket_name, *key_parts = file_path_no_protocol.split("/")
+    s3_key = "/".join(key_parts)
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, file_path, config)
+
+    if cache_key in s3_dict:
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
+
+    s3_client = boto3.client(
+        "s3",
+        aws_access_key_id=config.get("aws_access_key_id", os.getenv("AWS_ACCESS_KEY_ID", None)),
+        aws_secret_access_key=config.get("aws_secret_access_key", os.getenv("AWS_SECRET_ACCESS_KEY", None)),
+        aws_session_token=config.get("aws_session_token", os.getenv("AWS_SESSION_TOKEN", None)),
+        region_name=config.get("region_name", os.getenv("AWS_REGION", None)),
+    )
+
+    response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+    text_stream = io.TextIOWrapper(response["Body"], encoding="utf-8")
+
+    csv_reader = csv.reader(text_stream)
+    column_names = next(csv_reader)
+
+    s3_dict[cache_key] = {}
+    s3_dict[cache_key][Constants.CURSOR] = csv_reader
+    s3_dict[cache_key][Constants.COLUMN_NAMES] = column_names
+
+
+def s3(
+    ctx: mgp.ProcCtx,
+    file_path: str,
+    config: mgp.Map,
+    config_path: str = "",
+) -> mgp.Record(row=mgp.Map):
+    """
+    Fetch rows from an S3 CSV file in batches.
+
+    :param file_path: S3 file path in the format
+                      's3://bucket-name/path/to/file.csv'
+    :param config: AWS S3 connection parameters (AWS credentials, region, etc.)
+    :param config_path: Optional path to a JSON file containing AWS credentials
+    :return: The result table as a stream of rows
+    """
+    global s3_dict
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, file_path, config)
+    csv_reader = s3_dict[cache_key][Constants.CURSOR]
+    column_names = s3_dict[cache_key][Constants.COLUMN_NAMES]
+
+    batch_rows = []
+    for _ in range(Constants.BATCH_SIZE):
+        try:
+            row = next(csv_reader)
+            batch_rows.append(mgp.Record(row=_name_row_cells(row, column_names)))
+        except StopIteration:
+            break
+
+    if not batch_rows:
+        _cleanup_s3_by_key(cache_key)
+
+    return batch_rows
+
+
+def _cleanup_s3_by_key(cache_key: str):
+    global s3_dict
+
+    if cache_key in s3_dict:
+        s3_dict.pop(cache_key, None)
+
+
+def cleanup_migrate_s3():
+    """Cleanup function called by mgp framework (no parameters)."""
+    pass
+
+
+mgp.add_batch_read_proc(s3, init_migrate_s3, cleanup_migrate_s3)
+
+
+# ---------------------------------------------------------------------------
+# Arrow Flight
+# ---------------------------------------------------------------------------
+
+flight_dict = {}
+
+
+def init_migrate_arrow_flight(
+    ctx: mgp.ProcCtx,
+    query: str,
+    config: mgp.Map,
+    config_path: str = "",
+):
+    global flight_dict
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, query, config)
+
+    if cache_key in flight_dict:
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
+
+    host = config.get(Constants.HOST, None)
+    port = config.get(Constants.PORT, None)
+    username = config.get(Constants.USERNAME, "")
+    password = config.get(Constants.PASSWORD, "")
+
+    auth_string = f"{username}:{password}".encode("utf-8")
+    encoded_auth = base64.b64encode(auth_string).decode("utf-8")
+
+    client = flight.connect(f"grpc://{host}:{port}")
+
+    options = flight.FlightCallOptions(headers=[(b"authorization", f"Basic {encoded_auth}".encode("utf-8"))])
+
+    flight_info = client.get_flight_info(flight.FlightDescriptor.for_command(query), options)
+
+    flight_dict[cache_key] = {}
+    flight_dict[cache_key][Constants.CONNECTION] = client
+    flight_dict[cache_key][Constants.CURSOR] = iter(_fetch_flight_data(client, flight_info, options))
+
+
+def _fetch_flight_data(client, flight_info, options):
+    """
+    Efficiently fetches data in batches from Arrow Flight using RecordBatchReader.
+    This prevents high memory usage by avoiding full table loading.
+    """
+    for endpoint in flight_info.endpoints:
+        reader = client.do_get(endpoint.ticket, options)
+        for chunk in reader:
+            batch = chunk.data
+            yield from batch.to_pylist()
+
+
+def arrow_flight(
+    ctx: mgp.ProcCtx,
+    query: str,
+    config: mgp.Map,
+    config_path: str = "",
+) -> mgp.Record(row=mgp.Map):
+    """
+    Execute a SQL query on Arrow Flight and stream results into Memgraph.
+
+    :param query: SQL query to execute
+    :param config: Arrow Flight connection configuration
+    :param config_path: Path to a JSON config file
+    :return: Stream of rows from Arrow Flight
+    """
+    global flight_dict
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, query, config)
+    cursor = flight_dict[cache_key][Constants.CURSOR]
+    batch = []
+    for _ in range(Constants.BATCH_SIZE):
+        try:
+            row = _convert_row_types(next(cursor))
+            batch.append(mgp.Record(row=row))
+        except StopIteration:
+            break
+
+    if not batch:
+        _cleanup_arrow_flight_by_key(cache_key)
+
+    return batch
+
+
+def _cleanup_arrow_flight_by_key(cache_key: str):
+    global flight_dict
+
+    if cache_key in flight_dict:
+        flight_dict.pop(cache_key, None)
+
+
+def cleanup_migrate_arrow_flight():
+    """Cleanup function called by mgp framework (no parameters)."""
+    pass
+
+
+mgp.add_batch_read_proc(arrow_flight, init_migrate_arrow_flight, cleanup_migrate_arrow_flight)
+
+
+# ---------------------------------------------------------------------------
+# DuckDB
+# ---------------------------------------------------------------------------
+
+duckdb_dict = {}
+
+
+def init_migrate_duckdb(ctx: mgp.ProcCtx, query: str, setup_queries: mgp.Nullable[List[str]] = None):
+    """
+    Initialize an in-memory DuckDB connection and execute the query.
+
+    :param query: SQL query to execute
+    :param setup_queries: Optional list of setup queries to execute before the main query
+    """
+    global duckdb_dict
+
+    setup_queries_str = json.dumps(setup_queries, sort_keys=False) if setup_queries else ""
+    cache_key = _get_cache_key(ctx.graph.transaction_id, query, {}, setup_queries_str)
+
+    if cache_key in duckdb_dict:
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
+
+    connection = duckDB.connect()
+    cursor = connection.cursor()
+    if setup_queries is not None:
+        for setup_query in setup_queries:
+            cursor.execute(setup_query)
+
+    cursor.execute(query)
+
+    duckdb_dict[cache_key] = {}
+    duckdb_dict[cache_key][Constants.CONNECTION] = connection
+    duckdb_dict[cache_key][Constants.CURSOR] = cursor
+    duckdb_dict[cache_key][Constants.COLUMN_NAMES] = [desc[0] for desc in cursor.description]
+
+
+def duckdb(ctx: mgp.ProcCtx, query: str, setup_queries: mgp.Nullable[List[str]] = None) -> mgp.Record(row=mgp.Map):
+    """
+    Fetch rows from DuckDB in batches.
+
+    :param query: SQL query to execute
+    :param setup_queries: Optional list of setup queries to execute before the main query
+    :return: The result table as a stream of rows
+    """
+    global duckdb_dict
+
+    setup_queries_str = json.dumps(setup_queries, sort_keys=False) if setup_queries else ""
+    cache_key = _get_cache_key(ctx.graph.transaction_id, query, {}, setup_queries_str)
+    cursor = duckdb_dict[cache_key][Constants.CURSOR]
+    column_names = duckdb_dict[cache_key][Constants.COLUMN_NAMES]
+
+    rows = cursor.fetchmany(Constants.BATCH_SIZE)
+    result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
+
+    if not result:
+        _cleanup_duckdb_by_key(cache_key)
+
+    return result
+
+
+def _cleanup_duckdb_by_key(cache_key: str):
+    global duckdb_dict
+
+    if cache_key in duckdb_dict:
+        if Constants.CONNECTION in duckdb_dict[cache_key]:
+            duckdb_dict[cache_key][Constants.CONNECTION].close()
+        duckdb_dict.pop(cache_key, None)
+
+
+def cleanup_migrate_duckdb():
+    """Cleanup function called by mgp framework (no parameters)."""
+    pass
+
+
+mgp.add_batch_read_proc(duckdb, init_migrate_duckdb, cleanup_migrate_duckdb)
+
+
+# ---------------------------------------------------------------------------
+# ServiceNow
+# ---------------------------------------------------------------------------
+
+servicenow_dict = {}
+
+
+def init_migrate_servicenow(
+    ctx: mgp.ProcCtx,
+    endpoint: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+):
+    """
+    Initialize the connection to the ServiceNow REST API and fetch the JSON data.
+
+    :param endpoint: ServiceNow API endpoint (full URL)
+    :param config: Configuration map containing authentication details (username, password, instance URL, etc.)
+    :param config_path: Optional path to a JSON file containing authentication details
+    :param params: Optional query parameters for filtering results
+    """
+    global servicenow_dict
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, endpoint, config, params)
+
+    if cache_key in servicenow_dict:
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
+
+    auth = (config.get(Constants.USERNAME), config.get(Constants.PASSWORD))
+    headers = {"Accept": "application/json"}
+
+    response = requests.get(endpoint, auth=auth, headers=headers, params=params)
+    response.raise_for_status()
+
+    data = response.json().get(Constants.RESULT, [])
+    if not data:
+        raise ValueError("No data found in ServiceNow response")
+
+    servicenow_dict[cache_key] = {}
+    servicenow_dict[cache_key][Constants.CURSOR] = iter(data)
+
+
+def servicenow(
+    ctx: mgp.ProcCtx,
+    endpoint: str,
+    config: mgp.Map,
+    config_path: str = "",
+    params: mgp.Nullable[mgp.Any] = None,
+) -> mgp.Record(row=mgp.Map):
+    """
+    Fetch rows from the ServiceNow REST API in batches.
+
+    :param endpoint: ServiceNow API endpoint (full URL)
+    :param config: Authentication details (username, password, instance URL, etc.)
+    :param config_path: Optional path to a JSON file containing authentication details
+    :param params: Optional query parameters for filtering results
+    :return: The result data as a stream of rows
+    """
+    global servicenow_dict
+
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    cache_key = _get_cache_key(ctx.graph.transaction_id, endpoint, config, params)
+    data_iter = servicenow_dict[cache_key][Constants.CURSOR]
+
+    batch_rows = []
+    for _ in range(Constants.BATCH_SIZE):
+        try:
+            row = next(data_iter)
+            batch_rows.append(mgp.Record(row=row))
+        except StopIteration:
+            break
+
+    if not batch_rows:
+        _cleanup_servicenow_by_key(cache_key)
+
+    return batch_rows
+
+
+def _cleanup_servicenow_by_key(cache_key: str):
+    global servicenow_dict
+
+    if cache_key in servicenow_dict:
+        servicenow_dict.pop(cache_key, None)
+
+
+def cleanup_migrate_servicenow():
+    """Cleanup function called by mgp framework (no parameters)."""
+    pass
+
+
+mgp.add_batch_read_proc(servicenow, init_migrate_servicenow, cleanup_migrate_servicenow)

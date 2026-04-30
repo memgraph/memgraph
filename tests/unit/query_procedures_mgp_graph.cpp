@@ -702,3 +702,10 @@ TYPED_TEST(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_edge_underlying_graph_is_mutable, edge.get()), 0);
   EXPECT_EQ(mgp_edge_set_property(edge.get(), "property", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 }
+
+TYPED_TEST(MgpGraphTest, GetTransactionId) {
+  mgp_graph graph = this->CreateGraph();
+  int64_t tx_id{0};
+  EXPECT_SUCCESS(mgp_graph_get_transaction_id(&graph, &tx_id));
+  EXPECT_GE(tx_id, 0);
+}
