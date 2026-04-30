@@ -1,0 +1,1 @@
+CREATE (a:N {lat: 0, lon: 0, name: 'a'}), (b:Blocked {lat: 1, lon: 0, name: 'b'}), (c:N {lat: 1, lon: 1, name: 'c'}), (d:N {lat: 2, lon: 0, name: 'd'}), (a)-[:E {distance: 1}]->(b), (b)-[:E {distance: 1}]->(d), (a)-[:E {distance: 10}]->(c), (c)-[:E {distance: 10}]->(d)
