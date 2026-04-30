@@ -760,6 +760,41 @@ TYPED_TEST(TestPlanner, MatchMerge) {
   DeleteListContent(&on_create);
 }
 
+TYPED_TEST(TestPlanner, MergeWithDownstreamCreateAccumulatesMatch) {
+  // MERGE (n) CREATE (c)
+  FakeDbAccessor dba;
+  auto node_n = NODE("n");
+  auto *query = QUERY(SINGLE_QUERY(MERGE(PATTERN(node_n)), CREATE(PATTERN(NODE("c")))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  std::list<BaseOpChecker *> on_match{new ExpectScanAll(),
+                                      new ExpectAccumulate({symbol_table.at(*node_n->identifier_)})};
+  std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectMerge(on_match, on_create), ExpectCreateNode(), ExpectEmptyResult());
+  DeleteListContent(&on_match);
+  DeleteListContent(&on_create);
+}
+
+TYPED_TEST(TestPlanner, MergeFollowedByWithSkipsMatchAccumulate) {
+  // MERGE (n) WITH n CREATE (c) — WITH is its own Accumulate barrier
+  FakeDbAccessor dba;
+  auto node_n = NODE("n");
+  auto *query = QUERY(SINGLE_QUERY(MERGE(PATTERN(node_n)), WITH(IDENT("n"), AS("n")), CREATE(PATTERN(NODE("c")))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  std::list<BaseOpChecker *> on_match{new ExpectScanAll()};
+  std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectMerge(on_match, on_create),
+            ExpectAccumulate({symbol_table.at(*node_n->identifier_)}),
+            ExpectProduce(),
+            ExpectCreateNode(),
+            ExpectEmptyResult());
+  DeleteListContent(&on_match);
+  DeleteListContent(&on_create);
+}
+
 TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
   // Test MATCH (n) OPTIONAL MATCH (n) -[r]- (m) WHERE m.prop < 42 RETURN r
   FakeDbAccessor dba;

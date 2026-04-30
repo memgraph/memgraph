@@ -507,3 +507,33 @@ Feature: Merge feature
             ON CREATE SET r.prop = null;
             """
         Then the result should be empty
+
+    Scenario: Merge followed by Create must terminate (issue #1333)
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (), ()
+            """
+        When executing query:
+            """
+            MERGE (n0) MERGE (n1) CREATE (c0)
+            """
+        Then the result should be empty
+
+    Scenario: Merge followed by Create bounded count (issue #1333)
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (), ()
+            """
+        And having executed:
+            """
+            MERGE (n0) MERGE (n1) CREATE (c0)
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN count(n) < 100 AS bounded
+            """
+        Then the result should be:
+            | bounded |
+            | true    |
