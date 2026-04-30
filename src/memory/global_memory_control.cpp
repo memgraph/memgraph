@@ -151,6 +151,27 @@ void PurgeUnusedMemory() {
 #endif
 }
 
+void EnsureJemallocThreadStateInitialized() {
+#if USE_JEMALLOC
+  enum class State : uint8_t { kUninitialized, kInitializing, kInitialized };
+  // NOLINTNEXTLINE (misc-use-internal-linkage)
+  constinit thread_local State state [[gnu::tls_model("initial-exec")]] = State::kUninitialized;
+
+  if (state != State::kUninitialized) {
+    return;
+  }
+
+  state = State::kInitializing;
+  {
+    const utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+    if (void *p = je_malloc(1); p != nullptr) {
+      je_free(p);
+    }
+  }
+  state = State::kInitialized;
+#endif
+}
+
 void EnableBackgroundThreads() {
 #if USE_JEMALLOC
   bool enable = true;

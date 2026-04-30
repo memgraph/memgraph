@@ -6,6 +6,9 @@ CLAUDE.md
 .claude/
 CLAUDE.md
 
+# OpenCode
+.opencode/
+
 # Conan files
 conanbuild.sh
 conanbuildenv*

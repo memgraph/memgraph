@@ -56,7 +56,9 @@ void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t 
   const bool requested_commit = *commit;
   // Pre-track if commit was requested (mandatory — base hook must return committed or fail).
   if (requested_commit) {
-    if (!dh->tracker->Alloc(static_cast<int64_t>(size))) return nullptr;
+    if (!dh->tracker->Alloc(static_cast<int64_t>(size))) {
+      return nullptr;
+    }
   }
   void *ptr = dh->base_hooks->alloc(dh->base_hooks, new_addr, size, alignment, zero, commit, arena_ind);
   if (ptr == nullptr) {

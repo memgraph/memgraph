@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdlib>
 
+#include "global_memory_control.hpp"
 #include "query_memory_control.hpp"
 
 namespace {
@@ -69,6 +70,8 @@ inline void failed_realloc_tracking(void *ptr, size_t size, int flags = 0) {
 }  // namespace
 
 extern "C" void *malloc(size_t size) {
+  // Warm up jemalloc thread state before any tracking helper can trigger OOM handling.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   if (!alloc_tracking(size)) [[unlikely]] {
     return nullptr;
   }
@@ -81,6 +84,8 @@ extern "C" void *malloc(size_t size) {
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 __attribute__((visibility("default"))) void *JeMalloc(size_t size, int flags) {
+  // Warm up jemalloc thread state before any tracking helper can trigger OOM handling.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   if (!alloc_tracking(size, flags)) [[unlikely]] {
     return nullptr;
   }
@@ -92,6 +97,8 @@ __attribute__((visibility("default"))) void *JeMalloc(size_t size, int flags) {
 }
 
 extern "C" void *calloc(size_t count, size_t size) {
+  // Warm up jemalloc thread state before any tracking helper can trigger OOM handling.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   if (!alloc_tracking(count * size)) [[unlikely]] {
     return nullptr;
   }
@@ -103,6 +110,8 @@ extern "C" void *calloc(size_t count, size_t size) {
 }
 
 extern "C" void *realloc(void *ptr, size_t size) {
+  // Warm up jemalloc thread state before any tracking helper can trigger OOM handling.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   if (!realloc_tracking(ptr, size)) [[unlikely]] {
     return nullptr;
   }
@@ -114,6 +123,8 @@ extern "C" void *realloc(void *ptr, size_t size) {
 }
 
 extern "C" void *aligned_alloc(size_t alignment, size_t size) {
+  // Warm up jemalloc thread state before any tracking helper can trigger OOM handling.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   const int flags = MALLOCX_ALIGN(alignment);
   if (!alloc_tracking(size, flags)) [[unlikely]] {
     return nullptr;
@@ -126,6 +137,8 @@ extern "C" void *aligned_alloc(size_t alignment, size_t size) {
 }
 
 extern "C" int posix_memalign(void **p, size_t alignment, size_t size) {
+  // Warm up jemalloc thread state before any tracking helper can trigger OOM handling.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   const int flags = MALLOCX_ALIGN(alignment);
   if (!alloc_tracking(size, flags)) [[unlikely]] {
     return ENOMEM;
@@ -138,6 +151,8 @@ extern "C" int posix_memalign(void **p, size_t alignment, size_t size) {
 }
 
 extern "C" void *valloc(size_t size) {
+  // Warm up jemalloc thread state before any tracking helper can trigger OOM handling.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   const int flags = MALLOCX_ALIGN(4096);
   if (!alloc_tracking(size, flags)) [[unlikely]] {
     return nullptr;
@@ -150,6 +165,8 @@ extern "C" void *valloc(size_t size) {
 }
 
 extern "C" void *memalign(size_t alignment, size_t size) {
+  // Warm up jemalloc thread state before any tracking helper can trigger OOM handling.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   const int flags = MALLOCX_ALIGN(alignment);
   if (!alloc_tracking(size, flags)) [[unlikely]] {
     return nullptr;
@@ -162,30 +179,50 @@ extern "C" void *memalign(size_t alignment, size_t size) {
 }
 
 extern "C" void free(void *ptr) {
-  if (!ptr) [[unlikely]]
+  // free(nullptr) is a no-op per C standard - return early without triggering
+  // jemalloc thread state initialization to avoid fork-safety issues.
+  if (ptr == nullptr) [[unlikely]] {
     return;
+  }
+  // Warm up jemalloc thread state because a thread may deallocate before its first allocation.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   free_tracking(ptr);
   je_free(ptr);
 }
 
 extern "C" void dallocx(void *ptr, int flags) {
-  if (!ptr) [[unlikely]]
+  // free(nullptr) is a no-op per C standard - return early without triggering
+  // jemalloc thread state initialization to avoid fork-safety issues.
+  if (ptr == nullptr) [[unlikely]] {
     return;
+  }
+  // Warm up jemalloc thread state because a thread may deallocate before its first allocation.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   free_tracking(ptr, flags);
   je_dallocx(ptr, flags);
 }
 
 extern "C" void sdallocx(void *ptr, size_t size, int flags) {
-  if (!ptr) [[unlikely]]
+  // free(nullptr) is a no-op per C standard - return early without triggering
+  // jemalloc thread state initialization to avoid fork-safety issues.
+  if (ptr == nullptr) [[unlikely]] {
     return;
+  }
+  // Warm up jemalloc thread state because a thread may deallocate before its first allocation.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   free_tracking(ptr, flags);
   je_sdallocx(ptr, size, flags);
 }
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 __attribute__((visibility("default"))) void JeDealloc(void *ptr, size_t size, int flags) noexcept {
-  if (ptr == nullptr) [[unlikely]]
+  // free(nullptr) is a no-op per C standard - return early without triggering
+  // jemalloc thread state initialization to avoid fork-safety issues.
+  if (ptr == nullptr) [[unlikely]] {
     return;
+  }
+  // Warm up jemalloc thread state because a thread may deallocate before its first allocation.
+  memgraph::memory::EnsureJemallocThreadStateInitialized();
   free_tracking(ptr, flags);
   je_sdallocx(ptr, size, flags);
 }
