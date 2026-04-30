@@ -159,7 +159,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     utils::SkipListDb<Entry>::ChunkCollection chunks_;
   };
 
- private:
+ public:
   struct IndividualIndex {
     explicit IndividualIndex() : skip_list_{} {}
 
@@ -170,6 +170,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     IndexStatus status_{};
   };
 
+ private:
   struct IndicesContainer {
     IndicesContainer(IndicesContainer const &other) : indices_(other.indices_) {}
 
@@ -235,8 +236,13 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   bool PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp);
 
-  /// Returns false if there was no index to drop
-  bool DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) override;
+  /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
+  /// Caller can re-install via RestoreIndex on abort. The returned shared_ptr keeps
+  /// the entry alive in all_indices_, so RestoreIndex must not re-append there.
+  [[nodiscard]] auto DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater)
+      -> std::shared_ptr<IndividualIndex>;
+  void RestoreIndex(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> evicted,
+                    ActiveIndicesUpdater const &updater);
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
@@ -249,6 +255,11 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
  private:
   void CleanupAllIndices();
   auto GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex>;
+
+  // Atomic install into index_ + (optional) all_indices_. Returns false if the slot
+  // is taken. Shared by RegisterIndex (true) and RestoreIndex (false).
+  bool InstallIndividualIndex_(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> entry,
+                               ActiveIndicesUpdater const &updater, bool register_in_all_indices);
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer const>()};

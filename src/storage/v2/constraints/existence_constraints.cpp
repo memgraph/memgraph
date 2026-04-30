@@ -77,19 +77,19 @@ auto ExistenceConstraints::GetIndividualConstraint(LabelId label, PropertyId pro
   });
 }
 
-bool ExistenceConstraints::RegisterConstraint(LabelId label, PropertyId property) {
+bool ExistenceConstraints::InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr) {
   return constraints_.WithLock([&](ContainerPtr &constraints) {
-    // Check if constraint already exists
-    if (constraints->contains({label, property})) {
-      return false;
-    }
-    // Copy-on-write: create new container with the new constraint
+    if (constraints->contains({label, property})) return false;
     auto new_constraints = std::make_shared<Container>(*constraints);
-    new_constraints->emplace(ConstraintKey{.label = label, .property = property},
-                             std::make_shared<IndividualConstraint>());  // Starts in populating state
+    new_constraints->emplace(ConstraintKey{.label = label, .property = property}, std::move(ptr));
     constraints = std::move(new_constraints);
     return true;
   });
+}
+
+bool ExistenceConstraints::RegisterConstraint(LabelId label, PropertyId property) {
+  // Starts in populating state; promoted to ready by PublishConstraint on commit.
+  return InstallConstraint_(label, property, std::make_shared<IndividualConstraint>());
 }
 
 bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property, uint64_t commit_timestamp) const {
@@ -103,15 +103,23 @@ bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property,
   return true;
 }
 
-bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
-  return constraints_.WithLock([&](ContainerPtr &constraints) -> bool {
+ExistenceConstraints::IndividualConstraintPtr ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
+  return constraints_.WithLock([&](ContainerPtr &constraints) -> IndividualConstraintPtr {
+    auto it = constraints->find({label, property});
+    if (it == constraints->end()) return nullptr;
+    auto evicted = it->second;
     auto new_constraints = std::make_shared<Container>(*constraints);
-    if (const auto count = new_constraints->erase({label, property}); count == 0) {
-      return false;
-    }
+    new_constraints->erase({label, property});
     constraints = std::move(new_constraints);
-    return true;
+    return evicted;
   });
+}
+
+void ExistenceConstraints::RestoreConstraint(LabelId label, PropertyId property, IndividualConstraintPtr evicted) {
+  if (!evicted) return;
+  // Concurrent CREATE under READ_ONLY may own the slot; discarding evicted is benign
+  // since the winning CREATE validated all existing rows.
+  (void)InstallConstraint_(label, property, std::move(evicted));
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::Validate(

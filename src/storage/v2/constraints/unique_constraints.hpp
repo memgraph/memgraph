@@ -86,8 +86,6 @@ class UniqueConstraints {
     PROPERTIES_SIZE_LIMIT_EXCEEDED,
   };
 
-  virtual DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
-
   virtual void Clear() = 0;
 
  protected:

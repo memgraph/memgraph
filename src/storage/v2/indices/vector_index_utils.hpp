@@ -343,6 +343,20 @@ inline bool UnregisterIndexId(PropertyValue &property_value, uint64_t index_id) 
   return ids.empty();
 }
 
+/// Inverse of UnregisterIndexId: appends index_id to an existing VectorIndexId list,
+/// or promotes a plain Vector property back into a VectorIndexIdData{id}.
+template <typename Entity>
+inline void ReinstallIndexIdInProperty(Entity *entity, PropertyId property, uint64_t index_id) {
+  auto property_value = entity->properties.GetProperty(property);
+  if (property_value.IsVectorIndexId()) {
+    property_value.ValueVectorIndexIds().push_back(index_id);
+  } else {
+    property_value =
+        PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id}, .vector = {}});
+  }
+  entity->properties.SetProperty(property, property_value);
+}
+
 /// @brief Checks if dropping a vector index would exceed the total memory limit.
 /// When an index is dropped, indexed vectors are converted back to property values in the property store,
 /// which increases memory usage. This function estimates the cost and throws OutOfMemoryException

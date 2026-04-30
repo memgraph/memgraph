@@ -426,8 +426,27 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
-  DropResult DropIndex(LabelId label, std::vector<PropertyPath> const &properties, ActiveIndicesUpdater const &updater,
-                       std::optional<IndexOrder> order = std::nullopt) override;
+  // Captures the evicted asc/desc IndividualIndex shared_ptrs so the caller can
+  // re-insert them on abort. Pair with RestoreIndex. The captured shared_ptrs
+  // also keep their entries alive in `all_indices_` past CleanupAllIndices, so
+  // RestoreIndex must NOT re-insert there.
+  struct DropCapture {
+    DropResult result;
+    std::shared_ptr<IndividualIndex<Entry>> asc_evicted;       // null if asc not dropped
+    std::shared_ptr<IndividualIndex<DescEntry>> desc_evicted;  // null if desc not dropped
+    // Per-label stats slice captured before CleanupStatsForDrop erased entries.
+    // nullopt if the label had no stats at drop time.
+    std::optional<PropertiesIndicesStats> stats_evicted;
+  };
+
+  // `order == nullopt` drops both ASC and DESC entries for (label, properties).
+  [[nodiscard]] auto DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
+                               ActiveIndicesUpdater const &updater, std::optional<IndexOrder> order = std::nullopt)
+      -> DropCapture;
+  void RestoreIndex(LabelId label, std::vector<PropertyPath> properties,
+                    std::shared_ptr<IndividualIndex<Entry>> asc_evicted,
+                    std::shared_ptr<IndividualIndex<DescEntry>> desc_evicted,
+                    std::optional<PropertiesIndicesStats> stats_evicted, ActiveIndicesUpdater const &updater);
 
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ClearIndexStats();
 
@@ -444,11 +463,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void DropGraphClearIndices() override;
 
  private:
-  // Shared implementation of DropIndex / DropSingleOrder. `order == std::nullopt` drops both.
-  DropResult DropFromSelected(LabelId label, std::vector<PropertyPath> const &properties,
-                              ActiveIndicesUpdater const &updater, std::optional<IndexOrder> order);
-  void DropSingleOrder(LabelId label, std::vector<PropertyPath> const &properties, ActiveIndicesUpdater const &updater,
-                       IndexOrder order);
   void CleanupAllIndices();
   void CleanupStatsForDrop(IndexContainer const &new_index, LabelId label, std::vector<PropertyPath> const &properties);
 

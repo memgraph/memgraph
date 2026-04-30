@@ -136,7 +136,21 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// Publishes a constraint after validation, making it visible at the given commit timestamp.
   bool PublishConstraint(LabelId label, const std::set<PropertyId> &properties, uint64_t commit_timestamp);
 
-  auto DropConstraint(LabelId label, const std::set<PropertyId> &properties) -> DeletionStatus override;
+  /// Drops a constraint. Returns the evicted IndividualConstraint so the caller
+  /// can reinstall it via RestoreConstraint on abort, alongside the deletion
+  /// status. {SUCCESS, ptr} on success; {NOT_FOUND/EMPTY_PROPERTIES/..., nullptr}
+  /// otherwise.
+  struct DropResult {
+    DeletionStatus status;
+    IndividualConstraintPtr evicted;
+  };
+
+  [[nodiscard]] auto DropConstraint(LabelId label, const std::set<PropertyId> &properties) -> DropResult;
+
+  /// Reinstalls a previously-evicted IndividualConstraint. No-op if the slot
+  /// has been reclaimed by a concurrent CREATE (constraint DDL runs under
+  /// READ_ONLY/UNIQUE, which does not serialize peers).
+  void RestoreConstraint(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr evicted);
 
   /// Validates the given vertex against unique constraints before committing.
   /// This method should be called while commit lock is active with
@@ -160,6 +174,12 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
  private:
   auto GetIndividualConstraint(const LabelId label, const std::set<PropertyId> &properties) const
       -> IndividualConstraintPtr;
+
+  // Installs ptr if the slot is absent; returns the installed ptr or nullptr.
+  // Shared by CreateConstraint (validates via the returned skiplist) and RestoreConstraint.
+  auto InstallConstraint_(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr ptr)
+      -> IndividualConstraintPtr;
+
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

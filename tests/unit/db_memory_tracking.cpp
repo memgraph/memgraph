@@ -253,37 +253,42 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   StabilizeDbMemoryBaseline(db1.get());
   StabilizeDbMemoryBaseline(db2.get());
 
+  const int64_t db1_before = db1->DbEmbeddingMemoryUsage();
+  const int64_t db2_before = db2->DbEmbeddingMemoryUsage();
+  const int64_t db1_total_before = db1->DbMemoryUsage();
+
+  memgraph::storage::VectorIndexSpec spec{
+      .index_name = "db1_embedding_index",
+      .label_id = label,
+      .property = property,
+      .metric_kind = unum::usearch::metric_kind_t::cos_k,
+      .dimension = 256,
+      .resize_coefficient = 2,
+      .capacity = 4096,
+      .scalar_kind = unum::usearch::scalar_kind_t::f32_k,
+  };
+
   {
     memgraph::memory::DbArenaScope db_arena_scope{&db1->Arena()};
     auto unique_acc = db1->UniqueAccess();
-
-    const int64_t db1_before = db1->DbEmbeddingMemoryUsage();
-    const int64_t db2_before = db2->DbEmbeddingMemoryUsage();
-    const int64_t db1_total_before = db1->DbMemoryUsage();
-
-    memgraph::storage::VectorIndexSpec spec{
-        .index_name = "db1_embedding_index",
-        .label_id = label,
-        .property = property,
-        .metric_kind = unum::usearch::metric_kind_t::cos_k,
-        .dimension = 256,
-        .resize_coefficient = 2,
-        .capacity = 4096,
-        .scalar_kind = unum::usearch::scalar_kind_t::f32_k,
-    };
-
     ASSERT_NO_ERROR(unique_acc->CreateVectorIndex(spec));
-
-    const int64_t db1_delta = db1->DbEmbeddingMemoryUsage() - db1_before;
-    const int64_t db1_total_delta = db1->DbMemoryUsage() - db1_total_before;
-
-    EXPECT_GT(db1_delta, static_cast<int64_t>(256 * 1024)) << "Vector index should attribute embedding memory to DB1";
-    EXPECT_EQ(db2->DbEmbeddingMemoryUsage(), db2_before) << "DB2 embedding tracker must not grow";
-    EXPECT_GE(db1_total_delta, db1_delta) << "db_total should include embedding delta";
-
-    ASSERT_NO_ERROR(unique_acc->DropVectorIndex(spec.index_name));
-    EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_before) << "Dropping index should release embedding memory";
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
+
+  const int64_t db1_delta = db1->DbEmbeddingMemoryUsage() - db1_before;
+  const int64_t db1_total_delta = db1->DbMemoryUsage() - db1_total_before;
+
+  EXPECT_GT(db1_delta, static_cast<int64_t>(256 * 1024)) << "Vector index should attribute embedding memory to DB1";
+  EXPECT_EQ(db2->DbEmbeddingMemoryUsage(), db2_before) << "DB2 embedding tracker must not grow";
+  EXPECT_GE(db1_total_delta, db1_delta) << "db_total should include embedding delta";
+
+  {
+    memgraph::memory::DbArenaScope db_arena_scope{&db1->Arena()};
+    auto unique_acc = db1->UniqueAccess();
+    ASSERT_NO_ERROR(unique_acc->DropVectorIndex(spec.index_name));
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_before) << "Dropping index should release embedding memory";
 
   auto edge_type = db1->storage()->NameToEdgeType("EMBEDDED_EDGE");
   auto edge_property = db1->storage()->NameToProperty("edge_embedding");
@@ -326,6 +331,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
     memgraph::memory::DbArenaScope db_arena_scope{&db1->Arena()};
     auto unique_acc = db1->UniqueAccess();
     ASSERT_NO_ERROR(unique_acc->CreateVectorEdgeIndex(edge_spec));
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   const int64_t db1_edge_delta = db1->DbEmbeddingMemoryUsage() - db1_edge_before;
@@ -340,6 +346,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
     memgraph::memory::DbArenaScope db_arena_scope{&db1->Arena()};
     auto unique_acc = db1->UniqueAccess();
     ASSERT_NO_ERROR(unique_acc->DropVectorIndex(edge_spec.index_name));
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_edge_before) << "Dropping edge index should release embedding memory";
 }
@@ -437,6 +444,7 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
   {
     auto ua = db->storage()->UniqueAccess();
     ASSERT_TRUE(ua->CreateIndex(label).has_value());
+    ASSERT_TRUE(ua->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   EXPECT_GT(db->DbMemoryUsage(), before_label) << "Label index creation should increase DbMemoryUsage";
 
@@ -448,6 +456,7 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
     memgraph::storage::PropertiesPaths props{{prop}};
     auto ua = db->storage()->UniqueAccess();
     ASSERT_TRUE(ua->CreateIndex(label, std::move(props)).has_value());
+    ASSERT_TRUE(ua->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   EXPECT_GT(db->DbMemoryUsage(), before_lp) << "Label-property index creation should increase DbMemoryUsage";
 
@@ -458,6 +467,7 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
   {
     auto ua = db->storage()->UniqueAccess();
     ASSERT_TRUE(ua->CreateIndex(edge_type).has_value());
+    ASSERT_TRUE(ua->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   EXPECT_GT(db->DbMemoryUsage(), before_et) << "Edge-type index creation should increase DbMemoryUsage";
 }

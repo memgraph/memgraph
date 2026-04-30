@@ -48,8 +48,6 @@ class EdgeTypeIndex {
 
   virtual ~EdgeTypeIndex() = default;
 
-  virtual bool DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) = 0;
-
   virtual void DropGraphClearIndices() = 0;
 
   virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;

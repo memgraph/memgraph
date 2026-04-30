@@ -37,7 +37,7 @@ class DiskEdgeTypePropertyIndex : public EdgeTypePropertyIndex {
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
   };
 
-  bool DropIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater) override;
+  bool DropIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater);
 
   void DropGraphClearIndices() override;
 
