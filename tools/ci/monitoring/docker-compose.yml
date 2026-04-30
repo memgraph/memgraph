@@ -1,0 +1,58 @@
+services:
+  mg-exporter:
+    image: memgraph/prometheus-exporter:0.2.1
+    container_name: ${COMPOSE_PROJECT_NAME}-mg-exporter
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - target_network
+    volumes:
+      - ./generated/mg-exporter.yaml:/etc/mg-exporter/config.yaml:ro
+    environment:
+      - DEPLOYMENT_TYPE=${MG_EXPORTER_DEPLOYMENT_TYPE}
+      - CONFIG_FILE=/etc/mg-exporter/config.yaml
+
+  vmagent:
+    image: victoriametrics/vmagent:v1.139.0
+    container_name: ${COMPOSE_PROJECT_NAME}-vmagent
+    restart: unless-stopped
+    depends_on:
+      - mg-exporter
+    volumes:
+      - ./generated/vmagent-scrape.yml:/etc/vmagent/scrape.yml:ro
+      - vmagent_tmp:/tmpData
+    entrypoint:
+      - /bin/sh
+    command:
+      - -ec
+      - >
+        exec /vmagent-prod
+        -promscrape.config=/etc/vmagent/scrape.yml
+        -remoteWrite.url=${REMOTE_WRITE_URL}
+        -httpListenAddr=:8429
+        -remoteWrite.tmpDataPath=/tmpData
+        ${VMAGENT_AUTH_ARGS}
+
+  vector:
+    image: timberio/vector:0.49.0-debian
+    container_name: ${COMPOSE_PROJECT_NAME}-vector
+    restart: unless-stopped
+    networks:
+      - target_network
+    volumes:
+      - ./generated/vector.yaml:/etc/vector/vector.yaml:ro
+      - vector_data:/tmp/vector-data
+    command:
+      - --config
+      - /etc/vector/vector.yaml
+
+volumes:
+  vmagent_tmp:
+  vector_data:
+
+networks:
+  target_network:
+    external: true
+    name: ${TARGET_DOCKER_NETWORK:-mgbuild_network}

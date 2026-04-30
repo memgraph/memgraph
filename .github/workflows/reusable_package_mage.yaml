@@ -102,6 +102,11 @@ env:
   MEMGRAPH_DOWNLOAD_LINK: ${{ inputs.memgraph_download_link }}
   VERSION: "${{ inputs.version }}"
   CI_BRANCH: "${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}"
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-mage-${{ inputs.arch }}"
 
 jobs:
   BuildAndPush:
@@ -496,14 +501,21 @@ jobs:
             --network $MEMGRAPH_NETWORK \
             --name $MAGE_CONTAINER \
             -p $MEMGRAPH_PORT:$MEMGRAPH_PORT \
+            -p 7444:7444 \
+            -p 9091:9091 \
             -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
             -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
             -e OPENAI_API_KEY=$OPENAI_API_KEY \
             ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG \
-            --telemetry-enabled=False
+            --telemetry-enabled=False \
+            --log-level=INFO
 
       - name: Run end-to-end tests
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
+        env:
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -511,6 +523,10 @@ jobs:
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             --cugraph $CUGRAPH \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e
 
       - name: Wait for e2e Docker images to be available
@@ -522,12 +538,19 @@ jobs:
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         env:
           PYTHONPATH: "$PWD/tests/e2e"
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e-correctness \
             --memgraph-port $MEMGRAPH_PORT \
             --neo4j-port $NEO4J_PORT \
@@ -539,12 +562,19 @@ jobs:
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         env:
           PYTHONPATH: "$PWD/e2e"
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e-migration \
             --mage-container $MAGE_CONTAINER \
             --mysql-container $MYSQL_CONTAINER \
