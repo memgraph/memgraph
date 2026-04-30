@@ -57,3 +57,6 @@ workloads:
   # queries can continue executing
   - config: ../workloads/responsive_reads/workload.yaml
     enabled: false
+
+  - config: ../workloads/database_memory_profiles/workload.yaml
+    enabled: true
