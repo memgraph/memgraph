@@ -54,7 +54,7 @@ bool InMemoryLabelIndex::InstallIndividualIndex_(LabelId label, std::shared_ptr<
     auto [new_it, _] = new_index->try_emplace(label, std::move(entry));
 
     if (register_in_all_indices) {
-      utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+      const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
       all_indices_.WithLock([&](auto &all_indices) {
         auto new_all_indices = *all_indices;
         // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
@@ -316,10 +316,9 @@ void InMemoryLabelIndex::ActiveIndices::AbortEntries(LabelIndex::AbortableInfo c
   }
 }
 
-InMemoryLabelIndex::Iterable::Iterable(
-    utils::SkipListDb<InMemoryLabelIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view,
-    Storage *storage, Transaction *transaction)
+InMemoryLabelIndex::Iterable::Iterable(utils::SkipListDb<InMemoryLabelIndex::Entry>::Accessor index_accessor,
+                                       utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label,
+                                       View view, Storage *storage, Transaction *transaction)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -327,8 +326,8 @@ InMemoryLabelIndex::Iterable::Iterable(
       storage_(storage),
       transaction_(transaction) {}
 
-InMemoryLabelIndex::Iterable::Iterator::Iterator(
-    Iterable *self, utils::SkipListDb<InMemoryLabelIndex::Entry>::Iterator index_iterator)
+InMemoryLabelIndex::Iterable::Iterator::Iterator(Iterable *self,
+                                                 utils::SkipListDb<InMemoryLabelIndex::Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, self_->storage_, nullptr),
@@ -379,16 +378,16 @@ InMemoryLabelIndex::Iterable InMemoryLabelIndex::ActiveIndices::Vertices(LabelId
 }
 
 InMemoryLabelIndex::Iterable InMemoryLabelIndex::ActiveIndices::Vertices(
-    LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view,
-    Storage *storage, Transaction *transaction) {
+    LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+    Transaction *transaction) {
   const auto it = index_container_->find(label);
   MG_ASSERT(it != index_container_->end(), "Index for label {} doesn't exist", label.AsUint());
   return {it->second->skiplist.access(), std::move(vertices_acc), label, view, storage, transaction};
 }
 
 InMemoryLabelIndex::ChunkedIterable InMemoryLabelIndex::ActiveIndices::ChunkedVertices(
-    LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view,
-    Storage *storage, Transaction *transaction, size_t num_chunks) {
+    LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks) {
   const auto it = index_container_->find(label);
   MG_ASSERT(it != index_container_->end(), "Index for label {} doesn't exist", label.AsUint());
   return {it->second->skiplist.access(), std::move(vertices_acc), label, view, storage, transaction, num_chunks};
@@ -473,8 +472,8 @@ void InMemoryLabelIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
 
 InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<InMemoryLabelIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view,
-    Storage *storage, Transaction *transaction, size_t num_chunks)
+    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -483,8 +482,7 @@ InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)} {
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
-  RechunkIndex<utils::SkipListDb<Entry>>(
-      chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex; });
+  RechunkIndex<utils::SkipListDb<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex; });
 }
 
 }  // namespace memgraph::storage

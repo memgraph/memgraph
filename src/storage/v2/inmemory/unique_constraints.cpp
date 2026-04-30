@@ -31,7 +31,8 @@ namespace memgraph::storage {
 
 namespace {
 
-auto DoValidate(const Vertex &vertex, utils::SkipListDb<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
+auto DoValidate(const Vertex &vertex,
+                utils::SkipListDb<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
                 const LabelId &label, const std::set<PropertyId> &properties)
     -> std::expected<void, ConstraintViolation> {
   if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
@@ -546,7 +547,7 @@ bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
 auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<PropertyId> &properties) -> DropResult {
   if (auto drop_properties_check_result = CheckPropertiesBeforeDeletion(properties);
       drop_properties_check_result != DeletionStatus::SUCCESS) {
-    return {drop_properties_check_result, nullptr};
+    return {.status = drop_properties_check_result, .evicted = nullptr};
   }
 
   auto evicted = container_.WithLock([&](ContainerPtr &container) -> IndividualConstraintPtr {
@@ -563,8 +564,8 @@ auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<Pro
     return captured;
   });
 
-  if (!evicted) return {DeletionStatus::NOT_FOUND, nullptr};
-  return {DeletionStatus::SUCCESS, std::move(evicted)};
+  if (!evicted) return {.status = DeletionStatus::NOT_FOUND, .evicted = nullptr};
+  return {.status = DeletionStatus::SUCCESS, .evicted = std::move(evicted)};
 }
 
 auto InMemoryUniqueConstraints::InstallConstraint_(LabelId label, const std::set<PropertyId> &properties,
