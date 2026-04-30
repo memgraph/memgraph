@@ -74,7 +74,10 @@ struct AbortCallbacks {
 
   void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
 
-  // Best-effort: a leaked ghost is better than std::terminate on the abort path.
+  // noexcept: a throwing callback here will std::terminate. In practice this
+  // is fine — abort runs with the soft memory tracker disabled (no
+  // OutOfMemoryExceptionEnabler in scope), so OOM can't fire from these
+  // callbacks, and a true system bad_alloc means we're going down anyway.
   void RunAll() noexcept {
     for (auto &callback : callbacks_) {
       callback();
