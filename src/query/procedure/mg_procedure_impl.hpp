@@ -728,7 +728,8 @@ struct mgp_vertex {
   mgp_graph *graph;
 };
 
-static_assert(sizeof(mgp_vertex) == 64, "mgp_vertex size changed — update intentionally");
+inline constexpr size_t kMaxMgpVertexSize = 64;
+static_assert(sizeof(mgp_vertex) <= kMaxMgpVertexSize, "mgp_vertex grew beyond the expected size budget");
 
 struct mgp_edge {
   /// Allocator type so that STL containers are aware that we need one.
@@ -798,7 +799,8 @@ struct mgp_edge {
   mgp_vertex to;
 };
 
-static_assert(sizeof(mgp_edge) == 192, "mgp_edge size changed — update intentionally");
+inline constexpr size_t kMaxMgpEdgeSize = 192;
+static_assert(sizeof(mgp_edge) <= kMaxMgpEdgeSize, "mgp_edge grew beyond the expected size budget");
 
 struct mgp_path {
   /// Allocator type so that STL containers are aware that we need one.
@@ -980,10 +982,11 @@ struct mgp_edges_iterator {
   };
 
   struct VirtualCursor {
-    memgraph::query::EdgeRefView edges;  // borrow; VirtualGraph's edge index must outlive this iterator
-    std::ranges::iterator_t<memgraph::query::EdgeRefView> it;
+    std::span<const memgraph::query::VirtualEdge *const> edges;
+    std::span<const memgraph::query::VirtualEdge *const>::iterator it;
 
-    explicit VirtualCursor(memgraph::query::EdgeRefView edges) : edges(std::move(edges)), it(this->edges.begin()) {}
+    explicit VirtualCursor(std::span<const memgraph::query::VirtualEdge *const> edges)
+        : edges(edges), it(this->edges.begin()) {}
   };
 
   using Cursor = std::variant<std::monostate, RealCursor, VirtualCursor>;

@@ -23,7 +23,7 @@ template <std::ranges::input_range R>
 TypedValue RangeToTypedValueList(R &&range, utils::MemoryResource *memory) {
   utils::pmr::vector<TypedValue> out(memory);
   if constexpr (std::ranges::sized_range<R>) out.reserve(std::ranges::size(range));
-  for (const auto &item : range) out.emplace_back(item);
+  for (const auto &item : range) out.emplace_back(TypedValue(item, memory));
   return {std::move(out), memory};
 }
 }  // namespace

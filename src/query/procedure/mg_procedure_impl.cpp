@@ -2917,7 +2917,7 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory) {
     auto edges = ForIn ? vg->InEdges(v->GetVirtualNode().Gid()) : vg->OutEdges(v->GetVirtualNode().Gid());
     auto &vc = it->cursor.emplace<mgp_edges_iterator::VirtualCursor>(edges);
     if (vc.it != vc.edges.end()) {
-      it->current_e.emplace(*vc.it, v->graph, it->GetMemoryResource());
+      it->current_e.emplace(**vc.it, v->graph, it->GetMemoryResource());
     }
     return it.release();
   }
@@ -3037,7 +3037,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
                                   it->current_e = std::nullopt;
                                   return nullptr;
                                 }
-                                it->current_e.emplace(*vc.it, it->source_vertex.graph, it->GetMemoryResource());
+                                it->current_e.emplace(**vc.it, it->source_vertex.graph, it->GetMemoryResource());
                                 return &*it->current_e;
                               }},
                           it->cursor);
@@ -4715,7 +4715,7 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
   if (auto *const *vg_arm = std::get_if<memgraph::query::VirtualGraphDbAccessor *>(&graph->impl)) {
     auto *vg = (*vg_arm)->getGraph();
     const auto &nodes = vg->nodes();
-    auto &vc = cursor.emplace<VirtualCursor>(VirtualCursor{nodes.begin(), nodes.end()});
+    auto &vc = cursor.emplace<VirtualCursor>(VirtualCursor{.it = nodes.begin(), .end = nodes.end()});
     if (vc.it != vc.end) {
       current_v.emplace(*vc.it->second, graph, alloc);
     }

@@ -15,15 +15,36 @@
 
 namespace memgraph::query {
 
-namespace {
-EdgeRefView MakeView(std::span<const VirtualEdge *const> ptrs) {
-  return ptrs | std::views::transform(detail::kDerefEdgePtr);
-}
-}  // namespace
-
 VirtualGraph::VirtualGraph(const VirtualGraph &other, allocator_type alloc)
     : nodes_(other.nodes_, alloc), edges_(other.edges_, alloc), out_index_(alloc), in_index_(alloc) {
   RebuildEdgeIndexes();
+}
+
+VirtualGraph &VirtualGraph::operator=(const VirtualGraph &other) {
+  if (this == &other) return *this;
+  nodes_ = other.nodes_;
+  edges_ = other.edges_;
+  out_index_.clear();
+  in_index_.clear();
+  RebuildEdgeIndexes();
+  return *this;
+}
+
+VirtualGraph &VirtualGraph::operator=(VirtualGraph &&other) {
+  if (this == &other) return *this;
+  if (get_allocator() == other.get_allocator()) {
+    nodes_ = std::move(other.nodes_);
+    edges_ = std::move(other.edges_);
+    out_index_ = std::move(other.out_index_);
+    in_index_ = std::move(other.in_index_);
+  } else {
+    nodes_ = other.nodes_;
+    edges_ = other.edges_;
+    out_index_.clear();
+    in_index_.clear();
+    RebuildEdgeIndexes();
+  }
+  return *this;
 }
 
 VirtualGraph::VirtualGraph(VirtualGraph &&other, allocator_type alloc)
@@ -70,14 +91,14 @@ bool VirtualGraph::InsertEdgeIfNew(VirtualEdge edge) {
   return true;
 }
 
-EdgeRefView VirtualGraph::OutEdges(storage::Gid vertex_gid) const {
-  if (const auto it = out_index_.find(vertex_gid); it != out_index_.end()) return MakeView(it->second);
-  return MakeView({});
+std::span<const VirtualEdge *const> VirtualGraph::OutEdges(storage::Gid vertex_gid) const {
+  if (const auto it = out_index_.find(vertex_gid); it != out_index_.end()) return it->second;
+  return {};
 }
 
-EdgeRefView VirtualGraph::InEdges(storage::Gid vertex_gid) const {
-  if (const auto it = in_index_.find(vertex_gid); it != in_index_.end()) return MakeView(it->second);
-  return MakeView({});
+std::span<const VirtualEdge *const> VirtualGraph::InEdges(storage::Gid vertex_gid) const {
+  if (const auto it = in_index_.find(vertex_gid); it != in_index_.end()) return it->second;
+  return {};
 }
 
 void VirtualGraph::Merge(const VirtualGraph &other, const VirtualGraphAliasMap &aliases) {

@@ -123,10 +123,6 @@ class VirtualEdge final {
     return seed;
   }
 
-  // Heavy state lives behind a single pointer so VirtualEdge stays small.
-  // Variants holding VirtualEdge by value (mgp_edge::impl, TypedValue's union) then
-  // keep their sizeof tied to their other arms instead of paying for inline edge-type
-  // string + properties storage, which would push them into coarser pool bins.
   struct Impl {
     utils::pmr::string edge_type_name;
     property_map properties;

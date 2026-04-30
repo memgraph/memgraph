@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <limits>
 #include <memory>
 
 #include "storage/v2/id_types.hpp"
@@ -85,10 +86,6 @@ class VirtualNode final {
   bool operator==(const VirtualNode &other) const noexcept { return gid_ == other.gid_; }
 
  private:
-  // Heavy state lives behind a single pointer so VirtualNode stays small (gid + ptr).
-  // Variants holding VirtualNode by value (mgp_vertex::impl, TypedValue's union) then
-  // keep their sizeof tied to their other arms instead of paying for inline labels +
-  // properties storage, which would push them into coarser pool bins.
   struct Impl {
     label_list labels;
     property_map properties;

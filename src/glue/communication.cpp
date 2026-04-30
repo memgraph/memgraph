@@ -127,14 +127,14 @@ communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage
   auto element_id = std::to_string(id.AsInt());
   auto from_element_id = std::to_string(from.AsInt());
   auto to_element_id = std::to_string(to.AsInt());
-  return communication::bolt::Edge{id,
-                                   from,
-                                   to,
-                                   std::string{ve.EdgeTypeName()},
-                                   std::move(properties),
-                                   std::move(element_id),
-                                   std::move(from_element_id),
-                                   std::move(to_element_id)};
+  return communication::bolt::Edge{.id = id,
+                                   .from = from,
+                                   .to = to,
+                                   .type = std::string{ve.EdgeTypeName()},
+                                   .properties = std::move(properties),
+                                   .element_id = std::move(element_id),
+                                   .from_element_id = std::move(from_element_id),
+                                   .to_element_id = std::move(to_element_id)};
 }
 
 communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db) {
@@ -147,7 +147,8 @@ communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const s
     properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
   }
   auto element_id = std::to_string(id.AsInt());
-  return communication::bolt::Vertex{id, std::move(labels), std::move(properties), std::move(element_id)};
+  return communication::bolt::Vertex{
+      .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
 }
 }  // namespace
 
@@ -284,7 +285,8 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   }
   // Introduced in Bolt v5 (for now just send the ID)
   auto element_id = std::to_string(id.AsInt());
-  return communication::bolt::Vertex{id, std::move(labels), std::move(properties), std::move(element_id)};
+  return communication::bolt::Vertex{
+      .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
 }
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,

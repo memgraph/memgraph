@@ -6707,13 +6707,12 @@ class AggregateCursor : public Cursor {
       if (it->second.type() != TypedValue::Type::List) {
         throw QueryRuntimeException("derive() option '{}' must be a list of edge-type strings.", kUndirectedEdgeTypes);
       }
-      for (const auto &elem : it->second.ValueList()) {
-        if (elem.type() != TypedValue::Type::String) {
-          throw QueryRuntimeException("derive() option '{}' entries must be strings.", kUndirectedEdgeTypes);
-        }
-        if (elem.ValueString() == "*" || elem.ValueString() == type_name) return true;
+      const auto &list = it->second.ValueList();
+      if (std::ranges::any_of(list, [](const auto &e) { return e.type() != TypedValue::Type::String; })) {
+        throw QueryRuntimeException("derive() option '{}' entries must be strings.", kUndirectedEdgeTypes);
       }
-      return false;
+      return std::ranges::any_of(list,
+                                 [&](const auto &e) { return e.ValueString() == "*" || e.ValueString() == type_name; });
     }();
 
     const auto &path_vertices = path_value.ValuePath().vertices();

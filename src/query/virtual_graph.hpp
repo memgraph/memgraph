@@ -12,7 +12,6 @@
 #pragma once
 
 #include <memory>
-#include <ranges>
 #include <span>
 
 #include "query/virtual_edge.hpp"
@@ -23,12 +22,6 @@
 #include "utils/pmr/vector.hpp"
 
 namespace memgraph::query {
-
-namespace detail {
-inline constexpr auto kDerefEdgePtr = [](const VirtualEdge *p) noexcept -> const VirtualEdge & { return *p; };
-}  // namespace detail
-
-using EdgeRefView = decltype(std::views::transform(std::span<const VirtualEdge *const>{}, detail::kDerefEdgePtr));
 
 // Maps synthetic gids in one VirtualGraph (the "aliased" one) to the synthetic
 // gid of the canonical VirtualNode in another VirtualGraph.
@@ -51,8 +44,8 @@ class VirtualGraph final {
 
   VirtualGraph(VirtualGraph &&other, allocator_type alloc);
 
-  VirtualGraph &operator=(const VirtualGraph &) = default;
-  VirtualGraph &operator=(VirtualGraph &&) noexcept = default;
+  VirtualGraph &operator=(const VirtualGraph &other);
+  VirtualGraph &operator=(VirtualGraph &&other);
   ~VirtualGraph() = default;
 
   const VirtualNode &InsertNode(VirtualNode node);
@@ -63,12 +56,12 @@ class VirtualGraph final {
 
   [[nodiscard]] bool ContainsEdge(const VirtualEdge &edge) const { return edges_.contains(edge); }
 
-  [[nodiscard]] EdgeRefView OutEdges(storage::Gid vertex_gid) const;
-  [[nodiscard]] EdgeRefView InEdges(storage::Gid vertex_gid) const;
+  [[nodiscard]] std::span<const VirtualEdge *const> OutEdges(storage::Gid vertex_gid) const;
+  [[nodiscard]] std::span<const VirtualEdge *const> InEdges(storage::Gid vertex_gid) const;
 
-  [[nodiscard]] auto nodes() const noexcept { return std::views::all(nodes_); }
+  [[nodiscard]] const node_map &nodes() const noexcept { return nodes_; }
 
-  [[nodiscard]] auto edges() const noexcept { return std::views::all(edges_); }
+  [[nodiscard]] const edge_set &edges() const noexcept { return edges_; }
 
   void Merge(const VirtualGraph &other, const VirtualGraphAliasMap &aliases);
 

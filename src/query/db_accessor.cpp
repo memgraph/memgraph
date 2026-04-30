@@ -136,8 +136,9 @@ VirtualGraphDbAccessor::VirtualGraphDbAccessor(query::DbAccessor db_accessor, Vi
 
 void VirtualGraphDbAccessor::TrackCurrentThreadAllocations() { db_accessor_.TrackCurrentThreadAllocations(); }
 
-void VirtualGraphDbAccessor::UntrackCurrentThreadAllocations() {
-  memgraph::query::DbAccessor::UntrackCurrentThreadAllocations();
+void VirtualGraphDbAccessor::
+    UntrackCurrentThreadAllocations() {  // NOLINT(readability-convert-member-functions-to-static)
+  db_accessor_.UntrackCurrentThreadAllocations();
 }
 
 storage::PropertyId VirtualGraphDbAccessor::NameToProperty(const std::string_view name) {
