@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <range/v3/view/zip.hpp>
 #include "query/exceptions.hpp"
@@ -24,108 +25,18 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query {
 
-namespace {
-std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b) {
-  // First assume typical same type comparisons
-  if (a.type() == b.type()) {
-    switch (a.type()) {
-      case TypedValue::Type::Bool:
-        return a.UnsafeValueBool() <=> b.UnsafeValueBool();
-      case TypedValue::Type::Int:
-        return a.UnsafeValueInt() <=> b.UnsafeValueInt();
-      case TypedValue::Type::Double:
-        return a.UnsafeValueDouble() <=> b.UnsafeValueDouble();
-      case TypedValue::Type::String:
-        return a.UnsafeValueString() <=> b.UnsafeValueString();
-      case TypedValue::Type::Date:
-        return a.UnsafeValueDate() <=> b.UnsafeValueDate();
-      case TypedValue::Type::LocalTime:
-        return a.UnsafeValueLocalTime() <=> b.UnsafeValueLocalTime();
-      case TypedValue::Type::LocalDateTime:
-        return a.UnsafeValueLocalDateTime() <=> b.UnsafeValueLocalDateTime();
-      case TypedValue::Type::ZonedDateTime:
-        return a.UnsafeValueZonedDateTime() <=> b.UnsafeValueZonedDateTime();
-      case TypedValue::Type::Duration:
-        return a.UnsafeValueDuration() <=> b.UnsafeValueDuration();
-      case TypedValue::Type::Null:
-        return std::partial_ordering::equivalent;
-      case TypedValue::Type::Enum:
-        return a.UnsafeValueEnum() <=> b.UnsafeValueEnum();
-      case TypedValue::Type::Point2d:
-        return a.UnsafeValuePoint2d() <=> b.UnsafeValuePoint2d();
-      case TypedValue::Type::Point3d:
-        return a.UnsafeValuePoint3d() <=> b.UnsafeValuePoint3d();
-        break;
-      case TypedValue::Type::List:
-        return std::lexicographical_compare_three_way(a.UnsafeValueList().begin(),
-                                                      a.UnsafeValueList().end(),
-                                                      b.UnsafeValueList().begin(),
-                                                      b.UnsafeValueList().end(),
-                                                      TypedValueCompare);
-        break;
-      case TypedValue::Type::Map:
-      case TypedValue::Type::Vertex:
-      case TypedValue::Type::Edge:
-      case TypedValue::Type::Path:
-      case TypedValue::Type::Graph:
-      case TypedValue::Type::Function:
-        throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
-    }
-  } else {
-    // from this point legal only between values of
-    // int+float combinations or against null
-
-    // in ordering null comes after everything else
-    // at the same time Null is not less that null
-    // first deal with Null < Whatever case
-    if (a.IsNull()) return std::partial_ordering::greater;
-    // now deal with NotNull < Null case
-    if (b.IsNull()) return std::partial_ordering::less;
-
-    if (!(a.IsNumeric() && b.IsNumeric())) [[unlikely]]
-      throw QueryRuntimeException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
-
-    switch (a.type()) {
-      case TypedValue::Type::Int:
-        return a.UnsafeValueInt() <=> b.ValueDouble();
-      case TypedValue::Type::Double:
-        return a.UnsafeValueDouble() <=> b.ValueInt();
-      case TypedValue::Type::Bool:
-      case TypedValue::Type::Null:
-      case TypedValue::Type::String:
-      case TypedValue::Type::List:
-      case TypedValue::Type::Map:
-      case TypedValue::Type::Vertex:
-      case TypedValue::Type::Edge:
-      case TypedValue::Type::Path:
-      case TypedValue::Type::Date:
-      case TypedValue::Type::LocalTime:
-      case TypedValue::Type::LocalDateTime:
-      case TypedValue::Type::ZonedDateTime:
-      case TypedValue::Type::Duration:
-      case TypedValue::Type::Enum:
-      case TypedValue::Type::Point2d:
-      case TypedValue::Type::Point3d:
-      case TypedValue::Type::Graph:
-      case TypedValue::Type::Function:
-        LOG_FATAL("Invalid type");
-    }
-  }
-}
-
-}  // namespace
-
 struct OrderedTypedValueCompare {
   OrderedTypedValueCompare(Ordering ordering) : ordering_{ordering}, ascending{ordering == Ordering::ASC} {}
 
   auto operator()(const TypedValue &lhs, const TypedValue &rhs) const -> std::partial_ordering {
-    return ascending ? TypedValueCompare(lhs, rhs) : TypedValueCompare(rhs, lhs);
+    return ascending ? OrderCompare(lhs, rhs) : OrderCompare(rhs, lhs);
   }
 
   auto ordering() const { return ordering_; }
@@ -138,7 +49,7 @@ struct OrderedTypedValueCompare {
 /// Custom Comparator type for comparing vectors of TypedValues.
 ///
 /// Does lexicographical ordering of elements based on the above
-/// defined TypedValueCompare, and also accepts a vector of Orderings
+/// defined OrderCompare, and also accepts a vector of Orderings
 /// the define how respective elements compare.
 class TypedValueVectorCompare final {
  public:
@@ -155,6 +66,9 @@ class TypedValueVectorCompare final {
       auto rng = ranges::views::zip(*orderings, lhs, rhs);
       for (auto const &[cmp, l, r] : rng) {
         auto res = cmp(l, r);
+        DMG_ASSERT(res != std::partial_ordering::unordered,
+                   "OrderCompare must yield a total order; got `unordered`. "
+                   "All NaN/incomparable cases must be normalized inside OrderCompare.");
         if (res == std::partial_ordering::less) return true;
         if (res == std::partial_ordering::greater) return false;
       }

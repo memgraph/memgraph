@@ -197,7 +197,7 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
     // and need to take care it does not happen by accident
     auto shuffled = values;
     auto order_equal = [&values, &shuffled]() {
-      return std::equal(values.begin(), values.end(), shuffled.begin(), TypedValue::BoolEqual{});
+      return std::equal(values.begin(), values.end(), shuffled.begin(), TypedValue::Equivalent{});
     };
 
     std::random_device rd;
@@ -223,7 +223,7 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
     auto context = MakeContext(this->storage, symbol_table, &dba);
     auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(values.size(), results.size());
-    for (int j = 0; j < results.size(); ++j) EXPECT_TRUE(TypedValue::BoolEqual{}(results[j][0], values[j]));
+    for (int j = 0; j < results.size(); ++j) EXPECT_TRUE(TypedValue::Equivalent{}(results[j][0], values[j]));
   }
 }
 

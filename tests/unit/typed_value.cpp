@@ -159,7 +159,8 @@ TEST(TypedValue, Equals) {
   EXPECT_PROP_EQ(TypedValue("str3"), TypedValue("str3"));
   EXPECT_PROP_EQ(TypedValue(std::string("str3")), TypedValue("str3"));
 
-  EXPECT_PROP_NE(TypedValue(std::vector<TypedValue>{TypedValue(1)}), TypedValue(1));
+  // List vs scalar is cross-type equality — returns null per openCypher 9.
+  EXPECT_PROP_ISNULL(TypedValue(std::vector<TypedValue>{TypedValue(1)}) == TypedValue(1));
   EXPECT_PROP_NE(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(true), TypedValue("a")}),
                  TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(true), TypedValue("b")}));
   EXPECT_PROP_EQ(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(true), TypedValue("a")}),
@@ -167,7 +168,8 @@ TEST(TypedValue, Equals) {
 
   EXPECT_PROP_EQ(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
                  TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}));
-  EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}), TypedValue(1));
+  // Map vs scalar is cross-type equality — returns null.
+  EXPECT_PROP_ISNULL(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}) == TypedValue(1));
   EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
                  TypedValue(std::map<std::string, TypedValue>{{"b", TypedValue(1)}}));
   EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
@@ -208,8 +210,9 @@ TEST(TypedValue, Equals) {
   EXPECT_PROP_EQ(point_1, point_1);
   EXPECT_PROP_EQ(point_3, point_3);
   EXPECT_PROP_NE(point_1, point_2);
-  EXPECT_PROP_NE(point_1, point_3);
-  EXPECT_PROP_NE(point_1, point_4);
+  // Cross-type equality (Point2d vs Point3d) returns null per openCypher 9.
+  EXPECT_PROP_ISNULL(point_1 == point_3);
+  EXPECT_PROP_ISNULL(point_1 == point_4);
 }
 
 TEST(TypedValue, Comparison) {
@@ -246,18 +249,22 @@ TEST(TypedValue, Comparison) {
 
   run_comparison_cases(local_date_time_1, local_date_time_2);
 
-  auto enum_val = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
-  EXPECT_THROW((void)(enum_val < enum_val), memgraph::query::TypedValueException);
+  // Per openCypher 9 comparability, `<` no longer throws on mixed/incomparable
+  // types — it returns null. Enums are orderable; points are not.
+  auto enum_a = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
+  auto enum_b = TypedValue{Enum{EnumTypeId{1}, EnumValueId{12}}};
+  run_comparison_cases(enum_a, enum_b);
 
   auto point_1 = TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}};
   auto point_2 = TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}};
 
-  EXPECT_THROW((void)(point_1 < point_1), memgraph::query::TypedValueException);
-  EXPECT_THROW((void)(point_2 < point_2), memgraph::query::TypedValueException);
+  EXPECT_PROP_ISNULL(point_1 < point_1);
+  EXPECT_PROP_ISNULL(point_2 < point_2);
+  EXPECT_PROP_ISNULL(point_1 < point_2);
 }
 
-TEST(TypedValue, BoolEquals) {
-  auto eq = TypedValue::BoolEqual{};
+TEST(TypedValue, Equivalents) {
+  auto eq = TypedValue::Equivalent{};
   EXPECT_TRUE(eq(TypedValue(1), TypedValue(1)));
   EXPECT_FALSE(eq(TypedValue(1), TypedValue(2)));
   EXPECT_FALSE(eq(TypedValue(1), TypedValue("asd")));
@@ -368,7 +375,8 @@ TYPED_TEST(AllTypesFixture, CreationValuesFromPropertyValues) {
 }
 
 TYPED_TEST(AllTypesFixture, Less) {
-  // 'Less' is legal only between numerics, Null and strings.
+  // Per openCypher 9 comparability, `<` never throws — incomparable type
+  // categories return null instead of throwing.
   using memgraph::query::is_canonical;
   auto is_string_compatible = [](const TypedValue &v) { return v.IsNull() || v.type() == TypedValue::Type::String; };
   auto is_numeric_compatible = [](const TypedValue &v) { return v.IsNull() || v.IsNumeric(); };
@@ -377,9 +385,11 @@ TYPED_TEST(AllTypesFixture, Less) {
       if (is_canonical(a.type()) || is_canonical(b.type())) continue;
       if (is_numeric_compatible(a) && is_numeric_compatible(b)) continue;
       if (is_string_compatible(a) && is_string_compatible(b)) continue;
-      // Comparison should raise an exception. Cast to (void) so the compiler
-      // does not complain about unused comparison result.
-      EXPECT_THROW((void)(a < b), TypedValueException);
+      // Same-type temporals and Enum are still comparable (return bool);
+      // mixed/incomparable categories return null. Both are valid — the
+      // critical guarantee is that `<` no longer throws.
+      auto res = a < b;
+      EXPECT_TRUE(res.IsNull() || res.IsBool());
     }
   }
 
@@ -692,7 +702,7 @@ TEST(TypedValue, ToJsonFromJsonRoundTrip) {
     memgraph::query::to_json(j, v);
     TypedValue w;
     memgraph::query::from_json(j, w);
-    EXPECT_TRUE(TypedValue::BoolEqual{}(v, w)) << "Round-trip failed for type " << static_cast<int>(v.type());
+    EXPECT_TRUE(TypedValue::Equivalent{}(v, w)) << "Round-trip failed for type " << static_cast<int>(v.type());
   };
 
   round_trip(TypedValue());
@@ -782,13 +792,12 @@ TYPED_TEST(AllTypesFixture, CopyConstruction) {
       EXPECT_PROP_ISNULL(cpy);
     } else if (value.IsGraph()) {
       // not comparable
-    } else if (value.IsMap()) {
-      // map contains NULL so can't be true
-      auto res = cpy == value;
-      // THIS IS NOT THE SAME AS NEO4J
-      // NEO4J returns NULL
-      ASSERT_EQ(res.type(), TypedValue::Type::Bool);
-      ASSERT_EQ(res.ValueBool(), false);
+    } else if (value.IsMap() || value.IsList()) {
+      // The fixture's list/map both contain a nested null. Per openCypher 9,
+      // structural equality with a nested null and no definite mismatch is
+      // null (DISTINCT/equivalence collapse them; equality propagates null).
+      EXPECT_PROP_ISNULL(cpy == value);
+      EXPECT_TRUE(TypedValue::Equivalent{}(cpy, value));
     } else {
       EXPECT_PROP_EQ(cpy, value);
     }
@@ -850,8 +859,8 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
         EXPECT_EQ(original[i].get_allocator().resource(), memgraph::utils::NewDeleteResource());
         EXPECT_EQ(moved[i].get_allocator().resource(), &monotonic_memory);
         EXPECT_EQ(copied[i].get_allocator().resource(), &monotonic_memory);
-        EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], moved[i]));
-        EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], copied[i]));
+        EXPECT_TRUE(TypedValue::Equivalent{}(original[i], moved[i]));
+        EXPECT_TRUE(TypedValue::Equivalent{}(original[i], copied[i]));
       }
     } else if (value.type() == TypedValue::Type::Map) {
       ASSERT_EQ(move_constructed_value.type(), value.type());
@@ -870,8 +879,8 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
         auto copied_it = copied.find(kv.first);
         ASSERT_NE(copied_it, copied.end());
         expect_allocator(*copied_it, &monotonic_memory);
-        EXPECT_TRUE(TypedValue::BoolEqual{}(kv.second, moved_it->second));
-        EXPECT_TRUE(TypedValue::BoolEqual{}(kv.second, copied_it->second));
+        EXPECT_TRUE(TypedValue::Equivalent{}(kv.second, moved_it->second));
+        EXPECT_TRUE(TypedValue::Equivalent{}(kv.second, copied_it->second));
       }
     } else if (value.type() == TypedValue::Type::Path) {
       ASSERT_EQ(move_constructed_value.type(), value.type());
