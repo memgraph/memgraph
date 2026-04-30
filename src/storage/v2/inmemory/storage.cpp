@@ -4618,11 +4618,19 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
 
   // we have to take edges accessor to be sure no edge is deleted while we are searching
   auto acc = mem_storage->edges_.access();
-  auto edge_type_id = mem_storage->indices_.vector_edge_index_.GetEdgeTypeId(index_name);
+  const auto fixed_edge_type = mem_storage->indices_.vector_edge_index_.GetEdgeTypeId(index_name);
   const auto search_results = storage_->indices_.vector_edge_index_.SearchEdges(index_name, number_of_results, vector);
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
     auto &[edge_tuple, distance, score] = item;
     auto &[from_vertex, to_vertex, edge] = edge_tuple;
+    // For multi-type / wildcard indices, resolve the actual edge type from the source vertex's
+    // out_edges list (each tuple has the edge type at kEdgeTypeIdPos).
+    const auto edge_type_id = fixed_edge_type.value_or(std::invoke([&]() -> EdgeTypeId {
+      for (const auto &out : from_vertex->out_edges) {
+        if (std::get<kEdgeRefPos>(out).ptr == edge) return std::get<kEdgeTypeIdPos>(out);
+      }
+      throw query::VectorSearchException("Edge not found on source vertex during vector search.");
+    }));
     return std::make_tuple(
         EdgeAccessor{EdgeRef{edge}, edge_type_id, from_vertex, to_vertex, storage_, &transaction_}, distance, score);
   });

@@ -347,23 +347,27 @@ class DeltaGenerator final {
     std::optional<memgraph::storage::VectorIndexSpec> vector_index_spec;
     std::optional<memgraph::storage::VectorEdgeIndexSpec> vector_edge_index_spec;
     if (!vector_index_name.empty()) {
-      vector_index_spec = memgraph::storage::VectorIndexSpec{vector_index_name,
-                                                             label_id,
-                                                             first_property_id,
-                                                             memgraph::storage::MetricFromName(kMetricKind),
-                                                             vector_dimension,
-                                                             kResizeCoefficient,
-                                                             vector_capacity,
-                                                             kScalarKind};
-      vector_edge_index_spec =
-          memgraph::storage::VectorEdgeIndexSpec{vector_index_name,
-                                                 edge_type_id.value_or(memgraph::storage::EdgeTypeId::FromUint(0)),
-                                                 first_property_id,
-                                                 memgraph::storage::MetricFromName(kMetricKind),
-                                                 vector_dimension,
-                                                 kResizeCoefficient,
-                                                 vector_capacity,
-                                                 kScalarKind};
+      vector_index_spec = memgraph::storage::VectorIndexSpec{
+          .index_name = vector_index_name,
+          .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorLabelMode::SINGLE, {label_id}},
+          .property = first_property_id,
+          .metric_kind = memgraph::storage::MetricFromName(kMetricKind),
+          .dimension = vector_dimension,
+          .resize_coefficient = kResizeCoefficient,
+          .capacity = vector_capacity,
+          .scalar_kind = kScalarKind};
+      vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{
+          .index_name = vector_index_name,
+          .edge_type_filter =
+              memgraph::storage::VectorEdgeTypeFilter{
+                  memgraph::storage::VectorEdgeTypeMode::SINGLE,
+                  {edge_type_id.value_or(memgraph::storage::EdgeTypeId::FromUint(0))}},
+          .property = first_property_id,
+          .metric_kind = memgraph::storage::MetricFromName(kMetricKind),
+          .dimension = vector_dimension,
+          .resize_coefficient = kResizeCoefficient,
+          .capacity = vector_capacity,
+          .scalar_kind = kScalarKind};
     }
 
     auto const apply_encode = [&](memgraph::storage::durability::StorageMetadataOperation op, auto &&encode_operation) {
@@ -606,7 +610,9 @@ class DeltaGenerator final {
                                          vector_dimension,
                                          kResizeCoefficient,
                                          vector_capacity,
-                                         static_cast<uint8_t>(kScalarKind)}};
+                                         static_cast<uint8_t>(kScalarKind),
+                                         static_cast<uint8_t>(0),
+                                         std::vector<std::string>{}}};
           case VECTOR_EDGE_INDEX_CREATE:
             return {WalVectorEdgeIndexCreate{vector_index_name,
                                              edge_type,
@@ -615,7 +621,9 @@ class DeltaGenerator final {
                                              vector_dimension,
                                              kResizeCoefficient,
                                              vector_capacity,
-                                             static_cast<uint8_t>(kScalarKind)}};
+                                             static_cast<uint8_t>(kScalarKind),
+                                             static_cast<uint8_t>(0),
+                                             std::vector<std::string>{}}};
           case VECTOR_INDEX_DROP:
             return {WalVectorIndexDrop{vector_index_name}};
           case TTL_OPERATION:

@@ -47,7 +47,7 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
   }
   if (r::any_of(*index_, [&](const auto &id_index_item) {
         auto &index_spec = id_index_item.second->spec;
-        return spec.edge_type_id == index_spec.edge_type_id && spec.property == index_spec.property;
+        return spec.edge_type_filter == index_spec.edge_type_filter && spec.property == index_spec.property;
       })) {
     return std::nullopt;
   }
@@ -111,7 +111,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
     PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
       if (vertex.deleted()) return;
       for (auto &edge_tuple : vertex.out_edges) {
-        if (std::get<kEdgeTypeIdPos>(edge_tuple) != spec.edge_type_id) continue;
+        if (!spec.edge_type_filter.Matches(std::get<kEdgeTypeIdPos>(edge_tuple))) continue;
 
         auto *to_vertex = std::get<kVertexPos>(edge_tuple);
         auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
@@ -147,7 +147,7 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
 
     auto process_vertex_for_recovery = [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
       for (auto &edge_tuple : vertex.out_edges) {
-        if (std::get<kEdgeTypeIdPos>(edge_tuple) != spec.edge_type_id) continue;
+        if (!spec.edge_type_filter.Matches(std::get<kEdgeTypeIdPos>(edge_tuple))) continue;
 
         auto *to_vertex = std::get<kVertexPos>(edge_tuple);
         auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
@@ -292,9 +292,9 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
     }
   } else if (value.IsNull()) {
     // If value is null, we have to remove the edge from all indices that contain it (by edge type).
-    auto indices = GetIndicesByProperty(property);
-    for (const auto &[et, idx_id] : indices) {
-      if (et != edge_type) continue;
+    const auto indices = GetIndicesByProperty(property);
+    for (const auto &[idx_id, filter] : indices) {
+      if (!filter->Matches(edge_type)) continue;
       RemoveEdgeFromIndex(edge, idx_id);
     }
   }
@@ -319,7 +319,7 @@ std::vector<VectorEdgeIndexInfo> VectorEdgeIndex::ListVectorIndicesInfo() const 
     auto &spec = item_ptr->spec;
     auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
     result.emplace_back(spec.index_name,
-                        spec.edge_type_id,
+                        spec.edge_type_filter,
                         spec.property,
                         NameFromMetric(mg_index.index.metric().metric_kind()),
                         static_cast<std::uint16_t>(mg_index.index.dimensions()),
@@ -341,7 +341,8 @@ std::vector<VectorEdgeIndexSpec> VectorEdgeIndex::ListIndices() const {
 std::optional<uint64_t> VectorEdgeIndex::ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const {
   auto it = r::find_if(*index_, [&](const auto &id_index_item) {
     const auto &spec = id_index_item.second->spec;
-    return spec.edge_type_id == edge_type && spec.property == property;
+    return spec.edge_type_filter.mode == VectorEdgeTypeMode::SINGLE && !spec.edge_type_filter.edge_types.empty() &&
+           spec.edge_type_filter.edge_types[0] == edge_type && spec.property == property;
   });
   if (it != index_->end()) {
     auto guard = utils::SharedResourceLockGuard(it->second->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
@@ -401,9 +402,9 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
         }
       } else {
         DMG_ASSERT(old_value.IsNull(), "Unexpected property value type in abort processor of vector edge index");
-        auto indices_by_prop = GetIndicesByProperty(property);
-        for (const auto &[et, idx_id] : indices_by_prop) {
-          if (et != info.edge_type) continue;
+        const auto indices_by_prop = GetIndicesByProperty(property);
+        for (const auto &[idx_id, filter] : indices_by_prop) {
+          if (!filter->Matches(info.edge_type)) continue;
           RemoveEdgeFromIndex(edge, idx_id);
         }
       }
@@ -436,10 +437,12 @@ void VectorEdgeIndex::RemoveEdges(std::span<Edge *const> edges_to_remove) const 
 VectorEdgeIndex::AbortProcessor VectorEdgeIndex::GetAbortProcessor() const {
   AbortProcessor res{};
   for (const auto &[_, item_ptr] : *index_) {
-    const auto edge_type = item_ptr->spec.edge_type_id;
+    const auto &filter = item_ptr->spec.edge_type_filter;
     const auto property = item_ptr->spec.property;
-    res.et2p[edge_type].push_back(property);
-    res.p2et[property].push_back(edge_type);
+    for (const auto &edge_type : filter.edge_types) {
+      res.et2p[edge_type].push_back(property);
+      res.p2et[property].push_back(edge_type);
+    }
   }
   return res;
 }
@@ -457,10 +460,14 @@ void VectorEdgeIndex::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_ty
   info.properties[property] = old_value;
 }
 
-EdgeTypeId VectorEdgeIndex::GetEdgeTypeId(std::string_view index_name) {
+std::optional<EdgeTypeId> VectorEdgeIndex::GetEdgeTypeId(std::string_view index_name) {
   for (const auto &[_, item_ptr] : *index_) {
     if (item_ptr->spec.index_name == index_name) {
-      return item_ptr->spec.edge_type_id;
+      const auto &filter = item_ptr->spec.edge_type_filter;
+      // Only meaningful for SINGLE-type indices; multi-type and wildcard need per-edge resolution.
+      if (filter.mode != VectorEdgeTypeMode::SINGLE) return std::nullopt;
+      if (filter.edge_types.empty()) return std::nullopt;
+      return filter.edge_types[0];
     }
   }
   throw query::VectorSearchException("Vector edge index {} does not exist.", index_name);
@@ -497,18 +504,21 @@ std::pair<Vertex *, Vertex *> VectorEdgeIndex::GetEdgeEndpoints(Edge *edge) cons
 std::optional<uint64_t> VectorEdgeIndex::GetIndexIdForEdgeTypeProperty(EdgeTypeId edge_type,
                                                                        PropertyId property) const {
   for (const auto &[index_id, item_ptr] : *index_) {
-    if (item_ptr->spec.edge_type_id == edge_type && item_ptr->spec.property == property) {
+    if (item_ptr->spec.property != property) continue;
+    if (item_ptr->spec.edge_type_filter.Matches(edge_type)) {
       return index_id;
     }
   }
   return std::nullopt;
 }
 
-std::unordered_map<EdgeTypeId, uint64_t> VectorEdgeIndex::GetIndicesByProperty(PropertyId property) const {
-  std::unordered_map<EdgeTypeId, uint64_t> result;
+std::vector<std::pair<uint64_t, VectorEdgeTypeFilter const *>> VectorEdgeIndex::GetIndicesByProperty(
+    PropertyId property) const {
+  std::vector<std::pair<uint64_t, VectorEdgeTypeFilter const *>> result;
+  result.reserve(index_->size());
   for (const auto &[index_id, item_ptr] : *index_) {
     if (item_ptr->spec.property == property) {
-      result.emplace(item_ptr->spec.edge_type_id, index_id);
+      result.emplace_back(index_id, &item_ptr->spec.edge_type_filter);
     }
   }
   return result;
@@ -526,13 +536,24 @@ void VectorEdgeIndex::SerializeAllVectorEdgeIndices(durability::BaseEncoder *enc
     auto &spec = item_ptr->spec;
     auto &mg_index = item_ptr->mg_index;
     encoder->WriteString(spec.index_name);
-    write_mapping(spec.edge_type_id);
+    const auto &filter = spec.edge_type_filter;
+    if (filter.edge_types.empty()) {
+      // Wildcard: write a sentinel id 0 (will be ignored on read since count=0).
+      encoder->WriteUint(0);
+    } else {
+      write_mapping(filter.edge_types[0]);
+    }
     write_mapping(spec.property);
     encoder->WriteString(NameFromMetric(spec.metric_kind));
     encoder->WriteUint(spec.dimension);
     encoder->WriteUint(spec.resize_coefficient);
     encoder->WriteUint(spec.capacity);
     encoder->WriteUint(static_cast<uint64_t>(spec.scalar_kind));
+    encoder->WriteUint(static_cast<uint64_t>(filter.mode));
+    encoder->WriteUint(filter.edge_types.size() > 1 ? filter.edge_types.size() - 1 : 0);
+    for (std::size_t i = 1; i < filter.edge_types.size(); ++i) {
+      write_mapping(filter.edge_types[i]);
+    }
 
     using Entry = std::pair<uint64_t, std::vector<float>>;
     auto const entries = std::invoke([&mg_index]() -> std::vector<Entry> {
@@ -574,7 +595,7 @@ void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, Nam
       // Iterate all vertices to find edges and restore properties
       for (auto &vertex : vertices) {
         for (auto &edge_tuple : vertex.out_edges) {
-          if (std::get<kEdgeTypeIdPos>(edge_tuple) != recovery_info.spec.edge_type_id) continue;
+          if (!recovery_info.spec.edge_type_filter.Matches(std::get<kEdgeTypeIdPos>(edge_tuple))) continue;
           auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
 
           auto it = recovery_info.index_entries.find(edge->gid);
@@ -628,7 +649,7 @@ std::vector<VectorEdgeIndexInfo> VectorEdgeIndex::ActiveIndices::ListVectorIndic
     auto &spec = item_ptr->spec;
     auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
     result.emplace_back(spec.index_name,
-                        spec.edge_type_id,
+                        spec.edge_type_filter,
                         spec.property,
                         NameFromMetric(mg_index.index.metric().metric_kind()),
                         static_cast<std::uint16_t>(mg_index.index.dimensions()),
@@ -644,7 +665,8 @@ std::optional<uint64_t> VectorEdgeIndex::ActiveIndices::ApproximateEdgesVectorCo
   if (!index_container_) return std::nullopt;
   auto it = r::find_if(*index_container_, [&](const auto &id_item) {
     const auto &spec = id_item.second->spec;
-    return spec.edge_type_id == edge_type && spec.property == property;
+    return spec.edge_type_filter.mode == VectorEdgeTypeMode::SINGLE && !spec.edge_type_filter.edge_types.empty() &&
+           spec.edge_type_filter.edge_types[0] == edge_type && spec.property == property;
   });
   if (it != index_container_->end()) {
     auto guard = utils::SharedResourceLockGuard(it->second->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);

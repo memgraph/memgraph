@@ -11,8 +11,12 @@
 
 #pragma once
 
+#include <algorithm>
+#include <list>
 #include <map>
 #include <shared_mutex>
+#include <span>
+
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
@@ -27,11 +31,66 @@ struct ActiveIndicesUpdater;
 struct Indices;
 class NameIdMapper;
 
+enum class VectorEdgeTypeMode : uint8_t {
+  SINGLE = 0,
+  WILDCARD = 1,
+  ANY_OF = 2,
+  ALL_OF = 3,
+};
+
+struct VectorEdgeTypeFilter {
+  VectorEdgeTypeMode mode{VectorEdgeTypeMode::SINGLE};
+  std::vector<EdgeTypeId> edge_types;
+
+  bool Matches(EdgeTypeId edge_type) const {
+    if (edge_types.empty() && mode != VectorEdgeTypeMode::WILDCARD) return false;
+    switch (mode) {
+      case VectorEdgeTypeMode::WILDCARD:
+        return true;
+      case VectorEdgeTypeMode::SINGLE:
+        return edge_type == edge_types[0];
+      case VectorEdgeTypeMode::ANY_OF:
+      case VectorEdgeTypeMode::ALL_OF:
+        return std::ranges::contains(edge_types, edge_type);
+    }
+    return false;
+  }
+
+  bool IsAffectedByEdgeType(EdgeTypeId edge_type) const {
+    if (mode == VectorEdgeTypeMode::WILDCARD) return false;
+    return std::ranges::contains(edge_types, edge_type);
+  }
+
+  friend bool operator==(const VectorEdgeTypeFilter &, const VectorEdgeTypeFilter &) = default;
+
+  template <typename NameResolver>
+  std::string Format(NameResolver &&resolver) const {
+    if (edge_types.empty() && mode != VectorEdgeTypeMode::WILDCARD) return "";
+    switch (mode) {
+      case VectorEdgeTypeMode::WILDCARD:
+        return ":*";
+      case VectorEdgeTypeMode::SINGLE:
+        return ":" + resolver(edge_types[0]);
+      case VectorEdgeTypeMode::ANY_OF: {
+        std::string result = ":" + resolver(edge_types[0]);
+        for (std::size_t i = 1; i < edge_types.size(); ++i) result += "|" + resolver(edge_types[i]);
+        return result;
+      }
+      case VectorEdgeTypeMode::ALL_OF: {
+        std::string result = ":" + resolver(edge_types[0]);
+        for (std::size_t i = 1; i < edge_types.size(); ++i) result += "&" + resolver(edge_types[i]);
+        return result;
+      }
+    }
+    return "";
+  }
+};
+
 /// @struct VectorEdgeIndexSpec
 /// @brief Represents a specification for creating a vector index in the system.
 struct VectorEdgeIndexSpec {
   std::string index_name;
-  EdgeTypeId edge_type_id;
+  VectorEdgeTypeFilter edge_type_filter;
   PropertyId property;
   unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
@@ -43,10 +102,9 @@ struct VectorEdgeIndexSpec {
 };
 
 /// @struct VectorEdgeIndexInfo
-/// @brief Represents information about a vector index in the system.
 struct VectorEdgeIndexInfo {
   std::string index_name;
-  EdgeTypeId edge_type_id;
+  VectorEdgeTypeFilter edge_type_filter;
   PropertyId property;
   std::string metric;
   std::uint16_t dimension;
@@ -229,8 +287,9 @@ class VectorEdgeIndex {
   /// @brief Checks if any vector index exists.
   bool Empty() const;
 
-  /// @brief Returns the EdgeTypeId for the given index name.
-  EdgeTypeId GetEdgeTypeId(std::string_view index_name);
+  /// @brief Returns the EdgeTypeId for SINGLE-mode indices. nullopt for wildcard or multi-type:
+  ///        callers must resolve the edge type per-edge in those cases.
+  std::optional<EdgeTypeId> GetEdgeTypeId(std::string_view index_name);
 
   /// @brief Checks if a vector index exists for the given name.
   bool IndexExists(std::string_view index_name) const;
@@ -246,7 +305,7 @@ class VectorEdgeIndex {
   std::optional<uint64_t> GetIndexIdForEdgeTypeProperty(EdgeTypeId edge_type, PropertyId property) const;
 
   /// @brief Gets all edge types that have vector indices for the given property.
-  std::unordered_map<EdgeTypeId, uint64_t> GetIndicesByProperty(PropertyId property) const;
+  std::vector<std::pair<uint64_t, VectorEdgeTypeFilter const *>> GetIndicesByProperty(PropertyId property) const;
 
   /// @brief Serializes all vector edge indices to a durability encoder in one pass.
   void SerializeAllVectorEdgeIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids) const;

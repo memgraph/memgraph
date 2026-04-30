@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <algorithm>
+#include <span>
+
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
@@ -28,14 +31,68 @@ struct ActiveIndicesUpdater;
 struct Indices;
 class NameIdMapper;
 
+enum class VectorLabelMode : uint8_t {
+  SINGLE = 0,
+  WILDCARD = 1,
+  ANY_OF = 2,
+  ALL_OF = 3,
+};
+
+struct VectorLabelFilter {
+  VectorLabelMode mode{VectorLabelMode::SINGLE};
+  std::vector<LabelId> labels;
+
+  bool Matches(std::span<const LabelId> vertex_labels) const {
+    if (labels.empty() && mode != VectorLabelMode::WILDCARD) return false;
+    switch (mode) {
+      case VectorLabelMode::WILDCARD:
+        return true;
+      case VectorLabelMode::SINGLE:
+        return std::ranges::contains(vertex_labels, labels[0]);
+      case VectorLabelMode::ANY_OF:
+        return std::ranges::any_of(labels,
+                                   [&](auto label) { return std::ranges::contains(vertex_labels, label); });
+      case VectorLabelMode::ALL_OF:
+        return std::ranges::all_of(labels,
+                                   [&](auto label) { return std::ranges::contains(vertex_labels, label); });
+    }
+    return false;
+  }
+
+  bool IsAffectedByLabel(LabelId label) const {
+    if (mode == VectorLabelMode::WILDCARD) return false;
+    return std::ranges::contains(labels, label);
+  }
+
+  friend bool operator==(const VectorLabelFilter &, const VectorLabelFilter &) = default;
+
+  template <typename NameResolver>
+  std::string Format(NameResolver &&resolver) const {
+    if (labels.empty() && mode != VectorLabelMode::WILDCARD) return "";
+    switch (mode) {
+      case VectorLabelMode::WILDCARD:
+        return ":*";
+      case VectorLabelMode::SINGLE:
+        return ":" + resolver(labels[0]);
+      case VectorLabelMode::ANY_OF: {
+        std::string result = ":" + resolver(labels[0]);
+        for (std::size_t i = 1; i < labels.size(); ++i) result += "|" + resolver(labels[i]);
+        return result;
+      }
+      case VectorLabelMode::ALL_OF: {
+        std::string result = ":" + resolver(labels[0]);
+        for (std::size_t i = 1; i < labels.size(); ++i) result += "&" + resolver(labels[i]);
+        return result;
+      }
+    }
+    return "";
+  }
+};
+
 /// @struct VectorIndexInfo
-/// @brief Represents information about a vector index in the system.
-///
-/// This structure includes the index name, the label and property on which the index is created,
-/// the dimension of the vectors in the index, and the size of the index.
 struct VectorIndexInfo {
   std::string index_name;
-  LabelId label_id;
+  VectorLabelFilter label_filter;
   PropertyId property;
   std::string metric;
   std::uint16_t dimension;
@@ -45,13 +102,9 @@ struct VectorIndexInfo {
 };
 
 /// @struct VectorIndexSpec
-/// @brief Represents a specification for creating a vector index in the system.
-///
-/// This structure includes the index name, the label and property on which the index is created,
-/// and the configuration options for the index in the form of a JSON object.
 struct VectorIndexSpec {
   std::string index_name;
-  LabelId label_id;
+  VectorLabelFilter label_filter;
   PropertyId property;
   unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
@@ -164,6 +217,7 @@ class VectorIndex {
   struct AbortProcessor {
     std::map<LabelId, std::vector<PropertyId>> l2p;
     std::map<PropertyId, std::vector<LabelId>> p2l;
+    std::set<PropertyId> wildcard_properties;
 
     void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
     void CollectOnLabelAddition(LabelId label, Vertex *vertex);
@@ -328,7 +382,7 @@ class VectorIndex {
   /// @brief Gets all labels that have vector indices for the given property.
   /// @param property The property to get the labels for.
   /// @return A map of label ids to index IDs.
-  std::unordered_map<LabelId, uint64_t> GetIndicesByProperty(PropertyId property) const;
+  std::vector<std::pair<uint64_t, VectorLabelFilter const *>> GetIndicesByProperty(PropertyId property) const;
 
   /// @brief Serializes all vector indices to a durability encoder in one pass.
   /// @param encoder The durability encoder to serialize to.

@@ -138,15 +138,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_index_spec =
-        memgraph::storage::VectorIndexSpec{.index_name = vector_index_name,
-                                           .label_id = label_indexed,
-                                           .property = property_vector,
-                                           .metric_kind = vector_index_metric,
-                                           .dimension = vector_index_dim,
-                                           .resize_coefficient = vector_index_resize_coefficient,
-                                           .capacity = vector_index_capacity,
-                                           .scalar_kind = vector_index_scalar_kind};
+    const auto vector_index_spec = memgraph::storage::VectorIndexSpec{
+        .index_name = vector_index_name,
+        .label_filter =
+            memgraph::storage::VectorLabelFilter{memgraph::storage::VectorLabelMode::SINGLE, {label_indexed}},
+        .property = property_vector,
+        .metric_kind = vector_index_metric,
+        .dimension = vector_index_dim,
+        .resize_coefficient = vector_index_resize_coefficient,
+        .capacity = vector_index_capacity,
+        .scalar_kind = vector_index_scalar_kind};
 
     {
       // Create enum.
@@ -519,15 +520,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_capacity = 100;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_edge_index_spec =
-        memgraph::storage::VectorEdgeIndexSpec{.index_name = vector_edge_index_name,
-                                               .edge_type_id = edge_type,
-                                               .property = prop,
-                                               .metric_kind = vector_index_metric,
-                                               .dimension = vector_index_dim,
-                                               .resize_coefficient = vector_index_resize_coefficient,
-                                               .capacity = vector_index_capacity,
-                                               .scalar_kind = vector_index_scalar_kind};
+    const auto vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{
+        .index_name = vector_edge_index_name,
+        .edge_type_filter =
+            memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorEdgeTypeMode::SINGLE, {edge_type}},
+        .property = prop,
+        .metric_kind = vector_index_metric,
+        .dimension = vector_index_dim,
+        .resize_coefficient = vector_index_resize_coefficient,
+        .capacity = vector_index_capacity,
+        .scalar_kind = vector_index_scalar_kind};
     {
       // Create edge-type vector index.
       auto unique_acc = store->UniqueAccess();
@@ -587,24 +589,26 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_index_spec =
-        memgraph::storage::VectorIndexSpec{.index_name = vector_index_name,
-                                           .label_id = base_label_indexed,
-                                           .property = property_vector,
-                                           .metric_kind = vector_index_metric,
-                                           .dimension = vector_index_dim,
-                                           .resize_coefficient = vector_index_resize_coefficient,
-                                           .capacity = vector_index_capacity,
-                                           .scalar_kind = vector_index_scalar_kind};
-    const auto vector_edge_index_spec =
-        memgraph::storage::VectorEdgeIndexSpec{.index_name = vector_edge_index_name,
-                                               .edge_type_id = et1,
-                                               .property = property_vector,
-                                               .metric_kind = vector_index_metric,
-                                               .dimension = vector_index_dim,
-                                               .resize_coefficient = vector_index_resize_coefficient,
-                                               .capacity = vector_index_capacity,
-                                               .scalar_kind = vector_index_scalar_kind};
+    const auto vector_index_spec = memgraph::storage::VectorIndexSpec{
+        .index_name = vector_index_name,
+        .label_filter =
+            memgraph::storage::VectorLabelFilter{memgraph::storage::VectorLabelMode::SINGLE, {base_label_indexed}},
+        .property = property_vector,
+        .metric_kind = vector_index_metric,
+        .dimension = vector_index_dim,
+        .resize_coefficient = vector_index_resize_coefficient,
+        .capacity = vector_index_capacity,
+        .scalar_kind = vector_index_scalar_kind};
+    const auto vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{
+        .index_name = vector_edge_index_name,
+        .edge_type_filter =
+            memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorEdgeTypeMode::SINGLE, {et1}},
+        .property = property_vector,
+        .metric_kind = vector_index_metric,
+        .dimension = vector_index_dim,
+        .resize_coefficient = vector_index_resize_coefficient,
+        .capacity = vector_index_capacity,
+        .scalar_kind = vector_index_scalar_kind};
 
     const auto vector_index_id = store->Access(memgraph::storage::READ)->GetNameIdMapper()->NameToId(vector_index_name);
     const auto vertex_vector_property_value = memgraph::storage::PropertyValue(

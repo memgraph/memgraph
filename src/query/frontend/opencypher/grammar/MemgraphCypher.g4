@@ -843,9 +843,17 @@ dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
 
 pointIndexQuery : createPointIndex | dropPointIndex ;
 
-createVectorIndex : CREATE VECTOR INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMapOrExpression ;
+vectorIndexLabels
+    : ASTERISK '(' propertyKeyName ')'
+    | ':' ASTERISK '(' propertyKeyName ')'
+    | '(' propertyKeyName ')'
+    | ':' labelName ( PIPE ':'? labelName )* '(' propertyKeyName ')'
+    | ':' labelName ( AMPERSAND ':'? labelName )+ '(' propertyKeyName ')'
+    ;
 
-createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMapOrExpression ;
+createVectorIndex : CREATE VECTOR INDEX indexName ON vectorIndexLabels WITH CONFIG configsMap=configMapOrExpression ;
+
+createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON vectorIndexLabels WITH CONFIG configsMap=configMapOrExpression ;
 
 dropVectorIndex : DROP VECTOR INDEX indexName ;
 

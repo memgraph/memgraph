@@ -403,7 +403,8 @@ void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId l
 }
 
 void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorIndexSpec &spec) {
-  *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON :" << EscapeName(dba->LabelToName(spec.label_id))
+  auto label_str = spec.label_filter.Format([&](auto id) { return EscapeName(dba->LabelToName(id)); });
+  *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON " << label_str
       << "(" << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
       << "\"dimension\": " << spec.dimension << ", "
       << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
@@ -413,8 +414,9 @@ void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const storage::Ve
 }
 
 void DumpVectorEdgeIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorEdgeIndexSpec &spec) {
+  auto et_str = spec.edge_type_filter.Format([&](auto id) { return EscapeName(dba->EdgeTypeToName(id)); });
   *os << "CREATE VECTOR EDGE INDEX " << EscapeName(spec.index_name)
-      << " ON :" << EscapeName(dba->EdgeTypeToName(spec.edge_type_id)) << "("
+      << " ON " << et_str << "("
       << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
       << "\"dimension\": " << spec.dimension << ", "
       << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "

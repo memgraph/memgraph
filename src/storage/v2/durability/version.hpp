@@ -44,6 +44,7 @@ constexpr uint64_t kTextEdgeIndex{31};
 constexpr uint64_t kVectorIndexId{32};
 constexpr uint64_t kExtendedEdgeSetProperty{33};
 constexpr uint64_t kDescriptionAndDescIndexSupport{34};
+constexpr uint64_t kVectorIndexMultiLabel{kDescriptionAndDescIndexSupport};
 
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format

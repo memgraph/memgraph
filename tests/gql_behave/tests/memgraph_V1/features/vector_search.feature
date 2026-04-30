@@ -9,7 +9,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | index type                | label | property | count |
-            | 'label+property_vector'   | 'L1'  | 'prop1'  | 0     |
+            | 'label+property_vector'   | ':L1'  | 'prop1'  | 0     |
 
     Scenario: Create vector index with all config options
         Given an empty graph
@@ -23,7 +23,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'label+property_vector' |
 
     Scenario: Create vector index with parameterized config with all options
         Given an empty graph
@@ -39,7 +39,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'label+property_vector' |
 
     Scenario: Create vector index with parameterized config values
         Given an empty graph
@@ -56,7 +56,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
 
     Scenario: Create vector index with parameterized config that is not a map raises error
         Given an empty graph
@@ -81,7 +81,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | index type                | label | property | count |
-            | 'label+property_vector'   | 'L1'  | 'prop1'  | 1     |
+            | 'label+property_vector'   | ':L1'  | 'prop1'  | 1     |
 
     Scenario: Remove node from vector index
         Given an empty graph
@@ -104,7 +104,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | index type                | label | property | count |
-            | 'label+property_vector'   | 'L1'  | 'prop1'  | 0     |
+            | 'label+property_vector'   | ':L1'  | 'prop1'  | 0     |
 
     Scenario: Drop vector index
         Given an empty graph
@@ -129,7 +129,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
 
     Scenario: Get vector index info with cypher
         Given an empty graph
@@ -140,7 +140,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
 
     Scenario: Search vector index
         Given an empty graph
@@ -234,7 +234,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN n.prop1;
@@ -267,7 +267,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN n;
@@ -293,7 +293,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN n;
@@ -319,7 +319,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN n;
@@ -355,7 +355,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
         And having executed
             """
             MATCH (n {prop1: [5.0, 6.0]}) SET n:L1;
@@ -366,7 +366,7 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN n;
@@ -405,8 +405,8 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN propertySize(n, "prop1");
@@ -424,8 +424,8 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN n;
@@ -462,8 +462,8 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN propertySize(n, "prop1");
@@ -481,8 +481,8 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN n;
@@ -512,8 +512,8 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN propertySize(n, "prop1");
@@ -531,8 +531,8 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN n;
@@ -569,8 +569,8 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN propertySize(n, "prop1");
@@ -588,8 +588,8 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n) RETURN n;
@@ -627,8 +627,8 @@ Feature: Vector search related features
             """
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop2'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop2'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
         When executing query:
             """
             MATCH (n:L1) RETURN n;
@@ -703,7 +703,7 @@ Feature: Vector search related features
 
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 3    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 3    | 'f32'       | 'label+property_vector' |
 
         When executing query:
             """
@@ -778,8 +778,8 @@ Feature: Vector search related features
 
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
 
         When executing query:
             """
@@ -811,7 +811,7 @@ Feature: Vector search related features
 
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
 
         When executing query:
             """
@@ -872,8 +872,8 @@ Feature: Vector search related features
 
         Then the result should be:
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
-            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
-            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
 
         When executing query:
             """
@@ -907,3 +907,155 @@ Feature: Vector search related features
         Then the result should be:
             | distance | node                        | similarity |
             | 0.0      | (:L1:L2 {prop1: [1.0, 2.0]}) | 1.0       |
+
+    Scenario: Create wildcard vector index with :* syntax
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX wildcard_idx ON :*(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE (:A {embedding: [1.0, 2.0]})
+            CREATE (:B {embedding: [3.0, 4.0]})
+            CREATE ({embedding: [5.0, 6.0]});
+            """
+        When executing query:
+            """
+            CALL vector_search.search("wildcard_idx", 10, [1.0, 2.0]) YIELD * RETURN count(*) AS cnt;
+            """
+        Then the result should be:
+            | cnt |
+            | 3   |
+
+    Scenario: Create wildcard vector index with bare parentheses syntax
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX wildcard_idx2 ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                | label | property    | count |
+            | 'label+property_vector'   | ':*'  | 'embedding' | 0     |
+
+    Scenario: Create OR vector index on multiple labels
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX or_idx ON :A|B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE (:A {embedding: [1.0, 2.0]})
+            CREATE (:B {embedding: [3.0, 4.0]})
+            CREATE (:C {embedding: [5.0, 6.0]});
+            """
+        When executing query:
+            """
+            CALL vector_search.search("or_idx", 10, [1.0, 2.0]) YIELD * RETURN count(*) AS cnt;
+            """
+        Then the result should be:
+            | cnt |
+            | 2   |
+
+    Scenario: Create AND vector index on multiple labels
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX and_idx ON :A&B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE (:A:B {embedding: [1.0, 2.0]})
+            CREATE (:A {embedding: [3.0, 4.0]})
+            CREATE (:B {embedding: [5.0, 6.0]});
+            """
+        When executing query:
+            """
+            CALL vector_search.search("and_idx", 10, [1.0, 2.0]) YIELD * RETURN count(*) AS cnt;
+            """
+        Then the result should be:
+            | cnt |
+            | 1   |
+
+    Scenario: Wildcard vector index search returns all matching nodes
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX wildcard_search ON :*(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE (:X {embedding: [1.0, 0.0]})
+            CREATE (:Y {embedding: [0.0, 1.0]});
+            """
+        When executing query:
+            """
+            CALL vector_search.search("wildcard_search", 10, [1.0, 0.0]) YIELD * RETURN count(*) AS cnt;
+            """
+        Then the result should be:
+            | cnt |
+            | 2   |
+
+    Scenario: OR vector index search returns nodes with any matching label
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX or_search ON :A|B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE (:A {embedding: [1.0, 0.0]})
+            CREATE (:B {embedding: [0.0, 1.0]})
+            CREATE (:C {embedding: [1.0, 1.0]});
+            """
+        When executing query:
+            """
+            CALL vector_search.search("or_search", 10, [1.0, 0.0]) YIELD * RETURN distance ORDER BY distance;
+            """
+        Then the result should be:
+            | distance |
+            | 0.0      |
+            | 2.0      |
+
+    Scenario: AND vector index search returns only nodes with all labels
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX and_search ON :A&B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE (:A:B {embedding: [1.0, 0.0]})
+            CREATE (:A {embedding: [0.0, 1.0]})
+            CREATE (:B {embedding: [1.0, 1.0]});
+            """
+        When executing query:
+            """
+            CALL vector_search.search("and_search", 10, [1.0, 0.0]) YIELD * RETURN distance;
+            """
+        Then the result should be:
+            | distance |
+            | 0.0      |
+
+    Scenario: OR vector index with colon-prefixed labels
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX or_colon ON :A|:B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE (:A {embedding: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            CALL vector_search.search("or_colon", 10, [1.0, 2.0]) YIELD * RETURN count(*) AS cnt;
+            """
+        Then the result should be:
+            | cnt |
+            | 1   |
