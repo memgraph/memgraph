@@ -136,6 +136,7 @@
 
   "apoc.xml.parse": "xml_module.parse",
 
+  "db.awaitIndexes": "mgps.await_indexes",
   "db.schema.nodeTypeProperties": "schema.node_type_properties",
   "db.schema.relTypeProperties": "schema.rel_type_properties",
 
