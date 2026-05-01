@@ -96,6 +96,16 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInf
             COMMAND ${LLVM_DWP} -e $<TARGET_FILE:memgraph> -o $<TARGET_FILE:memgraph>.dwp
             BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph.dwp
             COMMENT "Bundling .dwo files into memgraph.dwp")
+        # Add a .gnu_debuglink section pointing at the .dwp. gdb's debuglink
+        # resolver then also tries /usr/lib/debug/<install-path>/<basename>
+        # (and ./.debug/<basename>) -- distro convention paths -- in addition
+        # to the default split-DWARF "adjacent to binary" lookup.
+        if(CMAKE_OBJCOPY)
+            add_custom_command(TARGET memgraph POST_BUILD
+                COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE_NAME:memgraph>.dwp $<TARGET_FILE:memgraph>
+                WORKING_DIRECTORY $<TARGET_FILE_DIR:memgraph>
+                COMMENT "Adding .gnu_debuglink -> memgraph.dwp")
+        endif()
     else()
         message(WARNING "llvm-dwp not found; skipping .dwp bundling")
     endif()
@@ -132,13 +142,17 @@ install(TARGETS memgraph
 
 # Install the .dwp (split-DWARF debug info bundle) into a separate component
 # so it can ship as memgraph-debuginfo_*.deb / memgraph-debuginfo*.rpm without
-# bloating the main package. OPTIONAL because Release strip + non-debug builds
-# don't produce one. gdb auto-finds memgraph.dwp by binary path, so the only
-# requirement is that it lands next to the installed binary.
+# bloating the main package. OPTIONAL because non-debug builds don't produce
+# one. gdb auto-finds memgraph.dwp by binary path; we additionally place a
+# symlink under /usr/lib/debug/.build-id/<aa>/<rest>.dwp so build-id-based
+# resolvers (gdb, debuginfod) and distro convention paths also work.
 install(FILES ${CMAKE_BINARY_DIR}/memgraph.dwp
     DESTINATION lib/memgraph
     COMPONENT debuginfo
     OPTIONAL)
+
+install(SCRIPT ${CMAKE_SOURCE_DIR}/cmake/install-build-id-symlink.cmake
+    COMPONENT debuginfo)
 
 # Install custom libstdc++
 get_property(CUSTOM_LIBSTDCXX_PATH GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH)

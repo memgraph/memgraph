@@ -687,6 +687,16 @@ build_memgraph () {
     fi
   done
 
+  # Auto-cap link concurrency for ThinLTO-using configs. lld's parallel
+  # ThinLTO codegen runs at link time and uses ~3-5 GB per concurrent module
+  # on heavy boost/template-laden TUs; without a cap, RelWithDebInfo/Release
+  # links OOM on smaller CI runners. Caller-supplied --link-threads wins.
+  if [[ "$link_threads" -eq 0 ]] && [[ "$build_type" == "RelWithDebInfo" || "$build_type" == "Release" ]]; then
+    if [[ -x "$PROJECT_ROOT/tools/ci/compute-build-threads.sh" ]]; then
+      link_threads=$("$PROJECT_ROOT/tools/ci/compute-build-threads.sh" 4)
+      echo "Auto-capping link threads to $link_threads (ThinLTO, ~4 GB/thread budget)"
+    fi
+  fi
   # Cap link concurrency via Ninja job pools, leaving compile parallelism untouched.
   if [[ "$link_threads" -gt 0 ]]; then
     additional_options="$additional_options -DCMAKE_JOB_POOLS=link=$link_threads -DCMAKE_JOB_POOL_LINK=link"
