@@ -61,7 +61,22 @@ and end up uploaded as artifacts.
 - Decision documented (in commit message) on whether debuginfo gets pushed
   to `download.memgraph.com` or stays internal.
 
-**Status**: Not Started
+**Status**: Code complete locally. Locally verified:
+* mgbuild.sh `copy --package` now copies all memgraph_*.deb / memgraph-[0-9]*.rpm
+  + their debuginfo siblings.
+* Workflow rename step disambiguates main vs. debuginfo.
+* S3 sync excludes `memgraph-debuginfo*` (debuginfo stays in GitHub artifacts).
+* gdb bundle COPY'd into v6/v7 relwithdebinfo images; run_with_gdb.sh
+  prefers it over distro gdb. Verified end-to-end against
+  `dpkg -i memgraph_*.deb memgraph-debuginfo_*.deb` in ubuntu:24.04 +
+  bundled gdb survives `info address main` (gdb 15 segfaults).
+* substitute-path in run_with_gdb.sh maps `./` to `/home/mg/memgraph/`
+  so backtraces resolve to the source COPY'd into the image.
+
+CI dry-run still pending -- pushing the branch will exercise the
+workflow changes for real (rpm component split, both artifacts uploaded,
+S3 exclusion). Open items: v5 (debian:12) doesn't get the bundle since
+the toolchain gdb's libpython/libreadline ABI doesn't match.
 
 ## Stage 5 (later): Symbol server / debuginfod
 **Goal**: CI uploads `.dwp` keyed by Build-ID to a debuginfod-compatible
