@@ -31,7 +31,7 @@ set(CPACK_DEBIAN_PACKAGE_SECTION non-free/database)
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
 set(CPACK_DEBIAN_PACKAGE_VERSION "${MEMGRAPH_VERSION_DEB}")
 set(CPACK_DEBIAN_FILE_NAME "memgraph_${MEMGRAPH_VERSION_DEB}_${MG_ARCH_EXTENSION_DEB}.deb")
-set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+set(CPACK_DEBIAN_MEMGRAPH_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/copyright;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/preinst;"
@@ -88,11 +88,26 @@ set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5
 # Configure CPack to build mgconsole using the unified install script
 set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
 
-# Default monolithic packaging covers only the main "memgraph" component.
-# The "debuginfo" component (carrying memgraph.dwp) is only emitted when
-# CPACK_DEB_COMPONENT_INSTALL / CPACK_RPM_COMPONENT_INSTALL is enabled to
-# split into a sibling memgraph-debuginfo_*.deb / .rpm.
-set(CPACK_COMPONENTS_ALL memgraph)
+# Component-based packaging: produce a sibling memgraph-debuginfo package
+# carrying memgraph.dwp, separate from the main memgraph package. The
+# .dwp arrives only when llvm-dwp ran (RelWithDebInfo / Debug / unstripped
+# Release); for builds where the file is absent the debuginfo package is
+# empty but harmless.
+set(CPACK_COMPONENTS_ALL memgraph debuginfo)
+set(CPACK_DEB_COMPONENT_INSTALL ON)
+set(CPACK_DEBIAN_MEMGRAPH_PACKAGE_NAME "memgraph")
+set(CPACK_DEBIAN_MEMGRAPH_FILE_NAME
+    "memgraph_${MEMGRAPH_VERSION_DEB}_${MG_ARCH_EXTENSION_DEB}.deb")
+set(CPACK_DEBIAN_DEBUGINFO_PACKAGE_NAME "memgraph-debuginfo")
+set(CPACK_DEBIAN_DEBUGINFO_FILE_NAME
+    "memgraph-debuginfo_${MEMGRAPH_VERSION_DEB}_${MG_ARCH_EXTENSION_DEB}.deb")
+set(CPACK_DEBIAN_DEBUGINFO_PACKAGE_DEPENDS
+    "memgraph (= ${MEMGRAPH_VERSION_DEB})")
+set(CPACK_DEBIAN_DEBUGINFO_PACKAGE_SECTION "debug")
+set(CPACK_DEBIAN_DEBUGINFO_DESCRIPTION
+    "Split-DWARF debug info (.dwp) for the matching memgraph package.
+ Install alongside memgraph for symbolicated stack traces; gdb auto-locates
+ memgraph.dwp by binary path.")
 
 # All variables must be set before including.
 include(CPack)

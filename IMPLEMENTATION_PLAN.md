@@ -31,7 +31,7 @@ ordering bug, with the existing single-component DEB/RPM output unchanged.
 - `dpkg -c memgraph*.deb` no longer contains the .dwp (verify size shrank).
 - Installing both makes gdb auto-find the debug info.
 
-**Status**: Not Started
+**Status**: Complete
 
 ## Stage 3: RPM component split
 **Goal**: Same as Stage 2 for `.rpm`. Tricky because the project uses a
