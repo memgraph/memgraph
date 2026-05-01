@@ -32,15 +32,41 @@ fi
 
 if [[ -n "${dwo_dir}" && -d "${dwo_dir}" ]]; then
     dwo_count=$(find "${dwo_dir}" -name '*.dwo' -type f 2>/dev/null | wc -l)
-    echo "[dwp-and-debuglink] dwo_dir contains ${dwo_count} .dwo files"
+    empty_dwo=$(find "${dwo_dir}" -name '*.dwo' -type f -empty 2>/dev/null | wc -l)
+    echo "[dwp-and-debuglink] dwo_dir contains ${dwo_count} .dwo files (${empty_dwo} empty)"
+    if (( empty_dwo > 0 )); then
+        find "${dwo_dir}" -name '*.dwo' -type f -empty 2>/dev/null | head -5 | while read -r f; do
+            echo "[dwp-and-debuglink]   empty: ${f}"
+        done
+    fi
+fi
+echo "[dwp-and-debuglink] disk free: $(df -h "${binary%/*}" | tail -1)"
+
+# Soft-fail: a .dwp issue (e.g., llvm-dwp SIGBUS on a 0-byte input) shouldn't
+# take out the whole build -- the .dwp is a debug aid, the binary itself is
+# what the rest of the pipeline needs. Capture stderr, log it, but exit 0 so
+# the link target succeeds. The debuginfo deb/rpm just won't carry useful
+# content for that build (memgraph-debuginfo is OPTIONAL in install rules).
+echo "[dwp-and-debuglink] running: ${llvm_dwp} -e ${binary} -o ${dwp}"
+dwp_log=$(mktemp)
+if "${llvm_dwp}" -e "${binary}" -o "${dwp}" 2>"${dwp_log}"; then
+    cat "${dwp_log}"
+    rm -f "${dwp_log}"
+else
+    rc=$?
+    echo "[dwp-and-debuglink] WARNING: llvm-dwp exited ${rc}; .dwp will be missing/incomplete." >&2
+    echo "[dwp-and-debuglink] llvm-dwp stderr:" >&2
+    sed 's/^/[dwp-and-debuglink]   /' "${dwp_log}" >&2
+    rm -f "${dwp_log}"
+    # Remove any partial .dwp so downstream consumers don't see garbage.
+    rm -f "${dwp}"
+    exit 0
 fi
 
-echo "[dwp-and-debuglink] running: ${llvm_dwp} -e ${binary} -o ${dwp}"
-"${llvm_dwp}" -e "${binary}" -o "${dwp}"
-
 if [[ ! -s "${dwp}" ]]; then
-    echo "[dwp-and-debuglink] ERROR: ${dwp} is missing or empty after llvm-dwp" >&2
-    exit 4
+    echo "[dwp-and-debuglink] WARNING: ${dwp} missing/empty; skipping debuglink" >&2
+    rm -f "${dwp}"
+    exit 0
 fi
 echo "[dwp-and-debuglink] wrote ${dwp} ($(stat -c '%s' "${dwp}") bytes)"
 
