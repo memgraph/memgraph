@@ -91,21 +91,20 @@ add_custom_command(TARGET memgraph POST_BUILD
 # them.
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
     find_program(LLVM_DWP NAMES llvm-dwp dwp HINTS ${MG_TOOLCHAIN_ROOT}/bin)
+    message(STATUS "Split-DWARF tools: LLVM_DWP=${LLVM_DWP} CMAKE_OBJCOPY=${CMAKE_OBJCOPY} MG_DWO_DIR=${MG_DWO_DIR}")
     if(LLVM_DWP)
+        # Bundle per-TU .dwo into <binary>.dwp and add a .gnu_debuglink
+        # section pointing at the .dwp. Run via a script so any failure is
+        # logged with context (tool paths, .dwp size, dwo file count) -- the
+        # POST_BUILD chain is otherwise opaque in ninja's combined-edge output.
         add_custom_command(TARGET memgraph POST_BUILD
-            COMMAND ${LLVM_DWP} -e $<TARGET_FILE:memgraph> -o $<TARGET_FILE:memgraph>.dwp
+            COMMAND ${CMAKE_SOURCE_DIR}/tools/ci/dwp-and-debuglink.sh
+                    "${LLVM_DWP}"
+                    "${CMAKE_OBJCOPY}"
+                    "$<TARGET_FILE:memgraph>"
+                    "${MG_DWO_DIR}"
             BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph.dwp
-            COMMENT "Bundling .dwo files into memgraph.dwp")
-        # Add a .gnu_debuglink section pointing at the .dwp. gdb's debuglink
-        # resolver then also tries /usr/lib/debug/<install-path>/<basename>
-        # (and ./.debug/<basename>) -- distro convention paths -- in addition
-        # to the default split-DWARF "adjacent to binary" lookup.
-        if(CMAKE_OBJCOPY)
-            add_custom_command(TARGET memgraph POST_BUILD
-                COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE_NAME:memgraph>.dwp $<TARGET_FILE:memgraph>
-                WORKING_DIRECTORY $<TARGET_FILE_DIR:memgraph>
-                COMMENT "Adding .gnu_debuglink -> memgraph.dwp")
-        endif()
+            COMMENT "Bundling .dwo -> memgraph.dwp + adding .gnu_debuglink")
     else()
         message(WARNING "llvm-dwp not found; skipping .dwp bundling")
     endif()
