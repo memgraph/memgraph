@@ -449,13 +449,8 @@ jobs:
 
       - name: "Upload to S3"
         if: ${{ inputs.push_to_s3 == 'true' }}
-        # The debuginfo package (.dwp bundle, ~300 MB) is intentionally NOT
-        # pushed to the public download bucket. It rides along in the GitHub
-        # artifact (single artifact, multiple files) and is recoverable from
-        # there for incident debugging without bloating the public mirror.
         run:
           aws s3 sync $SOURCE_DIR s3://${S3_BUCKET}/$DEST_DIR
-            --exclude "memgraph-debuginfo*"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
