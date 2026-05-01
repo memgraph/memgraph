@@ -292,9 +292,30 @@ add_compile_options(
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
 
+# Split DWARF: emit per-TU .dwo files so debug info doesn't pass through the
+# linker. Effective for Debug; under ThinLTO (RelWithDebInfo/Release) debug
+# info is generated at link-time codegen and no .dwo files are produced, but
+# the flag is harmless. --gdb-index is built by lld so gdb startup stays fast.
+add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gsplit-dwarf>)
+
+# Compress debug sections (zlib; toolchain clang lacks zstd support).
+add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gz>)
+add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gz>)
+
+# Embed the compile invocation in debug info; useful when investigating crashes
+# from a binary whose build flags aren't otherwise recoverable.
+add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-frecord-command-line>)
+
+# Normalize source/build paths in debug info and __FILE__ so artifacts are
+# portable across worktrees and ccache hits transfer between checkouts.
+add_compile_options(
+    "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=."
+    "-ffile-prefix-map=${CMAKE_BINARY_DIR}=./build")
+
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
+add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:LINKER:--gdb-index>)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 
 # After linker is set, check we can use link-time optimization
@@ -307,8 +328,8 @@ if (NOT ipo_supported)
 endif()
 
 
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")

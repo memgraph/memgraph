@@ -85,6 +85,23 @@ if(lower_build_type STREQUAL "release")
                 COMMENT "Stripping symbols and sections from memgraph")
 endif()
 
+# Bundle per-TU .dwo files into a single memgraph.dwp next to the binary so
+# the debug info travels with the binary as one file. Only Debug actually
+# produces .dwo files: ThinLTO (enabled for RelWithDebInfo/Release) generates
+# debug info at link-time codegen and emits nothing per-TU, so split-dwarf is
+# inert there.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    find_program(LLVM_DWP NAMES llvm-dwp dwp HINTS ${MG_TOOLCHAIN_ROOT}/bin)
+    if(LLVM_DWP)
+        add_custom_command(TARGET memgraph POST_BUILD
+            COMMAND ${LLVM_DWP} -e $<TARGET_FILE:memgraph> -o $<TARGET_FILE:memgraph>.dwp
+            BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph.dwp
+            COMMENT "Bundling .dwo files into memgraph.dwp")
+    else()
+        message(WARNING "llvm-dwp not found; skipping .dwp bundling")
+    endif()
+endif()
+
 # Generate the configuration file under the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py
