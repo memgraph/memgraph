@@ -531,7 +531,7 @@ jobs:
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.OS}}-enterprise-malloc"
-          path: build/output/${{ env.OS }}/memgraph*.deb
+          path: build/output/${{ env.OS }}/memgraph_*.deb
 
       - name: Stop mgbuild container
         if: always()
@@ -649,7 +649,7 @@ jobs:
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.OS}}-enterprise"
-          path: build/output/${{ env.OS }}/memgraph*.deb
+          path: build/output/${{ env.OS }}/memgraph_*.deb
 
       - name: Stop mgbuild container
         if: always()
