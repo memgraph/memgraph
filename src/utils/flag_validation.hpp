@@ -181,6 +181,6 @@
 #define FLAG_IN_RANGE(lower_bound, upper_bound)                                                                   \
   {                                                                                                               \
     if (value >= lower_bound && value <= upper_bound) return true;                                                \
-    std::cout << "Expected --" << flagname << " to be in range [" << lower_bound << ", " << upper_bound << "]\n"; \
+    std::cerr << "Expected --" << flagname << " to be in range [" << lower_bound << ", " << upper_bound << "]\n"; \
     return false;                                                                                                 \
   }

@@ -21,6 +21,8 @@
 
 namespace memgraph::storage {
 
+namespace bg = boost::geometry;
+
 double Haversine(Point2d const &point1, Point2d const &point2) {
   using pt = IndexPointWGS2d::point_type;
   auto boost_p1 = pt{point1.x(), point1.y()};

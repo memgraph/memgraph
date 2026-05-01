@@ -198,8 +198,8 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                           const auto directories = memgraph::utils::Split(value, ",");
                           for (const auto &dir : directories) {
                             if (!memgraph::utils::DirExists(dir)) {
-                              std::cout << "Expected --" << flagname << " to point to directories." << std::endl;
-                              std::cout << dir << " is not a directory." << std::endl;
+                              std::cerr << "Expected --" << flagname << " to point to directories." << std::endl;
+                              std::cerr << dir << " is not a directory." << std::endl;
                               return false;
                             }
                           }

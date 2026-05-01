@@ -50,7 +50,7 @@ DEFINE_VALIDATED_uint64(storage_floating_point_resolution_bits, 64,
                         "Smaller values save space but reduce precision (32=float, 16=half).",
                         {
                           if (value == 16 || value == 32 || value == 64) return true;
-                          std::cout << "Expected --" << flagname << " to be one of 16, 32, 64\n";
+                          std::cerr << "Expected --" << flagname << " to be one of 16, 32, 64\n";
                           return false;
                         });
 

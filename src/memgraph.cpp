@@ -107,8 +107,10 @@ void WarnDeprecatedFlags() {
 /// argv[1..argc-1] entries are unexpected — typically caused by writing `--bool-flag false`
 /// (space-separated) instead of `--bool-flag=false`. gflags bool flags don't consume the
 /// next argument; `--flag false` silently sets the flag to true and orphans "false".
-void CheckSuspiciousPositionalArgs(int argc, char **argv) {
-  if (argc <= 1) return;
+///
+/// @return true if startup should continue, false if `--strict-flag-check` requires aborting.
+[[nodiscard]] bool CheckSuspiciousPositionalArgs(int argc, char **argv) {
+  if (argc <= 1) return true;
 
   auto is_bool_like = [](std::string_view arg) {
     using namespace std::string_view_literals;
@@ -140,7 +142,7 @@ void CheckSuspiciousPositionalArgs(int argc, char **argv) {
     spdlog::log(
         level, "Unexpected positional argument(s): {}. Memgraph does not accept positional arguments.", all_args);
   }
-  if (FLAGS_strict_flag_check) std::exit(EXIT_FAILURE);
+  return !FLAGS_strict_flag_check;
 }
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
@@ -267,7 +269,7 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  CheckSuspiciousPositionalArgs(argc, argv);
+  if (!CheckSuspiciousPositionalArgs(argc, argv)) return EXIT_FAILURE;
   WarnDeprecatedFlags();
 
   // Publish worker count early so allocators can pre-size thread-local structures
