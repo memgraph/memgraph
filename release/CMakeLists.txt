@@ -62,12 +62,15 @@ endif()
 # RPM specific
 set(CPACK_RPM_PACKAGE_URL https://memgraph.com)
 set(CPACK_RPM_PACKAGE_VERSION "${MEMGRAPH_VERSION_RPM}")
-set(CPACK_RPM_FILE_NAME "memgraph-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
+set(CPACK_RPM_MEMGRAPH_FILE_NAME "memgraph-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
 set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
     /var /var/lib /var/log /etc/logrotate.d
     /lib /lib/systemd /lib/systemd/system /lib/systemd/system/memgraph.service)
-set(CPACK_RPM_PACKAGE_REQUIRES_PRE "shadow-utils")
-set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph.spec.in")
+set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES_PRE "shadow-utils")
+# Custom spec is main-component-only: %prep moves the systemd unit etc.,
+# which only applies to the main package. The debuginfo component falls back
+# to CPack's auto-generated spec, which is fine for a single-file payload.
+set(CPACK_RPM_MEMGRAPH_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph.spec.in")
 set(CPACK_RPM_PACKAGE_LICENSE "Memgraph License")
 # CPACK deduces dependency to libstdc++ which:
 #   * can't be easily installed on Centos 7 (the one from the toolchain,
@@ -83,7 +86,7 @@ the next generation of applications driver by real-time connected data.")
 
 # Add `openssl` package to dependencies list. Used to generate SSL certificates.
 # We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, logrotate")
+set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, logrotate")
 
 # Configure CPack to build mgconsole using the unified install script
 set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
@@ -108,6 +111,18 @@ set(CPACK_DEBIAN_DEBUGINFO_DESCRIPTION
     "Split-DWARF debug info (.dwp) for the matching memgraph package.
  Install alongside memgraph for symbolicated stack traces; gdb auto-locates
  memgraph.dwp by binary path.")
+
+set(CPACK_RPM_COMPONENT_INSTALL ON)
+set(CPACK_RPM_DEBUGINFO_PACKAGE_NAME "memgraph-debuginfo")
+set(CPACK_RPM_DEBUGINFO_FILE_NAME
+    "memgraph-debuginfo-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
+set(CPACK_RPM_DEBUGINFO_PACKAGE_REQUIRES
+    "memgraph = ${MEMGRAPH_VERSION_RPM}-1")
+set(CPACK_RPM_DEBUGINFO_PACKAGE_AUTOREQ "no")
+set(CPACK_RPM_DEBUGINFO_PACKAGE_DESCRIPTION
+    "Split-DWARF debug info (.dwp) for the matching memgraph package.")
+set(CPACK_RPM_DEBUGINFO_PACKAGE_SUMMARY
+    "Debug info bundle for memgraph")
 
 # All variables must be set before including.
 include(CPack)

@@ -47,7 +47,9 @@ package; debuginfo just contains a single file at a regular path.
 - `rpm -qlp memgraph-debuginfo*.rpm` contains only the .dwp.
 - Existing rpmlint runs in mgbuild.sh still pass.
 
-**Status**: Not Started
+**Status**: Code complete (CMake-side); RPM build can only be validated in
+the mgbuild containers since rpmbuild isn't available locally. Validate
+during Stage 4 CI run.
 
 ## Stage 4: CI / GH workflow updates
 **Goal**: Both packages flow through `package_memgraph.yaml` / `reusable_package.yaml`

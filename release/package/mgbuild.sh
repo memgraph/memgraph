@@ -765,11 +765,11 @@ package_memgraph() {
       docker exec -u root "$build_container" bash -c "pip install rpmlint==2.8.0 --user"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake"
   elif [[ "$os" =~ ^"fedora".* ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph-[0-9]*.rpm "
   elif [[ "$os" == "rocky-10" ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph-[0-9]*.rpm "
   elif [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"amzn".* ]] || [[ "$os" =~ ^"rocky".* ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph-[0-9]*.rpm "
   fi
 
   if [[ "$os" =~ ^"debian".* ]]; then
@@ -782,15 +782,15 @@ package_memgraph() {
   fi
   docker exec -u root "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
   if [[ "$os" == "centos-10" ]]; then
-    docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
+    docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph-[0-9]*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
   fi
 
   # check for mgconsole inside package
   if [[ "$os" =~ ^"ubuntu".* || "$os" =~ ^"debian".* ]]; then
-    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.deb")"
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph_*.deb")"
     check_output="$(docker exec -u mg $build_container bash -c "dpkg -c $package_name")"
   else
-    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.rpm")"
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph-[0-9]*.rpm")"
     check_output="$(docker exec -u mg $build_container bash -c "rpm -ql $package_name")"
   fi
   if ! grep -q "mgconsole" <<< "$check_output"; then
