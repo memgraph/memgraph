@@ -78,6 +78,28 @@ workflow changes for real (rpm component split, both artifacts uploaded,
 S3 exclusion). Open items: v5 (debian:12) doesn't get the bundle since
 the toolchain gdb's libpython/libreadline ABI doesn't match.
 
+## Known issues / unverified paths
+
+* **`-gz` breaks reading `.debug_gdb_scripts`** -- BFD (even gdb 16.2)
+  emits `warning: BFD: ... unable to get decompressed section
+  .debug_gdb_scripts` on the binary. Cosmetic for our use: the project's
+  own gdb scripts load via `.gdbinit`; libstdc++ pretty-printers
+  don't auto-load (they would not be findable in the runtime image
+  anyway). Could be addressed by bundling the toolchain libstdc++
+  pretty-printers into the gdb-bundle and registering them manually
+  in run_with_gdb.sh.
+* **Debug build path not exercised** -- frontend split-DWARF + dwp
+  (no LTO codegen) is the standard split-dwarf flow; we only verified
+  RelWithDebInfo with the LTO `--plugin-opt=dwo_dir` path. CI run on
+  Debug should flush this out.
+* **CentOS / Rocky rpm build** -- we verified RPM in fedora:40, but
+  older rpm versions may not honor `%global debug_package %{nil}`
+  identically. Test on `centos-9`, `rocky-10` first CI run.
+* **arm64 docker image** -- new apt deps (libipt2, libbabeltrace1,
+  libsource-highlight4t64, libdebuginfod1t64) are stock noble/main
+  packages; not separately verified in arm container under emulation.
+  CI will catch.
+
 ## Stage 5 (later): Symbol server / debuginfod
 **Goal**: CI uploads `.dwp` keyed by Build-ID to a debuginfod-compatible
 endpoint; developers configure `DEBUGINFOD_URLS` and stop carrying packages.
