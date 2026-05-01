@@ -51,7 +51,8 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     --no-install-recommends && \
   apt-get install -y \
     libcurl4 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser ca-certificates \
-    gdb procps linux-tools-common libc6-dbg libxmlsec1 "linux-tools-$(uname -r)" \
+    procps linux-tools-common libc6-dbg libxmlsec1 "linux-tools-$(uname -r)" \
+    libipt2 libmpfr6 libbabeltrace1 libsource-highlight4t64 libdebuginfod1t64 libreadline8t64 \
     --no-install-recommends && \
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
@@ -71,6 +72,11 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   fi
 
 COPY "${SOURCE_CODE}" /home/mg/memgraph/src
+
+# Toolchain gdb 16.x bundle (~12 MB). Distro gdb (15.x in ubuntu:24.04)
+# segfaults reading DWARF 5 + ThinLTO + split-DWARF binaries that we ship.
+COPY gdb-bundle/bin/gdb /usr/lib/memgraph/gdb/bin/gdb
+COPY gdb-bundle/share/gdb /usr/lib/memgraph/gdb/share/gdb
 
 # Copy the script for launching Memgraph with GDB inside a container. Override the entrypoint to use this script.
 COPY run_with_gdb.sh /usr/lib/memgraph/run_with_gdb.sh

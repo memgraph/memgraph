@@ -89,6 +89,14 @@ if [[ -n "$src_path" ]]; then
   dockerfile_path_rwdi_extension="_relwithdebinfo"
   docker_arg_source_code="--build-arg SOURCE_CODE=src"
   tag_extension="-relwithdebinfo"
+  # The gdb-bundle dir is staged by mgbuild.sh copy-gdb-bundle. The
+  # dockerfile expects it adjacent so it can COPY in a gdb 16.x that can
+  # actually read DWARF 5 + ThinLTO + split-DWARF binaries (distro gdb 15
+  # crashes on those).
+  if [[ ! -d "${working_dir}/gdb-bundle" ]]; then
+    echo "Error: ${working_dir}/gdb-bundle missing; run mgbuild.sh build-gdb-bundle && copy-gdb-bundle first."
+    exit 1
+  fi
 fi
 
 if [[ "$malloc" == true ]]; then
@@ -147,6 +155,7 @@ docker save ${image_name} ${latest_image} | gzip > ${image_package_name}
 rm "${working_dir}/${package_name}.${extension}"
 if [[ -n "$src_path" ]]; then
   rm -rf "${working_dir}/src"
+  rm -rf "${working_dir}/gdb-bundle"
 fi
 
 if [[ "$generate_sbom" == true ]]; then

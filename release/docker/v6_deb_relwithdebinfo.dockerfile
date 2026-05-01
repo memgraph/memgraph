@@ -18,7 +18,8 @@ RUN if [ -n "$CUSTOM_MIRROR" ]; then \
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y \
   openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
-  gdb procps linux-tools-common linux-tools-generic linux-tools-generic libc6-dbg \
+  procps linux-tools-common linux-tools-generic linux-tools-generic libc6-dbg \
+  libipt2 libmpfr6 libbabeltrace1 libsource-highlight4t64 libdebuginfod1t64 libreadline8t64 \
   --no-install-recommends && \
   apt install -y libxmlsec1 libdw-dev&& \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
@@ -33,6 +34,11 @@ RUN groupadd -g 103 memgraph && \
 
 COPY heaptrack /tmp/heaptrack
 RUN cp -r /tmp/heaptrack/* /usr/ && rm -rf /tmp/heaptrack
+
+# Toolchain gdb 16.x bundle (~12 MB). Distro gdb (15.x) crashes on our DWARF 5
+# + ThinLTO + split-DWARF binaries.
+COPY gdb-bundle/bin/gdb /usr/lib/memgraph/gdb/bin/gdb
+COPY gdb-bundle/share/gdb /usr/lib/memgraph/gdb/share/gdb
 
 COPY "${SOURCE_CODE}" /home/mg/memgraph/src
 

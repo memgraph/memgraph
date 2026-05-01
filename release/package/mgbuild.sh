@@ -945,11 +945,13 @@ copy_memgraph() {
           echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
           exit 1
         fi
+        # Component packaging emits both memgraph and memgraph-debuginfo in
+        # output/. The copy step grabs whichever package files are there;
+        # downstream steps disambiguate by glob (memgraph_*.deb / memgraph-[0-9]*.rpm).
         artifact="package"
-        local container_package_dir="$MGBUILD_BUILD_DIR/output"
+        container_artifact_path="$MGBUILD_BUILD_DIR/output"
         host_dir="$PROJECT_BUILD_DIR/output/$os"
-        artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph* | head -1")
-        container_artifact_path="$container_package_dir/$artifact_name"
+        artifact_name=""
         shift 1
       ;;
       --libs)
@@ -1056,7 +1058,17 @@ copy_memgraph() {
     docker exec -u mg "$build_container" bash -c "rm -rf $temp_log_dir"
     echo -e "Log files copied to $host_dir!"
   elif [[ "$artifact" == "package" ]]; then
-    docker cp $build_container:$container_artifact_path $host_artifact_path
+    # Copy every memgraph*.deb / memgraph*.rpm in the output dir (main +
+    # debuginfo). Use docker cp with the trailing "/." to copy contents.
+    local pkg_files
+    pkg_files=$(docker exec -u mg "$build_container" bash -c "ls $container_artifact_path/memgraph*.deb $container_artifact_path/memgraph*.rpm 2>/dev/null")
+    if [[ -z "$pkg_files" ]]; then
+      echo "Error: no memgraph*.deb or memgraph*.rpm in $container_artifact_path"
+      exit 1
+    fi
+    while IFS= read -r f; do
+      docker cp "$build_container:$f" "$host_dir/"
+    done <<< "$pkg_files"
   else
     docker cp -L $build_container:$container_artifact_path $host_artifact_path
   fi
@@ -1453,6 +1465,29 @@ copy_heaptrack() {
     esac
   done
   docker cp $build_container:/tmp/heaptrack/ $dest_dir
+}
+
+build_gdb_bundle() {
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  docker cp tools/ci/build-gdb-bundle.sh $build_container:$MGBUILD_HOME_DIR/build-gdb-bundle.sh
+  docker exec -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && MG_TOOLCHAIN_VERSION=${toolchain_version} $MGBUILD_HOME_DIR/build-gdb-bundle.sh"
+}
+
+copy_gdb_bundle() {
+  local dest_dir="release/docker"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-dir)
+        dest_dir=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+    esac
+  done
+  docker cp $build_container:/tmp/gdb-bundle/ $dest_dir
 }
 
 build_mage() {
@@ -2448,6 +2483,12 @@ case $command in
     ;;
     copy-heaptrack)
       copy_heaptrack $@
+    ;;
+    build-gdb-bundle)
+      build_gdb_bundle $@
+    ;;
+    copy-gdb-bundle)
+      copy_gdb_bundle $@
     ;;
     build-mage)
       build_mage $@
