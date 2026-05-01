@@ -304,6 +304,22 @@ if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Rele
     set(MG_DWO_DIR "${CMAKE_BINARY_DIR}/dwo")
     file(MAKE_DIRECTORY "${MG_DWO_DIR}")
     add_link_options(LINKER:--plugin-opt=dwo_dir=${MG_DWO_DIR})
+
+    # Cap ThinLTO codegen parallelism inside each link. lld defaults to
+    # --thinlto-jobs=$(nproc) which can spike per-link memory to nproc *
+    # per-codegen (1-3 GB) and OOM on shared CI runners. Size memory-aware
+    # via compute-build-threads.sh; each codegen job gets ~3 GB of headroom.
+    execute_process(
+        COMMAND ${CMAKE_SOURCE_DIR}/tools/ci/compute-build-threads.sh 3
+        OUTPUT_VARIABLE MG_THINLTO_JOBS
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _rc)
+    if(_rc EQUAL 0 AND MG_THINLTO_JOBS)
+        message(STATUS "Capping lld ThinLTO codegen jobs at ${MG_THINLTO_JOBS} (3 GB/job budget)")
+        add_link_options(LINKER:--thinlto-jobs=${MG_THINLTO_JOBS})
+    else()
+        message(WARNING "compute-build-threads.sh failed (rc=${_rc}); leaving --thinlto-jobs at lld default")
+    endif()
 endif()
 
 # Compress debug sections (zlib; toolchain clang lacks zstd support).
