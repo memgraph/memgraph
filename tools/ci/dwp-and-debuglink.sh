@@ -42,11 +42,11 @@ if [[ -n "${dwo_dir}" && -d "${dwo_dir}" ]]; then
 fi
 echo "[dwp-and-debuglink] disk free: $(df -h "${binary%/*}" | tail -1)"
 
-# Soft-fail: a .dwp issue (e.g., llvm-dwp SIGBUS on a 0-byte input) shouldn't
-# take out the whole build -- the .dwp is a debug aid, the binary itself is
-# what the rest of the pipeline needs. Capture stderr, log it, but exit 0 so
-# the link target succeeds. The debuginfo deb/rpm just won't carry useful
-# content for that build (memgraph-debuginfo is OPTIONAL in install rules).
+# dwp is required: a missing .dwp means the resulting memgraph-debuginfo
+# package would be empty, and that's not a thing we want to ship silently.
+# On failure, log llvm-dwp stderr (otherwise hidden behind ninja's combined
+# edge output), remove any partial .dwp, and propagate the exit code so the
+# build fails loudly.
 echo "[dwp-and-debuglink] running: ${llvm_dwp} -e ${binary} -o ${dwp}"
 dwp_log=$(mktemp)
 if "${llvm_dwp}" -e "${binary}" -o "${dwp}" 2>"${dwp_log}"; then
@@ -54,19 +54,17 @@ if "${llvm_dwp}" -e "${binary}" -o "${dwp}" 2>"${dwp_log}"; then
     rm -f "${dwp_log}"
 else
     rc=$?
-    echo "[dwp-and-debuglink] WARNING: llvm-dwp exited ${rc}; .dwp will be missing/incomplete." >&2
+    echo "[dwp-and-debuglink] ERROR: llvm-dwp exited ${rc}" >&2
     echo "[dwp-and-debuglink] llvm-dwp stderr:" >&2
     sed 's/^/[dwp-and-debuglink]   /' "${dwp_log}" >&2
-    rm -f "${dwp_log}"
-    # Remove any partial .dwp so downstream consumers don't see garbage.
-    rm -f "${dwp}"
-    exit 0
+    rm -f "${dwp_log}" "${dwp}"
+    exit ${rc}
 fi
 
 if [[ ! -s "${dwp}" ]]; then
-    echo "[dwp-and-debuglink] WARNING: ${dwp} missing/empty; skipping debuglink" >&2
+    echo "[dwp-and-debuglink] ERROR: ${dwp} missing/empty after llvm-dwp" >&2
     rm -f "${dwp}"
-    exit 0
+    exit 4
 fi
 echo "[dwp-and-debuglink] wrote ${dwp} ($(stat -c '%s' "${dwp}") bytes)"
 
