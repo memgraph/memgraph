@@ -572,6 +572,13 @@ build_memgraph () {
 
   # Zero ccache statistics before build if ccache is enabled
   if [[ "$ccache_enabled" == "true" ]]; then
+    # Cache state pre-build: distinguishes "cache wiped between runs" (size 0)
+    # from "cache intact but cache key drifted" (size > 0 yet low hits below).
+    docker exec -u mg "$build_container" bash -c "ccache -sv" \
+      | awk '/Cache size/        {gsub(/[():%]/, ""); unit=$3; used=$4; cap=$6; pct=$7; size=used"/"cap" "unit" ("pct"%)"}
+             /^  Files:/         {files=$2}
+             /Cleanups performed:/{cleanups=$3}
+             END {printf "ccache_pre_build build_id=%s cache_size=%s files=%s cumulative_cleanups=%s\n", "'"${RUN_ID:-local}"'", size, files, (cleanups?cleanups:"0")}'
     echo "Zeroing ccache statistics for this build..."
     docker exec -u mg "$build_container" bash -c "ccache -z"
   fi
@@ -586,6 +593,14 @@ build_memgraph () {
 
   # use this because the commands get far too long!
   CMD_START="cd $MGBUILD_ROOT_DIR"
+
+  # Hash compiler binary content rather than its mtime. Container image rebuilds
+  # (or any tar/copy that resets /opt/toolchain-v7/bin/clang++ mtime) would
+  # otherwise invalidate every ccache entry. Content hashing of the 191 KB
+  # clang frontend driver is sub-millisecond, so the overhead is negligible.
+  if [[ "$ccache_enabled" == "true" ]]; then
+    CMD_START="$CMD_START && export CCACHE_COMPILERCHECK=content"
+  fi
 
   # Set up Conan environment
   echo "Setting up Conan environment..."
@@ -712,9 +727,18 @@ build_memgraph () {
   # Show ccache statistics if ccache is enabled
   if [[ "$ccache_enabled" == "true" ]]; then
     echo ""
-    echo "=== Ccache Statistics ==="
-    docker exec -u mg "$build_container" bash -c "ccache -s"
-    echo "========================="
+    echo "=== Ccache Statistics (this build only — zeroed at start) ==="
+    docker exec -u mg "$build_container" bash -c "ccache -sv" || docker exec -u mg "$build_container" bash -c "ccache -s"
+    echo "============================================================="
+    # Compact one-line summary; greppable for CI dashboards.
+    docker exec -u mg "$build_container" bash -c "ccache -s" \
+      | awk '/Cacheable calls:/  {calls=$3" "$4" "$5}
+             /^  Hits:/          {hits=$2; ratio=$5}
+             /^    Direct:/      {direct=$2}
+             /^    Preprocessed:/{preproc=$2}
+             /^  Misses:/        {miss=$2}
+             /Cleanups performed:/{cleanups=$3}
+             END {printf "ccache_summary build_id=%s calls=%s hits=%s direct=%s preproc=%s misses=%s hit_ratio=%s cleanups=%s\n", "'"${RUN_ID:-local}"'", calls, hits, direct, preproc, miss, ratio, cleanups}'
     echo ""
   fi
 
