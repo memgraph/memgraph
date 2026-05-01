@@ -42,9 +42,7 @@ class Constants:
     USERNAME = "username"
 
 
-def _get_query_hash(
-    query: str, config: mgp.Map, params: mgp.Nullable[mgp.Any] = None
-) -> str:
+def _get_query_hash(query: str, config: mgp.Map, params: mgp.Nullable[mgp.Any] = None) -> str:
     """
     Create a hash from query, config, and params to use as a cache key.
 
@@ -68,9 +66,87 @@ def _get_query_hash(
     return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
 
 
+class _BatchedQueryState:
+    """
+    Lifecycle helper for batched cross-database procedures.
+
+    State is keyed by a content hash of (query, config, params). `fetch`
+    wraps the caller's fetcher in try/except so the entry is always evicted
+    (and its resources closed) when the fetcher raises, preventing the
+    "already running" error from permanently blocking a hash after a
+    transient fetch failure.
+
+    Concurrent invocations with the same hash still raise "already running" —
+    fixing that requires exposing a per-invocation ID from the mgp binding
+    and is tracked separately.
+    """
+
+    _ALREADY_RUNNING_MSG = (
+        "Migrate module with these parameters is already running. "
+        "Please wait for it to finish before starting a new one."
+    )
+
+    def __init__(self, backend_name, closer):
+        self._name = backend_name
+        self._closer = closer
+        self._entries = {}
+
+    def start(self, query_hash, entry):
+        if query_hash in self._entries:
+            raise RuntimeError(self._ALREADY_RUNNING_MSG)
+        self._entries[query_hash] = entry
+
+    def get(self, query_hash):
+        return self._entries[query_hash]
+
+    def fetch(self, query_hash, fetcher):
+        entry = self._entries[query_hash]
+        try:
+            result = fetcher(entry)
+        except BaseException:
+            self._evict(query_hash)
+            raise
+        if not result:
+            self._evict(query_hash)
+        return result
+
+    def _evict(self, query_hash):
+        entry = self._entries.pop(query_hash, None)
+        if entry is None:
+            return
+        try:
+            self._closer(entry)
+        except Exception:
+            pass
+
+
+def _close_dbapi_entry(entry, commit=True):
+    """Close a DB-API-style entry: cursor then (optionally commit and) connection.
+    Errors during close/commit are swallowed; the helper is best-effort."""
+    cursor = entry.get(Constants.CURSOR)
+    if cursor is not None:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+    conn = entry.get(Constants.CONNECTION)
+    if conn is None:
+        return
+    if commit:
+        try:
+            conn.commit()
+        except Exception:
+            pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
 # MYSQL
 
-mysql_dict = {}
+
+mysql_state = _BatchedQueryState("mysql", _close_dbapi_entry)
 
 
 def init_migrate_mysql(
@@ -79,8 +155,6 @@ def init_migrate_mysql(
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
-    global mysql_dict
-
     if params:
         _check_params_type(params)
     if len(config_path) > 0:
@@ -91,23 +165,18 @@ def init_migrate_mysql(
 
     query_hash = _get_query_hash(table_or_sql, config, params)
 
-    # check if query is already running
-    if query_hash in mysql_dict:
-        raise RuntimeError(
-            f"Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
-
-    mysql_dict[query_hash] = {}
-
     connection = mysql_connector.connect(**config)
     cursor = connection.cursor()
     cursor.execute(table_or_sql, params=params)
 
-    mysql_dict[query_hash][Constants.CONNECTION] = connection
-    mysql_dict[query_hash][Constants.CURSOR] = cursor
-    mysql_dict[query_hash][Constants.COLUMN_NAMES] = [
-        column[Constants.I_COLUMN_NAME] for column in cursor.description
-    ]
+    mysql_state.start(
+        query_hash,
+        {
+            Constants.CONNECTION: connection,
+            Constants.CURSOR: cursor,
+            Constants.COLUMN_NAMES: [column[Constants.I_COLUMN_NAME] for column in cursor.description],
+        },
+    )
 
 
 def mysql(
@@ -132,8 +201,6 @@ def mysql(
                    `params` provides parameter values
     :return: The result table as a stream of rows
     """
-    global mysql_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
@@ -141,35 +208,16 @@ def mysql(
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
     query_hash = _get_query_hash(table_or_sql, config, params)
-    cursor = mysql_dict[query_hash][Constants.CURSOR]
-    column_names = mysql_dict[query_hash][Constants.COLUMN_NAMES]
 
-    rows = cursor.fetchmany(Constants.BATCH_SIZE)
+    def _fetch(entry):
+        rows = entry[Constants.CURSOR].fetchmany(Constants.BATCH_SIZE)
+        column_names = entry[Constants.COLUMN_NAMES]
+        return [mgp.Record(row=_name_row_cells_mysql(row, column_names)) for row in rows]
 
-    result = [mgp.Record(row=_name_row_cells_mysql(row, column_names)) for row in rows]
-
-    # if results are empty, cleanup the query since cleanup doesn't accept any parameters
-    if not result:
-        _cleanup_mysql_by_hash(query_hash)
-
-    return result
-
-
-def _cleanup_mysql_by_hash(query_hash: str):
-    """Internal cleanup function that takes a query hash."""
-    global mysql_dict
-
-    if query_hash in mysql_dict:
-        mysql_dict[query_hash][Constants.CURSOR] = None
-        mysql_dict[query_hash][Constants.CONNECTION].commit()
-        mysql_dict[query_hash][Constants.CONNECTION].close()
-        mysql_dict[query_hash][Constants.CONNECTION] = None
-        mysql_dict[query_hash][Constants.COLUMN_NAMES] = None
-        mysql_dict.pop(query_hash, None)
+    return mysql_state.fetch(query_hash, _fetch)
 
 
 def cleanup_migrate_mysql():
-    """Cleanup function called by mgp framework (no parameters)."""
     pass
 
 
@@ -177,7 +225,8 @@ mgp.add_batch_read_proc(mysql, init_migrate_mysql, cleanup_migrate_mysql)
 
 # SQL SERVER
 
-sql_server_dict = {}
+
+sql_server_state = _BatchedQueryState("sql_server", _close_dbapi_entry)
 
 
 def init_migrate_sql_server(
@@ -186,8 +235,6 @@ def init_migrate_sql_server(
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
-    global sql_server_dict
-
     if params:
         _check_params_type(params, (list, tuple))
     else:
@@ -201,23 +248,18 @@ def init_migrate_sql_server(
 
     query_hash = _get_query_hash(table_or_sql, config, params)
 
-    # check if query is already running
-    if query_hash in sql_server_dict:
-        raise RuntimeError(
-            f"Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
-
-    sql_server_dict[query_hash] = {}
-
     connection = pyodbc.connect(**config)
     cursor = connection.cursor()
     cursor.execute(table_or_sql, *params)
 
-    sql_server_dict[query_hash][Constants.CONNECTION] = connection
-    sql_server_dict[query_hash][Constants.CURSOR] = cursor
-    sql_server_dict[query_hash][Constants.COLUMN_NAMES] = [
-        column[Constants.I_COLUMN_NAME] for column in cursor.description
-    ]
+    sql_server_state.start(
+        query_hash,
+        {
+            Constants.CONNECTION: connection,
+            Constants.CURSOR: cursor,
+            Constants.COLUMN_NAMES: [column[Constants.I_COLUMN_NAME] for column in cursor.description],
+        },
+    )
 
 
 def sql_server(
@@ -241,8 +283,6 @@ def sql_server(
                    `params` provides parameter values
     :return: The result table as a stream of rows
     """
-    global sql_server_dict
-
     if not params:
         params = []
 
@@ -253,34 +293,16 @@ def sql_server(
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
     query_hash = _get_query_hash(table_or_sql, config, params)
-    cursor = sql_server_dict[query_hash][Constants.CURSOR]
-    column_names = sql_server_dict[query_hash][Constants.COLUMN_NAMES]
-    rows = cursor.fetchmany(Constants.BATCH_SIZE)
 
-    result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
+    def _fetch(entry):
+        rows = entry[Constants.CURSOR].fetchmany(Constants.BATCH_SIZE)
+        column_names = entry[Constants.COLUMN_NAMES]
+        return [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
 
-    # if results are empty, cleanup the query since cleanup doesn't accept any parameters
-    if not result:
-        _cleanup_sql_server_by_hash(query_hash)
-
-    return result
-
-
-def _cleanup_sql_server_by_hash(query_hash: str):
-    """Internal cleanup function that takes a query hash."""
-    global sql_server_dict
-
-    if query_hash in sql_server_dict:
-        sql_server_dict[query_hash][Constants.CURSOR] = None
-        sql_server_dict[query_hash][Constants.CONNECTION].commit()
-        sql_server_dict[query_hash][Constants.CONNECTION].close()
-        sql_server_dict[query_hash][Constants.CONNECTION] = None
-        sql_server_dict[query_hash][Constants.COLUMN_NAMES] = None
-        sql_server_dict.pop(query_hash, None)
+    return sql_server_state.fetch(query_hash, _fetch)
 
 
 def cleanup_migrate_sql_server():
-    """Cleanup function called by mgp framework (no parameters)."""
     pass
 
 
@@ -288,7 +310,8 @@ mgp.add_batch_read_proc(sql_server, init_migrate_sql_server, cleanup_migrate_sql
 
 # Oracle DB
 
-oracle_db_dict = {}
+
+oracle_db_state = _BatchedQueryState("oracle_db", _close_dbapi_entry)
 
 
 def init_migrate_oracle_db(
@@ -297,8 +320,6 @@ def init_migrate_oracle_db(
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
-    global oracle_db_dict
-
     if params:
         _check_params_type(params)
 
@@ -316,14 +337,6 @@ def init_migrate_oracle_db(
 
     query_hash = _get_query_hash(table_or_sql, config, params)
 
-    # check if query is already running
-    if query_hash in oracle_db_dict:
-        raise RuntimeError(
-            f"Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
-
-    oracle_db_dict[query_hash] = {}
-
     connection = oracledb.connect(**config)
     cursor = connection.cursor()
 
@@ -334,11 +347,14 @@ def init_migrate_oracle_db(
     else:
         cursor.execute(table_or_sql, **params)
 
-    oracle_db_dict[query_hash][Constants.CONNECTION] = connection
-    oracle_db_dict[query_hash][Constants.CURSOR] = cursor
-    oracle_db_dict[query_hash][Constants.COLUMN_NAMES] = [
-        column[Constants.I_COLUMN_NAME] for column in cursor.description
-    ]
+    oracle_db_state.start(
+        query_hash,
+        {
+            Constants.CONNECTION: connection,
+            Constants.CURSOR: cursor,
+            Constants.COLUMN_NAMES: [column[Constants.I_COLUMN_NAME] for column in cursor.description],
+        },
+    )
 
 
 def oracle_db(
@@ -362,9 +378,6 @@ def oracle_db(
                    `params` provides parameter values
     :return: The result table as a stream of rows
     """
-
-    global oracle_db_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
@@ -376,42 +389,26 @@ def oracle_db(
     config["disable_oob"] = True
 
     query_hash = _get_query_hash(table_or_sql, config, params)
-    cursor = oracle_db_dict[query_hash][Constants.CURSOR]
-    column_names = oracle_db_dict[query_hash][Constants.COLUMN_NAMES]
-    rows = cursor.fetchmany(Constants.BATCH_SIZE)
 
-    result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
+    def _fetch(entry):
+        rows = entry[Constants.CURSOR].fetchmany(Constants.BATCH_SIZE)
+        column_names = entry[Constants.COLUMN_NAMES]
+        return [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
 
-    # if results are empty, cleanup the query since cleanup doesn't accept any parameters
-    if not result:
-        _cleanup_oracle_db_by_hash(query_hash)
-
-    return result
-
-
-def _cleanup_oracle_db_by_hash(query_hash: str):
-    """Internal cleanup function that takes a query hash."""
-    global oracle_db_dict
-
-    if query_hash in oracle_db_dict:
-        oracle_db_dict[query_hash][Constants.CURSOR] = None
-        oracle_db_dict[query_hash][Constants.CONNECTION].commit()
-        oracle_db_dict[query_hash][Constants.CONNECTION].close()
-        oracle_db_dict[query_hash][Constants.CONNECTION] = None
-        oracle_db_dict[query_hash][Constants.COLUMN_NAMES] = None
-        oracle_db_dict.pop(query_hash, None)
+    return oracle_db_state.fetch(query_hash, _fetch)
 
 
 def cleanup_migrate_oracle_db():
-    """Cleanup function called by mgp framework (no parameters)."""
     pass
 
 
 mgp.add_batch_read_proc(oracle_db, init_migrate_oracle_db, cleanup_migrate_oracle_db)
 
 
-# PostgreSQL dictionary to store connections and cursors by thread
-postgres_dict = {}
+# PostgreSQL
+
+
+postgresql_state = _BatchedQueryState("postgresql", _close_dbapi_entry)
 
 
 def init_migrate_postgresql(
@@ -420,8 +417,6 @@ def init_migrate_postgresql(
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
-    global postgres_dict
-
     if params:
         _check_params_type(params, (list, tuple))
     else:
@@ -435,23 +430,18 @@ def init_migrate_postgresql(
 
     query_hash = _get_query_hash(table_or_sql, config, params)
 
-    # check if query is already running
-    if query_hash in postgres_dict:
-        raise RuntimeError(
-            f"Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
-
-    postgres_dict[query_hash] = {}
-
     connection = psycopg2.connect(**config)
     cursor = connection.cursor()
     cursor.execute(table_or_sql, params)
 
-    postgres_dict[query_hash][Constants.CONNECTION] = connection
-    postgres_dict[query_hash][Constants.CURSOR] = cursor
-    postgres_dict[query_hash][Constants.COLUMN_NAMES] = [
-        column.name for column in cursor.description
-    ]
+    postgresql_state.start(
+        query_hash,
+        {
+            Constants.CONNECTION: connection,
+            Constants.CURSOR: cursor,
+            Constants.COLUMN_NAMES: [column.name for column in cursor.description],
+        },
+    )
 
 
 def postgresql(
@@ -475,8 +465,6 @@ def postgresql(
                    `params` provides parameter values
     :return: The result table as a stream of rows
     """
-    global postgres_dict
-
     if not params:
         params = []
 
@@ -487,35 +475,16 @@ def postgresql(
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
     query_hash = _get_query_hash(table_or_sql, config, params)
-    cursor = postgres_dict[query_hash][Constants.CURSOR]
-    column_names = postgres_dict[query_hash][Constants.COLUMN_NAMES]
 
-    rows = cursor.fetchmany(Constants.BATCH_SIZE)
+    def _fetch(entry):
+        rows = entry[Constants.CURSOR].fetchmany(Constants.BATCH_SIZE)
+        column_names = entry[Constants.COLUMN_NAMES]
+        return [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
 
-    result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
-
-    # if results are empty, cleanup the query since cleanup doesn't accept any parameters
-    if not result:
-        _cleanup_postgresql_by_hash(query_hash)
-
-    return result
-
-
-def _cleanup_postgresql_by_hash(query_hash: str):
-    """Internal cleanup function that takes a query hash."""
-    global postgres_dict
-
-    if query_hash in postgres_dict:
-        postgres_dict[query_hash][Constants.CURSOR] = None
-        postgres_dict[query_hash][Constants.CONNECTION].commit()
-        postgres_dict[query_hash][Constants.CONNECTION].close()
-        postgres_dict[query_hash][Constants.CONNECTION] = None
-        postgres_dict[query_hash][Constants.COLUMN_NAMES] = None
-        postgres_dict.pop(query_hash, None)
+    return postgresql_state.fetch(query_hash, _fetch)
 
 
 def cleanup_migrate_postgresql():
-    """Cleanup function called by mgp framework (no parameters)."""
     pass
 
 
@@ -523,7 +492,20 @@ mgp.add_batch_read_proc(postgresql, init_migrate_postgresql, cleanup_migrate_pos
 
 
 # S3
-s3_dict = {}
+
+
+def _close_s3_entry(entry):
+    # The CSV reader wraps a TextIOWrapper over the S3 response body.
+    # Closing it releases the underlying HTTP connection.
+    text_stream = entry.get("text_stream")
+    if text_stream is not None:
+        try:
+            text_stream.close()
+        except Exception:
+            pass
+
+
+s3_state = _BatchedQueryState("s3", _close_s3_entry)
 
 
 def init_migrate_s3(
@@ -540,8 +522,6 @@ def init_migrate_s3(
                    (access_key, secret_key, region, etc.)
     :param config_path: Path to a JSON file containing configuration parameters
     """
-    global s3_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
@@ -554,12 +534,6 @@ def init_migrate_s3(
     s3_key = "/".join(key_parts)
 
     query_hash = _get_query_hash(file_path, config)
-
-    # check if query is already running
-    if query_hash in s3_dict:
-        raise RuntimeError(
-            f"Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
 
     # Initialize S3 client
     s3_client = boto3.client(
@@ -579,9 +553,14 @@ def init_migrate_s3(
     csv_reader = csv.reader(text_stream)
     column_names = next(csv_reader)  # First row contains column names
 
-    s3_dict[query_hash] = {}
-    s3_dict[query_hash][Constants.CURSOR] = csv_reader
-    s3_dict[query_hash][Constants.COLUMN_NAMES] = column_names
+    s3_state.start(
+        query_hash,
+        {
+            Constants.CURSOR: csv_reader,
+            Constants.COLUMN_NAMES: column_names,
+            "text_stream": text_stream,
+        },
+    )
 
 
 def s3(
@@ -598,47 +577,49 @@ def s3(
     :param config_path: Optional path to a JSON file containing AWS credentials
     :return: The result table as a stream of rows
     """
-    global s3_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
     query_hash = _get_query_hash(file_path, config)
-    csv_reader = s3_dict[query_hash][Constants.CURSOR]
-    column_names = s3_dict[query_hash][Constants.COLUMN_NAMES]
 
-    batch_rows = []
-    for _ in range(Constants.BATCH_SIZE):
-        try:
-            row = next(csv_reader)
+    def _fetch(entry):
+        csv_reader = entry[Constants.CURSOR]
+        column_names = entry[Constants.COLUMN_NAMES]
+        batch_rows = []
+        for _ in range(Constants.BATCH_SIZE):
+            try:
+                row = next(csv_reader)
+            except StopIteration:
+                break
             batch_rows.append(mgp.Record(row=_name_row_cells(row, column_names)))
-        except StopIteration:
-            break
+        return batch_rows
 
-    # if results are empty, cleanup the query since cleanup doesn't accept any parameters
-    if not batch_rows:
-        _cleanup_s3_by_hash(query_hash)
-
-    return batch_rows
-
-
-def _cleanup_s3_by_hash(query_hash: str):
-    """Internal cleanup function that takes a query hash."""
-    global s3_dict
-
-    if query_hash in s3_dict:
-        s3_dict.pop(query_hash, None)
+    return s3_state.fetch(query_hash, _fetch)
 
 
 def cleanup_migrate_s3():
-    """Cleanup function called by mgp framework (no parameters)."""
     pass
 
 
 mgp.add_batch_read_proc(s3, init_migrate_s3, cleanup_migrate_s3)
 
 
-neo4j_dict = {}
+def _close_neo4j_entry(entry):
+    session = entry.get(Constants.SESSION)
+    if session is not None:
+        try:
+            session.close()
+        except Exception:
+            pass
+    driver = entry.get(Constants.DRIVER)
+    if driver is not None:
+        try:
+            driver.close()
+        except Exception:
+            pass
+
+
+neo4j_state = _BatchedQueryState("neo4j", _close_neo4j_entry)
 
 
 def init_migrate_neo4j(
@@ -647,19 +628,11 @@ def init_migrate_neo4j(
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
-    global neo4j_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
     query = _formulate_cypher_query(label_or_rel_or_query)
     query_hash = _get_query_hash(query, config, params)
-
-    # check if query is already running
-    if query_hash in neo4j_dict:
-        raise RuntimeError(
-            f"Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
 
     uri = _build_neo4j_uri(config)
     username = config.get(Constants.USERNAME, "neo4j")
@@ -678,10 +651,14 @@ def init_migrate_neo4j(
     cypher_params = params if params is not None else {}
     result = session.run(query, parameters=cypher_params)
 
-    neo4j_dict[query_hash] = {}
-    neo4j_dict[query_hash][Constants.DRIVER] = driver
-    neo4j_dict[query_hash][Constants.SESSION] = session
-    neo4j_dict[query_hash][Constants.RESULT] = result
+    neo4j_state.start(
+        query_hash,
+        {
+            Constants.DRIVER: driver,
+            Constants.SESSION: session,
+            Constants.RESULT: result,
+        },
+    )
 
 
 def neo4j(
@@ -699,56 +676,41 @@ def neo4j(
     :param params: Optional query parameters
     :return: Stream of rows from Neo4j
     """
-    global neo4j_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
     query = _formulate_cypher_query(label_or_rel_or_query)
     query_hash = _get_query_hash(query, config, params)
-    result = neo4j_dict[query_hash][Constants.RESULT]
 
-    # Fetch up to BATCH_SIZE records
-    batch = []
-    for record in result:
-        # Convert neo4j.Record to dict with proper type conversion
-        batch.append(mgp.Record(row=_convert_neo4j_record(record)))
+    def _fetch(entry):
+        result = entry[Constants.RESULT]
+        batch = []
+        for record in result:
+            batch.append(mgp.Record(row=_convert_neo4j_record(record)))
+            if len(batch) >= Constants.BATCH_SIZE:
+                break
+        return batch
 
-        # Check if we've reached the batch size limit
-        if len(batch) >= Constants.BATCH_SIZE:
-            break
-
-    # if results are empty, cleanup the query since cleanup doesn't accept any parameters
-    if not batch:
-        _cleanup_neo4j_by_hash(query_hash)
-
-    return batch
-
-
-def _cleanup_neo4j_by_hash(query_hash: str):
-    """Internal cleanup function that takes a query hash."""
-    global neo4j_dict
-
-    if query_hash in neo4j_dict:
-        session = neo4j_dict[query_hash].get(Constants.SESSION)
-        driver = neo4j_dict[query_hash].get(Constants.DRIVER)
-        if session:
-            session.close()
-        if driver:
-            driver.close()
-        neo4j_dict.pop(query_hash, None)
+    return neo4j_state.fetch(query_hash, _fetch)
 
 
 def cleanup_migrate_neo4j():
-    """Cleanup function called by mgp framework (no parameters)."""
     pass
 
 
 mgp.add_batch_read_proc(neo4j, init_migrate_neo4j, cleanup_migrate_neo4j)
 
 
-# Dictionary to store Flight connections per thread
-flight_dict = {}
+def _close_arrow_flight_entry(entry):
+    client = entry.get(Constants.CONNECTION)
+    if client is not None:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+arrow_flight_state = _BatchedQueryState("arrow_flight", _close_arrow_flight_entry)
 
 
 def init_migrate_arrow_flight(
@@ -756,18 +718,10 @@ def init_migrate_arrow_flight(
     config: mgp.Map,
     config_path: str = "",
 ):
-    global flight_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
     query_hash = _get_query_hash(query, config)
-
-    # check if query is already running
-    if query_hash in flight_dict:
-        raise RuntimeError(
-            f"Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
 
     host = config.get(Constants.HOST, None)
     port = config.get(Constants.PORT, None)
@@ -786,10 +740,12 @@ def init_migrate_arrow_flight(
 
     flight_info = client.get_flight_info(flight.FlightDescriptor.for_command(query), options)
 
-    flight_dict[query_hash] = {}
-    flight_dict[query_hash][Constants.CONNECTION] = client
-    flight_dict[query_hash][Constants.CURSOR] = iter(
-        _fetch_flight_data(client, flight_info, options)
+    arrow_flight_state.start(
+        query_hash,
+        {
+            Constants.CONNECTION: client,
+            Constants.CURSOR: iter(_fetch_flight_data(client, flight_info, options)),
+        },
     )
 
 
@@ -818,46 +774,38 @@ def arrow_flight(
     :param config_path: Path to a JSON config file
     :return: Stream of rows from Arrow Flight
     """
-    global flight_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
     query_hash = _get_query_hash(query, config)
-    cursor = flight_dict[query_hash][Constants.CURSOR]
-    batch = []
-    for _ in range(Constants.BATCH_SIZE):
-        try:
-            row = _convert_row_types(next(cursor))
+
+    def _fetch(entry):
+        cursor = entry[Constants.CURSOR]
+        batch = []
+        for _ in range(Constants.BATCH_SIZE):
+            try:
+                row = _convert_row_types(next(cursor))
+            except StopIteration:
+                break
             batch.append(mgp.Record(row=row))
-        except StopIteration:
-            break
+        return batch
 
-    # if results are empty, cleanup the query since cleanup doesn't accept any parameters
-    if not batch:
-        _cleanup_arrow_flight_by_hash(query_hash)
-
-    return batch
-
-
-def _cleanup_arrow_flight_by_hash(query_hash: str):
-    """Internal cleanup function that takes a query hash."""
-    global flight_dict
-
-    if query_hash in flight_dict:
-        flight_dict.pop(query_hash, None)
+    return arrow_flight_state.fetch(query_hash, _fetch)
 
 
 def cleanup_migrate_arrow_flight():
-    """Cleanup function called by mgp framework (no parameters)."""
     pass
 
 
 mgp.add_batch_read_proc(arrow_flight, init_migrate_arrow_flight, cleanup_migrate_arrow_flight)
 
 
-# Dictionary to store DuckDB connections and cursors per thread
-duckdb_dict = {}
+duckdb_state = _BatchedQueryState("duckdb", lambda e: _close_dbapi_entry(e, commit=False))
+
+
+def _duckdb_query_hash(query, setup_queries):
+    setup_queries_str = json.dumps(setup_queries, sort_keys=False) if setup_queries else ""
+    return hashlib.sha256(f"{query}|{setup_queries_str}".encode("utf-8")).hexdigest()
 
 
 def init_migrate_duckdb(query: str, setup_queries: mgp.Nullable[List[str]] = None):
@@ -867,21 +815,7 @@ def init_migrate_duckdb(query: str, setup_queries: mgp.Nullable[List[str]] = Non
     :param query: SQL query to execute
     :param setup_queries: Optional list of setup queries to execute before the main query
     """
-    global duckdb_dict
-
-    # Create hash from query and setup_queries
-    setup_queries_str = (
-        json.dumps(setup_queries, sort_keys=False) if setup_queries else ""
-    )
-    query_hash = hashlib.sha256(
-        f"{query}|{setup_queries_str}".encode("utf-8")
-    ).hexdigest()
-
-    # check if query is already running
-    if query_hash in duckdb_dict:
-        raise RuntimeError(
-            f"Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
+    query_hash = _duckdb_query_hash(query, setup_queries)
 
     # Ensure a fresh in-memory DuckDB instance for each query
     connection = duckDB.connect()
@@ -892,12 +826,14 @@ def init_migrate_duckdb(query: str, setup_queries: mgp.Nullable[List[str]] = Non
 
     cursor.execute(query)
 
-    duckdb_dict[query_hash] = {}
-    duckdb_dict[query_hash][Constants.CONNECTION] = connection
-    duckdb_dict[query_hash][Constants.CURSOR] = cursor
-    duckdb_dict[query_hash][Constants.COLUMN_NAMES] = [
-        desc[0] for desc in cursor.description
-    ]
+    duckdb_state.start(
+        query_hash,
+        {
+            Constants.CONNECTION: connection,
+            Constants.CURSOR: cursor,
+            Constants.COLUMN_NAMES: [desc[0] for desc in cursor.description],
+        },
+    )
 
 
 def duckdb(query: str, setup_queries: mgp.Nullable[List[str]] = None) -> mgp.Record(row=mgp.Map):
@@ -908,46 +844,33 @@ def duckdb(query: str, setup_queries: mgp.Nullable[List[str]] = None) -> mgp.Rec
     :param setup_queries: Optional list of setup queries to execute before the main query
     :return: The result table as a stream of rows
     """
-    global duckdb_dict
+    query_hash = _duckdb_query_hash(query, setup_queries)
 
-    setup_queries_str = (
-        json.dumps(setup_queries, sort_keys=False) if setup_queries else ""
-    )
-    query_hash = hashlib.sha256(
-        f"{query}|{setup_queries_str}".encode("utf-8")
-    ).hexdigest()
-    cursor = duckdb_dict[query_hash][Constants.CURSOR]
-    column_names = duckdb_dict[query_hash][Constants.COLUMN_NAMES]
+    def _fetch(entry):
+        rows = entry[Constants.CURSOR].fetchmany(Constants.BATCH_SIZE)
+        column_names = entry[Constants.COLUMN_NAMES]
+        return [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
 
-    rows = cursor.fetchmany(Constants.BATCH_SIZE)
-    result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
-
-    # if results are empty, cleanup the query since cleanup doesn't accept any parameters
-    if not result:
-        _cleanup_duckdb_by_hash(query_hash)
-
-    return result
-
-
-def _cleanup_duckdb_by_hash(query_hash: str):
-    """Internal cleanup function that takes a query hash."""
-    global duckdb_dict
-
-    if query_hash in duckdb_dict:
-        if Constants.CONNECTION in duckdb_dict[query_hash]:
-            duckdb_dict[query_hash][Constants.CONNECTION].close()
-        duckdb_dict.pop(query_hash, None)
+    return duckdb_state.fetch(query_hash, _fetch)
 
 
 def cleanup_migrate_duckdb():
-    """Cleanup function called by mgp framework (no parameters)."""
     pass
 
 
 mgp.add_batch_read_proc(duckdb, init_migrate_duckdb, cleanup_migrate_duckdb)
 
 
-memgraph_dict = {}
+def _close_memgraph_entry(entry):
+    conn = entry.get(Constants.CONNECTION)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+memgraph_state = _BatchedQueryState("memgraph", _close_memgraph_entry)
 
 
 def init_migrate_memgraph(
@@ -956,26 +879,19 @@ def init_migrate_memgraph(
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
-    global memgraph_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
     query = _formulate_cypher_query(label_or_rel_or_query)
     query_hash = _get_query_hash(query, config, params)
 
-    # check if query is already running
-    if query_hash in memgraph_dict:
-        raise RuntimeError(
-            f"Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
-
     memgraph_db = Memgraph(**config)
     cursor = memgraph_db.execute_and_fetch(query, params)
 
-    memgraph_dict[query_hash] = {}
-    memgraph_dict[query_hash][Constants.CONNECTION] = memgraph_db
-    memgraph_dict[query_hash][Constants.CURSOR] = cursor
+    memgraph_state.start(
+        query_hash,
+        {Constants.CONNECTION: memgraph_db, Constants.CURSOR: cursor},
+    )
 
 
 def memgraph(
@@ -993,47 +909,35 @@ def memgraph(
     :param params: Optional query parameters
     :return: Stream of rows from Memgraph
     """
-    global memgraph_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
     query = _formulate_cypher_query(label_or_rel_or_query)
     query_hash = _get_query_hash(query, config, params)
-    cursor = memgraph_dict[query_hash][Constants.CURSOR]
 
-    result = [
-        mgp.Record(row=row)
-        for row in (next(cursor, None) for _ in range(Constants.BATCH_SIZE))
-        if row is not None
-    ]
+    def _fetch(entry):
+        cursor = entry[Constants.CURSOR]
+        return [
+            mgp.Record(row=row) for row in (next(cursor, None) for _ in range(Constants.BATCH_SIZE)) if row is not None
+        ]
 
-    # if results are empty, cleanup the query since cleanup doesn't accept any parameters
-    if not result:
-        _cleanup_memgraph_by_hash(query_hash)
-
-    return result
-
-
-def _cleanup_memgraph_by_hash(query_hash: str):
-    """Internal cleanup function that takes a query hash."""
-    global memgraph_dict
-
-    if query_hash in memgraph_dict:
-        if Constants.CONNECTION in memgraph_dict[query_hash]:
-            memgraph_dict[query_hash][Constants.CONNECTION].close()
-        memgraph_dict.pop(query_hash, None)
+    return memgraph_state.fetch(query_hash, _fetch)
 
 
 def cleanup_migrate_memgraph():
-    """Cleanup function called by mgp framework (no parameters)."""
     pass
 
 
 mgp.add_batch_read_proc(memgraph, init_migrate_memgraph, cleanup_migrate_memgraph)
 
 
-servicenow_dict = {}
+def _close_servicenow_entry(entry):
+    # No resource to release — the response body was already consumed into
+    # an in-memory iterator during init.
+    return
+
+
+servicenow_state = _BatchedQueryState("servicenow", _close_servicenow_entry)
 
 
 def init_migrate_servicenow(
@@ -1050,18 +954,10 @@ def init_migrate_servicenow(
     :param config_path: Optional path to a JSON file containing authentication details
     :param params: Optional query parameters for filtering results
     """
-    global servicenow_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
     query_hash = _get_query_hash(endpoint, config, params)
-
-    # check if query is already running
-    if query_hash in servicenow_dict:
-        raise RuntimeError(
-            f"Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
 
     auth = (config.get(Constants.USERNAME), config.get(Constants.PASSWORD))
     headers = {"Accept": "application/json"}
@@ -1073,8 +969,7 @@ def init_migrate_servicenow(
     if not data:
         raise ValueError("No data found in ServiceNow response")
 
-    servicenow_dict[query_hash] = {}
-    servicenow_dict[query_hash][Constants.CURSOR] = iter(data)
+    servicenow_state.start(query_hash, {Constants.CURSOR: iter(data)})
 
 
 def servicenow(
@@ -1092,39 +987,26 @@ def servicenow(
     :param params: Optional query parameters for filtering results
     :return: The result data as a stream of rows
     """
-    global servicenow_dict
-
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
     query_hash = _get_query_hash(endpoint, config, params)
-    data_iter = servicenow_dict[query_hash][Constants.CURSOR]
 
-    batch_rows = []
-    for _ in range(Constants.BATCH_SIZE):
-        try:
-            row = next(data_iter)
+    def _fetch(entry):
+        data_iter = entry[Constants.CURSOR]
+        batch_rows = []
+        for _ in range(Constants.BATCH_SIZE):
+            try:
+                row = next(data_iter)
+            except StopIteration:
+                break
             batch_rows.append(mgp.Record(row=row))
-        except StopIteration:
-            break
+        return batch_rows
 
-    # if results are empty, cleanup the query since cleanup doesn't accept any parameters
-    if not batch_rows:
-        _cleanup_servicenow_by_hash(query_hash)
-
-    return batch_rows
-
-
-def _cleanup_servicenow_by_hash(query_hash: str):
-    """Internal cleanup function that takes a query hash."""
-    global servicenow_dict
-
-    if query_hash in servicenow_dict:
-        servicenow_dict.pop(query_hash, None)
+    return servicenow_state.fetch(query_hash, _fetch)
 
 
 def cleanup_migrate_servicenow():
-    """Cleanup function called by mgp framework (no parameters)."""
     pass
 
 
