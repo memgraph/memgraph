@@ -22,7 +22,7 @@
 
 namespace {
 inline auto alloc_tracking(size_t size, int flags = 0) -> bool {
-  if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+  if (size > 0 && memgraph::memory::IsQueryTracked()) [[unlikely]] {
     auto actual_size = je_nallocx(size, flags);
     return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
   }
@@ -30,14 +30,14 @@ inline auto alloc_tracking(size_t size, int flags = 0) -> bool {
 }
 
 inline void failed_alloc_tracking(size_t size, int flags = 0) {
-  if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+  if (size > 0 && memgraph::memory::IsQueryTracked()) [[unlikely]] {
     const auto actual_size = je_nallocx(size, flags);
     memgraph::memory::TrackFreeOnCurrentThread(actual_size);
   }
 }
 
 inline void free_tracking(void *ptr, int flags = 0) {
-  if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+  if (ptr != nullptr && memgraph::memory::IsQueryTracked()) [[unlikely]] {
     auto actual_size = je_sallocx(ptr, flags);
     memgraph::memory::TrackFreeOnCurrentThread(actual_size);
   }
@@ -46,7 +46,7 @@ inline void free_tracking(void *ptr, int flags = 0) {
 inline auto realloc_tracking(void *ptr, size_t size, int flags = 0) -> bool {
   if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
     const auto prev_size = ptr ? je_sallocx(ptr, flags) : 0;
-    const auto next_size = je_nallocx(size, flags);
+    const auto next_size = size > 0 ? je_nallocx(size, flags) : 0;
     if (next_size > prev_size) {  // increasing memory
       return memgraph::memory::TrackAllocOnCurrentThread(next_size - prev_size);
     } else if (next_size < prev_size) {  // decreasing memory
@@ -59,7 +59,7 @@ inline auto realloc_tracking(void *ptr, size_t size, int flags = 0) -> bool {
 inline void failed_realloc_tracking(void *ptr, size_t size, int flags = 0) {
   if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
     const auto prev_size = ptr ? je_sallocx(ptr, flags) : 0;
-    const auto next_size = je_nallocx(size, flags);
+    const auto next_size = size > 0 ? je_nallocx(size, flags) : 0;
     if (next_size > prev_size) {  // failed while increasing memory
       memgraph::memory::TrackFreeOnCurrentThread(next_size - prev_size);
     } else if (next_size < prev_size) {                                    // failed while decreasing memory
