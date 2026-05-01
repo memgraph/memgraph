@@ -302,8 +302,7 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gsplit-dwarf>)
 set(MG_DWO_DIR "${CMAKE_BINARY_DIR}/dwo")
 file(MAKE_DIRECTORY "${MG_DWO_DIR}")
-add_link_options($<$<CONFIG:RelWithDebInfo>:LINKER:--plugin-opt=dwo_dir=${MG_DWO_DIR}>)
-add_link_options($<$<CONFIG:Release>:LINKER:--plugin-opt=dwo_dir=${MG_DWO_DIR}>)
+add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Release>>:LINKER:--plugin-opt=dwo_dir=${MG_DWO_DIR}>)
 
 # Compress debug sections (zlib; toolchain clang lacks zstd support).
 add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gz>)
