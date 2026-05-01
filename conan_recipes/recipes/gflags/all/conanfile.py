@@ -1,7 +1,7 @@
 from conan import ConanFile
 from conan.errors import ConanException
 from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
-from conan.tools.files import apply_conandata_patches, collect_libs, copy, export_conandata_patches, get, rmdir
+from conan.tools.files import apply_conandata_patches, collect_libs, copy, export_conandata_patches, get, rmdir, trim_conandata
 from conan.tools.scm import Version
 import os
 
@@ -41,6 +41,10 @@ class GflagsConan(ConanFile):
 
     def layout(self):
         cmake_layout(self, src_folder="src")
+
+    def export(self):
+        # Stabilise recipe revision across conan export and local-recipes-index
+        trim_conandata(self)
 
     def export_sources(self):
         export_conandata_patches(self)

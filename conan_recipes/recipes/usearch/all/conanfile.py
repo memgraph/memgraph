@@ -1,5 +1,5 @@
 from conan import ConanFile
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, trim_conandata
 from conan.tools.layout import basic_layout
 import os
 
@@ -16,6 +16,10 @@ class USearchConan(ConanFile):
     package_type = "header-library"
     settings = "os", "arch", "compiler", "build_type"
     no_copy_source = True
+
+    def export(self):
+        # Stabilise recipe revision across conan export and local-recipes-index
+        trim_conandata(self)
 
     def export_sources(self):
         export_conandata_patches(self)
