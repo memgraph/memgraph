@@ -314,11 +314,14 @@ add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gz>)
 # from a binary whose build flags aren't otherwise recoverable.
 add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-frecord-command-line>)
 
-# Normalize source/build paths in debug info and __FILE__ so artifacts are
+# Normalize source paths in debug info and __FILE__ so artifacts are
 # portable across worktrees and ccache hits transfer between checkouts.
-add_compile_options(
-    "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=."
-    "-ffile-prefix-map=${CMAKE_BINARY_DIR}=./build")
+# We deliberately do NOT remap CMAKE_BINARY_DIR: skeleton CUs record .dwo
+# file paths under DW_AT_GNU_dwo_name, and llvm-dwp -e <binary> resolves
+# those paths to find inputs. With Debug (frontend split-DWARF) the .dwo
+# files live in the build dir; mapping that path to "./build/..." makes
+# llvm-dwp resolve relative to its CWD and fail to locate them.
+add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
 
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
