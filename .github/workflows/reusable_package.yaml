@@ -210,6 +210,26 @@ jobs:
           copy-heaptrack \
           --dest-dir "$(pwd)/release/docker"
 
+      - name: "Build gdb bundle"
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          build-gdb-bundle
+
+      - name: "Copy gdb bundle"
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
+        run: |
+          mkdir -p release/docker
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          copy-gdb-bundle \
+          --dest-dir "$(pwd)/release/docker"
+
       - name: "Build OpenSSL"
         if: ${{ env.FOR_DOCKER == 'true' }}
         run: |
@@ -358,18 +378,33 @@ jobs:
             artifact_path="$PACKAGE_ARTIFACT_DIR"
           fi
 
-          # find the existing file name
-          old_name="$(ls -1 $artifact_path/memgraph* 2>/dev/null | head -n 1)"
+          # Disambiguate main vs. memgraph-debuginfo. Globs:
+          #   main DEB:        memgraph_*.deb (note underscore)
+          #   main RPM:        memgraph-[0-9]*.rpm
+          #   debuginfo DEB:   memgraph-debuginfo_*.deb
+          #   debuginfo RPM:   memgraph-debuginfo-*.rpm
+          if [ "$FOR_DOCKER" == "true" ]; then
+            old_main="$(ls -1 $artifact_path/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+            old_debug=""
+          elif [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
+            old_main="$(ls -1 $artifact_path/memgraph_*.deb 2>/dev/null | head -n 1)"
+            old_debug="$(ls -1 $artifact_path/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)"
+          elif [[ "$OS" == *"centos"* || "$OS" == *"fedora"* || "$OS" == *"rocky"* ]]; then
+            old_main="$(ls -1 $artifact_path/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)"
+            old_debug="$(ls -1 $artifact_path/memgraph-debuginfo-*.rpm 2>/dev/null | head -n 1)"
+          fi
 
-          # determine new name
+          # determine new names
           if [ "$FOR_DOCKER" == "true" ]; then
             new_name="memgraph-${tag}_pr${pr}_${commit}"
             if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
               new_name="${new_name}-relwithdebinfo"
             fi
             new_name="${new_name}-docker.tar.gz"
+            new_debug=""
           elif [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
             new_name="memgraph_${tag}+pr${pr}~${commit}-1_${ARCH}64.deb"
+            new_debug="memgraph-debuginfo_${tag}+pr${pr}~${commit}-1_${ARCH}64.deb"
           elif [[ "$OS" == *"centos"* || "$OS" == *"fedora"* || "$OS" == *"rocky"* ]]; then
             if [[ "$ARCH" == "amd" ]]; then
               arch_str="x86_64"
@@ -377,18 +412,28 @@ jobs:
               arch_str="aarch64"
             fi
             new_name="memgraph-${tag}_0.pr${pr}.${commit}-1.${arch_str}.rpm"
+            new_debug="memgraph-debuginfo-${tag}_0.pr${pr}.${commit}-1.${arch_str}.rpm"
           fi
 
-          # rename it
-          mv -v $old_name "$artifact_path/$new_name"
+          # rename main + (if present) debuginfo
+          if [[ -n "$old_main" ]]; then
+            mv -v "$old_main" "$artifact_path/$new_name"
+          fi
+          if [[ -n "$old_debug" && -n "$new_debug" ]]; then
+            mv -v "$old_debug" "$artifact_path/$new_debug"
+          fi
 
       - name: Output Package S3 URL
         id: output_package_s3_url
         run: |
+          # Output the URL for the main package only. The debuginfo sibling,
+          # when present, lives next to it and shares the URL stem.
           if [[ "$FOR_DOCKER" == "true" ]]; then
-            filename="$(ls -1 $DOCKER_ARTIFACT_DIR/memgraph* 2>/dev/null | head -n 1)"
+            filename="$(ls -1 $DOCKER_ARTIFACT_DIR/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+          elif [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
+            filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph_*.deb 2>/dev/null | head -n 1)"
           else
-            filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph* 2>/dev/null | head -n 1)"
+            filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)"
           fi
           # URL-encode the filename to handle unsafe characters like +, ~, etc.
           encoded_filename=$(python3 -c "import urllib.parse; import sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$(basename "$filename")")
@@ -404,8 +449,13 @@ jobs:
 
       - name: "Upload to S3"
         if: ${{ inputs.push_to_s3 == 'true' }}
+        # The debuginfo package (.dwp bundle, ~300 MB) is intentionally NOT
+        # pushed to the public download bucket. It rides along in the GitHub
+        # artifact (single artifact, multiple files) and is recoverable from
+        # there for incident debugging without bloating the public mirror.
         run:
           aws s3 sync $SOURCE_DIR s3://${S3_BUCKET}/$DEST_DIR
+            --exclude "memgraph-debuginfo*"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
