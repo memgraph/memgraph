@@ -17,9 +17,6 @@
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/index/rtree.hpp>
 
-namespace bg = boost::geometry;
-namespace bgi = boost::geometry::index;
-
 namespace memgraph::storage {
 
 struct Vertex;
@@ -27,21 +24,21 @@ struct Vertex;
 struct IndexPointWGS2d {
   explicit IndexPointWGS2d(Point2d point) : rep{point.x(), point.y()} { DMG_ASSERT(IsWGS(point.crs())); }
 
-  using point_type = bg::model::point<double, 2, bg::cs::geographic<bg::degree>>;
+  using point_type = boost::geometry::model::point<double, 2, boost::geometry::cs::geographic<boost::geometry::degree>>;
   point_type rep;
 };
 
 struct IndexPointWGS3d {
   explicit IndexPointWGS3d(Point3d point) : rep{point.x(), point.y(), point.z()} { DMG_ASSERT(IsWGS(point.crs())); }
 
-  using point_type = bg::model::point<double, 3, bg::cs::geographic<bg::degree>>;
+  using point_type = boost::geometry::model::point<double, 3, boost::geometry::cs::geographic<boost::geometry::degree>>;
   point_type rep;
 };
 
 struct IndexPointCartesian2d {
   explicit IndexPointCartesian2d(Point2d point) : rep{point.x(), point.y()} { DMG_ASSERT(IsCartesian(point.crs())); }
 
-  using point_type = bg::model::point<double, 2, bg::cs::cartesian>;
+  using point_type = boost::geometry::model::point<double, 2, boost::geometry::cs::cartesian>;
   point_type rep;
 };
 
@@ -50,7 +47,7 @@ struct IndexPointCartesian3d {
     DMG_ASSERT(IsCartesian(point.crs()));
   }
 
-  using point_type = bg::model::point<double, 3, bg::cs::cartesian>;
+  using point_type = boost::geometry::model::point<double, 3, boost::geometry::cs::cartesian>;
   point_type rep;
 };
 
@@ -77,7 +74,7 @@ struct Entry {
 };  // namespace memgraph::storage
 
 template <typename IndexPoint>
-struct bg::index::indexable<memgraph::storage::Entry<IndexPoint>> {
+struct boost::geometry::index::indexable<memgraph::storage::Entry<IndexPoint>> {
   using result_type = typename IndexPoint::point_type;
 
   auto operator()(memgraph::storage::Entry<IndexPoint> const &val) const -> result_type const & { return val.point(); }
@@ -85,6 +82,7 @@ struct bg::index::indexable<memgraph::storage::Entry<IndexPoint>> {
 
 namespace memgraph::storage {
 template <typename IndexPoint>
-using index_t = bgi::rtree<Entry<IndexPoint>, bgi::quadratic<64>>;  // TODO: tune this
+using index_t =
+    boost::geometry::index::rtree<Entry<IndexPoint>, boost::geometry::index::quadratic<64>>;  // TODO: tune this
 
 }

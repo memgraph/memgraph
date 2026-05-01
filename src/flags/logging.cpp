@@ -62,7 +62,7 @@ DEFINE_VALIDATED_string(logger_type, "sync",
                         "Controls whether synchronous or asynchronous logger will be used. Options: sync, async", {
                           auto const logger_lower = memgraph::utils::ToLowerCase(value);
                           if (logger_lower != kSync && logger_lower != kAsync) {
-                            std::cout << "Expected --" << flagname << " to be 'sync' or 'async' string\n";
+                            std::cerr << "Expected --" << flagname << " to be 'sync' or 'async' string\n";
                             return false;
                           }
                           return true;
@@ -91,11 +91,11 @@ bool ValidLogLevel(std::string_view value) {
     const auto error = result.error();
     switch (error) {
       case memgraph::utils::ValidationError::EmptyValue: {
-        std::cout << "Log level cannot be empty." << '\n';
+        std::cerr << "Log level cannot be empty." << '\n';
         break;
       }
       case memgraph::utils::ValidationError::InvalidValue: {
-        std::cout << "Invalid value for log level. Allowed values: " << GetAllowedLogLevels() << '\n';
+        std::cerr << "Invalid value for log level. Allowed values: " << GetAllowedLogLevels() << '\n';
         break;
       }
     }
