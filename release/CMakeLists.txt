@@ -88,5 +88,11 @@ set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5
 # Configure CPack to build mgconsole using the unified install script
 set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
 
+# Default monolithic packaging covers only the main "memgraph" component.
+# The "debuginfo" component (carrying memgraph.dwp) is only emitted when
+# CPACK_DEB_COMPONENT_INSTALL / CPACK_RPM_COMPONENT_INSTALL is enabled to
+# split into a sibling memgraph-debuginfo_*.deb / .rpm.
+set(CPACK_COMPONENTS_ALL memgraph)
+
 # All variables must be set before including.
 include(CPack)

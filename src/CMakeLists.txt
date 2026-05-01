@@ -78,17 +78,12 @@ add_custom_command(TARGET memgraph POST_BUILD
         BYPRODUCTS ${CMAKE_BINARY_DIR}/python_support
         COMMENT "Creating symlink for python_support")
 
-# Strip the executable in release build.
-if(lower_build_type STREQUAL "release")
-        add_custom_command(TARGET memgraph POST_BUILD
-                COMMAND strip -s $<TARGET_FILE:memgraph>
-                COMMENT "Stripping symbols and sections from memgraph")
-endif()
-
 # Bundle per-TU .dwo files into a single memgraph.dwp next to the binary so
 # the debug info travels with the binary as one file. Debug emits .dwo files
 # from frontend codegen; ThinLTO (RelWithDebInfo/Release) emits them from
-# lld's link-time codegen into MG_DWO_DIR.
+# lld's link-time codegen into MG_DWO_DIR. Must run before strip: dwp reads
+# the binary's skeleton CUs to discover .dwo inputs, and strip would remove
+# them.
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
     find_program(LLVM_DWP NAMES llvm-dwp dwp HINTS ${MG_TOOLCHAIN_ROOT}/bin)
     if(LLVM_DWP)
@@ -99,6 +94,13 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInf
     else()
         message(WARNING "llvm-dwp not found; skipping .dwp bundling")
     endif()
+endif()
+
+# Strip the executable in release build (must come after dwp).
+if(lower_build_type STREQUAL "release")
+        add_custom_command(TARGET memgraph POST_BUILD
+                COMMAND strip -s $<TARGET_FILE:memgraph>
+                COMMENT "Stripping symbols and sections from memgraph")
 endif()
 
 # Generate the configuration file under the build directory.
@@ -125,6 +127,16 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 # Install memgraph
 install(TARGETS memgraph
     RUNTIME DESTINATION lib/memgraph)
+
+# Install the .dwp (split-DWARF debug info bundle) into a separate component
+# so it can ship as memgraph-debuginfo_*.deb / memgraph-debuginfo*.rpm without
+# bloating the main package. OPTIONAL because Release strip + non-debug builds
+# don't produce one. gdb auto-finds memgraph.dwp by binary path, so the only
+# requirement is that it lands next to the installed binary.
+install(FILES ${CMAKE_BINARY_DIR}/memgraph.dwp
+    DESTINATION lib/memgraph
+    COMPONENT debuginfo
+    OPTIONAL)
 
 # Install custom libstdc++
 get_property(CUSTOM_LIBSTDCXX_PATH GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH)
