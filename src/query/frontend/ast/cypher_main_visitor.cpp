@@ -11,12 +11,16 @@
 
 #include <algorithm>
 #include <any>
+#include <charconv>
 #include <cstring>
 #include <functional>
 #include <iterator>
+#include <limits>
+#include <optional>
 #include <range/v3/all.hpp>
 #include <ranges>
 #include <string>
+#include <system_error>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -3519,8 +3523,67 @@ antlrcpp::Any CypherMainVisitor::visitExpression5(MemgraphCypher::Expression5Con
   return visitChildren(ctx);
 }
 
+namespace {
+// Walks the atom chain under `expression3a` and returns the underlying
+// IntegerLiteralContext iff the operand is a bare integer literal (no labels,
+// no member access, no string/null operators). Returns nullptr otherwise.
+// Used to detect the INT64_MIN magnitude so a leading unary minus can bypass
+// the unsigned-overflow check in ParseIntegerLiteral.
+MemgraphCypher::IntegerLiteralContext *ExtractBareIntegerLiteral(MemgraphCypher::Expression3aContext *ctx) {
+  if (ctx == nullptr || !ctx->stringAndNullOperators().empty()) return nullptr;
+  auto *e2a = ctx->expression2a();
+  if (e2a == nullptr || e2a->nodeLabels() != nullptr) return nullptr;
+  auto *e2b = e2a->expression2b();
+  if (e2b == nullptr || !e2b->memberAccess().empty()) return nullptr;
+  auto *atom = e2b->atom();
+  if (atom == nullptr || atom->literal() == nullptr) return nullptr;
+  auto *literal = atom->literal();
+  if (literal->numberLiteral() == nullptr) return nullptr;
+  return literal->numberLiteral()->integerLiteral();
+}
+
+// Parses an integer literal's text as an unsigned 64-bit value so we can
+// recognise the INT64_MIN magnitude (2^63) regardless of decimal/octal/hex
+// form. Returns std::nullopt on overflow or malformed input.
+std::optional<uint64_t> ParseUnsignedIntegerLiteral(const std::string &text) {
+  if (text.empty()) return std::nullopt;
+  int base = 10;
+  size_t offset = 0;
+  if (text.size() >= 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+    base = 16;
+    offset = 2;
+  } else if (text.size() >= 2 && text[0] == '0') {
+    base = 8;
+    offset = 1;
+  }
+  uint64_t value = 0;
+  const char *first = text.data() + offset;
+  const char *last = text.data() + text.size();
+  auto [ptr, ec] = std::from_chars(first, last, value, base);
+  if (ec != std::errc{} || ptr != last) return std::nullopt;
+  return value;
+}
+}  // namespace
+
 // Unary minus and plus.
 antlrcpp::Any CypherMainVisitor::visitExpression4(MemgraphCypher::Expression4Context *ctx) {
+  // Special-case INT64_MIN: the Cypher grammar parses `-` as a separate unary
+  // operator, so the magnitude (2^63) would otherwise overflow int64 in
+  // ParseIntegerLiteral. When the net sign is negative and the operand is a
+  // bare integer literal with that magnitude, emit INT64_MIN directly.
+  auto operators = ExtractOperators(ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
+  const auto minus_count =
+      std::ranges::count(operators, static_cast<size_t>(MemgraphCypher::MINUS));
+  if (minus_count % 2 == 1) {
+    if (auto *int_ctx = ExtractBareIntegerLiteral(ctx->expression3a()); int_ctx != nullptr) {
+      if (auto magnitude = ParseUnsignedIntegerLiteral(int_ctx->getText());
+          magnitude && *magnitude == static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1U) {
+        const int token_position = ctx->getStart()->getTokenIndex();
+        return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(
+            TypedValue(std::numeric_limits<int64_t>::min()), token_position));
+      }
+    }
+  }
   return PrefixUnaryOperator(ctx->expression3a(), ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
 }
 
