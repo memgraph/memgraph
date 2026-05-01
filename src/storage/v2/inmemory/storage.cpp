@@ -4688,10 +4688,14 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 
+  mem_storage->deleted_vertices_->clear();
+  mem_storage->deleted_edges_->clear();
   mem_storage->vertices_.clear();
   mem_storage->waiting_gc_deltas_->clear();
   mem_storage->edges_.clear();
   mem_storage->edge_count_.store(0, std::memory_order_release);
+  mem_storage->edges_metadata_.clear();
+  mem_storage->edges_metadata_.run_gc();
   mem_storage->description_store_.Clear();
 
   memory::PurgeUnusedMemory();

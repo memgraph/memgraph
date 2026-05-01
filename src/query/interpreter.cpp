@@ -5804,11 +5804,10 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
   Callback callback;
   callback.fn = [&db, dba]() mutable {
     auto storage_mode = db->GetStorageMode();
-    if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-      throw utils::BasicException(
-          "Drop graph can only be used in the analytical mode. Switch to analytical mode by executing 'STORAGE MODE "
-          "IN_MEMORY_ANALYTICAL'");
+    if (storage_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+      throw utils::BasicException("DROP GRAPH is not yet supported for on-disk storage.");
     }
+
     dba->DropGraph();
 
     auto *trigger_store = db->trigger_store();
@@ -5819,6 +5818,9 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
 
     auto &ttl = db->ttl();
     ttl.Disable();
+
+    auto *plan_cache = db->plan_cache();
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
 
     return std::vector<std::vector<TypedValue>>();
   };
