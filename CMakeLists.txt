@@ -293,10 +293,16 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
 
 # Split DWARF: emit per-TU .dwo files so debug info doesn't pass through the
-# linker. Effective for Debug; under ThinLTO (RelWithDebInfo/Release) debug
-# info is generated at link-time codegen and no .dwo files are produced, but
-# the flag is harmless. --gdb-index is built by lld so gdb startup stays fast.
+# linker. Under ThinLTO (RelWithDebInfo/Release) per-TU .o files contain
+# bitcode only -- debug info is generated during lld's parallel ThinLTO
+# codegen, which honors -gsplit-dwarf and emits .dwo files into the directory
+# named by --plugin-opt=dwo_dir. --gdb-index is built by lld so gdb startup
+# stays fast.
 add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gsplit-dwarf>)
+set(MG_DWO_DIR "${CMAKE_BINARY_DIR}/dwo")
+file(MAKE_DIRECTORY "${MG_DWO_DIR}")
+add_link_options($<$<CONFIG:RelWithDebInfo>:LINKER:--plugin-opt=dwo_dir=${MG_DWO_DIR}>)
+add_link_options($<$<CONFIG:Release>:LINKER:--plugin-opt=dwo_dir=${MG_DWO_DIR}>)
 
 # Compress debug sections (zlib; toolchain clang lacks zstd support).
 add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gz>)

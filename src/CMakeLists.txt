@@ -86,11 +86,10 @@ if(lower_build_type STREQUAL "release")
 endif()
 
 # Bundle per-TU .dwo files into a single memgraph.dwp next to the binary so
-# the debug info travels with the binary as one file. Only Debug actually
-# produces .dwo files: ThinLTO (enabled for RelWithDebInfo/Release) generates
-# debug info at link-time codegen and emits nothing per-TU, so split-dwarf is
-# inert there.
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+# the debug info travels with the binary as one file. Debug emits .dwo files
+# from frontend codegen; ThinLTO (RelWithDebInfo/Release) emits them from
+# lld's link-time codegen into MG_DWO_DIR.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
     find_program(LLVM_DWP NAMES llvm-dwp dwp HINTS ${MG_TOOLCHAIN_ROOT}/bin)
     if(LLVM_DWP)
         add_custom_command(TARGET memgraph POST_BUILD
