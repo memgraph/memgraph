@@ -2,6 +2,7 @@ FROM ubuntu:24.04
 # NOTE: If you change the base distro update release/package as well.
 
 ARG BINARY_NAME
+ARG DEBUGINFO_BINARY_NAME=""
 ARG EXTENSION
 ARG TARGETARCH
 ARG SOURCE_CODE
@@ -42,9 +43,13 @@ COPY gdb-bundle/share/gdb /usr/lib/memgraph/gdb/share/gdb
 
 COPY "${SOURCE_CODE}" /home/mg/memgraph/src
 
-# Install memgraph package
+# Install memgraph package (and debuginfo if provided)
 COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
-RUN dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && rm "${BINARY_NAME}${TARGETARCH}.deb"
+RUN --mount=type=bind,source=".",target=/_ctx,ro \
+  dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && rm "${BINARY_NAME}${TARGETARCH}.deb" && \
+  if [ -n "${DEBUGINFO_BINARY_NAME}" ] && [ -f "/_ctx/${DEBUGINFO_BINARY_NAME}.deb" ]; then \
+    dpkg -i "/_ctx/${DEBUGINFO_BINARY_NAME}.deb"; \
+  fi
 
 # NOTE: The following are required to run built-in auth modules. The source of
 # truth requirements file is located under

@@ -873,18 +873,37 @@ package_docker() {
       ;;
     esac
   done
+  # Pick main package only (exclude memgraph-debuginfo*). Use grep -v rather
+  # than relying on mtime, which used to be deterministic but with component
+  # packaging breaks: cpack writes the debuginfo file last so `ls -t | head -1`
+  # would return the wrong package and the docker image would install only
+  # the .dwp without the binary.
   # shellcheck disable=SC2012
-  local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
+  local main_package_name=$(cd $package_dir && ls memgraph* 2>/dev/null | grep -v debuginfo | head -1)
+  local debuginfo_package_name=$(cd $package_dir && ls memgraph-debuginfo* 2>/dev/null | head -1)
+  if [[ -z "$main_package_name" ]]; then
+    echo "Error: no main memgraph package found in $package_dir"
+    exit 1
+  fi
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
   echo "Using custom mirror: $custom_mirror"
+  echo "Main package: $main_package_name"
+  echo "Debuginfo package: ${debuginfo_package_name:-<none>}"
+
+  local debuginfo_arg=()
+  if [[ -n "$debuginfo_package_name" ]]; then
+    debuginfo_arg=(--debuginfo-package-path "$package_dir/$debuginfo_package_name")
+  fi
 
   if [[ "$build_type" == "Release" ]]; then
     echo "Package release"
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+    # Release image is stripped + production-facing; no .dwp shipped even if
+    # the debuginfo package was produced.
+    ./package_docker --latest --package-path "$package_dir/$main_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   else
     echo "Package other"
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+    ./package_docker --package-path "$package_dir/$main_package_name" "${debuginfo_arg[@]}" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)

@@ -33,6 +33,7 @@ FROM ubuntu:24.04
 # NOTE: If you change the base distro update release/package as well.
 
 ARG BINARY_NAME
+ARG DEBUGINFO_BINARY_NAME=""
 ARG EXTENSION
 ARG TARGETARCH
 ARG SOURCE_CODE
@@ -40,6 +41,7 @@ ARG CUSTOM_MIRROR
 
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
   --mount=type=bind,source="./${BINARY_NAME}${TARGETARCH}.${EXTENSION}",target=/${BINARY_NAME}${TARGETARCH}.${EXTENSION},ro \
+  --mount=type=bind,source=".",target=/_ctx,ro \
   --mount=type=bind,source="./openssl",target=/openssl,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
@@ -64,6 +66,9 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     echo "path-include=/usr/share/doc/memgraph/*" >> /etc/dpkg/dpkg.cfg.d/excludes; \
   fi && \
   dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && \
+  if [ -n "${DEBUGINFO_BINARY_NAME}" ] && [ -f "/_ctx/${DEBUGINFO_BINARY_NAME}.deb" ]; then \
+    dpkg -i "/_ctx/${DEBUGINFO_BINARY_NAME}.deb"; \
+  fi && \
   apt remove adduser -y && \
   apt autoremove -y && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
