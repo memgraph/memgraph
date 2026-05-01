@@ -1,5 +1,10 @@
 # CMake configuration for the main memgraph library and executable
 
+# All install rules in this directory and its subdirectories default to the
+# "memgraph" component so cpack's per-component packaging puts them in the
+# main package (the "debuginfo" component is opted into explicitly).
+set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
+
 # add memgraph sub libraries, ordered by dependency
 add_subdirectory(csv)
 add_subdirectory(utils)
@@ -115,9 +120,6 @@ add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_SOURCE_DIR}/config/mappings.json
         ${CMAKE_BINARY_DIR}/config/apoc_compatibility_mappings.json)
-
-# Everything here is under "memgraph" install component.
-set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 
 # TODO: Default directory permissions to 755
 # NOTE: This is added in CMake 3.11, so enable it then

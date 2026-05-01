@@ -46,7 +46,8 @@ set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
 message(STATUS "CMAKE_FIND_ROOT_PATH: ${CMAKE_FIND_ROOT_PATH}")
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
-        DESTINATION share/doc/memgraph)
+        DESTINATION share/doc/memgraph
+        COMPONENT memgraph)
 
 # For more information about how to release a new version of Memgraph, see
 # `release/README.md`.
@@ -562,8 +563,10 @@ add_custom_target(generated_code DEPENDS
 )
 
 # Build mgconsole during install stage (before installing the file)
-install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake")
+install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake"
+  COMPONENT memgraph)
 
 install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
   PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-  TYPE BIN)
+  TYPE BIN
+  COMPONENT memgraph)

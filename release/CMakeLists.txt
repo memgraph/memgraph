@@ -1,6 +1,7 @@
 # Install systemd service (must use absolute path).
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
-    DESTINATION /lib/systemd/system)
+    DESTINATION /lib/systemd/system
+    COMPONENT memgraph)
 
 # Set parameters to recognize the host distro
 cmake_host_system_information(RESULT DISTRO QUERY DISTRIB_NAME)
@@ -62,6 +63,7 @@ endif()
 # RPM specific
 set(CPACK_RPM_PACKAGE_URL https://memgraph.com)
 set(CPACK_RPM_PACKAGE_VERSION "${MEMGRAPH_VERSION_RPM}")
+set(CPACK_RPM_MEMGRAPH_PACKAGE_NAME "memgraph")
 set(CPACK_RPM_MEMGRAPH_FILE_NAME "memgraph-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
 set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
     /var /var/lib /var/log /etc/logrotate.d
@@ -72,6 +74,15 @@ set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES_PRE "shadow-utils")
 # to CPack's auto-generated spec, which is fine for a single-file payload.
 set(CPACK_RPM_MEMGRAPH_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph.spec.in")
 set(CPACK_RPM_PACKAGE_LICENSE "Memgraph License")
+# Disable rpmbuild's automatic debug extraction. We produce the debug
+# bundle ourselves (memgraph.dwp via llvm-dwp) and ship it as the
+# memgraph-debuginfo component; without this, rpmbuild's brp-strip and
+# debug_package macros would mangle the .dwp into a bare ELF stub.
+set(CPACK_RPM_SPEC_MORE_DEFINE "%global debug_package %{nil}
+%global __strip /bin/true
+%global __brp_strip /bin/true
+%global __brp_strip_static_archive /bin/true
+%global __brp_strip_comment_note /bin/true")
 # CPACK deduces dependency to libstdc++ which:
 #   * can't be easily installed on Centos 7 (the one from the toolchain,
 #     only required to avoid printing issue within query modules)
