@@ -301,7 +301,11 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 # anyway -- skip the whole .dwp/dwo_dir machinery there.
 add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gsplit-dwarf>)
 if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-    set(MG_DWO_DIR "${CMAKE_BINARY_DIR}/dwo")
+    # Use the same naming convention lld uses by default when --plugin-opt=dwo_dir
+    # is omitted (<binary>_dwo/), so the layout is consistent whether or not
+    # the option is explicit. We still pass the option explicitly so .dwp
+    # bundling and packaging know exactly where to find the files.
+    set(MG_DWO_DIR "${CMAKE_BINARY_DIR}/memgraph_dwo")
     file(MAKE_DIRECTORY "${MG_DWO_DIR}")
     # NOTE: --plugin-opt=dwo_dir is applied per-target via target_link_options
     # on the memgraph executable (in src/CMakeLists.txt). It must NOT be a
