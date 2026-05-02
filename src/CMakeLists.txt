@@ -51,6 +51,15 @@ set(mg_single_node_v2_sources
 # memgraph main executable
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
+# Scope --plugin-opt=dwo_dir to this target only. lld writes <task>.dwo with
+# task IDs that start at 1 per link, so any other concurrent executable link
+# sharing the same dwo_dir would truncate-overwrite memgraph's .dwo files
+# (we saw this in CI: empty 1.dwo, 2.dwo, ... appearing minutes after the
+# memgraph binary was finalized, while test binary links ran in parallel).
+if(DEFINED MG_DWO_DIR)
+    target_link_options(memgraph PRIVATE LINKER:--plugin-opt=dwo_dir=${MG_DWO_DIR})
+endif()
 # Ensure mgconsole is built when memgraph is built
 # Note: When using CPack, mgconsole is built via CPack install script instead
 add_dependencies(memgraph mgconsole)

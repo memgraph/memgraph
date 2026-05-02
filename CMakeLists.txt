@@ -303,7 +303,12 @@ add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gsplit-dwa
 if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     set(MG_DWO_DIR "${CMAKE_BINARY_DIR}/dwo")
     file(MAKE_DIRECTORY "${MG_DWO_DIR}")
-    add_link_options(LINKER:--plugin-opt=dwo_dir=${MG_DWO_DIR})
+    # NOTE: --plugin-opt=dwo_dir is applied per-target via target_link_options
+    # on the memgraph executable (in src/CMakeLists.txt). It must NOT be a
+    # global add_link_options: lld names .dwo files by task ID starting from
+    # 1 each link, so a shared dwo_dir would have every test binary's link
+    # truncate-and-overwrite memgraph's 1.dwo, 2.dwo, ... -- producing the
+    # empty/inconsistent .dwo files we saw in CI.
 endif()
 
 # Cap ThinLTO codegen parallelism for any LTO-using config. lld defaults to
