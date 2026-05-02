@@ -42,6 +42,51 @@ if [[ -n "${dwo_dir}" && -d "${dwo_dir}" ]]; then
 fi
 echo "[dwp-and-debuglink] disk free: $(df -h "${binary%/*}" | tail -1)"
 
+# Classify .dwo files: count ELF vs non-ELF vs zero-byte, and call out the
+# flat numeric-named files (lld ThinLTO partition outputs from
+# --plugin-opt=dwo_dir=...). Run only on failure -- 250+ stat+od calls add up.
+diagnose_dwo_dir() {
+    local dir=$1
+    [[ -n "${dir}" && -d "${dir}" ]] || return 0
+    local total=0 elf=0 nonelf=0 zero=0
+    local -a nonelf_samples=()
+    while IFS= read -r -d '' f; do
+        total=$((total + 1))
+        if [[ ! -s "${f}" ]]; then
+            zero=$((zero + 1))
+            continue
+        fi
+        local magic
+        magic=$(od -An -tx1 -N4 "${f}" 2>/dev/null | tr -d ' \n')
+        if [[ "${magic}" == "7f454c46" ]]; then
+            elf=$((elf + 1))
+        else
+            nonelf=$((nonelf + 1))
+            if (( ${#nonelf_samples[@]} < 10 )); then
+                nonelf_samples+=("${f} ($(stat -c %s "${f}") bytes, magic=${magic:-<empty>})")
+            fi
+        fi
+    done < <(find "${dir}" -name '*.dwo' -type f -print0)
+    echo "[dwp-and-debuglink]   classification: total=${total} elf=${elf} non-elf=${nonelf} zero-byte=${zero}" >&2
+    if (( nonelf > 0 )); then
+        echo "[dwp-and-debuglink]   non-ELF .dwo samples (likely ThinLTO partition stubs or compression mismatch):" >&2
+        local s
+        for s in "${nonelf_samples[@]}"; do
+            echo "[dwp-and-debuglink]     ${s}" >&2
+        done
+    fi
+    local lto_files
+    lto_files=$(find "${dir}" -maxdepth 1 -regextype posix-extended -regex '.*/[0-9]+\.dwo' -type f 2>/dev/null | sort -V)
+    if [[ -n "${lto_files}" ]]; then
+        echo "[dwp-and-debuglink]   ThinLTO partition .dwo files (flat numeric, written by lld --plugin-opt=dwo_dir):" >&2
+        while IFS= read -r f; do
+            local m
+            m=$(od -An -tx1 -N4 "${f}" 2>/dev/null | tr -d ' \n')
+            echo "[dwp-and-debuglink]     $(basename "${f}") $(stat -c %s "${f}") bytes magic=${m:-<empty>}" >&2
+        done <<<"${lto_files}"
+    fi
+}
+
 # dwp is required: a missing .dwp means the resulting memgraph-debuginfo
 # package would be empty, and that's not a thing we want to ship silently.
 # On failure, log llvm-dwp stderr (otherwise hidden behind ninja's combined
@@ -57,6 +102,7 @@ else
     echo "[dwp-and-debuglink] ERROR: llvm-dwp exited ${rc}" >&2
     echo "[dwp-and-debuglink] llvm-dwp stderr:" >&2
     sed 's/^/[dwp-and-debuglink]   /' "${dwp_log}" >&2
+    diagnose_dwo_dir "${dwo_dir}"
     rm -f "${dwp_log}" "${dwp}"
     exit ${rc}
 fi
