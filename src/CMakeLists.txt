@@ -85,11 +85,10 @@ add_custom_command(TARGET memgraph POST_BUILD
 
 # Bundle per-TU .dwo files into a single memgraph.dwp next to the binary so
 # the debug info travels with the binary as one file. Debug emits .dwo files
-# from frontend codegen; ThinLTO (RelWithDebInfo/Release) emits them from
-# lld's link-time codegen into MG_DWO_DIR. Must run before strip: dwp reads
-# the binary's skeleton CUs to discover .dwo inputs, and strip would remove
-# them.
-if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
+# from frontend codegen; RelWithDebInfo emits them from lld's ThinLTO codegen
+# into MG_DWO_DIR. Release has no -g and would only produce empty .dwo files,
+# so it's excluded.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     find_program(LLVM_DWP NAMES llvm-dwp dwp HINTS ${MG_TOOLCHAIN_ROOT}/bin)
     message(STATUS "Split-DWARF tools: LLVM_DWP=${LLVM_DWP} CMAKE_OBJCOPY=${CMAKE_OBJCOPY} MG_DWO_DIR=${MG_DWO_DIR}")
     if(LLVM_DWP)

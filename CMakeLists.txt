@@ -294,21 +294,23 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
 
 # Split DWARF: emit per-TU .dwo files so debug info doesn't pass through the
-# linker. Under ThinLTO (RelWithDebInfo/Release) per-TU .o files contain
-# bitcode only -- debug info is generated during lld's parallel ThinLTO
-# codegen, which honors -gsplit-dwarf and emits .dwo files into the directory
-# named by --plugin-opt=dwo_dir. --gdb-index is built by lld so gdb startup
-# stays fast.
+# linker. RelWithDebInfo carries -g and is the only config we want to bundle
+# debug info for; Debug also gets -gsplit-dwarf at the frontend (different
+# codepath, no LTO). Release intentionally has no -g, so split-dwarf would
+# only produce empty .dwo files, and the binary gets stripped afterwards
+# anyway -- skip the whole .dwp/dwo_dir machinery there.
 add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gsplit-dwarf>)
-if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
+if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     set(MG_DWO_DIR "${CMAKE_BINARY_DIR}/dwo")
     file(MAKE_DIRECTORY "${MG_DWO_DIR}")
     add_link_options(LINKER:--plugin-opt=dwo_dir=${MG_DWO_DIR})
+endif()
 
-    # Cap ThinLTO codegen parallelism inside each link. lld defaults to
-    # --thinlto-jobs=$(nproc) which can spike per-link memory to nproc *
-    # per-codegen (1-3 GB) and OOM on shared CI runners. Size memory-aware
-    # via compute-build-threads.sh; each codegen job gets ~3 GB of headroom.
+# Cap ThinLTO codegen parallelism for any LTO-using config. lld defaults to
+# --thinlto-jobs=$(nproc) which can spike per-link memory to nproc *
+# per-codegen (1-3 GB) and OOM on shared CI runners. Size memory-aware via
+# compute-build-threads.sh; each codegen job gets ~3 GB of headroom.
+if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
     execute_process(
         COMMAND ${CMAKE_SOURCE_DIR}/tools/ci/compute-build-threads.sh 3
         OUTPUT_VARIABLE MG_THINLTO_JOBS
