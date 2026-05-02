@@ -642,6 +642,10 @@ build_memgraph () {
   local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_v7 $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
 
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN"
+  # Repair any cache entries left inconsistent by previous interrupted runs
+  # on this self-hosted runner (OOM kills, SIGBUS, etc.) before conan install
+  # asserts on a missing package folder.
+  docker exec -u mg "$build_container" bash -c "$CMD_START && \$HOME/memgraph/tools/ci/conan-cache-doctor.sh"
   if [[ -n "$build_dependency" ]]; then
     echo "Installing build dependency: $build_dependency"
     if [[ "$build_dependency" == "all" ]]; then
