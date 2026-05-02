@@ -35,8 +35,89 @@ if [[ -n "${dwo_dir}" && -d "${dwo_dir}" ]]; then
     empty_dwo=$(find "${dwo_dir}" -name '*.dwo' -type f -empty 2>/dev/null | wc -l)
     echo "[dwp-and-debuglink] dwo_dir contains ${dwo_count} .dwo files (${empty_dwo} empty)"
     if (( empty_dwo > 0 )); then
-        find "${dwo_dir}" -name '*.dwo' -type f -empty 2>/dev/null | head -5 | while read -r f; do
-            echo "[dwp-and-debuglink]   empty: ${f}"
+        # Diagnostics-first: gather everything that might explain WHY this
+        # .dwo came out empty before we stub-and-recover. Run only when we
+        # actually have empties (cheap on the hot path).
+        binary_mtime_epoch=$(stat -c '%Y' "${binary}" 2>/dev/null || echo 0)
+        # Sample timing for a NON-empty .dwo as a baseline: lld writes them
+        # roughly contemporaneously with the link, so a big mtime gap to an
+        # empty .dwo would point at a stale leftover.
+        ref_dwo=$(find "${dwo_dir}" -name '*.dwo' -type f -size +0 2>/dev/null | head -1)
+        if [[ -n "${ref_dwo}" ]]; then
+            echo "[dwp-and-debuglink] reference non-empty .dwo for timing baseline:"
+            echo "[dwp-and-debuglink]   $(stat -c '%Y %s %n' "${ref_dwo}")"
+        fi
+        echo "[dwp-and-debuglink] binary mtime: ${binary_mtime_epoch} ($(stat -c '%y' "${binary}" 2>/dev/null))"
+
+        # Walk skeleton CUs in the binary to map each empty .dwo back to its
+        # source TU. DWARF 5 uses DW_AT_dwo_name; the GNU extension is
+        # DW_AT_GNU_dwo_name. The source file isn't in the skeleton CU
+        # (lives in the .dwo, which is empty), but DW_AT_low_pc gives us a
+        # text address we can symbolize via the binary's own symbols to a
+        # function name and translation unit.
+        dwarfdump=$(dirname "${llvm_dwp}")/llvm-dwarfdump
+        symbolizer=$(dirname "${llvm_dwp}")/llvm-symbolizer
+        skeleton_dump=$(mktemp)
+        if [[ -x "${dwarfdump}" ]]; then
+            "${dwarfdump}" --debug-info "${binary}" 2>/dev/null > "${skeleton_dump}"
+        fi
+
+        find "${dwo_dir}" -name '*.dwo' -type f -empty 2>/dev/null | while read -r f; do
+            base=$(basename "${f}")
+            mtime=$(stat -c '%Y' "${f}" 2>/dev/null || echo 0)
+            mtime_h=$(stat -c '%y' "${f}" 2>/dev/null)
+            delta=$((binary_mtime_epoch - mtime))
+            echo "[dwp-and-debuglink] EMPTY .dwo: ${f}"
+            echo "[dwp-and-debuglink]   stat: size=0 mtime='${mtime_h}' (binary -${delta}s)"
+
+            if [[ ! -s "${skeleton_dump}" ]]; then
+                continue
+            fi
+            # Print the skeleton CU stanza referencing this .dwo. dwarfdump
+            # formats one CU per stanza with attributes indented; grep -B/-A
+            # captures both the "Compile Unit:" header (above) and any tail
+            # attributes (below) without depending on blank-line layout.
+            cu_attrs=$(grep -B 2 -A 10 -F "/${base}\"" "${skeleton_dump}" 2>/dev/null | head -20)
+            if [[ -n "${cu_attrs}" ]]; then
+                echo "[dwp-and-debuglink]   skeleton CU referencing ${base}:"
+                printf '%s\n' "${cu_attrs}" | sed 's/^/[dwp-and-debuglink]     /'
+            fi
+
+            # Symbolize the CU's text range so we know which TU it came from.
+            # DW_AT_low_pc lives a couple of lines AFTER DW_AT_dwo_name in
+            # DWARF 5 output, so search forwards.
+            low_pc=$(grep -A 6 -F "/${base}\"" "${skeleton_dump}" 2>/dev/null \
+                     | grep -oE 'DW_AT_low_pc[[:space:]]*\(0x[0-9a-f]+' \
+                     | grep -oE '0x[0-9a-f]+' | head -1)
+            if [[ -n "${low_pc}" && -x "${symbolizer}" ]]; then
+                # --functions=linkage falls back to the binary's symbol table
+                # when DWARF source name is missing (the .dwo is empty here).
+                sym=$("${symbolizer}" --obj="${binary}" --functions=linkage "${low_pc}" 2>/dev/null | head -3)
+                if [[ -n "${sym}" ]]; then
+                    echo "[dwp-and-debuglink]   low_pc=${low_pc} -> $(echo "${sym}" | tr '\n' ' ')"
+                fi
+            fi
+        done
+        rm -f "${skeleton_dump}"
+
+        # Print the link command that produced these dwo files (from build.ninja
+        # if reachable). Helps reproduce the exact lld invocation upstream.
+        ninja_file="${binary%/*}/build.ninja"
+        if [[ -f "${ninja_file}" ]]; then
+            echo "[dwp-and-debuglink] link command (truncated to first 600 chars):"
+            grep -m1 "build $(basename "${binary}"):" -A1 "${ninja_file}" 2>/dev/null \
+                | head -c 600 | sed 's/^/[dwp-and-debuglink]   /'
+            echo
+        fi
+
+        # Recover: substitute a 208-byte minimal valid empty-DWO ELF stub
+        # (output of `clang++ -g -gsplit-dwarf -c <empty.cpp>`) so llvm-dwp
+        # reads each empty as a valid empty object instead of SIGBUSing on
+        # mmap-deref-past-EOF, and we still produce a complete .dwp.
+        empty_stub_b64='f0VMRgIBAQAAAAAAAAAAAAEAPgABAAAAAAAAAAAAAAAAAAAAAAAAAFAAAAAAAAAAAAAAAEAAAAAAAEAAAgABAAAuc3RydGFiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAJAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=='
+        find "${dwo_dir}" -name '*.dwo' -type f -empty 2>/dev/null | while read -r f; do
+            echo "[dwp-and-debuglink] stubbing: ${f}"
+            echo "${empty_stub_b64}" | base64 -d > "${f}"
         done
     fi
 fi
