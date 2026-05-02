@@ -173,7 +173,10 @@ class [[nodiscard]] Object final {
 
   /// Equivalent to `this.attr_name = v` in Python.
   ///
-  /// False is returned if an error occurred.
+  /// False is returned if an error occurred. On failure the Python error
+  /// indicator is set; callers must call either FetchError() (to retrieve and
+  /// clear it) or PyErr_Clear() (to discard it) before making further Python
+  /// API calls.
   /// @sa FetchError
   [[nodiscard]] bool SetAttr(const char *attr_name, PyObject *v) {
     return PyObject_SetAttrString(ptr_, attr_name, v) == 0;
@@ -181,7 +184,10 @@ class [[nodiscard]] Object final {
 
   /// Equivalent to `this.attr_name = v` in Python.
   ///
-  /// False is returned if an error occurred.
+  /// False is returned if an error occurred. On failure the Python error
+  /// indicator is set; callers must call either FetchError() (to retrieve and
+  /// clear it) or PyErr_Clear() (to discard it) before making further Python
+  /// API calls.
   /// @sa FetchError
   [[nodiscard]] bool SetAttr(PyObject *attr_name, PyObject *v) { return PyObject_SetAttr(ptr_, attr_name, v) == 0; }
 
@@ -275,7 +281,11 @@ struct [[nodiscard]] ExceptionInfo final {
   std::stringstream ss;
   auto len = PyList_GET_SIZE(list.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
-    auto *py_str = PyList_GET_ITEM(list.Ptr(), i);
+    auto *py_str = PyList_GetItem(list.Ptr(), i);
+    if (py_str == nullptr) {
+      PyErr_Clear();
+      continue;
+    }
     const char *utf8 = PyUnicode_AsUTF8(py_str);
     if (utf8) ss << utf8;
   }

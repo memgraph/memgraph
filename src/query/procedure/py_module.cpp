@@ -94,8 +94,14 @@ PyObject *gMgNotYetImplementedError{nullptr};    // NOLINT(cppcoreguidelines-avo
 constexpr auto kMicrosecondsInMillisecond{1000};
 constexpr auto kMicrosecondsInSecond{1'000'000};
 
-// Returns true if an exception is raised
+// Returns true if an exception is raised.
+//
+// Threading: the gMgp* globals are written once in PyInitMgpModule, which runs
+// on the main thread during Py_InitializeEx (via PyImport_AppendInittab) before
+// any worker threads are spawned.  All subsequent accesses are read-only, so no
+// synchronisation is needed beyond the thread-creation happens-before fence.
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
+  MG_ASSERT(gMgpUnknownError != nullptr, "RaiseExceptionFromErrorCode called before _mgp module was initialised");
   switch (error) {
     case mgp_error::MGP_ERROR_NO_ERROR:
       return false;
@@ -929,29 +935,40 @@ PyObject *MakePyMessages(mgp_messages *msgs, mgp_memory *memory) {
   return reinterpret_cast<PyObject *>(py_messages);
 }
 
-py::Object MgpListToPyTuple(mgp_list *list, PyGraph *py_graph) {
+namespace {
+// Internal helpers that accept a pre-imported `mgp` module to avoid
+// re-importing on every recursive value conversion.
+py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_graph, PyObject *py_mgp);
+
+py::Object MgpListToPyTupleImpl(mgp_list *list, PyGraph *py_graph, PyObject *py_mgp) {
   MG_ASSERT(list);
   MG_ASSERT(py_graph);
   const auto len = list->elems.size();
   py::Object py_tuple(PyTuple_New(len));
   if (!py_tuple) return nullptr;
   for (size_t i = 0; i < len; ++i) {
-    auto elem = MgpValueToPyObject(list->elems[i], py_graph);
+    auto elem = MgpValueToPyObjectImpl(list->elems[i], py_graph, py_mgp);
     if (!elem) return nullptr;
-    // Explicitly convert `py_tuple`, which is `py::Object`, via static_cast.
-    // Then the macro will cast it to `PyTuple *`.
     PyTuple_SET_ITEM(py_tuple.Ptr(), i, elem.Steal());
   }
   return py_tuple;
 }
 
-py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
+py::Object MgpListToPyTuple(mgp_list *list, PyGraph *py_graph) {
+  MG_ASSERT(list);
+  MG_ASSERT(py_graph);
+  py::Object const py_mgp(PyImport_ImportModule("mgp"));
+  return MgpListToPyTupleImpl(list, py_graph, py_mgp.Ptr());
+}
+
+py::Object MgpListToPyTupleFromPyObject(mgp_list *list, PyObject *py_graph) {
   if (Py_TYPE(py_graph) != &PyGraphType) {
     PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Graph.");
     return nullptr;
   }
   return MgpListToPyTuple(list, reinterpret_cast<PyGraph *>(py_graph));
 }
+}  // namespace
 
 PyObject *MgpIsEnterpriseValid() { return mgp_is_enterprise_valid() ? Py_True : Py_False; }
 
@@ -1075,10 +1092,10 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     }
     const char *field_name = PyUnicode_AsUTF8(key);
     if (!field_name) return py::FetchError();
-    PyObject *val = PyTuple_GetItem(item, 1);
+    const py::Object val(py::Object::FromBorrow(PyTuple_GetItem(item, 1)));
     if (!val) return py::FetchError();
     // This memory is one dedicated for mg_procedure.
-    mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val, memory);
+    mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val.Ptr(), memory);
     if (field_val == nullptr) {
       return py::FetchError();
     }
@@ -1090,9 +1107,9 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
         return std::nullopt;
       }
       current_record_cache.emplace_back(
-          RecordFieldCache{.key = key, .val = val, .field_name = field_name, .field_val = field_val});
+          RecordFieldCache{.key = key, .val = val.Ptr(), .field_name = field_name, .field_val = field_val});
     } else {
-      auto maybe_exc = InsertField(key, val, record, field_name, field_val);
+      auto maybe_exc = InsertField(key, val.Ptr(), record, field_name, field_val);
       if (maybe_exc) return maybe_exc;
     }
   }
@@ -1189,7 +1206,7 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
   };
 
   auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
-    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    const py::Object py_args(MgpListToPyTupleFromPyObject(args, py_graph.Ptr()));
     if (!py_args) return py::FetchError();
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
@@ -1254,7 +1271,7 @@ void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp
   };
 
   auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
-    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    const py::Object py_args(MgpListToPyTupleFromPyObject(args, py_graph.Ptr()));
     if (!py_args) return py::FetchError();
     auto py_res = py_initializer.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
@@ -1341,7 +1358,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
   };
 
   auto call = [&](py::Object py_graph) -> std::expected<mgp_value *, std::optional<py::ExceptionInfo>> {
-    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    const py::Object py_args(MgpListToPyTupleFromPyObject(args, py_graph.Ptr()));
     if (!py_args) return std::unexpected{py::FetchError()};
     const auto is_transactional = storage::IsTransactional(graph->storage_mode);
     auto py_res = py_cb.Call(py_graph, py_args);
@@ -2838,8 +2855,10 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
   MG_ASSERT(py_mgp, "Expected builtin '_mgp' to be available for import");
   py::Object py_mgp_module(py_mgp.GetAttr("_MODULE"));
   MG_ASSERT(py_mgp_module, "Expected '_mgp' to have attribute '_MODULE'");
-  // NOTE: This check is not thread safe, but this should only go through
-  // ModuleRegistry::LoadModuleLibrary which ought to serialize loading.
+  // Thread safety: module loading must be serialised by the caller
+  // (ModuleRegistry::LoadModuleLibrary holds the registry write-lock before
+  // reaching here).  The MG_ASSERT below fires if concurrent loading is
+  // detected, making the invariant visible rather than silently corrupt.
   MG_ASSERT(py_mgp_module.Ptr() == Py_None,
             "Expected '_mgp._MODULE' to be None as we are just starting to "
             "import a new module. Is some other thread also importing Python "
@@ -2881,6 +2900,12 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyObject *py_graph) {
 }
 
 py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
+  py::Object const py_mgp(PyImport_ImportModule("mgp"));
+  return MgpValueToPyObjectImpl(value, py_graph, py_mgp.Ptr());
+}
+
+namespace {
+py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_graph, PyObject *py_mgp) {
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
       Py_INCREF(Py_None);
@@ -2894,7 +2919,7 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_STRING:
       return py::Object(PyUnicode_FromString(value.string_v.c_str()));
     case MGP_VALUE_TYPE_LIST:
-      return MgpListToPyTuple(value.list_v, py_graph);
+      return MgpListToPyTupleImpl(value.list_v, py_graph, py_mgp);
     case MGP_VALUE_TYPE_MAP: {
       auto *map = value.map_v;
       py::Object py_dict(PyDict_New());
@@ -2902,9 +2927,9 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
         return nullptr;
       }
       std::visit(
-          [&py_dict, py_graph](const auto &items) {
+          [&py_dict, py_graph, py_mgp](const auto &items) {
             for (const auto &[key, val] : items) {
-              auto py_val = MgpValueToPyObject(val, py_graph);
+              auto py_val = MgpValueToPyObjectImpl(val, py_graph, py_mgp);
               if (!py_val) {
                 return;
               }
@@ -2916,25 +2941,22 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_dict;
     }
     case MGP_VALUE_TYPE_VERTEX: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       auto *v = value.vertex_v;
       py::Object py_vertex(reinterpret_cast<PyObject *>(MakePyVertex(*v, py_graph)));
-      return py_mgp.CallMethod("Vertex", py_vertex);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Vertex", py_vertex);
     }
     case MGP_VALUE_TYPE_EDGE: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       auto *e = value.edge_v;
       py::Object py_edge(reinterpret_cast<PyObject *>(MakePyEdge(*e, py_graph)));
-      return py_mgp.CallMethod("Edge", py_edge);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Edge", py_edge);
     }
     case MGP_VALUE_TYPE_PATH: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       auto *p = value.path_v;
       py::Object py_path(reinterpret_cast<PyObject *>(MakePyPath(*p, py_graph)));
-      return py_mgp.CallMethod("Path", py_path);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Path", py_path);
     }
     case MGP_VALUE_TYPE_DATE: {
       const auto &date = value.date_v->date;
@@ -3007,36 +3029,34 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_zoned_date_time;
     }
     case MGP_VALUE_TYPE_POINT_2D: {
-      const py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       const auto &pt = value.point_2d_v->point;
       const py::Object py_x(PyFloat_FromDouble(pt.x()));
       const py::Object py_y(PyFloat_FromDouble(pt.y()));
       const py::Object py_srid(PyLong_FromLong(memgraph::storage::CrsToSrid(pt.crs()).value_of()));
-      return py_mgp.CallMethod("Point2d", py_x, py_y, py_srid);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Point2d", py_x, py_y, py_srid);
     }
     case MGP_VALUE_TYPE_POINT_3D: {
-      const py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       const auto &pt = value.point_3d_v->point;
       const py::Object py_x(PyFloat_FromDouble(pt.x()));
       const py::Object py_y(PyFloat_FromDouble(pt.y()));
       const py::Object py_z(PyFloat_FromDouble(pt.z()));
       const py::Object py_srid(PyLong_FromLong(memgraph::storage::CrsToSrid(pt.crs()).value_of()));
-      return py_mgp.CallMethod("Point3d", py_x, py_y, py_z, py_srid);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Point3d", py_x, py_y, py_z, py_srid);
     }
     case MGP_VALUE_TYPE_ENUM: {
-      const py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       const auto &e = *value.enum_v;
       const py::Object py_type_name(
           PyUnicode_FromStringAndSize(e.type_name.c_str(), static_cast<Py_ssize_t>(e.type_name.size())));
       const py::Object py_value_name(
           PyUnicode_FromStringAndSize(e.value_name.c_str(), static_cast<Py_ssize_t>(e.value_name.size())));
-      return py_mgp.CallMethod("Enum", py_type_name, py_value_name);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Enum", py_type_name, py_value_name);
     }
   }
 }
+}  // namespace
 
 mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   auto py_seq_to_list = [memory](PyObject *seq, Py_ssize_t len, const auto &py_seq_get_item) {
@@ -3071,14 +3091,23 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     return v;
   };
 
-  auto is_mgp_instance = [](PyObject *obj, const char *mgp_type_name) {
-    py::Object py_mgp(PyImport_ImportModule("mgp"));
-    if (!py_mgp) {
+  // Import 'mgp' once for the lifetime of this conversion; is_mgp_instance is
+  // called up to 6 times per value so re-importing each call is measurable.
+  py::Object cached_mgp(nullptr);
+  auto get_mgp_module = [&cached_mgp]() -> PyObject * {
+    if (!cached_mgp) cached_mgp = py::Object(PyImport_ImportModule("mgp"));
+    return cached_mgp.Ptr();
+  };
+
+  auto is_mgp_instance = [&get_mgp_module](PyObject *obj, const char *mgp_type_name) {
+    PyObject *py_mgp = get_mgp_module();
+    if (py_mgp == nullptr) {
       PyErr_Clear();
       // This way we skip conversions of types from user-facing 'mgp' module.
       return false;
     }
-    auto mgp_type = py_mgp.GetAttr(mgp_type_name);
+    py::Object const mgp_obj(py::Object::FromBorrow(py_mgp));
+    auto mgp_type = mgp_obj.GetAttr(mgp_type_name);
     if (!mgp_type) {
       PyErr_Clear();
       std::stringstream ss;
@@ -3113,7 +3142,9 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   } else if (PyFloat_Check(o)) {
     last_error = mgp_value_make_double(PyFloat_AsDouble(o), memory, &mgp_v);
   } else if (PyUnicode_Check(o)) {  // NOLINT(hicpp-signed-bitwise)
-    last_error = mgp_value_make_string(PyUnicode_AsUTF8(o), memory, &mgp_v);
+    const char *s = PyUnicode_AsUTF8(o);
+    if (!s) throw std::invalid_argument("Failed to decode Python string as UTF-8");
+    last_error = mgp_value_make_string(s, memory, &mgp_v);
   } else if (PyList_Check(o)) {
     mgp_v = py_seq_to_list(o, PyList_Size(o), [](auto *list, const auto i) { return PyList_GET_ITEM(list, i); });
   } else if (PyTuple_Check(o)) {
@@ -3141,7 +3172,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
 
       if (!k) {
         PyErr_Clear();
-        throw std::bad_alloc{};
+        throw std::invalid_argument("Failed to decode Python dict key as UTF-8");
       }
 
       MgpUniquePtr<mgp_value> v{PyObjectToMgpValue(value, memory), mgp_value_destroy};
