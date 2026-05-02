@@ -169,6 +169,10 @@ diagnose_dwo_dir() {
 # build fails loudly.
 echo "[dwp-and-debuglink] running: ${llvm_dwp} -e ${binary} -o ${dwp}"
 dwp_log=$(mktemp)
+# Allow core dumps + LLVM's PrettyStackTrace; llvm-dwp's signal handler
+# prints a frame-by-frame trace to stderr on SIGSEGV/SIGBUS when the
+# environment isn't suppressing it.
+ulimit -c unlimited 2>/dev/null || true
 if "${llvm_dwp}" -e "${binary}" -o "${dwp}" 2>"${dwp_log}"; then
     cat "${dwp_log}"
     rm -f "${dwp_log}"
@@ -177,6 +181,33 @@ else
     echo "[dwp-and-debuglink] ERROR: llvm-dwp exited ${rc}" >&2
     echo "[dwp-and-debuglink] llvm-dwp stderr:" >&2
     sed 's/^/[dwp-and-debuglink]   /' "${dwp_log}" >&2
+
+    # If the failure looks like a crash (signals are 128 + N; SIGBUS=7,
+    # SIGSEGV=11, SIGABRT=6), retry under gdb to get a backtrace. The first
+    # run's output is what propagates; gdb is only for diagnostics.
+    if (( rc >= 128 )); then
+        gdb_bin=$(dirname "${llvm_dwp}")/gdb
+        [[ -x "${gdb_bin}" ]] || gdb_bin=$(command -v gdb)
+        if [[ -n "${gdb_bin}" && -x "${gdb_bin}" ]]; then
+            echo "[dwp-and-debuglink] retrying under gdb to capture backtrace:" >&2
+            "${gdb_bin}" --batch \
+                -iex "set pagination off" \
+                -iex "set confirm off" \
+                -ex "run" \
+                -ex "thread apply all bt full" \
+                -ex "quit" \
+                --args "${llvm_dwp}" -e "${binary}" -o "${dwp}.gdb" 2>&1 \
+                | sed 's/^/[dwp-and-debuglink]   gdb: /' >&2 || true
+        else
+            echo "[dwp-and-debuglink] no gdb available; skipping backtrace capture" >&2
+        fi
+        # Surface any core file that landed (kernel core_pattern dependent).
+        for core in core core.* "${dwp}.core" /tmp/cores/core; do
+            if [[ -f "${core}" ]]; then
+                echo "[dwp-and-debuglink] core dump at: ${core} ($(stat -c %s "${core}") bytes)" >&2
+            fi
+        done
+    fi
     diagnose_dwo_dir "${dwo_dir}"
     rm -f "${dwp_log}" "${dwp}"
     exit ${rc}
