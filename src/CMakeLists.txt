@@ -52,14 +52,15 @@ set(mg_single_node_v2_sources
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
-# Scope --plugin-opt=dwo_dir to this target only. lld writes <task>.dwo with
-# task IDs that start at 1 per link, so any other concurrent executable link
-# sharing the same dwo_dir would truncate-overwrite memgraph's .dwo files
-# (we saw this in CI: empty 1.dwo, 2.dwo, ... appearing minutes after the
-# memgraph binary was finalized, while test binary links ran in parallel).
-if(DEFINED MG_DWO_DIR)
-    target_link_options(memgraph PRIVATE LINKER:--plugin-opt=dwo_dir=${MG_DWO_DIR})
-endif()
+# Scope --plugin-opt=dwo_dir to this target and to RelWithDebInfo only. lld
+# writes <task>.dwo with task IDs that start at 1 per link, so any other
+# concurrent executable link sharing the same dwo_dir would truncate-
+# overwrite memgraph's .dwo files (we saw this in CI: empty 1.dwo, 2.dwo, ...
+# appearing minutes after the memgraph binary was finalized, while test
+# binary links ran in parallel). The path mirrors lld's default <binary>_dwo
+# convention so it's discoverable next to the binary in build/.
+target_link_options(memgraph PRIVATE
+    "$<$<CONFIG:RelWithDebInfo>:LINKER:--plugin-opt=dwo_dir=$<TARGET_FILE_DIR:memgraph>/memgraph_dwo>")
 # Ensure mgconsole is built when memgraph is built
 # Note: When using CPack, mgconsole is built via CPack install script instead
 add_dependencies(memgraph mgconsole)
@@ -92,27 +93,38 @@ add_custom_command(TARGET memgraph POST_BUILD
         BYPRODUCTS ${CMAKE_BINARY_DIR}/python_support
         COMMENT "Creating symlink for python_support")
 
-# Bundle per-TU .dwo files into a single memgraph.dwp next to the binary so
+# Bundle per-TU .dwo files into a single <binary>.dwp next to the binary so
 # the debug info travels with the binary as one file. Debug emits .dwo files
 # from frontend codegen; RelWithDebInfo emits them from lld's ThinLTO codegen
-# into MG_DWO_DIR. Release has no -g and would only produce empty .dwo files,
-# so it's excluded.
+# into $<TARGET_FILE_DIR:memgraph>/memgraph_dwo. Release has no -g and would
+# only produce empty .dwo files, so it's excluded.
+#
+# NB: this uses if(CMAKE_BUILD_TYPE) which is evaluated at configure time --
+# fine for single-config generators (Ninja, our setup); for a multi-config
+# generator the dwp step would need to be gated with $<CONFIG:...> on the
+# COMMAND itself.
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     find_program(LLVM_DWP NAMES llvm-dwp dwp HINTS ${MG_TOOLCHAIN_ROOT}/bin)
-    message(STATUS "Split-DWARF tools: LLVM_DWP=${LLVM_DWP} CMAKE_OBJCOPY=${CMAKE_OBJCOPY} MG_DWO_DIR=${MG_DWO_DIR}")
+    message(STATUS "Split-DWARF tools: LLVM_DWP=${LLVM_DWP} CMAKE_OBJCOPY=${CMAKE_OBJCOPY}")
     if(LLVM_DWP)
-        # Bundle per-TU .dwo into <binary>.dwp and add a .gnu_debuglink
-        # section pointing at the .dwp. Run via a script so any failure is
-        # logged with context (tool paths, .dwp size, dwo file count) -- the
-        # POST_BUILD chain is otherwise opaque in ninja's combined-edge output.
+        # Pass the dwo_dir only for RelWithDebInfo (lld writes there at
+        # link-time codegen); Debug's frontend split-dwarf puts .dwo files
+        # next to each .o. The script handles the empty/absent dwo_dir.
+        set(_dwp_dwo_dir "")
+        if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+            set(_dwp_dwo_dir "$<TARGET_FILE_DIR:memgraph>/memgraph_dwo")
+        endif()
+        # Run via a script so any failure is logged with context (tool paths,
+        # .dwp size, dwo file count) -- the POST_BUILD chain is otherwise
+        # opaque in ninja's combined-edge output.
         add_custom_command(TARGET memgraph POST_BUILD
             COMMAND ${CMAKE_SOURCE_DIR}/tools/ci/dwp-and-debuglink.sh
                     "${LLVM_DWP}"
                     "${CMAKE_OBJCOPY}"
                     "$<TARGET_FILE:memgraph>"
-                    "${MG_DWO_DIR}"
+                    "${_dwp_dwo_dir}"
             BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph.dwp
-            COMMENT "Bundling .dwo -> memgraph.dwp + adding .gnu_debuglink")
+            COMMENT "Bundling .dwo -> memgraph.dwp + .gnu_debuglink")
     else()
         message(WARNING "llvm-dwp not found; skipping .dwp bundling")
     endif()
@@ -153,7 +165,7 @@ install(TARGETS memgraph
 # one. gdb auto-finds memgraph.dwp by binary path; we additionally place a
 # symlink under /usr/lib/debug/.build-id/<aa>/<rest>.dwp so build-id-based
 # resolvers (gdb, debuginfod) and distro convention paths also work.
-install(FILES ${CMAKE_BINARY_DIR}/memgraph.dwp
+install(FILES $<TARGET_FILE:memgraph>.dwp
     DESTINATION lib/memgraph
     COMPONENT debuginfo
     OPTIONAL)

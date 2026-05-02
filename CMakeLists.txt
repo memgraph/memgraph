@@ -300,37 +300,31 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 # only produce empty .dwo files, and the binary gets stripped afterwards
 # anyway -- skip the whole .dwp/dwo_dir machinery there.
 add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gsplit-dwarf>)
-if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-    # Use the same naming convention lld uses by default when --plugin-opt=dwo_dir
-    # is omitted (<binary>_dwo/), so the layout is consistent whether or not
-    # the option is explicit. We still pass the option explicitly so .dwp
-    # bundling and packaging know exactly where to find the files.
-    set(MG_DWO_DIR "${CMAKE_BINARY_DIR}/memgraph_dwo")
-    file(MAKE_DIRECTORY "${MG_DWO_DIR}")
-    # NOTE: --plugin-opt=dwo_dir is applied per-target via target_link_options
-    # on the memgraph executable (in src/CMakeLists.txt). It must NOT be a
-    # global add_link_options: lld names .dwo files by task ID starting from
-    # 1 each link, so a shared dwo_dir would have every test binary's link
-    # truncate-and-overwrite memgraph's 1.dwo, 2.dwo, ... -- producing the
-    # empty/inconsistent .dwo files we saw in CI.
-endif()
+
+# --plugin-opt=dwo_dir is applied per-target via target_link_options on the
+# memgraph executable (in src/CMakeLists.txt). It must NOT be a global
+# add_link_options: lld names .dwo files by task ID starting from 1 each
+# link, so a shared dwo_dir would have every test binary's link truncate-
+# overwrite memgraph's 1.dwo, 2.dwo, ... -- producing the empty/inconsistent
+# .dwo files we saw in CI. lld auto-creates <binary>_dwo/ if missing, so we
+# don't need file(MAKE_DIRECTORY).
 
 # Cap ThinLTO codegen parallelism for any LTO-using config. lld defaults to
 # --thinlto-jobs=$(nproc) which can spike per-link memory to nproc *
 # per-codegen (1-3 GB) and OOM on shared CI runners. Size memory-aware via
 # compute-build-threads.sh; each codegen job gets ~3 GB of headroom.
-if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
-    execute_process(
-        COMMAND ${CMAKE_SOURCE_DIR}/tools/ci/compute-build-threads.sh 3
-        OUTPUT_VARIABLE MG_THINLTO_JOBS
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        RESULT_VARIABLE _rc)
-    if(_rc EQUAL 0 AND MG_THINLTO_JOBS)
-        message(STATUS "Capping lld ThinLTO codegen jobs at ${MG_THINLTO_JOBS} (3 GB/job budget)")
-        add_link_options(LINKER:--thinlto-jobs=${MG_THINLTO_JOBS})
-    else()
-        message(WARNING "compute-build-threads.sh failed (rc=${_rc}); leaving --thinlto-jobs at lld default")
-    endif()
+# Computed once at configure time but only applied to LTO configs through a
+# generator expression so multi-config generators get it right too.
+execute_process(
+    COMMAND ${CMAKE_SOURCE_DIR}/tools/ci/compute-build-threads.sh 3
+    OUTPUT_VARIABLE MG_THINLTO_JOBS
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _rc)
+if(_rc EQUAL 0 AND MG_THINLTO_JOBS)
+    message(STATUS "Capping lld ThinLTO codegen jobs at ${MG_THINLTO_JOBS} (3 GB/job budget) for Release/RelWithDebInfo")
+    add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Release>>:LINKER:--thinlto-jobs=${MG_THINLTO_JOBS}>)
+else()
+    message(WARNING "compute-build-threads.sh failed (rc=${_rc}); leaving --thinlto-jobs at lld default")
 endif()
 
 # Compress debug sections (zlib; toolchain clang lacks zstd support).
