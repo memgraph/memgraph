@@ -1092,15 +1092,21 @@ copy_memgraph() {
     echo -e "Log files copied to $host_dir!"
   elif [[ "$artifact" == "package" ]]; then
     # Copy every memgraph*.deb / memgraph*.rpm in the output dir (main +
-    # debuginfo). Use docker cp with the trailing "/." to copy contents.
+    # debuginfo). Use a shell glob that tolerates one-of-the-two patterns
+    # not matching (deb-only or rpm-only containers): nullglob plus shopt
+    # makes the glob expand to empty rather than the literal pattern, and
+    # the `|| true` keeps `set -e` from killing the script when neither
+    # glob matches before the explicit empty-check below.
     local pkg_files
-    pkg_files=$(docker exec -u mg "$build_container" bash -c "ls $container_artifact_path/memgraph*.deb $container_artifact_path/memgraph*.rpm 2>/dev/null")
+    pkg_files=$(docker exec -u mg "$build_container" bash -c \
+      "shopt -s nullglob; cd $container_artifact_path && ls -1 memgraph*.deb memgraph*.rpm 2>/dev/null" || true)
     if [[ -z "$pkg_files" ]]; then
       echo "Error: no memgraph*.deb or memgraph*.rpm in $container_artifact_path"
       exit 1
     fi
     while IFS= read -r f; do
-      docker cp "$build_container:$f" "$host_dir/"
+      [[ -z "$f" ]] && continue
+      docker cp "$build_container:$container_artifact_path/$f" "$host_dir/"
     done <<< "$pkg_files"
   else
     docker cp -L $build_container:$container_artifact_path $host_artifact_path
