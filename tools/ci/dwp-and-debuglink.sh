@@ -110,15 +110,9 @@ if [[ -n "${dwo_dir}" && -d "${dwo_dir}" ]]; then
             echo
         fi
 
-        # Recover: substitute a 208-byte minimal valid empty-DWO ELF stub
-        # (output of `clang++ -g -gsplit-dwarf -c <empty.cpp>`) so llvm-dwp
-        # reads each empty as a valid empty object instead of SIGBUSing on
-        # mmap-deref-past-EOF, and we still produce a complete .dwp.
-        empty_stub_b64='f0VMRgIBAQAAAAAAAAAAAAEAPgABAAAAAAAAAAAAAAAAAAAAAAAAAFAAAAAAAAAAAAAAAEAAAAAAAEAAAgABAAAuc3RydGFiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAJAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=='
-        find "${dwo_dir}" -name '*.dwo' -type f -empty 2>/dev/null | while read -r f; do
-            echo "[dwp-and-debuglink] stubbing: ${f}"
-            echo "${empty_stub_b64}" | base64 -d > "${f}"
-        done
+        # Don't substitute a stub: let llvm-dwp surface the real failure
+        # below so we keep collecting evidence about WHEN/WHY 0-byte .dwo
+        # files appear, rather than masking it with a synthetic stand-in.
     fi
 fi
 echo "[dwp-and-debuglink] disk free: $(df -h "${binary%/*}" | tail -1)"
