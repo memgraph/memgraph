@@ -334,12 +334,18 @@ add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-frecord-co
 
 # Normalize source paths in debug info and __FILE__ so artifacts are
 # portable across worktrees and ccache hits transfer between checkouts.
-# We deliberately do NOT remap CMAKE_BINARY_DIR: skeleton CUs record .dwo
-# file paths under DW_AT_GNU_dwo_name, and llvm-dwp -e <binary> resolves
-# those paths to find inputs. With Debug (frontend split-DWARF) the .dwo
-# files live in the build dir; mapping that path to "./build/..." makes
-# llvm-dwp resolve relative to its CWD and fail to locate them.
-add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
+#
+# When the build dir lives inside the source dir (the default for our
+# tooling, e.g. memgraph/build/), a naive prefix-map of CMAKE_SOURCE_DIR
+# also catches build paths -- skeleton CUs end up with relative
+# DW_AT_GNU_dwo_name like "./build/src/.../foo.cpp.dwo", and llvm-dwp -e
+# resolves those against its CWD instead of finding the absolute .dwo.
+# clang applies -ffile-prefix-map rules in order with last-match wins,
+# so emit the source-dir rewrite first and an identity rule for
+# CMAKE_BINARY_DIR after it to shield build paths from being caught.
+add_compile_options(
+    "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=."
+    "-ffile-prefix-map=${CMAKE_BINARY_DIR}=${CMAKE_BINARY_DIR}")
 
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
