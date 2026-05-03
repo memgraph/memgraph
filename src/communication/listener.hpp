@@ -15,6 +15,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -140,8 +141,11 @@ class Listener final {
               }
             }
           }
-          // TODO (mferencevic): Should this be configurable?
-          std::this_thread::sleep_for(std::chrono::seconds(1));
+          // Wait up to 1s, but wake immediately on Shutdown() so AwaitShutdown
+          // doesn't have to wait for the sleep to expire.
+          std::unique_lock lock{shutdown_mutex_};
+          shutdown_cv_.wait_for(
+              lock, std::chrono::seconds(1), [this] { return !alive_.load(std::memory_order_acquire); });
         }
       });
     }
@@ -150,7 +154,14 @@ class Listener final {
   /**
    * This function starts a graceful shutdown of the listener.
    */
-  void Shutdown() { alive_.store(false, std::memory_order_release); }
+  void Shutdown() {
+    alive_.store(false, std::memory_order_release);
+    {
+      // Lock to avoid lost-wakeup against the timeout thread's wait predicate.
+      auto guard = std::lock_guard{shutdown_mutex_};
+    }
+    shutdown_cv_.notify_all();
+  }
 
   /**
    * This function blocks the calling thread until the listener shutdown is
@@ -275,6 +286,8 @@ class Listener final {
   std::thread timeout_thread_;
   std::vector<std::thread> worker_threads_;
   std::atomic<bool> alive_;
+  std::mutex shutdown_mutex_;
+  std::condition_variable shutdown_cv_;
 
   ServerContext *context_;
   const int inactivity_timeout_sec_;

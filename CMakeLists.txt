@@ -46,7 +46,8 @@ set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
 message(STATUS "CMAKE_FIND_ROOT_PATH: ${CMAKE_FIND_ROOT_PATH}")
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
-        DESTINATION share/doc/memgraph)
+        DESTINATION share/doc/memgraph
+        COMPONENT memgraph)
 
 # For more information about how to release a new version of Memgraph, see
 # `release/README.md`.
@@ -292,9 +293,67 @@ add_compile_options(
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
 
+# Split DWARF: emit per-TU .dwo files so debug info doesn't pass through the
+# linker. RelWithDebInfo carries -g and is the only config we want to bundle
+# debug info for; Debug also gets -gsplit-dwarf at the frontend (different
+# codepath, no LTO). Release intentionally has no -g, so split-dwarf would
+# only produce empty .dwo files, and the binary gets stripped afterwards
+# anyway -- skip the whole .dwp/dwo_dir machinery there.
+add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gsplit-dwarf>)
+
+# --plugin-opt=dwo_dir is applied per-target via target_link_options on the
+# memgraph executable (in src/CMakeLists.txt). It must NOT be a global
+# add_link_options: lld names .dwo files by task ID starting from 1 each
+# link, so a shared dwo_dir would have every test binary's link truncate-
+# overwrite memgraph's 1.dwo, 2.dwo, ... -- producing the empty/inconsistent
+# .dwo files we saw in CI. lld auto-creates <binary>_dwo/ if missing, so we
+# don't need file(MAKE_DIRECTORY).
+
+# Cap ThinLTO codegen parallelism for any LTO-using config. lld defaults to
+# --thinlto-jobs=$(nproc) which can spike per-link memory to nproc *
+# per-codegen (1-3 GB) and OOM on shared CI runners. Size memory-aware via
+# compute-build-threads.sh; each codegen job gets ~3 GB of headroom.
+# Computed once at configure time but only applied to LTO configs through a
+# generator expression so multi-config generators get it right too.
+execute_process(
+    COMMAND ${CMAKE_SOURCE_DIR}/tools/ci/compute-build-threads.sh 3
+    OUTPUT_VARIABLE MG_THINLTO_JOBS
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _rc)
+if(_rc EQUAL 0 AND MG_THINLTO_JOBS)
+    message(STATUS "Capping lld ThinLTO codegen jobs at ${MG_THINLTO_JOBS} (3 GB/job budget) for Release/RelWithDebInfo")
+    add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Release>>:LINKER:--thinlto-jobs=${MG_THINLTO_JOBS}>)
+else()
+    message(WARNING "compute-build-threads.sh failed (rc=${_rc}); leaving --thinlto-jobs at lld default")
+endif()
+
+# Compress debug sections (zlib; toolchain clang lacks zstd support).
+add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gz>)
+add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gz>)
+
+# Embed the compile invocation in debug info; useful when investigating crashes
+# from a binary whose build flags aren't otherwise recoverable.
+add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-frecord-command-line>)
+
+# Normalize source paths in debug info and __FILE__ so artifacts are
+# portable across worktrees and ccache hits transfer between checkouts.
+#
+# When the build dir lives inside the source dir (the default for our
+# tooling, e.g. memgraph/build/), a naive prefix-map of CMAKE_SOURCE_DIR
+# also catches build paths -- skeleton CUs end up with relative
+# DW_AT_GNU_dwo_name like "./build/src/.../foo.cpp.dwo", and llvm-dwp -e
+# resolves those against its CWD instead of finding the absolute .dwo.
+# clang applies -ffile-prefix-map rules in order with last-match wins,
+# so emit the source-dir rewrite first and an identity rule for
+# CMAKE_BINARY_DIR after it to shield build paths from being caught.
+add_compile_options(
+    "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=."
+    "-ffile-prefix-map=${CMAKE_BINARY_DIR}=${CMAKE_BINARY_DIR}")
+
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
+add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:LINKER:--gdb-index>)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 
 # After linker is set, check we can use link-time optimization
@@ -307,8 +366,8 @@ if (NOT ipo_supported)
 endif()
 
 
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
@@ -535,8 +594,10 @@ add_custom_target(generated_code DEPENDS
 )
 
 # Build mgconsole during install stage (before installing the file)
-install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake")
+install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake"
+  COMPONENT memgraph)
 
 install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
   PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-  TYPE BIN)
+  TYPE BIN
+  COMPONENT memgraph)

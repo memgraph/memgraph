@@ -976,6 +976,7 @@ int main(int argc, char **argv) {
     spdlog::info("Workers shutting down.");
     if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server
+    spdlog::trace("Signalling Bolt server shutdown");
     server.Shutdown();
 
 // DataInstanceManagementServer needs to be closed before replication state because some RPCs require access to
@@ -1013,15 +1014,19 @@ int main(int argc, char **argv) {
     // queries.
     spdlog::trace("Shutting down interpreter context");
     interpreter_context_.Shutdown();
-    spdlog::trace("Shutting down websocket server");
+    spdlog::trace("Signalling websocket server shutdown");
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
+    spdlog::trace("Signalling metrics server shutdown");
     metrics_server.Shutdown();
     if (coordinator_state && coordinator_state->IsCoordinator()) {
       // Coordinator instance destruction will handle the complete shutdown
+      spdlog::trace("Resetting coordinator_state (synchronous destruction)");
       coordinator_state.reset();
+      spdlog::trace("coordinator_state destroyed");
     }
 #endif
+    spdlog::trace("Shutdown handler done");
   };
 
   // Release the temporary database access
@@ -1060,19 +1065,27 @@ int main(int argc, char **argv) {
   // thread context (not inside a signal handler) — this is async-signal-safe.
   WaitForShutdownSignal(shutdown);
 
+  spdlog::trace("Awaiting worker pool shutdown");
   if (worker_pool_) worker_pool_->AwaitShutdown();
+  spdlog::trace("Awaiting Bolt server shutdown");
   server.AwaitShutdown();
+  spdlog::trace("Awaiting websocket server shutdown");
   websocket_server.AwaitShutdown();
+  spdlog::trace("Unsetting memory hooks");
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
+  spdlog::trace("Awaiting metrics server shutdown");
   metrics_server.AwaitShutdown();
 #endif
+  spdlog::trace("Unloading query modules");
   try {
     memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
   } catch (memgraph::query::QueryException &) {
     spdlog::warn("Failed to unload query modules while shutting down.");
   }
+  spdlog::trace("Stopping python GC scheduler");
   python_gc_scheduler.Stop();
+  spdlog::trace("Memgraph main loop exited");
   Py_END_ALLOW_THREADS;
   // Shutdown Python
   Py_Finalize();
