@@ -1087,8 +1087,10 @@ int main(int argc, char **argv) {
   python_gc_scheduler.Stop();
   spdlog::trace("Memgraph main loop exited");
   Py_END_ALLOW_THREADS;
+  spdlog::trace("Starting Py_Finalize");
   // Shutdown Python
   Py_Finalize();
+  spdlog::trace("Py_Finalize done");
   PyMem_RawFree(program_name);
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();
