@@ -16,6 +16,7 @@ latest_image=""
 tag_latest=""
 toolchain_version="v7"
 package_path=""
+debuginfo_package_path=""
 arch=""
 src_path=""
 custom_mirror=false
@@ -31,6 +32,10 @@ while [[ $# -gt 0 ]]; do
     ;;
     --package-path)
         package_path=$2
+        shift 2
+    ;;
+    --debuginfo-package-path)
+        debuginfo_package_path=$2
         shift 2
     ;;
     --src-path)
@@ -89,6 +94,14 @@ if [[ -n "$src_path" ]]; then
   dockerfile_path_rwdi_extension="_relwithdebinfo"
   docker_arg_source_code="--build-arg SOURCE_CODE=src"
   tag_extension="-relwithdebinfo"
+  # The gdb-bundle dir is staged by mgbuild.sh copy-gdb-bundle. The
+  # dockerfile expects it adjacent so it can COPY in a gdb 16.x that can
+  # actually read DWARF 5 + ThinLTO + split-DWARF binaries (distro gdb 15
+  # crashes on those).
+  if [[ ! -d "${working_dir}/gdb-bundle" ]]; then
+    echo "Error: ${working_dir}/gdb-bundle missing; run mgbuild.sh build-gdb-bundle && copy-gdb-bundle first."
+    exit 1
+  fi
 fi
 
 if [[ "$malloc" == true ]]; then
@@ -97,6 +110,14 @@ fi
 
 # Copy the .deb to working directory.
 cp "$package_path" "${working_dir}/"
+debuginfo_arg=""
+if [[ -n "$debuginfo_package_path" && -f "$debuginfo_package_path" ]]; then
+  cp "$debuginfo_package_path" "${working_dir}/"
+  debuginfo_basename=$(basename "$debuginfo_package_path")
+  # Stripped of extension; the dockerfile uses BINARY_NAME + EXTENSION pattern
+  debuginfo_package_name="${debuginfo_basename%.*}"
+  debuginfo_arg="--build-arg DEBUGINFO_BINARY_NAME=${debuginfo_package_name}"
+fi
 cd ${working_dir}
 
 # copy SSL files to docker build directory
@@ -141,12 +162,17 @@ fi
 docker build --pull -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
 --build-arg BINARY_NAME=${package_name} \
 --build-arg EXTENSION=${extension} ${docker_arg_source_code} \
+${debuginfo_arg} \
 --build-arg CUSTOM_MIRROR=$custom_mirror \
 --build-arg TARGETARCH="" .
 docker save ${image_name} ${latest_image} | gzip > ${image_package_name}
 rm "${working_dir}/${package_name}.${extension}"
+if [[ -n "$debuginfo_package_path" && -f "${working_dir}/$(basename "$debuginfo_package_path")" ]]; then
+  rm "${working_dir}/$(basename "$debuginfo_package_path")"
+fi
 if [[ -n "$src_path" ]]; then
   rm -rf "${working_dir}/src"
+  rm -rf "${working_dir}/gdb-bundle"
 fi
 
 if [[ "$generate_sbom" == true ]]; then

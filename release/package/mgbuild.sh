@@ -642,6 +642,10 @@ build_memgraph () {
   local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_v7 $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
 
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN"
+  # Repair any cache entries left inconsistent by previous interrupted runs
+  # on this self-hosted runner (OOM kills, SIGBUS, etc.) before conan install
+  # asserts on a missing package folder.
+  docker exec -u mg "$build_container" bash -c "$CMD_START && \$HOME/memgraph/tools/ci/conan-cache-doctor.sh"
   if [[ -n "$build_dependency" ]]; then
     echo "Installing build dependency: $build_dependency"
     if [[ "$build_dependency" == "all" ]]; then
@@ -687,6 +691,16 @@ build_memgraph () {
     fi
   done
 
+  # Auto-cap link concurrency for ThinLTO-using configs. lld's parallel
+  # ThinLTO codegen runs at link time and uses ~3-5 GB per concurrent module
+  # on heavy boost/template-laden TUs; without a cap, RelWithDebInfo/Release
+  # links OOM on smaller CI runners. Caller-supplied --link-threads wins.
+  if [[ "$link_threads" -eq 0 ]] && [[ "$build_type" == "RelWithDebInfo" || "$build_type" == "Release" ]]; then
+    if [[ -x "$PROJECT_ROOT/tools/ci/compute-build-threads.sh" ]]; then
+      link_threads=$("$PROJECT_ROOT/tools/ci/compute-build-threads.sh" 4)
+      echo "Auto-capping link threads to $link_threads (ThinLTO, ~4 GB/thread budget)"
+    fi
+  fi
   # Cap link concurrency via Ninja job pools, leaving compile parallelism untouched.
   if [[ "$link_threads" -gt 0 ]]; then
     additional_options="$additional_options -DCMAKE_JOB_POOLS=link=$link_threads -DCMAKE_JOB_POOL_LINK=link"
@@ -765,11 +779,11 @@ package_memgraph() {
       docker exec -u root "$build_container" bash -c "pip install rpmlint==2.8.0 --user"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake"
   elif [[ "$os" =~ ^"fedora".* ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph-[0-9]*.rpm "
   elif [[ "$os" == "rocky-10" ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph-[0-9]*.rpm "
   elif [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"amzn".* ]] || [[ "$os" =~ ^"rocky".* ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph-[0-9]*.rpm "
   fi
 
   if [[ "$os" =~ ^"debian".* ]]; then
@@ -782,15 +796,15 @@ package_memgraph() {
   fi
   docker exec -u root "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
   if [[ "$os" == "centos-10" ]]; then
-    docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
+    docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph-[0-9]*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
   fi
 
   # check for mgconsole inside package
   if [[ "$os" =~ ^"ubuntu".* || "$os" =~ ^"debian".* ]]; then
-    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.deb")"
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph_*.deb")"
     check_output="$(docker exec -u mg $build_container bash -c "dpkg -c $package_name")"
   else
-    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.rpm")"
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph-[0-9]*.rpm")"
     check_output="$(docker exec -u mg $build_container bash -c "rpm -ql $package_name")"
   fi
   if ! grep -q "mgconsole" <<< "$check_output"; then
@@ -873,18 +887,37 @@ package_docker() {
       ;;
     esac
   done
+  # Pick main package only (exclude memgraph-debuginfo*). Use grep -v rather
+  # than relying on mtime, which used to be deterministic but with component
+  # packaging breaks: cpack writes the debuginfo file last so `ls -t | head -1`
+  # would return the wrong package and the docker image would install only
+  # the .dwp without the binary.
   # shellcheck disable=SC2012
-  local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
+  local main_package_name=$(cd $package_dir && ls memgraph* 2>/dev/null | grep -v debuginfo | head -1)
+  local debuginfo_package_name=$(cd $package_dir && ls memgraph-debuginfo* 2>/dev/null | head -1)
+  if [[ -z "$main_package_name" ]]; then
+    echo "Error: no main memgraph package found in $package_dir"
+    exit 1
+  fi
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
   echo "Using custom mirror: $custom_mirror"
+  echo "Main package: $main_package_name"
+  echo "Debuginfo package: ${debuginfo_package_name:-<none>}"
+
+  local debuginfo_arg=()
+  if [[ -n "$debuginfo_package_name" ]]; then
+    debuginfo_arg=(--debuginfo-package-path "$package_dir/$debuginfo_package_name")
+  fi
 
   if [[ "$build_type" == "Release" ]]; then
     echo "Package release"
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+    # Release image is stripped + production-facing; no .dwp shipped even if
+    # the debuginfo package was produced.
+    ./package_docker --latest --package-path "$package_dir/$main_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   else
     echo "Package other"
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+    ./package_docker --package-path "$package_dir/$main_package_name" "${debuginfo_arg[@]}" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
@@ -945,11 +978,13 @@ copy_memgraph() {
           echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
           exit 1
         fi
+        # Component packaging emits both memgraph and memgraph-debuginfo in
+        # output/. The copy step grabs whichever package files are there;
+        # downstream steps disambiguate by glob (memgraph_*.deb / memgraph-[0-9]*.rpm).
         artifact="package"
-        local container_package_dir="$MGBUILD_BUILD_DIR/output"
+        container_artifact_path="$MGBUILD_BUILD_DIR/output"
         host_dir="$PROJECT_BUILD_DIR/output/$os"
-        artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph* | head -1")
-        container_artifact_path="$container_package_dir/$artifact_name"
+        artifact_name=""
         shift 1
       ;;
       --libs)
@@ -1056,7 +1091,23 @@ copy_memgraph() {
     docker exec -u mg "$build_container" bash -c "rm -rf $temp_log_dir"
     echo -e "Log files copied to $host_dir!"
   elif [[ "$artifact" == "package" ]]; then
-    docker cp $build_container:$container_artifact_path $host_artifact_path
+    # Copy every memgraph*.deb / memgraph*.rpm in the output dir (main +
+    # debuginfo). Use a shell glob that tolerates one-of-the-two patterns
+    # not matching (deb-only or rpm-only containers): nullglob plus shopt
+    # makes the glob expand to empty rather than the literal pattern, and
+    # the `|| true` keeps `set -e` from killing the script when neither
+    # glob matches before the explicit empty-check below.
+    local pkg_files
+    pkg_files=$(docker exec -u mg "$build_container" bash -c \
+      "shopt -s nullglob; cd $container_artifact_path && ls -1 memgraph*.deb memgraph*.rpm 2>/dev/null" || true)
+    if [[ -z "$pkg_files" ]]; then
+      echo "Error: no memgraph*.deb or memgraph*.rpm in $container_artifact_path"
+      exit 1
+    fi
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      docker cp "$build_container:$container_artifact_path/$f" "$host_dir/"
+    done <<< "$pkg_files"
   else
     docker cp -L $build_container:$container_artifact_path $host_artifact_path
   fi
@@ -1453,6 +1504,29 @@ copy_heaptrack() {
     esac
   done
   docker cp $build_container:/tmp/heaptrack/ $dest_dir
+}
+
+build_gdb_bundle() {
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  docker cp tools/ci/build-gdb-bundle.sh $build_container:$MGBUILD_HOME_DIR/build-gdb-bundle.sh
+  docker exec -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && MG_TOOLCHAIN_VERSION=${toolchain_version} $MGBUILD_HOME_DIR/build-gdb-bundle.sh"
+}
+
+copy_gdb_bundle() {
+  local dest_dir="release/docker"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-dir)
+        dest_dir=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+    esac
+  done
+  docker cp $build_container:/tmp/gdb-bundle/ $dest_dir
 }
 
 build_mage() {
@@ -2448,6 +2522,12 @@ case $command in
     ;;
     copy-heaptrack)
       copy_heaptrack $@
+    ;;
+    build-gdb-bundle)
+      build_gdb_bundle $@
+    ;;
+    copy-gdb-bundle)
+      copy_gdb_bundle $@
     ;;
     build-mage)
       build_mage $@
