@@ -45,7 +45,7 @@ class VirtualGraph final {
   VirtualGraph(VirtualGraph &&other, allocator_type alloc);
 
   VirtualGraph &operator=(const VirtualGraph &other);
-  VirtualGraph &operator=(VirtualGraph &&other);
+  VirtualGraph &operator=(VirtualGraph &&other) noexcept;
   ~VirtualGraph() = default;
 
   const VirtualNode &InsertNode(VirtualNode node);

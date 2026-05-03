@@ -138,7 +138,7 @@ void VirtualGraphDbAccessor::TrackCurrentThreadAllocations() { db_accessor_.Trac
 
 void VirtualGraphDbAccessor::
     UntrackCurrentThreadAllocations() {  // NOLINT(readability-convert-member-functions-to-static)
-  db_accessor_.UntrackCurrentThreadAllocations();
+  query::DbAccessor::UntrackCurrentThreadAllocations();
 }
 
 storage::PropertyId VirtualGraphDbAccessor::NameToProperty(const std::string_view name) {

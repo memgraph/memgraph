@@ -30,20 +30,13 @@ VirtualGraph &VirtualGraph::operator=(const VirtualGraph &other) {
   return *this;
 }
 
-VirtualGraph &VirtualGraph::operator=(VirtualGraph &&other) {
+VirtualGraph &VirtualGraph::operator=(VirtualGraph &&other) noexcept {
   if (this == &other) return *this;
-  if (get_allocator() == other.get_allocator()) {
-    nodes_ = std::move(other.nodes_);
-    edges_ = std::move(other.edges_);
-    out_index_ = std::move(other.out_index_);
-    in_index_ = std::move(other.in_index_);
-  } else {
-    nodes_ = other.nodes_;
-    edges_ = other.edges_;
-    out_index_.clear();
-    in_index_.clear();
-    RebuildEdgeIndexes();
-  }
+  DMG_ASSERT(get_allocator() == other.get_allocator(), "VirtualGraph move-assign across allocators is not supported");
+  nodes_ = std::move(other.nodes_);
+  edges_ = std::move(other.edges_);
+  out_index_ = std::move(other.out_index_);
+  in_index_ = std::move(other.in_index_);
   return *this;
 }
 
