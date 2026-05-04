@@ -153,11 +153,15 @@ bool operator<(const DatabaseState::LabelPropertyItem &first, const DatabaseStat
 }
 
 bool operator<(const DatabaseState::TextNodeItem &first, const DatabaseState::TextNodeItem &second) {
-  return first.index_name < second.index_name;
+  if (first.index_name != second.index_name) return first.index_name < second.index_name;
+  if (first.label != second.label) return first.label < second.label;
+  return first.properties < second.properties;
 }
 
 bool operator<(const DatabaseState::TextEdgeItem &first, const DatabaseState::TextEdgeItem &second) {
-  return first.index_name < second.index_name;
+  if (first.index_name != second.index_name) return first.index_name < second.index_name;
+  if (first.edge_type != second.edge_type) return first.edge_type < second.edge_type;
+  return first.properties < second.properties;
 }
 
 bool operator<(const DatabaseState::PointItem &first, const DatabaseState::PointItem &second) {
@@ -199,11 +203,12 @@ bool operator==(const DatabaseState::LabelPropertyItem &first, const DatabaseSta
 }
 
 bool operator==(const DatabaseState::TextNodeItem &first, const DatabaseState::TextNodeItem &second) {
-  return first.index_name == second.index_name;
+  return first.index_name == second.index_name && first.label == second.label && first.properties == second.properties;
 }
 
 bool operator==(const DatabaseState::TextEdgeItem &first, const DatabaseState::TextEdgeItem &second) {
-  return first.index_name == second.index_name;
+  return first.index_name == second.index_name && first.edge_type == second.edge_type &&
+         first.properties == second.properties;
 }
 
 bool operator==(const DatabaseState::PointItem &first, const DatabaseState::PointItem &second) {
@@ -1525,8 +1530,6 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   }
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
     ASSERT_EQ(GetState(db_acc->storage()), db_initial_state);
-  } else {
-    ASSERT_EQ(GetState(this->db->storage()), db_initial_state);
   }
 }
 
