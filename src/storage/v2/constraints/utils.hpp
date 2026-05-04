@@ -19,7 +19,7 @@ namespace memgraph::storage {
 template <typename ResultType, typename Func, typename... Args>
 void do_per_thread_validation(ResultType &result, Func &&func,
                               const std::vector<std::pair<Gid, uint64_t>> &vertex_batches,
-                              std::atomic<uint64_t> &batch_counter, const utils::SkipList<Vertex>::Accessor &vertices,
+                              std::atomic<uint64_t> &batch_counter, const utils::SkipListDb<Vertex>::Accessor &vertices,
                               std::optional<SnapshotObserverInfo> const &snapshot_info, Args &&...args) {
   while (result.ReadLock()->has_value()) {
     const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);

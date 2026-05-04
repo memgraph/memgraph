@@ -35,6 +35,7 @@ TEST(Storage, LabelIndex) {
   {
     auto unique_acc = store->UniqueAccess();
     ASSERT_TRUE(unique_acc->CreateIndex(label).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   std::vector<std::thread> verifiers;
@@ -120,6 +121,7 @@ TEST(Storage, LabelPropertyIndex) {
   {
     auto unique_acc = store->UniqueAccess();
     ASSERT_TRUE(unique_acc->CreateIndex(label, {prop}).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   std::vector<std::thread> verifiers;

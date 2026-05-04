@@ -31,14 +31,14 @@ namespace memgraph::storage {
 class TypeConstraints {
  public:
   struct MultipleThreadsConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
+    std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
                                                   const LabelId &label, const PropertyId &property);
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
 
   struct SingleThreadConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
+    std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
                                                   const LabelId &label, const PropertyId &property);
   };
 
@@ -84,18 +84,26 @@ class TypeConstraints {
 
   auto GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints>;
 
-  [[nodiscard]] static auto ValidateVerticesOnConstraint(utils::SkipList<Vertex>::Accessor vertices, LabelId label,
+  [[nodiscard]] static auto ValidateVerticesOnConstraint(utils::SkipListDb<Vertex>::Accessor vertices, LabelId label,
                                                          PropertyId property, TypeConstraintKind type)
       -> std::expected<void, ConstraintViolation>;
 
-  [[nodiscard]] auto ValidateAllVertices(utils::SkipList<Vertex>::Accessor vertices,
+  [[nodiscard]] auto ValidateAllVertices(utils::SkipListDb<Vertex>::Accessor vertices,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
       -> std::expected<void, ConstraintViolation>;
 
   [[nodiscard]] bool RegisterConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
   void PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type, uint64_t commit_timestamp);
-  /// Drops a constraint. Returns false if constraint doesn't exist or type doesn't match.
-  bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+
+  /// Drops a constraint. Returns the evicted IndividualConstraint so the caller can
+  /// reinstall it via RestoreConstraint on abort, or nullptr if no constraint
+  /// existed for {label, property} or the type didn't match.
+  [[nodiscard]] IndividualConstraintPtr DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+
+  /// Reinstalls a previously-evicted IndividualConstraint. No-op if the slot
+  /// has been reclaimed by a concurrent CREATE (constraint DDL runs under
+  /// READ_ONLY/UNIQUE, which does not serialize peers).
+  void RestoreConstraint(LabelId label, PropertyId property, IndividualConstraintPtr evicted);
 
   void DropGraphClearConstraints();
 
@@ -105,6 +113,10 @@ class TypeConstraints {
  private:
   /// Get individual constraint for in-place status modification.
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
+
+  // Installs ptr if absent. restore_l2p=true on RestoreConstraint re-adds the
+  // (property, type) entry to l2p_ (RegisterConstraint defers that to PublishConstraint).
+  bool InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr, bool restore_l2p);
 
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };

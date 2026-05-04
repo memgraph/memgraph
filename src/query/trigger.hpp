@@ -20,6 +20,7 @@
 
 #include "dbms/database_protector.hpp"
 #include "kvstore/kvstore.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -137,8 +138,8 @@ struct TriggerStore {
   utils::SpinLock store_lock_;
   kvstore::KVStore storage_;
 
-  utils::SkipList<Trigger> before_commit_triggers_;
-  utils::SkipList<Trigger> after_commit_triggers_;
+  utils::SkipListDb<Trigger> before_commit_triggers_;
+  utils::SkipListDb<Trigger> after_commit_triggers_;
 };
 
 }  // namespace memgraph::query

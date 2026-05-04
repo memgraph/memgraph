@@ -432,7 +432,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
-    LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info, IndexOrder order) {
   auto res = RegisterIndex(label, properties, updater, order);
@@ -494,7 +494,7 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
 }
 
 auto InMemoryLabelPropertyIndex::PopulateIndex(
-    LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info, IndexOrder order,
     Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
@@ -524,10 +524,10 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
     (order == IndexOrder::ASC) ? populate(GetIndividualIndex<Entry>(label, properties))
                                : populate(GetIndividualIndex<DescEntry>(label, properties));
   } catch (const PopulateCancel &) {
-    DropSingleOrder(label, properties, updater, order);
+    std::ignore = DropIndex(label, properties, updater, order);
     return std::unexpected{IndexPopulateError::Cancellation};
   } catch (const utils::OutOfMemoryException &) {
-    DropSingleOrder(label, properties, updater, order);
+    std::ignore = DropIndex(label, properties, updater, order);
     throw;
   }
 
@@ -776,40 +776,97 @@ void InMemoryLabelPropertyIndex::CleanupStatsForDrop(IndexContainer const &new_i
   }
 }
 
-LabelPropertyIndex::DropResult InMemoryLabelPropertyIndex::DropFromSelected(LabelId label,
-                                                                            std::vector<PropertyPath> const &properties,
-                                                                            ActiveIndicesUpdater const &updater,
-                                                                            std::optional<IndexOrder> order) {
+auto InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
+                                           ActiveIndicesUpdater const &updater, std::optional<IndexOrder> order)
+    -> DropCapture {
+  std::shared_ptr<IndividualIndex<Entry>> asc_evicted;
+  std::shared_ptr<IndividualIndex<DescEntry>> desc_evicted;
+  std::optional<PropertiesIndicesStats> stats_evicted;
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> DropResult {
-    auto new_index = std::make_shared<IndexContainer>(*index);
     bool const try_asc = !order || *order == IndexOrder::ASC;
     bool const try_desc = !order || *order == IndexOrder::DESC;
+
+    // Capture the per-key shared_ptrs *before* the drop. They survive
+    // CleanupAllIndices via the captured ref and let us re-insert just our keys
+    // on abort without clobbering concurrent drops/creates of other keys.
+    if (try_asc) {
+      if (auto lit = index->asc_indices_.find(label); lit != index->asc_indices_.end()) {
+        if (auto pit = lit->second.find(properties); pit != lit->second.end()) asc_evicted = pit->second;
+      }
+    }
+    if (try_desc) {
+      if (auto lit = index->desc_indices_.find(label); lit != index->desc_indices_.end()) {
+        if (auto pit = lit->second.find(properties); pit != lit->second.end()) desc_evicted = pit->second;
+      }
+    }
+
+    auto new_index = std::make_shared<IndexContainer>(*index);
     bool const dropped_asc =
         try_asc && DropFromOrder(new_index->asc_indices_, new_index->asc_reverse_lookup_, label, properties);
     bool const dropped_desc =
         try_desc && DropFromOrder(new_index->desc_indices_, new_index->desc_reverse_lookup_, label, properties);
-    if (!dropped_asc && !dropped_desc) return {};
+    if (!dropped_asc && !dropped_desc) {
+      asc_evicted.reset();
+      desc_evicted.reset();
+      return {};
+    }
+    if (!dropped_asc) asc_evicted.reset();
+    if (!dropped_desc) desc_evicted.reset();
 
+    // Capture the per-label stats slice before CleanupStatsForDrop erases it,
+    // so an aborted drop can re-emplace any keys it removed.
+    {
+      auto stats_ptr = stats_.Lock();
+      if (auto sit = stats_ptr->find(label); sit != stats_ptr->end()) {
+        stats_evicted = sit->second;
+      }
+    }
     CleanupStatsForDrop(*new_index, label, properties);
     index = std::move(new_index);
     updater(std::make_shared<ActiveIndices>(index));
     return {.dropped_asc = dropped_asc, .dropped_desc = dropped_desc};
   });
   CleanupAllIndices();
-  return result;
+  return {.result = result,
+          .asc_evicted = std::move(asc_evicted),
+          .desc_evicted = std::move(desc_evicted),
+          .stats_evicted = std::move(stats_evicted)};
 }
 
-LabelPropertyIndex::DropResult InMemoryLabelPropertyIndex::DropIndex(LabelId label,
-                                                                     std::vector<PropertyPath> const &properties,
-                                                                     ActiveIndicesUpdater const &updater,
-                                                                     std::optional<IndexOrder> order) {
-  // `order == nullopt` drops both ASC and DESC in one atomic update.
-  return DropFromSelected(label, properties, updater, order);
-}
+void InMemoryLabelPropertyIndex::RestoreIndex(LabelId label, std::vector<PropertyPath> properties,
+                                              std::shared_ptr<IndividualIndex<Entry>> asc_evicted,
+                                              std::shared_ptr<IndividualIndex<DescEntry>> desc_evicted,
+                                              std::optional<PropertiesIndicesStats> stats_evicted,
+                                              ActiveIndicesUpdater const &updater) {
+  if (!asc_evicted && !desc_evicted) return;
+  index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
+    auto already_present = [&](auto const &indices_map) -> bool {
+      auto lit = indices_map.find(label);
+      return lit != indices_map.end() && lit->second.contains(properties);
+    };
+    bool const skip_asc = !asc_evicted || already_present(index->asc_indices_);
+    bool const skip_desc = !desc_evicted || already_present(index->desc_indices_);
+    if (skip_asc && skip_desc) return;  // concurrent re-create won for both orders
 
-void InMemoryLabelPropertyIndex::DropSingleOrder(LabelId label, std::vector<PropertyPath> const &properties,
-                                                 ActiveIndicesUpdater const &updater, IndexOrder order) {
-  DropFromSelected(label, properties, updater, order);
+    // Two copies: first to mutate the per-order maps, second to rebuild the
+    // reverse_lookup (the IndexContainer copy ctor calls BuildReverseLookup).
+    IndexContainer mutated{*index};
+    if (!skip_asc) mutated.asc_indices_[label].emplace(properties, std::move(asc_evicted));
+    if (!skip_desc) mutated.desc_indices_[label].emplace(properties, std::move(desc_evicted));
+    auto new_index = std::make_shared<IndexContainer>(std::move(mutated));
+    index = std::move(new_index);
+    updater(std::make_shared<ActiveIndices>(index));
+  });
+
+  // Re-emplace any stats keys that were erased on drop, leaving any concurrent
+  // SetIndexStats writes to other keys untouched (emplace is a no-op on conflict).
+  if (stats_evicted) {
+    auto stats_ptr = stats_.Lock();
+    auto &dst = (*stats_ptr)[label];
+    for (auto const &[key, value] : *stats_evicted) {
+      dst.emplace(key, value);
+    }
+  }
 }
 
 bool InMemoryLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label,
@@ -978,7 +1035,7 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
 
 template <typename EntryT>
 InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::Iterator(
-    Iterable *self, typename utils::SkipList<EntryT>::Iterator index_iterator)
+    Iterable *self, typename utils::SkipListDb<EntryT>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, self_->storage_, nullptr),
@@ -1013,8 +1070,8 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
 }
 
 template <typename EntryT>
-InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipList<EntryT>::Accessor index_accessor,
-                                                       utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
+InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListDb<EntryT>::Accessor index_accessor,
+                                                       utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor,
                                                        LabelId label, PropertiesPaths const *properties,
                                                        PropertiesPermutationHelper const *permutation_helper,
                                                        std::span<PropertyValueRange const> ranges, View view,
@@ -1207,10 +1264,11 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(LabelId label, std::spa
 }
 
 template <typename EntryT>
-auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(
-    LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
-    Transaction *transaction) -> Iterable<EntryT> {
+auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(LabelId label, std::span<PropertyPath const> properties,
+                                                         std::span<PropertyValueRange const> range,
+                                                         utils::SkipListDb<Vertex>::ConstAccessor vertices_acc,
+                                                         View view, Storage *storage, Transaction *transaction)
+    -> Iterable<EntryT> {
   auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
   return {it->second->skiplist.access(),
           std::move(vertices_acc),
@@ -1226,8 +1284,8 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(
 template <typename EntryT>
 InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
-    Transaction *transaction, size_t num_chunks) {
+    utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage, Transaction *transaction,
+    size_t num_chunks) {
   auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
   return {it->second->skiplist.access(),
           std::move(vertices_acc),
@@ -1320,7 +1378,7 @@ template <typename EntryT>
 void InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::Iterator::AdvanceUntilValid() {
   constexpr bool is_desc = std::same_as<EntryT, DescEntry>;
   AdvanceUntilValid_(index_iterator_,
-                     typename utils::SkipList<EntryT>::ChunkedIterator{},
+                     typename utils::SkipListDb<EntryT>::ChunkedIterator{},
                      current_vertex_,
                      current_vertex_accessor_,
                      self_->storage_,
@@ -1336,10 +1394,10 @@ void InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::Iterator::AdvanceUntil
 
 template <typename EntryT>
 InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
-    typename utils::SkipList<EntryT>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
-    LabelId label, PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
-    std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction,
-    size_t num_chunks)
+    typename utils::SkipListDb<EntryT>::Accessor index_accessor,
+    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, PropertiesPaths const *properties,
+    PropertiesPermutationHelper const *permutation_helper, std::span<PropertyValueRange const> ranges, View view,
+    Storage *storage, Transaction *transaction, size_t num_chunks)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -1358,7 +1416,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
     chunks_ = index_accessor_.create_chunks(
         num_chunks, GenerateBounds(lower_bound_, kSmallestProperty), GenerateBounds(upper_bound_, kLargestProperty));
   }
-  RechunkIndex<utils::SkipList<EntryT>>(
+  RechunkIndex<utils::SkipListDb<EntryT>>(
       chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex && a.values == b.values; });
 }
 
@@ -1383,19 +1441,19 @@ template auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices<InMemoryLabelP
     -> Iterable<DescEntry>;
 template auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices<InMemoryLabelPropertyIndex::Entry>(
     LabelId, std::span<PropertyPath const>, std::span<PropertyValueRange const>,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *)
+    memgraph::utils::SkipListDb<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *)
     -> Iterable<Entry>;
 template auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices<InMemoryLabelPropertyIndex::DescEntry>(
     LabelId, std::span<PropertyPath const>, std::span<PropertyValueRange const>,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *)
+    memgraph::utils::SkipListDb<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *)
     -> Iterable<DescEntry>;
 template InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>
 InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices<InMemoryLabelPropertyIndex::Entry>(
     LabelId, std::span<PropertyPath const>, std::span<PropertyValueRange const>,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *, size_t);
+    memgraph::utils::SkipListDb<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *, size_t);
 template InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>
 InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices<InMemoryLabelPropertyIndex::DescEntry>(
     LabelId, std::span<PropertyPath const>, std::span<PropertyValueRange const>,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *, size_t);
+    memgraph::utils::SkipListDb<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *, size_t);
 
 }  // namespace memgraph::storage

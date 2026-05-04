@@ -30,7 +30,7 @@ namespace memgraph::utils {
 // but procedure can have multiple threads which are doing allocations
 class QueryMemoryTracker {
  public:
-  QueryMemoryTracker() = default;
+  explicit QueryMemoryTracker(memgraph::utils::MemoryTracker *parent = nullptr) : transaction_tracker_(parent) {}
 
   QueryMemoryTracker(QueryMemoryTracker &&other) noexcept
       : transaction_tracker_(std::move(other.transaction_tracker_)),

@@ -12,6 +12,7 @@
 #pragma once
 
 #include "common_function_signatures.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "mg_procedure.h"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/async_indexer.hpp"
@@ -58,6 +59,10 @@ extern const Event ActiveExistenceConstraints;
 extern const Event ActiveUniqueConstraints;
 extern const Event ActiveTypeConstraints;
 }  // namespace memgraph::metrics
+
+namespace memgraph::utils {
+class MemoryTracker;
+}
 
 namespace memgraph::storage {
 class SharedAccessTimeout : public utils::BasicException {
@@ -213,6 +218,7 @@ class Storage {
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
+          memory::ArenaPool *db_arena_pool = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
           std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
 
   Storage(const Storage &) = delete;
@@ -229,6 +235,8 @@ class Storage {
   auto uuid() const -> utils::UUID const & { return config_.salient.uuid; }
 
   auto uuid() -> utils::UUID & { return config_.salient.uuid; }
+
+  memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   using Accessor = memgraph::storage::Accessor;
   friend class memgraph::storage::Accessor;
@@ -367,6 +375,7 @@ class Storage {
 
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
+  memory::ArenaPool *db_arena_pool_{nullptr};
 
   Indices indices_;
   Constraints constraints_;

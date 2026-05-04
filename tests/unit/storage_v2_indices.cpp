@@ -27,6 +27,7 @@
 #include "storage/v2/temporal.hpp"
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/unit/ddl_abort_helpers.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -35,8 +36,7 @@ using testing::IsEmpty;
 using testing::Types;
 using testing::UnorderedElementsAre;
 
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
+// ASSERT_NO_ERROR provided by ddl_abort_helpers.hpp.
 
 namespace pvr {
 // Create a PropertyValueRange for testing against property equality
@@ -103,6 +103,13 @@ class IndexTest : public testing::Test {
     this->storage.reset(nullptr);
   }
 
+  const std::string testSuite = "storage_v2_indices";
+  memgraph::storage::Config config_;
+
+ public:
+  // public so namespace-scope test-helper lambdas can reach storage / accessor factories.
+  std::unique_ptr<memgraph::storage::Storage> storage;
+
   auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
     if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
       return this->storage->ReadOnlyAccess();
@@ -119,9 +126,7 @@ class IndexTest : public testing::Test {
     }
   }
 
-  const std::string testSuite = "storage_v2_indices";
-  memgraph::storage::Config config_;
-  std::unique_ptr<memgraph::storage::Storage> storage;
+ protected:
   PropertyId prop_id;
   PropertyId prop_val;
   LabelId label1;
@@ -4641,4 +4646,201 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransa
     EXPECT_THAT(this->GetIds(acc_new->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
                 IsEmpty());
   }
+}
+
+using memgraph::tests::ConstraintAcc;
+using memgraph::tests::DropAcc;
+using memgraph::tests::ExpectCreateAbortLeavesNoGhostEntry;
+using memgraph::tests::ExpectDropAbortRestoresIndex;
+using memgraph::tests::IndexAcc;
+using memgraph::tests::UniqueAcc;
+
+TYPED_TEST(IndexTest, LabelIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(this, IndexAcc, [&](auto *acc) { return acc->CreateIndex(this->label1); });
+}
+
+TYPED_TEST(IndexTest, LabelPropertyIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  PropertyPath props{this->prop_val};
+  ExpectCreateAbortLeavesNoGhostEntry(
+      this, IndexAcc, [&](auto *acc) { return acc->CreateIndex(this->label1, {props}); });
+}
+
+TYPED_TEST(IndexTest, EdgeTypeIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(this, IndexAcc, [&](auto *acc) { return acc->CreateIndex(this->edge_type_id1); });
+}
+
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(
+      this, IndexAcc, [&](auto *acc) { return acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1); });
+}
+
+TYPED_TEST(IndexTest, EdgePropertyIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(
+      this, IndexAcc, [&](auto *acc) { return acc->CreateGlobalEdgeIndex(this->edge_prop_id1); });
+}
+
+TYPED_TEST(IndexTest, PointIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(
+      this, UniqueAcc, [&](auto *acc) { return acc->CreatePointIndex(this->label1, this->prop_val); });
+}
+
+TYPED_TEST(IndexTest, DropPointIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  // Point index has no XxxReady() reader on the public accessor; verify by
+  // re-dropping (which only succeeds if the entry is still live).
+  {
+    auto a = this->storage->UniqueAccess();
+    ASSERT_TRUE(a->CreatePointIndex(this->label1, this->prop_val).has_value());
+    ASSERT_NO_ERROR(a->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto a = this->storage->UniqueAccess();
+    ASSERT_TRUE(a->DropPointIndex(this->label1, this->prop_val).has_value());
+    a->Abort();
+  }
+  {
+    auto a = this->storage->UniqueAccess();
+    ASSERT_TRUE(a->DropPointIndex(this->label1, this->prop_val).has_value())
+        << "After an aborted DROP POINT INDEX, the index must be visible again and droppable.";
+    ASSERT_NO_ERROR(a->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TYPED_TEST(IndexTest, DropLabelIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectDropAbortRestoresIndex(
+      this,
+      IndexAcc,
+      DropAcc,
+      [&](auto *acc) { return acc->CreateIndex(this->label1); },
+      [&](auto *acc) { return acc->DropIndex(this->label1); },
+      [&](auto *acc) { return acc->LabelIndexReady(this->label1); });
+}
+
+TYPED_TEST(IndexTest, DropLabelPropertyIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  PropertyPath props{this->prop_val};
+  std::array<PropertyPath, 1> props_arr{props};
+  std::span<PropertyPath const> props_span{props_arr};
+  ExpectDropAbortRestoresIndex(
+      this,
+      IndexAcc,
+      DropAcc,
+      [&](auto *acc) { return acc->CreateIndex(this->label1, {props}); },
+      [&](auto *acc) { return acc->DropIndex(this->label1, std::vector<PropertyPath>{props}); },
+      [&](auto *acc) { return acc->LabelPropertyIndexReady(this->label1, props_span); });
+}
+
+TYPED_TEST(IndexTest, DropEdgeTypeIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectDropAbortRestoresIndex(
+      this,
+      IndexAcc,
+      DropAcc,
+      [&](auto *acc) { return acc->CreateIndex(this->edge_type_id1); },
+      [&](auto *acc) { return acc->DropIndex(this->edge_type_id1); },
+      [&](auto *acc) { return acc->EdgeTypeIndexReady(this->edge_type_id1); });
+}
+
+TYPED_TEST(IndexTest, DropEdgeTypePropertyIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectDropAbortRestoresIndex(
+      this,
+      IndexAcc,
+      DropAcc,
+      [&](auto *acc) { return acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1); },
+      [&](auto *acc) { return acc->DropIndex(this->edge_type_id1, this->edge_prop_id1); },
+      [&](auto *acc) { return acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1); });
+}
+
+TYPED_TEST(IndexTest, DropLabelPropertyIndexAbortDoesNotClobberConcurrentDrop) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  PropertyPath p1{this->prop_val};
+  PropertyPath p2{this->prop_id};
+  std::array<PropertyPath, 1> p1_arr{p1};
+  std::array<PropertyPath, 1> p2_arr{p2};
+  std::span<PropertyPath const> p1_span{p1_arr};
+  std::span<PropertyPath const> p2_span{p2_arr};
+
+  // Setup: two label-property indices on the same label.
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1, {p1}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1, {p2}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Open A's drop accessor and drop p1, but don't abort yet.
+  auto acc_a = this->DropIndexAccessor();
+  ASSERT_TRUE(acc_a->DropIndex(this->label1, std::vector<PropertyPath>{p1}).has_value());
+
+  // Concurrently, B drops p2 and commits.
+  {
+    auto acc_b = this->DropIndexAccessor();
+    ASSERT_TRUE(acc_b->DropIndex(this->label1, std::vector<PropertyPath>{p2}).has_value());
+    ASSERT_NO_ERROR(acc_b->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Now A aborts. Per-key reinsert must restore p1 only — must NOT undo B's drop of p2.
+  acc_a->Abort();
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  EXPECT_TRUE(acc->LabelPropertyIndexReady(this->label1, p1_span)) << "A's aborted drop of p1 must be undone.";
+  EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label1, p2_span))
+      << "B's committed drop of p2 must NOT be clobbered by A's abort.";
+}
+
+TYPED_TEST(IndexTest, DropLabelPropertyIndexAbortPreservesStats) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  PropertyPath props{this->prop_val};
+  std::array<PropertyPath, 1> props_arr{props};
+  std::span<PropertyPath const> props_span{props_arr};
+  auto const stats = memgraph::storage::LabelPropertyIndexStats{
+      .count = 7, .distinct_values_count = 3, .statistic = 1.5, .avg_group_size = 2.0, .avg_degree = 4.0};
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1, {props}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    acc->SetIndexStats(this->label1, props_span, stats);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->DropIndexAccessor();
+    ASSERT_TRUE(acc->DropIndex(this->label1, std::vector<PropertyPath>{props}).has_value());
+    acc->Abort();
+  }
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto recovered = acc->GetIndexStats(this->label1, props_span);
+  ASSERT_TRUE(recovered.has_value()) << "After an aborted DROP INDEX, the analytics stats must survive.";
+  EXPECT_EQ(recovered->count, stats.count);
+  EXPECT_EQ(recovered->distinct_values_count, stats.distinct_values_count);
+}
+
+TYPED_TEST(IndexTest, DropEdgePropertyIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectDropAbortRestoresIndex(
+      this,
+      IndexAcc,
+      DropAcc,
+      [&](auto *acc) { return acc->CreateGlobalEdgeIndex(this->edge_prop_id1); },
+      [&](auto *acc) { return acc->DropGlobalEdgeIndex(this->edge_prop_id1); },
+      [&](auto *acc) { return acc->EdgePropertyIndexReady(this->edge_prop_id1); });
 }

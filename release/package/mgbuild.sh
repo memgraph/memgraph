@@ -140,6 +140,7 @@ print_help () {
   echo -e "  --ubsan                       Build with UBSAN"
   echo -e "  --disable-jemalloc            Build without jemalloc"
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
+  echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
   echo -e "  --conan-username string       Specify conan username (default \"\")"
   echo -e "  --conan-password string       Specify conan password (default \"\")"
@@ -452,6 +453,7 @@ build_memgraph () {
   local conan_username=""
   local conan_password=""
   local build_dependency=""
+  local link_threads=0
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -511,6 +513,10 @@ build_memgraph () {
         build_dependency=$2
         shift 2
       ;;
+      --link-threads)
+        link_threads=$2
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -566,6 +572,13 @@ build_memgraph () {
 
   # Zero ccache statistics before build if ccache is enabled
   if [[ "$ccache_enabled" == "true" ]]; then
+    # Cache state pre-build: distinguishes "cache wiped between runs" (size 0)
+    # from "cache intact but cache key drifted" (size > 0 yet low hits below).
+    docker exec -u mg "$build_container" bash -c "ccache -sv" \
+      | awk '/Cache size/        {gsub(/[():%]/, ""); unit=$3; used=$4; cap=$6; pct=$7; size=used"/"cap" "unit" ("pct"%)"}
+             /^  Files:/         {files=$2}
+             /Cleanups performed:/{cleanups=$3}
+             END {printf "ccache_pre_build build_id=%s cache_size=%s files=%s cumulative_cleanups=%s\n", "'"${RUN_ID:-local}"'", size, files, (cleanups?cleanups:"0")}'
     echo "Zeroing ccache statistics for this build..."
     docker exec -u mg "$build_container" bash -c "ccache -z"
   fi
@@ -580,6 +593,14 @@ build_memgraph () {
 
   # use this because the commands get far too long!
   CMD_START="cd $MGBUILD_ROOT_DIR"
+
+  # Hash compiler binary content rather than its mtime. Container image rebuilds
+  # (or any tar/copy that resets /opt/toolchain-v7/bin/clang++ mtime) would
+  # otherwise invalidate every ccache entry. Content hashing of the 191 KB
+  # clang frontend driver is sub-millisecond, so the overhead is negligible.
+  if [[ "$ccache_enabled" == "true" ]]; then
+    CMD_START="$CMD_START && export CCACHE_COMPILERCHECK=content"
+  fi
 
   # Set up Conan environment
   echo "Setting up Conan environment..."
@@ -666,6 +687,11 @@ build_memgraph () {
     fi
   done
 
+  # Cap link concurrency via Ninja job pools, leaving compile parallelism untouched.
+  if [[ "$link_threads" -gt 0 ]]; then
+    additional_options="$additional_options -DCMAKE_JOB_POOLS=link=$link_threads -DCMAKE_JOB_POOL_LINK=link"
+  fi
+
   if [[ -n "$additional_options" ]]; then
     echo "Adding additional CMake options: $additional_options"
   fi
@@ -701,9 +727,18 @@ build_memgraph () {
   # Show ccache statistics if ccache is enabled
   if [[ "$ccache_enabled" == "true" ]]; then
     echo ""
-    echo "=== Ccache Statistics ==="
-    docker exec -u mg "$build_container" bash -c "ccache -s"
-    echo "========================="
+    echo "=== Ccache Statistics (this build only — zeroed at start) ==="
+    docker exec -u mg "$build_container" bash -c "ccache -sv" || docker exec -u mg "$build_container" bash -c "ccache -s"
+    echo "============================================================="
+    # Compact one-line summary; greppable for CI dashboards.
+    docker exec -u mg "$build_container" bash -c "ccache -s" \
+      | awk '/Cacheable calls:/  {calls=$3" "$4" "$5}
+             /^  Hits:/          {hits=$2; ratio=$5}
+             /^    Direct:/      {direct=$2}
+             /^    Preprocessed:/{preproc=$2}
+             /^  Misses:/        {miss=$2}
+             /Cleanups performed:/{cleanups=$3}
+             END {printf "ccache_summary build_id=%s calls=%s hits=%s direct=%s preproc=%s misses=%s hit_ratio=%s cleanups=%s\n", "'"${RUN_ID:-local}"'", calls, hits, direct, preproc, miss, ratio, cleanups}'
     echo ""
   fi
 
@@ -1900,6 +1935,9 @@ build_gssapi() {
     esac
   done
   mkdir -p "$dest_dir"
+  # TODO(matt): remove in toolchain v8
+  # we need to install libkrb5-dev in the container to build gssapi as it has been added as a build dependency sing the container image was built
+  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/install_deps.sh install MEMGRAPH_BUILD_DEPS"
   docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/tools/ci && ./build-gssapi.sh"
   local package_name
   package_name=$(docker exec -i -u mg $build_container bash -c "ls -1 \$HOME/memgraph/tools/ci/gssapi/dist/*.whl | head -n 1 | xargs -n1 basename")

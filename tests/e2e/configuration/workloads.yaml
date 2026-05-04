@@ -44,6 +44,22 @@ in_memory_cluster: &in_memory_cluster
       setup_queries: []
       validation_queries: []
 
+tenant_profiles_args: &tenant_profiles_args
+  - "--log-level=TRACE"
+  - "--storage-properties-on-edges=True"
+  - "--storage-snapshot-interval-sec"
+  - "300"
+  - "--storage-wal-enabled=True"
+  - "--memory-limit=2048"
+
+tenant_profiles_cluster: &tenant_profiles_cluster
+  cluster:
+    main:
+      args: *tenant_profiles_args
+      log_file: "tenant-profiles-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
 disk_cluster: &disk_cluster
   cluster:
     main:
@@ -72,6 +88,11 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["configuration/storage_info.py"]
     <<: *in_memory_cluster
+
+  - name: "Tenant profiles check"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["configuration/tenant_profiles.py"]
+    <<: *tenant_profiles_cluster
 
   - name: "Disk configuration check"
     binary: "tests/e2e/pytest_runner.sh"

@@ -13,7 +13,9 @@
 
 #include "storage/v2/delta_container.hpp"
 
+#include <optional>
 #include <ranges>
+#include <string_view>
 
 using namespace memgraph::storage;
 
@@ -44,4 +46,22 @@ TEST(DeltaContainer, Move) {
   EXPECT_FALSE(std::ranges::empty(container2));
   EXPECT_EQ(container2.size(), 1);
   EXPECT_EQ(std::distance(container2.begin(), container2.end()), 1);
+}
+
+TEST(DeltaContainer, MoveWithPageSlabMemoryResource) {
+  auto container = delta_container{};
+  container.emplace(Delta::DeleteDeserializedObjectTag{}, 42U, std::optional<std::string_view>{"disk-key"});
+  auto container2 = std::move(container);
+
+  auto container3 = delta_container{};
+  container3 = std::move(container2);
+
+  EXPECT_TRUE(std::ranges::empty(container));
+  EXPECT_EQ(container.size(), 0);
+  EXPECT_TRUE(std::ranges::empty(container2));
+  EXPECT_EQ(container2.size(), 0);
+
+  EXPECT_FALSE(std::ranges::empty(container3));
+  EXPECT_EQ(container3.size(), 1);
+  EXPECT_EQ(std::distance(container3.begin(), container3.end()), 1);
 }

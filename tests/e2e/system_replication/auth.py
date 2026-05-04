@@ -483,7 +483,7 @@ def test_manual_roles_recovery(connection, test_name):
     mg_sleep_and_assert(expected_data, show_users_func(cursor_replica_2))
 
     # 2/
-    expected_data = {("role1",), ("role2",), ("role3",), ("role8",)}
+    expected_data = {("role1", False), ("role2", False), ("role3", False), ("role8", False)}
     mg_sleep_and_assert(expected_data, show_roles_func(cursor_replica_1))
     mg_sleep_and_assert(expected_data, show_roles_func(cursor_replica_2))
 
@@ -510,13 +510,13 @@ def test_manual_roles_recovery(connection, test_name):
     # Test SET ROLE
     execute_and_fetch_all(cursor_main, "SET ROLE FOR test_user TO test_role1, test_role2")
     results1 = execute_and_fetch_all(cursor_main, "SHOW ROLE FOR test_user")
-    role_set1 = {row[0] for row in results1 if row[0] != "null"}
+    role_set1 = {row[0] for row in results1}
 
     # Test SET ROLES
     execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR test_user")
     execute_and_fetch_all(cursor_main, "SET ROLES FOR test_user TO test_role1, test_role2")
     results2 = execute_and_fetch_all(cursor_main, "SHOW ROLES FOR test_user")
-    role_set2 = {row[0] for row in results2 if row[0] != "null"}
+    role_set2 = {row[0] for row in results2}
 
     # Both should show the same roles
     assert role_set1 == role_set2
@@ -525,12 +525,12 @@ def test_manual_roles_recovery(connection, test_name):
     # Test CLEAR ROLE vs CLEAR ROLES
     execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR test_user")
     results3 = execute_and_fetch_all(cursor_main, "SHOW ROLE FOR test_user")
-    assert len(results3) == 1 and results3[0][0] == "null"
+    assert len(results3) == 0
 
     execute_and_fetch_all(cursor_main, "SET ROLES FOR test_user TO test_role1, test_role2")
     execute_and_fetch_all(cursor_main, "CLEAR ROLES FOR test_user")
     results4 = execute_and_fetch_all(cursor_main, "SHOW ROLES FOR test_user")
-    assert len(results4) == 1 and results4[0][0] == "null"
+    assert len(results4) == 0
 
 
 def test_auth_config_recovery(connection, test_name):
@@ -727,33 +727,28 @@ def test_auth_replication(connection, test_name):
     connection(BOLT_PORTS["replica_1"], "replica").cursor()  # Just check connection
     connection(BOLT_PORTS["replica_2"], "replica").cursor()  # Just check connection
 
+    builtin_roles = {("admin", True), ("readwrite", True), ("readonly", True)}
+
     # CREATE ROLE
     execute_and_fetch_all(cursor_main, "CREATE ROLE role1")
     check(
         show_roles_func,
-        {
-            ("role1",),
-        },
+        builtin_roles | {("role1", False)},
     )
     execute_and_fetch_all(cursor_main, "CREATE ROLE role2")
     check(
         show_roles_func,
-        {
-            ("role2",),
-            ("role1",),
-        },
+        builtin_roles | {("role2", False), ("role1", False)},
     )
 
     # DROP ROLE
     execute_and_fetch_all(cursor_main, "DROP ROLE role2")
     check(
         show_roles_func,
-        {
-            ("role1",),
-        },
+        builtin_roles | {("role1", False)},
     )
     execute_and_fetch_all(cursor_main, "DROP ROLE role1")
-    check(show_roles_func, set())
+    check(show_roles_func, builtin_roles)
 
     # SET ROLE
     execute_and_fetch_all(cursor_main, "CREATE USER user3")
@@ -800,7 +795,7 @@ def test_auth_replication(connection, test_name):
 
     # CLEAR ROLE
     execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR user3")
-    check(partial(show_role_for_user_func, username="user3"), {("null",)})
+    check(partial(show_role_for_user_func, username="user3"), set())
     check(
         partial(show_users_for_role_func, rolename="role3"),
         {
@@ -1043,9 +1038,11 @@ def test_auth_replication(connection, test_name):
     check(partial(get_mt_roles, username="mt_user", database="mt_db1"), {"mt_role1", "mt_role2"})
     check(partial(get_mt_roles, username="mt_user", database="mt_db2"), {"mt_role2"})
 
-    # Remove role
+    # Remove role (must unassign first since roles cannot be dropped while assigned)
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR mt_user ON mt_db1")
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR mt_user ON mt_db2")
     execute_and_fetch_all(cursor_main, "DROP ROLE mt_role2")
-    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), {"mt_role1"})
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), set())
     check(partial(get_mt_roles, username="mt_user", database="mt_db2"), set())
 
     # Test CLEAR ROLES (plural form)
@@ -1178,8 +1175,11 @@ def test_user_profile_replication(connection, test_name):
         },
     )
 
+    # Suppress builtin role creation so admin/readwrite/readonly don't appear in SHOW ROLES
+    execute_and_fetch_all(cursor_main, "CREATE ROLE _dummy_role")
     # CREATE USER
     execute_and_fetch_all(cursor_main, "CREATE USER user1")
+    execute_and_fetch_all(cursor_main, "DROP ROLE _dummy_role")
     execute_and_fetch_all(cursor_main, "CREATE USER user2")
     execute_and_fetch_all(cursor_main, "GRANT PROFILE_RESTRICTION TO user2")
     execute_and_fetch_all(cursor_main, "GRANT AUTH TO user2")
@@ -1318,9 +1318,7 @@ def test_user_profile_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "CREATE ROLE role1")
     check(
         show_roles_func,
-        {
-            ("role1",),
-        },
+        {("role1", False)},
     )
 
     execute_and_fetch_all(cursor_main, "SET ROLE FOR user1 TO role1")
@@ -1381,12 +1379,11 @@ def test_user_profile_replication(connection, test_name):
 
     # drop profile of user
 
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR user1")
     execute_and_fetch_all(cursor_main, "DROP ROLE role1")
     check(
         partial(show_role_for_user_func, username="user1"),
-        {
-            ("null",),
-        },
+        set(),
     )
     check(
         partial(show_profile_for_user_func, username="user1"),

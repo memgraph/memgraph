@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import os
+import re
 import sys
 import time
 from functools import partial
@@ -1890,6 +1891,104 @@ def test_rename_database_multiple_operations(connection, test_name):
         assert False, "Should not be able to use old database name db3"
     except mgclient.DatabaseError:
         pass  # Expected
+
+
+def _parse_size_bytes_mt(size_str):
+    """Parse a human-readable size string from GetReadableSize(), e.g. '1.50MiB'."""
+    if not size_str:
+        return 0
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*(B|KiB|MiB|GiB|TiB)$", size_str.strip())
+    if not m:
+        return 0
+    units = {"B": 1, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4}
+    return int(float(m.group(1)) * units[m.group(2)])
+
+
+def _get_db_memory_bytes_mt(cursor):
+    """Return db_memory_tracked from SHOW STORAGE INFO as bytes."""
+    info = execute_and_fetch_all(cursor, "SHOW STORAGE INFO")
+    info_dict = {row[0]: row[1] for row in info}
+    return _parse_size_bytes_mt(info_dict.get("db_memory_tracked", "0B"))
+
+
+def test_db_memory_tracking_cross_db_replication_isolation(connection, test_name):
+    """
+    Per-DB memory tracking must be isolated across replicated databases.
+
+    Write 5000 nodes to database A on MAIN. Verify on replica_1 (SYNC):
+      - Database A's db_memory_tracked grew.
+      - Database B's db_memory_tracked did NOT grow significantly.
+
+    This validates that replication deltas are attributed to the correct DB arena on
+    the replica, not leaked into unrelated databases.
+    """
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "setup_queries": [
+                "CREATE DATABASE A;",
+                "CREATE DATABASE B;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [
+                "CREATE DATABASE A;",
+                "CREATE DATABASE B;",
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+            ],
+        },
+    }
+
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
+
+    # Capture baselines on replica_1 before any writes
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+
+    execute_and_fetch_all(replica_cursor, "USE DATABASE A;")
+    baseline_a = _get_db_memory_bytes_mt(replica_cursor)
+
+    execute_and_fetch_all(replica_cursor, "USE DATABASE B;")
+    baseline_b = _get_db_memory_bytes_mt(replica_cursor)
+
+    # Write 5000 nodes ONLY to database A on MAIN (SYNC replica — will block until replicated)
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "UNWIND range(1, 5000) AS i CREATE (:ReplicationNode {id: i})")
+
+    # SYNC replication ensures all deltas are on replica_1 before we read
+    # Re-open replica connection so we see the latest committed state
+    replica_cursor2 = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+
+    execute_and_fetch_all(replica_cursor2, "USE DATABASE A;")
+    after_a = _get_db_memory_bytes_mt(replica_cursor2)
+
+    execute_and_fetch_all(replica_cursor2, "USE DATABASE B;")
+    after_b = _get_db_memory_bytes_mt(replica_cursor2)
+
+    assert after_a > baseline_a, (
+        f"replica_1 database A db_memory_tracked should grow after replicating 5000 nodes. "
+        f"baseline_a={baseline_a} after_a={after_a}"
+    )
+
+    # Allow up to 512 KiB noise for background threads / jemalloc rounding
+    assert after_b <= baseline_b + 512 * 1024, (
+        f"replica_1 database B db_memory_tracked must NOT grow when only writing to A. "
+        f"baseline_b={baseline_b} after_b={after_b}"
+    )
 
 
 if __name__ == "__main__":

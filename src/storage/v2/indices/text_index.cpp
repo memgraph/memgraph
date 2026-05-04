@@ -114,7 +114,7 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
   }
 }
 
-void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
+void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
                              NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
@@ -179,6 +179,14 @@ std::shared_ptr<TextIndexData> TextIndex::DropIndex(const std::string &index_nam
   // the DDL transaction commits; if the transaction aborts, the flag stays
   // false and ~TextIndexData leaves the on-disk tantivy directory intact.
   return evicted;
+}
+
+void TextIndex::RestoreIndex(std::string const &index_name, std::shared_ptr<TextIndexData> data) {
+  if (!data) return;
+  if (index_->contains(index_name)) return;
+  auto new_map = std::make_shared<IndexContainer>(*index_);
+  new_map->emplace(index_name, std::move(data));
+  index_ = std::move(new_map);
 }
 
 bool TextIndex::IndexExists(const std::string &index_name) const { return index_->contains(index_name); }
