@@ -25,10 +25,11 @@ COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 NUM_TENANTS = 30
 DATABASES = [f"tenant_{i:02d}" for i in range(NUM_TENANTS)]
 
-NUM_NODES = 1_000_000
+NUM_NODES = 200_000
 VECTOR_DIMENSIONS = 128
 BATCH_SIZE = 1000
 NUM_WORKERS = 4
+DB_PARALLELISM = 5
 
 NUM_ROUNDS = 10
 
@@ -123,24 +124,24 @@ def ingest_batch(batch_start: int, batch_size: int, db_name: str) -> None:
     )
 
 
-def ingest_for_database(db_name: str) -> None:
-    """Ingest all nodes for a single database using parallel workers."""
-    create_supernode(db_name)
-
-    # Nodes 1..NUM_NODES (supernode is 0)
-    num_batches = NUM_NODES // BATCH_SIZE
-    tasks = [(batch_num * BATCH_SIZE + 1, BATCH_SIZE, db_name) for batch_num in range(num_batches)]
-
-    print(f"  [{db_name}] Ingesting {NUM_NODES:,} nodes in {num_batches} batches ({NUM_WORKERS} workers)...")
-    run_parallel(ingest_batch, tasks, num_workers=NUM_WORKERS)
-    print(f"  [{db_name}] Done.")
-
-
 def run_ingestion() -> None:
     total = NUM_NODES * NUM_TENANTS
+    total_workers = NUM_WORKERS * DB_PARALLELISM
+    num_batches_per_db = NUM_NODES // BATCH_SIZE
+
     print(f"Ingesting {total:,} nodes total ({NUM_NODES:,} per database x {NUM_TENANTS} databases)...")
+
+    print(f"  Creating supernodes in {NUM_TENANTS} databases...")
     for db_name in DATABASES:
-        ingest_for_database(db_name)
+        create_supernode(db_name)
+
+    tasks = [
+        (batch_num * BATCH_SIZE + 1, BATCH_SIZE, db_name)
+        for db_name in DATABASES
+        for batch_num in range(num_batches_per_db)
+    ]
+    print(f"  Ingesting {len(tasks):,} batches across {NUM_TENANTS} databases ({total_workers} workers)...")
+    run_parallel(ingest_batch, tasks, num_workers=total_workers)
     print(f"All {total:,} nodes ingested.")
 
 
