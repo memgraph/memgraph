@@ -58,5 +58,6 @@ CREATE CONSTRAINT ON (u:`label`) ASSERT u.`is_point` IS TYPED POINT;
 CREATE EDGE INDEX ON :`edge_type`;
 CREATE EDGE INDEX ON :`edge_type`(`prop`);
 CREATE GLOBAL EDGE INDEX ON :(`ttl`);
+CREATE TEXT EDGE INDEX `text_edge_index` ON :`TEXT_REL`(`prop1`, `prop2`);
 ENABLE TTL EVERY "1000s" AT "12:00:00";
 SET DESCRIPTION ON LABEL :`label` "Label for testing";
