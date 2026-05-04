@@ -4,7 +4,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 echo "Running host setup..."
 # NOTE: Feel free to tweak the below code to what's required for you tests.
 
-sudo sysctl -w vm.max_map_count=1048576
+sudo sysctl -w vm.max_map_count=2097152
 
 # Copy the desired module, convenient to change the mage code and just run it
 # under the container (reload of module/modules required).
