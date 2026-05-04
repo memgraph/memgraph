@@ -1523,8 +1523,6 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
       Execute(&interpreter_context, db_acc, item[0].ValueString());
     }
   }
-  // Compare the replay target against the source snapshot. On disk storage the cross-DB replay path
-  // doesn't currently round-trip vertices/edges cleanly, so fall back to a same-DB check there.
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
     ASSERT_EQ(GetState(db_acc->storage()), db_initial_state);
   } else {
