@@ -221,7 +221,8 @@ bool operator==(const DatabaseState::LabelPropertyType &first, const DatabaseSta
 bool operator==(const DatabaseState &first, const DatabaseState &second) {
   return first.vertices == second.vertices && first.edges == second.edges &&
          first.label_indices == second.label_indices && first.label_property_indices == second.label_property_indices &&
-         first.existence_constraints == second.existence_constraints &&
+         first.text_indices == second.text_indices && first.edge_text_indices == second.edge_text_indices &&
+         first.point_indices == second.point_indices && first.existence_constraints == second.existence_constraints &&
          first.unique_constraints == second.unique_constraints && first.type_constraints == second.type_constraints;
 }
 
