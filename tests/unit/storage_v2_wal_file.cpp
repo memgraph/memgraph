@@ -603,27 +603,25 @@ class DeltaGenerator final {
           case POINT_INDEX_DROP:
             return {WalPointIndexDrop{label, first_property}};
           case VECTOR_INDEX_CREATE:
-            return {WalVectorIndexCreate{vector_index_name,
-                                         label,
-                                         first_property,
-                                         kMetricKind,
-                                         vector_dimension,
-                                         kResizeCoefficient,
-                                         vector_capacity,
-                                         static_cast<uint8_t>(kScalarKind),
-                                         static_cast<uint8_t>(0),
-                                         std::vector<std::string>{}}};
+            return {WalVectorIndexCreate{
+                vector_index_name,
+                VectorFilterInfo{static_cast<uint8_t>(memgraph::storage::VectorMatchMode::SINGLE), {label}},
+                first_property,
+                kMetricKind,
+                vector_dimension,
+                kResizeCoefficient,
+                vector_capacity,
+                static_cast<uint8_t>(kScalarKind)}};
           case VECTOR_EDGE_INDEX_CREATE:
-            return {WalVectorEdgeIndexCreate{vector_index_name,
-                                             edge_type,
-                                             first_property,
-                                             kMetricKind,
-                                             vector_dimension,
-                                             kResizeCoefficient,
-                                             vector_capacity,
-                                             static_cast<uint8_t>(kScalarKind),
-                                             static_cast<uint8_t>(0),
-                                             std::vector<std::string>{}}};
+            return {WalVectorEdgeIndexCreate{
+                vector_index_name,
+                VectorFilterInfo{static_cast<uint8_t>(memgraph::storage::VectorMatchMode::SINGLE), {edge_type}},
+                first_property,
+                kMetricKind,
+                vector_dimension,
+                kResizeCoefficient,
+                vector_capacity,
+                static_cast<uint8_t>(kScalarKind)}};
           case VECTOR_INDEX_DROP:
             return {WalVectorIndexDrop{vector_index_name}};
           case TTL_OPERATION:

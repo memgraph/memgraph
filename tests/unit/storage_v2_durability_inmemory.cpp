@@ -750,7 +750,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           check_label_property_stats(
               base_label_indexed, property_path, memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
-          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(vector_index_name), 5);
           ASSERT_EQ(acc->ApproximateVerticesTextCount(text_index_name), 1);
           break;
         }
@@ -762,9 +762,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           check_label_property_stats(
               base_label_indexed, property_path, memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
-          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(vector_index_name), 5);
           ASSERT_EQ(acc->ApproximateVerticesTextCount(text_index_name), 1);
-          ASSERT_EQ(acc->ApproximateEdgesVectorCount(et1, property_vector), 5);
+          ASSERT_EQ(acc->ApproximateEdgesVectorCount(vector_edge_index_name), 5);
           auto num = acc->ApproximateEdgesTextCount(text_edge_index_name);
           ASSERT_EQ(num, 1);
           break;
@@ -780,7 +780,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED: {
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
-          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(vector_index_name), 5);
           ASSERT_EQ(acc->ApproximateVerticesTextCount(text_index_name), 1);
           [[fallthrough]];
         }

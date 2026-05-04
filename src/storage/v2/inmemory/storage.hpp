@@ -331,12 +331,12 @@ class InMemoryStorage final : public Storage {
       return transaction_.active_indices_->point_->ApproximatePointCount(label, property);
     }
 
-    std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {
-      return transaction_.active_indices_->vector_->ApproximateNodesVectorCount(label, property);
+    std::optional<uint64_t> ApproximateVerticesVectorCount(std::string_view index_name) const override {
+      return transaction_.active_indices_->vector_->ApproximateNodesVectorCount(index_name);
     }
 
-    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override {
-      return transaction_.active_indices_->vector_edge_->ApproximateEdgesVectorCount(edge_type, property);
+    std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const override {
+      return transaction_.active_indices_->vector_edge_->ApproximateEdgesVectorCount(index_name);
     }
 
     std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const override {

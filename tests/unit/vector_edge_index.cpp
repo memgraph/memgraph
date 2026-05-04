@@ -51,7 +51,7 @@ class VectorEdgeIndexTest : public testing::Test {
     const auto property = unique_acc->NameToProperty(test_property.data());
     auto spec = VectorEdgeIndexSpec{
         .index_name = test_index.data(),
-        .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .edge_types = {edge_type}},
+        .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .ids = {edge_type}},
         .property = property,
         .metric_kind = metric,
         .dimension = dimension,
@@ -539,14 +539,15 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
   }
 
   static VectorEdgeIndexSpec CreateSpec(const std::string &name = "test_edge_index") {
-    return VectorEdgeIndexSpec{.index_name = name,
-                               .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .edge_types = {EdgeTypeId::FromUint(1)}},
-                               .property = PropertyId::FromUint(1),
-                               .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
-                               .dimension = kDimension,
-                               .resize_coefficient = 2,
-                               .capacity = kNumEdges,
-                               .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
+    return VectorEdgeIndexSpec{
+        .index_name = name,
+        .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .ids = {EdgeTypeId::FromUint(1)}},
+        .property = PropertyId::FromUint(1),
+        .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+        .dimension = kDimension,
+        .resize_coefficient = 2,
+        .capacity = kNumEdges,
+        .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
   }
 
   memgraph::utils::SkipList<Vertex> vertices_;
@@ -647,14 +648,15 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
 
   auto vertices_acc = vertices_.access();
 
-  auto spec = VectorEdgeIndexSpec{.index_name = "resize_test_edge_index",
-                                  .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .edge_types = {EdgeTypeId::FromUint(1)}},
-                                  .property = PropertyId::FromUint(1),
-                                  .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
-                                  .dimension = kDimension,
-                                  .resize_coefficient = 2,
-                                  .capacity = 10,
-                                  .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
+  auto spec = VectorEdgeIndexSpec{
+      .index_name = "resize_test_edge_index",
+      .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .ids = {EdgeTypeId::FromUint(1)}},
+      .property = PropertyId::FromUint(1),
+      .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+      .dimension = kDimension,
+      .resize_coefficient = 2,
+      .capacity = 10,
+      .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
   VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
 
   EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(
@@ -711,7 +713,7 @@ class VectorEdgeIndexGCTest : public testing::Test {
     const auto property = unique_acc->NameToProperty(test_property.data());
     auto spec = VectorEdgeIndexSpec{
         .index_name = test_index.data(),
-        .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .edge_types = {edge_type}},
+        .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .ids = {edge_type}},
         .property = property,
         .metric_kind = metric,
         .dimension = dimension,

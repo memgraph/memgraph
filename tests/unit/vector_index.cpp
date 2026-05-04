@@ -65,14 +65,15 @@ class VectorIndexTest : public testing::Test {
     const auto property = unique_acc->NameToProperty(test_property.data());
 
     // Create a specification for the index
-    const auto spec = VectorIndexSpec{.index_name = test_index.data(),
-                                      .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {label}},
-                                      .property = property,
-                                      .metric_kind = metric,
-                                      .dimension = dimension,
-                                      .resize_coefficient = resize_coefficient,
-                                      .capacity = capacity,
-                                      .scalar_kind = scalar_kind};
+    const auto spec =
+        VectorIndexSpec{.index_name = test_index.data(),
+                        .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .ids = {label}},
+                        .property = property,
+                        .metric_kind = metric,
+                        .dimension = dimension,
+                        .resize_coefficient = resize_coefficient,
+                        .capacity = capacity,
+                        .scalar_kind = scalar_kind};
 
     EXPECT_FALSE(!unique_acc->CreateVectorIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -461,14 +462,15 @@ TEST_F(VectorIndexTest, IndexCreationFailsWhenNodeHasNonVectorPropertyAndDatabas
     auto unique_acc = this->storage->UniqueAccess();
     const auto label_id = unique_acc->NameToLabel(label);
     const auto property_id = unique_acc->NameToProperty(prop_name);
-    const auto spec = VectorIndexSpec{.index_name = test_index.data(),
-                                      .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {label_id}},
-                                      .property = property_id,
-                                      .metric_kind = metric,
-                                      .dimension = 2,
-                                      .resize_coefficient = resize_coefficient,
-                                      .capacity = 10,
-                                      .scalar_kind = scalar_kind};
+    const auto spec =
+        VectorIndexSpec{.index_name = test_index.data(),
+                        .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .ids = {label_id}},
+                        .property = property_id,
+                        .metric_kind = metric,
+                        .dimension = 2,
+                        .resize_coefficient = resize_coefficient,
+                        .capacity = 10,
+                        .scalar_kind = scalar_kind};
 
     EXPECT_THROW(static_cast<void>(unique_acc->CreateVectorIndex(spec)), std::exception);
   }
@@ -613,15 +615,17 @@ class VectorIndexRecoveryTest : public testing::Test {
 
   static VectorIndexRecoveryInfo CreateRecoveryInfo(const std::string &name = "test_index",
                                                     std::size_t capacity = kNumNodes) {
-    return VectorIndexRecoveryInfo{.spec = VectorIndexSpec{.index_name = name,
-                                                           .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {LabelId::FromUint(1)}},
-                                                           .property = PropertyId::FromUint(1),
-                                                           .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
-                                                           .dimension = kDimension,
-                                                           .resize_coefficient = 2,
-                                                           .capacity = capacity,
-                                                           .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
-                                   .index_entries = {}};
+    return VectorIndexRecoveryInfo{
+        .spec = VectorIndexSpec{.index_name = name,
+                                .label_filter =
+                                    VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .ids = {LabelId::FromUint(1)}},
+                                .property = PropertyId::FromUint(1),
+                                .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                .dimension = kDimension,
+                                .resize_coefficient = 2,
+                                .capacity = capacity,
+                                .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
+        .index_entries = {}};
   }
 
   std::unique_ptr<InMemoryStorage> storage_;
@@ -699,15 +703,17 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
                           memgraph::utils::small_vector<float>{static_cast<float>(i), static_cast<float>(i + 1)});
   }
 
-  VectorIndexRecoveryInfo recovery_info{.spec = VectorIndexSpec{.index_name = "precomputed_index",
-                                                                .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {LabelId::FromUint(1)}},
-                                                                .property = PropertyId::FromUint(1),
-                                                                .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
-                                                                .dimension = kDimension,
-                                                                .resize_coefficient = 2,
-                                                                .capacity = kNumNodes,
-                                                                .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
-                                        .index_entries = std::move(index_entries)};
+  VectorIndexRecoveryInfo recovery_info{
+      .spec = VectorIndexSpec{.index_name = "precomputed_index",
+                              .label_filter =
+                                  VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .ids = {LabelId::FromUint(1)}},
+                              .property = PropertyId::FromUint(1),
+                              .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                              .dimension = kDimension,
+                              .resize_coefficient = 2,
+                              .capacity = kNumNodes,
+                              .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
+      .index_entries = std::move(index_entries)};
 
   EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
                                              vertices_acc,

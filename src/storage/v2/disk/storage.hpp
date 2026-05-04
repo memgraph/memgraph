@@ -199,12 +199,12 @@ class DiskStorage final : public Storage {
       return std::nullopt;
     }
 
-    std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId /*label*/, PropertyId /*property*/) const override {
+    std::optional<uint64_t> ApproximateVerticesVectorCount(std::string_view /*index_name*/) const override {
       // Vector index does not exist for on disk
       return std::nullopt;
     }
 
-    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId /*label*/, PropertyId /*property*/) const override {
+    std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view /*index_name*/) const override {
       // Vector index does not exist for on disk
       return std::nullopt;
     }

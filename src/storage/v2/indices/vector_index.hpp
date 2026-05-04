@@ -30,63 +30,77 @@ struct ActiveIndicesUpdater;
 struct Indices;
 class NameIdMapper;
 
-enum class VectorLabelMode : uint8_t {
+enum class VectorMatchMode : uint8_t {
   SINGLE = 0,
   WILDCARD = 1,
   ANY_OF = 2,
   ALL_OF = 3,
 };
 
-struct VectorLabelFilter {
-  VectorLabelMode mode{VectorLabelMode::SINGLE};
-  std::vector<LabelId> labels;
+// Membership filter shared between node (LabelId) and edge (EdgeTypeId) vector indices.
+// SINGLE/ANY_OF/ALL_OF/WILDCARD semantics are id-type-agnostic; the only thing that varies
+// is the id payload.
+template <typename IdT>
+struct VectorMembershipFilter {
+  VectorMatchMode mode{VectorMatchMode::SINGLE};
+  std::vector<IdT> ids;
 
-  bool Matches(std::span<const LabelId> vertex_labels) const {
-    if (labels.empty() && mode != VectorLabelMode::WILDCARD) return false;
+  // multi-id match (vertex labels): an entity matches if mode evaluates true against `entity_ids`.
+  bool Matches(std::span<const IdT> entity_ids) const {
+    if (ids.empty() && mode != VectorMatchMode::WILDCARD) return false;
     switch (mode) {
-      case VectorLabelMode::WILDCARD:
+      case VectorMatchMode::WILDCARD:
         return true;
-      case VectorLabelMode::SINGLE:
-        return std::ranges::contains(vertex_labels, labels[0]);
-      case VectorLabelMode::ANY_OF:
-        return std::ranges::any_of(labels,
-                                   [&](auto label) { return std::ranges::contains(vertex_labels, label); });
-      case VectorLabelMode::ALL_OF:
-        return std::ranges::all_of(labels,
-                                   [&](auto label) { return std::ranges::contains(vertex_labels, label); });
+      case VectorMatchMode::SINGLE:
+        return std::ranges::contains(entity_ids, ids[0]);
+      case VectorMatchMode::ANY_OF:
+        return std::ranges::any_of(ids, [&](auto id) { return std::ranges::contains(entity_ids, id); });
+      case VectorMatchMode::ALL_OF:
+        return std::ranges::all_of(ids, [&](auto id) { return std::ranges::contains(entity_ids, id); });
     }
     return false;
   }
 
-  bool IsAffectedByLabel(LabelId label) const {
-    if (mode == VectorLabelMode::WILDCARD) return false;
-    return std::ranges::contains(labels, label);
+  // single-id match (edge has one type): wraps into a single-element span.
+  bool Matches(IdT entity_id) const { return Matches(std::span<const IdT>(&entity_id, 1)); }
+
+  bool IsAffectedBy(IdT id) const {
+    if (mode == VectorMatchMode::WILDCARD) return false;
+    return std::ranges::contains(ids, id);
   }
 
-  friend bool operator==(const VectorLabelFilter &, const VectorLabelFilter &) = default;
+  friend bool operator==(const VectorMembershipFilter &, const VectorMembershipFilter &) = default;
 
   template <typename NameResolver>
   std::string Format(NameResolver &&resolver) const {
-    if (labels.empty() && mode != VectorLabelMode::WILDCARD) return "";
+    if (ids.empty() && mode != VectorMatchMode::WILDCARD) return "";
+    auto join = [&](char sep) {
+      std::string out = ":";
+      bool first = true;
+      for (auto id : ids) {
+        if (!first) out += sep;
+        out += resolver(id);
+        first = false;
+      }
+      return out;
+    };
     switch (mode) {
-      case VectorLabelMode::WILDCARD:
+      case VectorMatchMode::WILDCARD:
         return ":*";
-      case VectorLabelMode::SINGLE:
-        return ":" + resolver(labels[0]);
-      case VectorLabelMode::ANY_OF: {
-        std::string result = ":" + resolver(labels[0]);
-        for (std::size_t i = 1; i < labels.size(); ++i) result += "|" + resolver(labels[i]);
-        return result;
-      }
-      case VectorLabelMode::ALL_OF: {
-        std::string result = ":" + resolver(labels[0]);
-        for (std::size_t i = 1; i < labels.size(); ++i) result += "&" + resolver(labels[i]);
-        return result;
-      }
+      case VectorMatchMode::SINGLE:
+        return ":" + resolver(ids[0]);
+      case VectorMatchMode::ANY_OF:
+        return join('|');
+      case VectorMatchMode::ALL_OF:
+        return join('&');
     }
     return "";
   }
 };
+
+using VectorLabelFilter = VectorMembershipFilter<LabelId>;
+// Transition alias: prefer VectorMatchMode going forward.
+using VectorLabelMode = VectorMatchMode;
 
 /// @struct VectorIndexInfo
 struct VectorIndexInfo {
@@ -183,7 +197,7 @@ struct VectorIndexActiveIndices {
   virtual ~VectorIndexActiveIndices() = default;
   virtual std::vector<VectorIndexSpec> ListIndices() const = 0;
   virtual std::vector<VectorIndexInfo> ListVectorIndicesInfo() const = 0;
-  virtual std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const = 0;
+  virtual std::optional<uint64_t> ApproximateNodesVectorCount(std::string_view index_name) const = 0;
 };
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -236,7 +250,7 @@ class VectorIndex {
 
     std::vector<VectorIndexSpec> ListIndices() const override;
     std::vector<VectorIndexInfo> ListVectorIndicesInfo() const override;
-    std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const override;
+    std::optional<uint64_t> ApproximateNodesVectorCount(std::string_view index_name) const override;
 
    private:
     std::shared_ptr<VectorIndexContainer const> index_container_;
@@ -333,11 +347,8 @@ class VectorIndex {
   /// @return A vector of specs representing vector indices configurations.
   std::vector<VectorIndexSpec> ListIndices() const;
 
-  /// @brief Returns number of vertices in the index.
-  /// @param label The label of the vertices in the index.
-  /// @param property The property of the vertices in the index.
-  /// @return The number of vertices in the index.
-  std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const;
+  /// @brief Returns number of vertices in the named index, or nullopt if no such index.
+  std::optional<uint64_t> ApproximateNodesVectorCount(std::string_view index_name) const;
 
   /// @brief Searches for nodes in the specified index using a query vector.
   /// @param index_name The name of the index to search.

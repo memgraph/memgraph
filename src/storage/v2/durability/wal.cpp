@@ -1754,21 +1754,21 @@ std::optional<RecoveryInfo> LoadWal(
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                                   : unum::usearch::scalar_kind_t::f32_k;
-        auto mode = data.label_mode ? static_cast<VectorLabelMode>(*data.label_mode) : VectorLabelMode::SINGLE;
         std::vector<LabelId> labels;
-        if (!data.label.empty()) labels.push_back(LabelId::FromUint(name_id_mapper->NameToId(data.label)));
-        if (data.extra_labels) {
-          for (const auto &extra : *data.extra_labels)
-            labels.push_back(LabelId::FromUint(name_id_mapper->NameToId(extra)));
+        labels.reserve(data.label_filter.ids.size());
+        for (const auto &name : data.label_filter.ids) {
+          labels.push_back(LabelId::FromUint(name_id_mapper->NameToId(name)));
         }
-        auto spec = VectorIndexSpec{.index_name = data.index_name,
-                                    .label_filter = VectorLabelFilter{.mode = mode, .labels = std::move(labels)},
-                                    .property = property_id,
-                                    .metric_kind = unum_metric_kind,
-                                    .dimension = data.dimension,
-                                    .resize_coefficient = data.resize_coefficient,
-                                    .capacity = data.capacity,
-                                    .scalar_kind = scalar_kind};
+        auto spec = VectorIndexSpec{
+            .index_name = data.index_name,
+            .label_filter = VectorLabelFilter{.mode = static_cast<VectorLabelMode>(data.label_filter.mode),
+                                              .ids = std::move(labels)},
+            .property = property_id,
+            .metric_kind = unum_metric_kind,
+            .dimension = data.dimension,
+            .resize_coefficient = data.resize_coefficient,
+            .capacity = data.capacity,
+            .scalar_kind = scalar_kind};
         indices_constraints->indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{
             .spec = spec, .index_entries = absl::flat_hash_map<Gid, utils::small_vector<float>>{}});
       },
@@ -1776,26 +1776,23 @@ std::optional<RecoveryInfo> LoadWal(
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind);
-        auto mode = data.edge_type_mode ? static_cast<VectorEdgeTypeMode>(*data.edge_type_mode)
-                                        : VectorEdgeTypeMode::SINGLE;
         std::vector<EdgeTypeId> edge_types;
-        if (!data.edge_type.empty()) {
-          edge_types.push_back(EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)));
-        }
-        if (data.extra_edge_types) {
-          for (const auto &extra : *data.extra_edge_types)
-            edge_types.push_back(EdgeTypeId::FromUint(name_id_mapper->NameToId(extra)));
+        edge_types.reserve(data.edge_type_filter.ids.size());
+        for (const auto &name : data.edge_type_filter.ids) {
+          edge_types.push_back(EdgeTypeId::FromUint(name_id_mapper->NameToId(name)));
         }
         indices_constraints->indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
-            .spec = VectorEdgeIndexSpec{
-                .index_name = data.index_name,
-                .edge_type_filter = VectorEdgeTypeFilter{.mode = mode, .edge_types = std::move(edge_types)},
-                .property = property_id,
-                .metric_kind = unum_metric_kind,
-                .dimension = data.dimension,
-                .resize_coefficient = data.resize_coefficient,
-                .capacity = data.capacity,
-                .scalar_kind = scalar_kind},
+            .spec = VectorEdgeIndexSpec{.index_name = data.index_name,
+                                        .edge_type_filter =
+                                            VectorEdgeTypeFilter{
+                                                .mode = static_cast<VectorEdgeTypeMode>(data.edge_type_filter.mode),
+                                                .ids = std::move(edge_types)},
+                                        .property = property_id,
+                                        .metric_kind = unum_metric_kind,
+                                        .dimension = data.dimension,
+                                        .resize_coefficient = data.resize_coefficient,
+                                        .capacity = data.capacity,
+                                        .scalar_kind = scalar_kind},
             .index_entries = {}});
       },
       [&](WalVectorIndexDrop const &data) {
@@ -2211,39 +2208,36 @@ void EncodeTextEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
   }
 }
 
+template <typename IdT>
+void EncodeVectorFilter(BaseEncoder &encoder, NameIdMapper &name_id_mapper, VectorMembershipFilter<IdT> const &filter) {
+  encoder.WriteUint(static_cast<uint64_t>(filter.mode));
+  encoder.WriteUint(filter.ids.size());
+  for (const auto &id : filter.ids) {
+    encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
+  }
+}
+
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &index_spec) {
-  const auto &filter = index_spec.label_filter;
   encoder.WriteString(index_spec.index_name);
-  encoder.WriteString(filter.labels.empty() ? "" : name_id_mapper.IdToName(filter.labels[0].AsUint()));
+  EncodeVectorFilter(encoder, name_id_mapper, index_spec.label_filter);
   encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
   encoder.WriteString(NameFromMetric(index_spec.metric_kind));
   encoder.WriteUint(index_spec.dimension);
   encoder.WriteUint(index_spec.resize_coefficient);
   encoder.WriteUint(index_spec.capacity);
   encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
-  encoder.WriteUint(static_cast<uint64_t>(filter.mode));
-  encoder.WriteUint(filter.labels.size() > 1 ? filter.labels.size() - 1 : 0);
-  for (std::size_t i = 1; i < filter.labels.size(); ++i) {
-    encoder.WriteString(name_id_mapper.IdToName(filter.labels[i].AsUint()));
-  }
 }
 
 void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
                                const VectorEdgeIndexSpec &index_spec) {
-  const auto &filter = index_spec.edge_type_filter;
   encoder.WriteString(index_spec.index_name);
-  encoder.WriteString(filter.edge_types.empty() ? "" : name_id_mapper.IdToName(filter.edge_types[0].AsUint()));
+  EncodeVectorFilter(encoder, name_id_mapper, index_spec.edge_type_filter);
   encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
   encoder.WriteString(NameFromMetric(index_spec.metric_kind));
   encoder.WriteUint(index_spec.dimension);
   encoder.WriteUint(index_spec.resize_coefficient);
   encoder.WriteUint(index_spec.capacity);
   encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
-  encoder.WriteUint(static_cast<uint64_t>(filter.mode));
-  encoder.WriteUint(filter.edge_types.size() > 1 ? filter.edge_types.size() - 1 : 0);
-  for (std::size_t i = 1; i < filter.edge_types.size(); ++i) {
-    encoder.WriteString(name_id_mapper.IdToName(filter.edge_types[i].AsUint()));
-  }
 }
 
 void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }

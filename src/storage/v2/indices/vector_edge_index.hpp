@@ -20,6 +20,7 @@
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
@@ -30,60 +31,9 @@ struct ActiveIndicesUpdater;
 struct Indices;
 class NameIdMapper;
 
-enum class VectorEdgeTypeMode : uint8_t {
-  SINGLE = 0,
-  WILDCARD = 1,
-  ANY_OF = 2,
-  ALL_OF = 3,
-};
-
-struct VectorEdgeTypeFilter {
-  VectorEdgeTypeMode mode{VectorEdgeTypeMode::SINGLE};
-  std::vector<EdgeTypeId> edge_types;
-
-  bool Matches(EdgeTypeId edge_type) const {
-    if (edge_types.empty() && mode != VectorEdgeTypeMode::WILDCARD) return false;
-    switch (mode) {
-      case VectorEdgeTypeMode::WILDCARD:
-        return true;
-      case VectorEdgeTypeMode::SINGLE:
-        return edge_type == edge_types[0];
-      case VectorEdgeTypeMode::ANY_OF:
-      case VectorEdgeTypeMode::ALL_OF:
-        return std::ranges::contains(edge_types, edge_type);
-    }
-    return false;
-  }
-
-  bool IsAffectedByEdgeType(EdgeTypeId edge_type) const {
-    if (mode == VectorEdgeTypeMode::WILDCARD) return false;
-    return std::ranges::contains(edge_types, edge_type);
-  }
-
-  friend bool operator==(const VectorEdgeTypeFilter &, const VectorEdgeTypeFilter &) = default;
-
-  template <typename NameResolver>
-  std::string Format(NameResolver &&resolver) const {
-    if (edge_types.empty() && mode != VectorEdgeTypeMode::WILDCARD) return "";
-    switch (mode) {
-      case VectorEdgeTypeMode::WILDCARD:
-        return ":*";
-      case VectorEdgeTypeMode::SINGLE:
-        return ":" + resolver(edge_types[0]);
-      case VectorEdgeTypeMode::ANY_OF: {
-        std::string result = ":" + resolver(edge_types[0]);
-        for (std::size_t i = 1; i < edge_types.size(); ++i) result += "|" + resolver(edge_types[i]);
-        return result;
-      }
-      case VectorEdgeTypeMode::ALL_OF: {
-        std::string result = ":" + resolver(edge_types[0]);
-        for (std::size_t i = 1; i < edge_types.size(); ++i) result += "&" + resolver(edge_types[i]);
-        return result;
-      }
-    }
-    return "";
-  }
-};
+using VectorEdgeTypeFilter = VectorMembershipFilter<EdgeTypeId>;
+// Transition alias: prefer VectorMatchMode going forward.
+using VectorEdgeTypeMode = VectorMatchMode;
 
 /// @struct VectorEdgeIndexSpec
 /// @brief Represents a specification for creating a vector index in the system.
@@ -135,7 +85,7 @@ struct VectorEdgeIndexActiveIndices {
   virtual ~VectorEdgeIndexActiveIndices() = default;
   virtual std::vector<VectorEdgeIndexSpec> ListIndices() const = 0;
   virtual std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const = 0;
-  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const = 0;
 };
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
@@ -175,6 +125,7 @@ class VectorEdgeIndex {
   struct AbortProcessor {
     std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
     std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
+    std::set<PropertyId> wildcard_properties;
 
     struct EdgeAbortInfo {
       EdgeTypeId edge_type;
@@ -186,7 +137,9 @@ class VectorEdgeIndex {
     using AbortableInfo = std::map<Edge *, EdgeAbortInfo>;
     AbortableInfo cleanup_collection;
 
-    bool IsInteresting(PropertyId property) const { return p2et.contains(property); }
+    bool IsInteresting(PropertyId property) const {
+      return p2et.contains(property) || wildcard_properties.contains(property);
+    }
 
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, const PropertyValue &old_value,
                                  Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
@@ -196,6 +149,7 @@ class VectorEdgeIndex {
     Vertex *from_vertex;
     Vertex *to_vertex;
     Edge *edge;
+    EdgeTypeId edge_type;
   };
 
   using VectorSearchEdgeResults = std::vector<std::tuple<EdgeIndexEntry, double, double>>;
@@ -209,7 +163,7 @@ class VectorEdgeIndex {
 
     std::vector<VectorEdgeIndexSpec> ListIndices() const override;
     std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const override;
-    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override;
+    std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const override;
 
    private:
     std::shared_ptr<VectorEdgeIndexContainer const> index_container_;
@@ -263,8 +217,8 @@ class VectorEdgeIndex {
   /// @brief Lists the labels and properties that have vector indices.
   std::vector<VectorEdgeIndexSpec> ListIndices() const;
 
-  /// @brief Returns number of edges in the index.
-  std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const;
+  /// @brief Returns number of edges in the named index, or nullopt if no such index.
+  std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const;
 
   /// @brief Searches for edges in the specified index using a query vector.
   VectorSearchEdgeResults SearchEdges(std::string_view index_name, uint64_t result_set_size,
@@ -282,19 +236,12 @@ class VectorEdgeIndex {
   /// @brief Checks if any vector index exists.
   bool Empty() const;
 
-  /// @brief Returns the EdgeTypeId for SINGLE-mode indices. nullopt for wildcard or multi-type:
-  ///        callers must resolve the edge type per-edge in those cases.
-  std::optional<EdgeTypeId> GetEdgeTypeId(std::string_view index_name);
-
   /// @brief Checks if a vector index exists for the given name.
   bool IndexExists(std::string_view index_name) const;
 
   /// @brief Retrieves the vector from an edge index entry.
   utils::small_vector<float> GetVectorPropertyFromEdgeIndex(Edge *edge, std::string_view index_name,
                                                             NameIdMapper *name_id_mapper) const;
-
-  /// @brief Looks up the endpoint vertices for an edge in any vector index.
-  std::pair<Vertex *, Vertex *> GetEdgeEndpoints(Edge *edge) const;
 
   /// @brief Finds the index ID for the given (edge_type, property) pair.
   std::optional<uint64_t> GetIndexIdForEdgeTypeProperty(EdgeTypeId edge_type, PropertyId property) const;
@@ -310,7 +257,7 @@ class VectorEdgeIndex {
   std::optional<uint64_t> SetupIndex(const VectorEdgeIndexSpec &spec, NameIdMapper *name_id_mapper);
 
   /// @brief Adds a single edge to the index, converting its property to VectorIndexId.
-  void AddEdgeToIndex(uint64_t index_id, Edge *edge, Vertex *from_vertex, Vertex *to_vertex,
+  void AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
                       std::optional<std::size_t> thread_id = std::nullopt);
 
   /// @brief Removes an edge from a vector index.
@@ -322,7 +269,14 @@ class VectorEdgeIndex {
   // published snapshot in `ActiveIndicesStore` -- UNIQUE excludes READ/WRITE, which is what makes
   // direct access to `index_` from commit-time hot paths race-free.
   std::shared_ptr<VectorEdgeIndexContainer> index_ = std::make_shared<VectorEdgeIndexContainer>();
-  std::unordered_map<Edge *, std::pair<Vertex *, Vertex *>> edge_endpoints_;
+
+  struct EdgeEndpoints {
+    Vertex *from_vertex;
+    Vertex *to_vertex;
+    EdgeTypeId edge_type;
+  };
+
+  std::unordered_map<Edge *, EdgeEndpoints> edge_endpoints_;
   // Lock order: mg_index.mutex → edge_endpoints_mutex_ (never acquire mg_index.mutex while holding
   // edge_endpoints_mutex_)
   mutable std::shared_mutex edge_endpoints_mutex_;

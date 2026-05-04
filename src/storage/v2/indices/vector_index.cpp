@@ -374,8 +374,8 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
     auto &spec = item_ptr->spec;
     encoder->WriteString(spec.index_name);
     encoder->WriteUint(static_cast<uint64_t>(spec.label_filter.mode));
-    encoder->WriteUint(spec.label_filter.labels.size());
-    for (const auto &label : spec.label_filter.labels) {
+    encoder->WriteUint(spec.label_filter.ids.size());
+    for (const auto &label : spec.label_filter.ids) {
       write_mapping(label);
     }
     write_mapping(spec.property);
@@ -414,16 +414,11 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
   }
 }
 
-std::optional<uint64_t> VectorIndex::ApproximateNodesVectorCount(LabelId label, PropertyId property) const {
-  auto it = r::find_if(*index_, [&](const auto &id_index_item) {
-    const auto &spec = id_index_item.second->spec;
-    return spec.label_filter.IsAffectedByLabel(label) && spec.property == property;
-  });
-  if (it != index_->end()) {
-    auto guard = utils::SharedResourceLockGuard(it->second->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
-    return it->second->mg_index.index.size();
-  }
-  return std::nullopt;
+std::optional<uint64_t> VectorIndex::ApproximateNodesVectorCount(std::string_view index_name) const {
+  auto it = r::find_if(*index_, [&](const auto &id_item) { return id_item.second->spec.index_name == index_name; });
+  if (it == index_->end()) return std::nullopt;
+  auto guard = utils::SharedResourceLockGuard(it->second->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+  return it->second->mg_index.index.size();
 }
 
 VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view index_name, uint64_t result_set_size,
@@ -504,7 +499,7 @@ std::unordered_map<PropertyId, uint64_t> VectorIndex::GetIndicesByLabel(LabelId 
   std::unordered_map<PropertyId, uint64_t> result;
   result.reserve(index_->size());
   for (const auto &[index_id, item_ptr] : *index_) {
-    if (item_ptr->spec.label_filter.IsAffectedByLabel(label)) {
+    if (item_ptr->spec.label_filter.IsAffectedBy(label)) {
       result.emplace(item_ptr->spec.property, index_id);
     }
   }
@@ -557,7 +552,7 @@ VectorIndex::AbortProcessor VectorIndex::GetAbortProcessor() const {
     if (filter.mode == VectorLabelMode::WILDCARD) {
       res.wildcard_properties.insert(property);
     } else {
-      for (const auto &label : filter.labels) {
+      for (const auto &label : filter.ids) {
         res.l2p[label].push_back(property);
         res.p2l[property].push_back(label);
       }
@@ -590,16 +585,13 @@ void VectorIndex::AbortProcessor::CollectOnLabelAddition(LabelId label, Vertex *
 
 void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
                                                           Vertex *vertex) {
-  auto should_collect = false;
-  if (wildcard_properties.contains(propId)) {
-    should_collect = true;
-  } else if (!p2l.empty()) {
-    auto has_any_label = [&](auto label) { return r::contains(vertex->labels, label); };
+  const auto should_collect = std::invoke([&] {
+    if (wildcard_properties.contains(propId)) return true;
     auto labels = p2l.find(propId);
-    if (labels != p2l.end() && r::any_of(labels->second, has_any_label)) {
-      should_collect = true;
-    }
-  }
+    if (labels == p2l.end()) return false;
+    auto has_any_label = [&](auto label) { return r::contains(vertex->labels, label); };
+    return r::any_of(labels->second, has_any_label);
+  });
   if (!should_collect) return;
   auto &[_, label_to_remove, property_to_abort] = cleanup_collection[vertex];
   property_to_abort[propId] = old_value;
@@ -609,7 +601,7 @@ void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, con
 
 std::vector<VectorIndexRecoveryInfo *> VectorIndexRecovery::FindMatchingIndices(
     LabelId label, std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
-  auto has_label = [&](auto &ri) { return ri.spec.label_filter.IsAffectedByLabel(label); };
+  auto has_label = [&](auto &ri) { return ri.spec.label_filter.IsAffectedBy(label); };
   auto to_ptr = [](auto &ri) { return &ri; };
   return recovery_info_vec | rv::filter(has_label) | rv::transform(to_ptr) |
          r::to<std::vector<VectorIndexRecoveryInfo *>>();
@@ -782,19 +774,13 @@ std::vector<VectorIndexInfo> VectorIndex::ActiveIndices::ListVectorIndicesInfo()
   return result;
 }
 
-std::optional<uint64_t> VectorIndex::ActiveIndices::ApproximateNodesVectorCount(LabelId label,
-                                                                                PropertyId property) const {
+std::optional<uint64_t> VectorIndex::ActiveIndices::ApproximateNodesVectorCount(std::string_view index_name) const {
   if (!index_container_) return std::nullopt;
-  auto it = r::find_if(*index_container_, [&](const auto &id_item) {
-    const auto &spec = id_item.second->spec;
-    return spec.label_filter.mode == VectorLabelMode::SINGLE && !spec.label_filter.labels.empty() &&
-           spec.label_filter.labels[0] == label && spec.property == property;
-  });
-  if (it != index_container_->end()) {
-    auto guard = utils::SharedResourceLockGuard(it->second->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
-    return it->second->mg_index.index.size();
-  }
-  return std::nullopt;
+  auto it =
+      r::find_if(*index_container_, [&](const auto &id_item) { return id_item.second->spec.index_name == index_name; });
+  if (it == index_container_->end()) return std::nullopt;
+  auto guard = utils::SharedResourceLockGuard(it->second->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+  return it->second->mg_index.index.size();
 }
 
 }  // namespace memgraph::storage
