@@ -258,6 +258,120 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   return true;
 }
 
+namespace {
+
+void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_access,
+                          const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
+                          uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  storage::replication::TenantProfileReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  storage::replication::TenantProfileRes res(false);
+
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::error("Handling TenantProfile RPC without enterprise license.");
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (current_main_uuid != req.main_uuid) {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TenantProfileReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("TenantProfileHandler: bad expected timestamp");
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  using Action = storage::replication::TenantProfileReq::Action;
+  res = storage::replication::TenantProfileRes(true);
+  try {
+    switch (req.action) {
+      case Action::CREATE: {
+        auto result = dbms_handler.CreateTenantProfile(req.profile.name, req.profile.memory_limit, /*sys_txn=*/nullptr);
+        if (!result && result.error() == TenantProfiles::CreateError::DURABILITY_ERROR) {
+          spdlog::error("TenantProfileHandler: CREATE for profile '{}' failed — KVStore I/O error", req.profile.name);
+          res.success = false;
+        }
+        break;
+      }
+      case Action::ALTER: {
+        auto result = dbms_handler.AlterTenantProfile(req.profile.name, req.profile.memory_limit, /*sys_txn=*/nullptr);
+        if (!result) {
+          if (result.error() == TenantProfiles::AlterError::NOT_FOUND) {
+            spdlog::warn("TenantProfileHandler: ALTER for non-existent tenant profile '{}'", req.profile.name);
+          } else {
+            spdlog::error("TenantProfileHandler: ALTER for profile '{}' failed — KVStore I/O error", req.profile.name);
+          }
+          res.success = false;
+        }
+        break;
+      }
+      case Action::DROP: {
+        auto result = dbms_handler.DropTenantProfile(req.profile.name, /*sys_txn=*/nullptr);
+        if (!result) {
+          switch (result.error()) {
+            case TenantProfiles::DropError::NOT_FOUND:
+              // Benign: replica may have already pruned this profile or never had it.
+              break;
+            case TenantProfiles::DropError::HAS_ATTACHED_DATABASES:
+              spdlog::warn("TenantProfileHandler: DROP for profile '{}' rejected — has attached databases",
+                           req.profile.name);
+              res.success = false;
+              break;
+            case TenantProfiles::DropError::DURABILITY_ERROR:
+              spdlog::error("TenantProfileHandler: DROP for profile '{}' failed — KVStore I/O error", req.profile.name);
+              res.success = false;
+              break;
+          }
+        }
+        break;
+      }
+      case Action::SET_ON_DATABASE: {
+        auto result = dbms_handler.SetTenantProfileOnDatabase(req.profile.name, req.db_name, /*sys_txn=*/nullptr);
+        if (!result) {
+          if (result.error() == TenantProfiles::AttachError::PROFILE_NOT_FOUND) {
+            spdlog::warn("TenantProfileHandler: SET_ON_DATABASE for non-existent tenant profile '{}'",
+                         req.profile.name);
+          } else {
+            spdlog::error("TenantProfileHandler: SET_ON_DATABASE for profile '{}' failed — KVStore I/O error",
+                          req.profile.name);
+          }
+          res.success = false;
+        }
+        break;
+      }
+      case Action::REMOVE_FROM_DATABASE: {
+        auto result = dbms_handler.RemoveTenantProfileFromDatabase(req.db_name, /*sys_txn=*/nullptr);
+        if (!result) {
+          if (result.error() == TenantProfiles::DetachError::DURABILITY_ERROR) {
+            spdlog::error("TenantProfileHandler: REMOVE_FROM_DATABASE for db '{}' failed — KVStore I/O error",
+                          req.db_name);
+            res.success = false;
+          } else {
+            spdlog::warn("TenantProfileHandler: REMOVE_FROM_DATABASE — db '{}' not attached to any profile on replica",
+                         req.db_name);
+          }
+        }
+        break;
+      }
+      default:
+        spdlog::warn("TenantProfileHandler: unknown action {}", static_cast<uint8_t>(req.action));
+        res.success = false;
+        break;
+    }
+  } catch (const std::exception &e) {
+    spdlog::warn("TenantProfileHandler failed: {}", e.what());
+    res.success = false;
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+}  // namespace
+
 void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,
               dbms::DbmsHandler &dbms_handler) {
   // NOTE: Register even without license as the user could add a license at run-time
@@ -284,6 +398,14 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
           auto *req_reader,
           auto *res_builder) mutable {
         RenameDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::TenantProfileRpc>(
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
+        TenantProfileHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
 }
 #endif

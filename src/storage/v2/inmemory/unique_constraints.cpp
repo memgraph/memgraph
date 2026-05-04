@@ -15,6 +15,7 @@
 #include <bitset>
 #include <ranges>
 #include <tuple>
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -30,7 +31,8 @@ namespace memgraph::storage {
 
 namespace {
 
-auto DoValidate(const Vertex &vertex, utils::SkipList<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
+auto DoValidate(const Vertex &vertex,
+                utils::SkipListDb<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
                 const LabelId &label, const std::set<PropertyId> &properties)
     -> std::expected<void, ConstraintViolation> {
   if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
@@ -406,8 +408,8 @@ void InMemoryUniqueConstraints::ActiveConstraints::AbortEntries(
 
 bool InMemoryUniqueConstraints::ActiveConstraints::empty() const { return container_->empty(); }
 
-auto InMemoryUniqueConstraints::GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> {
-  return std::make_unique<ActiveConstraints>(container_.ReadCopy());
+auto InMemoryUniqueConstraints::GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> {
+  return std::make_shared<ActiveConstraints>(container_.ReadCopy());
 }
 
 // --- InMemoryUniqueConstraints methods ---
@@ -435,7 +437,7 @@ auto InMemoryUniqueConstraints::GetCreationFunction(
 }
 
 auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
+    const utils::SkipListDb<Vertex>::Accessor &vertex_accessor, utils::SkipListDb<Entry>::Accessor &constraint_accessor,
     const LabelId &label, const std::set<PropertyId> &properties,
     std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -448,10 +450,11 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
   std::atomic<uint64_t> batch_counter = 0;
   utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> result{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&result,
+      threads.emplace_back(parallel_exec_info.arena_pool,
+                           [&result,
                             &vertex_batches,
                             &batch_counter,
                             &vertex_accessor,
@@ -459,23 +462,23 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
                             &label,
                             &properties,
                             &snapshot_info]() {
-        do_per_thread_validation(result,
-                                 DoValidate,
-                                 vertex_batches,
-                                 batch_counter,
-                                 vertex_accessor,
-                                 snapshot_info,
-                                 constraint_accessor,
-                                 label,
-                                 properties);
-      });
+                             do_per_thread_validation(result,
+                                                      DoValidate,
+                                                      vertex_batches,
+                                                      batch_counter,
+                                                      vertex_accessor,
+                                                      snapshot_info,
+                                                      constraint_accessor,
+                                                      label,
+                                                      properties);
+                           });
     }
   }
   return *result.Lock();
 }
 
 auto InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
+    const utils::SkipListDb<Vertex>::Accessor &vertex_accessor, utils::SkipListDb<Entry>::Accessor &constraint_accessor,
     const LabelId &label, const std::set<PropertyId> &properties,
     std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
   for (const Vertex &vertex : vertex_accessor) {
@@ -490,7 +493,7 @@ auto InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
 }
 
 auto InMemoryUniqueConstraints::CreateConstraint(
-    LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+    LabelId label, const std::set<PropertyId> &properties, const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) -> std::expected<CreationStatus, ConstraintViolation> {
   // TODO: we should do the proper register -> populate(with cancel + parallel) -> publish pattern
@@ -502,23 +505,14 @@ auto InMemoryUniqueConstraints::CreateConstraint(
     return CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED;
   }
 
-  auto constraint_ptr =
-      container_.WithLock([&](ContainerPtr &container) -> std::expected<IndividualConstraintPtr, CreationStatus> {
-        auto new_container = std::make_shared<Container>(*container);
-        auto &inner = (*new_container)[label];
-        auto [it, inserted] = inner.try_emplace(properties, std::make_shared<IndividualConstraint>());
-        if (!inserted) return std::unexpected{CreationStatus::ALREADY_EXISTS};
-        container = std::move(new_container);
-        return it->second;
-      });
-
-  if (!constraint_ptr) return constraint_ptr.error();
+  auto constraint_ptr = InstallConstraint_(label, properties, std::make_shared<IndividualConstraint>());
+  if (!constraint_ptr) return CreationStatus::ALREADY_EXISTS;
 
   try {
     auto validation_result = std::invoke([&] {
       // `constraint_accessor` is inside this IIFE on purpose.
       // This accessor MUST be released before we erase if a violation was found
-      auto constraint_accessor = constraint_ptr.value()->skiplist.access();
+      auto constraint_accessor = constraint_ptr->skiplist.access();
 
       auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
 
@@ -532,12 +526,12 @@ auto InMemoryUniqueConstraints::CreateConstraint(
     });
 
     if (!validation_result.has_value()) {
-      DropConstraint(label, properties);
+      (void)DropConstraint(label, properties);
       return std::unexpected{validation_result.error()};
     }
     return CreationStatus::SUCCESS;
   } catch (const utils::OutOfMemoryException &) {
-    DropConstraint(label, properties);
+    (void)DropConstraint(label, properties);
     throw;
   }
 }
@@ -550,30 +544,49 @@ bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
   return true;
 }
 
-auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<PropertyId> &properties)
-    -> DeletionStatus {
+auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<PropertyId> &properties) -> DropResult {
   if (auto drop_properties_check_result = CheckPropertiesBeforeDeletion(properties);
       drop_properties_check_result != DeletionStatus::SUCCESS) {
-    return drop_properties_check_result;
+    return {.status = drop_properties_check_result, .evicted = nullptr};
   }
 
-  auto erased = container_.WithLock([&](ContainerPtr &container) -> bool {
+  auto evicted = container_.WithLock([&](ContainerPtr &container) -> IndividualConstraintPtr {
+    auto label_it = container->find(label);
+    if (label_it == container->end()) return nullptr;
+    auto props_it = label_it->second.find(properties);
+    if (props_it == label_it->second.end()) return nullptr;
+    auto captured = props_it->second;
     auto new_container = std::make_shared<Container>(*container);
-    auto label_it = new_container->find(label);
-    if (label_it == new_container->end()) {
-      return false;
-    }
-    auto const count = label_it->second.erase(properties);
-    if (count == 0) return false;
-    if (label_it->second.empty()) {
-      new_container->erase(label_it);
-    }
-
+    auto new_label_it = new_container->find(label);
+    new_label_it->second.erase(properties);
+    if (new_label_it->second.empty()) new_container->erase(new_label_it);
     container = std::move(new_container);
-    return true;
+    return captured;
   });
 
-  return erased ? DeletionStatus::SUCCESS : DeletionStatus::NOT_FOUND;
+  if (!evicted) return {.status = DeletionStatus::NOT_FOUND, .evicted = nullptr};
+  return {.status = DeletionStatus::SUCCESS, .evicted = std::move(evicted)};
+}
+
+auto InMemoryUniqueConstraints::InstallConstraint_(LabelId label, const std::set<PropertyId> &properties,
+                                                   IndividualConstraintPtr ptr) -> IndividualConstraintPtr {
+  return container_.WithLock([&](ContainerPtr &container) -> IndividualConstraintPtr {
+    auto label_it = container->find(label);
+    if (label_it != container->end() && label_it->second.contains(properties)) return nullptr;
+    auto new_container = std::make_shared<Container>(*container);
+    (*new_container)[label][properties] = ptr;
+    container = std::move(new_container);
+    return ptr;
+  });
+}
+
+void InMemoryUniqueConstraints::RestoreConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                                  IndividualConstraintPtr evicted) {
+  if (!evicted) return;
+  // Concurrent CREATE under READ_ONLY may own the slot; discarding evicted is benign
+  // since the winning CREATE walks every labelled vertex during populate, so its
+  // skiplist holds the same logical entries.
+  (void)InstallConstraint_(label, properties, std::move(evicted));
 }
 
 auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *> &vertices, const Transaction &tx,

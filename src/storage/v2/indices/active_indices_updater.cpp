@@ -15,65 +15,56 @@
 
 namespace memgraph::storage {
 
-// ActiveIndices::With* factory methods — each returns a new snapshot with one field replaced.
+namespace {
+constexpr auto kUninitMsg = "ActiveIndices must be initialized before updating. Was Storage fully constructed?";
 
-ActiveIndicesPtr ActiveIndices::WithLabel(std::shared_ptr<LabelIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(
-      std::move(x), label_properties_, edge_type_, edge_type_properties_, edge_property_);
+template <auto Member, class X>
+void Publish(ActiveIndicesStore &store, X const &x) {
+  store.WithLock([&](ActiveIndicesPtr &ai) {
+    MG_ASSERT(ai, kUninitMsg);
+    ai = ai->With<Member>(x);
+  });
 }
-
-ActiveIndicesPtr ActiveIndices::WithLabelProperties(std::shared_ptr<LabelPropertyIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(label_, std::move(x), edge_type_, edge_type_properties_, edge_property_);
-}
-
-ActiveIndicesPtr ActiveIndices::WithEdgeType(std::shared_ptr<EdgeTypeIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(
-      label_, label_properties_, std::move(x), edge_type_properties_, edge_property_);
-}
-
-ActiveIndicesPtr ActiveIndices::WithEdgeTypeProperties(std::shared_ptr<EdgeTypePropertyIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(label_, label_properties_, edge_type_, std::move(x), edge_property_);
-}
-
-ActiveIndicesPtr ActiveIndices::WithEdgeProperty(std::shared_ptr<EdgePropertyIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(label_, label_properties_, edge_type_, edge_type_properties_, std::move(x));
-}
-
-// ActiveIndicesUpdater::operator() overloads — delegate to the With* factory methods.
+}  // namespace
 
 void ActiveIndicesUpdater::operator()(std::shared_ptr<LabelIndexActiveIndices> const &x) const {
-  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
-    MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
-    ai = ai->WithLabel(x);
-  });
+  Publish<&ActiveIndices::label_>(active_indices_, x);
 }
 
 void ActiveIndicesUpdater::operator()(std::shared_ptr<LabelPropertyIndexActiveIndices> const &x) const {
-  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
-    MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
-    ai = ai->WithLabelProperties(x);
-  });
+  Publish<&ActiveIndices::label_properties_>(active_indices_, x);
 }
 
 void ActiveIndicesUpdater::operator()(std::shared_ptr<EdgeTypeIndexActiveIndices> const &x) const {
-  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
-    MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
-    ai = ai->WithEdgeType(x);
-  });
+  Publish<&ActiveIndices::edge_type_>(active_indices_, x);
 }
 
 void ActiveIndicesUpdater::operator()(std::shared_ptr<EdgeTypePropertyIndexActiveIndices> const &x) const {
-  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
-    MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
-    ai = ai->WithEdgeTypeProperties(x);
-  });
+  Publish<&ActiveIndices::edge_type_properties_>(active_indices_, x);
 }
 
 void ActiveIndicesUpdater::operator()(std::shared_ptr<EdgePropertyIndexActiveIndices> const &x) const {
-  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
-    MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
-    ai = ai->WithEdgeProperty(x);
-  });
+  Publish<&ActiveIndices::edge_property_>(active_indices_, x);
+}
+
+void ActiveIndicesUpdater::operator()(std::shared_ptr<TextIndexActiveIndices> const &x) const {
+  Publish<&ActiveIndices::text_>(active_indices_, x);
+}
+
+void ActiveIndicesUpdater::operator()(std::shared_ptr<TextEdgeIndexActiveIndices> const &x) const {
+  Publish<&ActiveIndices::text_edge_>(active_indices_, x);
+}
+
+void ActiveIndicesUpdater::operator()(std::shared_ptr<PointIndexActiveIndices> const &x) const {
+  Publish<&ActiveIndices::point_>(active_indices_, x);
+}
+
+void ActiveIndicesUpdater::operator()(std::shared_ptr<VectorIndexActiveIndices> const &x) const {
+  Publish<&ActiveIndices::vector_>(active_indices_, x);
+}
+
+void ActiveIndicesUpdater::operator()(std::shared_ptr<VectorEdgeIndexActiveIndices> const &x) const {
+  Publish<&ActiveIndices::vector_edge_>(active_indices_, x);
 }
 
 }  // namespace memgraph::storage

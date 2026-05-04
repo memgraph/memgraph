@@ -70,7 +70,7 @@ class UniqueConstraints {
                                   uint64_t transaction_start_timestamp) = 0;
   };
 
-  virtual auto GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> = 0;
+  virtual auto GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> = 0;
 
   enum class CreationStatus {
     SUCCESS,
@@ -85,8 +85,6 @@ class UniqueConstraints {
     EMPTY_PROPERTIES,
     PROPERTIES_SIZE_LIMIT_EXCEEDED,
   };
-
-  virtual DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
 
   virtual void Clear() = 0;
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
@@ -35,10 +36,10 @@ class EdgeImportModeCache final {
 
   InMemoryLabelIndex::Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction) const;
 
-  InMemoryLabelPropertyIndex::Iterable Vertices(LabelId label, PropertyId property,
-                                                const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                                const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-                                                View view, Storage *storage, Transaction *transaction) const;
+  InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry> Vertices(
+      LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+      const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+      Transaction *transaction) const;
 
   bool CreateIndex(LabelId label, PropertyId property,
                    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = {});
@@ -52,17 +53,17 @@ class EdgeImportModeCache final {
 
   bool AllVerticesScanned() const;
 
-  utils::SkipList<Vertex>::Accessor AccessToVertices();
+  utils::SkipListDb<Vertex>::Accessor AccessToVertices();
 
-  utils::SkipList<Edge>::Accessor AccessToEdges();
+  utils::SkipListDb<Edge>::Accessor AccessToEdges();
 
   void SetScannedAllVertices();
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> &GetCommittedTransactions();
 
  private:
-  utils::SkipList<Vertex> vertices_;
-  utils::SkipList<Edge> edges_;
+  utils::SkipListDb<Vertex> vertices_;
+  utils::SkipListDb<Edge> edges_;
   Indices in_memory_indices_;
   bool scanned_all_vertices_{false};
   std::set<LabelId> scanned_labels_;

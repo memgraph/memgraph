@@ -91,6 +91,7 @@ static void AddStarGraph(memgraph::storage::Storage *db, int spoke_count, int de
   {
     auto unique_acc = db->UniqueAccess();
     MG_ASSERT(unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).has_value());
+    MG_ASSERT(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -116,6 +117,7 @@ static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
   {
     auto unique_acc = db->UniqueAccess();
     MG_ASSERT(unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).has_value());
+    MG_ASSERT(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 

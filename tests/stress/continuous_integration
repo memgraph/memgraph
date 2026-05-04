@@ -370,72 +370,82 @@ def run_workload_script(workload: Dict[str, Any], args: Args, timeout_sec: int, 
 
 
 def run_custom_workloads(config: Config, args: Args) -> Dict[str, Any]:
-    """Runs custom workloads on Memgraph using GQLAlchemy or custom scripts."""
+    """Runs custom workloads on Memgraph using GQLAlchemy or custom scripts.
+
+    Each workload's per-workload `memgraph_args` are merged with the global
+    `memgraph.args` and the deployment is restarted between workloads so the
+    flags (e.g. --memory-limit=4000 for supernode-edge-abort) actually take
+    effect. This mirrors the dataset.tests loop in run_config_file. Without
+    this restart, every customWorkload runs against the same memgraph started
+    with only the global args, silently dropping per-workload settings.
+    """
     print("Running custom workloads...")
     runtimes = {}
 
-    if config.manage_deployment:
-        try:
-            start_deployment(config.deployment_script, config.memgraph_args, config.env)
-        except Exception as ex:
-            stop_deployment(config.deployment_script)
-            return {"error": f"Failed to start deployment: {ex}"}
+    for workload in config.custom_workloads:
+        workload_name = workload["name"]
+        memgraph_flags = config.memgraph_args + workload.get("memgraph_args", [])
 
-    try:
-        for workload in config.custom_workloads:
-            workload_name = workload["name"]
-            print(f"Running workload '{workload_name}'")
-            start = time.time()
-
-            try:
-                print(f"Started import for workload '{workload_name}'")
-
-                query_host = workload.get("querying", {}).get("host", "127.0.0.1")
-                query_port = workload.get("querying", {}).get("port", 7687)
-
-                memgraph = Memgraph(host=query_host, port=query_port)
-                for query in workload.get("import", {}).get("queries", []):
-                    print(f"Executing query: {query}")
-                    memgraph.execute(query)
-                print(f"Finished import for workload '{workload_name}'")
-
-                timeout_sec = workload.get("timeout_min", 10) * 60
-
-                if "script" in workload:
-                    run_workload_script(workload, args, timeout_sec, deployment_type=config.deployment_type)
-                else:
-                    processes = []
-                    workers = workload.get("workers", [])
-                    steps = get_worker_steps(workers)
-
-                    for step in steps:
-                        print(f"Running step {step}.")
-
-                        for worker in [x for x in workers if x.get("step", 1) == step]:
-                            if "querying" not in worker.keys():
-                                worker["querying"] = {"host": query_host, "port": query_port}
-                            worker_object = get_worker_object(worker)
-
-                            for i in range(worker.get("replicas", 1)):
-                                process = multiprocessing.Process(target=worker_object.run)
-                                processes.append((process, timeout_sec))
-                                process.start()
-
-                        for process, timeout in processes:
-                            process.join(timeout)
-                            if process.is_alive():
-                                print(f"Worker process exceeded timeout of {timeout // 60} minutes. Terminating...")
-                                process.terminate()
-                                process.join()
-
-                print(f"Finished workload '{workload_name}'")
-                runtimes[workload_name] = time.time() - start
-
-            except Exception as ex:
-                return {"error": f"Failed to execute workload '{workload_name}': {ex}"}
-    finally:
         if config.manage_deployment:
-            stop_deployment(config.deployment_script)
+            try:
+                start_deployment(config.deployment_script, memgraph_flags, config.env)
+            except Exception as ex:
+                return {"error": f"Failed to start deployment for workload '{workload_name}': {ex}"}
+
+        print(f"Running workload '{workload_name}'")
+        start = time.time()
+
+        try:
+            print(f"Started import for workload '{workload_name}'")
+
+            query_host = workload.get("querying", {}).get("host", "127.0.0.1")
+            query_port = workload.get("querying", {}).get("port", 7687)
+
+            memgraph = Memgraph(host=query_host, port=query_port)
+            for query in workload.get("import", {}).get("queries", []):
+                print(f"Executing query: {query}")
+                memgraph.execute(query)
+            print(f"Finished import for workload '{workload_name}'")
+
+            timeout_sec = workload.get("timeout_min", 10) * 60
+
+            if "script" in workload:
+                run_workload_script(workload, args, timeout_sec, deployment_type=config.deployment_type)
+            else:
+                processes = []
+                workers = workload.get("workers", [])
+                steps = get_worker_steps(workers)
+
+                for step in steps:
+                    print(f"Running step {step}.")
+
+                    for worker in [x for x in workers if x.get("step", 1) == step]:
+                        if "querying" not in worker.keys():
+                            worker["querying"] = {"host": query_host, "port": query_port}
+                        worker_object = get_worker_object(worker)
+
+                        for i in range(worker.get("replicas", 1)):
+                            process = multiprocessing.Process(target=worker_object.run)
+                            processes.append((process, timeout_sec))
+                            process.start()
+
+                    for process, timeout in processes:
+                        process.join(timeout)
+                        if process.is_alive():
+                            print(f"Worker process exceeded timeout of {timeout // 60} minutes. Terminating...")
+                            process.terminate()
+                            process.join()
+
+            print(f"Finished workload '{workload_name}'")
+            runtimes[workload_name] = time.time() - start
+
+        except Exception as ex:
+            if config.manage_deployment:
+                stop_deployment(config.deployment_script)
+            return {"error": f"Failed to execute workload '{workload_name}': {ex}"}
+        finally:
+            if config.manage_deployment:
+                stop_deployment(config.deployment_script)
 
     return runtimes
 

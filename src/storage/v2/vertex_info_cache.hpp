@@ -14,6 +14,8 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info_types.hpp"
+#include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/small_vector.hpp"
 
@@ -67,7 +69,7 @@ struct VertexInfoCache final {
 
   void Invalidate(Vertex const *vertex);
 
-  auto GetLabels(View view, Vertex const *vertex) const -> detail::optref<utils::small_vector<LabelId> const>;
+  auto GetLabels(View view, Vertex const *vertex) const -> detail::optref<VertexKey const>;
 
   void StoreLabels(View view, Vertex const *vertex, std::span<LabelId const> res);
 
@@ -88,7 +90,7 @@ struct VertexInfoCache final {
 
   void Invalidate(Vertex const *vertex, PropertyId property_key);
 
-  using EdgeStore = utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
+  using EdgeStore = Edges;
 
   auto GetInEdges(View view, Vertex const *src_vertex, Vertex const *dst_vertex,
                   const std::vector<EdgeTypeId> &edge_types) const -> detail::optref<const EdgeStore>;
@@ -147,7 +149,7 @@ struct VertexInfoCache final {
     map<Vertex const *, bool> deletedCache_;
     map<std::tuple<Vertex const *, LabelId>, bool> hasLabelCache_;
     map<std::tuple<Vertex const *, PropertyId>, PropertyValue> propertyValueCache_;
-    map<Vertex const *, utils::small_vector<LabelId>> labelCache_;
+    map<Vertex const *, VertexKey> labelCache_;
     map<Vertex const *, std::map<PropertyId, PropertyValue>> propertiesCache_;
     // TODO: nest keys (edge_types) -> (src+dst) -> EdgeStore
     map<EdgeKey, EdgeStore> inEdgesCache_;

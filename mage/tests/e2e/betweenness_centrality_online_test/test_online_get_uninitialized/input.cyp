@@ -9,4 +9,4 @@ queries:
         MERGE (a: Node {id: 4}) MERGE (b: Node {id: 5}) CREATE (a)-[:RELATION]->(b);
 
 cleanup: |-
-    CALL mg.load('betweenness_centrality_online') YIELD *;
+    CALL mg.load('betweenness_centrality_online');

@@ -83,6 +83,9 @@ class Cursor {
   ///     other information.
   ///
   /// @throws QueryRuntimeException if something went wrong with execution
+  /// @return true if a result was produced, false if the cursor is exhausted.
+  /// Once false is returned, Pull must not be called again without first
+  /// calling Reset().
   virtual bool Pull(Frame &, ExecutionContext &) = 0;
 
   /// Resets the Cursor to its initial state.
@@ -214,6 +217,13 @@ class NamedLogicalOperator {
   mutable const DbAccessor *dba_{nullptr};
   virtual std::string ToString() const = 0;
   virtual ~NamedLogicalOperator() = default;
+
+ protected:
+  NamedLogicalOperator() = default;
+  NamedLogicalOperator(const NamedLogicalOperator &) = default;
+  NamedLogicalOperator(NamedLogicalOperator &&) noexcept = default;
+  NamedLogicalOperator &operator=(const NamedLogicalOperator &) = default;
+  NamedLogicalOperator &operator=(NamedLogicalOperator &&) noexcept = default;
 };
 
 /// Base class for logical operators.
@@ -301,6 +311,13 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
   std::string ToString() const override;
 
   virtual std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const = 0;
+
+ protected:
+  LogicalOperator() = default;
+  LogicalOperator(const LogicalOperator &) = default;
+  LogicalOperator(LogicalOperator &&) noexcept = default;
+  LogicalOperator &operator=(const LogicalOperator &) = default;
+  LogicalOperator &operator=(LogicalOperator &&) noexcept = default;
 };
 
 /// A logical operator whose Cursor returns true on the first Pull
@@ -857,6 +874,7 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
   storage::LabelId label_;
   std::vector<storage::PropertyPath> properties_;
   std::vector<ExpressionRange> expression_ranges_;
+  storage::IndexOrder index_order_{storage::IndexOrder::ASC};
 
   std::string ToString() const override;
 
@@ -2075,7 +2093,8 @@ class ScanParallelByLabelProperties : public memgraph::query::plan::ScanParallel
   ScanParallelByLabelProperties(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
                                 Symbol state_symbol, storage::LabelId label,
                                 std::vector<storage::PropertyPath> properties,
-                                std::vector<ExpressionRange> expression_ranges);
+                                std::vector<ExpressionRange> expression_ranges,
+                                storage::IndexOrder index_order = storage::IndexOrder::ASC);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
@@ -2085,6 +2104,7 @@ class ScanParallelByLabelProperties : public memgraph::query::plan::ScanParallel
   storage::LabelId label_;
   std::vector<storage::PropertyPath> properties_;
   std::vector<ExpressionRange> expression_ranges_;
+  storage::IndexOrder index_order_{storage::IndexOrder::ASC};
 };
 
 /// Parallel scan variant for edges with edge type and property.
@@ -2705,6 +2725,7 @@ class Union : public memgraph::query::plan::LogicalOperator {
    private:
     const Union &self_;
     const UniqueCursorPtr left_cursor_, right_cursor_;
+    bool is_left_exhausted_{false};
   };
 };
 

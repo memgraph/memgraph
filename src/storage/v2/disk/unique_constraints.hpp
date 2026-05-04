@@ -51,7 +51,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
     DeletionEntries entries_for_deletion;
   };
 
-  auto GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> override;
+  auto GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> override;
 
   explicit DiskUniqueConstraints(const Config &config);
 
@@ -72,7 +72,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
 
   [[nodiscard]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
 
-  DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) override;
+  DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties);
 
   void Clear() override;
 

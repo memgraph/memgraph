@@ -131,6 +131,7 @@ memgraphCypherKeyword : cypherKeyword
                       | MAP
                       | MAPPINGS
                       | MATCHING
+                      | MEMORY
                       | METRICS
                       | MODE
                       | MODULE_READ
@@ -156,13 +157,11 @@ memgraphCypherKeyword : cypherKeyword
                       | PERMISSIONS
                       | POINT
                       | PORT
-                      | PROPERTY
                       | PRIVILEGES
                       | PROPERTY
                       | PROFILE_RESTRICTION
                       | PROFILES
                       | PULSAR
-                      | QUOTE
                       | QUOTE
                       | READ
                       | READ_FILE
@@ -174,6 +173,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
+                      | REQUIRE
                       | RESET
                       | RESOURCE
                       | REVOKE
@@ -201,6 +201,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STORAGE_MODE
                       | STREAM
                       | STREAMS
+                      | TENANT
                       | STRICT_SYNC
                       | STRING
                       | SYNC
@@ -297,8 +298,10 @@ query : cypherQuery
       | ttlQuery
       | setSessionTraceQuery
       | userProfileQuery
+      | tenantProfileQuery
       | descriptionQuery
       | reloadSSLQuery
+      | showMemoryInfo
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -315,6 +318,8 @@ authQuery : createRole
           | showUsers
           | setRole
           | clearRole
+          | grantRole
+          | revokeRole
           | grantPrivilege
           | denyPrivilege
           | revokePrivilege
@@ -395,7 +400,7 @@ hopsLimit: HOPS LIMIT literal ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
-indexHint: ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )*  ')' )? ;
+indexHint: ':' labelName nestedPropertyKeyList? ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
 
@@ -403,7 +408,9 @@ parallelExecution : PARALLEL EXECUTION ( num_threads=literal )? ;
 
 periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
 
-callSubquery : CALL '{' cypherQuery '}' ( periodicSubquery )? ;
+scopeClause : ASTERISK | variable ( ',' variable )* ;
+
+callSubquery : CALL ( '(' scopeClause? ')' )? '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
@@ -471,6 +478,8 @@ rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
+userOrRole : ( USER | ROLE )? userOrRoleName ;
+
 createRole : CREATE ROLE ifNotExists? role=userOrRoleName ;
 
 dropRole : DROP ROLE role=userOrRoleName ;
@@ -494,33 +503,37 @@ showCurrentRole : SHOW CURRENT ( ROLE | ROLES ) ;
 
 showUsers : SHOW USERS ;
 
-setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
+setRole : SET ( ROLE | ROLES ) FOR USER? user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
 
-clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
+clearRole : CLEAR ( ROLE | ROLES ) FOR USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
+grantRole : GRANT ( ROLE | ROLES ) roles=listOfSymbolicNames TO USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
+revokeRole : REVOKE ( ROLE | ROLES ) roles=listOfSymbolicNames FROM USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
+
+denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
+
+revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM target=userOrRole ;
 
 listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
 
 wildcardListOfSymbolicNames : '*' | listOfSymbolicNames ;
 
-grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO userOrRole=userOrRoleName ;
+grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
 
-denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO userOrRole=userOrRoleName ;
+denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
 
-grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO userOrRole=userOrRoleName ;
+grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO target=userOrRole ;
 
-denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM userOrRole=userOrRoleName ;
+denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM target=userOrRole ;
 
-revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM userOrRole=userOrRoleName ;
+revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM target=userOrRole ;
 
-showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR userOrRole=userOrRoleName ;
+showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR target=userOrRole ;
 
-setMainDatabase : SET MAIN DATABASE db=symbolicName FOR userOrRole=userOrRoleName ;
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR target=userOrRole ;
 
 setSessionTraceQuery : SET SESSION TRACE (ON | OFF) ;
 
@@ -583,11 +596,11 @@ listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
 colonSymbolicName : COLON symbolicName ;
 
-showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
+showPrivileges : SHOW PRIVILEGES FOR target=userOrRole ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showRoleForUser : SHOW ( ROLE | ROLES ) FOR user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
+showRoleForUser : SHOW ( ROLE | ROLES ) FOR USER? user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
+showUsersForRole : SHOW USERS FOR ROLE? role=userOrRoleName ;
 
 dumpQuery : DUMP DATABASE ;
 
@@ -779,9 +792,25 @@ showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 
+showMemoryInfo : SHOW MEMORY INFO ;
+
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
+indexQuery : createIndex | dropIndex;
+
+nestedPropertyKeyList : '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' ;
+
+alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
+
+createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )?
+            | CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+            ;
+
+dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
+
+propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
+
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName nestedPropertyKeyList?;
 
 dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
@@ -789,17 +818,24 @@ createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')
 
 dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
 
-edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex;
+createEdgeIndexAlternativeSyntax : CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')' ;
+
+edgeIndexQuery : createEdgeIndex
+               | dropEdgeIndex
+               | createGlobalEdgeIndex
+               | dropGlobalEdgeIndex
+               | createEdgeIndexAlternativeSyntax
+               ;
 
 indexName : symbolicName ;
 
-createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName propertyKeyList* ;
 
 dropTextIndex : DROP TEXT INDEX indexName ;
 
 textIndexQuery : createTextIndex | dropTextIndex;
 
-createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
+createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName propertyKeyList* ;
 
 createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
 
@@ -818,6 +854,26 @@ vectorIndexQuery : createVectorIndex | dropVectorIndex ;
 dropAllIndexesQuery : DROP ALL INDEXES ;
 
 dropAllConstraintsQuery : DROP ALL CONSTRAINTS ;
+
+alternativePropertyRefList : alternativePropertyRef
+                             | '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+                             ;
+
+alternativeConstraintPattern : '(' variable ':' labelName ')'                                          # alternativeNodeConstraintPattern
+                       | '(' ')' dash '[' variable ':' labelName ']' dash '(' ')'               # alternativeEdgeConstraintPattern
+                       ;
+
+originalConstraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
+
+alternativeConstraintSyntax : CREATE CONSTRAINT ( symbolicName )? ifNotExists? FOR alternativeConstraintPattern REQUIRE
+                  ( alternativePropertyRefList IS UNIQUE
+                  | alternativePropertyRef IS NOT CYPHERNULL
+                  | alternativePropertyRef IS ':' ':' typeConstraintType
+                  ) ;
+
+constraintQuery : originalConstraintQuery
+                | alternativeConstraintSyntax
+                ;
 
 dropGraphQuery : DROP GRAPH ;
 
@@ -895,6 +951,23 @@ userProfileQuery : createUserProfile
                  | showResourceConsumption
                  ;
 
+createTenantProfile : CREATE TENANT PROFILE profile=symbolicName LIMIT listOfLimits ;
+alterTenantProfile  : ALTER TENANT PROFILE profile=symbolicName SET listOfLimits ;
+dropTenantProfile   : DROP TENANT PROFILE profile=symbolicName ;
+showTenantProfiles  : SHOW TENANT PROFILES ;
+showTenantProfile   : SHOW TENANT PROFILE profile=symbolicName ;
+setTenantProfileOnDatabase    : SET TENANT PROFILE ON DATABASE db=symbolicName TO profile=symbolicName ;
+removeTenantProfileFromDatabase : REMOVE TENANT PROFILE FROM DATABASE db=symbolicName ;
+
+tenantProfileQuery : createTenantProfile
+                   | alterTenantProfile
+                   | dropTenantProfile
+                   | showTenantProfiles
+                   | showTenantProfile
+                   | setTenantProfileOnDatabase
+                   | removeTenantProfileFromDatabase
+                   ;
+
 descriptionQuery
     : setDescription
     | deleteDescription
@@ -913,6 +986,11 @@ showDescriptions
     : SHOW DESCRIPTIONS
     ;
 
+// Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' clause.
+// systemInfoQuery is re-listed so it dispatches to the overridden storageInfo above.
+systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
+storageInfo : STORAGE INFO ( ON DATABASE db=symbolicName )? ;
+
 edgeTypePatternNode
     : '(' ( ':' labelName )+ ')'
     ;
@@ -923,11 +1001,11 @@ edgeTypePattern
 
 descriptionTarget
     : LABEL ':' labelName ( ':' labelName )*
-    | EDGE TYPE PROPERTY edgeTypePattern '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE PROPERTY edgeTypePattern propertyKeyList
     | EDGE TYPE edgeTypePattern
     | EDGE TYPE ':' labelName
-    | LABEL PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
-    | EDGE TYPE PROPERTY ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | LABEL PROPERTY ':' labelName ( ':' labelName )* propertyKeyList
+    | EDGE TYPE PROPERTY ':' labelName propertyKeyList
     | PROPERTY propertyKeyName
     | DATABASE symbolicName
     ;

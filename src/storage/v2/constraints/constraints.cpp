@@ -35,13 +35,22 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode) {
         std::unreachable();
     }
   });
+  // Build composite outside the outer lock — see Indices::Indices ctor.
+  auto snapshot = std::make_shared<ActiveConstraints>(existence_constraints_->GetActiveConstraints(),
+                                                      unique_constraints_->GetActiveConstraints(),
+                                                      type_constraints_->GetActiveConstraints());
+  active_constraints_.WithLock([&](ActiveConstraintsPtr &ac) { ac = std::move(snapshot); });
 }
 
-void Constraints::DropGraphClearConstraints() const {
+void Constraints::DropGraphClearConstraints() {
   // DROP GRAPH can only happen for IN_MEMORY so it safe to assume this cast
   static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->DropGraphClearConstraints();
   existence_constraints_->DropGraphClearConstraints();
   type_constraints_->DropGraphClearConstraints();
+  auto snapshot = std::make_shared<ActiveConstraints>(existence_constraints_->GetActiveConstraints(),
+                                                      unique_constraints_->GetActiveConstraints(),
+                                                      type_constraints_->GetActiveConstraints());
+  active_constraints_.WithLock([&](ActiveConstraintsPtr &ac) { ac = std::move(snapshot); });
 }
 
 }  // namespace memgraph::storage

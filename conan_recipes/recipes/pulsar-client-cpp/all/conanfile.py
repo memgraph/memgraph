@@ -2,7 +2,7 @@ from conan import ConanFile
 from conan.tools.cmake import CMakeToolchain, CMake, cmake_layout, CMakeDeps
 from conan.tools.env import Environment
 from conan.tools.build import check_min_cppstd, check_max_cppstd
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, trim_conandata
 import os
 
 """
@@ -37,6 +37,10 @@ class PulsarClientCppConan(ConanFile):
 
     # Build-time tools: e.g. cmake, ninja, protoc, clang-format, doxy
     tool_requires = ["protobuf/3.21.12"]
+
+    def export(self):
+        # Stabilise recipe revision across conan export and local-recipes-index
+        trim_conandata(self)
 
     def export_sources(self):
         export_conandata_patches(self)

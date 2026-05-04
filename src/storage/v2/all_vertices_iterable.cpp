@@ -13,7 +13,9 @@
 
 namespace memgraph::storage {
 
-auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
+namespace {
+auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::Iterator it,
+                            utils::SkipListDb<Vertex>::Iterator end,
                             std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
   while (it != end) {
     if (VertexAccessor::IsVisible(&*it, tx, view)) [[likely]] {
@@ -24,8 +26,10 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipLis
   }
   return it;
 }
+}  // namespace
 
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it)
+AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self,
+                                        utils::SkipListDb<Vertex>::Iterator it)
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->storage_, self->transaction_,
                                  self->view_)) {}

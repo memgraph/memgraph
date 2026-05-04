@@ -480,8 +480,14 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (scan_type == ScanAllByLabelProperties::kType) {
       auto *scan = dynamic_cast<ScanAllByLabelProperties *>(scan_op);
-      return std::make_shared<ScanParallelByLabelProperties>(
-          input, scan->view_, num_threads_, state_symbol, scan->label_, scan->properties_, scan->expression_ranges_);
+      return std::make_shared<ScanParallelByLabelProperties>(input,
+                                                             scan->view_,
+                                                             num_threads_,
+                                                             state_symbol,
+                                                             scan->label_,
+                                                             scan->properties_,
+                                                             scan->expression_ranges_,
+                                                             scan->index_order_);
     }
     if (scan_type == ScanAllByPointDistance::kType) {
       // Not supported at the moment

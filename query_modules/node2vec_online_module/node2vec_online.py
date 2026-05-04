@@ -215,7 +215,7 @@ def get(
 
 
 @mgp.read_proc
-def update(ctx: mgp.ProcCtx, edges: mgp.List[mgp.Edge]) -> mgp.Record():
+def update(ctx: mgp.ProcCtx, edges: mgp.List[mgp.Edge]):
     """
     For this function to work, Learner and Updater must be set.
 
@@ -251,7 +251,6 @@ def update(ctx: mgp.ProcCtx, edges: mgp.List[mgp.Edge]) -> mgp.Record():
     for e in edges:
         ctx.check_must_abort()
         node2vec_context.update_model(e.from_vertex.id, e.to_vertex.id, int(current_time))
-    return mgp.Record()
 
 
 @mgp.read_proc

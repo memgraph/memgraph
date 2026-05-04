@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <ranges>
 #include <utility>
 
 #include "flags/bolt.hpp"
@@ -45,8 +46,11 @@ class SymbolTable;
 
 namespace plan {
 
-// Custom pipe operator to chain functions
+// Custom pipe operator to chain functions. Constrained to non-ranges so it does
+// not collide with std::ranges::views::operator| when piping ranges through
+// view adaptor closures.
 template <typename T, typename F>
+  requires(!std::ranges::range<std::remove_cvref_t<T>>)
 auto operator|(T &&value, F &&func) -> decltype(func(std::forward<T>(value))) {
   return func(std::forward<T>(value));
 }

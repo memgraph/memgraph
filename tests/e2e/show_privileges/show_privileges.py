@@ -21,7 +21,7 @@ def test_show_privileges_basic(connect):
 
     # Test that users require ON clause in multi-database environment
     try:
-        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin;")
+        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin;")
         # If this succeeds, we might be in single-database mode
         # Check if we have multiple databases
         databases = execute_and_fetch_all(cursor, "SHOW DATABASES;")
@@ -120,7 +120,7 @@ def test_show_privileges_user_vs_role_behavior(connect):
 
     # Test user behavior - should require ON clause in multi-database environment
     try:
-        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin;")
+        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin;")
         # If this succeeds, check if we're in single-database mode
         databases = execute_and_fetch_all(cursor, "SHOW DATABASES;")
         if len(databases) > 1:
@@ -156,10 +156,10 @@ def test_show_privileges_on_main(connect):
     cursor = connect.cursor()
 
     # Set main database for admin
-    execute_and_fetch_all(cursor, "SET MAIN DATABASE memgraph FOR admin;")
+    execute_and_fetch_all(cursor, "SET MAIN DATABASE memgraph FOR USER admin;")
 
     # Test ON MAIN
-    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON MAIN;")
+    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON MAIN;")
     assert len(result) > 0, "Should return privileges for admin on main database"
 
 
@@ -171,7 +171,7 @@ def test_show_privileges_on_current(connect):
     execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
 
     # Test ON CURRENT
-    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON CURRENT;")
+    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON CURRENT;")
     assert len(result) > 0, "Should return privileges for admin on current database"
 
 
@@ -180,12 +180,12 @@ def test_show_privileges_on_database(connect):
     cursor = connect.cursor()
 
     # Test ON DATABASE with specific database
-    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON DATABASE memgraph;")
+    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON DATABASE memgraph;")
     assert len(result) > 0, "Should return privileges for admin on specified database"
 
     # Test with database name containing special characters
     try:
-        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON DATABASE `test-db`;")
+        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON DATABASE `test-db`;")
         assert len(result) > 0, "Should return privileges for admin on database with special characters"
     except Exception:
         # Expected to fail in single db mode
@@ -198,7 +198,7 @@ def test_show_privileges_enterprise_only_features(connect):
 
     # These should work in enterprise builds but may throw errors in non-enterprise builds
     try:
-        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON MAIN;")
+        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON MAIN;")
         # If this succeeds, we're in enterprise mode
         assert len(result) > 0, "Should return privileges for admin on main database"
     except Exception as e:
@@ -206,7 +206,7 @@ def test_show_privileges_enterprise_only_features(connect):
         assert "ON MAIN is only available in enterprise edition" in str(e) or "enterprise" in str(e).lower()
 
     try:
-        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON CURRENT;")
+        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON CURRENT;")
         # If this succeeds, we're in enterprise mode
         assert len(result) > 0, "Should return privileges for admin on current database"
     except Exception as e:
@@ -214,7 +214,7 @@ def test_show_privileges_enterprise_only_features(connect):
         assert "ON CURRENT is only available in enterprise edition" in str(e) or "enterprise" in str(e).lower()
 
     try:
-        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON DATABASE memgraph;")
+        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON DATABASE memgraph;")
         # If this succeeds, we're in enterprise mode
         assert len(result) > 0, "Should return privileges for admin on specified database"
     except Exception as e:
@@ -244,7 +244,7 @@ def test_show_privileges_error_cases(connect):
 
     # Test with non-existent database
     try:
-        execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON DATABASE nonexistent_db;")
+        execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON DATABASE nonexistent_db;")
         # This should work but return empty results or throw an error
         pass
     except Exception:
@@ -252,13 +252,13 @@ def test_show_privileges_error_cases(connect):
 
     # Test syntax errors
     try:
-        execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON;")
+        execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON;")
         assert False, "Should throw syntax error"
     except Exception:
         pass  # Expected to fail
 
     try:
-        execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON DATABASE;")
+        execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON DATABASE;")
         assert False, "Should throw syntax error"
     except Exception:
         pass  # Expected to fail
@@ -270,13 +270,13 @@ def test_show_privileges_no_main_database(connect):
 
     # Clear main database for admin
     try:
-        execute_and_fetch_all(cursor, 'SET MAIN DATABASE "" FOR admin;')
+        execute_and_fetch_all(cursor, 'SET MAIN DATABASE "" FOR USER admin;')
     except Exception:
         pass  # May not be supported in all builds
 
     # Test ON MAIN without main database set
     try:
-        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON MAIN;")
+        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON MAIN;")
         # If this succeeds, we're in enterprise mode and it should work
         assert len(result) > 0, "Should return privileges for admin on main database"
     except Exception as e:
@@ -290,7 +290,7 @@ def test_show_privileges_no_current_database(connect):
 
     # Test ON CURRENT without current database
     try:
-        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON CURRENT;")
+        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR USER admin ON CURRENT;")
         # If this succeeds, we're in enterprise mode and it should work
         assert len(result) > 0, "Should return privileges for admin on current database"
     except Exception as e:

@@ -23,15 +23,13 @@ def create_vertex(ctx: mgp.ProcCtx) -> mgp.Record(v=mgp.Any):
 
 
 @mgp.write_proc
-def delete_vertex(ctx: mgp.ProcCtx, v: mgp.Any) -> mgp.Record():
+def delete_vertex(ctx: mgp.ProcCtx, v: mgp.Any):
     ctx.graph.delete_vertex(v)
-    return mgp.Record()
 
 
 @mgp.write_proc
-def detach_delete_vertex(ctx: mgp.ProcCtx, v: mgp.Any) -> mgp.Record():
+def detach_delete_vertex(ctx: mgp.ProcCtx, v: mgp.Any):
     ctx.graph.detach_delete_vertex(v)
-    return mgp.Record()
 
 
 @mgp.write_proc
@@ -47,15 +45,13 @@ def create_edge(
 
 
 @mgp.write_proc
-def delete_edge(ctx: mgp.ProcCtx, edge: mgp.Edge) -> mgp.Record():
+def delete_edge(ctx: mgp.ProcCtx, edge: mgp.Edge):
     ctx.graph.delete_edge(edge)
-    return mgp.Record()
 
 
 @mgp.write_proc
-def set_property(ctx: mgp.ProcCtx, object: mgp.Any, name: str, value: mgp.Nullable[mgp.Any]) -> mgp.Record():
+def set_property(ctx: mgp.ProcCtx, object: mgp.Any, name: str, value: mgp.Nullable[mgp.Any]):
     object.properties.set(name, value)
-    return mgp.Record()
 
 
 @mgp.write_proc

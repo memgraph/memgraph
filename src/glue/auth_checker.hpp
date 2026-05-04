@@ -103,6 +103,7 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
 
   auth::UserOrRole user_or_role_;
   const query::DbAccessor *dba_;
+  std::string db_name_;
   mutable std::optional<auth::FineGrainedAccessPermissions> cached_label_permissions_;
   mutable std::optional<auth::FineGrainedAccessPermissions> cached_edge_permissions_;
 };

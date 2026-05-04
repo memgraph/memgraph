@@ -14,6 +14,10 @@ target_link_libraries(query_memory_limit_proc mg-utils)
 # Prevent compiler from assuming malloc succeeds (optimizer would replace ptr != nullptr with true)
 target_compile_options(query_memory_limit_proc PRIVATE -fno-builtin-malloc -fno-builtin-free)
 
+add_library(db_query_tracking_proc SHARED db_query_tracking_proc.cpp)
+target_include_directories(db_query_tracking_proc PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(db_query_tracking_proc mg-utils)
+
 add_library(global_memory_limit_thread_proc SHARED global_memory_limit_thread_proc.cpp)
 target_include_directories(global_memory_limit_thread_proc PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(global_memory_limit_thread_proc mg-utils)

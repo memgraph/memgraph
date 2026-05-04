@@ -163,14 +163,18 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
   ASSERT_EQ(parsed_name->second, old_info->second)
       << "Recovered snapshot " << new_snapshot_path << " should have the same start timestamp as the original snapshot";
 
-  // Verify there is only one vertex (the one created in the first transaction)
-  auto acc = storage->Access(memgraph::storage::WRITE);
-  auto vertices = acc->Vertices(memgraph::storage::View::NEW);
-  int count = 0;
-  for (const auto &vertex : vertices) {
-    count++;
+  // Verify there is only one vertex (the one created in the first transaction).
+  // Scope the accessor so its SkipList accessor is released before the next
+  // RecoverSnapshot call (which Clears the storage).
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertices = acc->Vertices(memgraph::storage::View::NEW);
+    int count = 0;
+    for (const auto &vertex : vertices) {
+      count++;
+    }
+    ASSERT_EQ(count, 1) << "Should have exactly one vertex after recovery";
   }
-  ASSERT_EQ(count, 1) << "Should have exactly one vertex after recovery";
 
   // Second recovery
   auto recover2_result =

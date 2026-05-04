@@ -12,7 +12,6 @@
 #pragma once
 
 #include "memory/query_memory_control.hpp"
-#include "plan/point_distance_condition.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
@@ -22,11 +21,6 @@
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/point_index.hpp"
-#include "storage/v2/indices/text_index.hpp"
-#include "storage/v2/indices/text_index_utils.hpp"
-#include "storage/v2/indices/vector_edge_index.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -37,6 +31,23 @@
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/variant_helpers.hpp"
+
+namespace memgraph::storage {
+enum class PointDistanceCondition : uint8_t;
+enum class WithinBBoxCondition : uint8_t;
+struct PointIterable;
+struct TextSearchResult;
+struct TextEdgeSearchResult;
+struct VectorIndexInfo;
+struct VectorEdgeIndexInfo;
+}  // namespace memgraph::storage
+
+namespace memgraph::query::plan {
+using PointDistanceCondition = memgraph::storage::PointDistanceCondition;
+using WithinBBoxCondition = memgraph::storage::WithinBBoxCondition;
+}  // namespace memgraph::query::plan
+
+enum class text_search_mode;
 
 #include <cstdint>
 #include <optional>
@@ -430,8 +441,9 @@ class DbAccessor final {
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label,
                             std::span<storage::PropertyPath const> properties,
-                            std::span<storage::PropertyValueRange const> property_ranges) {
-    return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view));
+                            std::span<storage::PropertyValueRange const> property_ranges,
+                            storage::IndexOrder order = storage::IndexOrder::ASC) {
+    return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view, order));
   }
 
   VerticesChunkedIterable ChunkedVertices(storage::View view, size_t num_chunks) {
@@ -445,8 +457,9 @@ class DbAccessor final {
   VerticesChunkedIterable ChunkedVertices(storage::View view, storage::LabelId label,
                                           std::span<storage::PropertyPath const> properties,
                                           std::span<storage::PropertyValueRange const> property_ranges,
-                                          size_t num_chunks) {
-    return VerticesChunkedIterable{accessor_->ChunkedVertices(label, properties, property_ranges, view, num_chunks)};
+                                          size_t num_chunks, storage::IndexOrder order = storage::IndexOrder::ASC) {
+    return VerticesChunkedIterable{
+        accessor_->ChunkedVertices(label, properties, property_ranges, view, num_chunks, order)};
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, size_t num_chunks) {
@@ -686,49 +699,32 @@ class DbAccessor final {
     return accessor_->EdgePropertyIndexReady(property);
   }
 
-  bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
+  bool TextIndexExists(const std::string &index_name) const;
 
   std::vector<storage::TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                                         text_search_mode search_mode, std::size_t limit) const {
-    return accessor_->TextIndexSearch(index_name, search_query, search_mode, limit);
-  }
+                                                         text_search_mode search_mode, std::size_t limit) const;
 
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
-                                 const std::string &aggregation_query) const {
-    return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
-  }
+                                 const std::string &aggregation_query) const;
 
   std::string TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
-                                     const std::string &aggregation_query) {
-    return accessor_->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
-  }
+                                     const std::string &aggregation_query);
 
   std::vector<storage::TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name,
                                                                  const std::string &search_query,
-                                                                 text_search_mode search_mode,
-                                                                 std::size_t limit) const {
-    return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, limit);
-  }
+                                                                 text_search_mode search_mode, std::size_t limit) const;
 
-  bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
-    return accessor_->PointIndexExists(label, prop);
-  }
+  bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const;
 
   std::vector<std::tuple<storage::VertexAccessor, double, double>> VectorIndexSearchOnNodes(
-      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
-    return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
-  }
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector);
 
   std::vector<std::tuple<storage::EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
-      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
-    return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
-  }
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector);
 
-  std::vector<storage::VectorIndexInfo> ListAllVectorIndices() const { return accessor_->ListAllVectorIndices(); }
+  std::vector<storage::VectorIndexInfo> ListAllVectorIndices() const;
 
-  std::vector<storage::VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const {
-    return accessor_->ListAllVectorEdgeIndices();
-  }
+  std::vector<storage::VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const;
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
@@ -820,14 +816,6 @@ class DbAccessor final {
     return accessor_->ApproximateEdgeCount(property, lower, upper);
   }
 
-  std::vector<storage::LabelId> ListAllPossiblyPresentVertexLabels() const {
-    return accessor_->ListAllPossiblyPresentVertexLabels();
-  }
-
-  std::vector<storage::EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const {
-    return accessor_->ListAllPossiblyPresentEdgeTypes();
-  }
-
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
@@ -847,8 +835,9 @@ class DbAccessor final {
 
   std::expected<void, storage::StorageIndexDefinitionError> CreateIndex(
       storage::LabelId label, std::vector<storage::PropertyPath> &&properties,
+      storage::IndexOrder order = storage::IndexOrder::ASC,
       storage::CheckCancelFunction cancel_check = storage::neverCancel) {
-    return accessor_->CreateIndex(label, std::move(properties), std::move(cancel_check));
+    return accessor_->CreateIndex(label, std::move(properties), order, std::move(cancel_check));
   }
 
   std::expected<void, storage::StorageIndexDefinitionError> CreateIndex(
@@ -871,9 +860,10 @@ class DbAccessor final {
     return accessor_->DropIndex(label);
   }
 
-  std::expected<void, storage::StorageIndexDefinitionError> DropIndex(storage::LabelId label,
-                                                                      std::vector<storage::PropertyPath> &&properties) {
-    return accessor_->DropIndex(label, std::move(properties));
+  std::expected<void, storage::StorageIndexDefinitionError> DropIndex(
+      storage::LabelId label, std::vector<storage::PropertyPath> &&properties,
+      std::optional<storage::IndexOrder> order = std::nullopt) {
+    return accessor_->DropIndex(label, std::move(properties), order);
   }
 
   std::expected<void, storage::StorageIndexDefinitionError> DropIndex(storage::EdgeTypeId edge_type) {

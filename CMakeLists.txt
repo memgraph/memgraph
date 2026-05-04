@@ -1,4 +1,7 @@
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 3.31)
+
+# Enable the built-in `codegen` target for add_custom_command(CODEGEN).
+cmake_policy(SET CMP0171 NEW)
 
 # Opt in to transitive LINK_LIBRARIES evaluation (CMake 4.1+).
 # Our CXX_MODULES targets are already structured to avoid cycles.
@@ -204,6 +207,7 @@ include(functions)
 
 # Load conan dependencies in the correct order using explicit find_package calls
 # Load dependencies that don't depend on others first
+find_package(ApprovalTests REQUIRED)
 find_package(benchmark REQUIRED)
 find_package(GTest REQUIRED)
 find_package(rapidcheck REQUIRED)
@@ -279,6 +283,8 @@ add_compile_options(
         -Wno-missing-field-initializers # C++20 designated init, unspecified fields are zero-initialized
         -Wno-c99-designator
         -Werror=implicit-fallthrough
+        -Werror=deprecated
+        -Wno-error=deprecated-declarations
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
 )
 
@@ -521,9 +527,8 @@ if(QUERY_MODULES)
   add_subdirectory(query_modules)
 endif()
 
-# All targets which generate code, useful as a single target to build for clang-tidy analysis to work
-# NOTE: It's big because https://stackoverflow.com/questions/74870212/how-to-add-dependencies-to-a-custom-target-after-the-fact
-# NOTE: The rest of the generated code should already under toolchain.
+# Legacy target: prefer `ninja codegen` (CMake 3.31+ built-in, uses CODEGEN flag).
+# Kept for backwards compatibility with CI scripts.
 add_custom_target(generated_code DEPENDS
   generate_opencypher_parser
   mgcxx_text_search

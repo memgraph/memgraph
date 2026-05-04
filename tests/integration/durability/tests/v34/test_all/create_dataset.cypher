@@ -16,6 +16,8 @@ CREATE VECTOR EDGE INDEX vector_edge_index_name ON :REL(embedding) WITH CONFIG {
 CREATE INDEX ON :composite(a,b,c,d);
 CREATE INDEX ON :composite(d,c,b,a);
 CREATE INDEX ON :nested(a.b.c);
+CREATE INDEX ON :desc_label(prop) WITH CONFIG {"order": "DESC"};
+CREATE INDEX ON :desc_composite(a, b) WITH CONFIG {"order": "DESC"};
 CREATE TEXT INDEX text_index_without_properties ON :text;
 CREATE TEXT INDEX text_index_with_properties ON :text(prop1, prop2);
 CREATE TEXT EDGE INDEX text_edge_index ON :TEXT_REL(prop1, prop2);
@@ -36,6 +38,8 @@ CREATE (:__mg_vertex__:composite {__mg_id__: 12, d:1, c:2, b:3, a:4});
 CREATE (:__mg_vertex__:TTL {__mg_id__: 13, ttl:4102444800});
 CREATE (:__mg_vertex__:nested {__mg_id__: 14, a: {b: {c: 1}}});
 CREATE (:__mg_vertex__:text {prop1: "first text", prop2: "second text", prop3: "third text"});
+CREATE (:__mg_vertex__:desc_label {__mg_id__: 15, prop: 42});
+CREATE (:__mg_vertex__:desc_composite {__mg_id__: 16, a: 10, b: 20});
 CREATE ()-[r:REL {embedding: [1.0, 2.0, 3.0]}]->();
 CREATE ()-[r:TEXT_REL {prop1: "first text", prop2: "second text", prop3: "third text"}]->();
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 0 CREATE (u)-[:`link` {`ext`: [false, {`k`: "l"}], `prop`: -1}]->(v);

@@ -101,6 +101,7 @@ static auto CreateIndexedVertices(int index_count, int vertex_count, memgraph::s
   {
     auto unique_acc = db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
+    MG_ASSERT(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   auto dba = db->Access(memgraph::storage::WRITE);
   for (int vi = 0; vi < vertex_count; ++vi) {

@@ -20,12 +20,14 @@
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/temporal.hpp"
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/unit/ddl_abort_helpers.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -34,8 +36,7 @@ using testing::IsEmpty;
 using testing::Types;
 using testing::UnorderedElementsAre;
 
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
+// ASSERT_NO_ERROR provided by ddl_abort_helpers.hpp.
 
 namespace pvr {
 // Create a PropertyValueRange for testing against property equality
@@ -102,6 +103,13 @@ class IndexTest : public testing::Test {
     this->storage.reset(nullptr);
   }
 
+  const std::string testSuite = "storage_v2_indices";
+  memgraph::storage::Config config_;
+
+ public:
+  // public so namespace-scope test-helper lambdas can reach storage / accessor factories.
+  std::unique_ptr<memgraph::storage::Storage> storage;
+
   auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
     if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
       return this->storage->ReadOnlyAccess();
@@ -118,9 +126,7 @@ class IndexTest : public testing::Test {
     }
   }
 
-  const std::string testSuite = "storage_v2_indices";
-  memgraph::storage::Config config_;
-  std::unique_ptr<memgraph::storage::Storage> storage;
+ protected:
   PropertyId prop_id;
   PropertyId prop_val;
   LabelId label1;
@@ -668,9 +674,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(
+                    LabelPropertyIndexEntry{this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}}));
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -685,9 +691,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(
+                    LabelPropertyIndexEntry{this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}}));
   }
 
   {
@@ -703,10 +709,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}),
-                             std::make_pair(this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(
+                    LabelPropertyIndexEntry{this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}},
+                    LabelPropertyIndexEntry{this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}}}));
   }
 
   {
@@ -721,9 +727,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(
+                    LabelPropertyIndexEntry{this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}}}));
   }
 
   {
@@ -772,9 +778,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(
+                UnorderedElementsAre(LabelPropertyIndexEntry{
                     this->label1,
-                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}}));
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -793,9 +799,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(
+                UnorderedElementsAre(LabelPropertyIndexEntry{
                     this->label1,
-                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}}));
   }
 
   {
@@ -817,12 +823,12 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
     EXPECT_THAT(
         acc->ListAllIndices().label_properties,
         UnorderedElementsAre(
-            std::make_pair(
+            LabelPropertyIndexEntry{
                 this->label1,
-                std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}),
-            std::make_pair(
+                std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}},
+            LabelPropertyIndexEntry{
                 this->label2,
-                std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
+                std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}}));
   }
 
   {
@@ -841,9 +847,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(
+                UnorderedElementsAre(LabelPropertyIndexEntry{
                     this->label2,
-                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}}));
   }
 
   {
@@ -2104,6 +2110,526 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
            EXPECT_TRUE(values[1].ValueDouble() >= 1 && values[1].ValueDouble() <= 3);
          }
        });
+}
+
+// Regression test: composite DESC index with range bounds on non-leading property.
+// Before the fix, AdvanceUntilValid_ returned NoMoreValidEntries when a secondary
+// property fell below its lower bound during DESC iteration, prematurely terminating
+// the scan and missing valid entries with different primary property values.
+TYPED_TEST(IndexTest, LabelPropertyDescCompositeIndexRangeBounds) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support DESC indices";
+  }
+
+  // Create DESC composite index on (prop_a, prop_b)
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(
+        !acc->CreateIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}}, IndexOrder::DESC)
+             .has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Insert vertices with (a, b) pairs. DESC skip list order will be:
+  // (3,5), (3,3), (3,0), (2,7), (2,3), (1,5), (1,3)
+  //
+  // Query: 1 <= a <= 3 AND 1 <= b <= 5
+  // Expected valid: (3,5), (3,3), (2,3), (1,5), (1,3)
+  //
+  // Bug: at (3,0), level 0 a=3 IN_BOUNDS, level 1 b=0 UNDER → NoMoreValidEntries.
+  // This prematurely stops iteration, missing (2,3), (1,5), (1,3).
+  struct VertexData {
+    int a;
+    int b;
+    int64_t id;
+  };
+
+  std::vector<VertexData> vertices_data = {
+      {3, 5, -1},
+      {3, 3, -1},
+      {3, 0, -1},
+      {2, 7, -1},
+      {2, 3, -1},
+      {1, 5, -1},
+      {1, 3, -1},
+  };
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (auto &vd : vertices_data) {
+      auto vertex = this->CreateVertex(acc.get());
+      vd.id = vertex.GetProperty(this->prop_id, View::NEW)->ValueInt();
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue(vd.a)));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue(vd.b)));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto bounded = [](int lower, int upper) {
+    return pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(lower)),
+                      memgraph::utils::MakeBoundInclusive(PropertyValue(upper)));
+  };
+
+  // Query: 1 <= a <= 3 AND 1 <= b <= 5
+  auto result_ids = this->GetIds(acc->Vertices(this->label1,
+                                               std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}},
+                                               std::array{bounded(1, 3), bounded(1, 5)},
+                                               View::OLD,
+                                               IndexOrder::DESC),
+                                 View::OLD);
+
+  // Expected: vertices with (3,5), (3,3), (2,3), (1,5), (1,3)
+  std::vector<int64_t> expected_ids;
+  for (auto const &vd : vertices_data) {
+    if (vd.a >= 1 && vd.a <= 3 && vd.b >= 1 && vd.b <= 5) {
+      expected_ids.emplace_back(vd.id);
+    }
+  }
+  EXPECT_THAT(result_ids, ::testing::UnorderedElementsAreArray(expected_ids));
+}
+
+// Test that ChunkedVertices works with DESC indices.
+// Before the fix, ChunkedVertices was hardcoded to ASC — a DESC-only index
+// would trigger a DMG_ASSERT crash.
+TYPED_TEST(IndexTest, LabelPropertyDescIndexChunkedVertices) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support DESC indices or ChunkedVertices";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}, IndexOrder::DESC).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < 20; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  std::vector<PropertyValueRange> ranges = {pvr::IsNotNull()};
+  auto chunks = acc->ChunkedVertices(
+      this->label1, std::array{PropertyPath{this->prop_val}}, ranges, View::OLD, 4, IndexOrder::DESC);
+  ASSERT_GT(chunks.size(), 0);
+
+  size_t total = 0;
+  for (size_t i = 0; i < chunks.size(); ++i) {
+    auto chunk = chunks.get_chunk(i);
+    for (auto it = chunk.begin(); it != chunk.end(); ++it) {
+      ++total;
+    }
+  }
+  EXPECT_EQ(total, 20);
+}
+
+// Dropping an index removes both ASC and DESC variants atomically.
+TYPED_TEST(IndexTest, LabelPropertyDescIndexDropRemovesBoth) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support DESC indices";
+  }
+
+  // Create both ASC and DESC index on the same label+property
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}, IndexOrder::ASC).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}, IndexOrder::DESC).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Add some data
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < 5; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Both directions work before drop
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                           std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()},
+                                           View::OLD,
+                                           IndexOrder::ASC),
+                             View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                           std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()},
+                                           View::OLD,
+                                           IndexOrder::DESC),
+                             View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
+  }
+
+  // Drop removes both
+  {
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(!acc->DropIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify index no longer exists
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label1, std::array{PropertyPath{this->prop_val}}));
+    auto indices = acc->ListAllIndices();
+    EXPECT_THAT(indices.label_properties, IsEmpty());
+  }
+
+  // Second drop should fail
+  {
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(!acc->DropIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+// DESC index with various range bound configurations: lower-only, upper-only, open range.
+TYPED_TEST(IndexTest, LabelPropertyDescIndexRangeBoundsVariants) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support DESC indices";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}, IndexOrder::DESC).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Create vertices with values 0..9
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < 10; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+
+  // IS NOT NULL (all vertices)
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()},
+                                         View::OLD,
+                                         IndexOrder::DESC),
+                           View::OLD),
+              UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+
+  // Lower bound only: val >= 7
+  EXPECT_THAT(
+      this->GetIds(
+          acc->Vertices(this->label1,
+                        std::array{PropertyPath{this->prop_val}},
+                        std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(7)), std::nullopt)},
+                        View::OLD,
+                        IndexOrder::DESC),
+          View::OLD),
+      UnorderedElementsAre(7, 8, 9));
+
+  // Upper bound only: val <= 2
+  EXPECT_THAT(
+      this->GetIds(
+          acc->Vertices(this->label1,
+                        std::array{PropertyPath{this->prop_val}},
+                        std::array{pvr::Range(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(2)))},
+                        View::OLD,
+                        IndexOrder::DESC),
+          View::OLD),
+      UnorderedElementsAre(0, 1, 2));
+
+  // Both bounds: 3 <= val <= 6
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(3)),
+                                                               memgraph::utils::MakeBoundInclusive(PropertyValue(6)))},
+                                         View::OLD,
+                                         IndexOrder::DESC),
+                           View::OLD),
+              UnorderedElementsAre(3, 4, 5, 6));
+
+  // Exclusive bounds: 3 < val < 7
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::Range(memgraph::utils::MakeBoundExclusive(PropertyValue(3)),
+                                                               memgraph::utils::MakeBoundExclusive(PropertyValue(7)))},
+                                         View::OLD,
+                                         IndexOrder::DESC),
+                           View::OLD),
+              UnorderedElementsAre(4, 5, 6));
+
+  // Exact value: val == 5
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(5)),
+                                                               memgraph::utils::MakeBoundInclusive(PropertyValue(5)))},
+                                         View::OLD,
+                                         IndexOrder::DESC),
+                           View::OLD),
+              UnorderedElementsAre(5));
+
+  // Empty range: val >= 100 (no matches)
+  EXPECT_THAT(
+      this->GetIds(
+          acc->Vertices(this->label1,
+                        std::array{PropertyPath{this->prop_val}},
+                        std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(100)), std::nullopt)},
+                        View::OLD,
+                        IndexOrder::DESC),
+          View::OLD),
+      IsEmpty());
+}
+
+// DESC composite index with 3 properties.
+TYPED_TEST(IndexTest, LabelPropertyDescCompositeThreeProperties) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support DESC indices";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1,
+                                   {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}},
+                                   IndexOrder::DESC)
+                      .has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Insert vertices: (a, b, c) combinations
+  struct VertexData {
+    int a, b, c;
+    int64_t id;
+  };
+
+  std::vector<VertexData> vertices_data = {
+      {1, 1, 1, -1},
+      {1, 2, 3, -1},
+      {2, 1, 2, -1},
+      {2, 2, 1, -1},
+      {3, 1, 3, -1},
+  };
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (auto &vd : vertices_data) {
+      auto vertex = this->CreateVertex(acc.get());
+      vd.id = vertex.GetProperty(this->prop_id, View::NEW)->ValueInt();
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue(vd.a)));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue(vd.b)));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, PropertyValue(vd.c)));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+
+  // Query all: IS NOT NULL on all three properties
+  auto all_ids = this->GetIds(
+      acc->Vertices(this->label1,
+                    std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}},
+                    std::array{pvr::IsNotNull(), pvr::IsNotNull(), pvr::IsNotNull()},
+                    View::OLD,
+                    IndexOrder::DESC),
+      View::OLD);
+  EXPECT_EQ(all_ids.size(), 5);
+
+  // Query with bounds on first property: a >= 2
+  auto bounded_ids = this->GetIds(
+      acc->Vertices(this->label1,
+                    std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}},
+                    std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(2)), std::nullopt),
+                               pvr::IsNotNull(),
+                               pvr::IsNotNull()},
+                    View::OLD,
+                    IndexOrder::DESC),
+      View::OLD);
+
+  // Should return vertices with a=2 and a=3
+  std::vector<int64_t> expected_ids;
+  for (auto const &vd : vertices_data) {
+    if (vd.a >= 2) expected_ids.emplace_back(vd.id);
+  }
+  EXPECT_THAT(bounded_ids, ::testing::UnorderedElementsAreArray(expected_ids));
+}
+
+// DESC index transactional isolation: uncommitted data not visible to other transactions.
+TYPED_TEST(IndexTest, LabelPropertyDescIndexTransactionalIsolation) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support DESC indices";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}, IndexOrder::DESC).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc_before = this->storage->Access(memgraph::storage::READ);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+
+  for (int i = 0; i < 5; ++i) {
+    auto vertex = this->CreateVertex(acc.get());
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+  }
+
+  // Current transaction sees its own uncommitted data via View::NEW
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()},
+                                         View::NEW,
+                                         IndexOrder::DESC),
+                           View::NEW),
+              UnorderedElementsAre(0, 1, 2, 3, 4));
+
+  // Other transaction does not see uncommitted data
+  EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1,
+                                                std::array{PropertyPath{this->prop_val}},
+                                                std::array{pvr::IsNotNull()},
+                                                View::NEW,
+                                                IndexOrder::DESC),
+                           View::NEW),
+              IsEmpty());
+
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  // Transaction started before commit still does not see the data
+  EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1,
+                                                std::array{PropertyPath{this->prop_val}},
+                                                std::array{pvr::IsNotNull()},
+                                                View::NEW,
+                                                IndexOrder::DESC),
+                           View::NEW),
+              IsEmpty());
+
+  // New transaction after commit sees the data
+  auto acc_after_commit = this->storage->Access(memgraph::storage::READ);
+  EXPECT_THAT(this->GetIds(acc_after_commit->Vertices(this->label1,
+                                                      std::array{PropertyPath{this->prop_val}},
+                                                      std::array{pvr::IsNotNull()},
+                                                      View::NEW,
+                                                      IndexOrder::DESC),
+                           View::NEW),
+              UnorderedElementsAre(0, 1, 2, 3, 4));
+}
+
+// Aborting a transaction that inserted into a (label, prop) covered by BOTH an ASC and a
+// DESC index must roll back from BOTH skiplists. Exercises AbortEntries' pairing of one
+// copy-insert and one move-insert — if either half were broken, the aborted vertices would
+// stay visible through the untouched index order.
+TYPED_TEST(IndexTest, LabelPropertyAbortClearsBothAscAndDescIndices) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support DESC indices";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}, IndexOrder::ASC).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}, IndexOrder::DESC).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Seed with some committed vertices so we can confirm they survive the abort.
+  std::vector<int64_t> committed_ids;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < 3; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      committed_ids.emplace_back(vertex.GetProperty(this->prop_id, View::NEW)->ValueInt());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Write + abort: these vertices must disappear from BOTH index orders.
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 10; i < 15; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+    }
+    acc->Abort();
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()},
+                                         View::NEW,
+                                         IndexOrder::ASC),
+                           View::NEW),
+              ::testing::UnorderedElementsAreArray(committed_ids));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()},
+                                         View::NEW,
+                                         IndexOrder::DESC),
+                           View::NEW),
+              ::testing::UnorderedElementsAreArray(committed_ids));
+}
+
+// Parallel scan (ChunkedVertices) with DESC index produces all expected results.
+TYPED_TEST(IndexTest, LabelPropertyDescIndexParallelScan) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support DESC indices or ChunkedVertices";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}, IndexOrder::DESC).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < 50; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  std::vector<PropertyValueRange> ranges = {pvr::IsNotNull()};
+  auto chunks = acc->ChunkedVertices(
+      this->label1, std::array{PropertyPath{this->prop_val}}, ranges, View::OLD, 4, IndexOrder::DESC);
+  ASSERT_GT(chunks.size(), 0);
+
+  size_t total = 0;
+  for (size_t i = 0; i < chunks.size(); ++i) {
+    auto chunk = chunks.get_chunk(i);
+    for (auto it = chunk.begin(); it != chunk.end(); ++it) {
+      ++total;
+    }
+  }
+  EXPECT_EQ(total, 50);
 }
 
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
@@ -4120,4 +4646,201 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransa
     EXPECT_THAT(this->GetIds(acc_new->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
                 IsEmpty());
   }
+}
+
+using memgraph::tests::ConstraintAcc;
+using memgraph::tests::DropAcc;
+using memgraph::tests::ExpectCreateAbortLeavesNoGhostEntry;
+using memgraph::tests::ExpectDropAbortRestoresIndex;
+using memgraph::tests::IndexAcc;
+using memgraph::tests::UniqueAcc;
+
+TYPED_TEST(IndexTest, LabelIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(this, IndexAcc, [&](auto *acc) { return acc->CreateIndex(this->label1); });
+}
+
+TYPED_TEST(IndexTest, LabelPropertyIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  PropertyPath props{this->prop_val};
+  ExpectCreateAbortLeavesNoGhostEntry(
+      this, IndexAcc, [&](auto *acc) { return acc->CreateIndex(this->label1, {props}); });
+}
+
+TYPED_TEST(IndexTest, EdgeTypeIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(this, IndexAcc, [&](auto *acc) { return acc->CreateIndex(this->edge_type_id1); });
+}
+
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(
+      this, IndexAcc, [&](auto *acc) { return acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1); });
+}
+
+TYPED_TEST(IndexTest, EdgePropertyIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(
+      this, IndexAcc, [&](auto *acc) { return acc->CreateGlobalEdgeIndex(this->edge_prop_id1); });
+}
+
+TYPED_TEST(IndexTest, PointIndexAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(
+      this, UniqueAcc, [&](auto *acc) { return acc->CreatePointIndex(this->label1, this->prop_val); });
+}
+
+TYPED_TEST(IndexTest, DropPointIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  // Point index has no XxxReady() reader on the public accessor; verify by
+  // re-dropping (which only succeeds if the entry is still live).
+  {
+    auto a = this->storage->UniqueAccess();
+    ASSERT_TRUE(a->CreatePointIndex(this->label1, this->prop_val).has_value());
+    ASSERT_NO_ERROR(a->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto a = this->storage->UniqueAccess();
+    ASSERT_TRUE(a->DropPointIndex(this->label1, this->prop_val).has_value());
+    a->Abort();
+  }
+  {
+    auto a = this->storage->UniqueAccess();
+    ASSERT_TRUE(a->DropPointIndex(this->label1, this->prop_val).has_value())
+        << "After an aborted DROP POINT INDEX, the index must be visible again and droppable.";
+    ASSERT_NO_ERROR(a->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TYPED_TEST(IndexTest, DropLabelIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectDropAbortRestoresIndex(
+      this,
+      IndexAcc,
+      DropAcc,
+      [&](auto *acc) { return acc->CreateIndex(this->label1); },
+      [&](auto *acc) { return acc->DropIndex(this->label1); },
+      [&](auto *acc) { return acc->LabelIndexReady(this->label1); });
+}
+
+TYPED_TEST(IndexTest, DropLabelPropertyIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  PropertyPath props{this->prop_val};
+  std::array<PropertyPath, 1> props_arr{props};
+  std::span<PropertyPath const> props_span{props_arr};
+  ExpectDropAbortRestoresIndex(
+      this,
+      IndexAcc,
+      DropAcc,
+      [&](auto *acc) { return acc->CreateIndex(this->label1, {props}); },
+      [&](auto *acc) { return acc->DropIndex(this->label1, std::vector<PropertyPath>{props}); },
+      [&](auto *acc) { return acc->LabelPropertyIndexReady(this->label1, props_span); });
+}
+
+TYPED_TEST(IndexTest, DropEdgeTypeIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectDropAbortRestoresIndex(
+      this,
+      IndexAcc,
+      DropAcc,
+      [&](auto *acc) { return acc->CreateIndex(this->edge_type_id1); },
+      [&](auto *acc) { return acc->DropIndex(this->edge_type_id1); },
+      [&](auto *acc) { return acc->EdgeTypeIndexReady(this->edge_type_id1); });
+}
+
+TYPED_TEST(IndexTest, DropEdgeTypePropertyIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectDropAbortRestoresIndex(
+      this,
+      IndexAcc,
+      DropAcc,
+      [&](auto *acc) { return acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1); },
+      [&](auto *acc) { return acc->DropIndex(this->edge_type_id1, this->edge_prop_id1); },
+      [&](auto *acc) { return acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1); });
+}
+
+TYPED_TEST(IndexTest, DropLabelPropertyIndexAbortDoesNotClobberConcurrentDrop) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  PropertyPath p1{this->prop_val};
+  PropertyPath p2{this->prop_id};
+  std::array<PropertyPath, 1> p1_arr{p1};
+  std::array<PropertyPath, 1> p2_arr{p2};
+  std::span<PropertyPath const> p1_span{p1_arr};
+  std::span<PropertyPath const> p2_span{p2_arr};
+
+  // Setup: two label-property indices on the same label.
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1, {p1}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1, {p2}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Open A's drop accessor and drop p1, but don't abort yet.
+  auto acc_a = this->DropIndexAccessor();
+  ASSERT_TRUE(acc_a->DropIndex(this->label1, std::vector<PropertyPath>{p1}).has_value());
+
+  // Concurrently, B drops p2 and commits.
+  {
+    auto acc_b = this->DropIndexAccessor();
+    ASSERT_TRUE(acc_b->DropIndex(this->label1, std::vector<PropertyPath>{p2}).has_value());
+    ASSERT_NO_ERROR(acc_b->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Now A aborts. Per-key reinsert must restore p1 only — must NOT undo B's drop of p2.
+  acc_a->Abort();
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  EXPECT_TRUE(acc->LabelPropertyIndexReady(this->label1, p1_span)) << "A's aborted drop of p1 must be undone.";
+  EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label1, p2_span))
+      << "B's committed drop of p2 must NOT be clobbered by A's abort.";
+}
+
+TYPED_TEST(IndexTest, DropLabelPropertyIndexAbortPreservesStats) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Disk storage has different DDL semantics";
+  }
+  PropertyPath props{this->prop_val};
+  std::array<PropertyPath, 1> props_arr{props};
+  std::span<PropertyPath const> props_span{props_arr};
+  auto const stats = memgraph::storage::LabelPropertyIndexStats{
+      .count = 7, .distinct_values_count = 3, .statistic = 1.5, .avg_group_size = 2.0, .avg_degree = 4.0};
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(acc->CreateIndex(this->label1, {props}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    acc->SetIndexStats(this->label1, props_span, stats);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->DropIndexAccessor();
+    ASSERT_TRUE(acc->DropIndex(this->label1, std::vector<PropertyPath>{props}).has_value());
+    acc->Abort();
+  }
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto recovered = acc->GetIndexStats(this->label1, props_span);
+  ASSERT_TRUE(recovered.has_value()) << "After an aborted DROP INDEX, the analytics stats must survive.";
+  EXPECT_EQ(recovered->count, stats.count);
+  EXPECT_EQ(recovered->distinct_values_count, stats.distinct_values_count);
+}
+
+TYPED_TEST(IndexTest, DropEdgePropertyIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectDropAbortRestoresIndex(
+      this,
+      IndexAcc,
+      DropAcc,
+      [&](auto *acc) { return acc->CreateGlobalEdgeIndex(this->edge_prop_id1); },
+      [&](auto *acc) { return acc->DropGlobalEdgeIndex(this->edge_prop_id1); },
+      [&](auto *acc) { return acc->EdgePropertyIndexReady(this->edge_prop_id1); });
 }

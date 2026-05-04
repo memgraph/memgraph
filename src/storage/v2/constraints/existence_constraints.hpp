@@ -32,7 +32,7 @@ namespace memgraph::storage {
 class ExistenceConstraints {
  public:
   struct MultipleThreadsConstraintValidation {
-    auto operator()(const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
 
@@ -40,7 +40,7 @@ class ExistenceConstraints {
   };
 
   struct SingleThreadConstraintValidation {
-    auto operator()(const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
   };
@@ -81,7 +81,7 @@ class ExistenceConstraints {
   };
 
   /// Creates an ActiveConstraints snapshot for transaction use.
-  auto GetActiveConstraints() const -> std::unique_ptr<ActiveConstraints>;
+  auto GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints>;
 
   static auto GetCreationFunction(const std::optional<durability::ParallelizedSchemaCreationInfo> &)
       -> std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation>;
@@ -89,14 +89,22 @@ class ExistenceConstraints {
   /// Returns true if constraint is registered (even if still populating). Only used by OnDisk
   bool ConstraintExists(LabelId label, PropertyId property) const;
 
+  /// Registers a fresh POPULATING constraint. Returns false if one already exists.
   [[nodiscard]] bool RegisterConstraint(LabelId label, PropertyId property);
 
   /// Publishes a constraint after validation, making it visible at the given commit timestamp.
   /// Returns true on success, false if constraint not found.
   bool PublishConstraint(LabelId label, PropertyId property, uint64_t commit_timestamp) const;
 
-  /// Drops a constraint. Returns false if constraint doesn't exist.
-  bool DropConstraint(LabelId label, PropertyId property);
+  /// Drops a constraint. Returns the evicted IndividualConstraint so the caller can
+  /// reinstall it via RestoreConstraint on abort, or nullptr if no constraint
+  /// existed for {label, property}.
+  [[nodiscard]] IndividualConstraintPtr DropConstraint(LabelId label, PropertyId property);
+
+  /// Reinstalls a previously-evicted IndividualConstraint. No-op if the slot
+  /// has been reclaimed by a concurrent CREATE (constraint DDL runs under
+  /// READ_ONLY/UNIQUE, which does not serialize peers).
+  void RestoreConstraint(LabelId label, PropertyId property, IndividualConstraintPtr evicted);
 
   /*
    * VALIDATION
@@ -108,7 +116,7 @@ class ExistenceConstraints {
 
   /// Create/Recover time validation
   [[nodiscard]] static auto ValidateVerticesOnConstraint(
-      utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
+      utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
       const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt)
       -> std::expected<void, ConstraintViolation>;
@@ -123,6 +131,10 @@ class ExistenceConstraints {
 
  private:
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
+
+  // Installs `ptr` under {label, property} if absent. Shared by RegisterConstraint
+  // (fresh populating ptr) and RestoreConstraint (evicted ptr).
+  bool InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr);
 
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> constraints_{std::make_shared<Container const>()};
 };

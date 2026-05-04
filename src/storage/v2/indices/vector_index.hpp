@@ -13,15 +13,18 @@
 
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
 
+struct ActiveIndicesUpdater;
 struct Indices;
 class NameIdMapper;
 
@@ -78,7 +81,7 @@ struct VectorIndexRecovery {
   /// @param vertices Accessor to the vertices skip list.
   static void UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                 std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
-                                utils::SkipList<Vertex>::Accessor &vertices);
+                                utils::SkipListDb<Vertex>::Accessor &vertices);
 
   /// @brief Updates recovery info when a label is added to a vertex.
   /// @param label The label being added.
@@ -123,6 +126,25 @@ struct VectorIndexRecovery {
       NameIdMapper *name_id_mapper);
 };
 
+/// Abstract interface for vector index metadata queries accessed through ActiveIndices snapshots.
+struct VectorIndexActiveIndices {
+  virtual ~VectorIndexActiveIndices() = default;
+  virtual std::vector<VectorIndexSpec> ListIndices() const = 0;
+  virtual std::vector<VectorIndexInfo> ListVectorIndicesInfo() const = 0;
+  virtual std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const = 0;
+};
+
+// NOLINTNEXTLINE(bugprone-exception-escape)
+struct IndexItem {
+  synchronized_mg_vector_index_t mg_index;
+  VectorIndexSpec spec;
+
+  IndexItem(mg_vector_index_t &&index, VectorIndexSpec spec) : mg_index(std::move(index)), spec(std::move(spec)) {}
+};
+
+/// Container mapping index IDs to shared index items.
+using VectorIndexContainer = std::unordered_map<uint64_t, std::shared_ptr<IndexItem>>;
+
 /// @class VectorIndex
 /// @brief High-level interface for managing vector indexes.
 ///
@@ -130,8 +152,8 @@ struct VectorIndexRecovery {
 /// listing all indexes, and searching for nodes using a query vector.
 /// Currently, vector index operates in READ_UNCOMMITTED isolation level. Database can
 /// still operate in any other isolation level.
-/// This class is thread-safe and uses the Pimpl (Pointer to Implementation) idiom
-/// to hide implementation details.
+/// The index container is held via a copy-on-write shared_ptr<VectorIndexContainer>,
+/// so ActiveIndices snapshots remain stable while Create/Drop swap in a new version.
 class VectorIndex {
  public:
   using LabelToAdd = std::set<LabelId>;
@@ -152,10 +174,34 @@ class VectorIndex {
 
   using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
 
-  VectorIndex();
+  explicit VectorIndex(utils::MemoryTracker *memory_tracker = nullptr);
   ~VectorIndex();
-  VectorIndex(VectorIndex &&) noexcept;
-  VectorIndex &operator=(VectorIndex &&) noexcept;
+  /// Concrete ActiveIndices implementation holding a shared reference to the live index container.
+  struct ActiveIndices : VectorIndexActiveIndices {
+    ActiveIndices() = default;
+
+    explicit ActiveIndices(std::shared_ptr<VectorIndexContainer const> container)
+        : index_container_(std::move(container)) {}
+
+    std::vector<VectorIndexSpec> ListIndices() const override;
+    std::vector<VectorIndexInfo> ListVectorIndicesInfo() const override;
+    std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const override;
+
+   private:
+    std::shared_ptr<VectorIndexContainer const> index_container_;
+  };
+
+  VectorIndex(VectorIndex &&) noexcept = default;
+  VectorIndex &operator=(VectorIndex &&) noexcept = default;
+
+  /// Returns the current active indices snapshot for use in transactions.
+  auto GetActiveIndices() const -> std::shared_ptr<VectorIndexActiveIndices> {
+    return std::make_shared<ActiveIndices>(index_);
+  }
+
+  /// Publishes the current index container as the new ActiveIndices snapshot.
+  /// Mirrors the API on TextIndex / PointIndexStorage.
+  void PublishActiveIndices(ActiveIndicesUpdater const &updater) const;
 
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.
@@ -164,7 +210,7 @@ class VectorIndex {
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @param snapshot_info
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
+  bool CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
                    NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
@@ -174,15 +220,30 @@ class VectorIndex {
   /// @param indices Indices (for property decoding).
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @param snapshot_info The snapshot information to use.
-  void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
+  void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
                     Indices *indices, NameIdMapper *name_id_mapper,
+                    ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  /// @brief Drops an existing index.
-  /// @param index_name The name of the index to be dropped.
-  /// @param name_id_mapper Name id mapper (for property decoding).
-  /// @return true if the index was dropped successfully, false otherwise.
-  bool DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+  /// Captured state from DropIndex. evicted_item keeps the usearch state alive;
+  /// rewritten_vertices is the list whose properties were demoted to plain Vector
+  /// and that RestoreIndex must promote back.
+  struct DroppedIndexCapture {
+    uint64_t index_id;
+    std::shared_ptr<IndexItem> evicted_item;
+    std::vector<Vertex *> rewritten_vertices;
+  };
+
+  /// @brief Drops an existing index. Returns enough state to undo the drop on
+  /// transaction abort, or std::nullopt if the index doesn't exist. Callers that
+  /// only need a fire-and-forget drop (e.g. CreateIndex's exception rollback)
+  /// can discard the return value.
+  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+
+  /// @brief Reinstalls an index previously evicted by DropIndex. Re-adds the
+  /// captured index_id to each rewritten vertex's property and re-inserts the
+  /// IndexItem into the container.
+  void RestoreIndex(DroppedIndexCapture &&capture);
 
   /// @brief Drops all existing indexes.
   void Clear();
@@ -301,8 +362,14 @@ class VectorIndex {
   void AddVertexToIndex(uint64_t index_id, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
                         std::optional<std::size_t> thread_id = std::nullopt);
 
-  struct Impl;
-  std::unique_ptr<Impl> pimpl;
+  utils::MemoryTracker *memory_tracker_{nullptr};
+  // Invariant: `index_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
+  // InMemoryAccessor::CreateVectorIndex / DropVectorIndex and in DropGraphClearIndices). Reads
+  // from other contexts (regular READ/WRITE accessors, DatabaseInfoQuery) MUST go through the
+  // published snapshot in `ActiveIndicesStore` -- UNIQUE excludes READ/WRITE, which is what makes
+  // direct access to `index_` from commit-time hot paths (UpdateOnAddLabel / UpdateOnSetProperty /
+  // SearchNodes) race-free.
+  std::shared_ptr<VectorIndexContainer> index_ = std::make_shared<VectorIndexContainer>();
 };
 
 }  // namespace memgraph::storage

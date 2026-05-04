@@ -15,6 +15,7 @@
 #include <thread>
 
 #include "flags/general.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -22,6 +23,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/unit/ddl_abort_helpers.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -624,7 +626,7 @@ class VectorIndexRecoveryTest : public testing::Test {
   }
 
   std::unique_ptr<InMemoryStorage> storage_;
-  memgraph::utils::SkipList<Vertex> vertices_;
+  memgraph::utils::SkipListDb<Vertex> vertices_;
   VectorIndex vector_index_;
 };
 
@@ -634,8 +636,11 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexSingleThreadTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo();
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -650,8 +655,11 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo();
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -666,13 +674,73 @@ TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo("resize_test_index", 10);  // Small capacity to force resize
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
   EXPECT_EQ(vector_index_info[0].size, kNumNodes);
   EXPECT_GE(vector_index_info[0].capacity, kNumNodes);
+}
+
+TEST_F(VectorIndexTest, DropVectorIndexAbortRestoresIndex) {
+  this->CreateIndex(2, 16);
+  // Add a couple of vertices so DropIndex actually walks property values.
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto property_value = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 2.0F});
+    [[maybe_unused]] auto v = this->CreateVertex(acc.get(), test_property, property_value, test_label);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Aborted DROP must leave the index live (and the vertex property reachable
+  // through the index, not rewritten to plain Vector).
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropVectorIndex(test_index).has_value());
+    acc->Abort();
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    auto info = acc->ListAllIndices().vector_indices_spec;
+    EXPECT_EQ(info.size(), 1u);
+  }
+
+  // A subsequent search must still find the vertex via the restored index.
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    const auto result = acc->VectorIndexSearchOnNodes(test_index.data(), 1, std::vector<float>{1.0F, 2.0F});
+    EXPECT_EQ(result.size(), 1u);
+  }
+
+  // A second DROP must succeed (i.e. the restored entry is reachable, not a ghost).
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropVectorIndex(test_index).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TEST_F(VectorIndexTest, CreateVectorIndexAbortLeavesNoGhostEntry) {
+  VectorIndexSpec spec{};
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    spec = VectorIndexSpec{.index_name = test_index.data(),
+                           .label_id = acc->NameToLabel(test_label.data()),
+                           .property = acc->NameToProperty(test_property.data()),
+                           .metric_kind = metric,
+                           .dimension = 2,
+                           .resize_coefficient = resize_coefficient,
+                           .capacity = 16,
+                           .scalar_kind = scalar_kind};
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  memgraph::tests::ExpectCreateAbortLeavesNoGhostEntry(
+      this, memgraph::tests::UniqueAcc, [&](auto *acc) { return acc->CreateVectorIndex(spec); });
 }
 
 TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
@@ -699,8 +767,11 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
                                                                 .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
                                         .index_entries = std::move(index_entries)};
 
-  EXPECT_NO_THROW(
-      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+                                             vertices_acc,
+                                             &storage_->indices_,
+                                             storage_->name_id_mapper_.get(),
+                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);

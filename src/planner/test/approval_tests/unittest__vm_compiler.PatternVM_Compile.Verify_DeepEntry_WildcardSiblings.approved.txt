@@ -1,0 +1,14 @@
+0:	IterSymbolEClasses rc0, F (sym[0]), @12
+1:	Jump @3
+2:	NextSymbolEClass rc0, @12
+3:	IterENodes rn0, rc0
+4:	Jump @6
+5:	NextENode rn0, @2
+6:	CheckSymbol rn0, F (sym[0]), @5
+7:	CheckArity rn0, 3, @5
+8:	LoadChild rc1, rn0, 1
+9:	BindSlot slot[0], rc1, @5
+10:	Yield (mark slot[0])
+11:	Jump @5
+12:	Halt
+

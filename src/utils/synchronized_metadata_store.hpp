@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,6 @@
 #include <unordered_set>
 
 #include "utils/rw_lock.hpp"
-#include "utils/synchronized.hpp"
 
 namespace memgraph::utils {
 
@@ -65,6 +64,11 @@ class SynchronizedMetaDataStore {
   void clear() {
     std::unique_lock write_lock(lock_);
     element_store_.clear();
+  }
+
+  auto vectorize() const -> std::vector<T> {
+    std::shared_lock read_lock{lock_};
+    return std::vector<T>(element_store_.cbegin(), element_store_.cend());
   }
 
  private:

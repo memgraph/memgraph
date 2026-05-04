@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/disk//edge_import_mode_cache.hpp"
+#include "storage/v2/disk/edge_import_mode_cache.hpp"
 
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
@@ -29,19 +29,19 @@ InMemoryLabelIndex::Iterable EdgeImportModeCache::Vertices(LabelId label, View v
       ->Vertices(label, vertices_.access(), view, storage, transaction);
 }
 
-InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
+InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry> EdgeImportModeCache::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) const {
   auto index = in_memory_indices_.label_property_index_->GetActiveIndices();
   return static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(index.get())
-      ->Vertices(label,
-                 std::array{PropertyPath{property}},
-                 std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
-                 vertices_.access(),
-                 view,
-                 storage,
-                 transaction);
+      ->Vertices<InMemoryLabelPropertyIndex::Entry>(label,
+                                                    std::array{PropertyPath{property}},
+                                                    std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
+                                                    vertices_.access(),
+                                                    view,
+                                                    storage,
+                                                    transaction);
 }
 
 bool EdgeImportModeCache::CreateIndex(
@@ -77,9 +77,13 @@ bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
 
 bool EdgeImportModeCache::AllVerticesScanned() const { return scanned_all_vertices_; }
 
-utils::SkipList<Vertex>::Accessor EdgeImportModeCache::AccessToVertices() { return vertices_.access(); }
+utils::SkipListDb<Vertex>::Accessor EdgeImportModeCache::AccessToVertices() {
+  return vertices_.access();
+}
 
-utils::SkipList<Edge>::Accessor EdgeImportModeCache::AccessToEdges() { return edges_.access(); }
+utils::SkipListDb<Edge>::Accessor EdgeImportModeCache::AccessToEdges() {
+  return edges_.access();
+}
 
 void EdgeImportModeCache::SetScannedAllVertices() { scanned_all_vertices_ = true; }
 

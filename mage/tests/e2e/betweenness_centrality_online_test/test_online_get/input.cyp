@@ -10,4 +10,4 @@ queries:
         CALL betweenness_centrality_online.set() YIELD *;
 
 cleanup: |-
-    CALL mg.load('betweenness_centrality_online') YIELD *;
+    CALL mg.load('betweenness_centrality_online');

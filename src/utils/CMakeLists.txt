@@ -44,7 +44,6 @@ target_sources(mg-utils
     priority_thread_pool.cpp
     resource_monitoring.cpp
     safe_string.cpp
-    disk_utils.cpp
     shared_quota.cpp
 
     PUBLIC
@@ -81,6 +80,12 @@ find_package(croncpp REQUIRED)
 
 target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp rollbear::strong_type gflags mg-fnv)
 target_link_libraries(mg-utils PRIVATE AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer librdtsc::librdtsc stdc++fs Threads::Threads uuid rt range-v3::range-v3)
+if (ENABLE_JEMALLOC)
+  target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=1)
+else()
+  target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=0)
+endif()
+
 
 add_library(mg-aws STATIC)
 add_library(mg::aws ALIAS mg-aws)

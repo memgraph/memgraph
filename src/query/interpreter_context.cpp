@@ -28,7 +28,7 @@ std::optional<InterpreterContext> InterpreterContextHolder::instance{};
 
 InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
                                        memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
-                                       utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
+                                       utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *rs,
                                        memgraph::system::System &system,
                                        communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE

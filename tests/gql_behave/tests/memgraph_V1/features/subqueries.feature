@@ -421,34 +421,34 @@ Feature: Subqueries
             | title          |
             | 'Forrest Gump' |
 
-Scenario: Advance command on subquery should not affect outer query vertex visibility
-    Given an empty graph
-    And having executed
-        """
-        CREATE (a:User {id: "user1", name: "Alice"})
-        CREATE (b:Post {id: "post1", title: "Hello"})
-        CREATE (c:Post {id: "post2", title: "World"})
-        CREATE (a)-[:HAS_POST]->(b)
-        CREATE (a)-[:HAS_POST]->(c)
-        """
-    When executing query:
-        """
-        MATCH (user:User {id: "user1"})
-        CALL {
-            WITH user
-            OPTIONAL MATCH (user)-[rel:HAS_POST]->(post:Post)
-            WITH rel, collect(DISTINCT post) AS posts
+    Scenario: Advance command on subquery should not affect outer query vertex visibility
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:User {id: "user1", name: "Alice"})
+            CREATE (b:Post {id: "post1", title: "Hello"})
+            CREATE (c:Post {id: "post2", title: "World"})
+            CREATE (a)-[:HAS_POST]->(b)
+            CREATE (a)-[:HAS_POST]->(c)
+            """
+        When executing query:
+            """
+            MATCH (user:User {id: "user1"})
             CALL {
-                WITH posts
-                UNWIND posts AS post
-                DETACH DELETE post
+                WITH user
+                OPTIONAL MATCH (user)-[rel:HAS_POST]->(post:Post)
+                WITH rel, collect(DISTINCT post) AS posts
+                CALL {
+                    WITH posts
+                    UNWIND posts AS post
+                    DETACH DELETE post
+                }
             }
-        }
-        RETURN user.name AS name, user.id AS id
-        """
-    Then the result should be:
-        | name    | id     |
-        | 'Alice' | 'user1' |
+            RETURN user.name AS name, user.id AS id
+            """
+        Then the result should be:
+            | name    | id      |
+            | 'Alice' | 'user1' |
 
     Scenario: Match after call
         Given an empty graph
@@ -501,5 +501,276 @@ Scenario: Advance command on subquery should not affect outer query vertex visib
                 MATCH (m:Node) WHERE m.prop_b = n.prop_b RETURN m
             }
             RETURN m.prop_a
+            """
+        Then an error should be raised
+
+    Scenario: Scoped CALL importing no variables returns constant from each input row
+        Given graph "subqueries"
+        When executing query:
+            """
+            UNWIND [0, 1, 2] AS x
+            CALL () {
+              RETURN 'hello' AS innerReturn
+            }
+            RETURN innerReturn
+            """
+        Then the result should be:
+            | innerReturn |
+            | 'hello'     |
+            | 'hello'     |
+            | 'hello'     |
+
+    Scenario: Scoped CALL importing no variables performs incremental updates
+        Given graph "subqueries"
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS x
+            CALL () {
+                MATCH (p:Player {name: 'Player A'})
+                SET p.age = p.age + 1
+                RETURN p.age AS newAge
+            }
+            MATCH (p:Player {name: 'Player A'})
+            RETURN x AS iteration, newAge, p.age AS totalAge
+            """
+        Then the result should be:
+            | iteration | newAge | totalAge |
+            | 1         | 22     | 24       |
+            | 2         | 23     | 24       |
+            | 3         | 24     | 24       |
+
+    Scenario: Scoped CALL imports only the named variable
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player)-[:PLAYS_FOR]->(t:Team)
+            CALL (p) {
+              WITH p.age / 100.0 AS random
+              SET p.rating = random
+              RETURN p.name AS playerName, p.rating AS rating
+            }
+            RETURN playerName, rating, t AS team
+            ORDER BY rating, t.name
+            LIMIT 1
+            """
+        Then the result should be:
+            | playerName | rating | team                     |
+            | 'Player A' | 0.21   | (:Team {name: 'Team A'}) |
+
+    Scenario: Scoped CALL with star imports every outer variable
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player)-[:PLAYS_FOR]->(t:Team)
+            CALL (*) {
+              SET p.lastUpdated = 1719304206653
+              SET t.lastUpdated = 1719304206653
+            }
+            RETURN p.name AS playerName,
+                   p.lastUpdated AS playerUpdated,
+                   t.name AS teamName,
+                   t.lastUpdated AS teamUpdated
+            ORDER BY p.name, t.name
+            LIMIT 1
+            """
+        Then the result should be:
+            | playerName | playerUpdated | teamName | teamUpdated   |
+            | 'Player A' | 1719304206653 | 'Team A' | 1719304206653 |
+
+    Scenario: OPTIONAL CALL scoped subquery is not supported
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player)
+            OPTIONAL CALL (p) {
+                MATCH (p)-[:PLAYS_FOR]->(team:Team)
+                RETURN team.name AS team
+            }
+            RETURN p.name AS playerName, team
+            """
+        Then an error should be raised
+
+    Scenario: Scoped CALL subquery with UNION over two ORDER BY branches
+        Given graph "subqueries"
+        When executing query:
+            """
+            CALL () {
+              MATCH (p:Player)
+              RETURN p
+              ORDER BY p.age ASC
+              LIMIT 1
+            UNION
+              MATCH (p:Player)
+              RETURN p
+              ORDER BY p.age DESC
+              LIMIT 1
+            }
+            RETURN p.name AS playerName, p.age AS age
+            """
+        Then the result should be:
+            | playerName | age |
+            | 'Player C' | 19  |
+            | 'Player F' | 35  |
+
+    Scenario: Scoped CALL with imported variable used in both UNION ALL branches
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (t:Team)
+            CALL (t) {
+              OPTIONAL MATCH (t)-[o:OWES]->(other:Team)
+              RETURN o.dollars * -1 AS moneyOwed
+              UNION ALL
+              OPTIONAL MATCH (other)-[o:OWES]->(t)
+              RETURN o.dollars AS moneyOwed
+            }
+            RETURN t.name AS team, sum(moneyOwed) AS amountOwed
+            ORDER BY amountOwed DESC
+            """
+        Then the result should be:
+            | team     | amountOwed |
+            | 'Team B' | 7800       |
+            | 'Team C' | -3300      |
+            | 'Team A' | -4500      |
+
+    Scenario: Returning scoped CALL subquery trims outer rows with no match
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player)
+            CALL (p) {
+              MATCH (p)-[:PLAYS_FOR]->(team:Team)
+              RETURN team.name AS team
+            }
+            RETURN p.name AS playerName, team
+            """
+        Then the result should be:
+            | playerName | team     |
+            | 'Player A' | 'Team A' |
+            | 'Player B' | 'Team A' |
+            | 'Player D' | 'Team B' |
+            | 'Player E' | 'Team C' |
+            | 'Player F' | 'Team C' |
+
+    Scenario: Unit scoped CALL subquery preserves outer row count
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player)
+            CALL (p) {
+              UNWIND range(1, 3) AS i
+              CREATE (:Person {name: p.name})
+            }
+            RETURN count(*)
+            """
+        Then the result should be:
+            | count(*) |
+            | 6        |
+
+    Scenario: Aggregation over scoped CALL with imported variable
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (t:Team)
+            CALL (t) {
+              MATCH (t)-[o:OWES]->(t2:Team)
+              RETURN sum(o.dollars) AS owedAmount, t2.name AS owedTeam
+            }
+            RETURN t.name AS owingTeam, owedAmount, owedTeam
+            """
+        Then the result should be:
+            | owingTeam | owedAmount | owedTeam |
+            | 'Team A'  | 4500       | 'Team B' |
+            | 'Team B'  | 1700       | 'Team C' |
+            | 'Team C'  | 5000       | 'Team B' |
+
+    Scenario: Scoped CALL with collect builds per-group list (performance pattern)
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (t:Team)
+            CALL (t) {
+              MATCH (p:Player)-[:PLAYS_FOR]->(t)
+              RETURN collect(p) AS players
+            }
+            RETURN t AS team, players
+            """
+        Then the result should be:
+            | team                      | players                                                                        |
+            | (:Team {name: 'Team A'})  | [(:Player {name: 'Player A', age: 21}), (:Player {name: 'Player B', age: 23})] |
+            | (:Team {name: 'Team B'})  | [(:Player {name: 'Player D', age: 30})]                                        |
+            | (:Team {name: 'Team C'})  | [(:Player {name: 'Player E', age: 25}), (:Player {name: 'Player F', age: 35})] |
+
+    Scenario: Aliasing variables in the scope clause is not allowed
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (t:Team)
+            CALL (t AS teams) {
+            MATCH (p:Player)-[:PLAYS_FOR]->(teams)
+            RETURN collect(p) AS players
+            }
+            RETURN t AS teams, players
+            """
+        Then an error should be raised
+
+    Scenario: Re-declaring a scoped import inside the subquery is not allowed
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (t:Team)
+            CALL (t) {
+              WITH 'New team' AS t
+              MATCH (p:Player)-[:PLAYS_FOR]->(t)
+              RETURN collect(p) AS players
+            }
+            RETURN t AS team, players
+            """
+        Then an error should be raised
+
+    Scenario: Subquery must not return a name that already exists in outer scope
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (t:Team)
+            CALL () {
+              RETURN 1 AS t
+            }
+            RETURN t
+            """
+        Then an error should be raised
+
+    Scenario: Scoped CALL with unknown imported variable raises unbound error
+        Given graph "subqueries"
+        When executing query:
+            """
+            CALL (doesNotExist) {
+              RETURN 1 AS x
+            }
+            RETURN x
+            """
+        Then an error should be raised
+
+    Scenario: Scoped CALL with duplicate imports raises syntax error
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player)
+            CALL (p, p) {
+              RETURN 1 AS x
+            }
+            RETURN x
+            """
+        Then an error should be raised
+
+    Scenario: Scoped CALL with empty imports cannot see outer variables
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player)
+            CALL () {
+              RETURN p.name AS playerName
+            }
+            RETURN playerName
             """
         Then an error should be raised

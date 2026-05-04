@@ -8,7 +8,7 @@ gqlalchemy==1.8.0
 idna==2.10
 kafka-python==2.0.2
 ldap3==2.6
-lxml==6.0.0
+lxml==6.1.0
 neo4j==5.14.1
 neo4j-driver==4.1.1
 networkx==2.5.1
@@ -18,7 +18,7 @@ parse-type==0.5.2
 pulsar-client==3.5.0
 pyarrow==19.0.1
 PyJWT==2.10.1
-pymgclient==1.5.1
+pymgclient==1.5.2
 pyopenssl==26.0.0
 pytest==7.3.2
 pytest-cov==6.0.0

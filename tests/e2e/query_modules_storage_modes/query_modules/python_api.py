@@ -50,18 +50,16 @@ def wait_for_state(func):
 
 
 @mgp.read_proc
-def reset(ctx: mgp.ProcCtx, arg: mgp.Nullable[str] = None) -> mgp.Record():
+def reset(ctx: mgp.ProcCtx, arg: mgp.Nullable[str] = None):
     global global_state
     global_state.value = State.BEGIN
-    return mgp.Record()
 
 
 @mgp.write_proc
-def delete_vertex(ctx: mgp.ProcCtx, node: mgp.Vertex) -> mgp.Record():
+def delete_vertex(ctx: mgp.ProcCtx, node: mgp.Vertex):
     wait_for_state(lambda state: state == State.READER_READY)
     ctx.graph.detach_delete_vertex(node)
     wait_for_state(lambda state: state == state == State.WRITER_READY)
-    return mgp.Record()
 
 
 @mgp.write_proc

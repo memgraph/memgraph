@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <ranges>
 #include <variant>
 
 #include "flags/run_time_configurable.hpp"
@@ -221,7 +222,11 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     uint64_t procedure_id = 1;
     bool const has_periodic_commit = query_parts.commit_frequency != nullptr;
     bool const is_root_query = !query_parts.is_subquery;
+
+    // in CALL with scoped variables, we immediately have some bound variables to work with
+    auto const initial_bound_symbols = context.bound_symbols;
     for (const auto &query_part : query_parts.query_parts) {
+      context.bound_symbols = initial_bound_symbols;
       std::unique_ptr<LogicalOperator> input_op;
 
       context.is_write_query = false;
@@ -460,13 +465,30 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                            merge_id,
                                            pending_comprehensions);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
+            auto scoped_variables = std::invoke([&]() -> std::optional<std::unordered_set<Symbol>> {
+              if (!call_sub->has_variable_scope_) {
+                return std::nullopt;
+              }
+              if (call_sub->all_variables_scoped_) {
+                // `CALL (*) { ... }`: carry every user-declared outer symbol.
+                return context.bound_symbols |
+                       std::views::filter([](const Symbol &sym) { return sym.user_declared(); }) |
+                       std::ranges::to<std::unordered_set<Symbol>>();
+              }
+              return call_sub->scoped_variables_ | std::views::transform([&](query::NamedExpression *ne) {
+                       auto *ident = utils::Downcast<query::Identifier>(ne->expression_);
+                       return context.symbol_table->at(*ident);
+                     }) |
+                     std::ranges::to<std::unordered_set<Symbol>>();
+            });
             input_op = HandleSubquery(std::move(input_op),
                                       single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table,
                                       *context_->ast_storage,
                                       pending_comprehensions,
                                       write_occurred,
-                                      call_sub->cypher_query_->pre_query_directives_.commit_frequency_);
+                                      call_sub->cypher_query_->pre_query_directives_.commit_frequency_,
+                                      scoped_variables);
             if (context.is_write_query && !has_periodic_commit) {
               input_op = std::make_unique<Accumulate>(
                   std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
@@ -1347,13 +1369,20 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   std::unique_ptr<LogicalOperator> HandleSubquery(
       std::unique_ptr<LogicalOperator> last_op, std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
       AstStorage &storage, std::unordered_map<Symbol, PatternComprehensionMatching> & /*pending_comprehensions*/,
-      bool /*write_occurred*/, Expression *commit_frequency) {
+      bool /*write_occurred*/, Expression *commit_frequency,
+      const std::optional<std::unordered_set<Symbol>> &scoped_variables = std::nullopt) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));
 
-    context_->bound_symbols =
-        impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage);
+    if (scoped_variables) {
+      // `CALL (v1, v2, ...) { ... }`: seed the subquery planner with exactly
+      // the imported outer symbols. The legacy leading-WITH scan is bypassed.
+      context_->bound_symbols = *scoped_variables;
+    } else {
+      context_->bound_symbols =
+          impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage);
+    }
 
     auto subquery_op = Plan(*subquery);
     auto subquery_bound_symbols = subquery_op->OutputSymbols(*context_->symbol_table);

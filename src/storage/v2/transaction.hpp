@@ -12,10 +12,13 @@
 #pragma once
 
 #include <atomic>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <unordered_map>
 #include <vector>
+
+#include <spdlog/spdlog.h>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -63,6 +66,30 @@ struct CommitCallbacks {
   std::vector<std::function<void(uint64_t)>> callbacks_;
 };
 
+/// Mirror of CommitCallbacks. Each site that adds a commit_callback typically
+/// adds a paired abort_callback that undoes the same eager mutation; commit
+/// runs commit_callbacks and discards abort_callbacks, abort the reverse.
+struct AbortCallbacks {
+  using func_t = std::function<void()>;
+
+  void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
+
+  // noexcept: a throwing callback here will std::terminate. In practice this
+  // is fine — abort runs with the soft memory tracker disabled (no
+  // OutOfMemoryExceptionEnabler in scope), so OOM can't fire from these
+  // callbacks, and a true system bad_alloc means we're going down anyway.
+  void RunAll() noexcept {
+    for (auto &callback : callbacks_) {
+      callback();
+    }
+    callbacks_.clear();
+  }
+
+  void Clear() noexcept { callbacks_.clear(); }
+
+  std::vector<func_t> callbacks_;
+};
+
 struct AsyncIndexHelper {
   AsyncIndexHelper() = default;
   AsyncIndexHelper(Config const &config, ActiveIndices const &active_indices, uint64_t start_timestamp);
@@ -105,26 +132,29 @@ struct AsyncIndexHelper {
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
-              ActiveIndicesPtr active_indices, ActiveConstraints active_constraints,
+              ActiveIndicesPtr active_indices, ActiveConstraintsPtr active_constraints,
               AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
+        deltas(),
         md_deltas(utils::NewDeleteResource()),
         has_serialization_error(false),
         isolation_level(isolation_level),
         storage_mode(storage_mode),
         edge_import_mode_active(edge_import_mode_active),
-        constraint_verification_info{
-            (!active_constraints.empty()) ? std::optional<ConstraintVerificationInfo>{std::in_place} : std::nullopt},
+        constraint_verification_info{(active_constraints && !active_constraints->empty())
+                                         ? std::optional<ConstraintVerificationInfo>{std::in_place}
+                                         : std::nullopt},
         vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
-                      ? std::optional<utils::SkipList<Vertex>>{std::in_place}
+                      ? std::optional<utils::SkipListDb<Vertex>>{std::in_place}
                       : std::nullopt},
         edges_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
-                   ? std::optional<utils::SkipList<Edge>>{std::in_place}
+                   ? std::optional<utils::SkipListDb<Edge>>{std::in_place}
                    : std::nullopt},
         point_index_ctx_{std::move(point_index_ctx)},
         point_index_change_collector_{point_index_ctx_},
+        query_memory_tracker_{},
         last_durable_ts_{last_durable_ts},
         active_indices_{std::move(active_indices)},
         active_constraints_{std::move(active_constraints)},
@@ -217,13 +247,13 @@ struct Transaction {
   std::unordered_map<Gid, EdgeSetPropertyInfo> edge_set_property_info_{};
   rocksdb::Transaction *disk_transaction_{};
   /// Main storage
-  std::optional<utils::SkipList<Vertex>> vertices_{};
-  std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_{};
+  std::optional<utils::SkipListDb<Vertex>> vertices_{};
+  std::vector<std::unique_ptr<utils::SkipListDb<Vertex>>> index_storage_{};
 
   /// We need them because query context for indexed reading is cleared after the query is done not after the
   /// transaction is done
   std::vector<delta_container> index_deltas_storage_{};
-  std::optional<utils::SkipList<Edge>> edges_{};
+  std::optional<utils::SkipListDb<Edge>> edges_{};
   std::map<std::string, std::pair<std::string, std::string>, std::less<>> edges_to_delete_{};
   std::map<std::string, std::string, std::less<>> vertices_to_delete_{};
   bool scanned_all_vertices_ = false;
@@ -236,7 +266,7 @@ struct Transaction {
   SchemaInfoPostProcess post_process_;
 
   /// Query memory tracker
-  utils::QueryMemoryTracker query_memory_tracker_{};
+  utils::QueryMemoryTracker query_memory_tracker_;
 
   /// Text index change tracking (batched apply on commit)
   TextIndexChangeCollector text_index_change_collector_;
@@ -255,8 +285,11 @@ struct Transaction {
   ActiveIndicesPtr active_indices_;
   /// Concurrent safe constraints that existed at the beginning of the transaction
   /// Used for constraint validation during commit
-  ActiveConstraints active_constraints_;
+  ActiveConstraintsPtr active_constraints_;
   CommitCallbacks commit_callbacks_;
+  /// Rollback hooks for eager DDL owner-side mutations. Runs on Abort(),
+  /// cleared on successful commit (see commit_callbacks_.RunAll site).
+  AbortCallbacks abort_callbacks_;
 
   /// Auto indexing infomation gathering
   AsyncIndexHelper async_index_helper_;

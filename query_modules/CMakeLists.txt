@@ -48,6 +48,7 @@ endfunction()
 add_custom_library(example_c example.c)
 add_custom_library(example_cpp example.cpp)
 add_custom_library(schema schema.cpp Boost::boost)
+add_custom_library(mgps_cpp mgps_cpp.cpp)
 add_custom_library(text_search text_search_module.cpp fmt::fmt)
 add_custom_library(vector_search vector_search_module.cpp fmt::fmt)
 add_custom_library(convert convert.cpp fmt::fmt nlohmann_json::nlohmann_json)
@@ -114,7 +115,7 @@ add_custom_target(copy_mage_python_query_modules ALL
 )
 
 # Install C++ query modules
-install(TARGETS convert convert_c example_c example_cpp schema text_search vector_search pagerank_online
+install(TARGETS convert convert_c example_c example_cpp schema mgps_cpp text_search vector_search pagerank_online
     community_detection_online katz_centrality_online
     DESTINATION lib/memgraph/query_modules
 )

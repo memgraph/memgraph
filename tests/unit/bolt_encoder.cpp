@@ -20,7 +20,6 @@
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "disk_test_utils.hpp"
 #include "glue/communication.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "timezone_handler.hpp"
@@ -245,7 +244,7 @@ TEST_F(BoltEncoder, VertexAndEdgeOnDiskStorage) {
   const std::string testSuite = "bolt_encoder";
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
 
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::DiskStorage(config)};
+  auto db = disk_test_utils::CreateDiskStorage(config);
   TestVertexAndEdgeWithDifferentStorages(std::move(db));
 
   disk_test_utils::RemoveRocksDbDirs(testSuite);

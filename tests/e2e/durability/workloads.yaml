@@ -23,9 +23,15 @@ workloads:
   - name: "Durability with vector edge index"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/durability_with_vector_edge_index.py"]
+  - name: "Durability with DESC index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/durability_with_desc_index.py"]
   - name: "Indices not persisted in analytical mode"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/indices_not_persisted_analytical.py"]
   - name: "Parameters durability"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/parameters_durability.py"]
+  - name: "Tenant profile durability"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/tenant_profile_durability.py"]
