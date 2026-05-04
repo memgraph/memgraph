@@ -181,6 +181,14 @@ std::shared_ptr<TextIndexData> TextIndex::DropIndex(const std::string &index_nam
   return evicted;
 }
 
+void TextIndex::RestoreIndex(std::string const &index_name, std::shared_ptr<TextIndexData> data) {
+  if (!data) return;
+  if (index_->contains(index_name)) return;
+  auto new_map = std::make_shared<IndexContainer>(*index_);
+  new_map->emplace(index_name, std::move(data));
+  index_ = std::move(new_map);
+}
+
 bool TextIndex::IndexExists(const std::string &index_name) const { return index_->contains(index_name); }
 
 std::vector<TextIndexSpec> TextIndex::ListIndices() const {

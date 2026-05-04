@@ -963,6 +963,12 @@ TEST_F(AuthWithStorage, RoleManipulations) {
     ASSERT_EQ(roles2.rolenames().front(), "role2");
   }
 
+  {
+    auto user1 = auth->GetUser("user1");
+    ASSERT_TRUE(user1);
+    user1->ClearAllRoles();
+    auth->SaveUser(*user1);
+  }
   ASSERT_TRUE(auth->RemoveRole("role1"));
 
   {
@@ -1088,6 +1094,24 @@ TEST_F(AuthWithStorage, UserPasswordCreation) {
     ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 }
+
+#ifndef MG_ENTERPRISE
+TEST_F(AuthWithStorage, CommunityFirstUserHasAllPermissions) {
+  memgraph::license::global_license_checker.DisableTesting();
+  ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
+
+  auto user = auth->AddUser("admin");
+  ASSERT_TRUE(user);
+  auth->InitialiseFirstUser(*user, nullptr);
+
+  auto saved = auth->GetUser("admin");
+  ASSERT_TRUE(saved);
+  for (auto const permission : memgraph::auth::kPermissionsAll) {
+    EXPECT_EQ(saved->permissions().Has(permission), memgraph::auth::PermissionLevel::GRANT);
+  }
+  EXPECT_EQ(saved->permissions().denies(), 0);
+}
+#endif
 
 TEST_F(AuthWithStorage, PasswordStrength) {
   const std::string kWeakRegex = ".+";
@@ -1736,13 +1760,6 @@ TEST_F(AuthWithStorage, UserWithRoleSerializeDeserialize) {
   ASSERT_EQ(*user, *new_user);
 }
 
-TEST_F(AuthWithStorage, UserRoleUniqueName) {
-  ASSERT_TRUE(auth->AddUser("user"));
-  ASSERT_TRUE(auth->AddRole("role"));
-  ASSERT_FALSE(auth->AddRole("user"));
-  ASSERT_FALSE(auth->AddUser("role"));
-}
-
 TEST_F(AuthWithStorage, MultipleRoles) {
   // Create a user and multiple roles
   auto user = auth->AddUser("user");
@@ -1911,15 +1928,8 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
     ASSERT_FALSE(auth->AddRole("moderator"));
     ASSERT_FALSE(auth->AddRole("MODERATOR"));
   }
-  {
-    auto role = auth->AddRole("adMIN");
-    ASSERT_TRUE(role);
-    ASSERT_EQ(role->rolename(), "admin");
-    ASSERT_FALSE(auth->AddRole("Admin"));
-    ASSERT_FALSE(auth->AddRole("ADMIn"));
-  }
-  ASSERT_FALSE(auth->AddRole("ALICE"));
-  ASSERT_FALSE(auth->AddUser("ModeRAtor"));
+  ASSERT_FALSE(auth->AddRole("moderator"));
+  ASSERT_FALSE(auth->AddRole("MODERATOR"));
 
   // GetRole
   {
@@ -1947,10 +1957,7 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
   // AllRoles
   {
     auto roles = auth->AllRoles();
-    ASSERT_EQ(roles.size(), 2);
-    std::sort(roles.begin(), roles.end(), [](const auto &a, const auto &b) { return a.rolename() < b.rolename(); });
-    ASSERT_EQ(roles[0].rolename(), "admin");
-    ASSERT_EQ(roles[1].rolename(), "moderator");
+    ASSERT_TRUE(std::ranges::find_if(roles, [](auto const &r) { return r.rolename() == "moderator"; }) != roles.end());
   }
 
   // SaveRole
@@ -1997,27 +2004,23 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
     auto dave = auth->AddUser("daVe");
     ASSERT_TRUE(dave);
     ASSERT_EQ(dave->username(), "dave");
-    auto admin = auth->GetRole("aDMin");
-    ASSERT_TRUE(admin);
-    ASSERT_EQ(admin->rolename(), "admin");
+    auto moderator = auth->GetRole("moDErator");
+    ASSERT_TRUE(moderator);
+    ASSERT_EQ(moderator->rolename(), "moderator");
     carol->ClearAllRoles();
-    carol->AddRole(*admin);
+    carol->AddRole(*moderator);
     auth->SaveUser(*carol);
     dave->ClearAllRoles();
-    dave->AddRole(*admin);
+    dave->AddRole(*moderator);
     auth->SaveUser(*dave);
   }
   {
     auto users = auth->AllUsersForRole("modeRAtoR");
-    ASSERT_EQ(users.size(), 1);
-    ASSERT_EQ(users[0].username(), "alice");
-  }
-  {
-    auto users = auth->AllUsersForRole("AdmiN");
-    ASSERT_EQ(users.size(), 2);
+    ASSERT_EQ(users.size(), 3);
     std::sort(users.begin(), users.end(), [](const auto &a, const auto &b) { return a.username() < b.username(); });
-    ASSERT_EQ(users[0].username(), "carol");
-    ASSERT_EQ(users[1].username(), "dave");
+    ASSERT_EQ(users[0].username(), "alice");
+    ASSERT_EQ(users[1].username(), "carol");
+    ASSERT_EQ(users[2].username(), "dave");
   }
 }
 
@@ -2683,20 +2686,20 @@ TEST_F(AuthWithStorage, MultiTenantRoleRemoveRole) {
     ASSERT_EQ(updated_user->roles().size(), 1);
   }
 
+  // Unassign role before removing
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    updated_user->ClearAllRoles();
+    auth->SaveUser(*updated_user);
+  }
+
   // Remove the role
   ASSERT_TRUE(auth->RemoveRole("test_role"));
 
   // Verify role is removed
   auto removed_role = auth->GetRole("test_role");
   ASSERT_EQ(removed_role, std::nullopt);
-
-  // Verify user is updated
-  {
-    auto updated_user = auth->GetUser("test_user");
-    ASSERT_NE(updated_user, std::nullopt);
-    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 0);
-    ASSERT_EQ(updated_user->roles().size(), 0);
-  }
 
   // Re-add the role
   ASSERT_TRUE(auth->AddRole("test_role"));
@@ -3005,6 +3008,13 @@ TEST_F(AuthWithStorage, SetProfileUserWRole) {
     const auto profile = auth->GetProfileForUsername("user");
     ASSERT_TRUE(profile);
     ASSERT_EQ(*profile, "profile");
+  }
+
+  // Unassign role before removing
+  {
+    auto u = auth->GetUser("user");
+    u->ClearAllRoles();
+    auth->SaveUser(*u);
   }
 
   // Remove role and verify profile is still there

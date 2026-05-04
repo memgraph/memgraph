@@ -194,8 +194,23 @@ class VectorEdgeIndex {
                     NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  /// @brief Drops an existing index.
-  bool DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+  /// Mirror of VectorIndex::DroppedIndexCapture, plus evicted_endpoints — endpoint
+  /// records erased from edge_endpoints_ that RestoreIndex must put back.
+  struct DroppedIndexCapture {
+    uint64_t index_id;
+    std::shared_ptr<EdgeTypeIndexItem> evicted_item;
+    std::vector<Edge *> rewritten_edges;
+    std::vector<std::pair<Edge *, std::pair<Vertex *, Vertex *>>> evicted_endpoints;
+  };
+
+  /// @brief Drops an existing index. Returns enough state to undo the drop on
+  /// transaction abort, or std::nullopt if the index doesn't exist. Callers that
+  /// only need a fire-and-forget drop (e.g. CreateIndex's exception rollback)
+  /// can discard the return value.
+  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+
+  /// @brief Reinstalls an edge index previously evicted by DropIndex.
+  void RestoreIndex(DroppedIndexCapture &&capture);
 
   /// @brief Drops all existing indexes.
   void Clear();

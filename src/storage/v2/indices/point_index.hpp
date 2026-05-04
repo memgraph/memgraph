@@ -114,7 +114,15 @@ struct PointIndexStorage {
   // this is typically deferred through Transaction::commit_callbacks_.
   bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
-  bool DropPointIndex(LabelId label, PropertyId property);
+  /// Removes the index from the live container and returns the evicted PointIndex,
+  /// or nullptr if no index existed for {label, property}. The caller can re-install
+  /// the result via RestorePointIndex on transaction abort.
+  [[nodiscard]] std::shared_ptr<PointIndex const> DropPointIndex(LabelId label, PropertyId property);
+
+  /// Re-installs an entry previously evicted by DropPointIndex. Used by abort
+  /// rollback of DROP POINT INDEX. No-op if a re-created entry with the same
+  /// key already exists.
+  void RestorePointIndex(LabelId label, PropertyId property, std::shared_ptr<PointIndex const> index);
 
   // Transaction (establish what to collect + able to build next index)
   auto CreatePointIndexContext() const -> PointIndexContext { return PointIndexContext{indexes_}; }

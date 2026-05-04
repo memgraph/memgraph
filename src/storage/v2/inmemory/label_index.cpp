@@ -46,30 +46,31 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 
 namespace memgraph::storage {
 
-bool InMemoryLabelIndex::RegisterIndex(LabelId label, ActiveIndicesUpdater const &updater) {
+bool InMemoryLabelIndex::InstallIndividualIndex_(LabelId label, std::shared_ptr<IndividualIndex> entry,
+                                                 ActiveIndicesUpdater const &updater, bool register_in_all_indices) {
   return index_.WithLock([&](std::shared_ptr<const IndexContainer> &index) {
-    auto const &indices = *index;
-    {
-      auto it = index->find(label);
-      if (it != indices.end()) return false;  // already exists
+    if (index->find(label) != index->cend()) return false;
+    auto new_index = std::make_shared<IndexContainer>(*index);
+    auto [new_it, _] = new_index->try_emplace(label, std::move(entry));
+
+    if (register_in_all_indices) {
+      const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+      all_indices_.WithLock([&](auto &all_indices) {
+        auto new_all_indices = *all_indices;
+        // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+        new_all_indices.emplace_back(new_it->second, label);
+        all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
+      });
     }
-
-    auto new_index = std::make_shared<IndexContainer>(indices);
-    auto [new_it, _] = new_index->try_emplace(label, std::make_shared<IndividualIndex>());
-
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-
-    all_indices_.WithLock([&](auto &all_indices) {
-      auto new_all_indices = *all_indices;
-      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-      new_all_indices.emplace_back(new_it->second, label);
-      all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
-    });
 
     index = std::move(new_index);
     updater(std::make_shared<ActiveIndices>(index));
     return true;
   });
+}
+
+bool InMemoryLabelIndex::RegisterIndex(LabelId label, ActiveIndicesUpdater const &updater) {
+  return InstallIndividualIndex_(label, std::make_shared<IndividualIndex>(), updater, /*register_in_all_indices=*/true);
 }
 
 auto InMemoryLabelIndex::GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex> {
@@ -189,10 +190,10 @@ auto InMemoryLabelIndex::PopulateIndex(
           vertices, accessor_factory, try_insert_into_index, std::move(cancel_check), parallel_exec_info);
     }
   } catch (const PopulateCancel &) {
-    DropIndex(label, updater);
+    (void)DropIndex(label, updater);
     return std::unexpected{IndexPopulateError::Cancellation};
   } catch (const utils::OutOfMemoryException &) {
-    DropIndex(label, updater);
+    (void)DropIndex(label, updater);
     throw;
   }
 
@@ -224,22 +225,30 @@ void InMemoryLabelIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Ve
   acc.insert(Entry{vertex_after_update, tx.start_timestamp});
 }
 
-bool InMemoryLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &updater) {
-  auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> bool {
-    {
-      auto it = index->find(label);
-      if (it == index->end()) [[unlikely]] {
-        return false;
-      }
+auto InMemoryLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &updater)
+    -> std::shared_ptr<IndividualIndex> {
+  auto evicted = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> std::shared_ptr<IndividualIndex> {
+    auto it = index->find(label);
+    if (it == index->end()) [[unlikely]] {
+      return {};
     }
+    auto evicted_entry = it->second;
     auto new_index = std::make_shared<IndexContainer>(*index);
     new_index->erase(label);
     index = std::move(new_index);
     updater(std::make_shared<ActiveIndices>(index));
-    return true;
+    return evicted_entry;
   });
   CleanupAllIndices();
-  return result;
+  return evicted;
+}
+
+void InMemoryLabelIndex::RestoreIndex(LabelId label, std::shared_ptr<IndividualIndex> evicted,
+                                      ActiveIndicesUpdater const &updater) {
+  if (!evicted) return;
+  // register_in_all_indices=false: captured shared_ptr kept the entry alive through
+  // CleanupAllIndices; re-appending would create an unreapable duplicate.
+  (void)InstallIndividualIndex_(label, std::move(evicted), updater, /*register_in_all_indices=*/false);
 }
 
 bool InMemoryLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const {
@@ -307,10 +316,9 @@ void InMemoryLabelIndex::ActiveIndices::AbortEntries(LabelIndex::AbortableInfo c
   }
 }
 
-InMemoryLabelIndex::Iterable::Iterable(
-    utils::SkipListDb<InMemoryLabelIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view,
-    Storage *storage, Transaction *transaction)
+InMemoryLabelIndex::Iterable::Iterable(utils::SkipListDb<InMemoryLabelIndex::Entry>::Accessor index_accessor,
+                                       utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label,
+                                       View view, Storage *storage, Transaction *transaction)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -318,8 +326,8 @@ InMemoryLabelIndex::Iterable::Iterable(
       storage_(storage),
       transaction_(transaction) {}
 
-InMemoryLabelIndex::Iterable::Iterator::Iterator(
-    Iterable *self, utils::SkipListDb<InMemoryLabelIndex::Entry>::Iterator index_iterator)
+InMemoryLabelIndex::Iterable::Iterator::Iterator(Iterable *self,
+                                                 utils::SkipListDb<InMemoryLabelIndex::Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, self_->storage_, nullptr),
@@ -370,16 +378,16 @@ InMemoryLabelIndex::Iterable InMemoryLabelIndex::ActiveIndices::Vertices(LabelId
 }
 
 InMemoryLabelIndex::Iterable InMemoryLabelIndex::ActiveIndices::Vertices(
-    LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view,
-    Storage *storage, Transaction *transaction) {
+    LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+    Transaction *transaction) {
   const auto it = index_container_->find(label);
   MG_ASSERT(it != index_container_->end(), "Index for label {} doesn't exist", label.AsUint());
   return {it->second->skiplist.access(), std::move(vertices_acc), label, view, storage, transaction};
 }
 
 InMemoryLabelIndex::ChunkedIterable InMemoryLabelIndex::ActiveIndices::ChunkedVertices(
-    LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view,
-    Storage *storage, Transaction *transaction, size_t num_chunks) {
+    LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks) {
   const auto it = index_container_->find(label);
   MG_ASSERT(it != index_container_->end(), "Index for label {} doesn't exist", label.AsUint());
   return {it->second->skiplist.access(), std::move(vertices_acc), label, view, storage, transaction, num_chunks};
@@ -464,8 +472,8 @@ void InMemoryLabelIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
 
 InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<InMemoryLabelIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view,
-    Storage *storage, Transaction *transaction, size_t num_chunks)
+    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -474,8 +482,7 @@ InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)} {
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
-  RechunkIndex<utils::SkipListDb<Entry>>(
-      chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex; });
+  RechunkIndex<utils::SkipListDb<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex; });
 }
 
 }  // namespace memgraph::storage

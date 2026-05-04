@@ -181,15 +181,26 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, uti
   return true;
 }
 
-bool PointIndexStorage::DropPointIndex(LabelId label, PropertyId property) {
+void PointIndexStorage::RestorePointIndex(LabelId label, PropertyId property, std::shared_ptr<PointIndex const> index) {
+  if (!index) return;
   auto key = LabelPropKey{label, property};
-  if (!indexes_->contains(key)) return false;
+  if (indexes_->contains(key)) return;
+  auto new_indexes = std::make_shared<index_container_t>(*indexes_);
+  new_indexes->emplace(key, std::move(index));
+  indexes_ = std::move(new_indexes);
+}
+
+std::shared_ptr<PointIndex const> PointIndexStorage::DropPointIndex(LabelId label, PropertyId property) {
+  auto key = LabelPropKey{label, property};
+  auto it = indexes_->find(key);
+  if (it == indexes_->end()) return nullptr;
 
   // Copy-on-write: create a new map so existing ActiveIndices snapshots are not affected.
+  auto evicted = it->second;
   auto new_indexes = std::make_shared<index_container_t>(*indexes_);
   new_indexes->erase(key);
   indexes_ = std::move(new_indexes);
-  return true;
+  return evicted;
 }
 
 void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context,

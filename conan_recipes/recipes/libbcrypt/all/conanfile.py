@@ -1,7 +1,7 @@
 import os
 
 from conan import ConanFile
-from conan.tools.files import copy, get, rename, replace_in_file
+from conan.tools.files import copy, get, rename, replace_in_file, trim_conandata
 from conan.tools.gnu import AutotoolsToolchain
 from conan.tools.layout import basic_layout
 
@@ -29,6 +29,10 @@ class LibbcryptConan(ConanFile):
 
     def layout(self):
         basic_layout(self, src_folder="src")
+
+    def export(self):
+        # Stabilise recipe revision across conan export and local-recipes-index
+        trim_conandata(self)
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)

@@ -19,6 +19,17 @@ import mgclient
 import pytest
 from common import connect, execute_and_fetch_all
 
+# Module-level setup
+# -------------------------
+
+
+@pytest.fixture(scope="module", autouse=True)
+def suppress_builtin_roles():
+    """Create a dummy role before any users so builtin role creation is suppressed."""
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE ROLE _dummy_role;")
+
+
 # Utility functions
 # -------------------------
 

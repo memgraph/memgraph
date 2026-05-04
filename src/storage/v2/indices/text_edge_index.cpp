@@ -195,6 +195,14 @@ std::shared_ptr<TextEdgeIndexData> TextEdgeIndex::DropIndex(const std::string &i
   return evicted;
 }
 
+void TextEdgeIndex::RestoreIndex(std::string const &index_name, std::shared_ptr<TextEdgeIndexData> data) {
+  if (!data) return;
+  if (index_->contains(index_name)) return;
+  auto new_map = std::make_shared<IndexContainer>(*index_);
+  new_map->emplace(index_name, std::move(data));
+  index_ = std::move(new_map);
+}
+
 bool TextEdgeIndex::IndexExists(const std::string &index_name) const { return index_->contains(index_name); }
 
 std::vector<TextEdgeIndexSpec> TextEdgeIndex::ListIndices() const {

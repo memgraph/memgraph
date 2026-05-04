@@ -4,6 +4,11 @@ sources:
     sha256: "d683d5964a395f00c1c812ea1d1d523179f1097cbff7e7e54e714fa3f99711b1"
 patches:
   "4.12.3-memgraph":
-    - patch_file: "patches/4.12.3-hash-cxx20-module-pcm.patch"
-      patch_description: "Hash -fmodule-file= PCM content to invalidate cache on module changes"
+    - patch_file: "patches/4.12.3-cxx20-modules-sidecar.patch"
+      patch_description: "Sidecar-based cache coherence for C++20 named modules. Producers
+        emit <pcm>.ccache-meta containing the producer's result_key plus a (size, mtime)
+        snapshot; consumers fold result_key into their hash instead of hashing PCM
+        bytes (which embed absolute paths and over-invalidate on path drift). Caches
+        the .pcm as a tracked secondary output. Fail-closed if sidecar is missing or
+        stale: see Statistic::could_not_use_module_sidecar."
       patch_type: "bugfix"

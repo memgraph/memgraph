@@ -201,8 +201,8 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     execute_admin_queries(
         [
             "CREATE USER ADmin IDENTIFIED BY 'admin'",
-            "GRANT ALL PRIVILEGES TO admIN",
-            "GRANT DATABASE * TO admin",
+            "GRANT ALL PRIVILEGES TO USER admIN",
+            "GRANT DATABASE * TO USER admin",
             "CREATE USER usEr IDENTIFIED BY 'user'",
             "GRANT DATABASE db1 TO user",
             "GRANT DATABASE db2 TO user",

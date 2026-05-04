@@ -2009,6 +2009,7 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
   // the txn is fully committed. Commit timestamp is 0 if the txn had no
   // writes — callbacks that care about ts can handle either case.
   transaction_.commit_callbacks_.RunAll(commit_timestamp_.value_or(0));
+  transaction_.abort_callbacks_.Clear();
   is_transaction_active_ = false;
 
   return {};
@@ -2135,6 +2136,9 @@ void DiskStorage::DiskAccessor::Abort() {
 
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
+
+  transaction_.abort_callbacks_.RunAll();
+
   is_transaction_active_ = false;
   UpdateObjectsCountOnAbort();
 }

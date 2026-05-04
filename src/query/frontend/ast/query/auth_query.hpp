@@ -38,6 +38,8 @@ class AuthQuery : public memgraph::query::Query {
     SHOW_USERS,
     SET_ROLE,
     CLEAR_ROLE,
+    GRANT_ROLE,
+    REVOKE_ROLE,
     GRANT_PRIVILEGE,
     DENY_PRIVILEGE,
     REVOKE_PRIVILEGE,
@@ -102,6 +104,13 @@ class AuthQuery : public memgraph::query::Query {
 
   enum class LabelMatchingMode { ANY, EXACTLY };
 
+  enum class UserOrRoleType {
+    UNSPECIFIED,  // Neither USER nor ROLE was explicitly specified; both are checked and an error is thrown if
+                  // ambiguous.
+    USER,         // Explicitly specified as a USER; only the user namespace is checked.
+    ROLE,         // Explicitly specified as a ROLE; only the role namespace is checked.
+  };
+
   enum class DatabaseSpecification {
     NONE,     // No database specification (non-enterprise)
     MAIN,     // MAIN database (enterprise)
@@ -133,6 +142,7 @@ class AuthQuery : public memgraph::query::Query {
 
   // Database specification for SHOW PRIVILEGES query
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
+  UserOrRoleType entity_type_{UserOrRoleType::UNSPECIFIED};
 
   AuthQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<AuthQuery>();
@@ -152,6 +162,7 @@ class AuthQuery : public memgraph::query::Query {
     object->edge_type_privileges_ = edge_type_privileges_;
     object->impersonation_targets_ = impersonation_targets_;
     object->database_specification_ = database_specification_;
+    object->entity_type_ = entity_type_;
     return object;
   }
 
