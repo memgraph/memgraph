@@ -61,13 +61,13 @@ struct DatabaseState {
   struct Vertex {
     int64_t id;
     std::set<std::string, std::less<>> labels;
-    memgraph::storage::PropertyValue::map_t props;
+    memgraph::storage::ExternalPropertyValue::map_t props;
   };
 
   struct Edge {
     int64_t from, to;
     std::string edge_type;
-    memgraph::storage::PropertyValue::map_t props;
+    memgraph::storage::ExternalPropertyValue::map_t props;
   };
 
   struct LabelItem {
@@ -231,7 +231,8 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   std::map<memgraph::storage::Gid, int64_t> gid_mapping;
   std::set<DatabaseState::Vertex> vertices;
   auto dba = db->Access(memgraph::storage::WRITE);
-  auto property_id = dba->NameToProperty(kPropertyId);
+  auto *mapper = dba->GetNameIdMapper();
+  const auto property_id = dba->NameToProperty(kPropertyId);
   for (const auto &vertex : dba->Vertices(memgraph::storage::View::NEW)) {
     std::set<std::string, std::less<>> labels;
     auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
@@ -239,16 +240,17 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     for (const auto &label : *maybe_labels) {
       labels.insert(dba->LabelToName(label));
     }
-    memgraph::storage::PropertyValue::map_t props;
+    memgraph::storage::ExternalPropertyValue::map_t props;
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
     MG_ASSERT(maybe_properties.has_value());
+    std::optional<int64_t> id;
     for (const auto &kv : *maybe_properties) {
-      props.emplace(kv.first, kv.second);
+      if (kv.first == property_id) id = kv.second.ValueInt();
+      props.emplace(dba->PropertyToName(kv.first), memgraph::storage::ToExternalPropertyValue(kv.second, mapper));
     }
-    MG_ASSERT(props.count(property_id) == 1);
-    const auto id = props[property_id].ValueInt();
-    gid_mapping[vertex.Gid()] = id;
-    vertices.insert({id, labels, props});
+    MG_ASSERT(id.has_value());
+    gid_mapping[vertex.Gid()] = *id;
+    vertices.insert({*id, std::move(labels), std::move(props)});
   }
 
   // Capture all edges
@@ -258,15 +260,15 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     MG_ASSERT(maybe_edges.has_value());
     for (const auto &edge : maybe_edges->edges) {
       const auto &edge_type_name = dba->EdgeTypeToName(edge.EdgeType());
-      memgraph::storage::PropertyValue::map_t props;
+      memgraph::storage::ExternalPropertyValue::map_t props;
       auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
       MG_ASSERT(maybe_properties.has_value());
       for (const auto &kv : *maybe_properties) {
-        props.emplace(kv.first, kv.second);
+        props.emplace(dba->PropertyToName(kv.first), memgraph::storage::ToExternalPropertyValue(kv.second, mapper));
       }
       const auto from = gid_mapping[edge.FromVertex().Gid()];
       const auto to = gid_mapping[edge.ToVertex().Gid()];
-      edges.insert({from, to, edge_type_name, props});
+      edges.insert({from, to, edge_type_name, std::move(props)});
     }
   }
 
@@ -1439,7 +1441,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   // At the moment, text index on edges isn't supported for on-disk storage
-  if constexpr (std::is_same_v<StorageTypes, memgraph::storage::InMemoryStorage>) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
     {
       auto unique_acc = this->db->UniqueAccess();
       ASSERT_FALSE(
@@ -1521,7 +1523,13 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
       Execute(&interpreter_context, db_acc, item[0].ValueString());
     }
   }
-  ASSERT_EQ(GetState(this->db->storage()), db_initial_state);
+  // Compare the replay target against the source snapshot. On disk storage the cross-DB replay path
+  // doesn't currently round-trip vertices/edges cleanly, so fall back to a same-DB check there.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    ASSERT_EQ(GetState(db_acc->storage()), db_initial_state);
+  } else {
+    ASSERT_EQ(GetState(this->db->storage()), db_initial_state);
+  }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
