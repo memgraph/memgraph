@@ -36,7 +36,6 @@ from argparse import ArgumentParser
 from inspect import signature
 
 import yaml
-
 from memgraph import *
 
 log = logging.getLogger("memgraph.tests.e2e")
@@ -250,7 +249,9 @@ def _start(
     )
     MEMGRAPH_INSTANCES[name] = mg_instance
 
-    binary_args = args + ["--log-file", log_file_path] + ["--data-directory", data_directory_path]
+    binary_args = (
+        args + ["--log-file", log_file_path] + ["--data-directory", data_directory_path] + ["--telemetry-enabled=false"]
+    )
 
     if len(procdir) != 0:
         binary_args.append("--query-modules-directory=" + procdir)
