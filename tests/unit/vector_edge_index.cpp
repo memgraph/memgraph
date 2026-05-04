@@ -18,11 +18,21 @@
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
+#include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/text_edge_index.hpp"
+#include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
+#include "storage/v2/inmemory/edge_type_index.hpp"
+#include "storage/v2/inmemory/edge_type_property_index.hpp"
+#include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/unit/ddl_abort_helpers.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -330,6 +340,57 @@ TEST_F(VectorEdgeIndexTest, DropIndexTest) {
   }
 }
 
+TEST_F(VectorEdgeIndexTest, CreateVectorEdgeIndexAbortLeavesNoGhostEntry) {
+  VectorEdgeIndexSpec spec{};
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    spec = VectorEdgeIndexSpec{test_index.data(),
+                               acc->NameToEdgeType(test_edge_type.data()),
+                               acc->NameToProperty(test_property.data()),
+                               metric,
+                               2,
+                               resize_coefficient,
+                               16,
+                               scalar_kind};
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  memgraph::tests::ExpectCreateAbortLeavesNoGhostEntry(
+      this, memgraph::tests::UniqueAcc, [&](auto *acc) { return acc->CreateVectorEdgeIndex(spec); });
+}
+
+TEST_F(VectorEdgeIndexTest, DropVectorEdgeIndexAbortRestoresIndex) {
+  this->CreateEdgeIndex(2, 16);
+  PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(unique_acc->DropVectorIndex(test_index).has_value());
+    unique_acc->Abort();
+  }
+  // Index entry must still exist and the edge property must remain stored as
+  // VectorIndexId (not rewritten to plain Vector).
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    ASSERT_EQ(acc->ListAllVectorEdgeIndices().size(), 1u);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    auto prop = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(prop.has_value());
+    EXPECT_TRUE(prop->IsVectorIndexId()) << "Aborted DROP must not leave the edge property rewritten to plain Vector.";
+  }
+  // A second DROP must succeed (i.e. restored entry is reachable).
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(unique_acc->DropVectorIndex(test_index).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
 TEST_F(VectorEdgeIndexTest, ClearTest) {
   this->CreateEdgeIndex(2, 10);
   {
@@ -490,15 +551,15 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
     // Initialize the active indices store with a valid ActiveIndices object
     // so that ActiveIndicesUpdater assertions pass during recovery.
     active_indices_store_.WithLock([&](ActiveIndicesPtr &ai) {
-      ai = std::make_shared<ActiveIndices>(nullptr,
-                                           nullptr,
-                                           nullptr,
-                                           nullptr,
-                                           nullptr,
-                                           nullptr,
-                                           nullptr,
-                                           nullptr,
-                                           nullptr,
+      ai = std::make_shared<ActiveIndices>(std::make_shared<InMemoryLabelIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryLabelPropertyIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::TextIndex::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::PointIndexStorage::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::VectorIndex::ActiveIndices>(),
                                            vector_edge_index_.GetActiveIndices());
     });
 

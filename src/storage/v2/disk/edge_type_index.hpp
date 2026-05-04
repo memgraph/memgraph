@@ -36,7 +36,7 @@ class DiskEdgeTypeIndex : public EdgeTypeIndex {
     auto GetAbortProcessor() const -> AbortProcessor override;
   };
 
-  bool DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) override;
+  bool DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater);
 
   void DropGraphClearIndices() override;
 

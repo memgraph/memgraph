@@ -89,14 +89,22 @@ class ExistenceConstraints {
   /// Returns true if constraint is registered (even if still populating). Only used by OnDisk
   bool ConstraintExists(LabelId label, PropertyId property) const;
 
+  /// Registers a fresh POPULATING constraint. Returns false if one already exists.
   [[nodiscard]] bool RegisterConstraint(LabelId label, PropertyId property);
 
   /// Publishes a constraint after validation, making it visible at the given commit timestamp.
   /// Returns true on success, false if constraint not found.
   bool PublishConstraint(LabelId label, PropertyId property, uint64_t commit_timestamp) const;
 
-  /// Drops a constraint. Returns false if constraint doesn't exist.
-  bool DropConstraint(LabelId label, PropertyId property);
+  /// Drops a constraint. Returns the evicted IndividualConstraint so the caller can
+  /// reinstall it via RestoreConstraint on abort, or nullptr if no constraint
+  /// existed for {label, property}.
+  [[nodiscard]] IndividualConstraintPtr DropConstraint(LabelId label, PropertyId property);
+
+  /// Reinstalls a previously-evicted IndividualConstraint. No-op if the slot
+  /// has been reclaimed by a concurrent CREATE (constraint DDL runs under
+  /// READ_ONLY/UNIQUE, which does not serialize peers).
+  void RestoreConstraint(LabelId label, PropertyId property, IndividualConstraintPtr evicted);
 
   /*
    * VALIDATION
@@ -123,6 +131,10 @@ class ExistenceConstraints {
 
  private:
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
+
+  // Installs `ptr` under {label, property} if absent. Shared by RegisterConstraint
+  // (fresh populating ptr) and RestoreConstraint (evicted ptr).
+  bool InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr);
 
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> constraints_{std::make_shared<Container const>()};
 };

@@ -31,7 +31,8 @@ namespace memgraph::storage {
 
 namespace {
 
-auto DoValidate(const Vertex &vertex, utils::SkipListDb<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
+auto DoValidate(const Vertex &vertex,
+                utils::SkipListDb<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
                 const LabelId &label, const std::set<PropertyId> &properties)
     -> std::expected<void, ConstraintViolation> {
   if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
@@ -504,23 +505,14 @@ auto InMemoryUniqueConstraints::CreateConstraint(
     return CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED;
   }
 
-  auto constraint_ptr =
-      container_.WithLock([&](ContainerPtr &container) -> std::expected<IndividualConstraintPtr, CreationStatus> {
-        auto new_container = std::make_shared<Container>(*container);
-        auto &inner = (*new_container)[label];
-        auto [it, inserted] = inner.try_emplace(properties, std::make_shared<IndividualConstraint>());
-        if (!inserted) return std::unexpected{CreationStatus::ALREADY_EXISTS};
-        container = std::move(new_container);
-        return it->second;
-      });
-
-  if (!constraint_ptr) return constraint_ptr.error();
+  auto constraint_ptr = InstallConstraint_(label, properties, std::make_shared<IndividualConstraint>());
+  if (!constraint_ptr) return CreationStatus::ALREADY_EXISTS;
 
   try {
     auto validation_result = std::invoke([&] {
       // `constraint_accessor` is inside this IIFE on purpose.
       // This accessor MUST be released before we erase if a violation was found
-      auto constraint_accessor = constraint_ptr.value()->skiplist.access();
+      auto constraint_accessor = constraint_ptr->skiplist.access();
 
       auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
 
@@ -534,12 +526,12 @@ auto InMemoryUniqueConstraints::CreateConstraint(
     });
 
     if (!validation_result.has_value()) {
-      DropConstraint(label, properties);
+      (void)DropConstraint(label, properties);
       return std::unexpected{validation_result.error()};
     }
     return CreationStatus::SUCCESS;
   } catch (const utils::OutOfMemoryException &) {
-    DropConstraint(label, properties);
+    (void)DropConstraint(label, properties);
     throw;
   }
 }
@@ -552,30 +544,49 @@ bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
   return true;
 }
 
-auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<PropertyId> &properties)
-    -> DeletionStatus {
+auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<PropertyId> &properties) -> DropResult {
   if (auto drop_properties_check_result = CheckPropertiesBeforeDeletion(properties);
       drop_properties_check_result != DeletionStatus::SUCCESS) {
-    return drop_properties_check_result;
+    return {.status = drop_properties_check_result, .evicted = nullptr};
   }
 
-  auto erased = container_.WithLock([&](ContainerPtr &container) -> bool {
+  auto evicted = container_.WithLock([&](ContainerPtr &container) -> IndividualConstraintPtr {
+    auto label_it = container->find(label);
+    if (label_it == container->end()) return nullptr;
+    auto props_it = label_it->second.find(properties);
+    if (props_it == label_it->second.end()) return nullptr;
+    auto captured = props_it->second;
     auto new_container = std::make_shared<Container>(*container);
-    auto label_it = new_container->find(label);
-    if (label_it == new_container->end()) {
-      return false;
-    }
-    auto const count = label_it->second.erase(properties);
-    if (count == 0) return false;
-    if (label_it->second.empty()) {
-      new_container->erase(label_it);
-    }
-
+    auto new_label_it = new_container->find(label);
+    new_label_it->second.erase(properties);
+    if (new_label_it->second.empty()) new_container->erase(new_label_it);
     container = std::move(new_container);
-    return true;
+    return captured;
   });
 
-  return erased ? DeletionStatus::SUCCESS : DeletionStatus::NOT_FOUND;
+  if (!evicted) return {.status = DeletionStatus::NOT_FOUND, .evicted = nullptr};
+  return {.status = DeletionStatus::SUCCESS, .evicted = std::move(evicted)};
+}
+
+auto InMemoryUniqueConstraints::InstallConstraint_(LabelId label, const std::set<PropertyId> &properties,
+                                                   IndividualConstraintPtr ptr) -> IndividualConstraintPtr {
+  return container_.WithLock([&](ContainerPtr &container) -> IndividualConstraintPtr {
+    auto label_it = container->find(label);
+    if (label_it != container->end() && label_it->second.contains(properties)) return nullptr;
+    auto new_container = std::make_shared<Container>(*container);
+    (*new_container)[label][properties] = ptr;
+    container = std::move(new_container);
+    return ptr;
+  });
+}
+
+void InMemoryUniqueConstraints::RestoreConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                                  IndividualConstraintPtr evicted) {
+  if (!evicted) return;
+  // Concurrent CREATE under READ_ONLY may own the slot; discarding evicted is benign
+  // since the winning CREATE walks every labelled vertex during populate, so its
+  // skiplist holds the same logical entries.
+  (void)InstallConstraint_(label, properties, std::move(evicted));
 }
 
 auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *> &vertices, const Transaction &tx,

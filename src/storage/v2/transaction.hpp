@@ -12,10 +12,13 @@
 #pragma once
 
 #include <atomic>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <unordered_map>
 #include <vector>
+
+#include <spdlog/spdlog.h>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -61,6 +64,30 @@ struct CommitCallbacks {
   }
 
   std::vector<std::function<void(uint64_t)>> callbacks_;
+};
+
+/// Mirror of CommitCallbacks. Each site that adds a commit_callback typically
+/// adds a paired abort_callback that undoes the same eager mutation; commit
+/// runs commit_callbacks and discards abort_callbacks, abort the reverse.
+struct AbortCallbacks {
+  using func_t = std::function<void()>;
+
+  void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
+
+  // noexcept: a throwing callback here will std::terminate. In practice this
+  // is fine — abort runs with the soft memory tracker disabled (no
+  // OutOfMemoryExceptionEnabler in scope), so OOM can't fire from these
+  // callbacks, and a true system bad_alloc means we're going down anyway.
+  void RunAll() noexcept {
+    for (auto &callback : callbacks_) {
+      callback();
+    }
+    callbacks_.clear();
+  }
+
+  void Clear() noexcept { callbacks_.clear(); }
+
+  std::vector<func_t> callbacks_;
 };
 
 struct AsyncIndexHelper {
@@ -260,6 +287,9 @@ struct Transaction {
   /// Used for constraint validation during commit
   ActiveConstraintsPtr active_constraints_;
   CommitCallbacks commit_callbacks_;
+  /// Rollback hooks for eager DDL owner-side mutations. Runs on Abort(),
+  /// cleared on successful commit (see commit_callbacks_.RunAll site).
+  AbortCallbacks abort_callbacks_;
 
   /// Auto indexing infomation gathering
   AsyncIndexHelper async_index_helper_;

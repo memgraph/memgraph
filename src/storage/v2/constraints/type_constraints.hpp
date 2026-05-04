@@ -94,8 +94,16 @@ class TypeConstraints {
 
   [[nodiscard]] bool RegisterConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
   void PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type, uint64_t commit_timestamp);
-  /// Drops a constraint. Returns false if constraint doesn't exist or type doesn't match.
-  bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+
+  /// Drops a constraint. Returns the evicted IndividualConstraint so the caller can
+  /// reinstall it via RestoreConstraint on abort, or nullptr if no constraint
+  /// existed for {label, property} or the type didn't match.
+  [[nodiscard]] IndividualConstraintPtr DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+
+  /// Reinstalls a previously-evicted IndividualConstraint. No-op if the slot
+  /// has been reclaimed by a concurrent CREATE (constraint DDL runs under
+  /// READ_ONLY/UNIQUE, which does not serialize peers).
+  void RestoreConstraint(LabelId label, PropertyId property, IndividualConstraintPtr evicted);
 
   void DropGraphClearConstraints();
 
@@ -105,6 +113,10 @@ class TypeConstraints {
  private:
   /// Get individual constraint for in-place status modification.
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
+
+  // Installs ptr if absent. restore_l2p=true on RestoreConstraint re-adds the
+  // (property, type) entry to l2p_ (RegisterConstraint defers that to PublishConstraint).
+  bool InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr, bool restore_l2p);
 
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };

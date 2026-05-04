@@ -29,9 +29,10 @@ struct Transaction;
 
 struct ActiveIndicesUpdater;
 
-// TODO(follow-up): TextIndex and TextEdgeIndex are ~95% structurally identical
-// (Data/IndexContainer/ActiveIndices/deferred_drop/Create/Drop/Recover/Clear).
-// Extract a CRTP or template base before the duplication drifts.
+// TODO(follow-up, tracked): TextIndex and TextEdgeIndex are ~95% structurally
+// identical (Data/IndexContainer/ActiveIndices/deferred_drop/Create/Drop/Recover
+// /Clear). CRTP/template-base extraction is deferred as a separate follow-up;
+// keep the two files synchronized manually in the meantime.
 
 struct TextEdgeIndexData {
   mutable mgcxx::text_search::Context context;
@@ -153,6 +154,12 @@ class TextEdgeIndex {
   /// directory if the DDL transaction later aborts, because existing
   /// ActiveIndices snapshots still alias the same TextEdgeIndexData.
   [[nodiscard]] std::shared_ptr<TextEdgeIndexData> DropIndex(const std::string &index_name);
+
+  /// Re-installs an entry previously evicted by DropIndex. Used by abort
+  /// rollback of DROP TEXT INDEX when the evicted shared_ptr was captured
+  /// in the abort closure. No-op if a re-created entry with the same name
+  /// already exists.
+  void RestoreIndex(std::string const &index_name, std::shared_ptr<TextEdgeIndexData> data);
 
   bool IndexExists(const std::string &index_name) const;
 

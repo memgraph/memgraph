@@ -17,7 +17,7 @@ namespace memgraph::storage {
 
 class DiskEdgePropertyIndex : public EdgePropertyIndex {
  public:
-  bool DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) override;
+  bool DropIndex(PropertyId property, ActiveIndicesUpdater const &updater);
 
   struct ActiveIndices : EdgePropertyIndex::ActiveIndices {
     void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,

@@ -28,9 +28,10 @@ namespace memgraph::storage {
 struct ActiveIndicesUpdater;
 struct Transaction;
 
-// TODO(follow-up): TextIndex and TextEdgeIndex are ~95% structurally identical
-// (Data/IndexContainer/ActiveIndices/deferred_drop/Create/Drop/Recover/Clear).
-// Extract a CRTP or template base before the duplication drifts.
+// TODO(follow-up, tracked): TextIndex and TextEdgeIndex are ~95% structurally
+// identical (Data/IndexContainer/ActiveIndices/deferred_drop/Create/Drop/Recover
+// /Clear). CRTP/template-base extraction is deferred as a separate follow-up;
+// keep the two files synchronized manually in the meantime.
 
 struct TextIndexData {
   mutable mgcxx::text_search::Context context;
@@ -148,6 +149,12 @@ class TextIndex {
   /// if the DDL transaction later aborts, because existing ActiveIndices
   /// snapshots still alias the same TextIndexData.
   [[nodiscard]] std::shared_ptr<TextIndexData> DropIndex(const std::string &index_name);
+
+  /// Re-installs an entry previously evicted by DropIndex. Used by abort
+  /// rollback of DROP TEXT INDEX when the evicted shared_ptr was captured
+  /// in the abort closure. No-op if a re-created entry with the same name
+  /// already exists.
+  void RestoreIndex(std::string const &index_name, std::shared_ptr<TextIndexData> data);
 
   bool IndexExists(const std::string &index_name) const;
 

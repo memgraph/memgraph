@@ -50,8 +50,6 @@ class EdgePropertyIndex {
 
   virtual ~EdgePropertyIndex() = default;
 
-  virtual bool DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) = 0;
-
   virtual void DropGraphClearIndices() = 0;
 
   virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;

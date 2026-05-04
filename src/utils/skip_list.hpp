@@ -314,6 +314,10 @@ class SkipListGc final {
 
   ~SkipListGc() { Clear(); }
 
+#ifndef NDEBUG
+  uint64_t AliveAccessors() const { return alive_accessors_.load(std::memory_order_acquire); }
+#endif
+
   uint64_t AllocateId() {
 #ifndef NDEBUG
     alive_accessors_.fetch_add(1, std::memory_order_acq_rel);
@@ -893,6 +897,9 @@ class SkipList final : detail::SkipListNode_base {
 
     Accessor &operator=(Accessor &&other) noexcept {
       if (this != &other) {
+        if (skiplist_ != nullptr) {
+          skiplist_->gc_.ReleaseId(id_);
+        }
         skiplist_ = other.skiplist_;
         id_ = other.id_;
         other.skiplist_ = nullptr;
@@ -1087,9 +1094,14 @@ class SkipList final : detail::SkipListNode_base {
     }
 
     ConstAccessor &operator=(ConstAccessor &&other) noexcept {
-      skiplist_ = other.skiplist_;
-      id_ = other.id_;
-      other.skiplist_ = nullptr;
+      if (this != &other) {
+        if (skiplist_ != nullptr) {
+          skiplist_->gc_.ReleaseId(id_);
+        }
+        skiplist_ = other.skiplist_;
+        id_ = other.id_;
+        other.skiplist_ = nullptr;
+      }
       return *this;
     }
 
@@ -1241,6 +1253,10 @@ class SkipList final : detail::SkipListNode_base {
   /// NOTE: The function *isn't* thread-safe. It must be called only if there are
   /// no more active accessors using the list.
   void clear() {
+#ifndef NDEBUG
+    auto const alive = gc_.AliveAccessors();
+    DMG_ASSERT(alive == 0, "SkipList::clear() called with {} live accessor(s)", alive);
+#endif
     auto alloc = gc_.get_allocator();
     TNode *curr = head_->nexts[0].load(std::memory_order_acquire);
     while (curr != nullptr) {

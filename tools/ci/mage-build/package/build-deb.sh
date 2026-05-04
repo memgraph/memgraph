@@ -49,8 +49,9 @@ tar -xvzf $PACKAGE_DIR -C $SCRIPT_DIR/build/usr/lib/memgraph/
 sed -i "s/@ARCH@/$ARCH/g" $SCRIPT_DIR/debian/control
 sed -i "s/@VERSION@/$CLEAN_VERSION/g" $SCRIPT_DIR/debian/changelog
 
-# set cuda in postinst
+# set cuda and arch in postinst
 sed -i "s/@CUDA@/$CUDA/g" $SCRIPT_DIR/debian/postinst
+sed -i "s/@ARCH@/$ARCH/g" $SCRIPT_DIR/debian/postinst
 
 dpkg-buildpackage -us -uc -b
 
