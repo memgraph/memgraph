@@ -18,7 +18,7 @@ CLUSTER_CONFIG_FILE="${SCRIPT_DIR}/cluster.yaml"
 # Helm configuration
 HELM_RELEASE_NAME="${HELM_RELEASE_NAME:-mem-ha-test}"
 HELM_CHART_PATH="${HELM_CHART_PATH:-memgraph/memgraph-high-availability}"
-HELM_CHART_VERSION="${HELM_CHART_VERSION:-0.2.18}"
+HELM_CHART_VERSION="${HELM_CHART_VERSION:-0.2.19}"
 HELM_REPO_NAME="memgraph"
 HELM_REPO_URL="https://memgraph.github.io/helm-charts"
 
