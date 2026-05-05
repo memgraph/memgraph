@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-MEMGRAPH_BUILD_PATH="$script_dir/../../build"
+MEMGRAPH_BUILD_PATH="$(realpath -m "$script_dir/../../build")"
 MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
 MEMGRAPH_MTENANCY_DATASETS="$script_dir/datasets/"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
@@ -85,7 +85,7 @@ GET_SHARED_LIBRARIES() {
                 fi
             fi
         fi
-    done < <(ldd "$binary_path" 2>/dev/null || echo "")
+    done < <(ldd "$binary_path" || echo "")
 
     echo "${libraries[@]}"
 }
