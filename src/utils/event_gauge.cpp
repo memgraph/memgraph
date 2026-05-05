@@ -12,7 +12,13 @@
 #include "utils/event_gauge.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define APPLY_FOR_GAUGES(M) M(PeakMemoryRes, MAX, Memory, "Peak res memory in the system.")
+#define APPLY_FOR_GAUGES(M)                                                                                            \
+  M(PeakMemoryRes, MAX, Memory, "Peak res memory in the system.")                                                      \
+  M(GCWaitingDeltasPeakWalked, MAX, Memory, "High-water mark of deltas traversed in a single GC waiting-deltas scan.") \
+  M(FinalizeTransactionPeakWait_us,                                                                                    \
+    MAX,                                                                                                               \
+    Memory,                                                                                                            \
+    "High-water mark of FinalizeTransaction wait duration in microseconds.")
 
 namespace memgraph::metrics {
 
