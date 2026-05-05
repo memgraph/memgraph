@@ -389,10 +389,9 @@ class VectorIndex {
   /// @return Vector of index IDs.
   utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) const;
 
-  /// @brief Gets all properties that have vector indices for the given label.
-  /// @param label The label to get the properties for.
-  /// @return A map of property ids to index IDs.
-  std::unordered_map<PropertyId, uint64_t> GetIndicesByLabel(LabelId label) const;
+  /// @brief Gets all (property, index_id) pairs for indices whose filter is affected by the given label.
+  /// Multiple indices may overlap on the same property (e.g. ':A(p)' and ':A|B(p)'); all are returned.
+  std::vector<std::pair<PropertyId, uint64_t>> GetIndicesByLabel(LabelId label) const;
 
   /// @brief Gets all labels that have vector indices for the given property.
   /// @param property The property to get the labels for.

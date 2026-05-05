@@ -228,60 +228,55 @@ void VectorIndex::RestoreIndex(DroppedIndexCapture &&capture) {
 void VectorIndex::Clear() { index_ = std::make_shared<VectorIndexContainer>(); }
 
 void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
-  auto matching_index_properties = GetIndicesByLabel(label);
-  if (matching_index_properties.empty()) {
+  auto matching = GetIndicesByLabel(label);
+  if (matching.empty()) {
     return;
   }
 
   auto vertex_properties = vertex->properties.ExtractPropertyIds();
   for (auto property_id : vertex_properties) {
-    auto it = matching_index_properties.find(property_id);
-    if (it == matching_index_properties.end()) continue;
+    for (const auto &[idx_property, index_id] : matching) {
+      if (idx_property != property_id) continue;
+      auto &item_ptr = index_->at(index_id);
+      if (!item_ptr->spec.label_filter.Matches(vertex->labels)) continue;
 
-    const auto index_id = it->second;
-    auto &item_ptr = index_->at(index_id);
-    if (!item_ptr->spec.label_filter.Matches(vertex->labels)) continue;
+      auto old_property_value = vertex->properties.GetProperty(property_id, decoder);
+      if (old_property_value.IsNull()) continue;
 
-    auto old_property_value = vertex->properties.GetProperty(property_id, decoder);
-    if (old_property_value.IsNull()) continue;
+      auto vector_property = old_property_value.IsVectorIndexId() ? old_property_value.ValueVectorIndexList()
+                                                                  : ListToVector(old_property_value);
+      UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, vertex, vector_property);
 
-    // If property is a vector index id, we get the vector from the cache. Otherwise, we convert the property value to a
-    // vector.
-    auto vector_property = old_property_value.IsVectorIndexId() ? old_property_value.ValueVectorIndexList()
-                                                                : ListToVector(old_property_value);
-    UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, vertex, vector_property);
-
-    // In case of vector index id, we add the index id to the list of already stored index ids.
-    auto ids = old_property_value.IsVectorIndexId() ? old_property_value.ValueVectorIndexIds()
-                                                    : utils::small_vector<uint64_t>{};
-    ids.push_back(index_id);
-    vertex->properties.SetProperty(
-        property_id, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}}));
+      auto ids = old_property_value.IsVectorIndexId() ? old_property_value.ValueVectorIndexIds()
+                                                      : utils::small_vector<uint64_t>{};
+      ids.push_back(index_id);
+      vertex->properties.SetProperty(
+          property_id, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}}));
+    }
   }
 }
 
 void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
-  auto matching_index_properties = GetIndicesByLabel(label);
-  if (matching_index_properties.empty()) {
+  auto matching = GetIndicesByLabel(label);
+  if (matching.empty()) {
     return;
   }
 
   auto vertex_properties = vertex->properties.ExtractPropertyIds();
   for (auto property_id : vertex_properties) {
-    auto index_it = matching_index_properties.find(property_id);
-    if (index_it != matching_index_properties.end()) {
-      const auto index_id = index_it->second;
-      // If vector index is defined on the property, it has to be stored as a vector index id.
+    for (const auto &[idx_property, index_id] : matching) {
+      if (idx_property != property_id) continue;
+      auto &item_ptr = index_->at(index_id);
+      // After removing this label, the vertex may still match other matching indices — only act if
+      // it no longer matches THIS one.
+      if (item_ptr->spec.label_filter.Matches(vertex->labels)) continue;
+
       auto old_vertex_property_value = vertex->properties.GetProperty(property_id, decoder);
       auto &ids = old_vertex_property_value.ValueVectorIndexIds();
-      // We remove the index id from the list of already stored index ids.
       ids.erase(ranges::remove(ids, index_id), ids.end());
-      auto &item_ptr = index_->at(index_id);
 
       auto guard = std::lock_guard{item_ptr->mg_index.mutex};
 
-      // If the list of index ids is empty, we restore the vector from the index. Otherwise, we keep the property value
-      // as is.
       const auto property_value_to_set = std::invoke([&]() {
         if (ids.empty()) {
           std::vector<double> vector(item_ptr->mg_index.index.dimensions());
@@ -504,12 +499,12 @@ utils::small_vector<uint64_t> VectorIndex::GetVectorIndexIdsForVertex(Vertex *ve
   return result;
 }
 
-std::unordered_map<PropertyId, uint64_t> VectorIndex::GetIndicesByLabel(LabelId label) const {
-  std::unordered_map<PropertyId, uint64_t> result;
+std::vector<std::pair<PropertyId, uint64_t>> VectorIndex::GetIndicesByLabel(LabelId label) const {
+  std::vector<std::pair<PropertyId, uint64_t>> result;
   result.reserve(index_->size());
   for (const auto &[index_id, item_ptr] : *index_) {
     if (item_ptr->spec.label_filter.IsAffectedBy(label)) {
-      result.emplace(item_ptr->spec.property, index_id);
+      result.emplace_back(item_ptr->spec.property, index_id);
     }
   }
   return result;

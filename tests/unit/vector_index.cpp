@@ -734,7 +734,8 @@ TEST_F(VectorIndexTest, CreateVectorIndexAbortLeavesNoGhostEntry) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     spec = VectorIndexSpec{.index_name = test_index.data(),
-                           .label_id = acc->NameToLabel(test_label.data()),
+                           .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE,
+                                                             .ids = {acc->NameToLabel(test_label.data())}},
                            .property = acc->NameToProperty(test_property.data()),
                            .metric_kind = metric,
                            .dimension = 2,
@@ -782,4 +783,54 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
   EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+}
+
+TEST_F(VectorIndexTest, OverlappingLabelIndicesBothUpdatedOnAddLabel) {
+  const std::string_view label_a_name = "A";
+  const std::string_view label_b_name = "B";
+  const std::string_view idx_a = "idx_a";
+  const std::string_view idx_ab = "idx_ab";
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto a = unique_acc->NameToLabel(label_a_name);
+    const auto b = unique_acc->NameToLabel(label_b_name);
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    EXPECT_TRUE(unique_acc
+                    ->CreateVectorIndex({.index_name = std::string{idx_a},
+                                         .label_filter = {.mode = VectorMatchMode::SINGLE, .ids = {a}},
+                                         .property = property,
+                                         .metric_kind = metric,
+                                         .dimension = 2,
+                                         .resize_coefficient = resize_coefficient,
+                                         .capacity = 10,
+                                         .scalar_kind = scalar_kind})
+                    .has_value());
+    EXPECT_TRUE(unique_acc
+                    ->CreateVectorIndex({.index_name = std::string{idx_ab},
+                                         .label_filter = {.mode = VectorMatchMode::ANY_OF, .ids = {a, b}},
+                                         .property = property,
+                                         .metric_kind = metric,
+                                         .dimension = 2,
+                                         .resize_coefficient = resize_coefficient,
+                                         .capacity = 10,
+                                         .scalar_kind = scalar_kind})
+                    .has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    PropertyValue prop(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property.data()), prop));
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel(label_a_name)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  std::unordered_map<std::string, std::size_t> sizes_by_name;
+  for (const auto &info : acc->ListAllVectorIndices()) sizes_by_name[info.index_name] = info.size;
+  EXPECT_EQ(sizes_by_name[std::string{idx_a}], 1) << "single-label index :A(prop) missing vertex after adding :A";
+  EXPECT_EQ(sizes_by_name[std::string{idx_ab}], 1)
+      << "overlapping ANY_OF index :A|B(prop) missing vertex after adding :A";
 }

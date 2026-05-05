@@ -192,5 +192,94 @@ def test_schema_info_with_matching_any_lbac():
     execute_and_fetch_all(admin, "DROP ROLE test_role")
 
 
+def has_node_vector_index(schema, label_set):
+    """Return True iff schema has a label+property_vector index whose labels (set) match label_set.
+
+    `label_set` is an iterable of strings; pass [] for the wildcard index.
+    """
+    target = sorted(label_set)
+    return any(
+        ni.get("type") == "label+property_vector" and sorted(ni["labels"]) == target for ni in schema["node_indexes"]
+    )
+
+
+def has_edge_vector_index(schema, edge_type_set):
+    """Return True iff schema has an edge_type+property_vector index whose edge_types match.
+
+    `edge_type_set` is an iterable of strings; pass [] for the wildcard index.
+    """
+    target = sorted(edge_type_set)
+    return any(
+        ei.get("type") == "edge_type+property_vector" and sorted(ei["edge_type"]) == target
+        for ei in schema["edge_indexes"]
+    )
+
+
+def test_show_schema_info_wildcard_vector_index_requires_unrestricted_read():
+    """A wildcard vector index covers any label / any edge type, so its metadata must only
+    leak to users with unrestricted vertex / edge READ. A specific :Public(prop) index
+    follows the existing per-label rule.
+    """
+    admin = get_admin_cursor()
+    josip = get_josip_cursor()  # READ on nodes * AND edges *  -> unrestricted both
+    toni = get_toni_cursor()  # READ on nodes *  -> unrestricted vertex only
+    buda = get_buda_cursor()  # STATS only        -> nothing
+    kate = get_kate_cursor()  # READ on :Public   -> restricted vertex
+    matea = get_matea_cursor()  # READ on :TYPE    -> restricted edges
+
+    cfg = '{"dimension": 2, "capacity": 10}'
+    execute_and_fetch_all(admin, f"CREATE VECTOR INDEX wild_node ON (embedding) WITH CONFIG {cfg};")
+    execute_and_fetch_all(admin, f"CREATE VECTOR INDEX pub_node ON :Public(embedding) WITH CONFIG {cfg};")
+    execute_and_fetch_all(admin, f"CREATE VECTOR EDGE INDEX wild_edge ON (embedding) WITH CONFIG {cfg};")
+    execute_and_fetch_all(admin, f"CREATE VECTOR EDGE INDEX type_edge ON :TYPE(embedding) WITH CONFIG {cfg};")
+
+    # admin sees everything
+    admin_schema = get_schema_for(admin)
+    assert has_node_vector_index(admin_schema, [])
+    assert has_node_vector_index(admin_schema, ["Public"])
+    assert has_edge_vector_index(admin_schema, [])
+    assert has_edge_vector_index(admin_schema, ["TYPE"])
+
+    # josip has unrestricted READ on both nodes and edges -> sees both wildcards
+    josip_schema = get_schema_for(josip)
+    assert has_node_vector_index(josip_schema, [])
+    assert has_node_vector_index(josip_schema, ["Public"])
+    assert has_edge_vector_index(josip_schema, [])
+    assert has_edge_vector_index(josip_schema, ["TYPE"])
+
+    # toni has unrestricted vertex READ but NO edge READ -> sees node wildcard only
+    toni_schema = get_schema_for(toni)
+    assert has_node_vector_index(toni_schema, [])
+    assert has_node_vector_index(toni_schema, ["Public"])
+    assert not has_edge_vector_index(toni_schema, [])
+    assert not has_edge_vector_index(toni_schema, ["TYPE"])
+
+    # buda has no vertex/edge READ -> sees nothing
+    buda_schema = get_schema_for(buda)
+    assert not has_node_vector_index(buda_schema, [])
+    assert not has_node_vector_index(buda_schema, ["Public"])
+    assert not has_edge_vector_index(buda_schema, [])
+    assert not has_edge_vector_index(buda_schema, ["TYPE"])
+
+    # kate has READ only on :Public -> sees specific :Public index, NOT wildcard
+    kate_schema = get_schema_for(kate)
+    assert not has_node_vector_index(kate_schema, [])
+    assert has_node_vector_index(kate_schema, ["Public"])
+    assert not has_edge_vector_index(kate_schema, [])
+    assert not has_edge_vector_index(kate_schema, ["TYPE"])
+
+    # matea has READ only on :TYPE edges -> sees specific :TYPE edge index, NOT wildcards
+    matea_schema = get_schema_for(matea)
+    assert not has_node_vector_index(matea_schema, [])
+    assert not has_node_vector_index(matea_schema, ["Public"])
+    assert not has_edge_vector_index(matea_schema, [])
+    assert has_edge_vector_index(matea_schema, ["TYPE"])
+
+    execute_and_fetch_all(admin, "DROP VECTOR INDEX wild_node;")
+    execute_and_fetch_all(admin, "DROP VECTOR INDEX pub_node;")
+    execute_and_fetch_all(admin, "DROP VECTOR INDEX wild_edge;")
+    execute_and_fetch_all(admin, "DROP VECTOR INDEX type_edge;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -497,15 +497,16 @@ utils::small_vector<float> VectorEdgeIndex::GetVectorPropertyFromEdgeIndex(Edge 
   return vector;
 }
 
-std::optional<uint64_t> VectorEdgeIndex::GetIndexIdForEdgeTypeProperty(EdgeTypeId edge_type,
-                                                                       PropertyId property) const {
+utils::small_vector<uint64_t> VectorEdgeIndex::GetIndexIdsForEdgeTypeProperty(EdgeTypeId edge_type,
+                                                                              PropertyId property) const {
+  utils::small_vector<uint64_t> result;
   for (const auto &[index_id, item_ptr] : *index_) {
     if (item_ptr->spec.property != property) continue;
     if (item_ptr->spec.edge_type_filter.Matches(edge_type)) {
-      return index_id;
+      result.push_back(index_id);
     }
   }
-  return std::nullopt;
+  return result;
 }
 
 std::vector<std::pair<uint64_t, VectorEdgeTypeFilter const *>> VectorEdgeIndex::GetIndicesByProperty(

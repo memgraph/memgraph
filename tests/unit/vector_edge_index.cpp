@@ -351,14 +351,16 @@ TEST_F(VectorEdgeIndexTest, CreateVectorEdgeIndexAbortLeavesNoGhostEntry) {
   VectorEdgeIndexSpec spec{};
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    spec = VectorEdgeIndexSpec{test_index.data(),
-                               acc->NameToEdgeType(test_edge_type.data()),
-                               acc->NameToProperty(test_property.data()),
-                               metric,
-                               2,
-                               resize_coefficient,
-                               16,
-                               scalar_kind};
+    spec = VectorEdgeIndexSpec{
+        .index_name = test_index.data(),
+        .edge_type_filter =
+            VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE, .ids = {acc->NameToEdgeType(test_edge_type.data())}},
+        .property = acc->NameToProperty(test_property.data()),
+        .metric_kind = metric,
+        .dimension = 2,
+        .resize_coefficient = resize_coefficient,
+        .capacity = 16,
+        .scalar_kind = scalar_kind};
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   memgraph::tests::ExpectCreateAbortLeavesNoGhostEntry(
@@ -514,6 +516,52 @@ TEST_F(VectorEdgeIndexTest, IndexedPropertyDecoderDecodesVectorIndexId) {
     EXPECT_FLOAT_EQ(it->second.ValueVectorIndexList()[0], 3.0f);
     EXPECT_FLOAT_EQ(it->second.ValueVectorIndexList()[1], 4.0f);
   }
+}
+
+// Regression: a wildcard '(prop)' edge index and a specific ':E1(prop)' edge index both cover
+// edges of type :E1, so a property write must register the edge with BOTH index ids — otherwise
+// later updates/deletes drift only one of them.
+TEST_F(VectorEdgeIndexTest, OverlappingEdgeIndicesBothTrackEdge) {
+  const std::string_view idx_wild = "idx_wild";
+  const std::string_view idx_e1 = "idx_e1";
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto e1 = unique_acc->NameToEdgeType(test_edge_type.data());
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    EXPECT_TRUE(unique_acc
+                    ->CreateVectorEdgeIndex({.index_name = std::string{idx_wild},
+                                             .edge_type_filter = {.mode = VectorMatchMode::WILDCARD, .ids = {}},
+                                             .property = property,
+                                             .metric_kind = metric,
+                                             .dimension = 2,
+                                             .resize_coefficient = resize_coefficient,
+                                             .capacity = 10,
+                                             .scalar_kind = scalar_kind})
+                    .has_value());
+    EXPECT_TRUE(unique_acc
+                    ->CreateVectorEdgeIndex({.index_name = std::string{idx_e1},
+                                             .edge_type_filter = {.mode = VectorMatchMode::SINGLE, .ids = {e1}},
+                                             .property = property,
+                                             .metric_kind = metric,
+                                             .dimension = 2,
+                                             .resize_coefficient = resize_coefficient,
+                                             .capacity = 10,
+                                             .scalar_kind = scalar_kind})
+                    .has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  std::unordered_map<std::string, std::size_t> sizes_by_name;
+  for (const auto &info : acc->ListAllVectorEdgeIndices()) sizes_by_name[info.index_name] = info.size;
+  EXPECT_EQ(sizes_by_name[std::string{idx_wild}], 1) << "wildcard edge index missing the edge";
+  EXPECT_EQ(sizes_by_name[std::string{idx_e1}], 1) << "specific :E1 edge index missing the edge";
 }
 
 TEST_F(VectorEdgeIndexTest, DropIndexRestoresPropertiesToLists) {

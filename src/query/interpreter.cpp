@@ -8266,10 +8266,15 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label property_vector
       for (const auto &spec : index_info.vector_indices_spec) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker && !spec.label_filter.ids.empty() &&
-            !auth_checker->Has(std::span{spec.label_filter.ids.data(), spec.label_filter.ids.size()},
-                               AuthQuery::FineGrainedPrivilege::READ)) {
-          continue;
+        if (auth_checker) {
+          // Wildcard index covers any label, so it requires unrestricted vertex READ.
+          // Otherwise the user must have READ on at least one of the listed labels.
+          const bool authorized =
+              spec.label_filter.ids.empty()
+                  ? auth_checker->HasUnrestrictedAccessToVertices()
+                  : auth_checker->Has(std::span{spec.label_filter.ids.data(), spec.label_filter.ids.size()},
+                                      AuthQuery::FineGrainedPrivilege::READ);
+          if (!authorized) continue;
         }
 #endif
         auto label_names = nlohmann::json::array();
@@ -8322,11 +8327,15 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Edge type property_vector
       for (const auto &spec : index_info.vector_edge_indices_spec) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker && !spec.edge_type_filter.ids.empty() &&
-            std::ranges::any_of(spec.edge_type_filter.ids, [&](auto et) {
-              return !auth_checker->Has(et, AuthQuery::FineGrainedPrivilege::READ);
-            })) {
-          continue;
+        if (auth_checker) {
+          // Wildcard index covers any edge type, so it requires unrestricted edge READ.
+          // Otherwise the user must have READ on every listed edge type.
+          const bool authorized = spec.edge_type_filter.ids.empty()
+                                      ? auth_checker->HasUnrestrictedAccessToEdges()
+                                      : std::ranges::all_of(spec.edge_type_filter.ids, [&](auto et) {
+                                          return auth_checker->Has(et, AuthQuery::FineGrainedPrivilege::READ);
+                                        });
+          if (!authorized) continue;
         }
 #endif
         auto edge_type_names = nlohmann::json::array();

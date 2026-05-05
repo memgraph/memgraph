@@ -267,8 +267,9 @@ class VectorEdgeIndex {
   utils::small_vector<float> GetVectorPropertyFromEdgeIndex(Edge *edge, std::string_view index_name,
                                                             NameIdMapper *name_id_mapper) const;
 
-  /// @brief Finds the index ID for the given (edge_type, property) pair.
-  std::optional<uint64_t> GetIndexIdForEdgeTypeProperty(EdgeTypeId edge_type, PropertyId property) const;
+  /// @brief Returns all index ids whose filter matches `edge_type` and which index `property`.
+  /// Multiple indices may overlap (e.g. wildcard '(p)' plus specific ':REL(p)'); all are returned.
+  utils::small_vector<uint64_t> GetIndexIdsForEdgeTypeProperty(EdgeTypeId edge_type, PropertyId property) const;
 
   /// @brief Gets all edge types that have vector indices for the given property.
   std::vector<std::pair<uint64_t, VectorEdgeTypeFilter const *>> GetIndicesByProperty(PropertyId property) const;
