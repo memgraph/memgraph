@@ -147,8 +147,9 @@ enum class WriteResult : uint8_t { SUCCESS, NON_SEQUENTIAL, SERIALIZATION_ERROR 
 /// other in-flight transactions, or to a CREATE_*_EDGE for an in-flight
 /// transaction provided that there are no uncommitted deltas other than CREATE_*_EDGE.
 template <typename TObj>
-inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *object, Delta::Action action) {
-  DMG_ASSERT(action == Delta::Action::ADD_IN_EDGE || action == Delta::Action::ADD_OUT_EDGE);
+inline WriteResult(Transaction *transaction, TObj *object, Delta::Action action) {
+  PrepareForNonSequentialWrite DMG_ASSERT(action == Delta::Action::ADD_IN_EDGE ||
+                                          action == Delta::Action::ADD_OUT_EDGE);
 
   if (object->delta() == nullptr) return WriteResult::SUCCESS;
 

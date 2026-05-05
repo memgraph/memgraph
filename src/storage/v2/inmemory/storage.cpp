@@ -63,6 +63,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/metrics_timer.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/scheduler.hpp"
@@ -79,6 +80,10 @@ namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
 extern const Event GCLatency_us;
 extern const Event GCSkiplistCleanupLatency_us;
+extern const Event GCWaitingDeltasScanLatency_us;
+extern const Event FinalizeTransactionWait_us;
+extern const Event GCWaitingDeltasPeakWalked;
+extern const Event FinalizeTransactionPeakWait_us;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -1726,6 +1731,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
 
     if (!transaction_.deltas.empty()) {
+      auto const finalize_start = std::chrono::high_resolution_clock::now();
       if (transaction_.has_non_sequential_deltas) {
         mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
           waiting_list.emplace_back(InMemoryStorage::GCDeltas(
@@ -1737,6 +1743,11 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
               0, std::move(transaction_.deltas), std::move(transaction_.commit_info), transaction_.transaction_id);
         });
       }
+      auto const finalize_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::high_resolution_clock::now() - finalize_start)
+                                        .count();
+      metrics::Measure(metrics::FinalizeTransactionWait_us, finalize_elapsed);
+      metrics::SetGaugeValue(metrics::FinalizeTransactionPeakWait_us, finalize_elapsed);
     }
     commit_timestamp_.reset();
   }
@@ -2868,6 +2879,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // This waiting room holds committed transactions with non-sequential deltas until all
   // their "contributors" (other transactions sharing the same delta chains) have finished.
   waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
+    utils::MetricsTimer scan_timer{metrics::GCWaitingDeltasScanLatency_us};
+    uint64_t total_walked = 0;
     auto it = waiting_list.begin();
     while (it != waiting_list.end()) {
       bool all_contributors_committed = true;
@@ -2904,6 +2917,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         if (!all_contributors_committed) break;
       }
 
+      total_walked += visited.size();
+
       // All contributors finished - safe to move to normal GC processing
       if (all_contributors_committed) {
         it->unlinkable_timestamp_ = highest_commit_ts;
@@ -2914,6 +2929,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         ++it;
       }
     }
+    metrics::SetGaugeValue(metrics::GCWaitingDeltasPeakWalked, total_walked);
   });
 
   {
