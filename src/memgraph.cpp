@@ -329,17 +329,30 @@ int main(int argc, char **argv) {
       auto py_support_dir = exe_path.parent_path() / "python_support";
       if (std::filesystem::is_directory(py_support_dir)) {
         auto gil = memgraph::py::EnsureGIL();
-        // NOLINTNEXTLINE(hicpp-signed-bitwise)
-        auto *flag = PyLong_FromLong(RTLD_NOW);
-        auto *setdl = PySys_GetObject("setdlopenflags");
-        MG_ASSERT(setdl);
-        auto *arg = PyTuple_New(1);
-        MG_ASSERT(arg);
-        MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);  // steals flag
-        PyObject_CallObject(setdl, arg);
-        // flag stolen by SetItem — do NOT Py_DECREF it
-        // setdl is a borrowed ref from PySys_GetObject — do NOT Py_DECREF it
-        Py_DECREF(arg);
+        auto maybe_exc = memgraph::py::AppendToSysPath(py_support_dir.c_str());
+        if (maybe_exc) {
+          spdlog::error(memgraph::utils::MessageWithLink(
+              "Unable to load support for embedded Python: {}.", *maybe_exc, "https://memgr.ph/python"));
+        } else {
+          // Change how we load dynamic libraries on Python by using RTLD_NOW flag.
+          // This solves an issue with using the wrong version of libstdc++.
+          // NOLINTNEXTLINE(hicpp-signed-bitwise)
+          auto *flag = PyLong_FromLong(RTLD_NOW);
+          auto *setdl = PySys_GetObject("setdlopenflags");
+          MG_ASSERT(setdl);
+          auto *arg = PyTuple_New(1);
+          MG_ASSERT(arg);
+          MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);  // steals flag
+          PyObject_CallObject(setdl, arg);
+          // flag stolen by SetItem — do NOT Py_DECREF it
+          // setdl is a borrowed ref from PySys_GetObject — do NOT Py_DECREF it
+          Py_DECREF(arg);
+        }
+      } else {
+        spdlog::error(
+            memgraph::utils::MessageWithLink("Unable to load support for embedded Python: missing directory {}.",
+                                             py_support_dir,
+                                             "https://memgr.ph/python"));
       }
     } catch (const std::filesystem::filesystem_error &e) {
       spdlog::error(memgraph::utils::MessageWithLink(
@@ -1070,12 +1083,12 @@ int main(int argc, char **argv) {
       spdlog::warn("Failed to unload query modules while shutting down.");
     }
     python_gc_scheduler->Stop();
-
     // NOTE: We intentionally skip Py_Finalize(). Third-party extensions (DGL,
     // PyTorch, numpy) may have spawned background threads that race with
     // CPython's TSS teardown, causing "gilstate_tss_set: failed to set current
     // tstate" fatal errors (bpo-42969). Since the process is about to exit, the
     // OS reclaims all resources. This is standard practice for embedded Python.
+    MG_ASSERT(python_thread_state, "Invalid Python thread state");
     PyEval_RestoreThread(python_thread_state);
     PyMem_RawFree(program_name);
   }
