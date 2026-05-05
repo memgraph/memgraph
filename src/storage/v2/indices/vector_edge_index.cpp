@@ -98,7 +98,7 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
   UpdateVectorIndex(item_ptr->mg_index, spec, edge, vector, thread_id);
   {
     auto lock = std::unique_lock{edge_endpoints_mutex_};
-    edge_endpoints_[edge] = {from_vertex, to_vertex, edge_type};
+    edge_endpoints_[edge] = EdgeEndpoints{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge_type = edge_type};
   }
 }
 
@@ -161,7 +161,8 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
           UpdateVectorIndex(mg_index, spec, edge, vector, thread_id);
           {
             auto lock = std::unique_lock{edge_endpoints_mutex_};
-            edge_endpoints_[edge] = {&vertex, to_vertex, edge_type};
+            edge_endpoints_[edge] =
+                EdgeEndpoints{.from_vertex = &vertex, .to_vertex = to_vertex, .edge_type = edge_type};
           }
           // release vector resources to prevent memory growth while doing recovery
           vector.clear();
@@ -299,7 +300,7 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
     }
     {
       auto lock = std::unique_lock{edge_endpoints_mutex_};
-      edge_endpoints_[edge] = {from_vertex, to_vertex, edge_type};
+      edge_endpoints_[edge] = EdgeEndpoints{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge_type = edge_type};
     }
   } else if (value.IsNull()) {
     // If value is null, we have to remove the edge from all indices that contain it (by edge type).
@@ -406,7 +407,8 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
         }
         {
           auto lock = std::unique_lock{edge_endpoints_mutex_};
-          edge_endpoints_[edge] = {info.from_vertex, info.to_vertex, info.edge_type};
+          edge_endpoints_[edge] =
+              EdgeEndpoints{.from_vertex = info.from_vertex, .to_vertex = info.to_vertex, .edge_type = info.edge_type};
         }
       } else {
         DMG_ASSERT(old_value.IsNull(), "Unexpected property value type in abort processor of vector edge index");

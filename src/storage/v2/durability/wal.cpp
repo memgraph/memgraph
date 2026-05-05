@@ -2207,6 +2207,7 @@ void EncodeTextEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
   }
 }
 
+namespace {
 template <typename IdT>
 void EncodeVectorFilter(BaseEncoder &encoder, NameIdMapper &name_id_mapper, VectorMembershipFilter<IdT> const &filter) {
   encoder.WriteUint(static_cast<uint64_t>(filter.mode));
@@ -2215,6 +2216,7 @@ void EncodeVectorFilter(BaseEncoder &encoder, NameIdMapper &name_id_mapper, Vect
     encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
   }
 }
+}  // namespace
 
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &index_spec) {
   encoder.WriteString(index_spec.index_name);
