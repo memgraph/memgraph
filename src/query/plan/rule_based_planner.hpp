@@ -746,9 +746,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
            utils::Downcast<query::RemoveLabels>(clause);
   }
 
-  // true if any nested clause inside the FOREACH body could append a vertex/edge. FOREACH bodies
-  // grammatically only contain CREATE/MERGE/SET/REMOVE/DELETE/FOREACH; SET/REMOVE/DELETE never
-  // append, so they're correctly absorbed by the default-false branch.
+  // true if the FOREACH body (or any nested FOREACH) contains a CREATE or MERGE.
   static bool ForeachContainsAppendingWrite(const query::Foreach &fe) {
     return std::ranges::any_of(fe.clauses_, [](auto *clause) {
       if (utils::IsSubtype(*clause, query::Create::kType) || utils::IsSubtype(*clause, query::Merge::kType))
@@ -758,12 +756,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     });
   }
 
-  // decide whether merge_match for the MERGE at `merge_idx` must be materialized via Accumulate.
-  // issue #1333: merge_match's ScanAll/Expand iterator (View::NEW, nullptr-sentinel end) is alive
-  // across downstream pulls; any clause that appends to graph storage during those pulls feeds
-  // newly written vertices/edges back into the iterator, producing unbounded creation. WITH and
-  // RETURN already emit their own Accumulate barrier when the prior part is a write, so anything
-  // past them is harmless. Newly added appending clause types must be added to this whitelist.
+  // true if a clause after `merge_idx` may append to graph storage before the next WITH/RETURN
+  // (which insert their own Accumulate). extend the whitelist when adding new appending clauses.
   static bool MergeMatchNeedsAccumulate(const std::vector<Clause *> &clauses, size_t merge_idx) {
     for (size_t i = merge_idx + 1; i < clauses.size(); ++i) {
       auto *const clause = clauses[i];
@@ -890,10 +884,11 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto once_with_symbols = std::make_unique<Once>(bound_symbols);
     auto on_match = PlanMatching(match_ctx, std::move(once_with_symbols));
 
-    // freeze merge_match per input row so a downstream append (e.g. `MERGE (a) MERGE (b) CREATE
-    // (c)`) cannot feed new vertices back into the live ScanAll iterator and loop. View::NEW
-    // visibility of nodes from earlier clauses is preserved because we don't advance the command.
-    // see issue #1333.
+    // merge_match scans with View::NEW so MERGE can see vertices created by earlier clauses, but
+    // the underlying ScanAll's skip-list iterator has a nullptr-sentinel end — a downstream append
+    // (e.g. `MERGE (n) CREATE (c)`) feeds new vertices back into the live iterator and loops
+    // unboundedly. Accumulate drains the scan up front, killing the iterator before downstream
+    // runs. advance_command stays false to keep cross-clause View::NEW visibility intact.
     if (insert_match_accumulate) {
       std::vector<Symbol> accumulate_symbols = match_ctx.new_symbols;
       std::unordered_set<Symbol> seen_symbols(accumulate_symbols.begin(), accumulate_symbols.end());
