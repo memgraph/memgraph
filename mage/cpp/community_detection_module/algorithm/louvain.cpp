@@ -11,6 +11,7 @@
 
 #include "louvain.hpp"
 #include <omp.h>
+#include <algorithm>
 #include "mg_utils.hpp"
 #include "mgp.hpp"
 
@@ -34,11 +35,27 @@ std::vector<int64_t> GrappoloCommunityDetection(GrappoloGraph &grappolo_graph, m
 
   // Dynamically set currently.
   if (coloring) {
-    runMultiPhaseColoring(&grappolo_graph, graph, cluster_array, coloring, kNumColors, kReplaceMap,
-                          static_cast<long>(min_graph_size), threshold, coloring_threshold, num_threads, kThreadsOpt);
+    runMultiPhaseColoring(&grappolo_graph,
+                          graph,
+                          cluster_array,
+                          coloring,
+                          kNumColors,
+                          kReplaceMap,
+                          static_cast<long>(min_graph_size),
+                          threshold,
+                          coloring_threshold,
+                          num_threads,
+                          kThreadsOpt);
   } else {
-    runMultiPhaseBasic(&grappolo_graph, graph, cluster_array, kReplaceMap, static_cast<long>(min_graph_size), threshold,
-                       coloring_threshold, num_threads, kThreadsOpt);
+    runMultiPhaseBasic(&grappolo_graph,
+                       graph,
+                       cluster_array,
+                       kReplaceMap,
+                       static_cast<long>(min_graph_size),
+                       threshold,
+                       coloring_threshold,
+                       num_threads,
+                       kThreadsOpt);
   }
 
   // Store clustering information in vector
@@ -131,8 +148,8 @@ LouvainGraph GetLouvainSubgraph(mgp_memory *memory, mgp_graph *memgraph_graph, m
     if (louvain_graph.memgraph_id_to_id.contains(source_id) &&
         louvain_graph.memgraph_id_to_id.contains(destination_id)) {
       const double weight = mg_utility::GetNumericProperty(edge, weight_property, memory, default_weight);
-      louvain_graph.edges.emplace_back(louvain_graph.memgraph_id_to_id[source_id],
-                                       louvain_graph.memgraph_id_to_id[destination_id], weight);
+      louvain_graph.edges.emplace_back(
+          louvain_graph.memgraph_id_to_id[source_id], louvain_graph.memgraph_id_to_id[destination_id], weight);
     }
   }
   return louvain_graph;
@@ -151,6 +168,7 @@ void GetGrappoloSuitableGraph(GrappoloGraph &grappolo_graph, int num_threads, co
   }
   const auto number_of_vertices = louvain_graph.memgraph_id_to_id.size();
 
+  num_threads = std::max(num_threads, 1);
   omp_set_num_threads(num_threads);
   auto *edge_list_ptrs = static_cast<int64_t *>(malloc((number_of_vertices + 1) * sizeof(int64_t)));
   if (edge_list_ptrs == nullptr) {
@@ -165,7 +183,7 @@ void GetGrappoloSuitableGraph(GrappoloGraph &grappolo_graph, int num_threads, co
 #pragma omp parallel for default(none) shared(number_of_vertices, edge_list_ptrs)
   for (std::size_t i = 0; i <= number_of_vertices; i++) edge_list_ptrs[i] = 0;  // For first touch purposes
 
-    // Build the EdgeListPtr Array: Cumulative addition
+  // Build the EdgeListPtr Array: Cumulative addition
 #pragma omp parallel for default(none) shared(number_of_edges, tmp_edge_list, edge_list_ptrs)
   for (std::size_t i = 0; i < number_of_edges; i++) {
     __sync_fetch_and_add(&edge_list_ptrs[tmp_edge_list[i].head + 1], 1);  // Leave 0th position intact
@@ -189,7 +207,7 @@ void GetGrappoloSuitableGraph(GrappoloGraph &grappolo_graph, int num_threads, co
 #pragma omp parallel for default(none) shared(number_of_vertices, added)
   for (std::size_t i = 0; i < number_of_vertices; i++) added[i] = 0;
 
-    // Build the edgeList from edgeListTmp:
+  // Build the edgeList from edgeListTmp:
 
 #pragma omp parallel for default(none) shared(number_of_edges, tmp_edge_list, edge_list_ptrs, added, edge_list)
   for (std::size_t i = 0; i < number_of_edges; i++) {
@@ -214,4 +232,5 @@ void GetGrappoloSuitableGraph(GrappoloGraph &grappolo_graph, int num_threads, co
   grappolo_graph.sVertices = static_cast<long>(number_of_vertices);
 }
 }  // namespace louvain_alg
+
 // NOLINTEND(google-runtime-int)
