@@ -40,13 +40,6 @@ jobs:
         make -j$(nproc)
         ctest --output-on-failure -j$(nproc)
 
-    # TEMP: synthetic failure to exercise fail-fast cancellation — remove before merging
-    - name: Sleep 2 minutes then fail
-      run: |
-        sleep 120
-        exit 1
-
     - name: Cancel run on merge_group failure
-      # TEMP: ungated for manual testing — restore `&& github.event_name == 'merge_group'` before merging
-      if: ${{ failure() }}
+      if: ${{ failure() && github.event_name == 'merge_group' }}
       uses: ./.github/actions/cancel-on-failure-in-merge-queue

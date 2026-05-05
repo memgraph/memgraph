@@ -151,6 +151,5 @@ jobs:
           ./tools/ci/docker_cleanup.sh
 
       - name: Cancel run on merge_group failure
-        # TEMP: ungated for manual testing — restore `&& github.event_name == 'merge_group'` before merging
-        if: ${{ failure() }}
+        if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
