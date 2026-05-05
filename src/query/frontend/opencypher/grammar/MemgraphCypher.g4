@@ -828,9 +828,7 @@ dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
 pointIndexQuery : createPointIndex | dropPointIndex ;
 
 vectorIndexLabels
-    : '*' '(' propertyKeyName ')'
-    | ':' '*' '(' propertyKeyName ')'
-    | '(' propertyKeyName ')'
+    : '(' propertyKeyName ')'
     | ':' labelName ( '|' ':'? labelName )* '(' propertyKeyName ')'
     | ':' labelName ( '&' ':'? labelName )+ '(' propertyKeyName ')'
     ;

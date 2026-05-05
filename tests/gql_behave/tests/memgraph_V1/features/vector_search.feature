@@ -908,11 +908,11 @@ Feature: Vector search related features
             | distance | node                        | similarity |
             | 0.0      | (:L1:L2 {prop1: [1.0, 2.0]}) | 1.0       |
 
-    Scenario: Create wildcard vector index with :* syntax
+    Scenario: Create wildcard vector index
         Given an empty graph
         And having executed
             """
-            CREATE VECTOR INDEX wildcard_idx ON :*(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            CREATE VECTOR INDEX wildcard_idx ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
             """
         And having executed
             """
@@ -922,17 +922,26 @@ Feature: Vector search related features
             """
         When executing query:
             """
-            CALL vector_search.search("wildcard_idx", 10, [1.0, 2.0]) YIELD * RETURN count(*) AS cnt;
+            SHOW INDEX INFO
             """
         Then the result should be:
-            | cnt |
-            | 3   |
+            | index type                | label | property    | count |
+            | 'label+property_vector'   | '*'   | 'embedding' | 3     |
+        When executing query:
+            """
+            CALL vector_search.search("wildcard_idx", 10, [1.0, 2.0]) YIELD * RETURN distance ORDER BY distance;
+            """
+        Then the result should be:
+            | distance |
+            | 0.0      |
+            | 8.0      |
+            | 32.0     |
 
-    Scenario: Create wildcard vector index with bare parentheses syntax
+    Scenario: Wildcard vector index shows '*' label in SHOW INDEX INFO
         Given an empty graph
         And having executed
             """
-            CREATE VECTOR INDEX wildcard_idx2 ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            CREATE VECTOR INDEX wildcard_idx ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
             """
         When executing query:
             """
@@ -940,13 +949,13 @@ Feature: Vector search related features
             """
         Then the result should be:
             | index type                | label | property    | count |
-            | 'label+property_vector'   | ':*'  | 'embedding' | 0     |
+            | 'label+property_vector'   | '*'   | 'embedding' | 0     |
 
-    Scenario: Create OR vector index on multiple labels
+    Scenario: Create OR vector index on multiple labels (with optional colon prefix)
         Given an empty graph
         And having executed
             """
-            CREATE VECTOR INDEX or_idx ON :A|B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            CREATE VECTOR INDEX or_idx ON :A|:B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
             """
         And having executed
             """
@@ -956,11 +965,19 @@ Feature: Vector search related features
             """
         When executing query:
             """
-            CALL vector_search.search("or_idx", 10, [1.0, 2.0]) YIELD * RETURN count(*) AS cnt;
+            SHOW INDEX INFO
             """
         Then the result should be:
-            | cnt |
-            | 2   |
+            | index type                | label    | property    | count |
+            | 'label+property_vector'   | ':A\|B'  | 'embedding' | 2     |
+        When executing query:
+            """
+            CALL vector_search.search("or_idx", 10, [1.0, 2.0]) YIELD * RETURN distance ORDER BY distance;
+            """
+        Then the result should be:
+            | distance |
+            | 0.0      |
+            | 8.0      |
 
     Scenario: Create AND vector index on multiple labels
         Given an empty graph
@@ -976,86 +993,59 @@ Feature: Vector search related features
             """
         When executing query:
             """
-            CALL vector_search.search("and_idx", 10, [1.0, 2.0]) YIELD * RETURN count(*) AS cnt;
+            SHOW INDEX INFO
             """
         Then the result should be:
-            | cnt |
-            | 1   |
-
-    Scenario: Wildcard vector index search returns all matching nodes
-        Given an empty graph
-        And having executed
-            """
-            CREATE VECTOR INDEX wildcard_search ON :*(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
-            """
-        And having executed
-            """
-            CREATE (:X {embedding: [1.0, 0.0]})
-            CREATE (:Y {embedding: [0.0, 1.0]});
-            """
+            | index type                | label    | property    | count |
+            | 'label+property_vector'   | ':A&B'   | 'embedding' | 1     |
         When executing query:
             """
-            CALL vector_search.search("wildcard_search", 10, [1.0, 0.0]) YIELD * RETURN count(*) AS cnt;
-            """
-        Then the result should be:
-            | cnt |
-            | 2   |
-
-    Scenario: OR vector index search returns nodes with any matching label
-        Given an empty graph
-        And having executed
-            """
-            CREATE VECTOR INDEX or_search ON :A|B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
-            """
-        And having executed
-            """
-            CREATE (:A {embedding: [1.0, 0.0]})
-            CREATE (:B {embedding: [0.0, 1.0]})
-            CREATE (:C {embedding: [1.0, 1.0]});
-            """
-        When executing query:
-            """
-            CALL vector_search.search("or_search", 10, [1.0, 0.0]) YIELD * RETURN distance ORDER BY distance;
-            """
-        Then the result should be:
-            | distance |
-            | 0.0      |
-            | 2.0      |
-
-    Scenario: AND vector index search returns only nodes with all labels
-        Given an empty graph
-        And having executed
-            """
-            CREATE VECTOR INDEX and_search ON :A&B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
-            """
-        And having executed
-            """
-            CREATE (:A:B {embedding: [1.0, 0.0]})
-            CREATE (:A {embedding: [0.0, 1.0]})
-            CREATE (:B {embedding: [1.0, 1.0]});
-            """
-        When executing query:
-            """
-            CALL vector_search.search("and_search", 10, [1.0, 0.0]) YIELD * RETURN distance;
+            CALL vector_search.search("and_idx", 10, [1.0, 2.0]) YIELD * RETURN distance;
             """
         Then the result should be:
             | distance |
             | 0.0      |
 
-    Scenario: OR vector index with colon-prefixed labels
+    Scenario: SHOW INDEX INFO lists every vector index mode
         Given an empty graph
         And having executed
             """
-            CREATE VECTOR INDEX or_colon ON :A|:B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            CREATE VECTOR INDEX node_single ON :Person(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
             """
         And having executed
             """
-            CREATE (:A {embedding: [1.0, 2.0]});
+            CREATE VECTOR INDEX node_or ON :Person|Movie(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE VECTOR INDEX node_and ON :Person&Star(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE VECTOR INDEX node_wildcard ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX edge_single ON :KNOWS(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX edge_or ON :KNOWS|LIKES(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX edge_wildcard ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
             """
         When executing query:
             """
-            CALL vector_search.search("or_colon", 10, [1.0, 2.0]) YIELD * RETURN count(*) AS cnt;
+            SHOW INDEX INFO
             """
         Then the result should be:
-            | cnt |
-            | 1   |
+            | index type                  | label             | property    | count |
+            | 'edge-type+property_vector' | '*'               | 'embedding' | 0     |
+            | 'edge-type+property_vector' | ':KNOWS'          | 'embedding' | 0     |
+            | 'edge-type+property_vector' | ':KNOWS\|LIKES'   | 'embedding' | 0     |
+            | 'label+property_vector'     | '*'               | 'embedding' | 0     |
+            | 'label+property_vector'     | ':Person'         | 'embedding' | 0     |
+            | 'label+property_vector'     | ':Person&Star'    | 'embedding' | 0     |
+            | 'label+property_vector'     | ':Person\|Movie'  | 'embedding' | 0     |

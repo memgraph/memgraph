@@ -379,11 +379,11 @@ def test_wildcard_vector_index_replication(connection, test_name):
 
     execute_and_fetch_all(
         cursor,
-        "CREATE VECTOR INDEX wildcard_idx ON :*(embedding) WITH CONFIG {'dimension': 2, 'capacity': 10};",
+        "CREATE VECTOR INDEX wildcard_idx ON (embedding) WITH CONFIG {'dimension': 2, 'capacity': 10};",
     )
     wait_for_replication_change(cursor, 2)
 
-    expected_result = [("label+property_vector", ":*", "embedding", 0)]
+    expected_result = [("label+property_vector", "*", "embedding", 0)]
     assert get_show_index_info(get_replica_cursor(connection, "replica_1")) == expected_result
     assert get_show_index_info(get_replica_cursor(connection, "replica_2")) == expected_result
 
@@ -395,7 +395,7 @@ def test_wildcard_vector_index_replication(connection, test_name):
     )
     wait_for_replication_change(cursor, 4)
 
-    expected_result = [("label+property_vector", ":*", "embedding", 3)]
+    expected_result = [("label+property_vector", "*", "embedding", 3)]
     assert get_show_index_info(get_replica_cursor(connection, "replica_1")) == expected_result
     assert get_show_index_info(get_replica_cursor(connection, "replica_2")) == expected_result
 

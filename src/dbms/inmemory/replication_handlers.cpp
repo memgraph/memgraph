@@ -1817,7 +1817,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
               .index_name = data.index_name,
               .label_filter =
-                  storage::VectorLabelFilter{.mode = static_cast<storage::VectorLabelMode>(data.label_filter.mode),
+                  storage::VectorLabelFilter{.mode = static_cast<storage::VectorMatchMode>(data.label_filter.mode),
                                              .ids = std::move(label_ids)},
               .property = propId,
               .metric_kind = metric_kind,
@@ -1846,7 +1846,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
           auto res = transaction->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
               .index_name = data.index_name,
-              .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = static_cast<storage::VectorEdgeTypeMode>(
+              .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = static_cast<storage::VectorMatchMode>(
                                                                     data.edge_type_filter.mode),
                                                                 .ids = std::move(edge_type_ids)},
               .property = propId,

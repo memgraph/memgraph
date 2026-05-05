@@ -71,7 +71,7 @@ using memgraph::storage::TypeConstraints;
 using memgraph::storage::VectorIndex;
 using memgraph::storage::VectorIndexSpec;
 using memgraph::storage::VectorLabelFilter;
-using memgraph::storage::VectorLabelMode;
+using memgraph::storage::VectorMatchMode;
 using memgraph::storage::Vertex;
 using memgraph::storage::durability::ParallelizedSchemaCreationInfo;
 using memgraph::storage::replication::SnapshotReq;
@@ -581,7 +581,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   auto prop = PropertyId::FromUint(1);
 
   auto spec = VectorIndexSpec{.index_name = "vector_idx",
-                              .label_filter = VectorLabelFilter{VectorLabelMode::SINGLE, {label}},
+                              .label_filter = VectorLabelFilter{VectorMatchMode::SINGLE, {label}},
                               .property = prop,
                               .metric_kind = metric,
                               .dimension = kDimension,
@@ -607,7 +607,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   auto prop = PropertyId::FromUint(1);
 
   auto spec = VectorIndexSpec{.index_name = "vector_idx",
-                              .label_filter = VectorLabelFilter{VectorLabelMode::SINGLE, {label}},
+                              .label_filter = VectorLabelFilter{VectorMatchMode::SINGLE, {label}},
                               .property = prop,
                               .metric_kind = metric,
                               .dimension = kDimension,

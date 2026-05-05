@@ -1761,7 +1761,7 @@ std::optional<RecoveryInfo> LoadWal(
         }
         auto spec = VectorIndexSpec{
             .index_name = data.index_name,
-            .label_filter = VectorLabelFilter{.mode = static_cast<VectorLabelMode>(data.label_filter.mode),
+            .label_filter = VectorLabelFilter{.mode = static_cast<VectorMatchMode>(data.label_filter.mode),
                                               .ids = std::move(labels)},
             .property = property_id,
             .metric_kind = unum_metric_kind,
@@ -1783,10 +1783,9 @@ std::optional<RecoveryInfo> LoadWal(
         }
         indices_constraints->indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
             .spec = VectorEdgeIndexSpec{.index_name = data.index_name,
-                                        .edge_type_filter =
-                                            VectorEdgeTypeFilter{
-                                                .mode = static_cast<VectorEdgeTypeMode>(data.edge_type_filter.mode),
-                                                .ids = std::move(edge_types)},
+                                        .edge_type_filter = VectorEdgeTypeFilter{.mode = static_cast<VectorMatchMode>(
+                                                                                     data.edge_type_filter.mode),
+                                                                                 .ids = std::move(edge_types)},
                                         .property = property_id,
                                         .metric_kind = unum_metric_kind,
                                         .dimension = data.dimension,

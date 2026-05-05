@@ -141,7 +141,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_spec = memgraph::storage::VectorIndexSpec{
         .index_name = vector_index_name,
         .label_filter =
-            memgraph::storage::VectorLabelFilter{memgraph::storage::VectorLabelMode::SINGLE, {label_indexed}},
+            memgraph::storage::VectorLabelFilter{memgraph::storage::VectorMatchMode::SINGLE, {label_indexed}},
         .property = property_vector,
         .metric_kind = vector_index_metric,
         .dimension = vector_index_dim,
@@ -523,7 +523,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{
         .index_name = vector_edge_index_name,
         .edge_type_filter =
-            memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorEdgeTypeMode::SINGLE, {edge_type}},
+            memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorMatchMode::SINGLE, {edge_type}},
         .property = prop,
         .metric_kind = vector_index_metric,
         .dimension = vector_index_dim,
@@ -592,7 +592,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_spec = memgraph::storage::VectorIndexSpec{
         .index_name = vector_index_name,
         .label_filter =
-            memgraph::storage::VectorLabelFilter{memgraph::storage::VectorLabelMode::SINGLE, {base_label_indexed}},
+            memgraph::storage::VectorLabelFilter{memgraph::storage::VectorMatchMode::SINGLE, {base_label_indexed}},
         .property = property_vector,
         .metric_kind = vector_index_metric,
         .dimension = vector_index_dim,
@@ -601,8 +601,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         .scalar_kind = vector_index_scalar_kind};
     const auto vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{
         .index_name = vector_edge_index_name,
-        .edge_type_filter =
-            memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorEdgeTypeMode::SINGLE, {et1}},
+        .edge_type_filter = memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorMatchMode::SINGLE, {et1}},
         .property = property_vector,
         .metric_kind = vector_index_metric,
         .dimension = vector_index_dim,

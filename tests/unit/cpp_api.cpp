@@ -1336,7 +1336,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
     auto property = db_acc->NameToProperty(property_name);
     auto spec = memgraph::storage::VectorIndexSpec{
         .index_name = index_name,
-        .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorLabelMode::SINGLE, {label}},
+        .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorMatchMode::SINGLE, {label}},
         .property = property,
         .metric_kind = metric,
         .dimension = dimension,
@@ -1394,7 +1394,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorIndexPropertyFetchedAsList) {
     auto property = db_acc->NameToProperty(property_name);
     auto spec = memgraph::storage::VectorIndexSpec{
         .index_name = index_name,
-        .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorLabelMode::SINGLE, {label}},
+        .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorMatchMode::SINGLE, {label}},
         .property = property,
         .metric_kind = metric,
         .dimension = dimension,
@@ -1449,8 +1449,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
     auto property = db_acc->NameToProperty(property_name);
     auto spec = memgraph::storage::VectorEdgeIndexSpec{
         .index_name = index_name,
-        .edge_type_filter =
-            memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorEdgeTypeMode::SINGLE, {edge}},
+        .edge_type_filter = memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorMatchMode::SINGLE, {edge}},
         .property = property,
         .metric_kind = metric,
         .dimension = dimension,

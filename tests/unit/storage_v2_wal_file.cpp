@@ -349,7 +349,7 @@ class DeltaGenerator final {
     if (!vector_index_name.empty()) {
       vector_index_spec = memgraph::storage::VectorIndexSpec{
           .index_name = vector_index_name,
-          .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorLabelMode::SINGLE, {label_id}},
+          .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorMatchMode::SINGLE, {label_id}},
           .property = first_property_id,
           .metric_kind = memgraph::storage::MetricFromName(kMetricKind),
           .dimension = vector_dimension,
@@ -360,7 +360,7 @@ class DeltaGenerator final {
           .index_name = vector_index_name,
           .edge_type_filter =
               memgraph::storage::VectorEdgeTypeFilter{
-                  memgraph::storage::VectorEdgeTypeMode::SINGLE,
+                  memgraph::storage::VectorMatchMode::SINGLE,
                   {edge_type_id.value_or(memgraph::storage::EdgeTypeId::FromUint(0))}},
           .property = first_property_id,
           .metric_kind = memgraph::storage::MetricFromName(kMetricKind),

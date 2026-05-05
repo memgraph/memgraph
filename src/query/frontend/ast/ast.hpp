@@ -2394,14 +2394,12 @@ enum class VectorLabelMode : uint8_t {
   ALL_OF = 3,
 };
 
-static_assert(static_cast<uint8_t>(VectorLabelMode::SINGLE) == static_cast<uint8_t>(storage::VectorLabelMode::SINGLE) &&
-                  static_cast<uint8_t>(VectorLabelMode::WILDCARD) ==
-                      static_cast<uint8_t>(storage::VectorLabelMode::WILDCARD) &&
-                  static_cast<uint8_t>(VectorLabelMode::ANY_OF) ==
-                      static_cast<uint8_t>(storage::VectorLabelMode::ANY_OF) &&
-                  static_cast<uint8_t>(VectorLabelMode::ALL_OF) ==
-                      static_cast<uint8_t>(storage::VectorLabelMode::ALL_OF),
-              "query::VectorLabelMode and storage::VectorLabelMode must have identical values");
+static_assert(
+    static_cast<uint8_t>(VectorLabelMode::SINGLE) == static_cast<uint8_t>(storage::VectorMatchMode::SINGLE) &&
+        static_cast<uint8_t>(VectorLabelMode::WILDCARD) == static_cast<uint8_t>(storage::VectorMatchMode::WILDCARD) &&
+        static_cast<uint8_t>(VectorLabelMode::ANY_OF) == static_cast<uint8_t>(storage::VectorMatchMode::ANY_OF) &&
+        static_cast<uint8_t>(VectorLabelMode::ALL_OF) == static_cast<uint8_t>(storage::VectorMatchMode::ALL_OF),
+    "query::VectorLabelMode and storage::VectorMatchMode must have identical values");
 
 class VectorIndexQuery : public memgraph::query::Query {
  public:
@@ -2500,9 +2498,8 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  CreateVectorEdgeIndexQuery(std::string index_name, VectorLabelMode edge_type_mode,
-                             std::vector<EdgeTypeIx> edge_types, PropertyIx property,
-                             std::variant<ConfigMap, Expression *> config)
+  CreateVectorEdgeIndexQuery(std::string index_name, VectorLabelMode edge_type_mode, std::vector<EdgeTypeIx> edge_types,
+                             PropertyIx property, std::variant<ConfigMap, Expression *> config)
       : index_name_(std::move(index_name)),
         edge_type_mode_(edge_type_mode),
         edge_types_(std::move(edge_types)),

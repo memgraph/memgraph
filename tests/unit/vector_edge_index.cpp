@@ -51,7 +51,7 @@ class VectorEdgeIndexTest : public testing::Test {
     const auto property = unique_acc->NameToProperty(test_property.data());
     auto spec = VectorEdgeIndexSpec{
         .index_name = test_index.data(),
-        .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .ids = {edge_type}},
+        .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE, .ids = {edge_type}},
         .property = property,
         .metric_kind = metric,
         .dimension = dimension,
@@ -541,7 +541,7 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
   static VectorEdgeIndexSpec CreateSpec(const std::string &name = "test_edge_index") {
     return VectorEdgeIndexSpec{
         .index_name = name,
-        .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .ids = {EdgeTypeId::FromUint(1)}},
+        .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE, .ids = {EdgeTypeId::FromUint(1)}},
         .property = PropertyId::FromUint(1),
         .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
         .dimension = kDimension,
@@ -650,7 +650,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
 
   auto spec = VectorEdgeIndexSpec{
       .index_name = "resize_test_edge_index",
-      .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .ids = {EdgeTypeId::FromUint(1)}},
+      .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE, .ids = {EdgeTypeId::FromUint(1)}},
       .property = PropertyId::FromUint(1),
       .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
       .dimension = kDimension,
@@ -713,7 +713,7 @@ class VectorEdgeIndexGCTest : public testing::Test {
     const auto property = unique_acc->NameToProperty(test_property.data());
     auto spec = VectorEdgeIndexSpec{
         .index_name = test_index.data(),
-        .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .ids = {edge_type}},
+        .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE, .ids = {edge_type}},
         .property = property,
         .metric_kind = metric,
         .dimension = dimension,

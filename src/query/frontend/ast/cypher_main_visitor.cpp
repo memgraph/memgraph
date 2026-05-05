@@ -727,13 +727,14 @@ antlrcpp::Any CypherMainVisitor::visitVectorIndexLabels(MemgraphCypher::VectorIn
   const auto label_names = ctx->labelName();
   auto *property_ctx = ctx->propertyKeyName();
   const auto mode = std::invoke([&] {
-    if (ctx->ASTERISK() || label_names.empty()) return VectorLabelMode::WILDCARD;
+    if (label_names.empty()) return VectorLabelMode::WILDCARD;
     if (!ctx->AMPERSAND().empty()) return VectorLabelMode::ALL_OF;
     if (label_names.size() > 1) return VectorLabelMode::ANY_OF;
     return VectorLabelMode::SINGLE;
   });
 
-  VectorIndexLabelsInfo info{.mode = mode, .names = {}, .property = std::any_cast<PropertyIx>(property_ctx->accept(this))};
+  VectorIndexLabelsInfo info{
+      .mode = mode, .names = {}, .property = std::any_cast<PropertyIx>(property_ctx->accept(this))};
   if (mode != VectorLabelMode::WILDCARD) {
     info.names.reserve(label_names.size());
     for (auto *label_ctx : label_names) {
@@ -766,6 +767,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateVectorEdgeIndex(MemgraphCypher::Crea
   auto *index_query = storage_->Create<CreateVectorEdgeIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
   auto labels_info = std::any_cast<VectorIndexLabelsInfo>(ctx->vectorIndexLabels()->accept(this));
+  if (labels_info.mode == VectorLabelMode::ALL_OF) {
+    throw SemanticException(
+        "AND ('&') is not supported for vector edge indices: an edge has exactly one type, so :T1&T2 can never match.");
+  }
   index_query->edge_type_mode_ = labels_info.mode;
   for (const auto &name : labels_info.names) {
     index_query->edge_types_.push_back(AddEdgeType(name));

@@ -32,8 +32,6 @@ struct Indices;
 class NameIdMapper;
 
 using VectorEdgeTypeFilter = VectorMembershipFilter<EdgeTypeId>;
-// Transition alias: prefer VectorMatchMode going forward.
-using VectorEdgeTypeMode = VectorMatchMode;
 
 /// @struct VectorEdgeIndexSpec
 /// @brief Represents a specification for creating a vector index in the system.

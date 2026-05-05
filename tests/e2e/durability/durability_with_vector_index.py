@@ -859,7 +859,7 @@ def test_durability_with_wildcard_vector_index(connection):
     cursor = connection(7687, "main").cursor()
 
     execute_and_fetch_all(
-        cursor, 'CREATE VECTOR INDEX wildcard_idx ON :*(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+        cursor, 'CREATE VECTOR INDEX wildcard_idx ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
 
     execute_and_fetch_all(

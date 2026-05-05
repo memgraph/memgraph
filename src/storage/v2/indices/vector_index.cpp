@@ -549,7 +549,7 @@ VectorIndex::AbortProcessor VectorIndex::GetAbortProcessor() const {
   for (const auto &[_, item_ptr] : *index_) {
     const auto &filter = item_ptr->spec.label_filter;
     const auto property = item_ptr->spec.property;
-    if (filter.mode == VectorLabelMode::WILDCARD) {
+    if (filter.mode == VectorMatchMode::WILDCARD) {
       res.wildcard_properties.insert(property);
     } else {
       for (const auto &label : filter.ids) {

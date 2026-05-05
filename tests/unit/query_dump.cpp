@@ -1053,10 +1053,13 @@ TYPED_TEST(DumpTest, VectorIndices) {
   {
     const auto spec = memgraph::storage::VectorIndexSpec{
         .index_name = test_index1.data(),
-        .label_filter = {memgraph::storage::VectorLabelMode::SINGLE, {this->db->storage()->NameToLabel("Label1")}},
+        .label_filter = {memgraph::storage::VectorMatchMode::SINGLE, {this->db->storage()->NameToLabel("Label1")}},
         .property = this->db->storage()->NameToProperty("vector_property"),
-        .metric_kind = metric, .dimension = dimension, .resize_coefficient = resize_coefficient,
-        .capacity = capacity, .scalar_kind = scalar_kind};
+        .metric_kind = metric,
+        .dimension = dimension,
+        .resize_coefficient = resize_coefficient,
+        .capacity = capacity,
+        .scalar_kind = scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_TRUE(unique_acc->CreateVectorIndex(spec).has_value());
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1065,10 +1068,13 @@ TYPED_TEST(DumpTest, VectorIndices) {
   {
     const auto spec = memgraph::storage::VectorIndexSpec{
         .index_name = test_index2.data(),
-        .label_filter = {memgraph::storage::VectorLabelMode::SINGLE, {this->db->storage()->NameToLabel("Label 2")}},
+        .label_filter = {memgraph::storage::VectorMatchMode::SINGLE, {this->db->storage()->NameToLabel("Label 2")}},
         .property = this->db->storage()->NameToProperty("prop `"),
-        .metric_kind = metric, .dimension = dimension, .resize_coefficient = resize_coefficient,
-        .capacity = capacity, .scalar_kind = scalar_kind};
+        .metric_kind = metric,
+        .dimension = dimension,
+        .resize_coefficient = resize_coefficient,
+        .capacity = capacity,
+        .scalar_kind = scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_TRUE(unique_acc->CreateVectorIndex(spec).has_value());
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1117,12 +1123,16 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
   }
 
   {
-    const auto spec = memgraph::storage::VectorEdgeIndexSpec{
-        .index_name = test_index1.data(),
-        .edge_type_filter = {memgraph::storage::VectorEdgeTypeMode::SINGLE, {this->db->storage()->NameToEdgeType("EdgeType")}},
-        .property = this->db->storage()->NameToProperty("vector_property"),
-        .metric_kind = metric, .dimension = dimension, .resize_coefficient = resize_coefficient,
-        .capacity = capacity, .scalar_kind = scalar_kind};
+    const auto spec =
+        memgraph::storage::VectorEdgeIndexSpec{.index_name = test_index1.data(),
+                                               .edge_type_filter = {memgraph::storage::VectorMatchMode::SINGLE,
+                                                                    {this->db->storage()->NameToEdgeType("EdgeType")}},
+                                               .property = this->db->storage()->NameToProperty("vector_property"),
+                                               .metric_kind = metric,
+                                               .dimension = dimension,
+                                               .resize_coefficient = resize_coefficient,
+                                               .capacity = capacity,
+                                               .scalar_kind = scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_TRUE(unique_acc->CreateVectorEdgeIndex(spec).has_value());
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());

@@ -430,7 +430,7 @@ VectorEdgeIndex::AbortProcessor VectorEdgeIndex::GetAbortProcessor() const {
   for (const auto &[_, item_ptr] : *index_) {
     const auto &filter = item_ptr->spec.edge_type_filter;
     const auto property = item_ptr->spec.property;
-    if (filter.mode == VectorEdgeTypeMode::WILDCARD) {
+    if (filter.mode == VectorMatchMode::WILDCARD) {
       res.wildcard_properties.insert(property);
     } else {
       for (const auto &edge_type : filter.ids) {

@@ -13,6 +13,11 @@
 
 #include <algorithm>
 #include <span>
+#include <string_view>
+
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/join.hpp>
+#include <range/v3/view/transform.hpp>
 
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
@@ -25,6 +30,9 @@
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
+
+namespace r = ranges;
+namespace rv = r::views;
 
 struct ActiveIndicesUpdater;
 struct Indices;
@@ -45,7 +53,6 @@ struct VectorMembershipFilter {
   VectorMatchMode mode{VectorMatchMode::SINGLE};
   std::vector<IdT> ids;
 
-  // multi-id match (vertex labels): an entity matches if mode evaluates true against `entity_ids`.
   bool Matches(std::span<const IdT> entity_ids) const {
     if (ids.empty() && mode != VectorMatchMode::WILDCARD) return false;
     switch (mode) {
@@ -61,7 +68,6 @@ struct VectorMembershipFilter {
     return false;
   }
 
-  // single-id match (edge has one type): wraps into a single-element span.
   bool Matches(IdT entity_id) const { return Matches(std::span<const IdT>(&entity_id, 1)); }
 
   bool IsAffectedBy(IdT id) const {
@@ -74,33 +80,24 @@ struct VectorMembershipFilter {
   template <typename NameResolver>
   std::string Format(NameResolver &&resolver) const {
     if (ids.empty() && mode != VectorMatchMode::WILDCARD) return "";
-    auto join = [&](char sep) {
-      std::string out = ":";
-      bool first = true;
-      for (auto id : ids) {
-        if (!first) out += sep;
-        out += resolver(id);
-        first = false;
-      }
-      return out;
+    auto join = [&](std::string_view sep) {
+      return ":" + (ids | rv::transform(resolver) | rv::join(sep) | r::to<std::string>());
     };
     switch (mode) {
       case VectorMatchMode::WILDCARD:
-        return ":*";
+        return "*";
       case VectorMatchMode::SINGLE:
         return ":" + resolver(ids[0]);
       case VectorMatchMode::ANY_OF:
-        return join('|');
+        return join("|");
       case VectorMatchMode::ALL_OF:
-        return join('&');
+        return join("&");
     }
     return "";
   }
 };
 
 using VectorLabelFilter = VectorMembershipFilter<LabelId>;
-// Transition alias: prefer VectorMatchMode going forward.
-using VectorLabelMode = VectorMatchMode;
 
 /// @struct VectorIndexInfo
 struct VectorIndexInfo {
