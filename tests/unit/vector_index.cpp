@@ -945,3 +945,31 @@ TEST_F(VectorIndexTest, RemoveLabelFromNonMemberOfAllOfIndexIsNoOp) {
   EXPECT_FALSE(prop.IsVectorIndexId());
   EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
 }
+
+TEST_F(VectorIndexTest, SetPropertyToScalarRemovesIndexedVertex) {
+  this->CreateIndex(2, 10);
+
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto property_value = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 2.0F});
+    auto vertex = this->CreateVertex(acc.get(), test_property, property_value, test_label);
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), PropertyValue("not a vector")));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+}

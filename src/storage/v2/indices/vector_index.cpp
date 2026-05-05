@@ -304,14 +304,12 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
       auto &item_ptr = index_->at(index_id);
       UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, vertex, vector_property);
     }
-  } else if (value.IsNull()) {
-    // If value is null, we have to remove the vertex from all indices that contain it (by label).
+  } else {
     auto indices = GetIndicesByProperty(property);
     auto vertex_matches = [&](const auto &id_filter_pair) { return id_filter_pair.second->Matches(vertex->labels); };
     r::for_each(indices | rv::filter(vertex_matches),
                 [&](const auto &id_filter_pair) { RemoveVertexFromIndex(vertex, id_filter_pair.first); });
   }
-  // Otherwise, we don't update the index.
 }
 
 void VectorIndex::RemoveVertexFromIndex(Vertex *vertex, uint64_t index_id) {
@@ -685,9 +683,10 @@ void VectorIndexRecovery::UpdateOnLabelAddition(LabelId label, Vertex *vertex, N
       auto vector_to_add = ExtractVectorForRecovery(old_property_value, vertex, recovery_info_vec, name_id_mapper);
 
       if (old_property_value.IsVectorIndexId()) {
-        // If property is a vector index id, we add the index id to the list of already stored index ids.
         auto &ids = old_property_value.ValueVectorIndexIds();
-        ids.push_back(name_id_mapper->NameToId(recovery_info->spec.index_name));
+        const auto index_id = name_id_mapper->NameToId(recovery_info->spec.index_name);
+        if (std::ranges::contains(ids, index_id)) continue;
+        ids.push_back(index_id);
         vertex->properties.SetProperty(recovery_info->spec.property, old_property_value);
       } else {
         // If property is not a vector index id, we create a new vector index id and set it in the property store.
@@ -712,6 +711,7 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
 
   auto vertex_properties = vertex->properties.ExtractPropertyIds();
   for (auto *recovery_info : matching_indices) {
+    if (recovery_info->spec.label_filter.Matches(vertex->labels)) continue;
     if (r::contains(vertex_properties, recovery_info->spec.property)) {
       auto old_property_value = vertex->properties.GetProperty(recovery_info->spec.property);
       auto index_id = name_id_mapper->NameToId(recovery_info->spec.index_name);

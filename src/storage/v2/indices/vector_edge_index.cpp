@@ -302,15 +302,13 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
       auto lock = std::unique_lock{edge_endpoints_mutex_};
       edge_endpoints_[edge] = EdgeEndpoints{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge_type = edge_type};
     }
-  } else if (value.IsNull()) {
-    // If value is null, we have to remove the edge from all indices that contain it (by edge type).
+  } else {
     const auto indices = GetIndicesByProperty(property);
     for (const auto &[idx_id, filter] : indices) {
       if (!filter->Matches(edge_type)) continue;
       RemoveEdgeFromIndex(edge, idx_id);
     }
   }
-  // Otherwise, we don't update the index.
 }
 
 void VectorEdgeIndex::RemoveEdgeFromIndex(Edge *edge, uint64_t index_id) {
