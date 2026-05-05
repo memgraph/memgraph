@@ -81,9 +81,6 @@ jobs:
           echo "s3_dest_dir=$S3_DEST_DIR" >> "$GITHUB_OUTPUT"
           echo "S3 Destination Directory: $S3_DEST_DIR"
 
-      - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
-        uses: ./.github/actions/cancel-on-failure-in-merge-queue
 
   # NOTE: the naming of the following jobs is a hack so that the checks in the PR match those in the merge group even if the MAGE tests are not run
   amd_mage_tests:
