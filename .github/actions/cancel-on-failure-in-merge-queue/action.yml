@@ -14,6 +14,7 @@ runs:
         set -euo pipefail
         echo "Cancelling workflow run ${RUN_ID} in ${GH_REPO} after merge_group job failure"
         curl -fsSL -X POST \
+          --proto '=https' --proto-redir '=https' \
           -H "Accept: application/vnd.github+json" \
           -H "Authorization: Bearer ${GH_TOKEN}" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
