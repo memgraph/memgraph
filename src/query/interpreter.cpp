@@ -8267,13 +8267,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       for (const auto &spec : index_info.vector_indices_spec) {
 #ifdef MG_ENTERPRISE
         if (auth_checker) {
-          // Wildcard index covers any label, so it requires unrestricted vertex READ.
-          // Otherwise the user must have READ on every listed label — Has(span<...>) matches if
-          // any one is granted, which would leak the full label set of an :A&B / :A|B index to a
-          // user with READ on only :A.
+          // Wildcard requires global READ on vertices; non-wildcard requires READ on every listed
+          // label (Has(span<...>) matches any one, which would leak the full label set).
           const bool authorized =
               spec.label_filter.ids.empty()
-                  ? auth_checker->HasUnrestrictedAccessToVertices()
+                  ? auth_checker->HasGlobalPrivilegeOnVertices(AuthQuery::FineGrainedPrivilege::READ)
                   : std::ranges::all_of(spec.label_filter.ids, [&](auto label) {
                       return auth_checker->Has(std::span{&label, 1}, AuthQuery::FineGrainedPrivilege::READ);
                     });
@@ -8331,10 +8329,9 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       for (const auto &spec : index_info.vector_edge_indices_spec) {
 #ifdef MG_ENTERPRISE
         if (auth_checker) {
-          // Wildcard index covers any edge type, so it requires unrestricted edge READ.
-          // Otherwise the user must have READ on every listed edge type.
+          // Wildcard requires global READ on edges; non-wildcard requires READ on every listed edge type.
           const bool authorized = spec.edge_type_filter.ids.empty()
-                                      ? auth_checker->HasUnrestrictedAccessToEdges()
+                                      ? auth_checker->HasGlobalPrivilegeOnEdges(AuthQuery::FineGrainedPrivilege::READ)
                                       : std::ranges::all_of(spec.edge_type_filter.ids, [&](auto et) {
                                           return auth_checker->Has(et, AuthQuery::FineGrainedPrivilege::READ);
                                         });

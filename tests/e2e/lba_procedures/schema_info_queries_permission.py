@@ -215,16 +215,12 @@ def has_edge_vector_index(schema, edge_type_set):
     )
 
 
-def test_show_schema_info_wildcard_vector_index_requires_unrestricted_read():
-    """A wildcard vector index covers any label / any edge type, so its metadata must only
-    leak to users with truly unrestricted vertex / edge READ. Only admin (GRANT ALL
-    PRIVILEGES, no per-label rules) qualifies — even users with `GRANT READ ON NODES *`
-    have rules and are treated as fine-grained-scoped. Specific :L(prop) indexes follow
-    the existing per-label rule; multi-label indexes require READ on EVERY listed label.
-    """
+def test_show_schema_info_wildcard_vector_index_requires_global_read():
+    """Wildcard vector indexes are visible only to users with global READ on the matching kind.
+    Multi-label indexes require READ on EVERY listed label (else the missing labels leak)."""
     admin = get_admin_cursor()
-    josip = get_josip_cursor()  # READ on nodes * AND edges *  (still has rules -> not unrestricted)
-    toni = get_toni_cursor()  # READ on nodes *  (still has rules -> not unrestricted)
+    josip = get_josip_cursor()  # READ on nodes * AND edges *
+    toni = get_toni_cursor()  # READ on nodes *
     buda = get_buda_cursor()  # STATS only
     kate = get_kate_cursor()  # READ on :Public only
     matea = get_matea_cursor()  # READ on :TYPE edges only
@@ -245,19 +241,17 @@ def test_show_schema_info_wildcard_vector_index_requires_unrestricted_read():
     assert has_edge_vector_index(admin_schema, [])
     assert has_edge_vector_index(admin_schema, ["TYPE"])
 
-    # josip has READ on nodes * and edges * — but those grants register rules, so josip is NOT
-    # treated as unrestricted; wildcard rows stay hidden. Star-pattern still satisfies per-label
-    # READ checks, so specific and multi-label indexes are visible.
+    # josip has global READ on both nodes and edges -> sees everything.
     josip_schema = get_schema_for(josip)
-    assert not has_node_vector_index(josip_schema, [])
+    assert has_node_vector_index(josip_schema, [])
     assert has_node_vector_index(josip_schema, ["Public"])
     assert has_node_vector_index(josip_schema, ["Public", "Private"])
-    assert not has_edge_vector_index(josip_schema, [])
+    assert has_edge_vector_index(josip_schema, [])
     assert has_edge_vector_index(josip_schema, ["TYPE"])
 
-    # toni has READ on nodes * (no edges) — same story but no edge metadata.
+    # toni has global READ on nodes only -> sees node wildcards but not edge wildcards.
     toni_schema = get_schema_for(toni)
-    assert not has_node_vector_index(toni_schema, [])
+    assert has_node_vector_index(toni_schema, [])
     assert has_node_vector_index(toni_schema, ["Public"])
     assert has_node_vector_index(toni_schema, ["Public", "Private"])
     assert not has_edge_vector_index(toni_schema, [])
