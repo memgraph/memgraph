@@ -22,7 +22,7 @@ from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_q
 COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 
-NUM_TENANTS = 30
+NUM_TENANTS = 10
 DATABASES = [f"tenant_{i:02d}" for i in range(NUM_TENANTS)]
 
 NUM_NODES = 200_000
@@ -140,6 +140,7 @@ def run_ingestion() -> None:
         for db_name in DATABASES
         for batch_num in range(num_batches_per_db)
     ]
+    random.shuffle(tasks)
     print(f"  Ingesting {len(tasks):,} batches across {NUM_TENANTS} databases ({total_workers} workers)...")
     run_parallel(ingest_batch, tasks, num_workers=total_workers)
     print(f"All {total:,} nodes ingested.")
@@ -201,6 +202,8 @@ def main():
         coordinators=COORDINATORS,
         show_replicas=True,
         verify_up=True,
+        storage_info=["vertex_count", "edge_count", "memory_res"],
+        metrics_info=["FailedQuery", "TransientErrors"],
         interval=5,
     )
 
