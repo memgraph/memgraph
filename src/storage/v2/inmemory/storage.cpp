@@ -3065,14 +3065,17 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
 
             if (prev.delta->commit_info->timestamp.load() < oldest_active_start_timestamp) {
-              // If previous is from another inactive transaction, no need to
-              // lock the edge/vertex, nothing will read this far or relink to
-              // us directly
-              break;
+              // For a committed non-sequential predecessor, readers skip delta
+              // via next, so we must clear delta->next before freeing
+              // downstream delta to stop traversal into freed deltas.
+              if (!IsDeltaNonSequential(*prev.delta)) {
+                break;
+              }
             }
 
-            // Previous is either active (committed or uncommitted), we need to find
-            // the parent object in order to be able to use its lock.
+            // Previous is either active (committed or uncommitted), or inactive
+            // non-sequential. We need to find the parent object in order to be
+            // able to use its lock.
             auto parent = prev;
             while (parent.type == PreviousPtr::Type::DELTA) {
               parent = parent.delta->prev.Get();

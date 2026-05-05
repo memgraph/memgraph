@@ -391,20 +391,6 @@ jobs:
           DEB_PACKAGE="$(ls output/memgraph-mage*.deb)"
           echo "DEB_PACKAGE=${DEB_PACKAGE}" >> $GITHUB_ENV
 
-      - name: Build pymgclient in MGBUILD container
-        if: ${{ inputs.arch == 'arm' }}
-        run: |
-          # This has to be done here, otherwise we will need to build pymgclient from source within
-          # docker image build because we currently do not provide an arm64 wheel for Linux.
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os "$OS" \
-            --arch $ARCH \
-            --build-type $BUILD_TYPE \
-            --cugraph $CUGRAPH \
-            build-pymgclient
-          ls -la mage/wheels
-
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
         run: |

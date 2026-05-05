@@ -79,6 +79,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     {
       auto unique_acc = db_acc->UniqueAccess();
       MG_ASSERT(unique_acc->CreateIndex(label).has_value());
+      MG_ASSERT(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     interpreter.emplace(&*interpreter_context, std::move(db_acc));

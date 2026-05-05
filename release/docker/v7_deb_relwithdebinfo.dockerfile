@@ -51,7 +51,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     --no-install-recommends && \
   apt-get install -y \
     libcurl4 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser ca-certificates \
-    gdb procps linux-tools-common libc6-dbg libxmlsec1 "linux-tools-$(uname -r)" \
+    gdb procps linux-tools-common linux-tools-generic libc6-dbg libxmlsec1 \
     --no-install-recommends && \
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \

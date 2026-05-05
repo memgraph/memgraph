@@ -255,6 +255,8 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
 
   const int64_t db1_before = db1->DbEmbeddingMemoryUsage();
   const int64_t db2_before = db2->DbEmbeddingMemoryUsage();
+  const int64_t db1_storage_before = db1->DbStorageMemoryUsage();
+  const int64_t db1_query_before = db1->DbQueryMemoryUsage();
   const int64_t db1_total_before = db1->DbMemoryUsage();
 
   memgraph::storage::VectorIndexSpec spec{
@@ -276,11 +278,18 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   }
 
   const int64_t db1_delta = db1->DbEmbeddingMemoryUsage() - db1_before;
+  const int64_t db1_storage_delta = db1->DbStorageMemoryUsage() - db1_storage_before;
+  const int64_t db1_query_delta = db1->DbQueryMemoryUsage() - db1_query_before;
   const int64_t db1_total_delta = db1->DbMemoryUsage() - db1_total_before;
 
   EXPECT_GT(db1_delta, static_cast<int64_t>(256 * 1024)) << "Vector index should attribute embedding memory to DB1";
   EXPECT_EQ(db2->DbEmbeddingMemoryUsage(), db2_before) << "DB2 embedding tracker must not grow";
-  EXPECT_GE(db1_total_delta, db1_delta) << "db_total should include embedding delta";
+  // Propagation invariant: db_total is parent of all per-DB domain trackers, so its
+  // delta must equal the sum of child deltas. (Index population also rewrites the
+  // property store, so db_storage_delta is typically negative — comparing the
+  // embedding delta alone to the total delta is not a valid propagation check.)
+  EXPECT_EQ(db1_total_delta, db1_delta + db1_storage_delta + db1_query_delta)
+      << "db_total must equal sum of per-domain trackers";
 
   {
     memgraph::memory::DbArenaScope db_arena_scope{&db1->Arena()};
@@ -314,6 +323,8 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
 
   const int64_t db1_edge_before = db1->DbEmbeddingMemoryUsage();
   const int64_t db2_edge_before = db2->DbEmbeddingMemoryUsage();
+  const int64_t db1_edge_storage_before = db1->DbStorageMemoryUsage();
+  const int64_t db1_edge_query_before = db1->DbQueryMemoryUsage();
   const int64_t db1_edge_total_before = db1->DbMemoryUsage();
 
   memgraph::storage::VectorEdgeIndexSpec edge_spec{
@@ -335,12 +346,16 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   }
 
   const int64_t db1_edge_delta = db1->DbEmbeddingMemoryUsage() - db1_edge_before;
+  const int64_t db1_edge_storage_delta = db1->DbStorageMemoryUsage() - db1_edge_storage_before;
+  const int64_t db1_edge_query_delta = db1->DbQueryMemoryUsage() - db1_edge_query_before;
   const int64_t db1_edge_total_delta = db1->DbMemoryUsage() - db1_edge_total_before;
 
   EXPECT_GT(db1_edge_delta, static_cast<int64_t>(256 * 1024))
       << "Vector edge index should attribute embedding memory to DB1";
   EXPECT_EQ(db2->DbEmbeddingMemoryUsage(), db2_edge_before) << "DB2 embedding tracker must not grow";
-  EXPECT_GE(db1_edge_total_delta, db1_edge_delta) << "db_total should include edge embedding delta";
+  // See the vertex-index case above.
+  EXPECT_EQ(db1_edge_total_delta, db1_edge_delta + db1_edge_storage_delta + db1_edge_query_delta)
+      << "db_total must equal sum of per-domain trackers";
 
   {
     memgraph::memory::DbArenaScope db_arena_scope{&db1->Arena()};

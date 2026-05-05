@@ -3,3 +3,4 @@ query: >
 
 output:
   - name: Memgraph
+  - name: Neo4j Kernel

@@ -73,7 +73,7 @@ affinity:
 # you can increase the maxMapCount value.
 sysctlInitContainer:
   enabled: true
-  maxMapCount: 262144
+  maxMapCount: 524288
 
 # The explicit user and group setup is required because at the init container
 # time, there is not yet a user created. This seems fine because under both

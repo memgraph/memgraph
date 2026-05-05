@@ -87,6 +87,8 @@ TEST(JemallocHookStress, OOMPathRecursion) {
   memgraph::memory::SetHooks();
 #endif
 
+  constexpr int kNThreads = 20;
+
   // Set a low limit to trigger "return false" in Alloc
   memgraph::utils::total_memory_tracker.SetHardLimit(1024);
 
@@ -99,13 +101,11 @@ TEST(JemallocHookStress, OOMPathRecursion) {
     }
   };
 
-  std::vector<std::thread> oom_threads;
-  oom_threads.reserve(20);
-  for (int i = 0; i < 20; ++i) {
+  std::vector<std::jthread> oom_threads;
+  oom_threads.reserve(kNThreads);
+  for (int i = 0; i < kNThreads; ++i) {
     oom_threads.emplace_back(run_oom);
   }
 
-  for (auto &oom_thread : oom_threads) {
-    oom_thread.join();
-  }
+  oom_threads.clear();
 }
