@@ -15,9 +15,9 @@
 
 #include "dbms/database_info.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
-#include "memory/db_arena.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
+#include "memory/db_arena.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
@@ -63,6 +63,14 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
 
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
+      metrics_(config.salient.uuid, ([&config]() -> metrics::DatabaseMetricHandles {
+                 auto const should_register =
+                     !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
+                 if (!should_register) {
+                   return {};
+                 }
+                 return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
+               })()),
       after_commit_trigger_pool_{1,
                                  [this]() -> utils::ThreadPool::TaskSignature {
                                    auto db_arena_scope = std::make_unique<memory::DbArenaScope>(db_arena_.get());
@@ -70,16 +78,6 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                      db_arena_scope.reset();
                                    };
                                  }},
-      metrics_(config.salient.uuid,
-               ([&config]() -> metrics::DatabaseMetricHandles {
-                 auto const should_register =
-                     !(FLAGS_metrics_format == "OpenMetrics" &&
-                       flags::CoordinationSetupInstance().IsCoordinator());
-                 if (!should_register) {
-                   return {};
-                 }
-                 return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
-               })()),
       streams_(
           std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams", db_arena_.get())),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
@@ -96,12 +94,18 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
-    storage_ = std::make_unique<storage::DiskStorage>(
-        std::move(config), std::move(invalidator), metrics_.handles(), std::move(database_protector_factory),
-        db_arena_.get(), &db_embedding_memory_tracker_);
+    storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
+                                                      std::move(invalidator),
+                                                      metrics_.handles(),
+                                                      std::move(database_protector_factory),
+                                                      db_arena_.get(),
+                                                      &db_embedding_memory_tracker_);
   } else {
-    storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), metrics_.handles(),
-                                           std::move(database_protector_factory), db_arena_.get(),
+    storage_ = dbms::CreateInMemoryStorage(std::move(config),
+                                           std::move(invalidator),
+                                           metrics_.handles(),
+                                           std::move(database_protector_factory),
+                                           db_arena_.get(),
                                            &db_embedding_memory_tracker_);
   }
 }
@@ -168,9 +172,12 @@ void Database::SwitchToOnDisk() {
   // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
   auto preserved_factory = storage_->get_database_protector_factory();
   const memory::DbArenaScope db_arena_scope{this};
-  storage_ = std::make_unique<memgraph::storage::DiskStorage>(
-      std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), metrics_.handles(),
-      std::move(preserved_factory), db_arena_.get(), &db_embedding_memory_tracker_);
+  storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
+                                                              std::make_unique<storage::PlanInvalidatorDefault>(),
+                                                              metrics_.handles(),
+                                                              std::move(preserved_factory),
+                                                              db_arena_.get(),
+                                                              &db_embedding_memory_tracker_);
 }
 
 }  // namespace memgraph::dbms

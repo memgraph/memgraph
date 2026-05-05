@@ -29,6 +29,8 @@ namespace rv = r::views;
 
 namespace memgraph::storage {
 
+InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() = default;
+
 namespace {
 inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_type, PropertyId property,
                                            auto &&index_accessor,
@@ -232,7 +234,7 @@ auto InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId p
         if (it == index_container->end()) [[unlikely]] {
           return {};
         }
-        it->second->gauge_.release();
+        it->second->gauge_ = {};
         auto evicted_entry = it->second;
         auto new_container = std::make_shared<IndexContainer>(*index_container);
         new_container->erase({edge_type, property});

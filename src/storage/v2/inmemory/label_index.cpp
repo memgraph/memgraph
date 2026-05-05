@@ -229,7 +229,7 @@ auto InMemoryLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &up
       return {};
     }
     auto evicted_entry = it->second;
-    evicted_entry->gauge_.release();
+    evicted_entry->gauge_ = {};
     auto new_index = std::make_shared<IndexContainer>(*index);
     new_index->erase(label);
     index = std::move(new_index);

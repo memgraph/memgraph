@@ -214,7 +214,7 @@ auto InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater
       [&](std::shared_ptr<IndicesContainer const> &indices_container) -> std::shared_ptr<IndividualIndex> {
         auto const it = indices_container->indices_.find(edge_type);
         if (it == indices_container->indices_.cend()) return {};
-        it->second->gauge_.release();
+        it->second->gauge_ = {};
         auto evicted_entry = it->second;
 
         auto new_container = std::make_shared<IndicesContainer>();

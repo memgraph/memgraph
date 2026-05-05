@@ -20,7 +20,7 @@
 namespace memgraph::storage {
 
 EdgeImportModeCache::EdgeImportModeCache(const Config &config)
-    : in_memory_indices_(Indices(config, StorageMode::IN_MEMORY_TRANSACTIONAL, {}, {}, {}, {}, {})) {}
+    : in_memory_indices_(Indices(config, StorageMode::IN_MEMORY_TRANSACTIONAL)) {}
 
 InMemoryLabelIndex::Iterable EdgeImportModeCache::Vertices(LabelId label, View view, Storage *storage,
                                                            Transaction *transaction) const {
@@ -77,13 +77,9 @@ bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
 
 bool EdgeImportModeCache::AllVerticesScanned() const { return scanned_all_vertices_; }
 
-utils::SkipListDb<Vertex>::Accessor EdgeImportModeCache::AccessToVertices() {
-  return vertices_.access();
-}
+utils::SkipListDb<Vertex>::Accessor EdgeImportModeCache::AccessToVertices() { return vertices_.access(); }
 
-utils::SkipListDb<Edge>::Accessor EdgeImportModeCache::AccessToEdges() {
-  return edges_.access();
-}
+utils::SkipListDb<Edge>::Accessor EdgeImportModeCache::AccessToEdges() { return edges_.access(); }
 
 void EdgeImportModeCache::SetScannedAllVertices() { scanned_all_vertices_ = true; }
 

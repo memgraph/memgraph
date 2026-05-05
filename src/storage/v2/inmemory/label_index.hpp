@@ -84,8 +84,8 @@ class InMemoryLabelIndex : public LabelIndex {
   class Iterable {
    public:
     Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
-             utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label,
-             View view, Storage *storage, Transaction *transaction);
+             utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view, Storage *storage,
+             Transaction *transaction);
 
     class Iterator {
      public:
@@ -124,13 +124,12 @@ class InMemoryLabelIndex : public LabelIndex {
   class ChunkedIterable {
    public:
     ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
-                    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor,
-                    LabelId label, View view, Storage *storage, Transaction *transaction, size_t num_chunks);
+                    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view,
+                    Storage *storage, Transaction *transaction, size_t num_chunks);
 
     class Iterator {
      public:
-      Iterator(ChunkedIterable *self,
-               utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
+      Iterator(ChunkedIterable *self, utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
           : self_(self), index_iterator_(index_iterator), current_vertex_accessor_(nullptr, self_->storage_, nullptr) {
         AdvanceUntilValid();
       }
@@ -206,21 +205,17 @@ class InMemoryLabelIndex : public LabelIndex {
 
     Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction);
 
-    Iterable Vertices(LabelId label,
-                      utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view,
-                      Storage *storage, Transaction *transaction);
+    Iterable Vertices(LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+                      Transaction *transaction);
 
-    ChunkedIterable ChunkedVertices(LabelId label,
-                                    utils::SkipListDb<Vertex>::ConstAccessor vertices_acc,
-                                    View view, Storage *storage, Transaction *transaction, size_t num_chunks);
+    ChunkedIterable ChunkedVertices(LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view,
+                                    Storage *storage, Transaction *transaction, size_t num_chunks);
 
     auto GetAbortProcessor() const -> AbortProcessor override;
 
    private:
     std::shared_ptr<IndexContainer const> index_container_;
   };
-
-  InMemoryLabelIndex() = default;
 
   auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;
 

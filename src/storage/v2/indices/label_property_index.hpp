@@ -197,6 +197,8 @@ class LabelPropertyIndex {
 
   virtual ~LabelPropertyIndex() = default;
 
+  virtual void SetMetricHandles(metrics::DatabaseMetricHandles * /*metric_handles*/) {}
+
   struct DropResult {
     bool dropped_asc = false;
     bool dropped_desc = false;

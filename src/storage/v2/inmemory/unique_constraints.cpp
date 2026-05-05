@@ -30,6 +30,8 @@
 
 namespace memgraph::storage {
 
+InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() = default;
+
 namespace {
 
 auto DoValidate(const Vertex &vertex,
@@ -552,7 +554,7 @@ auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<Pro
     auto props_it = label_it->second.find(properties);
     if (props_it == label_it->second.end()) return nullptr;
     auto captured = props_it->second;
-    captured->gauge_.release();
+    captured->gauge_ = {};
 
     auto new_container = std::make_shared<Container>(*container);
     auto new_label_it = new_container->find(label);

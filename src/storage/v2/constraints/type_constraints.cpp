@@ -223,7 +223,7 @@ TypeConstraints::IndividualConstraintPtr TypeConstraints::DropConstraint(LabelId
     auto it = container->constraints_.find({label, property});
     if (it == container->constraints_.end()) return nullptr;
     if (it->second->type != type) return nullptr;
-    it->second->gauge_.release();
+    it->second->gauge_ = {};
     auto evicted = it->second;
 
     auto new_container = std::make_shared<Container>(*container);

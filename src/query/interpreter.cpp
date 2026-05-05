@@ -114,6 +114,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
 #include "utils/compile_time.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/functional.hpp"
 #include "utils/likely.hpp"
@@ -160,7 +161,6 @@ extern const Event ActiveTransactions;
 extern const Event ShowSchema;
 extern const Event ShowStorageInfoOnDatabase;
 }  // namespace memgraph::metrics
-
 
 namespace {
 
@@ -9968,19 +9968,12 @@ void Interpreter::Abort() {
   in_explicit_transaction_ = false;
   current_timeout_timer_.reset();
 
-  if (decrement) {
-    if (current_db_.db_acc_) {
-      if (auto *mh = (*current_db_.db_acc_)->metric_handles()) mh->active_transactions->Decrement();
-    }
-  }
-
   // Route Abort-path deallocations/cleanup to this DB's arena.
   // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
   std::optional<memory::DbArenaScope> db_arena_scope;
   if (current_db_.db_acc_) {
     db_arena_scope.emplace(current_db_.db_acc_->get());
   }
-
 
   // if (!current_db_.db_transactional_accessor_) return;
   current_db_.CleanupDBTransaction(true);

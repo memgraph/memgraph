@@ -20,6 +20,10 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 namespace memgraph::storage {
 
 struct ActiveIndicesUpdater;

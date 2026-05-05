@@ -104,7 +104,7 @@ ExistenceConstraints::IndividualConstraintPtr ExistenceConstraints::DropConstrai
   return constraints_.WithLock([&](ContainerPtr &constraints) -> IndividualConstraintPtr {
     auto it = constraints->find({label, property});
     if (it == constraints->end()) return nullptr;
-    it->second->gauge_.release();
+    it->second->gauge_ = {};
     auto evicted = it->second;
 
     auto new_constraints = std::make_shared<Container>(*constraints);
