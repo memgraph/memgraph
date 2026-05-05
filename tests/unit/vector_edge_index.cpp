@@ -972,3 +972,30 @@ TEST_F(VectorEdgeIndexGCTest, TransactionalModeDeleteEdgeGCCleansVectorIndex) {
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
 }
+
+TEST_F(VectorEdgeIndexTest, MultiTypeFilterEqualityIsOrderInsensitive) {
+  auto unique_acc = this->storage->UniqueAccess();
+  const auto e1 = unique_acc->NameToEdgeType("E1");
+  const auto e2 = unique_acc->NameToEdgeType("E2");
+  const auto property = unique_acc->NameToProperty(test_property.data());
+  EXPECT_TRUE(unique_acc
+                  ->CreateVectorEdgeIndex({.index_name = "e1e2",
+                                           .edge_type_filter = {.mode = VectorMatchMode::ANY_OF, .ids = {e1, e2}},
+                                           .property = property,
+                                           .metric_kind = metric,
+                                           .dimension = 2,
+                                           .resize_coefficient = resize_coefficient,
+                                           .capacity = 10,
+                                           .scalar_kind = scalar_kind})
+                  .has_value());
+  EXPECT_FALSE(unique_acc
+                   ->CreateVectorEdgeIndex({.index_name = "e2e1",
+                                            .edge_type_filter = {.mode = VectorMatchMode::ANY_OF, .ids = {e2, e1}},
+                                            .property = property,
+                                            .metric_kind = metric,
+                                            .dimension = 2,
+                                            .resize_coefficient = resize_coefficient,
+                                            .capacity = 10,
+                                            .scalar_kind = scalar_kind})
+                   .has_value());
+}

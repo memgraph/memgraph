@@ -834,3 +834,114 @@ TEST_F(VectorIndexTest, OverlappingLabelIndicesBothUpdatedOnAddLabel) {
   EXPECT_EQ(sizes_by_name[std::string{idx_ab}], 1)
       << "overlapping ANY_OF index :A|B(prop) missing vertex after adding :A";
 }
+
+TEST_F(VectorIndexTest, MultiLabelFilterEqualityIsOrderInsensitive) {
+  auto unique_acc = this->storage->UniqueAccess();
+  const auto a = unique_acc->NameToLabel("A");
+  const auto b = unique_acc->NameToLabel("B");
+  const auto property = unique_acc->NameToProperty(test_property.data());
+  EXPECT_TRUE(unique_acc
+                  ->CreateVectorIndex({.index_name = "ab",
+                                       .label_filter = {.mode = VectorMatchMode::ANY_OF, .ids = {a, b}},
+                                       .property = property,
+                                       .metric_kind = metric,
+                                       .dimension = 2,
+                                       .resize_coefficient = resize_coefficient,
+                                       .capacity = 10,
+                                       .scalar_kind = scalar_kind})
+                  .has_value());
+  EXPECT_FALSE(unique_acc
+                   ->CreateVectorIndex({.index_name = "ba",
+                                        .label_filter = {.mode = VectorMatchMode::ANY_OF, .ids = {b, a}},
+                                        .property = property,
+                                        .metric_kind = metric,
+                                        .dimension = 2,
+                                        .resize_coefficient = resize_coefficient,
+                                        .capacity = 10,
+                                        .scalar_kind = scalar_kind})
+                   .has_value());
+}
+
+TEST_F(VectorIndexTest, AddLabelToVertexAlreadyInIndexDoesNotDuplicateId) {
+  const std::string_view idx_ab = "idx_ab";
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto a = unique_acc->NameToLabel("A");
+    const auto b = unique_acc->NameToLabel("B");
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    EXPECT_TRUE(unique_acc
+                    ->CreateVectorIndex({.index_name = std::string{idx_ab},
+                                         .label_filter = {.mode = VectorMatchMode::ANY_OF, .ids = {a, b}},
+                                         .property = property,
+                                         .metric_kind = metric,
+                                         .dimension = 2,
+                                         .resize_coefficient = resize_coefficient,
+                                         .capacity = 10,
+                                         .scalar_kind = scalar_kind})
+                    .has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    vertex_gid = vertex.Gid();
+    PropertyValue prop(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property.data()), prop));
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel("B")));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+  auto prop = vertex.GetProperty(acc->NameToProperty(test_property.data()), View::OLD).value();
+  ASSERT_TRUE(prop.IsVectorIndexId());
+  EXPECT_EQ(prop.ValueVectorIndexIds().size(), 1);
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+}
+
+TEST_F(VectorIndexTest, RemoveLabelFromNonMemberOfAllOfIndexIsNoOp) {
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto a = unique_acc->NameToLabel("A");
+    const auto b = unique_acc->NameToLabel("B");
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    EXPECT_TRUE(unique_acc
+                    ->CreateVectorIndex({.index_name = "and_idx",
+                                         .label_filter = {.mode = VectorMatchMode::ALL_OF, .ids = {a, b}},
+                                         .property = property,
+                                         .metric_kind = metric,
+                                         .dimension = 2,
+                                         .resize_coefficient = resize_coefficient,
+                                         .capacity = 10,
+                                         .scalar_kind = scalar_kind})
+                    .has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    vertex_gid = vertex.Gid();
+    PropertyValue prop(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property.data()), prop));
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    EXPECT_NO_THROW(ASSERT_NO_ERROR(vertex.RemoveLabel(acc->NameToLabel("A"))));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+  auto prop = vertex.GetProperty(acc->NameToProperty(test_property.data()), View::OLD).value();
+  EXPECT_FALSE(prop.IsVectorIndexId());
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+}

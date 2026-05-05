@@ -243,12 +243,14 @@ void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedP
       auto old_property_value = vertex->properties.GetProperty(property_id, decoder);
       if (old_property_value.IsNull()) continue;
 
+      auto ids = old_property_value.IsVectorIndexId() ? old_property_value.ValueVectorIndexIds()
+                                                      : utils::small_vector<uint64_t>{};
+      if (std::ranges::contains(ids, index_id)) continue;
+
       auto vector_property = old_property_value.IsVectorIndexId() ? old_property_value.ValueVectorIndexList()
                                                                   : ListToVector(old_property_value);
       UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, vertex, vector_property);
 
-      auto ids = old_property_value.IsVectorIndexId() ? old_property_value.ValueVectorIndexIds()
-                                                      : utils::small_vector<uint64_t>{};
       ids.push_back(index_id);
       vertex->properties.SetProperty(
           property_id, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}}));
@@ -272,7 +274,9 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
       if (item_ptr->spec.label_filter.Matches(vertex->labels)) continue;
 
       auto old_vertex_property_value = vertex->properties.GetProperty(property_id, decoder);
+      if (!old_vertex_property_value.IsVectorIndexId()) continue;
       auto &ids = old_vertex_property_value.ValueVectorIndexIds();
+      if (!std::ranges::contains(ids, index_id)) continue;
       ids.erase(ranges::remove(ids, index_id), ids.end());
 
       auto guard = std::lock_guard{item_ptr->mg_index.mutex};

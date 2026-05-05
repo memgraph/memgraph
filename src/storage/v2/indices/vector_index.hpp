@@ -76,7 +76,18 @@ struct VectorMembershipFilter {
     return std::ranges::contains(ids, id);
   }
 
-  friend bool operator==(const VectorMembershipFilter &, const VectorMembershipFilter &) = default;
+  friend bool operator==(VectorMembershipFilter const &lhs, VectorMembershipFilter const &rhs) {
+    if (lhs.mode != rhs.mode) return false;
+    if (lhs.ids.size() != rhs.ids.size()) return false;
+    if (lhs.mode == VectorMatchMode::SINGLE || lhs.mode == VectorMatchMode::WILDCARD) {
+      return lhs.ids == rhs.ids;
+    }
+    auto sa = lhs.ids;
+    auto sb = rhs.ids;
+    std::ranges::sort(sa);
+    std::ranges::sort(sb);
+    return sa == sb;
+  }
 
   template <typename NameResolver>
   std::string Format(NameResolver &&resolver) const {
