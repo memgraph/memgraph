@@ -25,6 +25,13 @@ target_link_libraries(storage_test_utils mg::storage)
 add_library(disk_test_utils disk_test_utils.cpp)
 target_link_libraries(disk_test_utils mg::storage)
 
+# Header-only helpers shared across storage test files
+# (parameterized DDL abort/ghost/restore tests).
+add_library(ddl_abort_helpers INTERFACE)
+target_sources(ddl_abort_helpers INTERFACE ddl_abort_helpers.hpp)
+target_link_libraries(ddl_abort_helpers INTERFACE mg::storage GTest::gtest)
+target_include_directories(ddl_abort_helpers INTERFACE ${CMAKE_SOURCE_DIR})
+
 find_package(Boost REQUIRED CONFIG COMPONENTS filesystem)
 
 # Test integrations-kafka
@@ -321,6 +328,13 @@ add_unit_test(kvstore
     LINK_TARGETS mg-kvstore mg-utils
 )
 
+if (MG_ENTERPRISE)
+add_unit_test(tenant_profiles
+    SOURCES tenant_profiles.cpp ${CMAKE_SOURCE_DIR}/src/dbms/tenant_profiles.cpp
+    LINK_TARGETS mg-kvstore mg-utils nlohmann_json::nlohmann_json
+)
+endif ()
+
 # Test data structures
 add_unit_test(ring_buffer
     SOURCES ring_buffer.cpp
@@ -609,8 +623,15 @@ add_unit_test(storage_v2_enum_store
 
 add_unit_test(storage_v2_constraints
     SOURCES storage_v2_constraints.cpp
-    LINK_TARGETS mg::storage mg-dbms disk_test_utils
+    LINK_TARGETS mg::storage mg-dbms disk_test_utils ddl_abort_helpers
 )
+
+if(ENABLE_JEMALLOC)
+    add_unit_test(db_memory_tracking
+        SOURCES db_memory_tracking.cpp
+        LINK_TARGETS mg::storage mg-dbms
+    )
+endif()
 
 add_unit_test(storage_v2_decoder_encoder
     SOURCES storage_v2_decoder_encoder.cpp
@@ -679,7 +700,7 @@ add_unit_test(storage_v2_delta_correctness
 
 add_unit_test(storage_v2_indices
     SOURCES storage_v2_indices.cpp
-    LINK_TARGETS mg::storage mg-utils disk_test_utils
+    LINK_TARGETS mg::storage mg-utils disk_test_utils ddl_abort_helpers
 )
 
 add_unit_test(storage_v2_name_id_mapper
@@ -774,17 +795,17 @@ add_unit_test(cpp_api
 
 add_unit_test(vector_index
     SOURCES vector_index.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage ddl_abort_helpers
 )
 
 add_unit_test(vector_edge_index
     SOURCES vector_edge_index.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage ddl_abort_helpers
 )
 
 add_unit_test(text_index
     SOURCES text_index.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage ddl_abort_helpers
 )
 
 # Test mg-auth

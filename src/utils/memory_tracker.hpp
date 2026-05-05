@@ -58,7 +58,15 @@ class MemoryTracker final {
  public:
   void LogPeakMemoryUsage() const;
 
-  constexpr explicit MemoryTracker(MemoryTracker *parent = nullptr) : parent_(parent) {}
+  // 0-parent: global leaf trackers (total_memory_tracker, db_total_memory_tracker_)
+  constexpr MemoryTracker() = default;
+
+  // 1-parent: domain aggregators (graph_memory_tracker, vector_index_memory_tracker)
+  constexpr explicit MemoryTracker(MemoryTracker *parent1) : parent1_(parent1) {}
+
+  // 2-parent: per-DB domain trackers that roll up to both the domain global AND the
+  // per-DB total enforcement tracker.
+  constexpr MemoryTracker(MemoryTracker *parent1, MemoryTracker *parent2) : parent1_(parent1), parent2_(parent2) {}
 
   ~MemoryTracker() = default;
 
@@ -67,7 +75,8 @@ class MemoryTracker final {
         peak_(other.peak_.exchange(0, std::memory_order_acq_rel)),
         hard_limit_(other.hard_limit_.exchange(0, std::memory_order_acq_rel)),
         maximum_hard_limit_(std::exchange(other.maximum_hard_limit_, 0)),
-        parent_(std::exchange(other.parent_, nullptr)) {}
+        parent1_(std::exchange(other.parent1_, nullptr)),
+        parent2_(std::exchange(other.parent2_, nullptr)) {}
 
   MemoryTracker(const MemoryTracker &) = delete;
   MemoryTracker &operator=(const MemoryTracker &) = delete;
@@ -146,7 +155,8 @@ class MemoryTracker final {
   std::atomic<int64_t> hard_limit_{0};
   // Maximum possible value of a hard limit. If it's set to 0, no upper bound on the hard limit is set.
   int64_t maximum_hard_limit_{0};
-  MemoryTracker *parent_{nullptr};
+  MemoryTracker *parent1_{nullptr};
+  MemoryTracker *parent2_{nullptr};
 
   void UpdatePeak(int64_t will_be);
 
@@ -155,6 +165,9 @@ class MemoryTracker final {
 
 // Global memory tracker which tracks every allocation in the application.
 extern constinit MemoryTracker total_memory_tracker;
+// Global domain trackers: aggregate graph-storage and embedding memory across all DBs.
+// Required for AI_PLATFORM license enforcement (SetHardLimit on a domain subset).
+// Per-DB domain trackers parent to these; these parent to total_memory_tracker.
 extern constinit MemoryTracker graph_memory_tracker;
 extern constinit MemoryTracker vector_index_memory_tracker;
 

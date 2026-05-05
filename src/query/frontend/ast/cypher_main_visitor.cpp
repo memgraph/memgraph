@@ -30,6 +30,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/ast/query/expression.hpp"
+#include "query/frontend/ast/query/tenant_profile.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
@@ -124,6 +125,13 @@ std::string JoinSymbolicNamesWithDotsAndMinus(antlr4::tree::ParseTreeVisitor &vi
       [&](auto *token) { return JoinSymbolicNames(&visitor, token->symbolicName(), "-"); },
       ".");
 }
+
+std::unordered_set<std::string> GetRoleDatabases(MemgraphCypher::ListOfSymbolicNamesContext *db_ctx,
+                                                 antlr4::tree::ParseTreeVisitor *visitor) {
+  if (!db_ctx) return {};
+  auto db_names = std::any_cast<std::vector<std::string>>(db_ctx->accept(visitor));
+  return {std::make_move_iterator(db_names.begin()), std::make_move_iterator(db_names.end())};
+}
 }  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) {
@@ -177,11 +185,13 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
 }
 
 antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfoQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 2, "SystemInfoQuery should have exactly two children!");
   auto *info_query = storage_->Create<SystemInfoQuery>();
   query_ = info_query;
   if (ctx->storageInfo()) {
     info_query->info_type_ = SystemInfoQuery::InfoType::STORAGE;
+    if (ctx->storageInfo()->db) {
+      info_query->database_ = std::any_cast<std::string>(ctx->storageInfo()->db->accept(this));
+    }
     return info_query;
   }
   if (ctx->buildInfo()) {
@@ -198,6 +208,70 @@ antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfo
   }
   // Should never get here
   throw utils::NotYetImplemented("System info query: '{}'", ctx->getText());
+}
+
+antlrcpp::Any CypherMainVisitor::visitTenantProfileQuery(MemgraphCypher::TenantProfileQueryContext *ctx) {
+  return visitChildren(ctx);
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateTenantProfile(MemgraphCypher::CreateTenantProfileContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::CREATE;
+  q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  q->limits_ = std::any_cast<UserProfileQuery::limits_t>(ctx->listOfLimits()->accept(this));
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitAlterTenantProfile(MemgraphCypher::AlterTenantProfileContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::ALTER;
+  q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  q->limits_ = std::any_cast<UserProfileQuery::limits_t>(ctx->listOfLimits()->accept(this));
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropTenantProfile(MemgraphCypher::DropTenantProfileContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::DROP;
+  q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowTenantProfiles(MemgraphCypher::ShowTenantProfilesContext * /*ctx*/) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::SHOW_ALL;
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowTenantProfile(MemgraphCypher::ShowTenantProfileContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::SHOW_ONE;
+  q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetTenantProfileOnDatabase(
+    MemgraphCypher::SetTenantProfileOnDatabaseContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::SET_ON_DATABASE;
+  q->db_name_ = std::any_cast<std::string>(ctx->db->accept(this));
+  q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRemoveTenantProfileFromDatabase(
+    MemgraphCypher::RemoveTenantProfileFromDatabaseContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::REMOVE_FROM_DATABASE;
+  q->db_name_ = std::any_cast<std::string>(ctx->db->accept(this));
+  query_ = q;
+  return q;
 }
 
 antlrcpp::Any CypherMainVisitor::visitConstraintQuery(MemgraphCypher::ConstraintQueryContext *ctx) {
@@ -1852,6 +1926,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   bool has_load_csv = false;
   bool has_load_parquet{false};
   bool has_load_jsonl{false};
+  bool subquery_has_update{false};
 
   auto check_write_procedure = [&calls_write_procedure](const std::string_view clause) {
     if (calls_write_procedure) {
@@ -1883,12 +1958,12 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       }
       const auto *single_query = call_subquery->cypher_query_->single_query_;
       if (single_query) {
-        has_update |= single_query->has_update;
+        subquery_has_update |= single_query->has_update;
         for (auto *cypher_union : call_subquery->cypher_query_->cypher_unions_) {
-          if (has_update) break;
+          if (subquery_has_update) break;
           const auto *single_query = cypher_union->single_query_;
           if (single_query) {
-            has_update |= single_query->has_update;
+            subquery_has_update |= single_query->has_update;
           }
         }
       }
@@ -1956,7 +2031,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !has_return && !is_standalone_call_procedure && !parsing_exists_subquery_) {
+  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure &&
+      !parsing_exists_subquery_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -1975,7 +2051,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
 
-  single_query->has_update = has_update;
+  single_query->has_update = has_update || subquery_has_update;
   return single_query;
 }
 
@@ -2150,6 +2226,17 @@ antlrcpp::Any CypherMainVisitor::visitUserOrRoleName(MemgraphCypher::UserOrRoleN
   return std::any_cast<std::string>(ctx->symbolicName()->accept(this));
 }
 
+antlrcpp::Any CypherMainVisitor::visitUserOrRole(MemgraphCypher::UserOrRoleContext *ctx) {
+  auto name = std::any_cast<std::string>(ctx->userOrRoleName()->accept(this));
+  auto entity_type = AuthQuery::UserOrRoleType::UNSPECIFIED;
+  if (ctx->USER()) {
+    entity_type = AuthQuery::UserOrRoleType::USER;
+  } else if (ctx->ROLE()) {
+    entity_type = AuthQuery::UserOrRoleType::ROLE;
+  }
+  return std::make_pair(std::move(name), entity_type);
+}
+
 /**
  * @return AuthQuery*
  */
@@ -2273,12 +2360,7 @@ antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ct
   auth->action_ = AuthQuery::Action::SET_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
-  // Optionally limit the role to specific databases
-  if (ctx->db) {
-    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
-    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
-                                                            std::make_move_iterator(db_names.end()));
-  }
+  auth->role_databases_ = GetRoleDatabases(ctx->db, this);
   return auth;
 }
 
@@ -2289,12 +2371,25 @@ antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CLEAR_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
-  // Optionally limit the role to specific databases
-  if (ctx->db) {
-    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
-    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
-                                                            std::make_move_iterator(db_names.end()));
-  }
+  auth->role_databases_ = GetRoleDatabases(ctx->db, this);
+  return auth;
+}
+
+antlrcpp::Any CypherMainVisitor::visitGrantRole(MemgraphCypher::GrantRoleContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::GRANT_ROLE;
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
+  auth->role_databases_ = GetRoleDatabases(ctx->db, this);
+  return auth;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRevokeRole(MemgraphCypher::RevokeRoleContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::REVOKE_ROLE;
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
+  auth->role_databases_ = GetRoleDatabases(ctx->db, this);
   return auth;
 }
 
@@ -2304,7 +2399,8 @@ antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext
 antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivilegeContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::GRANT_PRIVILEGE;
-  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   if (ctx->systemPrivileges) {
     auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
   } else if (ctx->entityPrivileges) {
@@ -2338,7 +2434,8 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
 antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivilegeContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DENY_PRIVILEGE;
-  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   if (ctx->systemPrivileges) {
     auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
   } else if (ctx->entityPrivileges) {
@@ -2384,7 +2481,8 @@ antlrcpp::Any CypherMainVisitor::visitPrivilegesList(MemgraphCypher::PrivilegesL
 antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePrivilegeContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::REVOKE_PRIVILEGE;
-  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   if (ctx->systemPrivileges) {
     auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
   } else if (ctx->entityPrivileges) {
@@ -2513,7 +2611,8 @@ antlrcpp::Any CypherMainVisitor::visitWildcardListOfSymbolicNames(
 antlrcpp::Any CypherMainVisitor::visitGrantImpersonateUser(MemgraphCypher::GrantImpersonateUserContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::GRANT_IMPERSONATE_USER;
-  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   auth->impersonation_targets_ = std::any_cast<std::vector<std::string>>(ctx->targets->accept(this));
   return auth;
 }
@@ -2524,7 +2623,8 @@ antlrcpp::Any CypherMainVisitor::visitGrantImpersonateUser(MemgraphCypher::Grant
 antlrcpp::Any CypherMainVisitor::visitDenyImpersonateUser(MemgraphCypher::DenyImpersonateUserContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DENY_IMPERSONATE_USER;
-  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   auth->impersonation_targets_ = std::any_cast<std::vector<std::string>>(ctx->targets->accept(this));
   return auth;
 }
@@ -2667,7 +2767,8 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilegeList(MemgraphCypher::Gran
 antlrcpp::Any CypherMainVisitor::visitShowPrivileges(MemgraphCypher::ShowPrivilegesContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_PRIVILEGES;
-  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
 
   // Handle optional ON clause
   if (ctx->ON()) {
@@ -2726,7 +2827,8 @@ antlrcpp::Any CypherMainVisitor::visitGrantDatabaseToUserOrRole(MemgraphCypher::
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::GRANT_DATABASE_TO_USER;
   auth->database_ = std::any_cast<std::string>(ctx->wildcardName()->accept(this));
-  auth->user_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   return auth;
 }
 
@@ -2738,7 +2840,8 @@ antlrcpp::Any CypherMainVisitor::visitDenyDatabaseFromUserOrRole(
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DENY_DATABASE_FROM_USER;
   auth->database_ = std::any_cast<std::string>(ctx->wildcardName()->accept(this));
-  auth->user_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   return auth;
 }
 
@@ -2750,7 +2853,8 @@ antlrcpp::Any CypherMainVisitor::visitRevokeDatabaseFromUserOrRole(
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::REVOKE_DATABASE_FROM_USER;
   auth->database_ = std::any_cast<std::string>(ctx->wildcardName()->accept(this));
-  auth->user_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   return auth;
 }
 
@@ -2760,7 +2864,8 @@ antlrcpp::Any CypherMainVisitor::visitRevokeDatabaseFromUserOrRole(
 antlrcpp::Any CypherMainVisitor::visitShowDatabasePrivileges(MemgraphCypher::ShowDatabasePrivilegesContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_DATABASE_PRIVILEGES;
-  auth->user_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   return auth;
 }
 
@@ -2771,7 +2876,8 @@ antlrcpp::Any CypherMainVisitor::visitSetMainDatabase(MemgraphCypher::SetMainDat
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SET_MAIN_DATABASE;
   auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
-  auth->user_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   return auth;
 }
 
@@ -4152,6 +4258,34 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
     throw SyntaxException("Memory limit cannot be set on subqueries!");
   }
 
+  // Parse the explicit scope clause. Forms (Cypher 5):
+  //   `CALL () { ... }`                  — no variables imported
+  //   `CALL (v1, v2, ...) { ... }`       — only the listed variables
+  //   `CALL (*) { ... }`                 — every variable in outer scope
+  // The grammar's `scopeClause` rule already restricts the input to either an
+  // asterisk or a list of plain variable names; aliases, expressions, and
+  // mixing `*` with explicit items fail at parse time.
+  if (ctx->LPAREN() != nullptr) {
+    call_subquery->has_variable_scope_ = true;
+    if (auto *scope_clause = ctx->scopeClause()) {
+      if (scope_clause->ASTERISK()) {
+        call_subquery->all_variables_scoped_ = true;
+      } else {
+        std::unordered_set<std::string> seen_inner_names;
+        for (auto *variable_ctx : scope_clause->variable()) {
+          auto name = std::any_cast<std::string>(variable_ctx->accept(this));
+          if (!seen_inner_names.insert(name).second) {
+            throw SyntaxException("Duplicate variable '{}' in CALL subquery scope clause.", name);
+          }
+          auto *named_expr = storage_->Create<NamedExpression>();
+          named_expr->name_ = name;
+          named_expr->expression_ = storage_->Create<Identifier>(name);
+          call_subquery->scoped_variables_.push_back(named_expr);
+        }
+      }
+    }
+  }
+
   call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
 
   PreQueryDirectives pre_query_directives;
@@ -4217,6 +4351,11 @@ antlrcpp::Any CypherMainVisitor::visitShowDatabase(MemgraphCypher::ShowDatabaseC
 
 antlrcpp::Any CypherMainVisitor::visitShowDatabases(MemgraphCypher::ShowDatabasesContext * /*ctx*/) {
   query_ = storage_->Create<ShowDatabasesQuery>();
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowMemoryInfo(MemgraphCypher::ShowMemoryInfoContext * /*ctx*/) {
+  query_ = storage_->Create<ShowMemoryInfoQuery>();
   return query_;
 }
 

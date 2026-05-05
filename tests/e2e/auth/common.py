@@ -25,35 +25,47 @@ def memgraph(**kwargs) -> Memgraph:
 
     try:
         memgraph.execute("DROP USER mrma;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP USER sha256;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP USER sha256_multiple;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP USER bcrypt;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP ROLE mrma;")
-    except Exception as e:
+    except Exception:
+        pass
+    try:
+        memgraph.execute("DROP ROLE admin;")
+    except Exception:
+        pass
+    try:
+        memgraph.execute("DROP ROLE readwrite;")
+    except Exception:
+        pass
+    try:
+        memgraph.execute("DROP ROLE readonly;")
+    except Exception:
         pass
     try:
         memgraph.execute("DROP PROFILE profile;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP PROFILE Profile;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP PROFILE profile2;")
-    except Exception as e:
+    except Exception:
         pass
 
 
@@ -61,9 +73,12 @@ def memgraph(**kwargs) -> Memgraph:
 def provide_user() -> Memgraph:
     memgraph = Memgraph()
 
+    # Create superuser first so anthony is not the first user and gets no builtin role
+    memgraph.execute("CREATE USER superuser IDENTIFIED BY 'superpassword';")
     memgraph.execute("CREATE USER anthony IDENTIFIED BY 'password';")
 
     yield None
 
-    memgraph = Memgraph(username="anthony", password="password")
+    memgraph = Memgraph(username="superuser", password="superpassword")
     memgraph.execute("DROP USER anthony;")
+    memgraph.execute("DROP USER superuser;")

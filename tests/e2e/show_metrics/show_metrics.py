@@ -218,6 +218,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "SnapshotRecoveryLatency_us_50p", "type": "Snapshot", "metric type": "Histogram"},
         {"name": "SnapshotRecoveryLatency_us_90p", "type": "Snapshot", "metric type": "Histogram"},
         {"name": "SnapshotRecoveryLatency_us_99p", "type": "Snapshot", "metric type": "Histogram"},
+        {"name": "ShowStorageInfoOnDatabase", "type": "StorageInfo", "metric type": "Counter"},
         {"name": "MessagesConsumed", "type": "Stream", "metric type": "Counter"},
         {"name": "StreamsCreated", "type": "Stream", "metric type": "Counter"},
         {"name": "DeletedEdges", "type": "TTL", "metric type": "Counter"},

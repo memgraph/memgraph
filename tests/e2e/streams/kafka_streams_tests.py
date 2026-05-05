@@ -12,6 +12,7 @@
 # licenses/APL.txt.
 
 # import os
+import re
 import sys
 import time
 from multiprocessing import Process
@@ -21,10 +22,28 @@ import mgclient
 import pytest
 from mg_utils import mg_sleep_and_assert
 
+
+def _get_storage_info(cursor):
+    cursor.execute("SHOW STORAGE INFO")
+    return {row[0]: row[1] for row in cursor.fetchall()}
+
+
+def _parse_size_bytes(size_str):
+    """Parse a human-readable size string from GetReadableSize(), e.g. '1.50MiB'."""
+    if not size_str:
+        return 0
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*(B|KiB|MiB|GiB|TiB)$", size_str.strip())
+    if not m:
+        return 0
+    units = {"B": 1, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4}
+    return int(float(m.group(1)) * units[m.group(2)])
+
+
 TRANSFORMATIONS_TO_CHECK_C = ["c_transformations.empty_transformation"]
 TRANSFORMATIONS_TO_CHECK_PY = ["kafka_transform.simple", "kafka_transform.with_parameters"]
 KAFKA_PRODUCER_SENDING_MSG_DEFAULT_TIMEOUT = 60
 # KAFKA_HOSTNAME=os.getenv("KAFKA_HOSTNAME", "localhost")
+
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
 def test_simple(kafka_producer, kafka_topics, connection, transformation):
@@ -163,7 +182,7 @@ def test_show_streams(kafka_topics, connection):
     complex_values_stream = "complex_values"
 
     common.create_stream(
-            cursor, default_values_stream, kafka_topics[0], "kafka_transform.simple", bootstrap_servers="'localhost:29092'"
+        cursor, default_values_stream, kafka_topics[0], "kafka_transform.simple", bootstrap_servers="'localhost:29092'"
     )
     common.create_stream(
         cursor,
@@ -501,6 +520,46 @@ def test_check_stream_with_batch_limit_with_invalid_batch_limit(kafka_topics, co
         )
 
     common.test_check_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator)
+
+
+def test_db_memory_grows_from_kafka_stream_ingestion(kafka_producer, kafka_topics, connection):
+    """
+    Objects created by Kafka consumer ingestion must be attributed to db_memory_tracked.
+
+    The Kafka consumer thread is fully pinned to the DB jemalloc arena via je_mallctl
+    (kafka/consumer.cpp). Every vertex/edge created by the transformation Cypher query
+    goes through the DB arena extent hooks and is reflected in SHOW STORAGE INFO →
+    db_memory_tracked.
+    """
+    assert len(kafka_topics) > 0
+    cursor = connection.cursor()
+    stream_name = "test_db_memory_kafka"
+    topic = kafka_topics[0]
+
+    common.create_stream(cursor, stream_name, topic, "kafka_transform.simple")
+    common.start_stream(cursor, stream_name)
+
+    before = _parse_size_bytes(_get_storage_info(cursor).get("db_memory_tracked", "0B"))
+
+    # Send enough messages to trigger arena extent allocations (each message creates
+    # one :MESSAGE node with topic + payload properties via kafka_transform.simple).
+    msg_count = 300
+    for _ in range(msg_count):
+        kafka_producer.send(topic, common.SIMPLE_MSG).get(timeout=KAFKA_PRODUCER_SENDING_MSG_DEFAULT_TIMEOUT)
+
+    # Wait for the last message to be ingested before measuring.
+    common.kafka_check_vertex_exists_with_topic_and_payload(cursor, topic, common.SIMPLE_MSG)
+
+    after = _parse_size_bytes(_get_storage_info(cursor).get("db_memory_tracked", "0B"))
+
+    # Cleanup
+    common.stop_stream(cursor, stream_name)
+    common.drop_stream(cursor, stream_name)
+    cursor.execute("MATCH (n:MESSAGE) DETACH DELETE n")
+
+    assert after > before, (
+        f"db_memory_tracked must grow after Kafka consumer creates {msg_count} nodes. " f"before={before} after={after}"
+    )
 
 
 if __name__ == "__main__":

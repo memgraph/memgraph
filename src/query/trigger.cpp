@@ -340,7 +340,8 @@ bool MigrateTriggerData(nlohmann::json &json_data, uint64_t version) {
 }
 }  // namespace
 
-TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move(directory)} {}
+TriggerStore::TriggerStore(std::filesystem::path directory)
+    : storage_{std::move(directory)}, before_commit_triggers_{}, after_commit_triggers_{} {}
 
 void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                                   const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
@@ -588,7 +589,7 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
   std::vector<TriggerInfo> info;
   info.reserve(before_commit_triggers_.size() + after_commit_triggers_.size());
 
-  const auto add_info = [&](const utils::SkipList<Trigger> &trigger_list, const TriggerPhase phase) {
+  const auto add_info = [&](const utils::SkipListDb<Trigger> &trigger_list, const TriggerPhase phase) {
     for (const auto &trigger : trigger_list.access()) {
       std::optional<std::string> owner_str{};
       if (const auto &owner = trigger.Creator(); owner && *owner) owner_str = owner->username();
@@ -610,7 +611,7 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
 std::unordered_set<TriggerEventType> TriggerStore::GetEventTypes() const {
   std::unordered_set<TriggerEventType> event_types;
 
-  const auto add_event_types = [&](const utils::SkipList<Trigger> &trigger_list) {
+  const auto add_event_types = [&](const utils::SkipListDb<Trigger> &trigger_list) {
     for (const auto &trigger : trigger_list.access()) {
       event_types.insert(trigger.EventType());
     }

@@ -29,9 +29,13 @@ namespace rv = r::views;
 
 namespace memgraph::storage {
 
+VectorIndex::VectorIndex(utils::MemoryTracker *memory_tracker) : memory_tracker_(memory_tracker) {}
+
+VectorIndex::~VectorIndex() = default;
+
 void VectorIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) const { updater(GetActiveIndices()); }
 
-bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
+bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
                               NameIdMapper *name_id_mapper, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
     const auto index_id = SetupIndex(spec, name_id_mapper);
@@ -68,7 +72,12 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
   const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
 
-  auto mg_vector_index = mg_vector_index_t::make(metric);
+  // Create allocators with the database-specific memory tracker
+  TrackedVectorAllocator<64> tape_allocator{memory_tracker_};
+  TrackedVectorAllocator<8> vectors_tape_allocator{memory_tracker_};
+
+  auto mg_vector_index =
+      mg_vector_index_t::make(metric, {}, {}, std::move(tape_allocator), std::move(vectors_tape_allocator));
   if (!mg_vector_index) {
     throw query::VectorSearchException(fmt::format(
         "Failed to create vector index {}, error message: {}", spec.index_name, mg_vector_index.error.what()));
@@ -88,7 +97,7 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
   return inserted ? std::optional<uint64_t>{index_id} : std::nullopt;
 }
 
-void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
+void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
                                Indices *indices, NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &spec = recovery_info.spec;
@@ -153,19 +162,18 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
   UpdateVectorIndex(item_ptr->mg_index, spec, &vertex, vector, thread_id);
 }
 
-bool VectorIndex::DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper) {
+std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::string_view index_name,
+                                                                       NameIdMapper *name_id_mapper) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
-  if (!maybe_id.has_value()) {
-    return false;
-  }
+  if (!maybe_id.has_value()) return std::nullopt;
   const auto index_id = *maybe_id;
   auto it = index_->find(index_id);
-  if (it == index_->end()) {
-    return false;
-  }
-  auto &item_ptr = it->second;
-  auto &mg_index = item_ptr->mg_index;
-  auto &spec = item_ptr->spec;
+  if (it == index_->end()) return std::nullopt;
+  auto evicted_item = it->second;  // keep IndexItem (and its usearch state) alive
+  auto &mg_index = evicted_item->mg_index;
+  auto &spec = evicted_item->spec;
+
+  std::vector<Vertex *> rewritten_vertices;
   {
     auto guard = std::lock_guard{mg_index.mutex};
 
@@ -178,7 +186,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, NameIdMapper *name_id_m
 
     // Convert indexed vectors back to property values with OOM protection.
     // Track processed vertices so we can rollback on OOM.
-    std::size_t processed = 0;
+    rewritten_vertices.reserve(indexed_vertices.size());
     try {
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
       std::vector<double> vector(dimension);
@@ -190,30 +198,31 @@ bool VectorIndex::DropIndex(std::string_view index_name, NameIdMapper *name_id_m
         } else {
           vertex->properties.SetProperty(spec.property, vector_property);
         }
-        ++processed;
+        rewritten_vertices.push_back(vertex);
       }
     } catch (const utils::OutOfMemoryException &) {
       const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-      // Rollback: restore already-processed vertices to their indexed representation.
-      for (std::size_t i = 0; i < processed; ++i) {
-        auto *vertex = indexed_vertices[i];
-        auto property_value = vertex->properties.GetProperty(spec.property);
-        if (property_value.IsVectorIndexId()) {
-          auto &ids = property_value.ValueVectorIndexIds();
-          ids.push_back(index_id);
-        } else {
-          property_value = PropertyValue(
-              PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id}, .vector = {}});
-        }
-        vertex->properties.SetProperty(spec.property, property_value);
-      }
+      for (auto *vertex : rewritten_vertices) ReinstallIndexIdInProperty(vertex, spec.property, index_id);
       throw;
     }
   }
   auto new_map = std::make_shared<VectorIndexContainer>(*index_);
   new_map->erase(index_id);
   index_ = new_map;
-  return true;
+  return DroppedIndexCapture{.index_id = index_id,
+                             .evicted_item = std::move(evicted_item),
+                             .rewritten_vertices = std::move(rewritten_vertices)};
+}
+
+void VectorIndex::RestoreIndex(DroppedIndexCapture &&capture) {
+  // Abort path: must not propagate OOM (called from a noexcept abort callback).
+  const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+  for (auto *vertex : capture.rewritten_vertices) {
+    ReinstallIndexIdInProperty(vertex, capture.evicted_item->spec.property, capture.index_id);
+  }
+  auto new_map = std::make_shared<VectorIndexContainer>(*index_);
+  new_map->try_emplace(capture.index_id, std::move(capture.evicted_item));
+  index_ = new_map;
 }
 
 void VectorIndex::Clear() { index_ = std::make_shared<VectorIndexContainer>(); }
@@ -635,7 +644,7 @@ utils::small_vector<float> VectorIndexRecovery::ExtractVectorForRecovery(
 
 void VectorIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                             std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
-                                            utils::SkipList<Vertex>::Accessor &vertices) {
+                                            utils::SkipListDb<Vertex>::Accessor &vertices) {
   for (auto &recovery_info : recovery_info_vec) {
     if (recovery_info.spec.index_name == index_name) {
       for (auto &[gid, vector] : recovery_info.index_entries) {

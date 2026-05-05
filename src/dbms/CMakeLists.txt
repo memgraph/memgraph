@@ -4,6 +4,7 @@ target_sources(mg-dbms
     PRIVATE
     dbms_handler.cpp
     database.cpp
+    tenant_profiles.cpp
     coordinator_handler.cpp
     inmemory/replication_handlers.cpp
     replication_handlers.cpp
@@ -17,4 +18,4 @@ target_sources(mg-dbms
     database_protector.hpp
 )
 
-target_link_libraries(mg-dbms PUBLIC mg-utils mg::storage mg-query mg-auth mg-replication PRIVATE mg-coordination)
+target_link_libraries(mg-dbms PUBLIC mg-utils mg::storage mg-query mg-auth mg-replication PRIVATE mg-coordination mg-memory-utils)

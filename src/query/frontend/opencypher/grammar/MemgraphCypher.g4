@@ -131,6 +131,7 @@ memgraphCypherKeyword : cypherKeyword
                       | MAP
                       | MAPPINGS
                       | MATCHING
+                      | MEMORY
                       | METRICS
                       | MODE
                       | MODULE_READ
@@ -200,6 +201,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STORAGE_MODE
                       | STREAM
                       | STREAMS
+                      | TENANT
                       | STRICT_SYNC
                       | STRING
                       | SYNC
@@ -296,8 +298,10 @@ query : cypherQuery
       | ttlQuery
       | setSessionTraceQuery
       | userProfileQuery
+      | tenantProfileQuery
       | descriptionQuery
       | reloadSSLQuery
+      | showMemoryInfo
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -314,6 +318,8 @@ authQuery : createRole
           | showUsers
           | setRole
           | clearRole
+          | grantRole
+          | revokeRole
           | grantPrivilege
           | denyPrivilege
           | revokePrivilege
@@ -402,7 +408,9 @@ parallelExecution : PARALLEL EXECUTION ( num_threads=literal )? ;
 
 periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
 
-callSubquery : CALL '{' cypherQuery '}' ( periodicSubquery )? ;
+scopeClause : ASTERISK | variable ( ',' variable )* ;
+
+callSubquery : CALL ( '(' scopeClause? ')' )? '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
@@ -470,6 +478,8 @@ rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
+userOrRole : ( USER | ROLE )? userOrRoleName ;
+
 createRole : CREATE ROLE ifNotExists? role=userOrRoleName ;
 
 dropRole : DROP ROLE role=userOrRoleName ;
@@ -493,33 +503,37 @@ showCurrentRole : SHOW CURRENT ( ROLE | ROLES ) ;
 
 showUsers : SHOW USERS ;
 
-setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
+setRole : SET ( ROLE | ROLES ) FOR USER? user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
 
-clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
+clearRole : CLEAR ( ROLE | ROLES ) FOR USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
+grantRole : GRANT ( ROLE | ROLES ) roles=listOfSymbolicNames TO USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
+revokeRole : REVOKE ( ROLE | ROLES ) roles=listOfSymbolicNames FROM USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
+
+denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
+
+revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM target=userOrRole ;
 
 listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
 
 wildcardListOfSymbolicNames : '*' | listOfSymbolicNames ;
 
-grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO userOrRole=userOrRoleName ;
+grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
 
-denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO userOrRole=userOrRoleName ;
+denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
 
-grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO userOrRole=userOrRoleName ;
+grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO target=userOrRole ;
 
-denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM userOrRole=userOrRoleName ;
+denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM target=userOrRole ;
 
-revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM userOrRole=userOrRoleName ;
+revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM target=userOrRole ;
 
-showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR userOrRole=userOrRoleName ;
+showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR target=userOrRole ;
 
-setMainDatabase : SET MAIN DATABASE db=symbolicName FOR userOrRole=userOrRoleName ;
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR target=userOrRole ;
 
 setSessionTraceQuery : SET SESSION TRACE (ON | OFF) ;
 
@@ -582,11 +596,11 @@ listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
 colonSymbolicName : COLON symbolicName ;
 
-showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
+showPrivileges : SHOW PRIVILEGES FOR target=userOrRole ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showRoleForUser : SHOW ( ROLE | ROLES ) FOR user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
+showRoleForUser : SHOW ( ROLE | ROLES ) FOR USER? user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
+showUsersForRole : SHOW USERS FOR ROLE? role=userOrRoleName ;
 
 dumpQuery : DUMP DATABASE ;
 
@@ -778,6 +792,8 @@ showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 
+showMemoryInfo : SHOW MEMORY INFO ;
+
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
 indexQuery : createIndex | dropIndex;
@@ -941,6 +957,23 @@ userProfileQuery : createUserProfile
                  | showResourceConsumption
                  ;
 
+createTenantProfile : CREATE TENANT PROFILE profile=symbolicName LIMIT listOfLimits ;
+alterTenantProfile  : ALTER TENANT PROFILE profile=symbolicName SET listOfLimits ;
+dropTenantProfile   : DROP TENANT PROFILE profile=symbolicName ;
+showTenantProfiles  : SHOW TENANT PROFILES ;
+showTenantProfile   : SHOW TENANT PROFILE profile=symbolicName ;
+setTenantProfileOnDatabase    : SET TENANT PROFILE ON DATABASE db=symbolicName TO profile=symbolicName ;
+removeTenantProfileFromDatabase : REMOVE TENANT PROFILE FROM DATABASE db=symbolicName ;
+
+tenantProfileQuery : createTenantProfile
+                   | alterTenantProfile
+                   | dropTenantProfile
+                   | showTenantProfiles
+                   | showTenantProfile
+                   | setTenantProfileOnDatabase
+                   | removeTenantProfileFromDatabase
+                   ;
+
 descriptionQuery
     : setDescription
     | deleteDescription
@@ -958,6 +991,11 @@ deleteDescription
 showDescriptions
     : SHOW DESCRIPTIONS
     ;
+
+// Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' clause.
+// systemInfoQuery is re-listed so it dispatches to the overridden storageInfo above.
+systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
+storageInfo : STORAGE INFO ( ON DATABASE db=symbolicName )? ;
 
 edgeTypePatternNode
     : '(' ( ':' labelName )+ ')'

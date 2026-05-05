@@ -3142,10 +3142,12 @@ class SystemInfoQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::SystemInfoQuery::InfoType info_type_;
+  std::optional<std::string> database_;
 
   SystemInfoQuery *Clone(AstStorage *storage) const override {
     SystemInfoQuery *object = storage->Create<SystemInfoQuery>();
     object->info_type_ = info_type_;
+    object->database_ = database_;
     return object;
   }
 };
@@ -4043,10 +4045,26 @@ class CallSubquery : public memgraph::query::Clause {
   }
 
   memgraph::query::CypherQuery *cypher_query_;
+  // Scope clause items from `CALL (v1, v2, ...) { ... }` (or the aliased form
+  // `CALL (v AS w, ...) { ... }`)
+  std::vector<memgraph::query::NamedExpression *> scoped_variables_;
+  // If any of the variables provided in the `CALL ()`, or `CALL (*)`, this
+  // boolean is true. Otherwise, when using `CALL () { ... }` or `CALL { ... }`,
+  // this boolean will be false
+  bool has_variable_scope_{false};
+  // True if `CALL (*) { ... }` was used — import every variable currently in
+  // the outer scope. When set, scoped_variables_ is left empty
+  bool all_variables_scoped_{false};
 
   CallSubquery *Clone(AstStorage *storage) const override {
     CallSubquery *object = storage->Create<CallSubquery>();
     object->cypher_query_ = cypher_query_ ? cypher_query_->Clone(storage) : nullptr;
+    object->scoped_variables_.reserve(scoped_variables_.size());
+    for (auto *ne : scoped_variables_) {
+      object->scoped_variables_.push_back(ne ? ne->Clone(storage) : nullptr);
+    }
+    object->has_variable_scope_ = has_variable_scope_;
+    object->all_variables_scoped_ = all_variables_scoped_;
     return object;
   }
 
@@ -4325,6 +4343,20 @@ class ReloadSSLQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   ReloadSSLQuery *Clone(AstStorage *storage) const override { return storage->Create<ReloadSSLQuery>(); }
+
+ private:
+  friend class AstStorage;
+};
+
+class ShowMemoryInfoQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowMemoryInfoQuery *Clone(AstStorage *storage) const override { return storage->Create<ShowMemoryInfoQuery>(); }
 
  private:
   friend class AstStorage;

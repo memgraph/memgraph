@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,8 @@
 
 #include <condition_variable>
 #include <mutex>
-#include <thread>
 #include <variant>
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "utils/skip_list.hpp"
@@ -69,7 +69,7 @@ struct AsyncIndexer {
   utils::SkipList<std::variant<LabelId, EdgeTypeId, LabelProperties, PropertyId>> request_queue_{};
   mutable std::mutex mutex_{};
   std::condition_variable cv_{};
-  std::jthread index_creator_thread_{};
+  memory::DbAwareThread index_creator_thread_{};
   mutable std::atomic<bool> is_processing_{false};       // Track if thread is actively processing
   mutable std::atomic<bool> thread_has_stopped_{false};  // Track if thread has exited
 };

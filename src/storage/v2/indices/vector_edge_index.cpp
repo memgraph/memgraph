@@ -34,6 +34,10 @@ namespace memgraph::storage {
 
 // Types moved to vector_edge_index.hpp
 
+VectorEdgeIndex::VectorEdgeIndex(utils::MemoryTracker *memory_tracker) : memory_tracker_(memory_tracker) {}
+
+VectorEdgeIndex::~VectorEdgeIndex() = default;
+
 void VectorEdgeIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) const { updater(GetActiveIndices()); }
 
 std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &spec, NameIdMapper *name_id_mapper) {
@@ -51,7 +55,12 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
   const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
 
-  auto mg_edge_index = mg_vector_edge_index_t::make(metric);
+  // Create allocators with the database-specific memory tracker
+  TrackedVectorAllocator<64> tape_allocator{memory_tracker_};
+  TrackedVectorAllocator<8> vectors_tape_allocator{memory_tracker_};
+
+  auto mg_edge_index =
+      mg_vector_edge_index_t::make(metric, {}, {}, std::move(tape_allocator), std::move(vectors_tape_allocator));
   if (!mg_edge_index) {
     throw query::VectorSearchException(fmt::format(
         "Failed to create vector edge index {}, error message: {}", spec.index_name, mg_edge_index.error.what()));
@@ -93,7 +102,7 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
   }
 }
 
-bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices,
                                   NameIdMapper *name_id_mapper,
                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
@@ -123,7 +132,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
 }
 
 void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
-                                   utils::SkipList<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
+                                   utils::SkipListDb<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
                                    ActiveIndicesUpdater const &updater,
                                    std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &spec = recovery_info.spec;
@@ -179,19 +188,17 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
   updater(GetActiveIndices());
 }
 
-bool VectorEdgeIndex::DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper) {
+std::optional<VectorEdgeIndex::DroppedIndexCapture> VectorEdgeIndex::DropIndex(std::string_view index_name,
+                                                                               NameIdMapper *name_id_mapper) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
-  if (!maybe_id.has_value()) {
-    return false;
-  }
+  if (!maybe_id.has_value()) return std::nullopt;
   const auto index_id = *maybe_id;
   auto it = index_->find(index_id);
-  if (it == index_->end()) {
-    return false;
-  }
-  auto &item_ptr = it->second;
-  auto &mg_index = item_ptr->mg_index;
-  auto &spec = item_ptr->spec;
+  if (it == index_->end()) return std::nullopt;
+  auto evicted_item = it->second;  // keep usearch state alive
+  auto &mg_index = evicted_item->mg_index;
+  auto &spec = evicted_item->spec;
+
   std::vector<Edge *> dropped_edges;
   {
     auto guard = std::lock_guard{mg_index.mutex};
@@ -204,7 +211,7 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, NameIdMapper *name_
     mg_index.index.export_keys(dropped_edges.data(), 0, index_size);
 
     // Convert indexed vectors back to property values with OOM protection.
-    // Track processed vertices so we can rollback on OOM.
+    // Track processed edges so we can roll back on OOM.
     std::size_t processed = 0;
     try {
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
@@ -221,45 +228,56 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, NameIdMapper *name_
       }
     } catch (const utils::OutOfMemoryException &) {
       const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-      // Rollback: restore already-processed edges to their indexed representation.
-      for (std::size_t i = 0; i < processed; ++i) {
-        auto *edge = dropped_edges[i];
-        auto property_value = edge->properties.GetProperty(spec.property);
-        if (property_value.IsVectorIndexId()) {
-          auto &ids = property_value.ValueVectorIndexIds();
-          ids.push_back(index_id);
-        } else {
-          property_value = PropertyValue(
-              PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id}, .vector = {}});
-        }
-        edge->properties.SetProperty(spec.property, property_value);
-      }
+      for (std::size_t i = 0; i < processed; ++i) ReinstallIndexIdInProperty(dropped_edges[i], spec.property, index_id);
       throw;
     }
   }
   auto new_map = std::make_shared<VectorEdgeIndexContainer>(*index_);
   new_map->erase(index_id);
   index_ = new_map;
-  // Clean up endpoints for edges no longer in any index.
+
+  // Remove endpoints for edges no longer indexed elsewhere; capture the evicted
+  // entries so RestoreIndex can put them back.
   std::unordered_set<Edge *> still_indexed;
   for (const auto &[_, iptr] : *index_) {
     auto guard = utils::SharedResourceLockGuard(iptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
     for (auto *edge : dropped_edges) {
-      if (iptr->mg_index.index.contains(edge)) {
-        still_indexed.insert(edge);
-      }
+      if (iptr->mg_index.index.contains(edge)) still_indexed.insert(edge);
     }
   }
+  std::vector<std::pair<Edge *, EdgeEndpoints>> evicted_endpoints;
   {
     auto lock = std::unique_lock{edge_endpoints_mutex_};
     for (auto *edge : dropped_edges) {
       DMG_ASSERT(edge != nullptr, "Null edge pointer in vector edge index");
-      if (!still_indexed.contains(edge)) {
-        edge_endpoints_.erase(edge);
+      if (still_indexed.contains(edge)) continue;
+      if (auto ep_it = edge_endpoints_.find(edge); ep_it != edge_endpoints_.end()) {
+        evicted_endpoints.emplace_back(edge, ep_it->second);
+        edge_endpoints_.erase(ep_it);
       }
     }
   }
-  return true;
+  return DroppedIndexCapture{.index_id = index_id,
+                             .evicted_item = std::move(evicted_item),
+                             .rewritten_edges = std::move(dropped_edges),
+                             .evicted_endpoints = std::move(evicted_endpoints)};
+}
+
+void VectorEdgeIndex::RestoreIndex(DroppedIndexCapture &&capture) {
+  // Abort path: must not propagate OOM (called from a noexcept abort callback).
+  const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+  for (auto *edge : capture.rewritten_edges) {
+    ReinstallIndexIdInProperty(edge, capture.evicted_item->spec.property, capture.index_id);
+  }
+  auto new_map = std::make_shared<VectorEdgeIndexContainer>(*index_);
+  new_map->try_emplace(capture.index_id, std::move(capture.evicted_item));
+  index_ = new_map;
+  {
+    auto lock = std::unique_lock{edge_endpoints_mutex_};
+    for (auto &[edge, endpoints] : capture.evicted_endpoints) {
+      edge_endpoints_.try_emplace(edge, endpoints);
+    }
+  }
 }
 
 void VectorEdgeIndex::Clear() {
@@ -404,7 +422,7 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
 
 bool VectorEdgeIndex::Empty() const { return index_->empty(); }
 
-void VectorEdgeIndex::RemoveEdges(std::vector<Edge *> const &edges_to_remove) {
+void VectorEdgeIndex::RemoveEdges(std::span<Edge *const> edges_to_remove) const {
   if (edges_to_remove.empty()) return;
 
   // Lock order: uSearch mutex → edge_endpoints_mutex_ (matches SearchEdges)
@@ -416,7 +434,6 @@ void VectorEdgeIndex::RemoveEdges(std::vector<Edge *> const &edges_to_remove) {
       }
     }
   }
-
   {
     auto lock = std::unique_lock{edge_endpoints_mutex_};
     for (auto *edge : edges_to_remove) {
@@ -558,7 +575,7 @@ void VectorEdgeIndex::SerializeAllVectorEdgeIndices(durability::BaseEncoder *enc
 // VectorEdgeIndexRecovery implementation
 void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                                 std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
-                                                utils::SkipList<Vertex>::Accessor &vertices) {
+                                                utils::SkipListDb<Vertex>::Accessor &vertices) {
   for (auto &recovery_info : recovery_info_vec) {
     if (recovery_info.spec.index_name == index_name) {
       auto maybe_index_id = name_id_mapper->NameToIdIfExists(index_name);

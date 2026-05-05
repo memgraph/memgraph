@@ -42,25 +42,26 @@ class DbAccessorChunkedTest : public ::testing::Test {
       type_id_ = dba.NameToEdgeType("Type");
 
       ASSERT_TRUE(unique_acc->CreateIndex(label_id_).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = storage_->UniqueAccess();
       ASSERT_TRUE(unique_acc->CreateIndex(label_id_, {prop_id_}).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = storage_->UniqueAccess();
       ASSERT_TRUE(unique_acc->CreateIndex(type_id_).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = storage_->UniqueAccess();
       ASSERT_TRUE(unique_acc->CreateIndex(type_id_, prop_id_).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = storage_->UniqueAccess();
       ASSERT_TRUE(unique_acc->CreateGlobalEdgeIndex(prop_id_).has_value());
-    }
-    {
-      auto unique_acc = storage_->UniqueAccess();
       ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }

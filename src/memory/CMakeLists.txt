@@ -3,16 +3,18 @@ target_sources(mg-memory-utils
                PUBLIC
                query_memory_control.hpp
                global_memory_control.hpp
+               db_arena.hpp
                PRIVATE
                query_memory_control.cpp
-               global_memory_control.cpp)
+               global_memory_control.cpp
+               db_arena.cpp)
 
 add_library(mg-memory STATIC
             malloc_free.cpp
             new_delete.cpp)
 message(STATUS "ENABLE_JEMALLOC: ${ENABLE_JEMALLOC}")
 if (ENABLE_JEMALLOC)
-  target_link_libraries(mg-memory-utils PRIVATE jemalloc::jemalloc ${CMAKE_DL_LIBS} mg-utils)
+  target_link_libraries(mg-memory-utils PUBLIC jemalloc::jemalloc PRIVATE ${CMAKE_DL_LIBS} mg-utils)
   target_compile_definitions(mg-memory-utils PUBLIC USE_JEMALLOC=1)
   target_link_libraries(mg-memory PRIVATE jemalloc::jemalloc ${CMAKE_DL_LIBS} mg-memory-utils fmt::fmt)
   target_compile_definitions(mg-memory PUBLIC USE_JEMALLOC=1)

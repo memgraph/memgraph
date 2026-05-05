@@ -79,8 +79,8 @@ bool OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const 
 
 /// Function used to load the snapshot data into the storage.
 /// @throw RecoveryFailure
-RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipList<Vertex> *vertices,
-                               utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                               utils::SkipListDb<Edge> *edges, utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config,
                                memgraph::storage::EnumStore *enum_store,
@@ -103,7 +103,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
 
 std::optional<std::filesystem::path> CreateSnapshot(
     Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
-    const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+    const std::filesystem::path &wal_directory, utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
     utils::UUID const &uuid, std::string_view epoch_id,
     const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
     std::atomic_bool *abort_snapshot = nullptr, SnapshotProgress *progress = nullptr);

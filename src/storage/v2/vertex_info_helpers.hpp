@@ -95,7 +95,8 @@ inline auto HasLabel_ActionMethod(bool &has_label, LabelId label) {
   // clang-format on
 }
 
-inline auto Labels_ActionMethod(utils::small_vector<LabelId> &labels) {
+template <typename TSmallVector>
+inline auto Labels_ActionMethod(TSmallVector &labels) {
   using enum DeltaAction;
   // clang-format off
   return utils::Overloaded{
@@ -147,9 +148,8 @@ inline auto Properties_ActionMethod(std::map<PropertyId, PropertyValue> &propert
   });
 }
 
-template <EdgeDirection dir>
-auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges,
-                        std::vector<EdgeTypeId> const &edge_types, Vertex const *destination) {
+template <EdgeDirection dir, typename TSmallVector>
+auto Edges_ActionMethod(TSmallVector &edges, std::vector<EdgeTypeId> const &edge_types, Vertex const *destination) {
   auto const predicate = [&, destination](Delta const &delta) {
     if (destination && delta.vertex_edge.vertex.Get() != destination) return false;
     if (!edge_types.empty() && !std::ranges::contains(edge_types, delta.vertex_edge.edge_type)) return false;
@@ -188,8 +188,8 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
   // clang-format on
 }
 
-template <EdgeDirection dir>
-auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges, EdgeTypeId edge_type) {
+template <EdgeDirection dir, typename TSmallVector>
+auto Edges_ActionMethod(TSmallVector &edges, EdgeTypeId edge_type) {
   auto const predicate = [edge_type](Delta const &delta) { return delta.vertex_edge.edge_type == edge_type; };
 
   // clang-format off
@@ -224,8 +224,8 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
   // clang-format on
 }
 
-template <EdgeDirection dir>
-auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges) {
+template <EdgeDirection dir, typename TSmallVector>
+auto Edges_ActionMethod(TSmallVector &edges) {
   // clang-format off
   using enum DeltaAction;
   return utils::Overloaded{
