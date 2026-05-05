@@ -63,6 +63,12 @@ GET_SHARED_LIBRARIES() {
         # Skip lines that don't contain library paths
         if [[ "$line" =~ =\>[[:space:]]+([^[:space:]]+) ]]; then
             local lib_path="${BASH_REMATCH[1]}"
+            # Normalize away ../.. segments without resolving symlinks. glibc <2.42
+            # preserves the un-canonicalized $ORIGIN form here, glibc >=2.42 returns
+            # a kernel-canonicalized path; we want the prefix check below to work on both.
+            if [[ "$lib_path" == /* ]]; then
+                lib_path="$(realpath -m -s "$lib_path")"
+            fi
             # Skip "not found" and system libraries
             if [[ "$lib_path" != "not found" && "$lib_path" != "/lib"* && "$lib_path" != "/usr/lib"* ]]; then
                 # Check if the library is in the build directory
