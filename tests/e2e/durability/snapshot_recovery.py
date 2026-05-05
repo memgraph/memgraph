@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import os
+import re
 import shutil
 import sys
 import time
@@ -777,6 +778,124 @@ def test_snapshot_on_mode_change_analytical_to_transactional(test_name):
     assert result[2][0] == 3 and result[2][1] == "third"
 
     interactive_mg_runner.kill_all()
+
+
+def _get_db_memory_tracked_bytes(cursor):
+    """Return the db_memory_tracked field from SHOW STORAGE INFO as bytes."""
+    info = execute_and_fetch_all(cursor, "SHOW STORAGE INFO")
+    info_dict = {row[0]: row[1] for row in info}
+    return _parse_size_bytes(info_dict.get("db_memory_tracked", "0B"))
+
+
+def _parse_size_bytes(size_str):
+    """Parse a human-readable size string produced by GetReadableSize(), e.g. '1.50MiB'."""
+    if not size_str:
+        return 0
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*(B|KiB|MiB|GiB|TiB)$", size_str.strip())
+    if not m:
+        return 0
+    units = {"B": 1, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4}
+    return int(float(m.group(1)) * units[m.group(2)])
+
+
+def test_db_memory_tracked_after_recover_snapshot(test_name):
+    """
+    After RECOVER SNAPSHOT, db_memory_tracked must be non-zero.
+
+    The snapshot recovery path runs on threads that are fully pinned to the DB arena via
+    je_mallctl (GC/scheduler threads), so all recovered vertices and edges are attributed
+    to db_memory_tracked.
+    """
+    data_directory = get_data_path("snapshot_recovery", test_name)
+    interactive_mg_runner.start(memgraph_instances(data_directory), "default")
+
+    connection = connect(host="localhost", port=7687)
+    cursor = mt_cursor(connection, "memgraph")
+
+    # Create a meaningful dataset — vertices with labels, properties, and edges
+    execute_and_fetch_all(cursor, "UNWIND range(1, 500) AS i CREATE (:RecNode {id: i, val: i * 2})")
+    execute_and_fetch_all(
+        cursor,
+        "MATCH (a:RecNode), (b:RecNode) WHERE a.id = b.id - 1 AND a.id <= 100 CREATE (a)-[:LINKED]->(b)",
+    )
+
+    # Capture memory before snapshot (data is loaded in-memory)
+    before_snapshot = _get_db_memory_tracked_bytes(cursor)
+    assert before_snapshot > 0, "db_memory_tracked should be non-zero after creating dataset"
+
+    # Take a snapshot of the current state
+    result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT")
+    snapshot_path = result[0][0]
+    assert snapshot_path is not None and isinstance(snapshot_path, str)
+
+    # Recover from the snapshot — this replaces in-memory state by re-loading from disk
+    execute_and_fetch_all(cursor, f"RECOVER SNAPSHOT '{snapshot_path}' FORCE")
+
+    after_recovery = _get_db_memory_tracked_bytes(cursor)
+
+    interactive_mg_runner.kill_all()
+
+    assert after_recovery > 0, (
+        f"db_memory_tracked must be non-zero after RECOVER SNAPSHOT. "
+        f"before_snapshot={before_snapshot} after_recovery={after_recovery}"
+    )
+
+
+def test_db_memory_tracked_recover_snapshot_into_correct_db(test_name):
+    """
+    RECOVER SNAPSHOT executed while USE DATABASE other_db is active must attribute
+    memory to other_db, not to the default memgraph database.
+
+    The recovered objects (vertices, edges) are loaded into the arena of the currently
+    selected database — the one the user switched to via USE DATABASE before issuing
+    RECOVER SNAPSHOT.
+    """
+    data_directory = get_data_path("snapshot_recovery", test_name)
+    interactive_mg_runner.start(memgraph_instances(data_directory), "default")
+
+    # Create the snapshot from the default database (memgraph)
+    connection = connect(host="localhost", port=7687)
+    cursor = mt_cursor(connection, "memgraph")
+    execute_and_fetch_all(cursor, "UNWIND range(1, 500) AS i CREATE (:CrossDbNode {id: i})")
+    result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT")
+    snapshot_path = result[0][0]
+    assert snapshot_path is not None and isinstance(snapshot_path, str)
+
+    # Clean up the default DB so we can confirm cross-DB attribution
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    baseline_memgraph = _get_db_memory_tracked_bytes(cursor)
+
+    # Create a second database and recover the snapshot there (enterprise feature)
+    try:
+        execute_and_fetch_all(cursor, "CREATE DATABASE snapshot_target_db")
+    except Exception as e:
+        if "enterprise" in str(e).lower() or "not supported" in str(e).lower():
+            pytest.skip("CREATE DATABASE requires enterprise license")
+        raise
+
+    # Switch to snapshot_target_db and recover
+    other_cursor = mt_cursor(connection, "snapshot_target_db")
+    baseline_other = _get_db_memory_tracked_bytes(other_cursor)
+
+    execute_and_fetch_all(other_cursor, f"RECOVER SNAPSHOT '{snapshot_path}' FORCE")
+
+    after_other = _get_db_memory_tracked_bytes(other_cursor)
+
+    # Switch back to memgraph and verify it did NOT grow
+    cursor2 = mt_cursor(connection, "memgraph")
+    after_memgraph = _get_db_memory_tracked_bytes(cursor2)
+
+    interactive_mg_runner.kill_all()
+
+    assert after_other > baseline_other, (
+        f"snapshot_target_db db_memory_tracked should grow after RECOVER SNAPSHOT. "
+        f"baseline={baseline_other} after={after_other}"
+    )
+    # Allow 512 KiB noise for background threads
+    assert after_memgraph <= baseline_memgraph + 512 * 1024, (
+        f"memgraph db_memory_tracked should NOT grow when recovering into snapshot_target_db. "
+        f"baseline_memgraph={baseline_memgraph} after_memgraph={after_memgraph}"
+    )
 
 
 if __name__ == "__main__":

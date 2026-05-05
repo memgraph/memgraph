@@ -19,6 +19,7 @@
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -80,7 +81,7 @@ struct VectorIndexRecovery {
   /// @param vertices Accessor to the vertices skip list.
   static void UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                 std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
-                                utils::SkipList<Vertex>::Accessor &vertices);
+                                utils::SkipListDb<Vertex>::Accessor &vertices);
 
   /// @brief Updates recovery info when a label is added to a vertex.
   /// @param label The label being added.
@@ -173,6 +174,8 @@ class VectorIndex {
 
   using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
 
+  explicit VectorIndex(utils::MemoryTracker *memory_tracker = nullptr);
+  ~VectorIndex();
   /// Concrete ActiveIndices implementation holding a shared reference to the live index container.
   struct ActiveIndices : VectorIndexActiveIndices {
     ActiveIndices() = default;
@@ -188,19 +191,10 @@ class VectorIndex {
     std::shared_ptr<VectorIndexContainer const> index_container_;
   };
 
-  VectorIndex() = default;
-  ~VectorIndex() = default;
   VectorIndex(VectorIndex &&) noexcept = default;
   VectorIndex &operator=(VectorIndex &&) noexcept = default;
 
   /// Returns the current active indices snapshot for use in transactions.
-  // TODO(follow-up): return `shared_ptr<VectorIndexActiveIndices const>` -- all
-  // methods on the snapshot are const, the inner container is already
-  // `shared_ptr<VectorIndexContainer const>`, so the outer non-const shared_ptr
-  // is a weak const-correctness wart. Requires threading `const` through
-  // `ActiveIndices::vector_`, `ActiveIndicesUpdater::operator()`, and the 4
-  // other sub-indices (text, text_edge, point, vector_edge) for consistency.
-  // Do all 5 in one sweep.
   auto GetActiveIndices() const -> std::shared_ptr<VectorIndexActiveIndices> {
     return std::make_shared<ActiveIndices>(index_);
   }
@@ -216,7 +210,7 @@ class VectorIndex {
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @param snapshot_info
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
+  bool CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
                    NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
@@ -226,15 +220,30 @@ class VectorIndex {
   /// @param indices Indices (for property decoding).
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @param snapshot_info The snapshot information to use.
-  void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
-                    Indices *indices, NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+  void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
+                    Indices *indices, NameIdMapper *name_id_mapper,
+                    ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  /// @brief Drops an existing index.
-  /// @param index_name The name of the index to be dropped.
-  /// @param name_id_mapper Name id mapper (for property decoding).
-  /// @return true if the index was dropped successfully, false otherwise.
-  bool DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+  /// Captured state from DropIndex. evicted_item keeps the usearch state alive;
+  /// rewritten_vertices is the list whose properties were demoted to plain Vector
+  /// and that RestoreIndex must promote back.
+  struct DroppedIndexCapture {
+    uint64_t index_id;
+    std::shared_ptr<IndexItem> evicted_item;
+    std::vector<Vertex *> rewritten_vertices;
+  };
+
+  /// @brief Drops an existing index. Returns enough state to undo the drop on
+  /// transaction abort, or std::nullopt if the index doesn't exist. Callers that
+  /// only need a fire-and-forget drop (e.g. CreateIndex's exception rollback)
+  /// can discard the return value.
+  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+
+  /// @brief Reinstalls an index previously evicted by DropIndex. Re-adds the
+  /// captured index_id to each rewritten vertex's property and re-inserts the
+  /// IndexItem into the container.
+  void RestoreIndex(DroppedIndexCapture &&capture);
 
   /// @brief Drops all existing indexes.
   void Clear();
@@ -353,6 +362,7 @@ class VectorIndex {
   void AddVertexToIndex(uint64_t index_id, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
                         std::optional<std::size_t> thread_id = std::nullopt);
 
+  utils::MemoryTracker *memory_tracker_{nullptr};
   // Invariant: `index_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
   // InMemoryAccessor::CreateVectorIndex / DropVectorIndex and in DropGraphClearIndices). Reads
   // from other contexts (regular READ/WRITE accessors, DatabaseInfoQuery) MUST go through the

@@ -26,6 +26,7 @@
 #include <string>
 #include <thread>
 
+#include "memory/db_arena_fwd.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -282,7 +283,7 @@ auto Batch(auto &&acc, const uint64_t items_per_batch) {
   return batches;
 }
 
-bool MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex> *vertices, auto &&partial_edge_handler,
+bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Vertex> *vertices, auto &&partial_edge_handler,
                            auto &&partial_vertex_handler, const uint64_t items_per_batch, uint64_t &offset_edges,
                            uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder, uint64_t &edges_count,
                            uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
@@ -357,7 +358,7 @@ bool MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
   }
 
   const auto n_workers = std::min(thread_count, tasks.size());
-  std::vector<std::jthread> workers;
+  std::vector<memory::DbAwareThread> workers;
   workers.reserve(n_workers);
   for (int i = 0; i < n_workers; ++i) {
     workers.emplace_back([&, i] {
@@ -719,7 +720,7 @@ std::vector<BatchInfo> ReadBatchInfos(Decoder &snapshot) {
 }
 
 template <typename TFunc>
-void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &edges, const uint64_t from_offset,
+void LoadPartialEdges(const std::filesystem::path &path, utils::SkipListDb<Edge> &edges, const uint64_t from_offset,
                       const uint64_t edges_count, const SalientConfig::Items items, TFunc get_property_from_id,
                       NameIdMapper *name_id_mapper,
                       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
@@ -804,7 +805,7 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
 
 // Returns the gid of the last recovered vertex
 template <typename TLabelFromIdFunc, typename TPropertyFromIdFunc>
-uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<Vertex> &vertices,
+uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipListDb<Vertex> &vertices,
                              SharedSchemaTracking *schema_info, const uint64_t from_offset,
                              const uint64_t vertices_count, TLabelFromIdFunc get_label_from_id,
                              TPropertyFromIdFunc get_property_from_id, NameIdMapper *name_id_mapper,
@@ -930,8 +931,8 @@ struct LoadPartialConnectivityResult {
 
 template <typename TEdgeTypeFromIdFunc>
 LoadPartialConnectivityResult LoadPartialConnectivity(
-    const std::filesystem::path &path, utils::SkipList<Vertex> &vertices, utils::SkipList<Edge> &edges,
-    utils::SkipList<EdgeMetadata> &edges_metadata, SharedSchemaTracking *schema_info, const uint64_t from_offset,
+    const std::filesystem::path &path, utils::SkipListDb<Vertex> &vertices, utils::SkipListDb<Edge> &edges,
+    utils::SkipListDb<EdgeMetadata> &edges_metadata, SharedSchemaTracking *schema_info, const uint64_t from_offset,
     const uint64_t vertices_count, const SalientConfig::Items items, const bool snapshot_has_edges,
     TEdgeTypeFromIdFunc get_edge_type_from_id,
     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
@@ -1121,7 +1122,7 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
   {
     std::atomic<uint64_t> batch_counter = 0;
     thread_count = std::min(thread_count, batches.size());
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
@@ -1147,8 +1148,8 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
 }
 
 RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem::path &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, SalientConfig::Items items) {
@@ -1633,8 +1634,8 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
 }
 
 RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem::path &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
@@ -1945,8 +1946,8 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
 }
 
 RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem::path &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
@@ -2319,8 +2320,8 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
 }
 
 RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem::path &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
@@ -2740,8 +2741,8 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
 /// We messed up and accidentally introduced a version bump in a release it was not needed for
 /// hence same load for 18 will work for 19
 RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesystem::path &path,
-                                            utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                            utils::SkipList<EdgeMetadata> *edges_metadata,
+                                            utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                            utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             SharedSchemaTracking *schema_info, const Config &config,
@@ -3218,8 +3219,8 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
 }
 
 RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesystem::path &path,
-                                            utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                            utils::SkipList<EdgeMetadata> *edges_metadata,
+                                            utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                            utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             SharedSchemaTracking *schema_info, const Config &config,
@@ -3745,8 +3746,8 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
 }
 
 RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesystem::path &path,
-                                            utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                            utils::SkipList<EdgeMetadata> *edges_metadata,
+                                            utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                            utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             const Config &config, memgraph::storage::EnumStore *enum_store,
@@ -4324,8 +4325,8 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
 }
 
 RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -4953,8 +4954,8 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
 }
 
 RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -5574,8 +5575,8 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
 }
 
 RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -6197,8 +6198,8 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
 }
 
 RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::path const &path,
-                                            utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                            utils::SkipList<EdgeMetadata> *edges_metadata,
+                                            utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                            utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             Config const &config, EnumStore *enum_store,
@@ -6872,8 +6873,8 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
 }
 
 RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -7557,8 +7558,8 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
 }
 
 RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -8307,8 +8308,8 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
 }
 
 RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -9095,8 +9096,8 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
 }
 
 RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -9978,8 +9979,8 @@ void RecoverDescriptionStore(Decoder &snapshot, SnapshotInfo const &info, NameId
 
 // NOLINTNEXTLINE(readability-function-size)
 RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem::path const &path,
-                                             utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                             utils::SkipList<EdgeMetadata> *edges_metadata,
+                                             utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                             utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                              std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                              NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                              Config const &config, EnumStore *enum_store,
@@ -10815,8 +10816,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
 }  // namespace
 
-RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                               utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipListDb<Vertex> *vertices,
+                               utils::SkipListDb<Edge> *edges, utils::SkipListDb<EdgeMetadata> *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -11184,7 +11185,7 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
 std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
                                                     const std::filesystem::path &snapshot_directory,
                                                     const std::filesystem::path &wal_directory,
-                                                    utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                                    utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
                                                     utils::UUID const &uuid, std::string_view const epoch_id,
                                                     const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                                                     utils::FileRetainer *file_retainer,

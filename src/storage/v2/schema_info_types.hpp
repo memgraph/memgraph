@@ -25,13 +25,16 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/conccurent_unordered_map.hpp"
+#include "utils/db_aware_allocator.hpp"
 #include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
 
 struct Vertex;
 
-using VertexKey = utils::small_vector<LabelId>;
+struct Vertex;
+
+using VertexKey = utils::small_vector<LabelId, memory::DbAwareAllocator<LabelId>>;
 
 /**
  * @brief Hash the VertexKey (vector of labels) in an order independent way.

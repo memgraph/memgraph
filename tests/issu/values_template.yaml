@@ -21,7 +21,7 @@ storage:
     logStorageClassName: csi-hostpath-delayed
     ## Create a Persistant Volume Claim for core dumps.
     createCoreDumpsClaim: false
-    coreDumpsStorageClassName: 
+    coreDumpsStorageClassName:
     coreDumpsStorageSize: 10Gi
     coreDumpsMountPath: /var/core/memgraph
   coordinators:
@@ -83,7 +83,7 @@ affinity:
 # https://memgraph.com/docs/database-management/system-configuration#recommended-values-for-the-vmmax_map_count-parameter
 sysctlInitContainer:
   enabled: true
-  maxMapCount: 262144
+  maxMapCount: 524288
   image:
     repository: library/busybox
     tag: latest

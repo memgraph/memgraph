@@ -54,8 +54,6 @@ class EdgeTypePropertyIndex {
 
   virtual ~EdgeTypePropertyIndex() = default;
 
-  virtual bool DropIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater) = 0;
-
   virtual void DropGraphClearIndices() = 0;
 };
 

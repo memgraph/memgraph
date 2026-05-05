@@ -1,0 +1,168 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+// Thin header intentionally placed in utils/ to break the utils <-> memory
+// circular dependency.  db_arena.hpp (in memory/) includes this file and adds
+// the heavier ArenaPool / DbArenaScope / DbAwareThread machinery.  SkipList
+// (in utils/) only needs tls_db_arena_state.arena and DbAwareAllocator.
+
+#include <cstddef>
+#include <memory>
+#include <type_traits>
+#include <utility>
+
+namespace memgraph::memory {
+
+class ArenaPool;
+
+// Thread-local state for the currently active database arena.
+// arena = 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
+//
+// Both fields are set by DbArenaScope. Background threads
+// (TTL, GC, async indexer, stream consumers) install a pool-backed scope via
+// DbAwareThread at their work boundary; they do not write
+// TLS directly.
+//
+// arena_pool is read by DbAwareThread(F, Args...) when spawning child threads
+// so they inherit the parent's pool without requiring an explicit argument.
+//
+// DEVNOTE: initial-exec TLS model requires this to be in the main executable,
+//          not a shared library. Matches the pattern used by query_memory_control.
+struct DbArenaTlsState {
+  unsigned arena{0};               // Current thread's arena for active DB (0 = none)
+  ArenaPool *arena_pool{nullptr};  // Pool that owns arena; nullptr when arena == 0
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+inline thread_local DbArenaTlsState tls_db_arena_state [[gnu::tls_model("initial-exec")]] = {};
+
+// Allocate `bytes` bytes with the given `alignment`, attributed to arena `idx`.
+// Returns void* — use DbAllocate<T> for typed element-count based allocation.
+// Uses MALLOCX_TCACHE_NONE to avoid thread-cache overhead and ensure accurate tracking.
+[[nodiscard]] void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment);
+
+// Deallocate memory previously allocated via DbAllocateBytes.
+// Uses je_sdallocx with MALLOCX_TCACHE_NONE so the free goes directly to the
+// arena bin, matching the allocation style and allowing decay=0 arenas to
+// return pages to the OS promptly without blocks sitting in the TLS cache.
+void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept;
+
+// Deallocate `n` elements of type T previously allocated via DbAllocate<T>.
+// Mirrors DbAllocate<T>: derives byte count and alignment from T, then calls DbDeallocateBytes.
+template <typename T>
+void DbDeallocate(T *p, std::size_t n) noexcept {
+  DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
+}
+
+// Custom deleter for std::unique_ptr<T> when the object was allocated via an
+// explicit DB arena (i.e. with je_mallocx + MALLOCX_TCACHE_NONE).
+// Using the default deleter (operator delete / je_free) would route the
+// deallocation through the calling thread's tcache, delaying the
+// db_arena_dalloc extent-hook callback and causing the DB MemoryTracker to
+// overcount until the tcache flushes.  This deleter calls DbDeallocateBytes
+// (je_sdallocx + MALLOCX_TCACHE_NONE) so the hook fires immediately.
+template <typename T>
+struct ArenaAwareDeleter {
+  explicit ArenaAwareDeleter() noexcept {}
+
+  void operator()(T *p) const noexcept {
+    if (p == nullptr) {
+      return;
+    }
+    std::destroy_at(p);
+    DbDeallocateBytes(static_cast<void *>(p), sizeof(T), alignof(T));
+  }
+};
+
+template <typename T>
+using ArenaAwareUniquePtr = std::unique_ptr<T, ArenaAwareDeleter<T>>;
+
+template <typename T, typename... Args>
+ArenaAwareUniquePtr<T> MakeDbAwareUnique(Args &&...args) {
+  // Use currently active arena
+  auto *raw = static_cast<T *>(DbAllocateBytes(sizeof(T), tls_db_arena_state.arena, alignof(T)));
+  try {
+    std::construct_at(raw, std::forward<Args>(args)...);
+  } catch (...) {
+    DbDeallocateBytes(static_cast<void *>(raw), sizeof(T), alignof(T));
+    throw;
+  }
+  return ArenaAwareUniquePtr<T>{raw, ArenaAwareDeleter<T>{}};
+}
+
+// Allocate `n` elements of type T, attributed to arena `idx`.
+// alignment defaults to alignof(T) — pass explicitly only when a stricter
+// alignment is required (e.g. page-aligned allocations).
+template <typename T>
+[[nodiscard]] T *DbAllocate(std::size_t n, unsigned idx) {
+  return static_cast<T *>(DbAllocateBytes(n * sizeof(T), idx, alignof(T)));
+}
+
+// Stateless C++ allocator that routes allocations to the DB arena currently
+// pinned on this thread (tls_db_arena_state.arena).  When no arena is pinned (idx==0)
+// it falls back to the process-default allocator.
+//
+// A stateful arena-capturing allocator is possible, but this codebase keeps that
+// behavior in explicit ownership helpers instead of making it the default path.
+//
+// Zero data members → qualifies for EBO in containers (e.g. small_vector,
+// SkipList) so their sizeof is unchanged vs. the plain std::allocator<T> case.
+//
+// Accounting: per-DB arena extent hooks (installed at Database construction)
+// attribute committed OS pages to the database's MemoryTracker. Individual
+// allocations routed via MALLOCX_ARENA therefore show up in that tracker.
+template <typename T>
+struct DbAwareAllocator {
+  using value_type = T;
+
+  // Propagate on container move/swap so the allocator stays correct.
+  using propagate_on_container_move_assignment = std::true_type;
+  using propagate_on_container_copy_assignment = std::true_type;
+  using propagate_on_container_swap = std::true_type;
+
+  DbAwareAllocator() noexcept = default;
+
+  template <typename U>
+  explicit DbAwareAllocator(DbAwareAllocator<U> const & /*unused*/) noexcept {}
+
+  [[nodiscard]] T *allocate(std::size_t n) {
+    const unsigned idx = tls_db_arena_state.arena;
+    return DbAllocate<T>(n, idx);
+  }
+
+  void deallocate(T *p, std::size_t n) noexcept {
+    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
+    // free query-thread allocations regardless of which thread calls deallocate.
+    // MALLOCX_TCACHE_NONE matches the allocation style and lets decay=0 arenas return pages promptly.
+    DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
+  }
+
+  [[nodiscard]] void *allocate_bytes(std::size_t n, std::size_t align) {
+    const unsigned idx = tls_db_arena_state.arena;
+    return DbAllocateBytes(n, idx, align);
+  }
+
+  void deallocate_bytes(void *p, std::size_t n, std::size_t align) noexcept { DbDeallocateBytes(p, n, align); }
+
+  template <typename U>
+  friend bool operator==(DbAwareAllocator<T> const & /*lhs*/, DbAwareAllocator<U> const & /*rhs*/) noexcept {
+    return true;
+  }
+
+  template <typename U>
+  friend bool operator!=(DbAwareAllocator<T> const &lhs, DbAwareAllocator<U> const &rhs) noexcept {
+    return !(lhs == rhs);
+  }
+};
+
+}  // namespace memgraph::memory

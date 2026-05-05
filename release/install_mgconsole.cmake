@@ -57,7 +57,7 @@ set(MGCONSOLE_SOURCE "${SOURCE_DIR}/build/mgconsole/bin/mgconsole")
 set(MGCONSOLE_BINARY "${BUILD_DIR}/bin/mgconsole")
 
 if(NOT DEFINED MGCONSOLE_GIT_TAG)
-    set(MGCONSOLE_GIT_TAG "v1.5.0")
+    set(MGCONSOLE_GIT_TAG "v1.5.2")
 endif()
 
 # Skip if mgconsole already exists (e.g., built by CPack install script or previous run)

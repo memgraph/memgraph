@@ -12,7 +12,6 @@
 #pragma once
 
 #include "memory/query_memory_control.hpp"
-#include "plan/point_distance_condition.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
@@ -22,11 +21,6 @@
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/point_index.hpp"
-#include "storage/v2/indices/text_index.hpp"
-#include "storage/v2/indices/text_index_utils.hpp"
-#include "storage/v2/indices/vector_edge_index.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -37,6 +31,23 @@
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/variant_helpers.hpp"
+
+namespace memgraph::storage {
+enum class PointDistanceCondition : uint8_t;
+enum class WithinBBoxCondition : uint8_t;
+struct PointIterable;
+struct TextSearchResult;
+struct TextEdgeSearchResult;
+struct VectorIndexInfo;
+struct VectorEdgeIndexInfo;
+}  // namespace memgraph::storage
+
+namespace memgraph::query::plan {
+using PointDistanceCondition = memgraph::storage::PointDistanceCondition;
+using WithinBBoxCondition = memgraph::storage::WithinBBoxCondition;
+}  // namespace memgraph::query::plan
+
+enum class text_search_mode;
 
 #include <cstdint>
 #include <optional>
@@ -688,49 +699,32 @@ class DbAccessor final {
     return accessor_->EdgePropertyIndexReady(property);
   }
 
-  bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
+  bool TextIndexExists(const std::string &index_name) const;
 
   std::vector<storage::TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                                         text_search_mode search_mode, std::size_t limit) const {
-    return accessor_->TextIndexSearch(index_name, search_query, search_mode, limit);
-  }
+                                                         text_search_mode search_mode, std::size_t limit) const;
 
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
-                                 const std::string &aggregation_query) const {
-    return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
-  }
+                                 const std::string &aggregation_query) const;
 
   std::string TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
-                                     const std::string &aggregation_query) {
-    return accessor_->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
-  }
+                                     const std::string &aggregation_query);
 
   std::vector<storage::TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name,
                                                                  const std::string &search_query,
-                                                                 text_search_mode search_mode,
-                                                                 std::size_t limit) const {
-    return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, limit);
-  }
+                                                                 text_search_mode search_mode, std::size_t limit) const;
 
-  bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
-    return accessor_->PointIndexExists(label, prop);
-  }
+  bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const;
 
   std::vector<std::tuple<storage::VertexAccessor, double, double>> VectorIndexSearchOnNodes(
-      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
-    return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
-  }
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector);
 
   std::vector<std::tuple<storage::EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
-      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
-    return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
-  }
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector);
 
-  std::vector<storage::VectorIndexInfo> ListAllVectorIndices() const { return accessor_->ListAllVectorIndices(); }
+  std::vector<storage::VectorIndexInfo> ListAllVectorIndices() const;
 
-  std::vector<storage::VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const {
-    return accessor_->ListAllVectorEdgeIndices();
-  }
+  std::vector<storage::VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const;
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);

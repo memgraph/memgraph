@@ -200,9 +200,6 @@ class LabelPropertyIndex {
     explicit operator bool() const { return dropped_asc || dropped_desc; }
   };
 
-  // `order == nullopt` drops both ASC and DESC entries for (label, properties).
-  virtual DropResult DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
-                               ActiveIndicesUpdater const &updater, std::optional<IndexOrder> order = std::nullopt) = 0;
   virtual void DropGraphClearIndices() = 0;
   virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
 };
@@ -227,8 +224,8 @@ struct LabelPropertyIndexActiveIndices {
 
   virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
-  virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                   const Transaction &tx) = 0;
+  virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                                   Vertex *vertex, const Transaction &tx) = 0;
 
   virtual bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 

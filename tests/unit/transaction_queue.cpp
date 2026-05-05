@@ -21,6 +21,7 @@
 #include "interpreter_faker.hpp"
 #include "query/context.hpp"
 #include "query/interpreter_context.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 /*
@@ -66,7 +67,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
                                                           nullptr,
                                                           nullptr,
                                                           nullptr,
-                                                          repl_state,
+                                                          &repl_state,
                                                           system_state,
                                                           nullptr
 #ifdef MG_ENTERPRISE

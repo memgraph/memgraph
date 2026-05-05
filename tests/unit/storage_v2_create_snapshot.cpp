@@ -19,6 +19,7 @@
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/paths.hpp"
+#include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -191,4 +192,37 @@ TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
     ASSERT_EQ(snapshot_path.extension(), "");
     ASSERT_TRUE(snapshot_path.filename().string().find("timestamp_") != std::string::npos);
   }
+}
+
+TEST_F(CreateSnapshotTest, ModeSwitchSnapshotDurableTimestampCoversAnalyticalWrites) {
+  auto config = CreateConfig();
+  uint64_t ldt_before_switch{};
+  memgraph::storage::durability::SnapshotInfo snapshot;
+  {
+    memgraph::dbms::Database db{config};
+    auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+    mem_storage->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+    auto label = mem_storage->NameToLabel("L");
+    for (int i = 0; i < 5; ++i) {
+      auto acc = mem_storage->Access(memgraph::storage::WRITE);
+      auto v = acc->CreateVertex();
+      ASSERT_TRUE(v.AddLabel(label).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    ldt_before_switch = mem_storage->repl_storage_state_.commit_ts_info_.load().ldt_;
+    mem_storage->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+    std::vector<memgraph::storage::durability::SnapshotInfo> infos;
+    for (auto const &entry : std::filesystem::directory_iterator(storage_directory / "snapshots")) {
+      if (!entry.is_regular_file()) continue;
+      infos.push_back(memgraph::storage::durability::ReadSnapshotInfo(entry.path()));
+    }
+    ASSERT_FALSE(infos.empty());
+    std::sort(infos.begin(), infos.end(), [](auto const &a, auto const &b) {
+      return a.durable_timestamp < b.durable_timestamp;
+    });
+    snapshot = infos.back();
+  }
+  EXPECT_GT(snapshot.durable_timestamp, ldt_before_switch);
 }

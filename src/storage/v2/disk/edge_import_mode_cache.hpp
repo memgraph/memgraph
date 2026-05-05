@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
@@ -52,17 +53,17 @@ class EdgeImportModeCache final {
 
   bool AllVerticesScanned() const;
 
-  utils::SkipList<Vertex>::Accessor AccessToVertices();
+  utils::SkipListDb<Vertex>::Accessor AccessToVertices();
 
-  utils::SkipList<Edge>::Accessor AccessToEdges();
+  utils::SkipListDb<Edge>::Accessor AccessToEdges();
 
   void SetScannedAllVertices();
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> &GetCommittedTransactions();
 
  private:
-  utils::SkipList<Vertex> vertices_;
-  utils::SkipList<Edge> edges_;
+  utils::SkipListDb<Vertex> vertices_;
+  utils::SkipListDb<Edge> edges_;
   Indices in_memory_indices_;
   bool scanned_all_vertices_{false};
   std::set<LabelId> scanned_labels_;

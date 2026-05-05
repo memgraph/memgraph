@@ -17,6 +17,9 @@
 #include <optional>
 #include <type_traits>
 #include <unordered_map>
+#include <variant>
+
+#include "memory/db_arena_fwd.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -85,7 +88,7 @@ class Streams final {
   ///
   /// @param interpreter_context context to use to run the result of transformations
   /// @param directory a directory path to store the persisted streams metadata
-  explicit Streams(std::filesystem::path directory);
+  explicit Streams(std::filesystem::path directory, memory::ArenaPool *arena_pool = nullptr);
 
   /// Restores the streams from the persisted metadata.
   /// The restoration is done in a best effort manner, therefore no exception is thrown on failure, but the error is
@@ -193,7 +196,9 @@ class Streams final {
   };
 
   using StreamDataVariant = std::variant<StreamData<KafkaStream>, StreamData<PulsarStream>>;
-  using StreamsMap = std::unordered_map<std::string, StreamDataVariant>;
+  using StreamsMap =
+      std::unordered_map<std::string, StreamDataVariant, std::hash<std::string>, std::equal_to<std::string>,
+                         memory::DbAwareAllocator<std::pair<const std::string, StreamDataVariant>>>;
   using SynchronizedStreamsMap = utils::Synchronized<StreamsMap, utils::WritePrioritizedRWLock>;
 
   template <typename TStream, typename TDbAccess>
@@ -216,6 +221,7 @@ class Streams final {
   kvstore::KVStore storage_;
 
   SynchronizedStreamsMap streams_;
+  memory::ArenaPool *arena_pool_{nullptr};
 };
 
 }  // namespace stream

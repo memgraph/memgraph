@@ -46,7 +46,7 @@ void Indices::RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &verti
   vector_index_.RemoveVertices(vertices_to_remove);
 }
 
-void Indices::RemoveEdgesFromVectorEdgeIndices(std::vector<Edge *> const &edges_to_remove) {
+void Indices::RemoveEdgesFromVectorEdgeIndices(std::span<Edge *const> edges_to_remove) const {
   vector_edge_index_.RemoveEdges(edges_to_remove);
 }
 
@@ -100,10 +100,11 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
       IndexedPropertyDecoder<Vertex>{.indices = this, .name_id_mapper = name_id_mapper, .entity = vertex});
 }
 
-void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx) {
-  tx.active_indices_->label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
+void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                                  Vertex *vertex, Transaction &tx) {
+  tx.active_indices_->label_properties_->UpdateOnSetProperty(property, old_value, new_value, vertex, tx);
   tx.active_indices_->text_->UpdateOnSetProperty(vertex, tx, property);
-  vector_index_.UpdateOnSetProperty(property, value, vertex);
+  vector_index_.UpdateOnSetProperty(property, new_value, vertex);
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
@@ -121,8 +122,11 @@ void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, E
   tx.active_indices_->edge_type_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
 }
 
-Indices::Indices(const Config &config, StorageMode storage_mode)
-    : text_index_(config.durability.storage_directory), text_edge_index_(config.durability.storage_directory) {
+Indices::Indices(const Config &config, StorageMode storage_mode, utils::MemoryTracker *db_embedding_memory_tracker)
+    : text_index_(config.durability.storage_directory),
+      text_edge_index_(config.durability.storage_directory),
+      vector_index_(db_embedding_memory_tracker),
+      vector_edge_index_(db_embedding_memory_tracker) {
   std::invoke([this, config, storage_mode]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>();

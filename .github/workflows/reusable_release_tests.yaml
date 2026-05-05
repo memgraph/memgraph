@@ -266,13 +266,15 @@ jobs:
 
       - name: Build debug binary
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.5)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -386,13 +388,15 @@ jobs:
 
       - name: Build debug binary
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.5)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD

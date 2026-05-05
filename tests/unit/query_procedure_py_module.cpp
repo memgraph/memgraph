@@ -434,6 +434,7 @@ int main(int argc, char **argv) {
   MG_ASSERT(program_name);
   // Set program name, so Python can find its way to runtime libraries relative
   // to executable.
+  // TODO: Migrate to PyConfig API (Python 3.11+); some calls below are deprecated.
   Py_SetProgramName(program_name);
   PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
   Py_InitializeEx(0 /* = initsigs */);
@@ -462,8 +463,7 @@ int main(int argc, char **argv) {
     test_result = RUN_ALL_TESTS();
     Py_END_ALLOW_THREADS;
   }
-  // Shutdown Python
-  Py_Finalize();
+  // NOTE: Skip Py_Finalize() — see comment in memgraph.cpp (bpo-42969).
   PyMem_RawFree(program_name);
   return test_result;
 }

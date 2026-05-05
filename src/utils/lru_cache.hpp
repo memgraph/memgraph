@@ -21,10 +21,10 @@ namespace memgraph::utils {
 /// A simple LRU cache implementation.
 /// It is not thread-safe.
 
-template <class TKey, class TVal>
+template <class TKey, class TVal, class TAlloc = std::allocator<std::pair<const TKey, TVal>>>
 class LRUCache {
  public:
-  explicit LRUCache(int cache_size_) : cache_size(cache_size_) {};
+  explicit LRUCache(std::size_t cache_size_) : cache_size(cache_size_) {};
 
   void put(const TKey &key, const TVal &val) {
     auto it = item_map.find(key);
@@ -70,8 +70,15 @@ class LRUCache {
     }
   };
 
-  std::list<std::pair<TKey, TVal>> item_list;
-  std::unordered_map<TKey, decltype(item_list.begin())> item_map;
+  using ListType = std::list<std::pair<TKey, TVal>,
+                             typename std::allocator_traits<TAlloc>::template rebind_alloc<std::pair<TKey, TVal>>>;
+  ListType item_list;
+
+  using MapType = std::unordered_map<TKey, typename ListType::iterator, std::hash<TKey>, std::equal_to<TKey>,
+                                     typename std::allocator_traits<TAlloc>::template rebind_alloc<
+                                         std::pair<const TKey, typename ListType::iterator>>>;
+  MapType item_map;
+
   std::size_t cache_size;
 };
 }  // namespace memgraph::utils

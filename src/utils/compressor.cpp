@@ -95,29 +95,35 @@ auto ZlibCompressor::Compress(std::span<uint8_t const> uncompressed_data) const 
 
   // this is an estimate on what size we expect compression to be
   auto const compress_bound = compressBound(original_size);
-
   auto const buffer_size = static_cast<uint32_t>(compress_bound);
-  auto compressed_data = std::make_unique<uint8_t[]>(buffer_size);
+
+  // Use DB-aware allocator and wrap in RAII struct immediately.
+  // If we return early, result's destructor handles the cleanup.
+  memgraph::memory::DbAwareAllocator<uint8_t> alloc;
+  CompressedBuffer result(alloc.allocate(buffer_size), buffer_size, original_size);
 
   auto compression_level =
       CompressionLevelToZlibCompressionLevel(static_cast<CompressionLevel>(memgraph::flags::ParseCompressionLevel()));
 
   auto actual_size = compress_bound;
-  const int result =
-      compress2(compressed_data.get(), &actual_size, uncompressed_data.data(), original_size, compression_level);
+  const int z_res =
+      compress2(result.view().data(), &actual_size, uncompressed_data.data(), original_size, compression_level);
 
-  if (result != Z_OK) {
+  if (z_res != Z_OK) {
     return std::nullopt;
   }
 
   if (actual_size == compress_bound) {
-    return CompressedBuffer{std::move(compressed_data), buffer_size, original_size};
+    return result;
   }
 
+  // If actual size is smaller, create a new buffer of the exact size; result
+  // frees the original larger buffer when it goes out of scope.
   auto new_buffer_size = static_cast<uint32_t>(actual_size);
-  auto result_compressed_data = std::make_unique<uint8_t[]>(new_buffer_size);
-  std::copy_n(compressed_data.get(), new_buffer_size, result_compressed_data.get());
-  return CompressedBuffer{std::move(result_compressed_data), new_buffer_size, original_size};
+  CompressedBuffer final_buffer(alloc.allocate(new_buffer_size), new_buffer_size, original_size);
+  std::copy_n(result.view().data(), new_buffer_size, final_buffer.view().data());
+
+  return final_buffer;
 }
 
 auto ZlibCompressor::Decompress(std::span<uint8_t const> compressed_data, uint32_t original_size) const
@@ -126,16 +132,17 @@ auto ZlibCompressor::Decompress(std::span<uint8_t const> compressed_data, uint32
     return DecompressedBuffer{nullptr, 0};
   }
 
-  auto uncompressed_data = std::make_unique<uint8_t[]>(original_size);
+  memgraph::memory::DbAwareAllocator<uint8_t> alloc;
+  DecompressedBuffer result(alloc.allocate(original_size), original_size);
 
   // needed correct type to avoid UB in `uncompress` call
   uLongf original_size_tmp = original_size;
-  auto const result =
-      uncompress(uncompressed_data.get(), &original_size_tmp, compressed_data.data(), compressed_data.size_bytes());
+  auto const z_res =
+      uncompress(result.view().data(), &original_size_tmp, compressed_data.data(), compressed_data.size_bytes());
 
-  if (result != Z_OK) return std::nullopt;
+  if (z_res != Z_OK) return std::nullopt;
 
-  return DecompressedBuffer{std::move(uncompressed_data), original_size};
+  return result;
 }
 
 auto Compressor::GetInstance() -> Compressor const * {

@@ -2042,6 +2042,122 @@ TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
             expected_properties);
 }
 
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntax) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("CREATE INDEX node_range_index FOR (n:Person) ON (n.surname)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
+}
+
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntaxNoName) {
+  auto &ast_generator = *GetParam();
+  auto *index_query =
+      dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("CREATE INDEX FOR (n:Person) ON (n.surname)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
+}
+
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntaxComposite) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("CREATE INDEX composite_idx FOR (n:Person) ON (n.age, n.country)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  auto expected = std::vector{PropertyIxPath{ast_generator.Prop("age")}, PropertyIxPath{ast_generator.Prop("country")}};
+  EXPECT_EQ(index_query->properties_, expected);
+}
+
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntaxCompositeNestedProperties) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("CREATE INDEX nested_idx FOR (n:Person) ON (n.name.first, n.address.city)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  auto expected = std::vector{PropertyIxPath{ast_generator.Prop("name"), ast_generator.Prop("first")},
+                              PropertyIxPath{ast_generator.Prop("address"), ast_generator.Prop("city")}};
+  EXPECT_EQ(index_query->properties_, expected);
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntax) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<EdgeIndexQuery *>(
+      ast_generator.ParseQuery("CREATE INDEX rel_range_index FOR ()-[r:KNOWS]-() ON (r.since)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, EdgeIndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->edge_type_, ast_generator.EdgeType("KNOWS"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], ast_generator.Prop("since"));
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxNoName) {
+  auto &ast_generator = *GetParam();
+  auto *index_query =
+      dynamic_cast<EdgeIndexQuery *>(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (r.since)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, EdgeIndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->edge_type_, ast_generator.EdgeType("KNOWS"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], ast_generator.Prop("since"));
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxComposite) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<EdgeIndexQuery *>(
+      ast_generator.ParseQuery("CREATE INDEX composite_rel_idx FOR ()-[r:PURCHASED]-() ON (r.date, r.amount)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, EdgeIndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->edge_type_, ast_generator.EdgeType("PURCHASED"));
+  ASSERT_EQ(index_query->properties_.size(), 2U);
+  EXPECT_EQ(index_query->properties_[0], ast_generator.Prop("date"));
+  EXPECT_EQ(index_query->properties_[1], ast_generator.Prop("amount"));
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxVariableMismatch) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (x.since)"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexNestedPropertyNotSupported) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE EDGE INDEX ON :KNOWS(prop1.prop2)"), SemanticException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (r.address.city)"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexComposite) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE EDGE INDEX ON :KNOWS(since, weight)"), SemanticException);
+  EXPECT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (r.since, r.weight)"));
+}
+
+TEST_P(CypherMainVisitorTest, CreateIndexAlternativeSyntaxVariableMismatch) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR (n:Person) ON (x.surname)"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateIndexAlternativeSyntaxNumericNameNotAllowed) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX 1 FOR (n:Person) ON (n.surname)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX 1 FOR ()-[r:KNOWS]-() ON (r.since)"), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeNumericNameNotAllowed) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT 1 FOR (n:Book) REQUIRE n.isbn IS UNIQUE"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT 1 FOR (n:Author) REQUIRE n.name IS NOT NULL"),
+               SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT 1 FOR (n:Movie) REQUIRE n.title IS :: STRING"),
+               SyntaxException);
+}
+
 TEST_P(CypherMainVisitorTest, ReturnAll) {
   {
     auto &ast_generator = *GetParam();
@@ -2631,6 +2747,96 @@ void check_auth_query(
   EXPECT_EQ(auth_query->label_matching_modes_, label_matching_modes);
 }
 
+// TODO(colinbarry) - Passing mainly deduced {} to the massive parameter
+// list for check_auth_query is very ugly. Instead, I've added a fluent API
+// to make this easier. Rather than introducing too much noise into this PR,
+// I'll migrate the testing after this PR is merged.
+struct AuthQueryChecker {
+  AuthQueryChecker(Base *ast_generator, std::string input, AuthQuery::Action action)
+      : ast_generator_(ast_generator), input_(std::move(input)), action_(action) {}
+
+  AuthQueryChecker &WithUser(std::string user) {
+    user_ = std::move(user);
+    return *this;
+  }
+
+  AuthQueryChecker &WithRoles(std::vector<std::string> roles) {
+    roles_ = std::move(roles);
+    return *this;
+  }
+
+  AuthQueryChecker &WithUserOrRole(std::string user_or_role) {
+    user_or_role_ = std::move(user_or_role);
+    return *this;
+  }
+
+  AuthQueryChecker &WithPassword(TypedValue password) {
+    password_ = std::move(password);
+    return *this;
+  }
+
+  AuthQueryChecker &WithPrivileges(std::vector<AuthQuery::Privilege> privileges) {
+    privileges_ = std::move(privileges);
+    return *this;
+  }
+
+  AuthQueryChecker &WithLabelPrivileges(
+      std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges) {
+    label_privileges_ = std::move(label_privileges);
+    return *this;
+  }
+
+  AuthQueryChecker &WithEdgeTypePrivileges(
+      std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges) {
+    edge_type_privileges_ = std::move(edge_type_privileges);
+    return *this;
+  }
+
+  AuthQueryChecker &WithLabelMatchingModes(std::vector<AuthQuery::LabelMatchingMode> modes) {
+    label_matching_modes_ = std::move(modes);
+    return *this;
+  }
+
+  AuthQueryChecker &WithDatabases(std::unordered_set<std::string> databases) {
+    role_databases_ = std::move(databases);
+    return *this;
+  }
+
+  void Check() const {
+    auto *q = dynamic_cast<AuthQuery *>(ast_generator_->ParseQuery(input_));
+    ASSERT_TRUE(q);
+    EXPECT_EQ(q->action_, action_);
+    EXPECT_EQ(q->user_, user_);
+    EXPECT_EQ(q->roles_, roles_);
+    EXPECT_EQ(q->user_or_role_, user_or_role_);
+    ASSERT_EQ(static_cast<bool>(q->password_), static_cast<bool>(password_));
+    if (password_) {
+      ast_generator_->CheckLiteral(q->password_, *password_);
+    }
+    EXPECT_EQ(q->privileges_, privileges_);
+    EXPECT_EQ(q->label_privileges_, label_privileges_);
+    EXPECT_EQ(q->edge_type_privileges_, edge_type_privileges_);
+    EXPECT_EQ(q->label_matching_modes_, label_matching_modes_);
+    if (role_databases_) {
+      EXPECT_EQ(q->role_databases_, *role_databases_);
+    }
+  }
+
+ private:
+  Base *ast_generator_;
+  std::string input_;
+  AuthQuery::Action action_;
+  std::string user_;
+  std::vector<std::string> roles_;
+  std::string user_or_role_;
+  std::optional<TypedValue> password_;
+  std::vector<AuthQuery::Privilege> privileges_;
+  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges_;
+  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges_;
+  std::vector<AuthQuery::LabelMatchingMode> label_matching_modes_;
+  std::optional<std::unordered_set<std::string>> role_databases_;
+};
+
 TEST_P(CypherMainVisitorTest, UserOrRoleName) {
   auto &ast_generator = *GetParam();
   check_auth_query(
@@ -2772,6 +2978,16 @@ TEST_P(CypherMainVisitorTest, SetRole) {
   // Single role tests (backward compatibility)
   check_auth_query(
       &ast_generator, "SET ROLE FOR user TO role", AuthQuery::Action::SET_ROLE, "user", {"role"}, "", {}, {}, {}, {});
+  check_auth_query(&ast_generator,
+                   "SET ROLE FOR USER user TO role",
+                   AuthQuery::Action::SET_ROLE,
+                   "user",
+                   {"role"},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {});
   check_auth_query(
       &ast_generator, "SET ROLE FOR user TO null", AuthQuery::Action::SET_ROLE, "user", {"null"}, "", {}, {}, {}, {});
 
@@ -2836,9 +3052,89 @@ TEST_P(CypherMainVisitorTest, ClearRole) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE FOR user TO"), SyntaxException);
-  check_auth_query(
-      &ast_generator, "CLEAR ROLE FOR user", AuthQuery::Action::CLEAR_ROLE, "user", {}, "", {}, {}, {}, {});
+
+  AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR user", AuthQuery::Action::CLEAR_ROLE).WithUser("user").Check();
+  AuthQueryChecker(&ast_generator, "CLEAR ROLES FOR user", AuthQuery::Action::CLEAR_ROLE).WithUser("user").Check();
+  AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR USER user", AuthQuery::Action::CLEAR_ROLE).WithUser("user").Check();
+
+  AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR user ON db1", AuthQuery::Action::CLEAR_ROLE)
+      .WithUser("user")
+      .WithDatabases({"db1"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR user ON db1, db2", AuthQuery::Action::CLEAR_ROLE)
+      .WithUser("user")
+      .WithDatabases({"db1", "db2"})
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, GrantRole) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT ROLE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT ROLE TO user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT ROLE admin"), SyntaxException);
+
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin TO USER user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin TO user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLES admin TO user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin, reader TO user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin TO user ON db1", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .WithDatabases({"db1"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin, reader TO user ON db1, db2", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .WithDatabases({"db1", "db2"})
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, RevokeRole) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE ROLE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE ROLE FROM user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE ROLE admin"), SyntaxException);
+
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin FROM USER user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin FROM user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLES admin FROM user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin, reader FROM user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin FROM user ON db1", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .WithDatabases({"db1"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin, reader FROM user ON db1, db2", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .WithDatabases({"db1", "db2"})
+      .Check();
 }
 
 TEST_P(CypherMainVisitorTest, GrantPrivilege) {
@@ -4187,6 +4483,8 @@ TEST_P(CypherMainVisitorTest, ShowRoleForUser) {
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR "), SyntaxException);
   check_auth_query(
       &ast_generator, "SHOW ROLE FOR user", AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", {}, "", {}, {}, {}, {});
+  check_auth_query(
+      &ast_generator, "SHOW ROLE FOR USER user", AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", {}, "", {}, {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR user1, user2"), SyntaxException);
 }
 
@@ -4195,6 +4493,16 @@ TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR "), SyntaxException);
   check_auth_query(
       &ast_generator, "SHOW USERS FOR role", AuthQuery::Action::SHOW_USERS_FOR_ROLE, "", {"role"}, "", {}, {}, {}, {});
+  check_auth_query(&ast_generator,
+                   "SHOW USERS FOR ROLE role",
+                   AuthQuery::Action::SHOW_USERS_FOR_ROLE,
+                   "",
+                   {"role"},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR role1, role2"), SyntaxException);
 }
 
@@ -4798,6 +5106,130 @@ TEST_P(CypherMainVisitorTest, DropConstraint) {
     EXPECT_TRUE(query->constraint_.type_constraint.has_value());
     EXPECT_EQ(query->constraint_.type_constraint, memgraph::storage::TypeConstraintKind::STRING);
   }
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeUniqueNode) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT book_isbn FOR (book:Book) REQUIRE book.isbn IS UNIQUE"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::UNIQUE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Book"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("isbn")));
+  }
+  {
+    // without name
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT FOR (book:Book) REQUIRE book.isbn IS UNIQUE"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::UNIQUE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Book"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("isbn")));
+  }
+  {
+    // composite
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.ParseQuery(
+        "CREATE CONSTRAINT book_title_year FOR (book:Book) REQUIRE (book.title, book.publicationYear) IS UNIQUE"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::UNIQUE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Book"));
+    EXPECT_THAT(query->constraint_.properties,
+                UnorderedElementsAre(ast_generator.Prop("title"), ast_generator.Prop("publicationYear")));
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeUniqueEdgeNotSupported) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT sequels FOR ()-[s:SEQUEL_OF]-() REQUIRE s.order IS UNIQUE"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeUniqueWrongVariable) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT FOR (n:Book) REQUIRE m.isbn IS UNIQUE"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeExistenceNode) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT author_name FOR (author:Author) REQUIRE author.name IS NOT NULL"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::EXISTS);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Author"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("name")));
+  }
+  {
+    // without name
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT FOR (author:Author) REQUIRE author.name IS NOT NULL"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::EXISTS);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Author"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("name")));
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeExistenceEdgeNotSupported) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(
+      ast_generator.ParseQuery("CREATE CONSTRAINT wrote_year FOR ()-[wrote:WROTE]-() REQUIRE wrote.year IS NOT NULL"),
+      SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeExistenceWrongVariable) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT FOR (n:Author) REQUIRE m.name IS NOT NULL"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeTypeNode) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT movie_title FOR (movie:Movie) REQUIRE movie.title IS :: STRING"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::TYPE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Movie"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("title")));
+    EXPECT_TRUE(query->constraint_.type_constraint.has_value());
+    EXPECT_EQ(query->constraint_.type_constraint, memgraph::storage::TypeConstraintKind::STRING);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT FOR (movie:Movie) REQUIRE movie.year IS :: INTEGER"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::TYPE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("Movie"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("year")));
+    EXPECT_TRUE(query->constraint_.type_constraint.has_value());
+    EXPECT_EQ(query->constraint_.type_constraint, memgraph::storage::TypeConstraintKind::INTEGER);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeTypeEdgeNotSupported) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(
+      ast_generator.ParseQuery("CREATE CONSTRAINT part_of FOR ()-[part:PART_OF]-() REQUIRE part.order IS :: INTEGER"),
+      SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeTypeWrongVariable) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT FOR (n:Movie) REQUIRE m.title IS :: STRING"),
+               SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, RegexMatch) {
@@ -6982,6 +7414,12 @@ TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) CALL { MATCH (m) RETURN m QUERY MEMORY UNLIMITED } RETURN n",
                                                ast_generator,
                                                "Memory limit cannot be set on subqueries!");
+
+  TestInvalidQuery<SyntaxException>("MATCH (t:Team) CALL (t AS teams) { RETURN 1 AS x } RETURN t", ast_generator);
+
+  TestInvalidQuery<SyntaxException>("MATCH (n) CALL (*, n) { RETURN 1 AS x } RETURN n", ast_generator);
+
+  TestInvalidQuery<SyntaxException>("MATCH (n) CALL (n.prop) { RETURN 1 AS x } RETURN n", ast_generator);
 }
 
 TEST_P(CypherMainVisitorTest, CallSubquery) {

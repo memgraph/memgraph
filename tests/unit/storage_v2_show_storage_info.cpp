@@ -14,7 +14,7 @@
 #include <filesystem>
 
 #include "disk_test_utils.hpp"
-#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/storage.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -31,7 +31,7 @@ class ShowStorageInfoTest : public testing::Test {
 
   ShowStorageInfoTest() {
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
-    storage = std::make_unique<memgraph::storage::DiskStorage>(config_);
+    storage = disk_test_utils::CreateDiskStorage(config_);
   }
 
   void TearDown() override {

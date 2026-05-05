@@ -91,9 +91,8 @@ void VertexInfoCache::Invalidate(Vertex const *vertex) {
 }
 
 auto VertexInfoCache::GetLabels(View view, Vertex const *vertex) const
-    -> std::optional<std::reference_wrapper<utils::small_vector<LabelId> const>> {
-  return FetchHelper<utils::small_vector<LabelId>>(
-      *this, std::mem_fn(&VertexInfoCache::Caches::labelCache_), view, vertex);
+    -> std::optional<std::reference_wrapper<VertexKey const>> {
+  return FetchHelper<VertexKey>(*this, std::mem_fn(&VertexInfoCache::Caches::labelCache_), view, vertex);
 }
 
 void VertexInfoCache::StoreLabels(View view, Vertex const *vertex, std::span<LabelId const> res) {

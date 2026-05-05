@@ -275,8 +275,16 @@ template <class TVisitor>
 class Visitable {
  public:
   virtual ~Visitable() = default;
+
   /// @brief Accept the @c TVisitor instance and call its @c Visit method.
   virtual typename TVisitor::ReturnType Accept(TVisitor &) = 0;
+
+ protected:
+  Visitable() = default;
+  Visitable(const Visitable &) = default;
+  Visitable(Visitable &&) noexcept = default;
+  Visitable &operator=(const Visitable &) = default;
+  Visitable &operator=(Visitable &&) noexcept = default;
 };
 
 /// Default implementation for @c utils::Visitable::Accept, which works for

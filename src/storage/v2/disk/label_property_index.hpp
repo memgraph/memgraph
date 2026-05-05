@@ -37,8 +37,9 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
-    void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                             const Transaction &tx) override {};
+    void UpdateOnSetProperty(PropertyId /*property*/, const PropertyValue & /*old_value*/,
+                             const PropertyValue & /*new_value*/, Vertex * /*vertex*/,
+                             const Transaction & /*tx*/) override {}
 
     bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
 
@@ -84,7 +85,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
                                                             EntriesForDeletion const &entries_for_deletion);
 
   DropResult DropIndex(LabelId label, std::vector<PropertyPath> const &properties, ActiveIndicesUpdater const &updater,
-                       std::optional<IndexOrder> order = std::nullopt) override;
+                       std::optional<IndexOrder> order = std::nullopt);
 
   RocksDBStorage *GetRocksDBStorage() const;
 

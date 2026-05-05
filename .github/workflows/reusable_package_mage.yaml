@@ -92,6 +92,8 @@ env:
   POSTGRESQL_CONTAINER: "postgresql_test"
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  MAGE_E2E_OPENAI: "1"
   GENERATE_SBOM: "${{ inputs.generate_sbom }}"
   TOOLCHAIN: "v7"
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
@@ -389,20 +391,6 @@ jobs:
           DEB_PACKAGE="$(ls output/memgraph-mage*.deb)"
           echo "DEB_PACKAGE=${DEB_PACKAGE}" >> $GITHUB_ENV
 
-      - name: Build pymgclient in MGBUILD container
-        if: ${{ inputs.arch == 'arm' }}
-        run: |
-          # This has to be done here, otherwise we will need to build pymgclient from source within
-          # docker image build because we currently do not provide an arm64 wheel for Linux.
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os "$OS" \
-            --arch $ARCH \
-            --build-type $BUILD_TYPE \
-            --cugraph $CUGRAPH \
-            build-pymgclient
-          ls -la mage/wheels
-
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
         run: |
@@ -496,6 +484,7 @@ jobs:
             -p $MEMGRAPH_PORT:$MEMGRAPH_PORT \
             -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
             -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
+            -e OPENAI_API_KEY=$OPENAI_API_KEY \
             ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG \
             --telemetry-enabled=False
 

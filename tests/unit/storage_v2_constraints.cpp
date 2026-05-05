@@ -25,6 +25,7 @@
 
 #include "disk_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/unit/ddl_abort_helpers.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -2124,4 +2125,115 @@ TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints), initial_count);
+}
+
+using memgraph::tests::ConstraintAcc;
+using memgraph::tests::ExpectCreateAbortLeavesNoGhostEntry;
+
+TYPED_TEST(ConstraintsTest, ExistenceConstraintAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(
+      this, ConstraintAcc, [&](auto *acc) { return acc->CreateExistenceConstraint(this->label1, this->prop1); });
+}
+
+TYPED_TEST(ConstraintsTest, UniqueConstraintAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  // CreateUniqueConstraint returns expected<CreationStatus, ...>; SUCCESS is the
+  // only "yes, installed" status — adapt to .has_value() shape for the helper.
+  std::set<PropertyId> const properties{this->prop1};
+  auto create = [&](auto *acc) -> std::expected<void, std::monostate> {
+    auto res = acc->CreateUniqueConstraint(this->label1, properties);
+    if (!res.has_value() || res.value() != memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS) {
+      return std::unexpected{std::monostate{}};
+    }
+    return {};
+  };
+  ExpectCreateAbortLeavesNoGhostEntry(this, ConstraintAcc, create);
+}
+
+TYPED_TEST(ConstraintsTest, TypeConstraintAbortLeavesNoGhostEntry) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectCreateAbortLeavesNoGhostEntry(this, ConstraintAcc, [&](auto *acc) {
+    return acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+  });
+}
+
+// Drop-abort tests have a richer shape (verify still-in-list + verify retry-CREATE
+// fails because the slot is still live). The ExpectDropAbortRestoresIndex helper
+// verifies via a Ready-predicate which constraints don't expose; keep these
+// inline but compress the boilerplate.
+TYPED_TEST(ConstraintsTest, DropExistenceConstraintAbortRestoresConstraint) {
+  SKIP_IF_NOT_IN_MEMORY();
+  {
+    auto acc = this->CreateConstraintAccessor();
+    ASSERT_TRUE(acc->CreateExistenceConstraint(this->label1, this->prop1).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->CreateConstraintAccessor();
+    ASSERT_TRUE(acc->DropExistenceConstraint(this->label1, this->prop1).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label1, this->prop1)));
+  }
+  {
+    auto acc = this->CreateConstraintAccessor();
+    EXPECT_FALSE(acc->CreateExistenceConstraint(this->label1, this->prop1).has_value());
+    acc->Abort();
+  }
+}
+
+TYPED_TEST(ConstraintsTest, DropUniqueConstraintAbortRestoresConstraint) {
+  SKIP_IF_NOT_IN_MEMORY();
+  std::set<PropertyId> const properties{this->prop1};
+  {
+    auto acc = this->CreateConstraintAccessor();
+    auto res = acc->CreateUniqueConstraint(this->label1, properties);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->CreateConstraintAccessor();
+    EXPECT_EQ(acc->DropUniqueConstraint(this->label1, properties),
+              memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
+    acc->Abort();
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_THAT(acc->ListAllConstraints().unique, UnorderedElementsAre(std::make_pair(this->label1, properties)));
+  }
+  {
+    auto acc = this->CreateConstraintAccessor();
+    auto res = acc->CreateUniqueConstraint(this->label1, properties);
+    ASSERT_TRUE(res.has_value());
+    EXPECT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::ALREADY_EXISTS);
+    acc->Abort();
+  }
+}
+
+TYPED_TEST(ConstraintsTest, DropTypeConstraintAbortRestoresConstraint) {
+  SKIP_IF_NOT_IN_MEMORY();
+  {
+    auto acc = this->CreateConstraintAccessor();
+    ASSERT_TRUE(acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->CreateConstraintAccessor();
+    ASSERT_TRUE(acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER).has_value());
+    acc->Abort();
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_THAT(acc->ListAllConstraints().type,
+                UnorderedElementsAre(std::make_tuple(this->label1, this->prop1, TypeConstraintKind::INTEGER)));
+  }
+  {
+    auto acc = this->CreateConstraintAccessor();
+    EXPECT_FALSE(acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER).has_value());
+    acc->Abort();
+  }
 }

@@ -1073,9 +1073,7 @@ def test_user_profile_explicit_implicit_tx_memory_tracking(connection, test_name
     cursor_user1_implicit = connection_user1_implicit.cursor()
 
     # Test that explicit and implicit transactions are tracked under the same user
-    execute_and_fetch_all(
-        cursor_user1_explicit, "UNWIND RANGE(1,200000) AS i CREATE (n:Node {i:i})"
-    )  # Should be around 100MB
+    execute_and_fetch_all(cursor_user1_explicit, "UNWIND RANGE(1,400000) AS i CREATE (n:Node {i:i})")
 
     exceptions_count = 0
     try:
