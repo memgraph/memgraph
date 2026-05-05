@@ -261,7 +261,8 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
 
   memgraph::storage::VectorIndexSpec spec{
       .index_name = "db1_embedding_index",
-      .label_id = label,
+      .label_filter =
+          memgraph::storage::VectorLabelFilter{.mode = memgraph::storage::VectorMatchMode::SINGLE, .ids = {label}},
       .property = property,
       .metric_kind = unum::usearch::metric_kind_t::cos_k,
       .dimension = 256,
@@ -329,7 +330,8 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
 
   memgraph::storage::VectorEdgeIndexSpec edge_spec{
       .index_name = "db1_edge_embedding_index",
-      .edge_type_id = edge_type,
+      .edge_type_filter = memgraph::storage::VectorEdgeTypeFilter{.mode = memgraph::storage::VectorMatchMode::SINGLE,
+                                                                  .ids = {edge_type}},
       .property = edge_property,
       .metric_kind = unum::usearch::metric_kind_t::cos_k,
       .dimension = 256,
