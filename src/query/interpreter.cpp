@@ -8268,12 +8268,15 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
 #ifdef MG_ENTERPRISE
         if (auth_checker) {
           // Wildcard index covers any label, so it requires unrestricted vertex READ.
-          // Otherwise the user must have READ on at least one of the listed labels.
+          // Otherwise the user must have READ on every listed label — Has(span<...>) matches if
+          // any one is granted, which would leak the full label set of an :A&B / :A|B index to a
+          // user with READ on only :A.
           const bool authorized =
               spec.label_filter.ids.empty()
                   ? auth_checker->HasUnrestrictedAccessToVertices()
-                  : auth_checker->Has(std::span{spec.label_filter.ids.data(), spec.label_filter.ids.size()},
-                                      AuthQuery::FineGrainedPrivilege::READ);
+                  : std::ranges::all_of(spec.label_filter.ids, [&](auto label) {
+                      return auth_checker->Has(std::span{&label, 1}, AuthQuery::FineGrainedPrivilege::READ);
+                    });
           if (!authorized) continue;
         }
 #endif
