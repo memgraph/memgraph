@@ -192,7 +192,8 @@ jobs:
           ./tools/ci/docker_cleanup.sh
 
       - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
+        # TEMP: ungated for manual testing — restore `&& github.event_name == 'merge_group'` before merging
+        if: ${{ failure() }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
 
   benchmark:
@@ -430,7 +431,8 @@ jobs:
           ./tools/ci/docker_cleanup.sh
 
       - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
+        # TEMP: ungated for manual testing — restore `&& github.event_name == 'merge_group'` before merging
+        if: ${{ failure() }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
 
   e2e:
@@ -556,7 +558,8 @@ jobs:
           ./tools/ci/docker_cleanup.sh
 
       - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
+        # TEMP: ungated for manual testing — restore `&& github.event_name == 'merge_group'` before merging
+        if: ${{ failure() }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
 
   stress:
@@ -690,7 +693,8 @@ jobs:
           ./tools/ci/docker_cleanup.sh
 
       - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
+        # TEMP: ungated for manual testing — restore `&& github.event_name == 'merge_group'` before merging
+        if: ${{ failure() }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
 
   query_modules:
@@ -795,5 +799,6 @@ jobs:
           ./tools/ci/docker_cleanup.sh
 
       - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
+        # TEMP: ungated for manual testing — restore `&& github.event_name == 'merge_group'` before merging
+        if: ${{ failure() }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
