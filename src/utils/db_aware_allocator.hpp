@@ -41,24 +41,11 @@ class ArenaPool;
 struct DbArenaTlsState {
   unsigned arena{0};               // Current thread's arena for active DB (0 = none)
   ArenaPool *arena_pool{nullptr};  // Pool that owns arena; nullptr when arena == 0
+  bool in_scope{false};  // For perf reasons we want to allow subsequent executions to reuse, so this is the scope guard
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 inline thread_local DbArenaTlsState tls_db_arena_state [[gnu::tls_model("initial-exec")]] = {};
-
-// Persistent TLS cache that survives individual DbArenaScope destruction.
-// While tls_db_arena_state is restored to prev_arena_/prev_arena_pool_ on scope
-// exit, this cache keeps the arena pinned so that the NEXT scope from the *same*
-// pool can reuse it without calling ArenaPool::Acquire() (which is mutex-protected).
-//
-// Cleared only on pool switch or explicit DbArenaScope() no-arg teardown.
-struct ArenaTlsCache {
-  ArenaPool *owner{nullptr};
-  unsigned arena{0};
-};
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-inline thread_local ArenaTlsCache tls_arena_cache [[gnu::tls_model("initial-exec")]] = {};
 
 // Allocate `bytes` bytes with the given `alignment`, attributed to arena `idx`.
 // Returns void* — use DbAllocate<T> for typed element-count based allocation.
