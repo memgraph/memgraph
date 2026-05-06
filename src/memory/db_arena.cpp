@@ -360,24 +360,28 @@ unsigned ArenaPool::Acquire() {
 }
 
 void ArenaPool::Release(unsigned arena_idx) {
-  if (arena_idx == 0) return;
-  const std::lock_guard<std::mutex> lock(arena_mux_);
+  try {
+    if (arena_idx == 0) return;
+    const std::lock_guard<std::mutex> lock(arena_mux_);
 
-  if (arena_idx == first_arena_idx_) {
-    DMG_ASSERT(first_arena_use_count_ != 0, "Release: first arena not in use");
-    if (--first_arena_use_count_ > 0) return;
-    // If count reaches 0, fall through to move it to the free section of the vector
-  }
-
-  // Find the arena in the 'in-use' section [free_count_, size)
-  for (size_t i = free_count_; i < arenas_.size(); ++i) {
-    if (arenas_[i] == arena_idx) {
-      std::swap(arenas_[i], arenas_[free_count_]);
-      ++free_count_;
-      return;
+    if (arena_idx == first_arena_idx_) {
+      DMG_ASSERT(first_arena_use_count_ != 0, "Release: first arena not in use");
+      if (--first_arena_use_count_ > 0) return;
+      // If count reaches 0, fall through to move it to the free section of the vector
     }
+
+    // Find the arena in the 'in-use' section [free_count_, size)
+    for (size_t i = free_count_; i < arenas_.size(); ++i) {
+      if (arenas_[i] == arena_idx) {
+        std::swap(arenas_[i], arenas_[free_count_]);
+        ++free_count_;
+        return;
+      }
+    }
+    DMG_ASSERT(false, "Trying to release an areana that is not under the current pool.");
+  } catch (...) {
+    // silently fail
   }
-  DMG_ASSERT(false, "Trying to release an areana that is not under the current pool.");
 }
 
 bool ArenaPool::Owns(unsigned arena_idx) const {
@@ -418,9 +422,13 @@ unsigned ArenaPool::AcquireTcache() {
 }
 
 void ArenaPool::ReleaseTcache(unsigned tcache_id) {
-  if (tcache_id == 0) return;
-  const std::lock_guard<std::mutex> lock(tcache_mutex_);
-  tcaches_.push_back(tcache_id);
+  try {
+    if (tcache_id == 0) return;
+    const std::lock_guard<std::mutex> lock(tcache_mutex_);
+    tcaches_.push_back(tcache_id);
+  } catch (...) {
+    // silently fail
+  }
 }
 
 void ArenaPool::DestroyAllTcaches() {
@@ -506,79 +514,51 @@ void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexce
 #endif
 }
 
-// TODO:
-// Clean up the member variables. Use DbArenaTlsState instead of the individual variables (unless not possible for some
-// reason)
-DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type)
-    : prev_arena_pool_(tls_db_arena_state.arena_pool),
-      prev_arena_(tls_db_arena_state.arena),
-      prev_in_scope_{tls_db_arena_state.in_scope},
-      prev_tcache_(tls_db_arena_state.tcache),
-      arena_pool_(arena_pool) {
-  tls_db_arena_state.in_scope = true;
+DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type) : prev_state_(tls_db_arena_state) {
+  cur_state_.arena_pool = arena_pool;
 #if USE_JEMALLOC
 
   // Fast path: nested scope — same pool already active in TLS.
-  if (prev_arena_pool_ == arena_pool) {
-    if (prev_arena_ != 0) {  // Borrow
-      arena_idx_ = prev_arena_;
-      tcache_id_ = prev_tcache_;
+  if (prev_state_.arena_pool == arena_pool) {
+    if (prev_state_.arena != 0) {  // Borrow
+      cur_state_.arena = prev_state_.arena;
+      cur_state_.tcache = prev_state_.tcache;
     } else {  // Acquire from pool
-      arena_idx_ = arena_pool ? arena_pool->Acquire() : 0U;
-      tls_db_arena_state.arena = arena_idx_;
-      tcache_id_ = arena_pool ? arena_pool->AcquireTcache() : 0U;
-      tls_db_arena_state.tcache = tcache_id_;
+      cur_state_.arena = arena_pool ? arena_pool->Acquire() : 0U;
+      cur_state_.tcache = arena_pool ? arena_pool->AcquireTcache() : 0U;
+      tls_db_arena_state.arena = cur_state_.arena;
+      tls_db_arena_state.tcache = cur_state_.tcache;
     }
     return;
   }
 
-  // Check if we are inheriting TLS from the previous run, we are not a nested scope
-  // Clean up if needed
-  if (!prev_in_scope_) {
-    if (prev_arena_pool_ && prev_arena_ != 0) {
-      prev_arena_pool_->Release(prev_arena_);
-      if (prev_tcache_ != 0) {
-        prev_arena_pool_->ReleaseTcache(prev_tcache_);
-      }
-      prev_arena_pool_ = nullptr;
-      prev_arena_ = 0;
-      prev_tcache_ = 0;
-    }
-  } else {
-    DMG_ASSERT(type == Type::FORCE || prev_arena_pool_ == nullptr, "Crashing into a different DB arena pool!");
-  }
+  DMG_ASSERT(type == Type::FORCE || prev_state_.arena_pool == nullptr, "Crashing into a different DB arena pool!");
 
   // Acquire from pool (first time or different pool).
-  arena_idx_ = arena_pool ? arena_pool->Acquire() : 0U;
-  tls_db_arena_state.arena = arena_idx_;
-  tcache_id_ = arena_pool ? arena_pool->AcquireTcache() : 0U;
-  tls_db_arena_state.tcache = tcache_id_;
-  tls_db_arena_state.arena_pool = arena_pool;
+  cur_state_.arena = arena_pool ? arena_pool->Acquire() : 0U;
+  cur_state_.tcache = arena_pool ? arena_pool->AcquireTcache() : 0U;
+  tls_db_arena_state = cur_state_;
 #else
   (void)arena_pool;
   tls_db_arena_state.arena = 0U;
   tls_db_arena_state.arena_pool = nullptr;
-  DMG_ASSERT(prev_arena_ == 0U, "Erasing DB scope!");
+  DMG_ASSERT(prev_state_.arena == 0U, "Erasing DB scope!");
 #endif
 }
 
 DbArenaScope::~DbArenaScope() noexcept {
-  // Restore only if nested
-  if (prev_in_scope_ && prev_arena_pool_ != arena_pool_) {
-    tls_db_arena_state.arena = prev_arena_;
-    tls_db_arena_state.arena_pool = prev_arena_pool_;
-    tls_db_arena_state.tcache = prev_tcache_;
-    if (arena_pool_ && arena_idx_ != 0) {
-      arena_pool_->Release(arena_idx_);
+  bool const borrowed = prev_state_.arena_pool == cur_state_.arena_pool && prev_state_.arena != 0;
+
+  tls_db_arena_state = prev_state_;
+
+  if (!borrowed) {
+    if (cur_state_.arena_pool && cur_state_.arena != 0) {
+      cur_state_.arena_pool->Release(cur_state_.arena);
     }
-    if (arena_pool_ && tcache_id_ != 0) {
-      arena_pool_->ReleaseTcache(tcache_id_);
+    if (cur_state_.arena_pool && cur_state_.tcache != 0) {
+      cur_state_.arena_pool->ReleaseTcache(cur_state_.tcache);
     }
   }
-  tls_db_arena_state.in_scope = prev_in_scope_;
-  // The arena stays pinned in the persistent TLS cache.
-  // It is released only on pool switch (in the constructor above) or on
-  // explicit teardown via the DbArenaScope() no-arg constructor.
 }
 
 }  // namespace memgraph::memory

@@ -42,7 +42,6 @@ struct DbArenaTlsState {
   unsigned arena{0};               // Current thread's arena for active DB (0 = none)
   unsigned tcache{0};              // Current thread's explicit tcache for active DB (0 = none / bypass tcache)
   ArenaPool *arena_pool{nullptr};  // Pool that owns arena; nullptr when arena == 0
-  bool in_scope{false};  // For perf reasons we want to allow subsequent executions to reuse, so this is the scope guard
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
