@@ -147,8 +147,12 @@ auto TransactionReplication::CollectAllFailures() -> std::vector<ReplicaFailure>
   return replication_failures_;
 }
 
-void TransactionReplication::UpdateCommitTsInfo(std::function<CommitTsInfo(CommitTsInfo const &)> const &cb) {
+void TransactionReplication::UpdateCommitTsInfo(uint64_t const durability_commit_timestamp) {
+  if (locked_clients->empty()) return;
   bool const has_failures = !replication_failures_.empty() || !finalize_failures_.empty();
+  auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old) -> CommitTsInfo {
+    return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = old.num_committed_txns_ + 1};
+  };
   for (auto const &client : *locked_clients) {
     // ASYNC replicas update their own commit_ts_info_ inside the async task
     // upon confirmed success — updating here would be optimistic and could
@@ -161,7 +165,7 @@ void TransactionReplication::UpdateCommitTsInfo(std::function<CommitTsInfo(Commi
         continue;
       }
     }
-    atomic_struct_update<CommitTsInfo>(client->commit_ts_info_, cb);
+    atomic_struct_update<CommitTsInfo>(client->commit_ts_info_, update_func);
   }
 }
 

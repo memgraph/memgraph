@@ -85,7 +85,7 @@ class TransactionReplication {
 
   // Updates commit_ts_info on all non-ASYNC replicas that did not appear in replication_failures_ or
   // finalize_failures_. Skips the per-replica failure check entirely on the (common) no-failure path.
-  void UpdateCommitTsInfo(std::function<CommitTsInfo(CommitTsInfo const &)> const &cb);
+  void UpdateCommitTsInfo(uint64_t durability_commit_timestamp);
 
  private:
   std::vector<std::optional<ReplicaStream>> streams;

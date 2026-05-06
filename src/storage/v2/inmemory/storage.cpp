@@ -1069,12 +1069,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           FinalizeCommitPhase(durability_commit_timestamp);
 
           auto failures = replicating_txn.CollectAllFailures();
-          auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
-            return CommitTsInfo{.ldt_ = durability_commit_timestamp,
-                                .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
-          };
           // update replicas' cached commit info
-          replicating_txn.UpdateCommitTsInfo(update_func);
+          replicating_txn.UpdateCommitTsInfo(durability_commit_timestamp);
 
           if (!failures.empty()) {
             return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
@@ -1099,13 +1095,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
             repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
 
         auto failures = replicating_txn.CollectAllFailures();
-        auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
-          return CommitTsInfo{.ldt_ = durability_commit_timestamp,
-                              .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
-        };
         // update replicas' cached commit info only if the txn was actually committed
         if (repl_prepare_phase_ok) {
-          replicating_txn.UpdateCommitTsInfo(update_func);
+          replicating_txn.UpdateCommitTsInfo(durability_commit_timestamp);
         }
 
         if (!failures.empty()) {
