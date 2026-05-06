@@ -182,7 +182,8 @@ class InMemoryStorage final : public Storage {
 
     [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,
-                                                    CommitArgs const &commit_args) -> bool;
+                                                    CommitArgs const &commit_args)
+        -> std::expected<void, ShipDeltasError>;
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;

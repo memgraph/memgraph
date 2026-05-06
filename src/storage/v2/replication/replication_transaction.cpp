@@ -16,7 +16,6 @@
 #include "utils/variant_helpers.hpp"
 
 #include <algorithm>
-#include <string>
 
 namespace memgraph::storage {
 
@@ -51,8 +50,9 @@ auto StartTxnErrorToReason(StartTxnReplicationError const &error) -> ReplicaFail
 // When handling some other type of replica, it is checked whether there is another STRICT_SYNC replica. There are 2
 // possible cluster combinations: STRICT_SYNC and ASYNC or SYNC and ASYNC. If there are no STRICT_SYNC replicas in the
 // cluster, we send all deltas and commit immediately on replicas.
-auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool {
-  if (locked_clients->empty()) return true;
+auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args)
+    -> std::expected<void, ShipDeltasError> {
+  if (locked_clients->empty()) return {};
 
   MG_ASSERT(commit_args.replication_allowed(),
             "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
@@ -60,6 +60,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
 
   auto const &db_acc = commit_args.database_protector();
   bool const should_run_2pc = ShouldRunTwoPC();
+  std::vector<ReplicaFailure> failures;
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
     client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                    replica_stream);
@@ -89,27 +90,21 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
     });
 
     if (!finalized.has_value()) {
-      auto const client_name = std::string{client->Name()};
-      // StartTransactionReplication may have already recorded a failure for this replica;
-      // avoid reporting the same instance twice with a follow-up reason derived from the empty stream.
-      auto const already_failed =
-          std::ranges::any_of(replication_failures_, [&](ReplicaFailure const &f) { return f.name == client_name; });
-      if (!already_failed) {
-        auto const reason = [&] {
-          switch (finalized.error()) {
-            case io::network::ClientCommunicationError::TIMEOUT_ERROR:
-              return ReplicaFailureReason::TIMEOUT;
-            case io::network::ClientCommunicationError::SOCKET_FAILED_TO_CONNECT:
-              return ReplicaFailureReason::NOT_IN_SYNC;
-            default:
-              return ReplicaFailureReason::RPC_ERROR;
-          }
-        }();
-        replication_failures_.push_back({client_name, ReplicationModeToString(client->Mode()), reason});
-      }
+      auto const reason = [&] {
+        switch (finalized.error()) {
+          case io::network::ClientCommunicationError::TIMEOUT_ERROR:
+            return ReplicaFailureReason::TIMEOUT;
+          case io::network::ClientCommunicationError::SOCKET_FAILED_TO_CONNECT:
+            return ReplicaFailureReason::NOT_IN_SYNC;
+          default:
+            return ReplicaFailureReason::RPC_ERROR;
+        }
+      }();
+      failures.push_back({std::string{client->Name()}, ReplicationModeToString(client->Mode()), reason});
     }
   }
-  return replication_failures_.empty();
+  if (!failures.empty()) return std::unexpected{ShipDeltasError{std::move(failures)}};
+  return {};
 }
 
 // RPC locks will get released at the end of this function for all STRICT_SYNC and ASYNC replicas
@@ -141,30 +136,39 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
   return strict_sync_replicas_succ;
 }
 
-auto TransactionReplication::CollectAllFailures() -> std::vector<ReplicaFailure> {
-  // Build failed_replicas_ from both replication failures and finalize failures
-  // so UpdateCommitTsInfo skips all of them.
-  failed_replicas_.clear();
-  for (auto const &f : replication_failures_) {
-    failed_replicas_.insert(f.name);
+auto TransactionReplication::CollectStartTxnErrors() const -> std::vector<ReplicaFailure> {
+  std::vector<ReplicaFailure> result;
+  for (auto &&[client, maybe_err] : ranges::views::zip(*locked_clients, errors_)) {
+    // ASYNC replica errors are not reported — fire-and-forget
+    if (maybe_err.has_value() && client->Mode() != replication_coordination_glue::ReplicationMode::ASYNC) {
+      result.push_back({.name = client->Name(),
+                        .mode = ReplicationModeToString(client->Mode()),
+                        .reason = StartTxnErrorToReason(*maybe_err)});
+    }
   }
-  for (auto const &f : finalize_failures_) {
-    failed_replicas_.insert(f.name);
-  }
-
-  // Only replication_failures_ are returned (triggers ReplicationException).
-  // finalize_failures_ only affect UpdateCommitTsInfo skipping — no exception thrown for them.
-  return replication_failures_;
+  return result;
 }
 
-void TransactionReplication::UpdateCommitTsInfo(std::function<CommitTsInfo(CommitTsInfo const &)> const &cb) {
+void TransactionReplication::UpdateCommitTsInfo(uint64_t const durability_commit_timestamp,
+                                                std::vector<ReplicaFailure> const &failures) {
+  if (locked_clients->empty()) return;
+  auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old) -> CommitTsInfo {
+    return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = old.num_committed_txns_ + 1};
+  };
+  bool const has_failures = !failures.empty() || !finalize_failures_.empty();
   for (auto const &client : *locked_clients) {
-    if (failed_replicas_.contains(client->Name())) continue;
     // ASYNC replicas update their own commit_ts_info_ inside the async task
     // upon confirmed success — updating here would be optimistic and could
     // overcount if the async replication later fails.
     if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) continue;
-    atomic_struct_update<CommitTsInfo>(client->commit_ts_info_, cb);
+    if (has_failures) {
+      auto const &name = client->Name();
+      auto const matches = [&](ReplicaFailure const &f) { return f.name == name; };
+      if (std::ranges::any_of(failures, matches) || std::ranges::any_of(finalize_failures_, matches)) {
+        continue;
+      }
+    }
+    atomic_struct_update<CommitTsInfo>(client->commit_ts_info_, update_func);
   }
 }
 
@@ -173,6 +177,7 @@ TransactionReplication::TransactionReplication(uint64_t const durability_commit_
     : locked_clients{clients.ReadLock()} {
   if (!locked_clients->empty()) {
     streams.reserve(locked_clients->size());
+    errors_.reserve(locked_clients->size());
     auto const &db_acc = commit_args.database_protector();
     for (const auto &client : *locked_clients) {
       // If any client requires two phase commit, then we are running that phase
@@ -180,14 +185,10 @@ TransactionReplication::TransactionReplication(uint64_t const durability_commit_
       auto res = client->StartTransactionReplication(storage, db_acc, durability_commit_timestamp);
       if (res.has_value()) {
         streams.emplace_back(std::move(res.value()));
+        errors_.emplace_back(std::nullopt);
       } else {
         streams.emplace_back(std::nullopt);
-        // ASYNC replica errors are not reported — fire-and-forget
-        if (client->Mode() != replication_coordination_glue::ReplicationMode::ASYNC) {
-          replication_failures_.push_back({.name = client->Name(),
-                                           .mode = ReplicationModeToString(client->Mode()),
-                                           .reason = StartTxnErrorToReason(res.error())});
-        }
+        errors_.emplace_back(res.error());
       }
     }
   }

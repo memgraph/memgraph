@@ -22,7 +22,7 @@
 
 namespace memgraph::storage {
 
-// --- Internal start-txn error types (used by CollectAllFailures) ---
+// --- Internal start-txn error types (used by CollectStartTxnErrors) ---
 
 struct FailedToConnectErr {};
 
