@@ -114,7 +114,6 @@
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
 #include "utils/compile_time.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/functional.hpp"
 #include "utils/likely.hpp"
@@ -143,24 +142,6 @@ import memgraph.utils.aws;
 
 namespace r = ranges;
 namespace rv = ranges::views;
-
-namespace memgraph::metrics {
-extern Event ReadQuery;
-extern Event WriteQuery;
-extern Event ReadWriteQuery;
-
-extern const Event StreamsCreated;
-extern const Event TriggersCreated;
-
-extern const Event QueryExecutionLatency_us;
-
-extern const Event CommitedTransactions;
-extern const Event RollbackedTransactions;
-extern const Event ActiveTransactions;
-
-extern const Event ShowSchema;
-extern const Event ShowStorageInfoOnDatabase;
-}  // namespace memgraph::metrics
 
 namespace {
 
@@ -328,22 +309,6 @@ auth::UserOrRoleType ToAuthType(AuthQuery::UserOrRoleType t) {
       return auth::UserOrRoleType::ROLE;
     default:
       return auth::UserOrRoleType::UNSPECIFIED;
-  }
-}
-
-void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
-  switch (type) {
-    case plan::ReadWriteTypeChecker::RWType::R:
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadQuery);
-      break;
-    case plan::ReadWriteTypeChecker::RWType::W:
-      memgraph::metrics::IncrementCounter(memgraph::metrics::WriteQuery);
-      break;
-    case plan::ReadWriteTypeChecker::RWType::RW:
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadWriteQuery);
-      break;
-    default:
-      break;
   }
 }
 
