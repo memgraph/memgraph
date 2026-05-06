@@ -19,7 +19,9 @@ namespace memgraph::coordination {
 
 struct ReplicaDBLagData {
   uint64_t num_committed_txns_;
-  uint64_t num_txns_behind_main_;
+  // int64_t because for a brief time window replica can be in front of new main. That's because an instance can become
+  // main without having all old transactions. Possible with SYNC replication
+  int64_t num_txns_behind_main_;
 };
 
 struct ReplicationLagInfo {
