@@ -183,12 +183,13 @@ class DbAwareThread {
   DbAwareThread(ArenaPool *arena_pool, F &&f, Args &&...args)
       : thread_(
             [arena_pool, func = std::forward<F>(f)](std::stop_token st, std::decay_t<Args>... a) mutable {
-              // utils::OnScopeExit on_scope_exit{[] {
-              //   // Thread is exiting — release the cached arena acquired by the scope above.
-              //   if (tls_arena_cache.owner && tls_arena_cache.arena != 0) {
-              //     tls_arena_cache.owner->Release(tls_arena_cache.arena);
-              //   }
-              // }};
+              const auto cleanup = utils::OnScopeExit{[arena_pool]() noexcept {
+                // Thread is exiting — release the arena the scope pinned in TLS.
+                if (arena_pool && tls_db_arena_state.arena_pool == arena_pool && tls_db_arena_state.arena != 0) {
+                  arena_pool->Release(tls_db_arena_state.arena);
+                  tls_db_arena_state = {};
+                }
+              }};
               {
                 const DbArenaScope db_arena_scope{arena_pool};
                 if constexpr (std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>) {
