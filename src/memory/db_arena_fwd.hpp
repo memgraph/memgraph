@@ -18,6 +18,7 @@
 
 #include "utils/allocator/page_slab_memory_resource.hpp"
 #include "utils/db_aware_allocator.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::dbms {
 class Database;
@@ -159,6 +160,8 @@ struct DbArenaScope {
   unsigned arena_idx_{0};
   unsigned prev_arena_{0};
   bool prev_in_scope_{false};
+  unsigned prev_tcache_{0};
+  unsigned tcache_id_{0};
 };
 
 // A std::jthread wrapper that sets tls_db_arena_state on the new thread so that
@@ -183,13 +186,16 @@ class DbAwareThread {
   DbAwareThread(ArenaPool *arena_pool, F &&f, Args &&...args)
       : thread_(
             [arena_pool, func = std::forward<F>(f)](std::stop_token st, std::decay_t<Args>... a) mutable {
-              const auto cleanup = utils::OnScopeExit{[arena_pool]() noexcept {
-                // Thread is exiting — release the arena the scope pinned in TLS.
-                if (arena_pool && tls_db_arena_state.arena_pool == arena_pool && tls_db_arena_state.arena != 0) {
-                  arena_pool->Release(tls_db_arena_state.arena);
-                  tls_db_arena_state = {};
-                }
-              }};
+              // utils::OnScopeExit const cleanup{[arena_pool]() noexcept {
+              //   // Thread is exiting — release the arena and tcache the scope pinned in TLS.
+              //   if (arena_pool && tls_db_arena_state.arena_pool == arena_pool && tls_db_arena_state.arena != 0) {
+              //     arena_pool->Release(tls_db_arena_state.arena);
+              //     if (tls_db_arena_state.tcache != 0) {
+              //       arena_pool->ReleaseTcache(tls_db_arena_state.tcache);
+              //     }
+              //     tls_db_arena_state = {};
+              //   }
+              // }};
               {
                 const DbArenaScope db_arena_scope{arena_pool};
                 if constexpr (std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>) {

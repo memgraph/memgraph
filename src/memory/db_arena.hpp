@@ -69,6 +69,15 @@ class ArenaPool {
   // report released pages back to the DB memory tracker.
   void PurgeAllArenas() const;
 
+  // Acquire an explicit tcache for DB-owned thread work.
+  unsigned AcquireTcache();
+
+  // Return a tcache acquired from this pool so a future AcquireTcache() can reuse it.
+  void ReleaseTcache(unsigned tcache_id);
+
+  // Destroy all pooled tcaches. Must only be called when no tcaches are in use.
+  void DestroyAllTcaches();
+
  private:
 #if USE_JEMALLOC
   DbArenaHooks hooks_{};
@@ -84,6 +93,10 @@ class ArenaPool {
   unsigned first_arena_idx_{0};
 
   unsigned first_arena_use_count_{0};
+
+  // Tcache pool members
+  std::mutex tcache_mutex_;
+  std::vector<unsigned> tcaches_;
 #endif
 };
 

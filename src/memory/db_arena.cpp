@@ -306,6 +306,8 @@ ArenaPool::~ArenaPool() noexcept {
         LogDestructorCleanupFailure("ArenaPool", arena_idx, "release", "unknown exception");
       }
     }
+
+    DestroyAllTcaches();
   } catch (const std::exception &e) {
     LogDestructorCleanupFailure("ArenaPool", first_arena_idx_, "cleanup", e.what());
   } catch (...) {
@@ -397,6 +399,39 @@ void ArenaPool::PurgeAllArenas() const {
   }
 }
 
+unsigned ArenaPool::AcquireTcache() {
+  {
+    const std::lock_guard<std::mutex> lock(tcache_mutex_);
+    if (!tcaches_.empty()) {
+      const unsigned tcache_id = tcaches_.back();
+      tcaches_.pop_back();
+      return tcache_id;
+    }
+  }
+
+  unsigned tcache_id = 0;
+  size_t sz = sizeof(unsigned);
+  if (je_mallctl("tcache.create", &tcache_id, &sz, nullptr, 0) != 0) {
+    return 0;
+  }
+  return tcache_id;
+}
+
+void ArenaPool::ReleaseTcache(unsigned tcache_id) {
+  if (tcache_id == 0) return;
+  const std::lock_guard<std::mutex> lock(tcache_mutex_);
+  tcaches_.push_back(tcache_id);
+}
+
+void ArenaPool::DestroyAllTcaches() {
+  const std::lock_guard<std::mutex> lock(tcache_mutex_);
+  for (const unsigned tcache_id : tcaches_) {
+    size_t sz = sizeof(unsigned);
+    je_mallctl("tcache.destroy", nullptr, nullptr, const_cast<unsigned *>(&tcache_id), sz);
+  }
+  tcaches_.clear();
+}
+
 }  // namespace memgraph::memory
 
 #endif  // USE_JEMALLOC
@@ -419,6 +454,12 @@ bool ArenaPool::Owns(unsigned /*arena_idx*/) const { return false; }
 
 void ArenaPool::PurgeAllArenas() const {}
 
+unsigned ArenaPool::AcquireTcache() { return 0U; }
+
+void ArenaPool::ReleaseTcache(unsigned /*tcache_id*/) {}
+
+void ArenaPool::DestroyAllTcaches() {}
+
 #endif
 
 }  // namespace memgraph::memory
@@ -433,7 +474,12 @@ namespace memgraph::memory {
 void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
 #if USE_JEMALLOC
   if (idx != 0) {
-    int flags = MALLOCX_ARENA(idx) | MALLOCX_TCACHE_NONE;
+    int flags = MALLOCX_ARENA(idx);
+    if (tls_db_arena_state.tcache != 0) {
+      flags |= MALLOCX_TCACHE(tls_db_arena_state.tcache);
+    } else {
+      flags |= MALLOCX_TCACHE_NONE;
+    }
     if (alignment > alignof(std::max_align_t)) {
       flags |= MALLOCX_ALIGN(alignment);
     }
@@ -445,7 +491,12 @@ void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
 
 void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept {
 #if USE_JEMALLOC
-  int flags = MALLOCX_TCACHE_NONE;
+  int flags = 0;
+  if (tls_db_arena_state.tcache != 0) {
+    flags |= MALLOCX_TCACHE(tls_db_arena_state.tcache);
+  } else {
+    flags |= MALLOCX_TCACHE_NONE;
+  }
   if (alignment > alignof(std::max_align_t)) {
     flags |= MALLOCX_ALIGN(alignment);
   }
@@ -462,6 +513,7 @@ DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type)
     : prev_arena_pool_(tls_db_arena_state.arena_pool),
       prev_arena_(tls_db_arena_state.arena),
       prev_in_scope_{tls_db_arena_state.in_scope},
+      prev_tcache_(tls_db_arena_state.tcache),
       arena_pool_(arena_pool) {
   tls_db_arena_state.in_scope = true;
 #if USE_JEMALLOC
@@ -470,9 +522,12 @@ DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type)
   if (prev_arena_pool_ == arena_pool) {
     if (prev_arena_ != 0) {  // Borrow
       arena_idx_ = prev_arena_;
+      tcache_id_ = prev_tcache_;
     } else {  // Acquire from pool
       arena_idx_ = arena_pool ? arena_pool->Acquire() : 0U;
       tls_db_arena_state.arena = arena_idx_;
+      tcache_id_ = arena_pool ? arena_pool->AcquireTcache() : 0U;
+      tls_db_arena_state.tcache = tcache_id_;
     }
     return;
   }
@@ -482,8 +537,12 @@ DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type)
   if (!prev_in_scope_) {
     if (prev_arena_pool_ && prev_arena_ != 0) {
       prev_arena_pool_->Release(prev_arena_);
+      if (prev_tcache_ != 0) {
+        prev_arena_pool_->ReleaseTcache(prev_tcache_);
+      }
       prev_arena_pool_ = nullptr;
       prev_arena_ = 0;
+      prev_tcache_ = 0;
     }
   } else {
     DMG_ASSERT(type == Type::FORCE || prev_arena_pool_ == nullptr, "Crashing into a different DB arena pool!");
@@ -492,6 +551,8 @@ DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type)
   // Acquire from pool (first time or different pool).
   arena_idx_ = arena_pool ? arena_pool->Acquire() : 0U;
   tls_db_arena_state.arena = arena_idx_;
+  tcache_id_ = arena_pool ? arena_pool->AcquireTcache() : 0U;
+  tls_db_arena_state.tcache = tcache_id_;
   tls_db_arena_state.arena_pool = arena_pool;
 #else
   (void)arena_pool;
@@ -506,12 +567,16 @@ DbArenaScope::~DbArenaScope() noexcept {
   if (prev_in_scope_ && prev_arena_pool_ != arena_pool_) {
     tls_db_arena_state.arena = prev_arena_;
     tls_db_arena_state.arena_pool = prev_arena_pool_;
+    tls_db_arena_state.tcache = prev_tcache_;
     if (arena_pool_ && arena_idx_ != 0) {
       arena_pool_->Release(arena_idx_);
     }
+    if (arena_pool_ && tcache_id_ != 0) {
+      arena_pool_->ReleaseTcache(tcache_id_);
+    }
   }
   tls_db_arena_state.in_scope = prev_in_scope_;
-  // The arena stays pinned in the persistent TLS cache (tls_arena_cache).
+  // The arena stays pinned in the persistent TLS cache.
   // It is released only on pool switch (in the constructor above) or on
   // explicit teardown via the DbArenaScope() no-arg constructor.
 }
