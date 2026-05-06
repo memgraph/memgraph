@@ -2867,9 +2867,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   //
   // This waiting room holds committed transactions with non-sequential deltas until all
   // their "contributors" (other transactions sharing the same delta chains) have finished.
-  waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-    auto it = waiting_list.begin();
-    while (it != waiting_list.end()) {
+  auto local_waiting = std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>{};
+  waiting_gc_deltas_.WithLock([&](auto &waiting_list) { local_waiting.swap(waiting_list); });
+
+  {
+    auto it = local_waiting.begin();
+    while (it != local_waiting.end()) {
       bool all_contributors_committed = true;
       auto const our_commit_ts = it->commit_info_->timestamp.load(std::memory_order_acquire);
 
@@ -2909,12 +2912,17 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         it->unlinkable_timestamp_ = highest_commit_ts;
         committed_transactions_.WithLock(
             [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(*it)); });
-        it = waiting_list.erase(it);
+        it = local_waiting.erase(it);
       } else {
         ++it;
       }
     }
-  });
+  }
+
+  if (!local_waiting.empty()) {
+    waiting_gc_deltas_.WithLock(
+        [&](auto &waiting_list) { waiting_list.splice(waiting_list.begin(), std::move(local_waiting)); });
+  }
 
   {
     auto guard = std::unique_lock{engine_lock_};
