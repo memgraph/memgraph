@@ -12,11 +12,11 @@
 #pragma once
 
 #include <optional>
-#include <unordered_set>
 #include <vector>
 
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/replication_client.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -85,9 +85,14 @@ class TransactionReplication {
   // Must be called after ShipDeltas and FinalizeTransaction (if applicable), and before UpdateCommitTsInfo.
   auto CollectAllFailures() -> std::vector<ReplicaFailure>;
 
-  // Updates commit_ts_info only for replicas that committed successfully
-  // (i.e. not in failed_replicas_). Must be called after CollectAllFailures.
-  void UpdateCommitTsInfo(std::function<CommitTsInfo(CommitTsInfo const &)> const &cb);
+  // Updates commit_ts_info on all replicas. Header-only template so the callable inlines into the
+  // CAS loop in atomic_struct_update (avoids std::function type-erasure on the commit hot path).
+  template <typename F>
+  void UpdateCommitTsInfo(F &&cb) {
+    for (auto const &client : *locked_clients) {
+      atomic_struct_update<CommitTsInfo>(client->commit_ts_info_, cb);
+    }
+  }
 
  private:
   std::vector<std::optional<ReplicaStream>> streams;
@@ -98,11 +103,8 @@ class TransactionReplication {
   // Populated by the constructor and ShipDeltas. Returned by CollectAllFailures.
   std::vector<ReplicaFailure> replication_failures_;
   // Replicas that failed the 2nd phase of 2PC (SendFinalizeCommitRpc failed).
-  // Populated by FinalizeTransaction. NOT returned by CollectAllFailures (no ReplicationException),
-  // but added to failed_replicas_ so UpdateCommitTsInfo skips them.
+  // Populated by FinalizeTransaction. NOT returned by CollectAllFailures (no ReplicationException).
   std::vector<ReplicaFailure> finalize_failures_;
-  // Union of all failed replica names, built by CollectAllFailures.
-  std::unordered_set<std::string> failed_replicas_;
 };
 
 }  // namespace memgraph::storage
