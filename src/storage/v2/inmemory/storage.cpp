@@ -1065,16 +1065,17 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // From this point on, only main executes this
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
-          // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp);
-
           auto failures = replicating_txn.CollectAllFailures();
           auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
             return CommitTsInfo{.ldt_ = durability_commit_timestamp,
                                 .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
           };
-          // update replicas' cached commit info
+          // Replicas first, then main (FinalizeCommitPhase) — flips prior ordering so any transient
+          // cross-instance state seen by the coord is replica-ahead, not replica-behind.
           replicating_txn.UpdateCommitTsInfo(update_func);
+
+          // WAL file is already finalized
+          FinalizeCommitPhase(durability_commit_timestamp);
 
           if (!failures.empty()) {
             return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
