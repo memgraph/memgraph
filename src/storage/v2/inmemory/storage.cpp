@@ -1069,13 +1069,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           FinalizeCommitPhase(durability_commit_timestamp);
 
           auto failures = replicating_txn.CollectAllFailures();
-          auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
-            return CommitTsInfo{.ldt_ = durability_commit_timestamp,
-                                .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
-          };
-          // update replicas' cached commit info
-          replicating_txn.UpdateCommitTsInfo(update_func);
-
           if (!failures.empty()) {
             return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
           }
@@ -1099,15 +1092,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
             repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
 
         auto failures = replicating_txn.CollectAllFailures();
-        auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
-          return CommitTsInfo{.ldt_ = durability_commit_timestamp,
-                              .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
-        };
-        // update replicas' cached commit info only if the txn was actually committed
-        if (repl_prepare_phase_ok) {
-          replicating_txn.UpdateCommitTsInfo(update_func);
-        }
-
         if (!failures.empty()) {
           // Release engine lock because we don't have to hold it anymore for abort
           engine_guard.unlock();
@@ -1192,7 +1176,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     return CommitTsInfo{.ldt_ = durability_commit_timestamp,
                         .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
   };
-  // update main's cached info
   atomic_struct_update<CommitTsInfo>(mem_storage->repl_storage_state_.commit_ts_info_, update_func);
 
   // Install the new point index, if needed
