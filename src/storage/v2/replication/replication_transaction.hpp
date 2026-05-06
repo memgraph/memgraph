@@ -12,7 +12,6 @@
 #pragma once
 
 #include <optional>
-#include <unordered_set>
 #include <vector>
 
 #include "storage/v2/database_protector.hpp"
@@ -79,14 +78,13 @@ class TransactionReplication {
 
   auto ShouldRunTwoPC() const -> bool { return run_two_phase_commit; }
 
-  // Returns all replication failures (start-txn + ship/finalize) and additionally
-  // marks 2nd-phase finalize failures in failed_replicas_ so UpdateCommitTsInfo skips them.
-  // Finalize failures are NOT included in the returned vector (no ReplicationException for them).
-  // Must be called after ShipDeltas and FinalizeTransaction (if applicable), and before UpdateCommitTsInfo.
+  // Returns replication failures (start-txn + ship/finalize) — these trigger ReplicationException.
+  // Finalize failures (2nd phase of 2PC) are NOT included; they only suppress the commit_ts_info update
+  // for the affected replica via UpdateCommitTsInfo.
   auto CollectAllFailures() -> std::vector<ReplicaFailure>;
 
-  // Updates commit_ts_info only for replicas that committed successfully
-  // (i.e. not in failed_replicas_). Must be called after CollectAllFailures.
+  // Updates commit_ts_info on all non-ASYNC replicas that did not appear in replication_failures_ or
+  // finalize_failures_. Skips the per-replica failure check entirely on the (common) no-failure path.
   void UpdateCommitTsInfo(std::function<CommitTsInfo(CommitTsInfo const &)> const &cb);
 
  private:
@@ -99,10 +97,8 @@ class TransactionReplication {
   std::vector<ReplicaFailure> replication_failures_;
   // Replicas that failed the 2nd phase of 2PC (SendFinalizeCommitRpc failed).
   // Populated by FinalizeTransaction. NOT returned by CollectAllFailures (no ReplicationException),
-  // but added to failed_replicas_ so UpdateCommitTsInfo skips them.
+  // but consulted by UpdateCommitTsInfo to skip those replicas.
   std::vector<ReplicaFailure> finalize_failures_;
-  // Union of all failed replica names, built by CollectAllFailures.
-  std::unordered_set<std::string> failed_replicas_;
 };
 
 }  // namespace memgraph::storage

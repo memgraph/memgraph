@@ -142,28 +142,25 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
 }
 
 auto TransactionReplication::CollectAllFailures() -> std::vector<ReplicaFailure> {
-  // Build failed_replicas_ from both replication failures and finalize failures
-  // so UpdateCommitTsInfo skips all of them.
-  failed_replicas_.clear();
-  for (auto const &f : replication_failures_) {
-    failed_replicas_.insert(f.name);
-  }
-  for (auto const &f : finalize_failures_) {
-    failed_replicas_.insert(f.name);
-  }
-
   // Only replication_failures_ are returned (triggers ReplicationException).
   // finalize_failures_ only affect UpdateCommitTsInfo skipping — no exception thrown for them.
   return replication_failures_;
 }
 
 void TransactionReplication::UpdateCommitTsInfo(std::function<CommitTsInfo(CommitTsInfo const &)> const &cb) {
+  bool const has_failures = !replication_failures_.empty() || !finalize_failures_.empty();
   for (auto const &client : *locked_clients) {
-    if (failed_replicas_.contains(client->Name())) continue;
     // ASYNC replicas update their own commit_ts_info_ inside the async task
     // upon confirmed success — updating here would be optimistic and could
     // overcount if the async replication later fails.
     if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) continue;
+    if (has_failures) {
+      auto const &name = client->Name();
+      auto const matches = [&](ReplicaFailure const &f) { return f.name == name; };
+      if (std::ranges::any_of(replication_failures_, matches) || std::ranges::any_of(finalize_failures_, matches)) {
+        continue;
+      }
+    }
     atomic_struct_update<CommitTsInfo>(client->commit_ts_info_, cb);
   }
 }
