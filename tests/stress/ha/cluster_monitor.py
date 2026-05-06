@@ -47,6 +47,7 @@ class ClusterMonitor:
         metrics_info: list[str] | None = None,
         interval: float = 5.0,
         auth: tuple[str, str] = ("", ""),
+        protocol: Protocol = Protocol.BOLT_ROUTING,
     ):
         if isinstance(coordinators, str):
             coordinators = [coordinators]
@@ -58,6 +59,7 @@ class ClusterMonitor:
         self._metrics_fields = metrics_info or []
         self._interval = interval
         self._auth = auth
+        self._default_protocol = protocol
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
 
@@ -65,9 +67,11 @@ class ClusterMonitor:
         self,
         query: str,
         query_type: QueryType = QueryType.READ,
-        protocol: Protocol = Protocol.BOLT_ROUTING,
+        protocol: Protocol | None = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         """Try coordinators in shuffled order; return (coordinator_name, results) from the first that responds."""
+        if protocol is None:
+            protocol = self._default_protocol
         candidates = random.sample(self._coordinators, len(self._coordinators))
         last_err = None
         for coord in candidates:
