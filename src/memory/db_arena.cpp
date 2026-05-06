@@ -457,23 +457,49 @@ void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexce
 
 DbArenaScope::DbArenaScope() noexcept : prev_arena_(tls_db_arena_state.arena) {
   prev_arena_pool_ = tls_db_arena_state.arena_pool;
+#if USE_JEMALLOC
+  if (tls_arena_cache.owner && tls_arena_cache.arena != 0) {
+    tls_arena_cache.owner->Release(tls_arena_cache.arena);
+    tls_arena_cache = {};
+  }
+#endif
   tls_db_arena_state.arena = 0U;
   tls_db_arena_state.arena_pool = nullptr;
-  DMG_ASSERT(prev_arena_ == 0U, "Erasing DB scope!");
 }
 
 DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type)
-    : arena_pool_(arena_pool), prev_arena_pool_(tls_db_arena_state.arena_pool), prev_arena_(tls_db_arena_state.arena) {
+    : prev_arena_pool_(tls_db_arena_state.arena_pool), prev_arena_(tls_db_arena_state.arena) {
 #if USE_JEMALLOC
-  if (prev_arena_pool_ == arena_pool_) {
-    arena_idx_ = prev_arena_;
-    arena_pool_ = nullptr;  // Disable release, we are borrowing the arena from the same pool
+  // Fast path: persistent TLS cache hit — reuse arena without pool interaction.
+  // Covers both nested AND sequential scopes from the same pool.
+  if (arena_pool && tls_arena_cache.owner == arena_pool && tls_arena_cache.arena != 0) {
+    arena_idx_ = tls_arena_cache.arena;
+    tls_db_arena_state.arena = arena_idx_;
+    tls_db_arena_state.arena_pool = arena_pool;
     return;
   }
+
+  // Fast path: nested scope — same pool already active in TLS.
+  if (prev_arena_pool_ == arena_pool) {
+    arena_idx_ = prev_arena_;
+    return;
+  }
+
   DMG_ASSERT(type == Type::FORCE || prev_arena_pool_ == nullptr, "Crashing into a different DB arena pool!");
-  arena_idx_ = arena_pool_ ? arena_pool_->Acquire() : 0U;
+
+  // Release previous cached arena when switching pools.
+  if (tls_arena_cache.owner && tls_arena_cache.arena != 0) {
+    DMG_ASSERT(tls_arena_cache.owner != arena_pool, "Cache should have been a hit");
+    tls_arena_cache.owner->Release(tls_arena_cache.arena);
+  }
+
+  // Acquire from pool (first time or different pool).
+  arena_idx_ = arena_pool ? arena_pool->Acquire() : 0U;
   tls_db_arena_state.arena = arena_idx_;
-  tls_db_arena_state.arena_pool = arena_pool_;
+  tls_db_arena_state.arena_pool = arena_pool;
+
+  // Cache for subsequent scopes from the same pool.
+  tls_arena_cache = {arena_pool, arena_idx_};
 #else
   (void)arena_pool;
   tls_db_arena_state.arena = 0U;
@@ -483,14 +509,11 @@ DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type)
 }
 
 DbArenaScope::~DbArenaScope() noexcept {
-  // Restore previous arena
   tls_db_arena_state.arena = prev_arena_;
   tls_db_arena_state.arena_pool = prev_arena_pool_;
-#if USE_JEMALLOC
-  if (arena_pool_) {
-    arena_pool_->Release(arena_idx_);
-  }
-#endif
+  // The arena stays pinned in the persistent TLS cache (tls_arena_cache).
+  // It is released only on pool switch (in the constructor above) or on
+  // explicit teardown via the DbArenaScope() no-arg constructor.
 }
 
 }  // namespace memgraph::memory

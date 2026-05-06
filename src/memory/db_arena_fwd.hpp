@@ -182,11 +182,19 @@ class DbAwareThread {
   DbAwareThread(ArenaPool *arena_pool, F &&f, Args &&...args)
       : thread_(
             [arena_pool, func = std::forward<F>(f)](std::stop_token st, std::decay_t<Args>... a) mutable {
-              const DbArenaScope db_arena_scope{arena_pool};
-              if constexpr (std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>) {
-                func(std::move(st), std::move(a)...);
-              } else {
-                func(std::move(a)...);
+              utils::OnScopeExit on_scope_exit{[] {
+                // Thread is exiting — release the cached arena acquired by the scope above.
+                if (tls_arena_cache.owner && tls_arena_cache.arena != 0) {
+                  tls_arena_cache.owner->Release(tls_arena_cache.arena);
+                }
+              }};
+              {
+                const DbArenaScope db_arena_scope{arena_pool};
+                if constexpr (std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>) {
+                  func(std::move(st), std::move(a)...);
+                } else {
+                  func(std::move(a)...);
+                }
               }
             },
             std::forward<Args>(args)...) {}
