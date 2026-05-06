@@ -7123,10 +7123,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           if (!db_handler) {
             throw QueryRuntimeException("Database handler is not available");
           }
-          memgraph::metrics::IncrementCounter(memgraph::metrics::ShowStorageInfoOnDatabase);
           auto db_acc = db_handler->Get(db_name);
           auto *db = db_acc.get();
           if (!db) throw QueryRuntimeException("Database '{}' was dropped during query execution.", db_name);
+          if (auto *mh = db->metric_handles()) mh->show_storage_info.Increment();
           auto *storage = db->storage();
           auto info = storage->GetBaseInfo();
 

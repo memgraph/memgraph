@@ -477,6 +477,10 @@ PrometheusMetrics::PrometheusMetrics()
                               .Name("memgraph_show_schema_total")
                               .Help("Number of times SHOW SCHEMA INFO was called")
                               .Register(registry_)},
+      show_storage_info_family_{prometheus::BuildCounter()
+                                    .Name("memgraph_show_storage_info_total")
+                                    .Help("Number of times SHOW STORAGE INFO was called")
+                                    .Register(registry_)},
       // Memory
       peak_memory_res_family_{prometheus::BuildGauge()
                                   .Name("memgraph_peak_memory_res_bytes")
@@ -950,6 +954,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .deleted_nodes = {&deleted_nodes_family_.Add(labels)},
                   .deleted_edges = {&deleted_edges_family_.Add(labels)},
                   .show_schema = {&show_schema_family_.Add(labels)},
+                  .show_storage_info = {&show_storage_info_family_.Add(labels)},
                   .query_execution_latency_seconds = {&query_execution_latency_family_.Add(labels, kLatencyBuckets)},
                   .snapshot_creation_latency_seconds = {&snapshot_creation_latency_family_.Add(labels,
                                                                                                kLatencyBuckets)},
@@ -1069,6 +1074,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   deleted_nodes_family_.Remove(h.deleted_nodes.get());
   deleted_edges_family_.Remove(h.deleted_edges.get());
   show_schema_family_.Remove(h.show_schema.get());
+  show_storage_info_family_.Remove(h.show_storage_info.get());
   query_execution_latency_family_.Remove(h.query_execution_latency_seconds.get());
   snapshot_creation_latency_family_.Remove(h.snapshot_creation_latency_seconds.get());
   snapshot_recovery_latency_family_.Remove(h.snapshot_recovery_latency_seconds.get());
@@ -1438,6 +1444,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   // SchemaInfo
   out.push_back({"ShowSchema", "SchemaInfo", "Counter", static_cast<int64_t>(h.show_schema.Value())});
 
+  // StorageInfo
+  out.push_back(
+      {"ShowStorageInfoOnDatabase", "StorageInfo", "Counter", static_cast<int64_t>(h.show_storage_info.Value())});
+
   // Query
   AppendHistogramPercentiles(out, "QueryExecutionLatency", "Query", *h.query_execution_latency_seconds.get());
 
@@ -1549,6 +1559,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_deleted_nodes = 0;
   int64_t total_deleted_edges = 0;
   int64_t total_show_schema = 0;
+  int64_t total_show_storage_info = 0;
   std::vector<prometheus::ClientMetric::Histogram> query_exec_hdatas;
   std::vector<prometheus::ClientMetric::Histogram> snapshot_creation_hdatas;
   std::vector<prometheus::ClientMetric::Histogram> snapshot_recovery_hdatas;
@@ -1652,6 +1663,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_deleted_nodes += static_cast<int64_t>(h.deleted_nodes.Value());
       total_deleted_edges += static_cast<int64_t>(h.deleted_edges.Value());
       total_show_schema += static_cast<int64_t>(h.show_schema.Value());
+      total_show_storage_info += static_cast<int64_t>(h.show_storage_info.Value());
       query_exec_hdatas.push_back(h.query_execution_latency_seconds.Collect().histogram);
       snapshot_creation_hdatas.push_back(h.snapshot_creation_latency_seconds.Collect().histogram);
       snapshot_recovery_hdatas.push_back(h.snapshot_recovery_latency_seconds.Collect().histogram);
@@ -1796,6 +1808,9 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
 
   // SchemaInfo
   out.push_back({"ShowSchema", "SchemaInfo", "Counter", total_show_schema});
+
+  // StorageInfo
+  out.push_back({"ShowStorageInfoOnDatabase", "StorageInfo", "Counter", total_show_storage_info});
 
   // Query
   AppendMergedHistogramPercentiles(out, "QueryExecutionLatency", "Query", query_exec_hdatas);

@@ -229,6 +229,9 @@ struct DatabaseMetricHandles {
   // SchemaInfo
   CounterHandle show_schema;
 
+  // StorageInfo
+  CounterHandle show_storage_info;
+
   // Histograms
   HistogramHandle query_execution_latency_seconds;
   HistogramHandle snapshot_creation_latency_seconds;
@@ -494,6 +497,9 @@ class PrometheusMetrics {
 
   // Per-database metric families — schema info
   prometheus::Family<prometheus::Counter> &show_schema_family_;
+
+  // Per-database metric families — storage info
+  prometheus::Family<prometheus::Counter> &show_storage_info_family_;
 
   // Global metric families — memory
   prometheus::Family<prometheus::Gauge> &peak_memory_res_family_;
