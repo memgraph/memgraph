@@ -21,10 +21,10 @@
 #include "coordination/coordinator_state.hpp"
 #endif
 #include "communication/bolt/metrics.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/plan/operator.hpp"
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/event_map.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/logging.hpp"
@@ -168,13 +168,8 @@ void Telemetry::AddQueryModuleCollector() {
 }
 
 void Telemetry::AddEventsCollector() {
-  AddCollector("event_counters", []() -> nlohmann::json {
-    nlohmann::json ret;
-    for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
-      ret[memgraph::metrics::GetCounterName(i)] = memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
-    }
-    return ret;
-  });
+  AddCollector("event_counters",
+               []() -> nlohmann::json { return memgraph::metrics::Metrics().GetTelemetryCounters(); });
 }
 
 void Telemetry::AddClientCollector() {

@@ -28,6 +28,7 @@
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
 #include <prometheus/registry.h>
+#include <nlohmann/json_fwd.hpp>
 
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
@@ -351,6 +352,8 @@ class PrometheusMetrics {
   // across all databases, matching the pre-multi-tenant behaviour where a
   // single global counter tracked the entire process.
   std::vector<MetricInfo> GetGlobalMetricsInfoForJson();
+
+  nlohmann::json GetTelemetryCounters() const;
 
   prometheus::Registry &registry() { return registry_; }
 

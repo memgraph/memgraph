@@ -11,6 +11,8 @@
 
 #include "metrics/prometheus_metrics.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <fmt/format.h>
 #include <prometheus/client_metric.h>
 #include <prometheus/detail/builder.h>
@@ -2015,6 +2017,271 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(out, "GetHistories", "HighAvailability", *global.get_histories_seconds);
 
   return out;
+}
+
+nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
+  // Aggregate per-db counters
+  int64_t read_query = 0, write_query = 0, read_write_query = 0;
+  int64_t once_op = 0, create_node_op = 0, create_expand_op = 0;
+  int64_t scan_all_op = 0, scan_all_label_op = 0, scan_all_label_props_op = 0, scan_all_id_op = 0;
+  int64_t scan_all_edge_op = 0, scan_all_edge_type_op = 0;
+  int64_t scan_all_edge_type_prop_op = 0, scan_all_edge_type_prop_val_op = 0, scan_all_edge_type_prop_range_op = 0;
+  int64_t scan_all_edge_prop_op = 0, scan_all_edge_prop_val_op = 0, scan_all_edge_prop_range_op = 0;
+  int64_t scan_all_edge_id_op = 0, scan_all_point_dist_op = 0, scan_all_point_bbox_op = 0;
+  int64_t expand_op = 0, expand_var_op = 0, construct_path_op = 0, filter_op = 0, produce_op = 0;
+  int64_t delete_op = 0, set_prop_op = 0, set_props_op = 0, set_labels_op = 0;
+  int64_t remove_prop_op = 0, remove_labels_op = 0, edge_uniq_op = 0, empty_result_op = 0;
+  int64_t accumulate_op = 0, aggregate_op = 0, skip_op = 0, limit_op = 0, order_by_op = 0;
+  int64_t merge_op = 0, optional_op = 0, unwind_op = 0, distinct_op = 0, union_op = 0;
+  int64_t cartesian_op = 0, call_proc_op = 0, foreach_op = 0, eval_pattern_op = 0, apply_op = 0;
+  int64_t indexed_join_op = 0, hash_join_op = 0, roll_up_op = 0;
+  int64_t periodic_commit_op = 0, periodic_subquery_op = 0;
+  int64_t set_nested_prop_op = 0, remove_nested_prop_op = 0;
+  int64_t label_idx = 0, label_prop_idx = 0, edge_type_idx = 0, edge_type_prop_idx = 0, edge_prop_idx = 0;
+  int64_t point_idx = 0, text_idx = 0, text_edge_idx = 0, vector_idx = 0, vector_edge_idx = 0;
+  int64_t exist_constr = 0, unique_constr = 0, type_constr = 0;
+  int64_t streams_created = 0, messages_consumed = 0;
+  int64_t triggers_created = 0, triggers_executed = 0;
+  int64_t active_sessions_v = 0, active_bolt_v = 0, active_tcp_v = 0, active_ssl_v = 0, active_ws_v = 0;
+  int64_t bolt_messages_v = 0;
+  int64_t active_txn = 0, committed_txn = 0, rolled_back_txn = 0;
+  int64_t failed_query = 0, failed_prepare = 0, failed_pull = 0, successful_query = 0;
+  int64_t ww_conflicts = 0, transient_errors = 0;
+  int64_t unreleased_deltas = 0;
+  int64_t deleted_nodes = 0, deleted_edges = 0;
+  int64_t show_schema = 0, show_storage_info = 0;
+
+  {
+    std::shared_lock const lock{databases_.mutex};
+    for (auto const &entry : databases_.entries) {
+      auto const &h = entry.handles;
+      read_query += static_cast<int64_t>(h.read_query.Value());
+      write_query += static_cast<int64_t>(h.write_query.Value());
+      read_write_query += static_cast<int64_t>(h.read_write_query.Value());
+      once_op += static_cast<int64_t>(h.once_operator.Value());
+      create_node_op += static_cast<int64_t>(h.create_node_operator.Value());
+      create_expand_op += static_cast<int64_t>(h.create_expand_operator.Value());
+      scan_all_op += static_cast<int64_t>(h.scan_all_operator.Value());
+      scan_all_label_op += static_cast<int64_t>(h.scan_all_by_label_operator.Value());
+      scan_all_label_props_op += static_cast<int64_t>(h.scan_all_by_label_properties_operator.Value());
+      scan_all_id_op += static_cast<int64_t>(h.scan_all_by_id_operator.Value());
+      scan_all_edge_op += static_cast<int64_t>(h.scan_all_by_edge_operator.Value());
+      scan_all_edge_type_op += static_cast<int64_t>(h.scan_all_by_edge_type_operator.Value());
+      scan_all_edge_type_prop_op += static_cast<int64_t>(h.scan_all_by_edge_type_property_operator.Value());
+      scan_all_edge_type_prop_val_op += static_cast<int64_t>(h.scan_all_by_edge_type_property_value_operator.Value());
+      scan_all_edge_type_prop_range_op += static_cast<int64_t>(h.scan_all_by_edge_type_property_range_operator.Value());
+      scan_all_edge_prop_op += static_cast<int64_t>(h.scan_all_by_edge_property_operator.Value());
+      scan_all_edge_prop_val_op += static_cast<int64_t>(h.scan_all_by_edge_property_value_operator.Value());
+      scan_all_edge_prop_range_op += static_cast<int64_t>(h.scan_all_by_edge_property_range_operator.Value());
+      scan_all_edge_id_op += static_cast<int64_t>(h.scan_all_by_edge_id_operator.Value());
+      scan_all_point_dist_op += static_cast<int64_t>(h.scan_all_by_point_distance_operator.Value());
+      scan_all_point_bbox_op += static_cast<int64_t>(h.scan_all_by_point_withinbbox_operator.Value());
+      expand_op += static_cast<int64_t>(h.expand_operator.Value());
+      expand_var_op += static_cast<int64_t>(h.expand_variable_operator.Value());
+      construct_path_op += static_cast<int64_t>(h.construct_named_path_operator.Value());
+      filter_op += static_cast<int64_t>(h.filter_operator.Value());
+      produce_op += static_cast<int64_t>(h.produce_operator.Value());
+      delete_op += static_cast<int64_t>(h.delete_operator.Value());
+      set_prop_op += static_cast<int64_t>(h.set_property_operator.Value());
+      set_props_op += static_cast<int64_t>(h.set_properties_operator.Value());
+      set_labels_op += static_cast<int64_t>(h.set_labels_operator.Value());
+      remove_prop_op += static_cast<int64_t>(h.remove_property_operator.Value());
+      remove_labels_op += static_cast<int64_t>(h.remove_labels_operator.Value());
+      edge_uniq_op += static_cast<int64_t>(h.edge_uniqueness_filter_operator.Value());
+      empty_result_op += static_cast<int64_t>(h.empty_result_operator.Value());
+      accumulate_op += static_cast<int64_t>(h.accumulate_operator.Value());
+      aggregate_op += static_cast<int64_t>(h.aggregate_operator.Value());
+      skip_op += static_cast<int64_t>(h.skip_operator.Value());
+      limit_op += static_cast<int64_t>(h.limit_operator.Value());
+      order_by_op += static_cast<int64_t>(h.order_by_operator.Value());
+      merge_op += static_cast<int64_t>(h.merge_operator.Value());
+      optional_op += static_cast<int64_t>(h.optional_operator.Value());
+      unwind_op += static_cast<int64_t>(h.unwind_operator.Value());
+      distinct_op += static_cast<int64_t>(h.distinct_operator.Value());
+      union_op += static_cast<int64_t>(h.union_operator.Value());
+      cartesian_op += static_cast<int64_t>(h.cartesian_operator.Value());
+      call_proc_op += static_cast<int64_t>(h.call_procedure_operator.Value());
+      foreach_op += static_cast<int64_t>(h.foreach_operator.Value());
+      eval_pattern_op += static_cast<int64_t>(h.evaluate_pattern_filter_operator.Value());
+      apply_op += static_cast<int64_t>(h.apply_operator.Value());
+      indexed_join_op += static_cast<int64_t>(h.indexed_join_operator.Value());
+      hash_join_op += static_cast<int64_t>(h.hash_join_operator.Value());
+      roll_up_op += static_cast<int64_t>(h.roll_up_apply_operator.Value());
+      periodic_commit_op += static_cast<int64_t>(h.periodic_commit_operator.Value());
+      periodic_subquery_op += static_cast<int64_t>(h.periodic_subquery_operator.Value());
+      set_nested_prop_op += static_cast<int64_t>(h.set_nested_property_operator.Value());
+      remove_nested_prop_op += static_cast<int64_t>(h.remove_nested_property_operator.Value());
+      label_idx += static_cast<int64_t>(h.active_label_indices.Value());
+      label_prop_idx += static_cast<int64_t>(h.active_label_property_indices.Value());
+      edge_type_idx += static_cast<int64_t>(h.active_edge_type_indices.Value());
+      edge_type_prop_idx += static_cast<int64_t>(h.active_edge_type_property_indices.Value());
+      edge_prop_idx += static_cast<int64_t>(h.active_edge_property_indices.Value());
+      point_idx += static_cast<int64_t>(h.active_point_indices.Value());
+      text_idx += static_cast<int64_t>(h.active_text_indices.Value());
+      text_edge_idx += static_cast<int64_t>(h.active_text_edge_indices.Value());
+      vector_idx += static_cast<int64_t>(h.active_vector_indices.Value());
+      vector_edge_idx += static_cast<int64_t>(h.active_vector_edge_indices.Value());
+      exist_constr += static_cast<int64_t>(h.active_existence_constraints.Value());
+      unique_constr += static_cast<int64_t>(h.active_unique_constraints.Value());
+      type_constr += static_cast<int64_t>(h.active_type_constraints.Value());
+      streams_created += static_cast<int64_t>(h.streams_created.Value());
+      messages_consumed += static_cast<int64_t>(h.messages_consumed.Value());
+      triggers_created += static_cast<int64_t>(h.triggers_created.Value());
+      triggers_executed += static_cast<int64_t>(h.triggers_executed.Value());
+      active_txn += static_cast<int64_t>(h.active_transactions.Value());
+      committed_txn += static_cast<int64_t>(h.committed_transactions.Value());
+      rolled_back_txn += static_cast<int64_t>(h.rolled_back_transactions.Value());
+      failed_query += static_cast<int64_t>(h.failed_query.Value());
+      failed_prepare += static_cast<int64_t>(h.failed_prepare.Value());
+      failed_pull += static_cast<int64_t>(h.failed_pull.Value());
+      successful_query += static_cast<int64_t>(h.successful_query.Value());
+      ww_conflicts += static_cast<int64_t>(h.write_write_conflicts.Value());
+      transient_errors += static_cast<int64_t>(h.transient_errors.Value());
+      unreleased_deltas += static_cast<int64_t>(h.unreleased_delta_objects.Value());
+      deleted_nodes += static_cast<int64_t>(h.deleted_nodes.Value());
+      deleted_edges += static_cast<int64_t>(h.deleted_edges.Value());
+      show_schema += static_cast<int64_t>(h.show_schema.Value());
+      show_storage_info += static_cast<int64_t>(h.show_storage_info.Value());
+    }
+  }
+
+  // Global counters (sessions, HA)
+  active_sessions_v += static_cast<int64_t>(global.active_sessions->Value());
+  active_bolt_v += static_cast<int64_t>(global.active_bolt_sessions->Value());
+  active_tcp_v += static_cast<int64_t>(global.active_tcp_sessions->Value());
+  active_ssl_v += static_cast<int64_t>(global.active_ssl_sessions->Value());
+  active_ws_v += static_cast<int64_t>(global.active_websocket_sessions->Value());
+  bolt_messages_v += static_cast<int64_t>(global.bolt_messages->Value());
+
+  // Names must match APPLY_FOR_COUNTERS in event_counter.cpp exactly
+  // clang-format off
+  return {
+    {"ReadQuery", read_query},
+    {"WriteQuery", write_query},
+    {"ReadWriteQuery", read_write_query},
+    {"OnceOperator", once_op},
+    {"CreateNodeOperator", create_node_op},
+    {"CreateExpandOperator", create_expand_op},
+    {"ScanAllOperator", scan_all_op},
+    {"ScanAllByLabelOperator", scan_all_label_op},
+    {"ScanAllByLabelPropertiesOperator", scan_all_label_props_op},
+    {"ScanAllByIdOperator", scan_all_id_op},
+    {"ScanAllByEdgeOperator", scan_all_edge_op},
+    {"ScanAllByEdgeTypeOperator", scan_all_edge_type_op},
+    {"ScanAllByEdgeTypePropertyOperator", scan_all_edge_type_prop_op},
+    {"ScanAllByEdgeTypePropertyValueOperator", scan_all_edge_type_prop_val_op},
+    {"ScanAllByEdgeTypePropertyRangeOperator", scan_all_edge_type_prop_range_op},
+    {"ScanAllByEdgePropertyOperator", scan_all_edge_prop_op},
+    {"ScanAllByEdgePropertyValueOperator", scan_all_edge_prop_val_op},
+    {"ScanAllByEdgePropertyRangeOperator", scan_all_edge_prop_range_op},
+    {"ScanAllByEdgeIdOperator", scan_all_edge_id_op},
+    {"ScanAllByPointDistanceOperator", scan_all_point_dist_op},
+    {"ScanAllByPointWithinbboxOperator", scan_all_point_bbox_op},
+    {"ExpandOperator", expand_op},
+    {"ExpandVariableOperator", expand_var_op},
+    {"ConstructNamedPathOperator", construct_path_op},
+    {"FilterOperator", filter_op},
+    {"ProduceOperator", produce_op},
+    {"DeleteOperator", delete_op},
+    {"SetPropertyOperator", set_prop_op},
+    {"SetPropertiesOperator", set_props_op},
+    {"SetLabelsOperator", set_labels_op},
+    {"RemovePropertyOperator", remove_prop_op},
+    {"RemoveLabelsOperator", remove_labels_op},
+    {"EdgeUniquenessFilterOperator", edge_uniq_op},
+    {"EmptyResultOperator", empty_result_op},
+    {"AccumulateOperator", accumulate_op},
+    {"AggregateOperator", aggregate_op},
+    {"SkipOperator", skip_op},
+    {"LimitOperator", limit_op},
+    {"OrderByOperator", order_by_op},
+    {"MergeOperator", merge_op},
+    {"OptionalOperator", optional_op},
+    {"UnwindOperator", unwind_op},
+    {"DistinctOperator", distinct_op},
+    {"UnionOperator", union_op},
+    {"CartesianOperator", cartesian_op},
+    {"CallProcedureOperator", call_proc_op},
+    {"ForeachOperator", foreach_op},
+    {"EvaluatePatternFilterOperator", eval_pattern_op},
+    {"ApplyOperator", apply_op},
+    {"IndexedJoinOperator", indexed_join_op},
+    {"HashJoinOperator", hash_join_op},
+    {"RollUpApplyOperator", roll_up_op},
+    {"PeriodicCommitOperator", periodic_commit_op},
+    {"PeriodicSubqueryOperator", periodic_subquery_op},
+    {"SetNestedPropertyOperator", set_nested_prop_op},
+    {"RemoveNestedPropertyOperator", remove_nested_prop_op},
+    {"ActiveLabelIndices", label_idx},
+    {"ActiveLabelPropertyIndices", label_prop_idx},
+    {"ActiveEdgeTypeIndices", edge_type_idx},
+    {"ActiveEdgeTypePropertyIndices", edge_type_prop_idx},
+    {"ActiveEdgePropertyIndices", edge_prop_idx},
+    {"ActivePointIndices", point_idx},
+    {"ActiveTextIndices", text_idx},
+    {"ActiveTextEdgeIndices", text_edge_idx},
+    {"ActiveVectorIndices", vector_idx},
+    {"ActiveVectorEdgeIndices", vector_edge_idx},
+    {"ActiveExistenceConstraints", exist_constr},
+    {"ActiveUniqueConstraints", unique_constr},
+    {"ActiveTypeConstraints", type_constr},
+    {"StreamsCreated", streams_created},
+    {"MessagesConsumed", messages_consumed},
+    {"TriggersCreated", triggers_created},
+    {"TriggersExecuted", triggers_executed},
+    {"ActiveSessions", active_sessions_v},
+    {"ActiveBoltSessions", active_bolt_v},
+    {"ActiveTCPSessions", active_tcp_v},
+    {"ActiveSSLSessions", active_ssl_v},
+    {"ActiveWebSocketSessions", active_ws_v},
+    {"BoltMessages", bolt_messages_v},
+    {"ActiveTransactions", active_txn},
+    {"CommitedTransactions", committed_txn},
+    {"RollbackedTransactions", rolled_back_txn},
+    {"FailedQuery", failed_query},
+    {"FailedPrepare", failed_prepare},
+    {"FailedPull", failed_pull},
+    {"SuccessfulQuery", successful_query},
+    {"WriteWriteConflicts", ww_conflicts},
+    {"TransientErrors", transient_errors},
+    {"UnreleasedDeltaObjects", unreleased_deltas},
+    {"DeletedNodes", deleted_nodes},
+    {"DeletedEdges", deleted_edges},
+    {"ShowSchema", show_schema},
+    {"ShowStorageInfoOnDatabase", show_storage_info},
+    {"SuccessfulFailovers", static_cast<int64_t>(global.successful_failovers->Value())},
+    {"RaftFailedFailovers", static_cast<int64_t>(global.raft_failed_failovers->Value())},
+    {"NoAliveInstanceFailedFailovers", static_cast<int64_t>(global.no_alive_instance_failed_failovers->Value())},
+    {"BecomeLeaderSuccess", static_cast<int64_t>(global.become_leader_success->Value())},
+    {"FailedToBecomeLeader", static_cast<int64_t>(global.failed_to_become_leader->Value())},
+    {"ShowInstance", static_cast<int64_t>(global.show_instance->Value())},
+    {"ShowInstances", static_cast<int64_t>(global.show_instances->Value())},
+    {"DemoteInstance", static_cast<int64_t>(global.demote_instance->Value())},
+    {"UnregisterReplInstance", static_cast<int64_t>(global.unregister_repl_instance->Value())},
+    {"RemoveCoordInstance", static_cast<int64_t>(global.remove_coord_instance->Value())},
+    {"ReplicaRecoverySuccess", static_cast<int64_t>(global.replica_recovery_success->Value())},
+    {"ReplicaRecoveryFail", static_cast<int64_t>(global.replica_recovery_fail->Value())},
+    {"ReplicaRecoverySkip", static_cast<int64_t>(global.replica_recovery_skip->Value())},
+    {"StateCheckRpcSuccess", static_cast<int64_t>(global.state_check_rpc_success->Value())},
+    {"StateCheckRpcFail", static_cast<int64_t>(global.state_check_rpc_fail->Value())},
+    {"UnregisterReplicaRpcSuccess", static_cast<int64_t>(global.unregister_replica_rpc_success->Value())},
+    {"UnregisterReplicaRpcFail", static_cast<int64_t>(global.unregister_replica_rpc_fail->Value())},
+    {"EnableWritingOnMainRpcSuccess", static_cast<int64_t>(global.enable_writing_on_main_rpc_success->Value())},
+    {"EnableWritingOnMainRpcFail", static_cast<int64_t>(global.enable_writing_on_main_rpc_fail->Value())},
+    {"PromoteToMainRpcSuccess", static_cast<int64_t>(global.promote_to_main_rpc_success->Value())},
+    {"PromoteToMainRpcFail", static_cast<int64_t>(global.promote_to_main_rpc_fail->Value())},
+    {"DemoteMainToReplicaRpcSuccess", static_cast<int64_t>(global.demote_main_to_replica_rpc_success->Value())},
+    {"DemoteMainToReplicaRpcFail", static_cast<int64_t>(global.demote_main_to_replica_rpc_fail->Value())},
+    {"RegisterReplicaOnMainRpcSuccess", static_cast<int64_t>(global.register_replica_on_main_rpc_success->Value())},
+    {"RegisterReplicaOnMainRpcFail", static_cast<int64_t>(global.register_replica_on_main_rpc_fail->Value())},
+    {"SwapMainUUIDRpcSuccess", static_cast<int64_t>(global.swap_main_uuid_rpc_success->Value())},
+    {"SwapMainUUIDRpcFail", static_cast<int64_t>(global.swap_main_uuid_rpc_fail->Value())},
+    {"GetDatabaseHistoriesRpcSuccess", static_cast<int64_t>(global.get_database_histories_rpc_success->Value())},
+    {"GetDatabaseHistoriesRpcFail", static_cast<int64_t>(global.get_database_histories_rpc_fail->Value())},
+    {"UpdateDataInstanceConfigRpcSuccess", static_cast<int64_t>(global.update_data_instance_config_rpc_success->Value())},
+    {"UpdateDataInstanceConfigRpcFail", static_cast<int64_t>(global.update_data_instance_config_rpc_fail->Value())},
+  };
+  // clang-format on
 }
 
 PrometheusMetrics &Metrics() {
