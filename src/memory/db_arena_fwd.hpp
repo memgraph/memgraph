@@ -132,20 +132,15 @@ class ArenaPageSlabMemoryResource {
 // asserts there was no previous arena. It exists only for non-jemalloc builds
 // where all constructors compile to no-ops.
 struct DbArenaScope {
-  enum class Type : uint8_t {
-    DBG_CHECK,
-    FORCE,
-  };
-
   // No-op scope: resets TLS arena to 0 (asserts no previous arena was set).
   DbArenaScope() noexcept;
 
   // Acquire per-thread arena from the database's pool.
-  explicit DbArenaScope(const memgraph::dbms::Database *db, Type type = Type::DBG_CHECK);
+  explicit DbArenaScope(const memgraph::dbms::Database *db);
 
   // Acquire from the pool (or borrow if same pool already in TLS).
   // Releases back to the pool on destruction only when this scope acquired it.
-  explicit DbArenaScope(ArenaPool *arena_pool, Type type = Type::DBG_CHECK);
+  explicit DbArenaScope(ArenaPool *arena_pool);
 
   ~DbArenaScope() noexcept;
 

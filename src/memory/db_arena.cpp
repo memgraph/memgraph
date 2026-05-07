@@ -147,9 +147,9 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
 namespace {
 
 template <typename... Args>
-void SafeLog(Args &&...args) noexcept {
+void SafeLog(fmt::format_string<Args...> fmt, Args &&...args) noexcept {
   try {
-    spdlog::error(std::forward<Args>(args)...);
+    spdlog::error(fmt, std::forward<Args>(args)...);
   } catch (...) {
     (void)0;  // clang-tidy
   }
@@ -421,7 +421,7 @@ unsigned ArenaPool::AcquireTcache() {
   }
 
   unsigned tcache_id = 0;
-  const size_t sz = sizeof(unsigned);
+  size_t sz = sizeof(unsigned);
   if (je_mallctl("tcache.create", &tcache_id, &sz, nullptr, 0) != 0) {
     return 0;
   }
@@ -441,7 +441,7 @@ void ArenaPool::ReleaseTcache(unsigned tcache_id) {
 void ArenaPool::DestroyAllTcaches() {
   const std::lock_guard<std::mutex> lock(tcache_mutex_);
   for (const unsigned tcache_id : tcaches_) {
-    size_t sz = sizeof(unsigned);
+    const size_t sz = sizeof(unsigned);
     je_mallctl("tcache.destroy", nullptr, nullptr, const_cast<unsigned *>(&tcache_id), sz);
   }
   tcaches_.clear();
@@ -506,6 +506,21 @@ void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
 
 void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept {
 #if USE_JEMALLOC
+#ifndef NDEBUG
+  // Debug-only: verify the pointer belongs to the current DB's arena pool.
+  // A mismatch means we are about to free memory via the wrong tcache or
+  // arena, which can corrupt jemalloc state.
+  if (p != nullptr && tls_db_arena_state.arena_pool != nullptr) {
+    unsigned ptr_arena = 0;
+    size_t sz = sizeof(ptr_arena);
+    if (je_mallctl("arenas.lookup", &ptr_arena, &sz, &p, sizeof(p)) == 0) {
+      if (!tls_db_arena_state.arena_pool->Owns(ptr_arena)) {
+        LOG_FATAL(
+            "DbDeallocateBytes: pointer {} belongs to arena {} which is NOT owned by current ArenaPool", p, ptr_arena);
+      }
+    }
+  }
+#endif
   int flags = 0;
   if (tls_db_arena_state.tcache != 0) {
     flags |= MALLOCX_TCACHE(tls_db_arena_state.tcache);
@@ -521,7 +536,7 @@ void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexce
 #endif
 }
 
-DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type) : prev_state_(tls_db_arena_state) {
+DbArenaScope::DbArenaScope(ArenaPool *arena_pool) : prev_state_(tls_db_arena_state) {
   cur_state_.arena_pool = arena_pool;
 #if USE_JEMALLOC
 
@@ -543,7 +558,7 @@ DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type) : pre
     return;
   }
 
-  DMG_ASSERT(type == Type::FORCE || prev_state_.arena_pool == nullptr, "Crashing into a different DB arena pool!");
+  DMG_ASSERT(prev_state_.arena_pool == nullptr, "Crashing into a different DB arena pool!");
 
   // Acquire from pool (first time or different pool).
   acquire();
