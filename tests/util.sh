@@ -22,6 +22,7 @@ setup_node() {
   if ! command -v pnpm >/dev/null; then
     echo "pnpm not found, enabling via corepack."
     corepack enable pnpm 2>/dev/null || corepack enable 2>/dev/null || true
+    corepack prepare pnpm@10.33.4 --activate 2>/dev/null || true
   fi
 
   if ! command -v pnpm >/dev/null; then
