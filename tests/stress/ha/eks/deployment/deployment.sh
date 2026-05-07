@@ -1130,7 +1130,7 @@ print_usage() {
     echo "  CLUSTER_REGION                - AWS region (default: eu-west-1)"
     echo "  HELM_RELEASE_NAME             - Helm release name (default: mem-ha-test)"
     echo "  HELM_CHART_PATH               - Path to Helm chart (default: memgraph/memgraph-high-availability)"
-    echo "  HELM_CHART_VERSION            - Pin Helm chart version (default: 0.2.18)"
+    echo "  HELM_CHART_VERSION            - Pin Helm chart version (default: 0.2.19)"
     echo "  POD_READY_TIMEOUT             - Timeout for pods to be ready in seconds (default: 600)"
     echo "  ENABLE_MONITORING             - Install kube-prometheus-stack (default: true)"
     echo ""

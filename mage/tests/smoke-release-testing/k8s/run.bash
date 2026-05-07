@@ -73,6 +73,7 @@ test_k8s_single() {
   kind load docker-image $MEMGRAPH_NEXT_DOCKERHUB_IMAGE -n smoke-release-testing
   MEMGRAPH_NEXT_DOCKERHUB_TAG="${MEMGRAPH_NEXT_DOCKERHUB_IMAGE##*:}"
   helm install memgraph-single-smoke memgraph/memgraph \
+    --version 0.2.19 \
     -f "$SCRIPT_DIR/values-single.yaml" \
     --set "image.tag=$MEMGRAPH_NEXT_DOCKERHUB_TAG"
   kubectl wait --for=condition=Ready pod/memgraph-single-smoke-0 --timeout=120s
@@ -89,7 +90,14 @@ helm_install_myhadb() {
   image_tag="$2"
   kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE --from-literal=MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME
 
+  # Pin chart version when installing from the helm repo; --version is rejected for local chart paths.
+  local version_arg=""
+  if [ ! -d "$chart_path" ]; then
+    version_arg="--version 0.2.19"
+  fi
+
   helm install myhadb $chart_path \
+    $version_arg \
     -f "$SCRIPT_DIR/values-ha.yaml" \
     --set "image.tag=$image_tag"
 }
