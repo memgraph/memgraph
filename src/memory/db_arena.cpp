@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <exception>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -145,13 +146,18 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
 
 namespace {
 
-void LogDestructorCleanupFailure(std::string_view owner, unsigned arena_idx, std::string_view operation,
-                                 std::string_view error) noexcept {
+template <typename... Args>
+void SafeLog(Args &&...args) noexcept {
   try {
-    spdlog::error("{} {}: {} failed during destructor cleanup: {}", owner, arena_idx, operation, error);
+    spdlog::error(std::forward<Args>(args)...);
   } catch (...) {
     (void)0;  // clang-tidy
   }
+}
+
+void LogDestructorCleanupFailure(std::string_view owner, unsigned arena_idx, std::string_view operation,
+                                 std::string_view error) noexcept {
+  SafeLog("{} {}: {} failed during destructor cleanup: {}", owner, arena_idx, operation, error);
 }
 
 bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_view error_context) {
@@ -274,6 +280,9 @@ ArenaPool::~ArenaPool() noexcept {
     DMG_ASSERT(free_count_ == arenas_.size(), "Destroying DB ArenaPool while some arenas are still in use");
     DMG_ASSERT(first_arena_use_count_ == 0, "Destroying DB ArenaPool while the first arena is still in use");
 
+    // First release all the tcached memory back to the arenas, then purge them
+    DestroyAllTcaches();
+
     for (const auto arena_idx : arenas_) {
       const std::string arena_key = "arena." + std::to_string(arena_idx);
 
@@ -306,8 +315,6 @@ ArenaPool::~ArenaPool() noexcept {
         LogDestructorCleanupFailure("ArenaPool", arena_idx, "release", "unknown exception");
       }
     }
-
-    DestroyAllTcaches();
   } catch (const std::exception &e) {
     LogDestructorCleanupFailure("ArenaPool", first_arena_idx_, "cleanup", e.what());
   } catch (...) {
@@ -379,8 +386,8 @@ void ArenaPool::Release(unsigned arena_idx) {
       }
     }
     DMG_ASSERT(false, "Trying to release an areana that is not under the current pool.");
-  } catch (...) {
-    // silently fail
+  } catch (std::exception &e) {
+    SafeLog("Exception while releasing arena {}: {}", arena_idx, e.what());
   }
 }
 
@@ -414,7 +421,7 @@ unsigned ArenaPool::AcquireTcache() {
   }
 
   unsigned tcache_id = 0;
-  size_t sz = sizeof(unsigned);
+  const size_t sz = sizeof(unsigned);
   if (je_mallctl("tcache.create", &tcache_id, &sz, nullptr, 0) != 0) {
     return 0;
   }
@@ -426,8 +433,8 @@ void ArenaPool::ReleaseTcache(unsigned tcache_id) {
     if (tcache_id == 0) return;
     const std::lock_guard<std::mutex> lock(tcache_mutex_);
     tcaches_.push_back(tcache_id);
-  } catch (...) {
-    // silently fail
+  } catch (std::exception &e) {
+    SafeLog("Exception while releasing tcache {}: {}", tcache_id, e.what());
   }
 }
 
@@ -518,16 +525,20 @@ DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type) : pre
   cur_state_.arena_pool = arena_pool;
 #if USE_JEMALLOC
 
+  auto acquire = [this]() {
+    cur_state_.arena = cur_state_.arena_pool ? cur_state_.arena_pool->Acquire() : 0U;
+    cur_state_.tcache = cur_state_.arena_pool ? cur_state_.arena_pool->AcquireTcache() : 0U;
+    tls_db_arena_state = cur_state_;
+  };
+
   // Fast path: nested scope — same pool already active in TLS.
   if (prev_state_.arena_pool == arena_pool) {
     if (prev_state_.arena != 0) {  // Borrow
+      borrowed_ = true;
       cur_state_.arena = prev_state_.arena;
       cur_state_.tcache = prev_state_.tcache;
     } else {  // Acquire from pool
-      cur_state_.arena = arena_pool ? arena_pool->Acquire() : 0U;
-      cur_state_.tcache = arena_pool ? arena_pool->AcquireTcache() : 0U;
-      tls_db_arena_state.arena = cur_state_.arena;
-      tls_db_arena_state.tcache = cur_state_.tcache;
+      acquire();
     }
     return;
   }
@@ -535,9 +546,7 @@ DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type) : pre
   DMG_ASSERT(type == Type::FORCE || prev_state_.arena_pool == nullptr, "Crashing into a different DB arena pool!");
 
   // Acquire from pool (first time or different pool).
-  cur_state_.arena = arena_pool ? arena_pool->Acquire() : 0U;
-  cur_state_.tcache = arena_pool ? arena_pool->AcquireTcache() : 0U;
-  tls_db_arena_state = cur_state_;
+  acquire();
 #else
   (void)arena_pool;
   tls_db_arena_state.arena = 0U;
@@ -547,11 +556,10 @@ DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type) : pre
 }
 
 DbArenaScope::~DbArenaScope() noexcept {
-  bool const borrowed = prev_state_.arena_pool == cur_state_.arena_pool && prev_state_.arena != 0;
-
+  // Restore pre state
   tls_db_arena_state = prev_state_;
-
-  if (!borrowed) {
+  // Cleanup
+  if (!borrowed_) {
     if (cur_state_.arena_pool && cur_state_.arena != 0) {
       cur_state_.arena_pool->Release(cur_state_.arena);
     }

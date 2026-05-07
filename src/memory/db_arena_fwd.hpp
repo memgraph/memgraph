@@ -157,6 +157,7 @@ struct DbArenaScope {
  private:
   DbArenaTlsState prev_state_;
   DbArenaTlsState cur_state_;  // pool = what we're scoping into; arena/tcache = acquired or borrowed
+  bool borrowed_{false};
 };
 
 // A std::jthread wrapper that sets tls_db_arena_state on the new thread so that
