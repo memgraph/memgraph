@@ -513,7 +513,7 @@ void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexce
   if (p != nullptr && tls_db_arena_state.arena_pool != nullptr) {
     unsigned ptr_arena = 0;
     size_t sz = sizeof(ptr_arena);
-    if (je_mallctl("arenas.lookup", &ptr_arena, &sz, &p, sizeof(p)) == 0) {
+    if (je_mallctl("arenas.lookup", &ptr_arena, &sz, static_cast<void *>(&p), sizeof(p)) == 0) {
       if (!tls_db_arena_state.arena_pool->Owns(ptr_arena)) {
         LOG_FATAL(
             "DbDeallocateBytes: pointer {} belongs to arena {} which is NOT owned by current ArenaPool", p, ptr_arena);

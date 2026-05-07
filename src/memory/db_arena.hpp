@@ -107,7 +107,8 @@ class ArenaPool {
 // `base_hooks` – jemalloc's default hooks; the callbacks call through to these.
 // After calling this, install with:
 //   const extent_hooks_t *p = &h.hooks;
-//   je_mallctl("arena.N.extent_hooks", nullptr, nullptr, &p, sizeof(p));
+//   je_mallctl("arena.N.extent_hooks", nullptr, nullptr, static_cast<void *>(const_cast<extent_hooks_t **>(&p)),
+//   sizeof(p));
 void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hooks_t *base_hooks);
 
 // Singleton pool that recycles jemalloc arena indices across database ArenaPool lifetimes.
