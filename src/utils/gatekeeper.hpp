@@ -18,6 +18,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <type_traits>
 #include <utility>
 
 namespace memgraph::utils {
@@ -82,6 +83,19 @@ struct EvalResult {
 template <typename Func, typename T>
 EvalResult(run_t, Func &&, T &) -> EvalResult<std::invoke_result_t<Func, T &>>;
 
+// Opt-in RAII guard that Gatekeeper installs around the lifetime of the
+// managed object.  Types can declare a nested `GatekeeperGuard` to have
+// Gatekeeper construct it before the object and destroy it after.
+template <typename T, typename = void>
+struct GatekeeperGuardFor {
+  struct type {};
+};
+
+template <typename T>
+struct GatekeeperGuardFor<T, std::void_t<typename T::GatekeeperGuard>> {
+  using type = typename T::GatekeeperGuard;
+};
+
 template <typename T>
 struct GKInternals {
   template <typename... Args>
@@ -97,7 +111,12 @@ struct GKInternals {
 template <typename T>
 struct Gatekeeper {
   template <typename... Args>
-  explicit Gatekeeper(Args &&...args) : pimpl_(std::make_unique<GKInternals<T>>(std::forward<Args>(args)...)) {}
+  explicit Gatekeeper(Args &&...args) {
+    // Opt-in lifetime guard around object construction.
+    // Types without a nested GatekeeperGuard get a zero-size no-op.
+    typename GatekeeperGuardFor<T>::type guard;
+    pimpl_ = std::make_unique<GKInternals<T>>(std::forward<Args>(args)...);
+  }
 
   Gatekeeper(Gatekeeper const &) = delete;
   Gatekeeper(Gatekeeper &&) noexcept = default;
@@ -215,6 +234,8 @@ struct Gatekeeper {
       if (owner_->value_ == std::nullopt) return true;
       // Delete value if ok
       if (!predicate(*owner_->value_)) return false;
+      // Opt-in lifetime guard around object destruction.
+      typename GatekeeperGuardFor<T>::type arena_guard;
       owner_->value_ = std::nullopt;
       return true;
     }
@@ -261,8 +282,13 @@ struct Gatekeeper {
     if (!pimpl_) return;  // Moved out, nothing to do
     pimpl_->is_marked_for_deletion = true;
     // wait for count to drain to 0
-    auto lock = std::unique_lock{pimpl_->mutex_};
-    pimpl_->cv_.wait(lock, [this] { return pimpl_->count_ == 0; });
+    {
+      auto lock = std::unique_lock{pimpl_->mutex_};
+      pimpl_->cv_.wait(lock, [this] { return pimpl_->count_ == 0; });
+    }
+    // Opt-in lifetime guard around object destruction.
+    typename GatekeeperGuardFor<T>::type guard;
+    pimpl_.reset();  // destroys GKInternals<T> (and thus T) while guard is active
   }
 
  private:
