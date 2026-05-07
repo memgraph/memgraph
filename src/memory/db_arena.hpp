@@ -53,7 +53,8 @@ class ArenaPool {
   ArenaPool &operator=(ArenaPool &&) = delete;
 
   // Returns the constructor-created base arena used by long-lived arena-aware
-  // owners and short-lived DB-scoped work.
+  // owners (e.g. Storage containers). Short-lived DB-scoped work should use
+  // Acquire() / Release() so the pool can be shared across threads.
   unsigned idx() const noexcept;
 
   // Acquire an arena for DB-owned thread work.
@@ -89,7 +90,9 @@ class ArenaPool {
   std::vector<unsigned> arenas_;
   std::size_t free_count_{0};
 
-  // Cache of the first arena for backwards compatibility
+  // The base arena created in the ArenaPool constructor. Used as the fallback
+  // when Acquire() cannot create a new arena, and by long-lived owners that
+  // capture an explicit arena index (e.g. Storage containers).
   unsigned first_arena_idx_{0};
 
   unsigned first_arena_use_count_{0};

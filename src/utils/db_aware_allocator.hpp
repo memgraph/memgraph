@@ -28,7 +28,7 @@ class ArenaPool;
 // Thread-local state for the currently active database arena.
 // arena = 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
 //
-// Both fields are set by DbArenaScope. Background threads
+// All fields are set by DbArenaScope. Background threads
 // (TTL, GC, async indexer, stream consumers) install a pool-backed scope via
 // DbAwareThread at their work boundary; they do not write
 // TLS directly.
@@ -49,11 +49,13 @@ inline thread_local DbArenaTlsState tls_db_arena_state [[gnu::tls_model("initial
 
 // Allocate `bytes` bytes with the given `alignment`, attributed to arena `idx`.
 // Returns void* — use DbAllocate<T> for typed element-count based allocation.
-// Uses MALLOCX_TCACHE_NONE to avoid thread-cache overhead and ensure accurate tracking.
+// Uses MALLOCX_TCARENA(idx) and, if tls_db_arena_state.tcache is set,
+// MALLOCX_TCACHE(tcache); otherwise MALLOCX_TCACHE_NONE for accurate tracking.
 [[nodiscard]] void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment);
 
 // Deallocate memory previously allocated via DbAllocateBytes.
-// Uses je_sdallocx with MALLOCX_TCACHE_NONE so the free goes directly to the
+// Uses je_sdallocx with MALLOCX_TCACHE(tls_db_arena_state.tcache) when a tcache
+// is pinned; otherwise MALLOCX_TCACHE_NONE so the free goes directly to the
 // arena bin, matching the allocation style and allowing decay=0 arenas to
 // return pages to the OS promptly without blocks sitting in the TLS cache.
 void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept;
@@ -144,7 +146,8 @@ struct DbAwareAllocator {
   void deallocate(T *p, std::size_t n) noexcept {
     // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
     // free query-thread allocations regardless of which thread calls deallocate.
-    // MALLOCX_TCACHE_NONE matches the allocation style and lets decay=0 arenas return pages promptly.
+    // DbDeallocateBytes uses the current tcache if pinned, else MALLOCX_TCACHE_NONE,
+    // matching the allocation style and letting decay=0 arenas return pages promptly.
     DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
   }
 

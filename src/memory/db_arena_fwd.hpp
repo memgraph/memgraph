@@ -169,8 +169,8 @@ class DbAwareThread {
   explicit DbAwareThread(F &&f, Args &&...args)
       : DbAwareThread(tls_db_arena_state.arena_pool, std::forward<F>(f), std::forward<Args>(args)...) {}
 
-  // The new thread acquires from the pool for the lifetime
-  // of the supplied function and releases it when the function exits.
+  // The new thread acquires an arena and tcache from the pool for the
+  // lifetime of the supplied function and releases them when the function exits.
   template <typename F, typename... Args>
     requires(std::is_invocable_v<std::decay_t<F>, std::decay_t<Args>...> ||
              std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>)
