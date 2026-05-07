@@ -214,7 +214,7 @@ struct PreparedQuery {
   std::move_only_function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
   std::optional<std::string> db{};
-  utils::Priority priority{utils::Priority::HIGH};
+  utils::Priority priority{utils::Priority::LOW};
 };
 
 /**
