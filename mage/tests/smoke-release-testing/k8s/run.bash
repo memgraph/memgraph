@@ -87,8 +87,9 @@ test_k8s_single() {
 helm_install_myhadb() {
   chart_path="$1"
   image_tag="$2"
+  kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE --from-literal=MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME
+
   helm install myhadb $chart_path \
-    --set env.MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE,env.MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
     -f "$SCRIPT_DIR/values-ha.yaml" \
     --set "image.tag=$image_tag"
 }

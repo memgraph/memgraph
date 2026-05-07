@@ -209,15 +209,14 @@ fi
 ENTERPRISE_LICENSE=${MEMGRAPH_ENTERPRISE_LICENSE:-""}
 ORGANIZATION_NAME=${MEMGRAPH_ORGANIZATION_NAME:-""}
 
+echo -e "${YELLOW} Creating secret with license details"
+kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=${ENTERPRISE_LICENSE} --from-literal=MEMGRAPH_ORGANIZATION_NAME=${ORGANIZATION_NAME}
+
 sed -e "s/{{VERSION_TAG}}/${LAST_TAG}/g" \
-    -e "s/{{ENTERPRISE_LICENSE}}/${ENTERPRISE_LICENSE}/g" \
-    -e "s/{{ORGANIZATION_NAME}}/${ORGANIZATION_NAME}/g" \
     values_template.yaml > old_values.yaml
 echo -e "${GREEN}Generated old_values.yaml with tag: ${LAST_TAG}${NC}"
 
 sed -e "s/{{VERSION_TAG}}/${NEXT_TAG}/g" \
-    -e "s/{{ENTERPRISE_LICENSE}}/${ENTERPRISE_LICENSE}/g" \
-    -e "s/{{ORGANIZATION_NAME}}/${ORGANIZATION_NAME}/g" \
     values_template.yaml > new_values.yaml
 echo -e "${GREEN}Generated new_values.yaml with tag: ${NEXT_TAG}${NC}"
 
