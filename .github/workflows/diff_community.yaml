@@ -40,7 +40,7 @@ jobs:
   core:
     if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild, sandman]
     timeout-minutes: 60
     steps:
       - name: Set up repository
