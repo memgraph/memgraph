@@ -1667,3 +1667,38 @@ TYPED_TEST(InterpreterTest, LoadCsvClauseNotification) {
             "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
   ASSERT_EQ(notification["description"].ValueString(), "");
 }
+
+TYPED_TEST(InterpreterTest, CypherQueryPriorityIsLow) {
+  auto [stream, qid] = this->Prepare("RETURN 1");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
+}
+
+TYPED_TEST(InterpreterTest, BeginIsLow) {
+  auto [stream, qid] = this->Prepare("BEGIN");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
+}
+
+TYPED_TEST(InterpreterTest, CommitIsLow) {
+  auto [stream, qid] = this->Prepare("COMMIT");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
+}
+
+TYPED_TEST(InterpreterTest, CreateIndexQueryPriorityIsLow) {
+  auto [stream, qid] = this->Prepare("CREATE INDEX ON :Person(id)");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
+}
+
+TYPED_TEST(InterpreterTest, ShowVersionQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("SHOW VERSION");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, ShowConfigQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("SHOW CONFIG");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, ShowTransactionsQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("SHOW TRANSACTIONS");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
