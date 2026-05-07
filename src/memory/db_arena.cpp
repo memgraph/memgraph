@@ -366,7 +366,7 @@ unsigned ArenaPool::Acquire() {
   return new_idx;
 }
 
-void ArenaPool::Release(unsigned arena_idx) {
+void ArenaPool::Release(unsigned arena_idx) noexcept {
   try {
     if (arena_idx == 0) return;
     const std::lock_guard<std::mutex> lock(arena_mux_);
@@ -386,8 +386,10 @@ void ArenaPool::Release(unsigned arena_idx) {
       }
     }
     DMG_ASSERT(false, "Trying to release an areana that is not under the current pool.");
-  } catch (std::exception &e) {
+  } catch (const std::exception &e) {
     SafeLog("Exception while releasing arena {}: {}", arena_idx, e.what());
+  } catch (...) {
+    SafeLog("Exception while releasing arena {}: unknown exception", arena_idx);
   }
 }
 
@@ -401,6 +403,7 @@ void ArenaPool::PurgeAllArenas() const {
   std::vector<unsigned> arena_indices;
   {
     const std::lock_guard<std::mutex> lock(arena_mux_);
+    arena_indices.reserve(arenas_.size());
     arena_indices = arenas_;
   }
 
@@ -428,21 +431,27 @@ unsigned ArenaPool::AcquireTcache() {
   return tcache_id;
 }
 
-void ArenaPool::ReleaseTcache(unsigned tcache_id) {
+void ArenaPool::ReleaseTcache(unsigned tcache_id) noexcept {
+  if (tcache_id == 0) return;
   try {
-    if (tcache_id == 0) return;
     const std::lock_guard<std::mutex> lock(tcache_mutex_);
     tcaches_.push_back(tcache_id);
-  } catch (std::exception &e) {
+  } catch (const std::exception &e) {
+    const size_t sz = sizeof(unsigned);
+    je_mallctl("tcache.destroy", nullptr, nullptr, &tcache_id, sz);
     SafeLog("Exception while releasing tcache {}: {}", tcache_id, e.what());
+  } catch (...) {
+    const size_t sz = sizeof(unsigned);
+    je_mallctl("tcache.destroy", nullptr, nullptr, &tcache_id, sz);
+    SafeLog("Exception while releasing tcache {}: unknown exception", tcache_id);
   }
 }
 
 void ArenaPool::DestroyAllTcaches() {
   const std::lock_guard<std::mutex> lock(tcache_mutex_);
-  for (const unsigned tcache_id : tcaches_) {
+  for (unsigned tcache_id : tcaches_) {
     const size_t sz = sizeof(unsigned);
-    je_mallctl("tcache.destroy", nullptr, nullptr, const_cast<unsigned *>(&tcache_id), sz);
+    je_mallctl("tcache.destroy", nullptr, nullptr, &tcache_id, sz);
   }
   tcaches_.clear();
 }
@@ -463,7 +472,7 @@ unsigned ArenaPool::idx() const noexcept { return 0U; }
 
 unsigned ArenaPool::Acquire() { return 0U; }
 
-void ArenaPool::Release(unsigned /*arena_idx*/) {}
+void ArenaPool::Release(unsigned /*arena_idx*/) noexcept {}
 
 bool ArenaPool::Owns(unsigned /*arena_idx*/) const { return false; }
 
@@ -471,7 +480,7 @@ void ArenaPool::PurgeAllArenas() const {}
 
 unsigned ArenaPool::AcquireTcache() { return 0U; }
 
-void ArenaPool::ReleaseTcache(unsigned /*tcache_id*/) {}
+void ArenaPool::ReleaseTcache(unsigned /*tcache_id*/) noexcept {}
 
 void ArenaPool::DestroyAllTcaches() {}
 

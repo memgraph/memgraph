@@ -219,10 +219,12 @@ class Database {
   struct GatekeeperGuard {
     memory::DbArenaTlsState prev_;
 
-    GatekeeperGuard() noexcept : prev_(memory::tls_db_arena_state) { memory::tls_db_arena_state = {}; }
+    GatekeeperGuard() noexcept : prev_(std::exchange(memory::tls_db_arena_state, {})) {}
 
-    GatekeeperGuard(GatekeeperGuard &&) noexcept = default;
-    GatekeeperGuard &operator=(GatekeeperGuard &&) noexcept = default;
+    GatekeeperGuard(const GatekeeperGuard &) noexcept = delete;
+    GatekeeperGuard &operator=(const GatekeeperGuard &) noexcept = delete;
+    GatekeeperGuard(GatekeeperGuard &&) noexcept = delete;
+    GatekeeperGuard &operator=(GatekeeperGuard &&) noexcept = delete;
 
     ~GatekeeperGuard() noexcept { memory::tls_db_arena_state = prev_; }
   };

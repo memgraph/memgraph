@@ -61,7 +61,7 @@ class ArenaPool {
   unsigned Acquire();
 
   // Return an arena acquired from this pool so a future Acquire() can reuse it.
-  void Release(unsigned arena_idx);
+  void Release(unsigned arena_idx) noexcept;
 
   // Returns true if this pool owns the arena index.
   bool Owns(unsigned arena_idx) const;
@@ -74,7 +74,7 @@ class ArenaPool {
   unsigned AcquireTcache();
 
   // Return a tcache acquired from this pool so a future AcquireTcache() can reuse it.
-  void ReleaseTcache(unsigned tcache_id);
+  void ReleaseTcache(unsigned tcache_id) noexcept;
 
   // Destroy all pooled tcaches. Must only be called when no tcaches are in use.
   void DestroyAllTcaches();
