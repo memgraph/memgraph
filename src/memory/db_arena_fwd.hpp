@@ -18,7 +18,6 @@
 
 #include "utils/allocator/page_slab_memory_resource.hpp"
 #include "utils/db_aware_allocator.hpp"
-#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::dbms {
 class Database;
@@ -132,9 +131,6 @@ class ArenaPageSlabMemoryResource {
 // asserts there was no previous arena. It exists only for non-jemalloc builds
 // where all constructors compile to no-ops.
 struct DbArenaScope {
-  // No-op scope: resets TLS arena to 0 (asserts no previous arena was set).
-  DbArenaScope() noexcept;
-
   // Acquire per-thread arena from the database's pool.
   explicit DbArenaScope(const memgraph::dbms::Database *db);
 
