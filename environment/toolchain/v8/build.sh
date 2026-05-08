@@ -733,128 +733,128 @@ fi
 #   * extreme 1 -> move all libs + Memgraph compilation here, have one giant script
 #   * extreme 2 -> build a granular package manager, each lib (for all variable) separated
 
-# Don't remove boost until pulsar can come from conan!
-BOOST_SHA256=5e93d582aff26868d581a52ae78c7d8edf3f3064742c6e77901a1f18a437eea9
-BOOST_VERSION=1.90.0
-BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
-# Also, check that `asio` references in pulsar are fixed before going past this version of boost
+# # Don't remove boost until pulsar can come from conan!
+# BOOST_SHA256=5e93d582aff26868d581a52ae78c7d8edf3f3064742c6e77901a1f18a437eea9
+# BOOST_VERSION=1.90.0
+# BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
+# # Also, check that `asio` references in pulsar are fixed before going past this version of boost
 
-BZIP2_SHA256=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
-BZIP2_VERSION=1.0.8
-DOUBLE_CONVERSION_SHA256=42fd4d980ea86426e457b24bdfa835a6f5ad9517ddb01cdb42b99ab9c8dd5dc9
-DOUBLE_CONVERSION_VERSION=3.4.0
-GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
-GLOG_SHA256=00e4a87e87b7e7612f519a41e491f16623b12423620006f59f5688bfd8d13b08
-GLOG_VERSION=0.7.1
-JEMALLOC_VERSION=5.2.1 # Some people complained about 5.3.0 performance.
-LIBAIO_VERSION=0.3.113
-LIBEVENT_VERSION=2.1.12-stable
-LIBSODIUM_VERSION=1.0.21
-LIBUNWIND_VERSION=1.8.3
-SNAPPY_SHA256=90f74bc1fbf78a6c56b3c4a082a05103b3a56bb17bca1a27e052ea11723292dc
-SNAPPY_VERSION=1.2.2
-XZ_VERSION=5.8.2 # for LZMA
-ZLIB_VERSION=1.3.1
-ZSTD_VERSION=1.5.7
+# BZIP2_SHA256=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
+# BZIP2_VERSION=1.0.8
+# DOUBLE_CONVERSION_SHA256=42fd4d980ea86426e457b24bdfa835a6f5ad9517ddb01cdb42b99ab9c8dd5dc9
+# DOUBLE_CONVERSION_VERSION=3.4.0
+# GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
+# GLOG_SHA256=00e4a87e87b7e7612f519a41e491f16623b12423620006f59f5688bfd8d13b08
+# GLOG_VERSION=0.7.1
+# JEMALLOC_VERSION=5.2.1 # Some people complained about 5.3.0 performance.
+# LIBAIO_VERSION=0.3.113
+# LIBEVENT_VERSION=2.1.12-stable
+# LIBSODIUM_VERSION=1.0.21
+# LIBUNWIND_VERSION=1.8.3
+# SNAPPY_SHA256=90f74bc1fbf78a6c56b3c4a082a05103b3a56bb17bca1a27e052ea11723292dc
+# SNAPPY_VERSION=1.2.2
+# XZ_VERSION=5.8.2 # for LZMA
+# ZLIB_VERSION=1.3.1
+# ZSTD_VERSION=1.5.7
 
-pushd archives
-if [[ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]]; then
-    # do not redirect the download into a file, because it will download the file into a ".1" postfixed file
-    # I am not sure why this is happening, but I think because of some redirects that happens during the download
-    wget https://archives.boost.io/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz -O boost_$BOOST_VERSION_UNDERSCORES.tar.gz
-fi
-if [[ ! -f bzip2-$BZIP2_VERSION.tar.gz ]]; then
-    wget https://sourceware.org/pub/bzip2/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
-fi
-if [[ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]]; then
-    wget https://github.com/google/double-conversion/archive/refs/tags/v$DOUBLE_CONVERSION_VERSION.tar.gz -O double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
-fi
-if [[ ! -f glog-$GLOG_VERSION.tar.gz ]]; then
-    wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
-fi
-if [[ ! -f libaio-$LIBAIO_VERSION.tar.gz ]]; then
-    wget https://releases.pagure.org/libaio/libaio-$LIBAIO_VERSION.tar.gz -O libaio-$LIBAIO_VERSION.tar.gz
-fi
-if [[ ! -f libevent-$LIBEVENT_VERSION.tar.gz ]]; then
-    wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz -O libevent-$LIBEVENT_VERSION.tar.gz
-fi
-if [[ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz ]]; then
-    curl https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz -o libsodium-$LIBSODIUM_VERSION.tar.gz
-fi
-if [[ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]]; then
-    wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz -O libunwind-$LIBUNWIND_VERSION.tar.gz
-fi
-if [[ ! -f snappy-$SNAPPY_VERSION.tar.gz ]]; then
-    wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
-fi
-if [[ ! -f xz-$XZ_VERSION.tar.gz ]]; then
-    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
-fi
-if [[ ! -f zlib-$ZLIB_VERSION.tar.gz ]]; then
-    wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz -O zlib-$ZLIB_VERSION.tar.gz
-fi
-if [[ ! -f zstd-$ZSTD_VERSION.tar.gz ]]; then
-    wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz -O zstd-$ZSTD_VERSION.tar.gz
-fi
+# pushd archives
+# if [[ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]]; then
+#     # do not redirect the download into a file, because it will download the file into a ".1" postfixed file
+#     # I am not sure why this is happening, but I think because of some redirects that happens during the download
+#     wget https://archives.boost.io/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz -O boost_$BOOST_VERSION_UNDERSCORES.tar.gz
+# fi
+# if [[ ! -f bzip2-$BZIP2_VERSION.tar.gz ]]; then
+#     wget https://sourceware.org/pub/bzip2/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
+# fi
+# if [[ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]]; then
+#     wget https://github.com/google/double-conversion/archive/refs/tags/v$DOUBLE_CONVERSION_VERSION.tar.gz -O double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
+# fi
+# if [[ ! -f glog-$GLOG_VERSION.tar.gz ]]; then
+#     wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
+# fi
+# if [[ ! -f libaio-$LIBAIO_VERSION.tar.gz ]]; then
+#     wget https://releases.pagure.org/libaio/libaio-$LIBAIO_VERSION.tar.gz -O libaio-$LIBAIO_VERSION.tar.gz
+# fi
+# if [[ ! -f libevent-$LIBEVENT_VERSION.tar.gz ]]; then
+#     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz -O libevent-$LIBEVENT_VERSION.tar.gz
+# fi
+# if [[ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz ]]; then
+#     curl https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz -o libsodium-$LIBSODIUM_VERSION.tar.gz
+# fi
+# if [[ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]]; then
+#     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz -O libunwind-$LIBUNWIND_VERSION.tar.gz
+# fi
+# if [[ ! -f snappy-$SNAPPY_VERSION.tar.gz ]]; then
+#     wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
+# fi
+# if [[ ! -f xz-$XZ_VERSION.tar.gz ]]; then
+#     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
+# fi
+# if [[ ! -f zlib-$ZLIB_VERSION.tar.gz ]]; then
+#     wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz -O zlib-$ZLIB_VERSION.tar.gz
+# fi
+# if [[ ! -f zstd-$ZSTD_VERSION.tar.gz ]]; then
+#     wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz -O zstd-$ZSTD_VERSION.tar.gz
+# fi
 
-# verify boost
-echo "$BOOST_SHA256 boost_$BOOST_VERSION_UNDERSCORES.tar.gz" | sha256sum -c
-# verify bzip2
-echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
-# verify double-conversion
-echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
-# verify glog
-echo "$GLOG_SHA256  glog-$GLOG_VERSION.tar.gz" | sha256sum -c
-# verify libaio
-if [[ ! -f libaio-CHECKSUMS ]]; then
-    wget https://releases.pagure.org/libaio/CHECKSUMS -O libaio-CHECKSUMS
-fi
-cat libaio-CHECKSUMS | grep "SHA256 (libaio-$LIBAIO_VERSION.tar.gz)" | sha256sum -c
-# verify libevent
-if [[ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]]; then
-    wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz.asc
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x9E3AC83A27974B84D1B3401DB86086848EF8686D
-$GPG --verify libevent-$LIBEVENT_VERSION.tar.gz.asc libevent-$LIBEVENT_VERSION.tar.gz
+# # verify boost
+# echo "$BOOST_SHA256 boost_$BOOST_VERSION_UNDERSCORES.tar.gz" | sha256sum -c
+# # verify bzip2
+# echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
+# # verify double-conversion
+# echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
+# # verify glog
+# echo "$GLOG_SHA256  glog-$GLOG_VERSION.tar.gz" | sha256sum -c
+# # verify libaio
+# if [[ ! -f libaio-CHECKSUMS ]]; then
+#     wget https://releases.pagure.org/libaio/CHECKSUMS -O libaio-CHECKSUMS
+# fi
+# cat libaio-CHECKSUMS | grep "SHA256 (libaio-$LIBAIO_VERSION.tar.gz)" | sha256sum -c
+# # verify libevent
+# if [[ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]]; then
+#     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz.asc
+# fi
+# $GPG --keyserver $KEYSERVER --recv-keys 0x9E3AC83A27974B84D1B3401DB86086848EF8686D
+# $GPG --verify libevent-$LIBEVENT_VERSION.tar.gz.asc libevent-$LIBEVENT_VERSION.tar.gz
 
-# verify libsodium
-if [[ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz.sig ]]; then
-    curl https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz.sig -o libsodium-$LIBSODIUM_VERSION.tar.gz.sig
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x0C7983A8FD9A104C623172CB62F25B592B6F76DA
-$GPG --verify libsodium-$LIBSODIUM_VERSION.tar.gz.sig libsodium-$LIBSODIUM_VERSION.tar.gz
+# # verify libsodium
+# if [[ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz.sig ]]; then
+#     curl https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz.sig -o libsodium-$LIBSODIUM_VERSION.tar.gz.sig
+# fi
+# $GPG --keyserver $KEYSERVER --recv-keys 0x0C7983A8FD9A104C623172CB62F25B592B6F76DA
+# $GPG --verify libsodium-$LIBSODIUM_VERSION.tar.gz.sig libsodium-$LIBSODIUM_VERSION.tar.gz
 
-# verify libunwind
-if [[ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.asc ]]; then
-    wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.asc
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4 0x42FA3D4C00D0AA116C3F45DAA4CCF616E0FF69D2
-$GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.asc libunwind-$LIBUNWIND_VERSION.tar.gz
+# # verify libunwind
+# if [[ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.asc ]]; then
+#     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.asc
+# fi
+# $GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4 0x42FA3D4C00D0AA116C3F45DAA4CCF616E0FF69D2
+# $GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.asc libunwind-$LIBUNWIND_VERSION.tar.gz
 
-# verify snappy
-echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
-# verify xz
-if [[ ! -f xz-$XZ_VERSION.tar.gz.sig ]]; then
-    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz.sig
-fi
-$GPG --import ../xz_pgp.txt
-$GPG --verify xz-$XZ_VERSION.tar.gz.sig xz-$XZ_VERSION.tar.gz
+# # verify snappy
+# echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
+# # verify xz
+# if [[ ! -f xz-$XZ_VERSION.tar.gz.sig ]]; then
+#     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz.sig
+# fi
+# $GPG --import ../xz_pgp.txt
+# $GPG --verify xz-$XZ_VERSION.tar.gz.sig xz-$XZ_VERSION.tar.gz
 
-# verify zlib
-if [[ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]]; then
-    wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz.asc
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
-$GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
+# # verify zlib
+# if [[ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]]; then
+#     wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz.asc
+# fi
+# $GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
+# $GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
 
-#verify zstd
-if [[ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]]; then
-    wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz.sig
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
-$GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
+# #verify zstd
+# if [[ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]]; then
+#     wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz.sig
+# fi
+# $GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
+# $GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
 
-popd
+# popd
 
 pushd build
 source $PREFIX/activate
@@ -891,131 +891,132 @@ COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX
 COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
 COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
 
-log_tool_name "bzip2 $BZIP2_VERSION"
-if [[ ! -f "$PREFIX/include/bzlib.h" ]]; then
-    if [[ -d bzip2-$BZIP2_VERSION ]]; then
-        rm -rf bzip2-$BZIP2_VERSION
-    fi
-    tar -xzf ../archives/bzip2-$BZIP2_VERSION.tar.gz
-    pushd "bzip2-$BZIP2_VERSION"
-    # CentOS 9 build requires bzip to be built with -fPIC
-    make $COMMON_MAKE_INSTALL_FLAGS CFLAGS="$CFLAGS"
-    popd
-fi
+# log_tool_name "bzip2 $BZIP2_VERSION"
+# if [[ ! -f "$PREFIX/include/bzlib.h" ]]; then
+#     if [[ -d bzip2-$BZIP2_VERSION ]]; then
+#         rm -rf bzip2-$BZIP2_VERSION
+#     fi
+#     tar -xzf ../archives/bzip2-$BZIP2_VERSION.tar.gz
+#     pushd "bzip2-$BZIP2_VERSION"
+#     # CentOS 9 build requires bzip to be built with -fPIC
+#     make $COMMON_MAKE_INSTALL_FLAGS CFLAGS="$CFLAGS"
+#     popd
+# fi
 
-log_tool_name "xz $XZ_VERSION"
-if [[ ! -f "$PREFIX/include/lzma.h" ]]; then
-    if [[ -d xz-$XZ_VERSION ]]; then
-        rm -rf xz-$XZ_VERSION
-    fi
-    tar -xzf ../archives/xz-$XZ_VERSION.tar.gz
-    pushd "xz-$XZ_VERSION"
-    ./configure $COMMON_CONFIGURE_FLAGS
-    make -j$CPUS install
-    popd
-fi
+# log_tool_name "xz $XZ_VERSION"
+# if [[ ! -f "$PREFIX/include/lzma.h" ]]; then
+#     if [[ -d xz-$XZ_VERSION ]]; then
+#         rm -rf xz-$XZ_VERSION
+#     fi
+#     tar -xzf ../archives/xz-$XZ_VERSION.tar.gz
+#     pushd "xz-$XZ_VERSION"
+#     ./configure $COMMON_CONFIGURE_FLAGS
+#     make -j$CPUS install
+#     popd
+# fi
 
-log_tool_name "zlib $ZLIB_VERSION"
-if [[ ! -f "$PREFIX/include/zlib.h" ]]; then
-    if [[ -d zlib-$ZLIB_VERSION ]]; then
-        rm -rf zlib-$ZLIB_VERSION
-    fi
-    tar -xzf ../archives/zlib-$ZLIB_VERSION.tar.gz
-    pushd "zlib-$ZLIB_VERSION"
-    mkdir build && pushd build
-    cmake .. $COMMON_CMAKE_FLAGS
-    make -j$CPUS install
-    rm $PREFIX/lib/libz.so*
-    popd && popd
-fi
+# log_tool_name "zlib $ZLIB_VERSION"
+# if [[ ! -f "$PREFIX/include/zlib.h" ]]; then
+#     if [[ -d zlib-$ZLIB_VERSION ]]; then
+#         rm -rf zlib-$ZLIB_VERSION
+#     fi
+#     tar -xzf ../archives/zlib-$ZLIB_VERSION.tar.gz
+#     pushd "zlib-$ZLIB_VERSION"
+#     mkdir build && pushd build
+#     cmake .. $COMMON_CMAKE_FLAGS
+#     make -j$CPUS install
+#     rm $PREFIX/lib/libz.so*
+#     popd && popd
+# fi
 
-log_tool_name "zstd $ZSTD_VERSION"
-if [[ ! -f "$PREFIX/include/zstd.h" ]]; then
-    if [[ -d zstd-$ZSTD_VERSION ]]; then
-        rm -rf zstd-$ZSTD_VERSION
-    fi
-    tar -xzf ../archives/zstd-$ZSTD_VERSION.tar.gz
-    pushd "zstd-$ZSTD_VERSION"
-    # build is used by facebook builder
-    mkdir _build
-    pushd _build
-    cmake ../build/cmake $COMMON_CMAKE_FLAGS -DZSTD_BUILD_SHARED=OFF
-    make -j$CPUS install
-    popd && popd
-fi
+# TODO: might require explicit include in conanfile because it is pulling in transitively by pulsar according to claude
+# log_tool_name "zstd $ZSTD_VERSION"
+# if [[ ! -f "$PREFIX/include/zstd.h" ]]; then
+#     if [[ -d zstd-$ZSTD_VERSION ]]; then
+#         rm -rf zstd-$ZSTD_VERSION
+#     fi
+#     tar -xzf ../archives/zstd-$ZSTD_VERSION.tar.gz
+#     pushd "zstd-$ZSTD_VERSION"
+#     # build is used by facebook builder
+#     mkdir _build
+#     pushd _build
+#     cmake ../build/cmake $COMMON_CMAKE_FLAGS -DZSTD_BUILD_SHARED=OFF
+#     make -j$CPUS install
+#     popd && popd
+# fi
 
-log_tool_name "jmalloc $JEMALLOC_VERSION"
-if [[ ! -d "$PREFIX/include/jemalloc" ]]; then
-    if [ -d jemalloc ]; then
-        rm -rf jemalloc
-    fi
-    git clone https://github.com/jemalloc/jemalloc.git jemalloc
-    pushd jemalloc
-    git checkout $JEMALLOC_VERSION
-    ./autogen.sh
-    ./configure \
-      --disable-cxx \
-      --with-lg-page=12 \
-      --with-lg-hugepage=21 \
-      --with-jemalloc-prefix=je_ \
-      --enable-shared=no --prefix=$PREFIX \
-      --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
-    make -j$CPUS install
-    popd
-fi
+# log_tool_name "jmalloc $JEMALLOC_VERSION"
+# if [[ ! -d "$PREFIX/include/jemalloc" ]]; then
+#     if [ -d jemalloc ]; then
+#         rm -rf jemalloc
+#     fi
+#     git clone https://github.com/jemalloc/jemalloc.git jemalloc
+#     pushd jemalloc
+#     git checkout $JEMALLOC_VERSION
+#     ./autogen.sh
+#     ./configure \
+#       --disable-cxx \
+#       --with-lg-page=12 \
+#       --with-lg-hugepage=21 \
+#       --with-jemalloc-prefix=je_ \
+#       --enable-shared=no --prefix=$PREFIX \
+#       --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
+#     make -j$CPUS install
+#     popd
+# fi
 
-log_tool_name "BOOST $BOOST_VERSION"
-if [[ ! -d "$PREFIX/include/boost" ]]; then
-    if [ -d "boost_$BOOST_VERSION_UNDERSCORES" ]; then
-        rm -rf boost_$BOOST_VERSION_UNDERSCORES
-    fi
-    tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
-    pushd "boost_$BOOST_VERSION_UNDERSCORES"
-    # TODO(gitbuda): Figure out why --with-libraries=python doesn't work for protobuf
-    ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3 --without-icu
-    if [[ "$TOOLCHAIN_STDCXX" = "libstdc++" ]]; then
-        # For ARM64, don't use toolchain GCC headers to avoid missing bits/c++config.h issues
-        # This matches the v6 approach which worked correctly
-        # But exclude Debian 13 ARM as it needs the cxxflags for C++ standard library headers
-        if [[ "$for_arm" = "true" && ! "$DISTRO" = "debian-13" ]]; then
-            ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
-                -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
-                -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
-                -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
-                -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
-        else
-            ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
-                -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
-                -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
-                -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
-                -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib" \
-                cxxflags="-stdlib=libstdc++ -I$PREFIX/include/c++/$GCC_VERSION -L$PREFIX/lib64"
-        fi
-    else
-        ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
-            cxxflags="-stdlib=libc++" linkflags="-stdlib=libc++" \
-            -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
-            -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
-            -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
-            -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
-    fi
-    popd
-fi
+# log_tool_name "BOOST $BOOST_VERSION"
+# if [[ ! -d "$PREFIX/include/boost" ]]; then
+#     if [ -d "boost_$BOOST_VERSION_UNDERSCORES" ]; then
+#         rm -rf boost_$BOOST_VERSION_UNDERSCORES
+#     fi
+#     tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
+#     pushd "boost_$BOOST_VERSION_UNDERSCORES"
+#     # TODO(gitbuda): Figure out why --with-libraries=python doesn't work for protobuf
+#     ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3 --without-icu
+#     if [[ "$TOOLCHAIN_STDCXX" = "libstdc++" ]]; then
+#         # For ARM64, don't use toolchain GCC headers to avoid missing bits/c++config.h issues
+#         # This matches the v6 approach which worked correctly
+#         # But exclude Debian 13 ARM as it needs the cxxflags for C++ standard library headers
+#         if [[ "$for_arm" = "true" && ! "$DISTRO" = "debian-13" ]]; then
+#             ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+#                 -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
+#                 -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
+#                 -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
+#                 -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
+#         else
+#             ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+#                 -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
+#                 -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
+#                 -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
+#                 -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib" \
+#                 cxxflags="-stdlib=libstdc++ -I$PREFIX/include/c++/$GCC_VERSION -L$PREFIX/lib64"
+#         fi
+#     else
+#         ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+#             cxxflags="-stdlib=libc++" linkflags="-stdlib=libc++" \
+#             -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
+#             -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
+#             -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
+#             -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
+#     fi
+#     popd
+# fi
 
-log_tool_name "double-conversion $DOUBLE_CONVERSION_VERSION"
-if [[ ! -d "$PREFIX/include/double-conversion" ]]; then
-    if [[ -d "double-conversion-$DOUBLE_CONVERSION_VERSION" ]]; then
-        rm -rf "double-conversion-$DOUBLE_CONVERSION_VERSION"
-    fi
-    tar -xzf ../archives/double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
-    pushd "double-conversion-$DOUBLE_CONVERSION_VERSION"
-    # build is used by facebook builder
-    mkdir build
-    pushd build
-    cmake .. $COMMON_CMAKE_FLAGS -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-    make -j$CPUS install
-    popd && popd
-fi
+# log_tool_name "double-conversion $DOUBLE_CONVERSION_VERSION"
+# if [[ ! -d "$PREFIX/include/double-conversion" ]]; then
+#     if [[ -d "double-conversion-$DOUBLE_CONVERSION_VERSION" ]]; then
+#         rm -rf "double-conversion-$DOUBLE_CONVERSION_VERSION"
+#     fi
+#     tar -xzf ../archives/double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
+#     pushd "double-conversion-$DOUBLE_CONVERSION_VERSION"
+#     # build is used by facebook builder
+#     mkdir build
+#     pushd build
+#     cmake .. $COMMON_CMAKE_FLAGS -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+#     make -j$CPUS install
+#     popd && popd
+# fi
 
 # # NOTE: we have an 8 year old fork, can this be replaced with a newer version?
 # log_tool_name "gflags (memgraph fork $GFLAGS_COMMIT_HASH)"
