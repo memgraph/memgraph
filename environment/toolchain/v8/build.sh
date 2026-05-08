@@ -633,90 +633,11 @@ the initial environment variables.
 EOF
 fi
 
-# create activation script
+# create activation script from template
 if [[ ! -f "$PREFIX/activate" ]]; then
-    cat >$PREFIX/activate <<EOF
-# Detect the shell
-if [ -n "\$BASH_VERSION" ]; then
-    current_shell="bash"
-    SCRIPT_SOURCE="\${BASH_SOURCE[0]}"
-elif [ -n "\$ZSH_VERSION" ]; then
-    current_shell="zsh"
-    SCRIPT_SOURCE="\${(%):-%N}"
-else
-    echo "Unsupported shell. Only bash and zsh are supported." >&2
-    return 1 2>/dev/null || exit 1
-fi
-
-readonly SCRIPT_DIR=\$( cd -- "\$( dirname -- "\${SCRIPT_SOURCE}" )" &> /dev/null && pwd )
-PREFIX=\$SCRIPT_DIR
-
-# This file must be used with "source /path/to/toolchain/activate" *from bash*
-# You can't run it directly!
-
-env_error="You already have an active virtual environment!"
-
-# zsh does not recognize the option -t of the command type
-# therefore we use the alternative whence -w
-if [[ "\$current_shell" == "zsh" ]]; then
-    # check for active virtual environments
-    if [ "\$( whence -w deactivate )" != "deactivate: none" ]; then
-        echo \$env_error
-        return 0;
-    fi
-# any other shell
-else
-    # check for active virtual environments
-    if [ "\$( type -t deactivate )" != "" ]; then
-        echo \$env_error
-        return 0
-    fi
-fi
-
-# check that we aren't root
-if [[ "\${USER:-}" == "root" ]]; then
-    echo "You shouldn't use the toolchain as root!"
-    return 0
-fi
-
-# save original environment
-export ORIG_PATH=\${PATH:-}
-export ORIG_PS1=\${PS1:-}
-export ORIG_LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:-}
-export ORIG_CXXFLAGS=\${CXXFLAGS:-}
-export ORIG_CFLAGS=\${CFLAGS:-}
-
-# activate new environment
-export PATH=\$PREFIX:\$PREFIX/bin:\${PATH:-}
-export PS1="($NAME) \${PS1:-}"
-export LD_LIBRARY_PATH=\$PREFIX/lib:\$PREFIX/lib64
-export CXXFLAGS=-isystem\ \$PREFIX/include\ \${CXXFLAGS:-}
-export CFLAGS=-isystem\ \$PREFIX/include\ \${CFLAGS:-}
-export MG_TOOLCHAIN_ROOT=\$PREFIX
-export MG_TOOLCHAIN_VERSION=$TOOLCHAIN_VERSION
-
-# disable root
-function su () {
-    echo "You don't want to use root functions while using the toolchain!"
-    return 1
-}
-function sudo () {
-    echo "You don't want to use root functions while using the toolchain!"
-    return 1
-}
-
-# create deactivation function
-function deactivate() {
-    export PATH=\${ORIG_PATH:-}
-    export PS1=\${ORIG_PS1:-}
-    export LD_LIBRARY_PATH=\${ORIG_LD_LIBRARY_PATH:-}
-    export CXXFLAGS=\${ORIG_CXXFLAGS:-}
-    export CFLAGS=\${ORIG_CFLAGS:-}
-    unset ORIG_PATH ORIG_PS1 ORIG_LD_LIBRARY_PATH ORIG_CXXFLAGS ORIG_CFLAGS 2>/dev/null || true
-    unset MG_TOOLCHAIN_ROOT MG_TOOLCHAIN_VERSION 2>/dev/null || true
-    unset -f su sudo deactivate
-}
-EOF
+    sed -e "s|@NAME@|$NAME|g" \
+        -e "s|@TOOLCHAIN_VERSION@|$TOOLCHAIN_VERSION|g" \
+        "$DIR/activate.in" > "$PREFIX/activate"
 fi
 
 ###################################
