@@ -19,6 +19,7 @@
 // single-best and multi-alt cost-result types).
 
 #include <gtest/gtest.h>
+#include <boost/container/detail/placement_new.hpp>
 
 #include <algorithm>
 #include <set>

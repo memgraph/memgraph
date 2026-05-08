@@ -476,7 +476,9 @@ TEST(SlkCore, VectorSharedPtr) {
 
   auto reader = loopback.GetReader();
   memgraph::slk::Load<std::shared_ptr<std::string>>(
-      &decoded, reader, [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
+      &decoded, reader, [&loaded](std::shared_ptr<std::string> *item, memgraph::slk::Reader *reader) {
+        Load(item, reader, &loaded);
+      });
 
   ASSERT_EQ(decoded.size(), original.size());
 
@@ -509,7 +511,9 @@ TEST(SlkCore, OptionalSharedPtr) {
 
   auto reader = loopback.GetReader();
   memgraph::slk::Load<std::shared_ptr<std::string>>(
-      &decoded, reader, [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
+      &decoded, reader, [&loaded](std::shared_ptr<std::string> *item, memgraph::slk::Reader *reader) {
+        Load(item, reader, &loaded);
+      });
 
   ASSERT_NE(decoded, std::nullopt);
 
@@ -533,7 +537,9 @@ TEST(SlkCore, OptionalSharedPtrEmpty) {
 
   auto reader = loopback.GetReader();
   memgraph::slk::Load<std::shared_ptr<std::string>>(
-      &decoded, reader, [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
+      &decoded, reader, [&loaded](std::shared_ptr<std::string> *item, memgraph::slk::Reader *reader) {
+        Load(item, reader, &loaded);
+      });
 
   ASSERT_EQ(decoded, std::nullopt);
 

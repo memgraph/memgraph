@@ -21,6 +21,7 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <boost/container/detail/placement_new.hpp>
 
 #include "utils/small_vector.hpp"
 
