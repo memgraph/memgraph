@@ -1017,115 +1017,99 @@ if [[ ! -d "$PREFIX/include/double-conversion" ]]; then
     popd && popd
 fi
 
-# NOTE: we have an 8 year old fork, can this be replaced with a newer version?
-log_tool_name "gflags (memgraph fork $GFLAGS_COMMIT_HASH)"
-if [[ ! -d "$PREFIX/include/gflags" ]]; then
-    if [[ -d gflags ]]; then
-        rm -rf gflags
-    fi
-    git clone https://github.com/memgraph/gflags.git gflags
-    pushd gflags
-    git checkout $GFLAGS_COMMIT_HASH
-    mkdir build
-    pushd build
-    cmake .. $COMMON_CMAKE_FLAGS \
-        -DREGISTER_INSTALL_PREFIX=OFF \
-        -DBUILD_gflags_nothreads_LIB=OFF \
-        -DGFLAGS_NO_FILENAMES=1 \
-        -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-    make -j$CPUS install
-    popd && popd
-fi
+# # NOTE: we have an 8 year old fork, can this be replaced with a newer version?
+# log_tool_name "gflags (memgraph fork $GFLAGS_COMMIT_HASH)"
+# if [[ ! -d "$PREFIX/include/gflags" ]]; then
+#     if [[ -d gflags ]]; then
+#         rm -rf gflags
+#     fi
+#     git clone https://github.com/memgraph/gflags.git gflags
+#     pushd gflags
+#     git checkout $GFLAGS_COMMIT_HASH
+#     mkdir build
+#     pushd build
+#     cmake .. $COMMON_CMAKE_FLAGS \
+#         -DREGISTER_INSTALL_PREFIX=OFF \
+#         -DBUILD_gflags_nothreads_LIB=OFF \
+#         -DGFLAGS_NO_FILENAMES=1 \
+#         -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+#     make -j$CPUS install
+#     popd && popd
+# fi
 
-log_tool_name "libunwind $LIBUNWIND_VERSION"
-if [[ ! -f "$PREFIX/include/libunwind.h" ]]; then
-    if [[ -d "libunwind-$LIBUNWIND_VERSION" ]]; then
-        rm -rf libunwind-$LIBUNWIND_VERSION
-    fi
-    tar -xzf ../archives/libunwind-$LIBUNWIND_VERSION.tar.gz
-    pushd "libunwind-$LIBUNWIND_VERSION"
-    ./configure $COMMON_CONFIGURE_FLAGS \
-        --disable-minidebuginfo # disable LZMA usage to not depend on libLZMA
-    make -j$CPUS install
-    popd
-fi
+# apparently LLVM brings its own libunwind in
+# log_tool_name "libunwind $LIBUNWIND_VERSION"
+# if [[ ! -f "$PREFIX/include/libunwind.h" ]]; then
+#     if [[ -d "libunwind-$LIBUNWIND_VERSION" ]]; then
+#         rm -rf libunwind-$LIBUNWIND_VERSION
+#     fi
+#     tar -xzf ../archives/libunwind-$LIBUNWIND_VERSION.tar.gz
+#     pushd "libunwind-$LIBUNWIND_VERSION"
+#     ./configure $COMMON_CONFIGURE_FLAGS \
+#         --disable-minidebuginfo # disable LZMA usage to not depend on libLZMA
+#     make -j$CPUS install
+#     popd
+# fi
 
-# NOTE: this tool has been archived (Jun 2025) - does it need replacing?
-log_tool_name "glog $GLOG_VERSION"
-if [[ ! -d "$PREFIX/include/glog" ]]; then
-    if [[ -d "glog-$GLOG_VERSION" ]]; then
-        rm -rf glog-$GLOG_VERSION
-    fi
-    tar -xzf ../archives/glog-$GLOG_VERSION.tar.gz
-    pushd "glog-$GLOG_VERSION"
-    mkdir build
-    pushd build
-    cmake .. $COMMON_CMAKE_FLAGS -DGFLAGS_NOTHREADS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-    make -j$CPUS install
-    popd && popd
-fi
+# # NOTE: this tool has been archived (Jun 2025) - does it need replacing?
+# log_tool_name "glog $GLOG_VERSION"
+# if [[ ! -d "$PREFIX/include/glog" ]]; then
+#     if [[ -d "glog-$GLOG_VERSION" ]]; then
+#         rm -rf glog-$GLOG_VERSION
+#     fi
+#     tar -xzf ../archives/glog-$GLOG_VERSION.tar.gz
+#     pushd "glog-$GLOG_VERSION"
+#     mkdir build
+#     pushd build
+#     cmake .. $COMMON_CMAKE_FLAGS -DGFLAGS_NOTHREADS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+#     make -j$CPUS install
+#     popd && popd
+# fi
 
-# NOTE: this tool has not been updated since 2020 - is there a replacement?
-log_tool_name "libevent $LIBEVENT_VERSION"
-if [[ ! -d "$PREFIX/include/event2" ]]; then
-    if [[ -d "libevent-$LIBEVENT_VERSION" ]]; then
-        rm -rf libevent-$LIBEVENT_VERSION
-    fi
-    tar -xzf ../archives/libevent-$LIBEVENT_VERSION.tar.gz
-    pushd "libevent-$LIBEVENT_VERSION"
-    mkdir build
-    pushd build
-    cmake .. $COMMON_CMAKE_FLAGS \
-        -DEVENT__DISABLE_BENCHMARK=ON \
-        -DEVENT__DISABLE_REGRESS=ON \
-        -DEVENT__DISABLE_SAMPLES=ON \
-        -DEVENT__DISABLE_TESTS=ON \
-        -DEVENT__LIBRARY_TYPE="STATIC" \
-        -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-    make -j$CPUS install
-    popd && popd
-fi
+# # NOTE: this tool has not been updated since 2020 - is there a replacement?
+# log_tool_name "libevent $LIBEVENT_VERSION"
+# if [[ ! -d "$PREFIX/include/event2" ]]; then
+#     if [[ -d "libevent-$LIBEVENT_VERSION" ]]; then
+#         rm -rf libevent-$LIBEVENT_VERSION
+#     fi
+#     tar -xzf ../archives/libevent-$LIBEVENT_VERSION.tar.gz
+#     pushd "libevent-$LIBEVENT_VERSION"
+#     mkdir build
+#     pushd build
+#     cmake .. $COMMON_CMAKE_FLAGS \
+#         -DEVENT__DISABLE_BENCHMARK=ON \
+#         -DEVENT__DISABLE_REGRESS=ON \
+#         -DEVENT__DISABLE_SAMPLES=ON \
+#         -DEVENT__DISABLE_TESTS=ON \
+#         -DEVENT__LIBRARY_TYPE="STATIC" \
+#         -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+#     make -j$CPUS install
+#     popd && popd
+# fi
 
-log_tool_name "snappy $SNAPPY_VERSION"
-if [[ ! -f "$PREFIX/include/snappy.h" ]]; then
-    if [[ -d "snappy-$SNAPPY_VERSION" ]]; then
-        rm -rf snappy-$SNAPPY_VERSION
-    fi
-    tar -xzf ../archives/snappy-$SNAPPY_VERSION.tar.gz
-    pushd "snappy-$SNAPPY_VERSION"
-    patch -p1 <  $DIR/snappy.patch
-    mkdir build
-    pushd build
-    cmake .. $COMMON_CMAKE_FLAGS \
-        -DSNAPPY_BUILD_TESTS=OFF \
-        -DSNAPPY_BUILD_BENCHMARKS=OFF \
-        -DSNAPPY_FUZZING_BUILD=OFF
-    make -j$CPUS install
-    popd && popd
-fi
 
-log_tool_name "libsodium $LIBSODIUM_VERSION"
-if [[ ! -f "$PREFIX/include/sodium.h" ]]; then
-    if [[ -d "libsodium-$LIBSODIUM_VERSION" ]]; then
-        rm -rf libsodium-$LIBSODIUM_VERSION
-    fi
-    tar -xzf ../archives/libsodium-$LIBSODIUM_VERSION.tar.gz
-    pushd "libsodium-$LIBSODIUM_VERSION"
-    ./configure $COMMON_CONFIGURE_FLAGS
-    make -j$CPUS install
-    popd
-fi
-
-log_tool_name "libaio $LIBAIO_VERSION"
-if [[ ! -f "$PREFIX/include/libaio.h" ]]; then
-    if [[ -d "libaio-$LIBAIO_VERSION" ]]; then
-        rm -rf libaio-$LIBAIO_VERSION
-    fi
-    tar -xzf ../archives/libaio-$LIBAIO_VERSION.tar.gz
-    pushd "libaio-$LIBAIO_VERSION"
-    make prefix=$PREFIX ENABLE_SHARED=0 -j$CPUS install
-    popd
-fi
+# log_tool_name "libsodium $LIBSODIUM_VERSION"
+# if [[ ! -f "$PREFIX/include/sodium.h" ]]; then
+#     if [[ -d "libsodium-$LIBSODIUM_VERSION" ]]; then
+#         rm -rf libsodium-$LIBSODIUM_VERSION
+#     fi
+#     tar -xzf ../archives/libsodium-$LIBSODIUM_VERSION.tar.gz
+#     pushd "libsodium-$LIBSODIUM_VERSION"
+#     ./configure $COMMON_CONFIGURE_FLAGS
+#     make -j$CPUS install
+#     popd
+# fi
+# possibly used by rocksdb
+# log_tool_name "libaio $LIBAIO_VERSION"
+# if [[ ! -f "$PREFIX/include/libaio.h" ]]; then
+#     if [[ -d "libaio-$LIBAIO_VERSION" ]]; then
+#         rm -rf libaio-$LIBAIO_VERSION
+#     fi
+#     tar -xzf ../archives/libaio-$LIBAIO_VERSION.tar.gz
+#     pushd "libaio-$LIBAIO_VERSION"
+#     make prefix=$PREFIX ENABLE_SHARED=0 -j$CPUS install
+#     popd
+# fi
 
 # TODO: check if these are actually needed for mgconsole
 # Build OpenSSL and curl from source for RPM distributions
