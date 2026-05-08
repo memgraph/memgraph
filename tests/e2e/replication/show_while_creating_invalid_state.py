@@ -1686,7 +1686,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
     mg_sleep_and_assert(
-        res_from_main, lambda: interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica1"].query(QUERY_TO_CHECK)
+        res_from_main, lambda: interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
     )
 
 
