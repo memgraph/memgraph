@@ -40,12 +40,12 @@ fi
 # TODO(gitbuda): Add --skip-gpg and somehow make gpg check configurable per OS.
 TOOLCHAIN_VERSION=8
 # package versions used
-GCC_VERSION=15.2.0
-BINUTILS_VERSION=2.45
+GCC_VERSION=16.1.0
+BINUTILS_VERSION=2.46.0
 GDB_VERSION=17.1
-CMAKE_VERSION=4.2.1
-CPPCHECK_VERSION=2.19.0
-LLVM_VERSION=21.1.8
+CMAKE_VERSION=4.3.2
+CPPCHECK_VERSION=2.20.0
+LLVM_VERSION=22.1.5
 SWIG_VERSION=4.4.1 # used only for LLVM compilation
 
 # define the name used to make the toolchain archive
@@ -133,7 +133,7 @@ if [ ! -f gdb-$GDB_VERSION.tar.gz ]; then
 fi
 if [ ! -f cmake-$CMAKE_VERSION.tar.gz ]; then
     wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
-    CMAKE_SHA256="414aacfac54ba0e78e64a018720b64ed6bfca14b587047b8b3489f407a14a070"
+    CMAKE_SHA256="b0231eb39b3c3cabdc568c619df78208a7bd95ea10c9b2236d61218bac1b367d"
     echo "$CMAKE_SHA256  cmake-$CMAKE_VERSION.tar.gz" | sha256sum -c -
 fi
 if [ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]; then
