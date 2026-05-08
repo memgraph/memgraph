@@ -126,6 +126,11 @@ class RocksDBConan(ConanFile):
 
     def generate(self):
         tc = CMakeToolchain(self)
+        # GCC 16's libstdc++ no longer transitively pulls in <cstdint> from other
+        # headers; many rocksdb 8.1.1 headers reference uint64_t without including
+        # it directly. Force-include cstdint into every TU rather than patching
+        # ~250 headers individually.
+        tc.extra_cxxflags.append("-include cstdint")
         tc.variables["FAIL_ON_WARNINGS"] = False
         tc.variables["WITH_TESTS"] = False
         tc.variables["WITH_TOOLS"] = False
