@@ -1127,69 +1127,7 @@ if [[ ! -f "$PREFIX/include/libaio.h" ]]; then
     popd
 fi
 
-ROCKSDB_TAG="v8.1.1"
-log_tool_name "rocksdb $ROCKSDB_TAG"
-if [[ ! -f "$PREFIX/lib/librocksdb.a" ]]; then
-    if [[ -d rocksdb ]]; then
-        rm -rf rocksdb
-    fi
-    git clone https://github.com/facebook/rocksdb.git rocksdb
-    pushd rocksdb
-    git checkout $ROCKSDB_TAG
-    # NOTE: Disables building shared lib but then the find_package fails.
-    git apply "$DIR/rocksdb-$ROCKSDB_TAG.patch"
-    mkdir -p _build && pushd _build
-    cmake -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_INSTALL_PREFIX=$PREFIX \
-      -DUSE_RTTI=ON \
-      -DWITH_TESTS=OFF \
-      -DGFLAGS_NOTHREADS=OFF \
-      -DCMAKE_INSTALL_LIBDIR=lib \
-      -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true \
-      -DCMAKE_CXX_FLAGS="-include stdint.h -Wno-error=nontrivial-memcall" \
-      -DPORTABLE=ON \
-      ..
-    make -j$CPUS rocksdb rocksdb-shared install
-    popd && popd
-fi
-
-NURAFT_COMMIT_HASH="4b148a7e76291898c838a7457eeda2b16f7317ea"
-log_tool_name "nuraft $NURAFT_COMMIT_HASH"
-if [[ ! -f "$PREFIX/lib/libnuraft.a" ]]; then
-    if [[ -d nuraft ]]; then
-        rm -rf nuraft
-    fi
-    git clone https://github.com/eBay/NuRaft.git nuraft
-    pushd nuraft
-    git checkout $NURAFT_COMMIT_HASH
-    git apply "$DIR/nuraft.patch"
-    ./prepare.sh # Downloads ASIO.
-    cmake -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_INSTALL_PREFIX=$PREFIX \
-      .
-    make -j$CPUS install
-    popd
-fi
-
-PROTOBUF_TAG="v6.31.1"
-log_tool_name "protobuf $PROTOBUF_TAG"
-if [[ ! -f "$PREFIX/lib/libprotobuf.a" ]]; then
-    if [[ -d protobuf ]]; then
-        rm -rf protobuf
-    fi
-    git clone https://github.com/protocolbuffers/protobuf.git protobuf
-    pushd protobuf
-    git checkout $PROTOBUF_TAG
-    git submodule update --init --recursive
-    mkdir -p build && pushd build
-    cmake .. $COMMON_CMAKE_FLAGS \
-        -Dprotobuf_BUILD_TESTS=OFF \
-        -Dprotobuf_ABSL_PROVIDER=package
-    cmake --build . -j$CPUS
-    cmake --install .
-    popd && popd
-fi
-
+# TODO: check if these are actually needed for mgconsole
 # Build OpenSSL and curl from source for RPM distributions
 if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
     OPENSSL_TAG="openssl-3.6.0"
@@ -1243,93 +1181,10 @@ if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-|debian-) ]]; then
     fi
 fi
 
-PULSAR_TAG="v4.0.0"
-log_tool_name "pulsar $PULSAR_TAG"
-if [[ ! -f "$PREFIX/lib/libpulsarwithdeps.a" ]]; then
-    if [[ -d pulsar ]]; then
-        rm -rf pulsar
-    fi
-    git clone https://github.com/apache/pulsar-client-cpp.git pulsar
-    pushd pulsar
-    git checkout $PULSAR_TAG
-    git apply $DIR/pulsar-v3.7.1.patch
-    mkdir -p build
-    # Build Pulsar with ZLIB flags only for RPM distributions to avoid system ZLIB conflicts
-    PULSAR_CMAKE_FLAGS="$COMMON_CMAKE_FLAGS \
-      -DBUILD_DYNAMIC_LIB=OFF \
-      -DBUILD_STATIC_LIB=ON \
-      -DBUILD_TESTS=OFF \
-      -DLINK_STATIC=ON \
-      -DPROTOC_PATH=$PREFIX/bin/protoc \
-      -DBUILD_PYTHON_WRAPPER=OFF \
-      -DBUILD_PERF_TOOLS=OFF \
-      -DUSE_LOG4CXX=OFF"
 
-    # Add ZLIB-specific flags for RPM distributions to avoid system ZLIB conflicts
-    if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
-        PULSAR_CMAKE_FLAGS="$PULSAR_CMAKE_FLAGS \
-          -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
-          -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
-          -DCMAKE_FIND_ROOT_PATH=$PREFIX \
-          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-          -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
-          -DZLIB_ROOT=$PREFIX \
-          -DZLIB_INCLUDE_DIR=$PREFIX/include \
-          -DZLIB_LIBRARY=$PREFIX/lib/libz.a \
-          -DCMAKE_PREFIX_PATH=$PREFIX"
-    fi
 
-    cmake -B build $PULSAR_CMAKE_FLAGS
-    pushd build
-    cmake --build . -j$CPUS --target pulsarStaticWithDeps
-    # NOTE: For some reason the withdeps is not make installed...
-    cp lib/libpulsarwithdeps.a $PREFIX/lib/
-    cmake --build . -j$CPUS --target install
-    popd && popd
-fi
 
-KAFKA_TAG="v2.13.0"
-log_tool_name "kafka $KAFKA_TAG"
-if [[ ! -f "$PREFIX/lib/librdkafka++.a" ]]; then
-    if [[ -d kafka ]]; then
-        rm -rf kafka
-    fi
-    git clone https://github.com/confluentinc/librdkafka.git kafka
-    pushd kafka
-    git checkout $KAFKA_TAG
-    cmake -B build $COMMON_CMAKE_FLAGS \
-      -DRDKAFKA_BUILD_STATIC=ON \
-      -DRDKAFKA_BUILD_EXAMPLES=OFF \
-      -DRDKAFKA_BUILD_TESTS=OFF \
-      -DWITH_ZSTD=OFF \
-      -DENABLE_LZ4_EXT=OFF \
-      -DCMAKE_INSTALL_LIBDIR=lib \
-      -DWITH_SSL=ON \
-      -DWITH_SASL=ON
-    cmake --build build -j$CPUS --target install
-    popd
-fi
-
-LIBBCRYPT_TAG="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4"
-log_tool_name "libbcrypt $LIBBCRYPT_TAG"
-if [[ ! -f "$PREFIX/lib/bcrypt.a" ]]; then
-    if [[ -d libbcrypt ]]; then
-        rm -rf libbcrypt
-    fi
-    git clone https://github.com/rg3/libbcrypt
-    pushd libbcrypt
-    git checkout $LIBBCRYPT_TAG
-    sed s/-Wcast-align// -i crypt_blowfish/Makefile
-    make
-    # NOTE: The libbcrypt doesn't come with the install target.
-    cp bcrypt.a $PREFIX/lib/
-    mkdir -p $PREFIX/include/libbcrypt/
-    cp bcrypt.h $PREFIX/include/libbcrypt/
-    popd
-fi
-
-MGCONSOLE_TAG="v1.4.0"
+MGCONSOLE_TAG="v1.5.2"
 log_tool_name "mgconsole $MGCONSOLE_TAG"
 if [[ ! -f "$PREFIX/bin/mgconsole" ]]; then
     if [[ -d mgconsole ]]; then
@@ -1341,25 +1196,6 @@ if [[ ! -f "$PREFIX/bin/mgconsole" ]]; then
     patch -p0 < "$DIR/mgconsole.patch"
     cmake -B build $COMMON_CMAKE_FLAGS
     cmake --build build -j$CPUS --target mgconsole install
-    popd
-fi
-
-LIBRDTSC_TAG="v0.3"
-log_tool_name "librdtsc $LIBRDTSC_TAG"
-if [[ ! -f "$PREFIX/lib/librdtsc.a" ]]; then
-    if [[ -d librdtsc ]]; then
-      rm -rf librdtsc
-    fi
-    git clone https://github.com/gabrieleara/librdtsc.git librdtsc
-    pushd librdtsc
-    git checkout $LIBRDTSC_TAG
-    git apply "$DIR/librdtsc.patch"
-    if [[ "$for_arm" = "true" ]]; then
-      cmake -B build $COMMON_CMAKE_FLAGS -DLIBRDTSC_ARCH_x86=OFF -DLIBRDTSC_ARCH_ARM64=ON
-    else
-      cmake -B build $COMMON_CMAKE_FLAGS -DLIBRDTSC_ARCH_x86=ON -DLIBRDTSC_ARCH_ARM64=OFF
-    fi
-    cmake --build build -j$CPUS --target rdtsc install
     popd
 fi
 
