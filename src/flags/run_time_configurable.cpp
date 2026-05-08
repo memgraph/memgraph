@@ -26,6 +26,7 @@
 #include "flags/logging.hpp"
 #include "gflags/gflags.h"
 #include "license/license.hpp"
+#include "logs/failed_query_log.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
@@ -89,7 +90,7 @@ DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA forma
 DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(failed_query_log_dir, "", "Path to directory where failed query logs should be stored.");
+DEFINE_string(failed_query_log_directory, "", "Path to directory where failed query logs should be stored.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_string(storage_snapshot_interval, "",
@@ -157,7 +158,8 @@ constexpr auto kStorageGcAggressiveGFlagsKey = "storage-gc-aggressive";
 constexpr auto kQueryLogDirectorySettingKey = "query-log-directory";
 constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 
-constexpr auto kFailedQueryLogDirGFlagsKey = "failed-query-log-dir";
+constexpr auto kFailedQueryLogDirectorySettingKey = "failed-query-log-directory";
+constexpr auto kFailedQueryLogDirectoryGFlagsKey = "failed-query-log-directory";
 
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
@@ -463,6 +465,16 @@ void Initialize(utils::Settings &settings) {
   register_flag(kQueryLogDirectoryGFlagsKey, kQueryLogDirectorySettingKey, kRestore);
 
   /*
+   * Register failed query log directory setting. The post-update callback
+   * pushes the new directory into the process-global FailedQueryLog so the
+   * change takes effect immediately for all sessions.
+   */
+  register_flag(
+      kFailedQueryLogDirectoryGFlagsKey, kFailedQueryLogDirectorySettingKey, kRestore, [](const std::string &val) {
+        memgraph::logs::GlobalFailedQueryLog().Reconfigure(val);
+      });
+
+  /*
    * Register periodic snapshot setting. In the case both flags are defined, --storage-snapshot-interval flag will be
    * used. Ideally, we rely on just a single flag but --storage-snapshot-interval-sec is for community,
    * --storage-snapshot-interval for enterprise.
@@ -578,12 +590,6 @@ std::string GetQueryLogDirectory() {
   std::string s;
   // Thread safe read of gflag
   gflags::GetCommandLineOption(kQueryLogDirectoryGFlagsKey, &s);
-  return s;
-}
-
-std::string GetFailedQueryLogDir() {
-  std::string s;
-  gflags::GetCommandLineOption(kFailedQueryLogDirGFlagsKey, &s);
   return s;
 }
 

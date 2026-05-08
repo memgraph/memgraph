@@ -85,7 +85,6 @@ target_sources(mg-query
     procedure/mg_procedure_impl.cpp
     procedure/module.cpp
     procedure/py_module.cpp
-    failed_query_log.cpp
     query_logger.cpp
     query_user.cpp
     serialization/property_value.cpp
@@ -163,6 +162,7 @@ target_link_libraries(mg-query
     mg-license
     mg-utils
     mg-aws
+    mg-logs
     mg-query-cppm
     mg-kvstore
     mg-memory-utils

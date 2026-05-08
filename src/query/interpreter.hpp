@@ -584,6 +584,7 @@ class Interpreter final {
   void Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
+  void RecordFailedQuery(std::string_view query, std::string_view error);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
   size_t ActiveQueryExecutions() {
@@ -684,13 +685,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPull);
-    if (interpreter_context_->failed_query_log) {
-      interpreter_context_->failed_query_log->Record(session_info_.uuid,
-                                                     session_info_.username,
-                                                     current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
-                                                     current_query_string_,
-                                                     e.what());
-    }
+    RecordFailedQuery(current_query_string_, e.what());
     // PeriodicCommitException means the storage layer already aborted the transaction internally.
     // Null the accessor first so AbortCommand does not call Abort() a second time.
     if (dynamic_cast<const PeriodicCommitException *>(&e)) {

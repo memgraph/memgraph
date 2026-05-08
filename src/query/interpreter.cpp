@@ -54,6 +54,7 @@
 #include "frontend/semantic/rw_checker.hpp"
 #include "io/network/endpoint.hpp"
 #include "license/license.hpp"
+#include "logs/failed_query_log.hpp"
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
 #include "parameters/parameters.hpp"
@@ -9072,13 +9073,7 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
-    if (interpreter_context_->failed_query_log) {
-      interpreter_context_->failed_query_log->Record(session_info_.uuid,
-                                                     session_info_.username,
-                                                     current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
-                                                     query_string,
-                                                     e.what());
-    }
+    RecordFailedQuery(query_string, e.what());
     AbortCommand({});
     throw;
   }
@@ -9778,13 +9773,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
-    if (interpreter_context_->failed_query_log) {
-      interpreter_context_->failed_query_log->Record(session_info_.uuid,
-                                                     session_info_.username,
-                                                     current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
-                                                     current_query_string_,
-                                                     e.what());
-    }
+    RecordFailedQuery(current_query_string_, e.what());
     AbortCommand(query_execution_ptr);
     throw;
   }
@@ -10335,6 +10324,14 @@ void Interpreter::AbortCommand(std::unique_ptr<QueryExecution> *query_execution)
   } else {
     Abort();
   }
+}
+
+void Interpreter::RecordFailedQuery(std::string_view query, std::string_view error) {
+  logs::GlobalFailedQueryLog().Record(session_info_.uuid,
+                                      session_info_.username,
+                                      current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
+                                      query,
+                                      error);
 }
 
 std::optional<storage::IsolationLevel> Interpreter::GetIsolationLevelOverride() {
