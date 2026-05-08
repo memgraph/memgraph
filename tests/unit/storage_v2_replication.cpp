@@ -1521,12 +1521,6 @@ TEST_F(ReplicationTest, SchemaReplication) {
   auto p2 = main->db.storage()->NameToProperty("p2");
   auto e = main->db.storage()->NameToEdgeType("E");
 
-  // Pin test-thread allocations to main's arena pool while we drive accessors below.
-  // Background GC runs inside main's DbArenaScope and asserts (in debug) that any
-  // pointer it frees belongs to main's arena pool — without this scope, vertices
-  // created on the test thread come from the default arena and trip the assertion.
-  // Scope ends before stop_replica/main.reset() so we don't conflict with replica
-  // construction (which enters its own pool via the Database constructor).
   std::optional<memgraph::memory::DbArenaScope> main_scope{std::in_place, &main->db.Arena()};
 
   // Check current delta replication
@@ -1632,9 +1626,6 @@ TEST_F(ReplicationTest, SchemaReplication) {
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
-  // Release main's pool from the test thread before tearing down or rebuilding
-  // either MinMemgraph — those construct/destruct Databases (each with their
-  // own DbArenaScope), and DbArenaScope forbids switching across pools.
   main_scope.reset();
 
   auto stop_replica = [&]() {

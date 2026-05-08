@@ -189,10 +189,7 @@ class TTLFixture : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-  // Pin test-thread allocations to this DB's arena pool so background GC/TTL
-  // (which run inside their own DbArenaScope) don't trip the debug-only
-  // arena-ownership assertion in DbDeallocateBytes when freeing memory the
-  // test thread allocated via accessors.
+
   memgraph::memory::DbArenaScope arena_scope_{&db_->Arena()};
   memgraph::system::System system_state;
   memgraph::query::AllowEverythingAuthChecker auth_checker;
@@ -599,7 +596,6 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
   auto &db_acc = *db_acc_opt;
 
-  // Pin test-thread allocations to this DB's arena pool; see TTLFixture for rationale.
   const memgraph::memory::DbArenaScope arena_scope{&db_acc->Arena()};
 
   auto *ttl = &db_acc->ttl();
