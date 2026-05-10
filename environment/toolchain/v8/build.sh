@@ -47,6 +47,10 @@ CMAKE_VERSION=4.3.2
 CPPCHECK_VERSION=2.20.0
 LLVM_VERSION=22.1.5
 SWIG_VERSION=4.4.1 # used only for LLVM compilation
+# Sysroot: pin glibc/kernel-headers so the toolchain produces binaries that run
+# on any Linux with glibc >= GLIBC_VERSION and kernel >= 5.4.
+LINUX_HEADERS_VERSION=5.4.302
+GLIBC_VERSION=2.31
 
 # define the name used to make the toolchain archive
 DISTRO_FULL_NAME=${DISTRO}
@@ -86,6 +90,7 @@ ${ENV_SCRIPT} check TOOLCHAIN_RUN_DEPS
 # check installation directory
 NAME=toolchain-v$TOOLCHAIN_VERSION
 PREFIX=/opt/$NAME
+SYSROOT=$PREFIX/sysroot
 mkdir -p $PREFIX >/dev/null 2>/dev/null || true
 if [ ! -d $PREFIX ] || [ ! -w $PREFIX ]; then
     echo "Please make sure that the directory '$PREFIX' exists and is writable by the current user!"
@@ -148,6 +153,16 @@ fi
 if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
     wget https://github.com/swig/swig/archive/refs/tags/v$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
 fi
+if [ ! -f linux-$LINUX_HEADERS_VERSION.tar.xz ]; then
+    wget https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-$LINUX_HEADERS_VERSION.tar.xz
+    LINUX_HEADERS_SHA256="ae6a3207f12aa4d6cfb0fa793ec9da4a6fcdfdcb57d869d63d6b77e3a8c1423d"
+    echo "$LINUX_HEADERS_SHA256  linux-$LINUX_HEADERS_VERSION.tar.xz" | sha256sum -c -
+fi
+if [ ! -f glibc-$GLIBC_VERSION.tar.xz ]; then
+    wget https://ftp.gnu.org/gnu/glibc/glibc-$GLIBC_VERSION.tar.xz
+    GLIBC_SHA256="9246fe44f68feeec8c666bb87973d590ce0137cca145df014c72ec95be9ffd17"
+    echo "$GLIBC_SHA256  glibc-$GLIBC_VERSION.tar.xz" | sha256sum -c -
+fi
 
 # verify all archives
 # NOTE: Verification can fail if the archive is signed by another developer. I
@@ -164,6 +179,66 @@ popd
 mkdir -p build
 pushd build
 
+# ----------------------------------------------------------------------------
+# Sysroot: install Linux kernel headers and a pinned glibc into $SYSROOT so
+# that GCC (and everything it builds) targets that glibc/kABI rather than the
+# host system's. Kept reproducible across hosts at the cost of one glibc build.
+# ----------------------------------------------------------------------------
+
+log_tool_name "Linux kernel headers $LINUX_HEADERS_VERSION"
+if [[ ! -d "$SYSROOT/usr/include/linux" ]]; then
+    if [[ -d "linux-$LINUX_HEADERS_VERSION" ]]; then
+        rm -rf linux-$LINUX_HEADERS_VERSION
+    fi
+    tar -xf ../archives/linux-$LINUX_HEADERS_VERSION.tar.xz
+    pushd "linux-$LINUX_HEADERS_VERSION"
+    if [[ "$for_arm" = true ]]; then
+        kernel_arch=arm64
+    else
+        kernel_arch=x86_64
+    fi
+    make ARCH=$kernel_arch INSTALL_HDR_PATH=$SYSROOT/usr headers_install
+    popd
+fi
+
+log_tool_name "glibc $GLIBC_VERSION"
+if [[ ! -f "$SYSROOT/lib64/libc.so.6" && ! -f "$SYSROOT/lib/libc.so.6" ]]; then
+    if [[ -d "glibc-$GLIBC_VERSION" ]]; then
+        rm -rf glibc-$GLIBC_VERSION
+    fi
+    tar -xf ../archives/glibc-$GLIBC_VERSION.tar.xz
+    pushd "glibc-$GLIBC_VERSION"
+    # Force the C variant of support/links-dso-program. The C++ variant links
+    # against the host's libstdc++, which on modern hosts depends on glibc
+    # symbols newer than 2.31 (stat@GLIBC_2.33, pthread_create@GLIBC_2.34,
+    # __isoc23_strtoul@GLIBC_2.38, ...) and fails to link against the
+    # just-built libc.so.6. The C variant exercises the same dlopen machinery
+    # without pulling in libstdc++.
+    sed -i 's|^LINKS_DSO_PROGRAM = links-dso-program$|LINKS_DSO_PROGRAM = links-dso-program-c|' support/Makefile
+    mkdir build && pushd build
+    if [[ "$for_arm" = true ]]; then
+        glibc_target=aarch64-linux-gnu
+    else
+        glibc_target=x86_64-linux-gnu
+    fi
+    # Built with the host compiler (system gcc + binutils). --enable-kernel
+    # drops glibc's compatibility code for kernels older than 5.4.
+    # --disable-werror covers the spurious warnings glibc 2.31 emits under
+    # newer host compilers.
+    ../configure \
+        --prefix=/usr \
+        --build=$glibc_target \
+        --host=$glibc_target \
+        --with-headers=$SYSROOT/usr/include \
+        --enable-kernel=5.4 \
+        --disable-werror \
+        --disable-profile \
+        libc_cv_slibdir=/lib64
+    make -j$CPUS
+    make install DESTDIR=$SYSROOT
+    popd && popd
+fi
+
 log_tool_name "GCC $GCC_VERSION"
 if [ ! -f "$PREFIX/bin/gcc" ]; then
     if [ -d "gcc-$GCC_VERSION" ]; then
@@ -177,8 +252,10 @@ if [ ! -f "$PREFIX/bin/gcc" ]; then
     if [[ "$for_arm" = true ]]; then
         ../configure -v \
             --prefix=$PREFIX \
+            --with-sysroot=$SYSROOT \
+            --with-build-sysroot=$SYSROOT \
+            --with-glibc-version=$GLIBC_VERSION \
             --disable-multilib \
-            --with-system-zlib \
             --enable-languages=c,c++,fortran \
             --enable-gold=yes \
             --enable-ld=yes \
@@ -200,9 +277,7 @@ if [ ! -f "$PREFIX/bin/gcc" ]; then
             --disable-libquadmath-support \
             --enable-plugin \
             --enable-default-pie \
-            --with-system-zlib \
             --enable-libphobos-checking=release \
-            --with-target-system-zlib=auto \
             --enable-objc-gc=auto \
             --enable-multiarch \
             --enable-fix-cortex-a53-843419 \
@@ -220,8 +295,10 @@ if [ ! -f "$PREFIX/bin/gcc" ]; then
             --host=x86_64-linux-gnu \
             --target=x86_64-linux-gnu \
             --prefix=$PREFIX \
+            --with-sysroot=$SYSROOT \
+            --with-build-sysroot=$SYSROOT \
+            --with-glibc-version=$GLIBC_VERSION \
             --disable-multilib \
-            --with-system-zlib \
             --enable-checking=release \
             --enable-languages=c,c++,fortran \
             --enable-gold=yes \
@@ -240,7 +317,6 @@ if [ ! -f "$PREFIX/bin/gcc" ]; then
             --enable-libmpx \
             --enable-plugin \
             --enable-default-pie \
-            --with-target-system-zlib \
             --with-tune=generic \
             --without-cuda-driver
             #--program-suffix=$( printf "$GCC_VERSION" | cut -d '.' -f 1,2 ) \
@@ -254,6 +330,11 @@ fi
 # activate toolchain
 export PATH=$PREFIX/bin:$PATH
 export LD_LIBRARY_PATH=$PREFIX/lib64
+# Pin CC/CXX so subsequent configure runs (gmp, mpfr, gdb, ...) don't fall back
+# to the host /usr/bin/cc. Without this, autoconf prefers `cc` and we end up
+# linking host-glibc symbols into libraries that should target the sysroot.
+export CC=$PREFIX/bin/gcc
+export CXX=$PREFIX/bin/g++
 
 # NOTE: manually install gmp and mpfr (required by gdb)
 log_tool_name "gmp (from gcc)"
@@ -265,15 +346,13 @@ if [ ! -f "$PREFIX/lib/libgmp.a" ]; then
     else
         gmp_build_host="--build=x86_64-linux-gnu --host=x86_64-linux-gnu"
     fi
-    if [[ "$DISTRO" =~ ^fedora- ]]; then
-        CFLAGS="$CFLAGS -std=gnu17" ./configure \
-            $gmp_build_host \
-            --prefix=$PREFIX
-    else
-        ./configure \
-            $gmp_build_host \
-            --prefix=$PREFIX
-    fi
+    # gmp's configure has a K&R-style "long long reliability" test that
+    # declares `void g(){}` and calls it with arguments. GCC 14+ defaults to
+    # gnu23 where this is a hard error, so force C17 mode for the test
+    # compile.
+    CFLAGS="${CFLAGS:-} -std=gnu17" ./configure \
+        $gmp_build_host \
+        --prefix=$PREFIX
 
     make install
     popd
@@ -283,15 +362,17 @@ log_tool_name "mpfr (from gcc)"
 if [ ! -f "$PREFIX/lib/libmpfr.a" ]; then
     pushd $DIR/build/gcc-$GCC_VERSION/mpfr
     if [[ "$for_arm" = true ]]; then
-        ./configure \
+        CFLAGS="${CFLAGS:-} -std=gnu17" ./configure \
             --build=aarch64-linux-gnu \
             --host=aarch64-linux-gnu \
-            --prefix=$PREFIX
+            --prefix=$PREFIX \
+            --with-gmp=$PREFIX
     else
-        ./configure \
+        CFLAGS="${CFLAGS:-} -std=gnu17" ./configure \
             --build=x86_64-linux-gnu \
             --host=x86_64-linux-gnu \
-            --prefix=$PREFIX
+            --prefix=$PREFIX \
+            --with-gmp=$PREFIX
     fi
     make install
     popd
@@ -323,6 +404,7 @@ if [ ! -f "$PREFIX/bin/ld" ]; then
                 --build=aarch64-linux-gnu \
                 --host=aarch64-linux-gnu \
                 --prefix=$PREFIX \
+                --with-sysroot=$SYSROOT \
                 --enable-ld=default \
                 --enable-gold \
                 --enable-lto \
@@ -330,8 +412,7 @@ if [ ! -f "$PREFIX/bin/ld" ]; then
                 --enable-plugins \
                 --enable-shared \
                 --enable-threads \
-                --with-system-zlib \
-                --enable-deterministic-archives \
+                    --enable-deterministic-archives \
                 --disable-compressed-debug-sections \
                 --disable-x86-used-note \
                 --enable-obsolete \
@@ -349,14 +430,14 @@ if [ ! -f "$PREFIX/bin/ld" ]; then
                 --build=x86_64-linux-gnu \
                 --host=x86_64-linux-gnu \
                 --prefix=$PREFIX \
+                --with-sysroot=$SYSROOT \
                 --enable-ld=default \
                 --enable-gold \
                 --enable-lto \
                 --enable-plugins \
                 --enable-shared \
                 --enable-threads \
-                --with-system-zlib \
-                --enable-deterministic-archives \
+                    --enable-deterministic-archives \
                 --disable-compressed-debug-sections \
                 --enable-new-dtags \
                 --disable-werror
@@ -367,108 +448,108 @@ if [ ! -f "$PREFIX/bin/ld" ]; then
     popd && popd
 fi
 
-log_tool_name "GDB $GDB_VERSION"
-if [[ ! -f "$PREFIX/bin/gdb" ]]; then
-    if [[ -d "gdb-$GDB_VERSION" ]]; then
-        rm -rf gdb-$GDB_VERSION
-    fi
-    tar -xvf ../archives/gdb-$GDB_VERSION.tar.gz
-    pushd "gdb-$GDB_VERSION"
-    mkdir build && pushd build
-    if [[ "$for_arm" = true ]]; then
-        # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=arm64&ver=10.1-2&stamp=1614889767&raw=0
-        env \
-            CC=gcc \
-            CXX=g++ \
-            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
-            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
-            CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
-            LDFLAGS="-Wl,-z,relro" \
-            PYTHON="" \
-            ../configure \
-                --build=aarch64-linux-gnu \
-                --host=aarch64-linux-gnu \
-                --prefix=$PREFIX \
-                --disable-maintainer-mode \
-                --disable-dependency-tracking \
-                --disable-silent-rules \
-                --disable-gdbtk \
-                --disable-shared \
-                --without-guile \
-                --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
-                --with-system-readline \
-                --with-expat \
-                --with-system-zlib \
-                --with-lzma \
-                --without-babeltrace \
-                --enable-tui \
-                --with-python=python3
-    else
-        # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=amd64&ver=8.2.1-2&stamp=1550831554&raw=0
-        env \
-            CC=gcc \
-            CXX=g++ \
-            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
-            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
-            CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
-            LDFLAGS="-Wl,-z,relro" \
-            PYTHON="" \
-            ../configure \
-                --build=x86_64-linux-gnu \
-                --host=x86_64-linux-gnu \
-                --prefix=$PREFIX \
-                --disable-maintainer-mode \
-                --disable-dependency-tracking \
-                --disable-silent-rules \
-                --disable-gdbtk \
-                --disable-shared \
-                --without-guile \
-                --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
-                --with-system-readline \
-                --with-expat \
-                --with-system-zlib \
-                --with-lzma \
-                --with-babeltrace \
-                --with-intel-pt \
-                --enable-tui \
-                --with-python=python3
-    fi
-    make -j$CPUS
-    make install
-    popd && popd
-fi
+# log_tool_name "GDB $GDB_VERSION"
+# if [[ ! -f "$PREFIX/bin/gdb" ]]; then
+#     if [[ -d "gdb-$GDB_VERSION" ]]; then
+#         rm -rf gdb-$GDB_VERSION
+#     fi
+#     tar -xvf ../archives/gdb-$GDB_VERSION.tar.gz
+#     pushd "gdb-$GDB_VERSION"
+#     mkdir build && pushd build
+#     if [[ "$for_arm" = true ]]; then
+#         # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=arm64&ver=10.1-2&stamp=1614889767&raw=0
+#         env \
+#             CC=gcc \
+#             CXX=g++ \
+#             CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+#             CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+#             CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
+#             LDFLAGS="-Wl,-z,relro" \
+#             PYTHON="" \
+#             ../configure \
+#                 --build=aarch64-linux-gnu \
+#                 --host=aarch64-linux-gnu \
+#                 --prefix=$PREFIX \
+#                 --disable-maintainer-mode \
+#                 --disable-dependency-tracking \
+#                 --disable-silent-rules \
+#                 --disable-gdbtk \
+#                 --disable-shared \
+#                 --without-guile \
+#                 --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
+#                 --with-system-readline \
+#                 --with-expat \
+#                 --with-system-zlib \
+#                 --with-lzma \
+#                 --without-babeltrace \
+#                 --enable-tui \
+#                 --with-python=python3
+#     else
+#         # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=amd64&ver=8.2.1-2&stamp=1550831554&raw=0
+#         env \
+#             CC=gcc \
+#             CXX=g++ \
+#             CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+#             CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+#             CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
+#             LDFLAGS="-Wl,-z,relro" \
+#             PYTHON="" \
+#             ../configure \
+#                 --build=x86_64-linux-gnu \
+#                 --host=x86_64-linux-gnu \
+#                 --prefix=$PREFIX \
+#                 --disable-maintainer-mode \
+#                 --disable-dependency-tracking \
+#                 --disable-silent-rules \
+#                 --disable-gdbtk \
+#                 --disable-shared \
+#                 --without-guile \
+#                 --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
+#                 --with-system-readline \
+#                 --with-expat \
+#                 --with-system-zlib \
+#                 --with-lzma \
+#                 --with-babeltrace \
+#                 --with-intel-pt \
+#                 --enable-tui \
+#                 --with-python=python3
+#     fi
+#     make -j$CPUS
+#     make install
+#     popd && popd
+# fi
 
-log_tool_name "install pahole"
-if [[ ! -d "$PREFIX/share/pahole-gdb" ]]; then
-    unzip ../archives/pahole-gdb-master.zip
-    mv pahole-gdb-master $PREFIX/share/pahole-gdb
-fi
+# log_tool_name "install pahole"
+# if [[ ! -d "$PREFIX/share/pahole-gdb" ]]; then
+#     unzip ../archives/pahole-gdb-master.zip
+#     mv pahole-gdb-master $PREFIX/share/pahole-gdb
+# fi
 
-log_tool_name "setup system gdbinit"
-if [[ ! -f "$PREFIX/etc/gdb/gdbinit" ]]; then
-    mkdir -p $PREFIX/etc/gdb
-    cat >$PREFIX/etc/gdb/gdbinit <<EOF
-# improve formatting
-set print pretty on
-set print object on
-set print static-members on
-set print vtbl on
-set print demangle on
-set demangle-style gnu-v3
-set print sevenbit-strings off
+# log_tool_name "setup system gdbinit"
+# if [[ ! -f "$PREFIX/etc/gdb/gdbinit" ]]; then
+#     mkdir -p $PREFIX/etc/gdb
+#     cat >$PREFIX/etc/gdb/gdbinit <<EOF
+# # improve formatting
+# set print pretty on
+# set print object on
+# set print static-members on
+# set print vtbl on
+# set print demangle on
+# set demangle-style gnu-v3
+# set print sevenbit-strings off
 
-# load libstdc++ pretty printers
-add-auto-load-scripts-directory $PREFIX/lib64
-add-auto-load-safe-path $PREFIX
+# # load libstdc++ pretty printers
+# add-auto-load-scripts-directory $PREFIX/lib64
+# add-auto-load-safe-path $PREFIX
 
-# load pahole
-python
-sys.path.insert(0, "$PREFIX/share/pahole-gdb")
-import offsets
-import pahole
-end
-EOF
-fi
+# # load pahole
+# python
+# sys.path.insert(0, "$PREFIX/share/pahole-gdb")
+# import offsets
+# import pahole
+# end
+# EOF
+# fi
 
 log_tool_name "cmake $CMAKE_VERSION"
 if [[ ! -f "$PREFIX/bin/cmake" ]]; then
