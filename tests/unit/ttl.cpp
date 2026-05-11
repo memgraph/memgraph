@@ -20,6 +20,7 @@
 #include "dbms/database_protector.hpp"
 #include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "memory/db_arena.hpp"
 #include "query/auth_checker.hpp"
 #include "query/interpreter_context.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -188,6 +189,8 @@ class TTLFixture : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
+
+  memgraph::memory::DbArenaScope arena_scope_{&db_->Arena()};
   memgraph::system::System system_state;
   memgraph::query::AllowEverythingAuthChecker auth_checker;
   memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{},
@@ -592,6 +595,8 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
   auto &db_acc = *db_acc_opt;
+
+  const memgraph::memory::DbArenaScope arena_scope{&db_acc->Arena()};
 
   auto *ttl = &db_acc->ttl();
   auto ttl_lbl = db_acc->storage()->NameToLabel("TTL");
