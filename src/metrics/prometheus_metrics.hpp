@@ -55,9 +55,9 @@ struct StorageSnapshot {
   uint64_t memory_res;
 };
 
-/// Retrieves `StorageSnapshot` for the given `db_name`, or `std::nullopt` if
-/// there is no such database.
-using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(std::string_view db_name)>;
+/// Retrieves `StorageSnapshot` for the given database UUID, or `std::nullopt`
+/// if there is no such database.
+using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(utils::UUID const &uuid)>;
 
 #ifdef MG_ENTERPRISE
 using InstanceStatusResolver = std::function<std::vector<coordination::InstanceStatus>()>;
@@ -366,7 +366,7 @@ class PrometheusMetrics {
     DatabaseMetricHandles handles;
   };
 
-  StorageSnapshot ResolveStorageSnapshot(std::string_view db_name) const;
+  StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 
   prometheus::Registry registry_;
 
@@ -377,6 +377,7 @@ class PrometheusMetrics {
 
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
   StorageSnapshotResolver storage_snapshot_resolver_;
+  std::optional<utils::UUID> default_db_uuid_;
 #ifdef MG_ENTERPRISE
   InstanceStatusResolver instance_status_resolver_;
 #endif

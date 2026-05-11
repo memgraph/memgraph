@@ -412,9 +412,9 @@ class DbmsHandler {
   /***
    * @brief Live vertex/edge/disk/memory stats for metrics.
    *
-   * @param db_name
+   * @param uuid
    */
-  std::optional<metrics::StorageSnapshot> TryGetStorageSnapshotForMetrics(std::string_view db_name);
+  std::optional<metrics::StorageSnapshot> TryGetStorageSnapshotForMetrics(utils::UUID const &uuid);
 
   /**
    * @brief Restore triggers for all currently defined databases.

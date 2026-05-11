@@ -727,9 +727,9 @@ int main(int argc, char **argv) {
   }
 
   memgraph::metrics::Metrics().SetStorageSnapshotResolver(
-      [&dbms_handler](std::string_view name) -> std::optional<memgraph::metrics::StorageSnapshot> {
+      [&dbms_handler](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
         if (!dbms_handler) return std::nullopt;
-        return dbms_handler->TryGetStorageSnapshotForMetrics(name);
+        return dbms_handler->TryGetStorageSnapshotForMetrics(uuid);
       });
 
 #ifdef MG_ENTERPRISE

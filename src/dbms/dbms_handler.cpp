@@ -609,22 +609,29 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 
 #endif
 
-std::optional<memgraph::metrics::StorageSnapshot> DbmsHandler::TryGetStorageSnapshotForMetrics(std::string_view db_name
+std::optional<memgraph::metrics::StorageSnapshot> DbmsHandler::TryGetStorageSnapshotForMetrics(utils::UUID const &uuid
                                                                                                [[maybe_unused]]) {
 #ifdef MG_ENTERPRISE
-  auto rd = std::shared_lock{lock_};
-  auto db_opt = db_handler_.Get(db_name);
-  if (!db_opt) return std::nullopt;
-  auto const info = (*db_opt)->storage()->GetBaseInfo();
+  try {
+    auto rd = std::shared_lock{lock_};
+    auto db = Get_(uuid);
+    auto const info = db->storage()->GetBaseInfo();
+    return memgraph::metrics::StorageSnapshot{.vertex_count = info.vertex_count,
+                                              .edge_count = info.edge_count,
+                                              .disk_usage = info.disk_usage,
+                                              .memory_res = info.memory_res};
+  } catch (UnknownDatabaseException const &) {
+    return std::nullopt;
+  }
 #else
   auto db_opt = db_gatekeeper_.access();
   if (!db_opt) return std::nullopt;
   auto const info = (*db_opt)->storage()->GetBaseInfo();
-#endif
   return memgraph::metrics::StorageSnapshot{.vertex_count = info.vertex_count,
                                             .edge_count = info.edge_count,
                                             .disk_usage = info.disk_usage,
                                             .memory_res = info.memory_res};
+#endif
 }
 
 void DbmsHandler::RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data) {

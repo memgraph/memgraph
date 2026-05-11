@@ -845,15 +845,18 @@ void PrometheusMetrics::SetInstanceStatusResolver(InstanceStatusResolver resolve
 }
 #endif
 
-StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(std::string_view db_name) const {
+StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(utils::UUID const &uuid) const {
   if (storage_snapshot_resolver_) {
-    if (auto const snap = storage_snapshot_resolver_(db_name)) return *snap;
+    if (auto const snap = storage_snapshot_resolver_(uuid)) return *snap;
   }
   return StorageSnapshot{};
 }
 
 DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
   std::lock_guard const lock{databases_.mutex};
+  if (name == dbms::kDefaultDB) {
+    default_db_uuid_ = uuid;
+  }
   prometheus::Labels const labels{{"database", std::string(name)}};
   databases_.entries.push_back(
       {
@@ -1086,21 +1089,20 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
 }
 
 void PrometheusMetrics::UpdateGauges() {
-  std::vector<std::pair<utils::UUID, std::string>> db_ids;
+  std::vector<utils::UUID> db_uuids;
   {
     std::shared_lock const lock{databases_.mutex};
-    db_ids.reserve(databases_.entries.size());
-    r::transform(
-        databases_.entries, std::back_inserter(db_ids), [](auto const &e) { return std::pair{e.uuid, e.db_name}; });
+    db_uuids.reserve(databases_.entries.size());
+    r::transform(databases_.entries, std::back_inserter(db_uuids), [](auto const &e) { return e.uuid; });
   }
 
-  auto const snaps = db_ids | rv::transform([&](auto const &p) { return ResolveStorageSnapshot(p.second); }) |
+  auto const snaps = db_uuids | rv::transform([&](auto const &uuid) { return ResolveStorageSnapshot(uuid); }) |
                      r::to<std::vector<StorageSnapshot>>();
 
   {
     std::shared_lock const lock{databases_.mutex};
-    for (size_t i = 0; i < db_ids.size(); ++i) {
-      auto it = r::find_if(databases_.entries, [&](auto const &e) { return e.uuid == db_ids[i].first; });
+    for (size_t i = 0; i < db_uuids.size(); ++i) {
+      auto it = r::find_if(databases_.entries, [&](auto const &e) { return e.uuid == db_uuids[i]; });
       if (it == databases_.entries.end()) continue;
       auto const &snapshot = snaps[i];
       it->handles.vertex_count.Set(static_cast<double>(snapshot.vertex_count));
@@ -1228,20 +1230,18 @@ void AppendMergedHistogramPercentiles(std::vector<MetricInfo> &out, std::string 
 }  // namespace
 
 std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetricsInfo(utils::UUID const &uuid) const {
-  std::string db_name;
   {
     std::shared_lock const lock{databases_.mutex};
     auto const it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
     if (it == databases_.entries.end()) {
       return std::unexpected(fmt::format("Database '{}' not found in metrics registry", std::string(uuid)));
     }
-    db_name = it->db_name;
   }
 
   // ResolveStorageSnapshot cannot be called under `databases_.mutex`, so we
   // have a two-stage resolution with unlock between.
 
-  auto const snapshot = ResolveStorageSnapshot(db_name);
+  auto const snapshot = ResolveStorageSnapshot(uuid);
   std::shared_lock const lock{databases_.mutex};
   auto const it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
   if (it == databases_.entries.end()) {
@@ -1461,7 +1461,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
 }
 
 std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
-  auto const default_snapshot = ResolveStorageSnapshot(dbms::kDefaultDB);
+  auto const default_snapshot = default_db_uuid_ ? ResolveStorageSnapshot(*default_db_uuid_) : StorageSnapshot{};
 
   std::vector<MetricInfo> out;
   auto const default_vertex_count = static_cast<int64_t>(default_snapshot.vertex_count);
