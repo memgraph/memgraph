@@ -88,9 +88,13 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
 
 inline void AdvanceUntilValid_(auto &index_iterator, const auto &end_iterator, EdgeRef &current_edge_,
                                EdgeAccessor &current_accessor_, Transaction *transaction, View view,
-                               EdgeTypeId edge_type, Storage *storage) {
+                               EdgeTypeId edge_type, Storage *storage, uint64_t max_gid) {
   for (; index_iterator != end_iterator; ++index_iterator) {
     if (index_iterator->edge == current_edge_.ptr) {
+      continue;
+    }
+
+    if (index_iterator->edge->gid.AsUint() >= max_gid) {
       continue;
     }
 
@@ -341,14 +345,15 @@ void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
 InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipListDb<InMemoryEdgeTypeIndex::Entry>::Accessor index_accessor,
                                           utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
                                           utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
-                                          View view, Storage *storage, Transaction *transaction)
+                                          View view, Storage *storage, Transaction *transaction, uint64_t max_gid)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
       view_(view),
       storage_(storage),
-      transaction_(transaction) {}
+      transaction_(transaction),
+      max_gid_(max_gid) {}
 
 InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgeTypeIndex::Entry>::Iterator index_iterator)
@@ -373,7 +378,8 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->transaction_,
                      self_->view_,
                      self_->edge_type_,
-                     self_->storage_);
+                     self_->storage_,
+                     self_->max_gid_);
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
@@ -392,13 +398,15 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(
     utils::SkipListDb<Edge>::ConstAccessor edge_acc, View view, Storage *storage, Transaction *transaction) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+  const auto max_gid = storage->edge_id_.load(std::memory_order_acquire);
   return {it->second->skip_list_.access(),
           std::move(vertex_acc),
           std::move(edge_acc),
           edge_type,
           view,
           storage,
-          transaction};
+          transaction,
+          max_gid};
 }
 
 InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::ChunkedEdges(
@@ -407,6 +415,7 @@ InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::Chu
     size_t num_chunks) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+  const auto max_gid = storage->edge_id_.load(std::memory_order_acquire);
   return {it->second->skip_list_.access(),
           std::move(vertex_accessor),
           std::move(edge_accessor),
@@ -414,7 +423,8 @@ InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::Chu
           view,
           storage,
           transaction,
-          num_chunks};
+          num_chunks,
+          max_gid};
 }
 
 EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::ActiveIndices::GetAbortProcessor() const {
@@ -448,7 +458,7 @@ void InMemoryEdgeTypeIndex::CleanupAllIndices() {
 InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<InMemoryEdgeTypeIndex::Entry>::Accessor index_accessor,
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-    EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction, size_t num_chunks)
+    EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction, size_t num_chunks, uint64_t max_gid)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
@@ -456,7 +466,8 @@ InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(
       view_(view),
       storage_(storage),
       transaction_(transaction),
-      chunks_{index_accessor_.create_chunks(num_chunks)} {
+      chunks_{index_accessor_.create_chunks(num_chunks)},
+      max_gid_(max_gid) {
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
   RechunkIndex<utils::SkipListDb<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge; });
 }
@@ -471,7 +482,8 @@ void InMemoryEdgeTypeIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
                      self_->transaction_,
                      self_->view_,
                      self_->edge_type_,
-                     self_->storage_);
+                     self_->storage_,
+                     self_->max_gid_);
 }
 
 }  // namespace memgraph::storage
