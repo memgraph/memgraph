@@ -121,3 +121,48 @@ function(get_target_cxx_flags target result)
     endif()
     set(${result} ${flags} PARENT_SCOPE)
 endfunction()
+
+# Attach a POST_BUILD step to `target_name` that rewrites the binary's
+# DT_NEEDED libpython entry from the versioned SONAME the linker recorded
+# (e.g. `libpython3.12.so.1.0`) to the unversioned abi3 SONAME
+# `libpython3.so`. The compile-time `Py_LIMITED_API` guarantee means the
+# binary's Python symbol set is a subset of the stable ABI, so any libpython3
+# >= the floor satisfies it at runtime — provided a `libpython3.so` file
+# exists on the dynamic linker's search path.
+#
+# Gated on three conditions (configure-time):
+#   1. The `MG_PYTHON_REWRITE_DT_NEEDED` cache variable is ON (default).
+#   2. `patchelf` is installed.
+#   3. `libpython3.so` (the abi3 SONAME) can be located via find_library; if
+#      it isn't on the host then the patched binary couldn't load, which
+#      would break downstream POST_BUILD steps that execute the binary (e.g.
+#      `config/generate.py`).
+#
+# Safe to call multiple times — `find_program` and `find_library` results
+# are cached, and the underlying CMake helper script is a no-op when the
+# binary already has an unversioned libpython dependency.
+function(mg_apply_python_abi3_rewrite target_name)
+    if(NOT DEFINED CACHE{MG_PYTHON_REWRITE_DT_NEEDED})
+        option(MG_PYTHON_REWRITE_DT_NEEDED
+               "Rewrite memgraph binaries' DT_NEEDED libpython entry to the abi3 SONAME"
+               ON)
+    endif()
+    if(NOT MG_PYTHON_REWRITE_DT_NEEDED)
+        return()
+    endif()
+
+    find_program(PATCHELF_EXECUTABLE patchelf)
+    find_library(MG_LIBPYTHON3_SO python3)
+    if(NOT PATCHELF_EXECUTABLE OR NOT MG_LIBPYTHON3_SO)
+        # Warning is emitted once from src/CMakeLists.txt — don't spam here.
+        return()
+    endif()
+
+    add_custom_command(TARGET ${target_name} POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+                -DBINARY=$<TARGET_FILE:${target_name}>
+                -DPATCHELF=${PATCHELF_EXECUTABLE}
+                -P ${CMAKE_SOURCE_DIR}/cmake/RewriteDtNeededAbi3.cmake
+        COMMENT "Rewriting DT_NEEDED on ${target_name} for Python stable-ABI portability"
+        VERBATIM)
+endfunction()
