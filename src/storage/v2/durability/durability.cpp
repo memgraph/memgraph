@@ -611,7 +611,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                                           enum_store,
                                           schema_info,
                                           ttl,
-                                          description_store);
+                                          description_store,
+                                          std::nullopt);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {

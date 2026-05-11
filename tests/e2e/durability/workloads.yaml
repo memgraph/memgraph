@@ -5,9 +5,15 @@ workloads:
   - name: "Recover snapshot"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/snapshot_recovery.py"]
+  - name: "Recover snapshot (light-edge)"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/snapshot_recovery_light_edge.py"]
   - name: "Periodic snapshot"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/periodic_snapshot.py"]
+  - name: "Periodic snapshot (light-edge)"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/periodic_snapshot_light_edge.py"]
   - name: "MT durability"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/multitenancy.py"]

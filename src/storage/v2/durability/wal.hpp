@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory_resource>
 #include <optional>
 #include <set>
 #include <string>

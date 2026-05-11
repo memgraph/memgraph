@@ -41,6 +41,9 @@ struct InMemTransactional {};
 
 struct InMemAnalytical {};
 
+/// Tag type: run SchemaInfoTestWEdgeProp with InMemoryStorage + storage_light_edge=true.
+struct InMemLightEdge {};
+
 template <typename StorageType>
 class SchemaInfoTest : public testing::Test {
  protected:
@@ -83,6 +86,9 @@ class SchemaInfoTestWEdgeProp : public testing::Test {
     config_.salient.items.properties_on_edges = true;
     config_.salient.storage_mode = mode;
     config_.salient.items.enable_schema_info = true;
+    if constexpr (std::is_same_v<StorageType, InMemLightEdge>) {
+      config_.salient.items.storage_light_edge = true;
+    }
 
     // TODO OnDisk not supported at this time
     this->storage = std::make_unique<memgraph::storage::InMemoryStorage>(config_);
@@ -97,11 +103,12 @@ class SchemaInfoTestWEdgeProp : public testing::Test {
   std::unique_ptr<memgraph::storage::Storage> storage;
   StorageMode mode{std::is_same_v<StorageType, DiskStorage>
                        ? StorageMode::ON_DISK_TRANSACTIONAL
-                       : (std::is_same_v<StorageType, InMemTransactional> ? StorageMode::IN_MEMORY_TRANSACTIONAL
-                                                                          : StorageMode::IN_MEMORY_ANALYTICAL)};
+                       : (std::is_same_v<StorageType, InMemAnalytical> ? StorageMode::IN_MEMORY_ANALYTICAL
+                                                                       : StorageMode::IN_MEMORY_TRANSACTIONAL)};
 };
 
 using StorageTypes = ::testing::Types<InMemTransactional, InMemAnalytical>;
+using StorageTypesWithEdgeProp = ::testing::Types<InMemTransactional, InMemAnalytical, InMemLightEdge>;
 
 TEST(SchemaInfoContext, ConfrontJSON) {
   {
@@ -184,7 +191,7 @@ TEST(SchemaInfoContext, ConfrontJSON) {
 }
 
 TYPED_TEST_SUITE(SchemaInfoTest, StorageTypes);
-TYPED_TEST_SUITE(SchemaInfoTestWEdgeProp, StorageTypes);
+TYPED_TEST_SUITE(SchemaInfoTestWEdgeProp, StorageTypesWithEdgeProp);
 
 auto &&jarray = nlohmann::json::array;
 

@@ -16,6 +16,7 @@
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
 
@@ -338,11 +339,10 @@ void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
   });
 }
 
-InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipListDb<InMemoryEdgeTypeIndex::Entry>::Accessor index_accessor,
-                                          utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                                          utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
-                                          View view, Storage *storage, Transaction *transaction)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+                                          utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin,
+                                          EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction)
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
@@ -389,12 +389,13 @@ void InMemoryEdgeTypeIndex::RunGC() {
 
 InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(
     EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_acc,
-    utils::SkipListDb<Edge>::ConstAccessor edge_acc, View view, Storage *storage, Transaction *transaction) {
+    utils::SkipListDb<Edge>::ConstAccessor /*edge_acc*/, View view, Storage *storage, Transaction *transaction) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   return {it->second->skip_list_.access(),
           std::move(vertex_acc),
-          std::move(edge_acc),
+          std::move(edge_pin),
           edge_type,
           view,
           storage,
@@ -402,14 +403,14 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(
 }
 
 InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::ChunkedEdges(
-    EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, View view, Storage *storage, Transaction *transaction,
-    size_t num_chunks) {
+    EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   return {it->second->skip_list_.access(),
           std::move(vertex_accessor),
-          std::move(edge_accessor),
+          std::move(edge_pin),
           edge_type,
           view,
           storage,
@@ -445,11 +446,11 @@ void InMemoryEdgeTypeIndex::CleanupAllIndices() {
   });
 }
 
-InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(
-    utils::SkipListDb<InMemoryEdgeTypeIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-    EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction, size_t num_chunks)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+                                                        utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                                                        EdgePin edge_pin, EdgeTypeId edge_type, View view,
+                                                        Storage *storage, Transaction *transaction, size_t num_chunks)
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),

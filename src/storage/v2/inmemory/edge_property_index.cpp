@@ -17,6 +17,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
@@ -426,13 +427,13 @@ void InMemoryEdgePropertyIndex::DropGraphClearIndices() {
   });
 }
 
-InMemoryEdgePropertyIndex::Iterable::Iterable(
-    utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+InMemoryEdgePropertyIndex::Iterable::Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+                                              utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                                              EdgePin edge_pin, PropertyId property,
+                                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
+                                              Storage *storage, Transaction *transaction)
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       property_(property),
@@ -484,14 +485,16 @@ void InMemoryEdgePropertyIndex::RunGC() {
 
 InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Edges(
     PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    utils::SkipListDb<Edge>::ConstAccessor /*edge_accessor*/,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_container_->indices_.find(property);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   return {it->second->skip_list_.access(),
           std::move(vertex_accessor),
-          std::move(edge_accessor),
+          std::move(edge_pin),
           property,
           lower_bound,
           upper_bound,
@@ -502,14 +505,15 @@ InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Ed
 
 InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndices::ChunkedEdges(
     PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
   auto it = index_container_->indices_.find(property);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   return {it->second->skip_list_.access(),
           std::move(vertex_accessor),
-          std::move(edge_accessor),
+          std::move(edge_pin),
           property,
           lower_bound,
           upper_bound,
@@ -562,12 +566,11 @@ void InMemoryEdgePropertyIndex::CleanupAllIndicies() {
 }
 
 InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
-    utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    utils::SkipListDb<Entry>::Accessor index_accessor, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    EdgePin edge_pin, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       property_(property),

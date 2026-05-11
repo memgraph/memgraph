@@ -18,11 +18,14 @@ from mg_utils import mg_sleep_and_assert_collection
 
 
 # BUGFIX: for issue https://github.com/memgraph/memgraph/issues/1515
-def test_replication_handles_delete_when_multiple_edges_of_same_type(connection):
+def test_replication_handles_delete_when_multiple_edges_of_same_type(connection, pytestconfig):
     # Goal is to check the timestamp are correctly computed from the information we get from replicas.
     # 0/ Check original state of replicas.
     # 1/ Add nodes and edges to MAIN, then delete the edges.
     # 2/ Check state of replicas.
+
+    with_props = pytestconfig.getoption("with_props")
+    print("Running with poperties: ", with_props)
 
     # 0/
     conn = connection(7687, "main")
@@ -49,7 +52,12 @@ def test_replication_handles_delete_when_multiple_edges_of_same_type(connection)
     assert all([x in actual_data for x in expected_data])
 
     # 1/
-    execute_and_fetch_all(cursor, "CREATE (a)-[r:X]->(b) CREATE (a)-[:X]->(b) DELETE r;")
+    if with_props:
+        execute_and_fetch_all(
+            cursor, "CREATE (a)-[r:X{p:1, str:'1234567890'}]->(b) CREATE (a)-[:X{p:2, str:'1234567890'}]->(b) DELETE r;"
+        )
+    else:
+        execute_and_fetch_all(cursor, "CREATE (a)-[r:X]->(b) CREATE (a)-[:X]->(b) DELETE r;")
 
     # 2/
     expected_data = [
@@ -77,4 +85,4 @@ def test_replication_handles_delete_when_multiple_edges_of_same_type(connection)
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA"]))
+    sys.exit(pytest.main([__file__, "-rA"] + sys.argv[1:]))

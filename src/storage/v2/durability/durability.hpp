@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <memory_resource>
 #include <optional>
 #include <string>
 
