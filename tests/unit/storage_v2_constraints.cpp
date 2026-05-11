@@ -17,6 +17,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
+#include "memory/db_arena.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
@@ -49,6 +50,7 @@ class ConstraintsTest : public testing::Test {
     auto db_acc_opt = db_gk_->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     db_acc_ = *db_acc_opt;
+    db_arena_scope_.emplace(&db_acc_->get()->Arena());
     storage = db_acc_->get()->storage();
     prop1 = storage->NameToProperty("prop1");
     prop2 = storage->NameToProperty("prop2");
@@ -58,6 +60,7 @@ class ConstraintsTest : public testing::Test {
 
   void TearDown() override {
     storage = nullptr;
+    db_arena_scope_.reset();
     db_acc_.reset();
     db_gk_.reset();
 
@@ -86,6 +89,7 @@ class ConstraintsTest : public testing::Test {
   memgraph::storage::Config config_;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk_;
+  std::optional<memgraph::memory::DbArenaScope> db_arena_scope_;
   PropertyId prop1;
   PropertyId prop2;
   LabelId label1;

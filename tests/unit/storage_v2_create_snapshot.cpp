@@ -16,6 +16,7 @@
 #include <string>
 
 #include "dbms/database.hpp"
+#include "memory/db_arena.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -54,6 +55,7 @@ class CreateSnapshotTest : public testing::Test {
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
   auto config = CreateConfig();
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -85,6 +87,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorForReplica) {
   auto config = CreateConfig();
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -95,6 +98,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorForReplica) {
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
   auto config = CreateConfig();
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -122,6 +126,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
 TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
   auto config = CreateConfig();
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -157,6 +162,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
 TEST_F(CreateSnapshotTest, BackwardCompatibilityWithErrorHandling) {
   auto config = CreateConfig();
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -168,6 +174,7 @@ TEST_F(CreateSnapshotTest, BackwardCompatibilityWithErrorHandling) {
 TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
   auto config = CreateConfig();
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -200,6 +207,7 @@ TEST_F(CreateSnapshotTest, ModeSwitchSnapshotDurableTimestampCoversAnalyticalWri
   memgraph::storage::durability::SnapshotInfo snapshot;
   {
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
     mem_storage->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
