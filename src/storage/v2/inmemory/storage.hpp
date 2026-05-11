@@ -205,7 +205,7 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(View view) override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      const auto max_gid = mem_storage->vertex_id_.load(std::memory_order_acquire);
+      const auto max_gid = Gid::FromUint(mem_storage->vertex_id_.load(std::memory_order_acquire));
       return VerticesIterable(
           AllVerticesIterable(mem_storage->vertices_.access(), storage_, &transaction_, view, max_gid));
     }

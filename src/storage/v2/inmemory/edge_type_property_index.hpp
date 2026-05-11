@@ -63,7 +63,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
              utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-             Transaction *transaction, uint64_t max_gid);
+             Transaction *transaction, Gid max_gid);
 
     class Iterator {
      public:
@@ -102,7 +102,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
-    uint64_t max_gid_;
+    Gid max_gid_;
   };
 
   class ChunkedIterable {
@@ -112,7 +112,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
                     utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, PropertyId property,
                     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                    Transaction *transaction, size_t num_chunks, uint64_t max_gid);
+                    Transaction *transaction, size_t num_chunks, Gid max_gid);
 
     class Iterator {
      public:
@@ -175,7 +175,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     Storage *storage_;
     Transaction *transaction_;
     utils::SkipListDb<Entry>::ChunkCollection chunks_;
-    uint64_t max_gid_;
+    Gid max_gid_;
   };
 
   struct IndividualIndex {

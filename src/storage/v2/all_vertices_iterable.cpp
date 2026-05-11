@@ -16,9 +16,10 @@ namespace memgraph::storage {
 namespace {
 auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::Iterator it, utils::SkipListDb<Vertex>::Iterator end,
                             std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view,
-                            uint64_t max_gid) {
+                            Gid max_gid) {
   while (it != end) {
-    if (it->gid.AsUint() >= max_gid) {
+    // skip-list is gid-ordered → no later entry can be in scope either.
+    if (it->gid >= max_gid) [[unlikely]] {
       return end;
     }
     if (VertexAccessor::IsVisible(&*it, tx, view)) [[likely]] {

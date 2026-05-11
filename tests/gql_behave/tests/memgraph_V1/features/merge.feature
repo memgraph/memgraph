@@ -532,8 +532,8 @@ Feature: Merge feature
             """
         When executing query:
             """
-            MATCH (n) RETURN count(n) < 100 AS bounded
+            MATCH (n) RETURN count(n) AS c
             """
         Then the result should be:
-            | bounded |
-            | true    |
+            | c |
+            | 8 |

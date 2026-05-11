@@ -77,7 +77,7 @@ class InMemoryLabelIndex : public LabelIndex {
    public:
     Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
              utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view, Storage *storage,
-             Transaction *transaction, uint64_t max_gid);
+             Transaction *transaction, Gid max_gid);
 
     class Iterator {
      public:
@@ -111,14 +111,14 @@ class InMemoryLabelIndex : public LabelIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
-    uint64_t max_gid_;
+    Gid max_gid_;
   };
 
   class ChunkedIterable {
    public:
     ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
                     utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view,
-                    Storage *storage, Transaction *transaction, size_t num_chunks, uint64_t max_gid);
+                    Storage *storage, Transaction *transaction, size_t num_chunks, Gid max_gid);
 
     class Iterator {
      public:
@@ -173,7 +173,7 @@ class InMemoryLabelIndex : public LabelIndex {
     Storage *storage_;
     Transaction *transaction_;
     utils::SkipListDb<Entry>::ChunkCollection chunks_;
-    uint64_t max_gid_;
+    Gid max_gid_;
   };
 
   struct ActiveIndices : LabelIndex::ActiveIndices {

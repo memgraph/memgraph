@@ -16,9 +16,10 @@ namespace memgraph::storage {
 namespace {
 auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::ChunkedIterator it,
                             utils::SkipListDb<Vertex>::ChunkedIterator end, std::optional<VertexAccessor> *vertex,
-                            Storage *storage, Transaction *tx, View view, uint64_t max_gid) {
+                            Storage *storage, Transaction *tx, View view, Gid max_gid) {
   while (it != end) [[likely]] {
-    if (it->gid.AsUint() >= max_gid) {
+    // chunks are gid-ordered → no later entry in this chunk can be in scope either.
+    if (it->gid >= max_gid) [[unlikely]] {
       return end;
     }
     if (VertexAccessor::IsVisible(&*it, tx, view)) [[likely]] {
@@ -31,7 +32,7 @@ auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::ChunkedIterator it,
 }
 
 auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::ChunkedIterator it, std::optional<VertexAccessor> *vertex,
-                            Storage *storage, Transaction *tx, View view, uint64_t max_gid) {
+                            Storage *storage, Transaction *tx, View view, Gid max_gid) {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
   return AdvanceToVisibleVertex(it, utils::SkipListDb<Vertex>::ChunkedIterator{}, vertex, storage, tx, view, max_gid);

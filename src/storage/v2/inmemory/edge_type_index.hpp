@@ -55,7 +55,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
              utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
              utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, View view, Storage *storage,
-             Transaction *transaction, uint64_t max_gid);
+             Transaction *transaction, Gid max_gid);
 
     class Iterator {
      public:
@@ -90,7 +90,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
-    uint64_t max_gid_;
+    Gid max_gid_;
   };
 
   class ChunkedIterable {
@@ -98,7 +98,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
                     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
                     utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, View view,
-                    Storage *storage, Transaction *transaction, size_t num_chunks, uint64_t max_gid);
+                    Storage *storage, Transaction *transaction, size_t num_chunks, Gid max_gid);
 
     class Iterator {
      public:
@@ -157,7 +157,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Storage *storage_;
     Transaction *transaction_;
     utils::SkipListDb<Entry>::ChunkCollection chunks_;
-    uint64_t max_gid_;
+    Gid max_gid_;
   };
 
  public:

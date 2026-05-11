@@ -217,7 +217,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
              utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label,
              PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
              std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction,
-             uint64_t max_gid);
+             Gid max_gid);
 
     class Iterator {
      public:
@@ -258,7 +258,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
-    uint64_t max_gid_;
+    Gid max_gid_;
   };
 
   template <typename EntryT = Entry>
@@ -268,7 +268,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                     utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label,
                     PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
                     std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction,
-                    size_t num_chunks, uint64_t max_gid);
+                    size_t num_chunks, Gid max_gid);
 
     class Iterator {
      public:
@@ -328,7 +328,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Storage *storage_;
     Transaction *transaction_;
     typename utils::SkipListDb<EntryT>::ChunkCollection chunks_;
-    uint64_t max_gid_;
+    Gid max_gid_;
   };
 
   struct ActiveIndices : LabelPropertyIndex::ActiveIndices {

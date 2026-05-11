@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <limits>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/skip_list.hpp"
 
@@ -21,16 +22,15 @@ namespace memgraph::storage {
 
 class Storage;
 
-inline constexpr uint64_t kIteratorNoGidUpperBound = std::numeric_limits<uint64_t>::max();
+inline constexpr Gid kIteratorNoGidUpperBound = Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
 class AllVerticesIterable final {
   utils::SkipListDb<Vertex>::Accessor vertices_accessor_;
   Storage *storage_;
   Transaction *transaction_;
   View view_;
-  // upper bound; vertices created after this iterable opened are out of scope, preventing
-  // iterator-feedback loops when a downstream clause appends to storage mid-iteration.
-  uint64_t max_gid_;
+  // exclusive upper bound; vertices created after this iterable opened are out of scope.
+  Gid max_gid_;
   std::optional<VertexAccessor> vertex_;
 
  public:
@@ -51,7 +51,7 @@ class AllVerticesIterable final {
   };
 
   AllVerticesIterable(utils::SkipListDb<Vertex>::Accessor vertices_accessor, Storage *storage, Transaction *transaction,
-                      View view, uint64_t max_gid)
+                      View view, Gid max_gid)
       : vertices_accessor_(std::move(vertices_accessor)),
         storage_(storage),
         transaction_(transaction),

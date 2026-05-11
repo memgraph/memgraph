@@ -126,13 +126,13 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_edge, EdgeAccessor &current_accessor,
                         PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                        Transaction *transaction, EdgeTypeId edge_type, uint64_t max_gid) {
+                        Transaction *transaction, EdgeTypeId edge_type, Gid max_gid) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->edge == current_edge.ptr) {
       continue;
     }
 
-    if (index_iterator->edge->gid.AsUint() >= max_gid) {
+    if (index_iterator->edge->gid >= max_gid) {
       continue;
     }
 
@@ -450,7 +450,7 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterable(
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
     EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction, uint64_t max_gid)
+    Transaction *transaction, Gid max_gid)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
@@ -515,7 +515,7 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
             "Index for edge type {} and property {} doesn't exist",
             edge_type.AsUint(),
             property.AsUint());
-  const auto max_gid = storage->edge_id_.load(std::memory_order_acquire);
+  const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
   return {it->second->skiplist.access(),
           std::move(vertex_accessor),
           std::move(edge_accessor),
@@ -539,7 +539,7 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::Ac
             "Index for edge type {} and property {} doesn't exist",
             edge_type.AsUint(),
             property.AsUint());
-  const auto max_gid = storage->edge_id_.load(std::memory_order_acquire);
+  const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
   return {it->second->skiplist.access(),
           std::move(vertex_accessor),
           std::move(edge_accessor),
@@ -599,7 +599,7 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
     EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction, size_t num_chunks, uint64_t max_gid)
+    Transaction *transaction, size_t num_chunks, Gid max_gid)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),

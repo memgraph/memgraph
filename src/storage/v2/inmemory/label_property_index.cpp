@@ -230,14 +230,14 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
 // decrease so UNDER means "stop, past range" and OVER means "skip, will reach range".
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex, auto &current_vertex_accessor,
                         auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
-                        const auto &upper_bound, auto &permutation_helper, uint64_t max_gid, bool use_cache = true,
-                        bool reverse_iteration = false) {
+                        const auto &upper_bound, auto &permutation_helper, memgraph::storage::Gid max_gid,
+                        bool use_cache = true, bool reverse_iteration = false) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
       continue;
     }
 
-    if (index_iterator->vertex->gid.AsUint() >= max_gid) {
+    if (index_iterator->vertex->gid >= max_gid) {
       continue;
     }
 
@@ -1080,7 +1080,7 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
                                                        LabelId label, PropertiesPaths const *properties,
                                                        PropertiesPermutationHelper const *permutation_helper,
                                                        std::span<PropertyValueRange const> ranges, View view,
-                                                       Storage *storage, Transaction *transaction, uint64_t max_gid)
+                                                       Storage *storage, Transaction *transaction, Gid max_gid)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -1276,7 +1276,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(LabelId label, std::spa
                                                          View view, Storage *storage, Transaction *transaction)
     -> Iterable<EntryT> {
   auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
-  const auto max_gid = storage->vertex_id_.load(std::memory_order_acquire);
+  const auto max_gid = Gid::FromUint(storage->vertex_id_.load(std::memory_order_acquire));
   return {it->second->skiplist.access(),
           std::move(vertices_acc),
           label,
@@ -1295,7 +1295,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::
     utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage, Transaction *transaction,
     size_t num_chunks) {
   auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
-  const auto max_gid = storage->vertex_id_.load(std::memory_order_acquire);
+  const auto max_gid = Gid::FromUint(storage->vertex_id_.load(std::memory_order_acquire));
   return {it->second->skiplist.access(),
           std::move(vertices_acc),
           label,
@@ -1408,7 +1408,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
     typename utils::SkipListDb<EntryT>::Accessor index_accessor,
     utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, PropertiesPaths const *properties,
     PropertiesPermutationHelper const *permutation_helper, std::span<PropertyValueRange const> ranges, View view,
-    Storage *storage, Transaction *transaction, size_t num_chunks, uint64_t max_gid)
+    Storage *storage, Transaction *transaction, size_t num_chunks, Gid max_gid)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
