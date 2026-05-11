@@ -51,6 +51,13 @@ SWIG_VERSION=4.4.1 # used only for LLVM compilation
 # on any Linux with glibc >= GLIBC_VERSION and kernel >= 5.4.
 LINUX_HEADERS_VERSION=5.4.302
 GLIBC_VERSION=2.31
+# Sysroot support libraries: needed by GDB / cmake / mgconsole. Installed into
+# $SYSROOT/usr so the toolchain GCC finds them via --with-sysroot.
+ZLIB_VERSION=1.3.2
+NCURSES_VERSION=6.6
+OPENSSL_VERSION=3.6.2
+CURL_VERSION=8.20.0
+LIBFFI_VERSION=3.5.2
 
 # define the name used to make the toolchain archive
 DISTRO_FULL_NAME=${DISTRO}
@@ -162,6 +169,31 @@ if [ ! -f glibc-$GLIBC_VERSION.tar.xz ]; then
     wget https://ftp.gnu.org/gnu/glibc/glibc-$GLIBC_VERSION.tar.xz
     GLIBC_SHA256="9246fe44f68feeec8c666bb87973d590ce0137cca145df014c72ec95be9ffd17"
     echo "$GLIBC_SHA256  glibc-$GLIBC_VERSION.tar.xz" | sha256sum -c -
+fi
+if [ ! -f zlib-$ZLIB_VERSION.tar.gz ]; then
+    wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz
+    ZLIB_SHA256="bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
+    echo "$ZLIB_SHA256  zlib-$ZLIB_VERSION.tar.gz" | sha256sum -c -
+fi
+if [ ! -f ncurses-$NCURSES_VERSION.tar.gz ]; then
+    wget https://invisible-island.net/archives/ncurses/ncurses-$NCURSES_VERSION.tar.gz
+    NCURSES_SHA256="355b4cbbed880b0381a04c46617b7656e362585d52e9cf84a67e2009b749ff11"
+    echo "$NCURSES_SHA256  ncurses-$NCURSES_VERSION.tar.gz" | sha256sum -c -
+fi
+if [ ! -f curl-$CURL_VERSION.tar.gz ]; then
+    wget https://curl.se/download/curl-$CURL_VERSION.tar.gz
+    CURL_SHA256="fc5819cad3f9f5482669adcdc49a782c15f36d2a0715b395b06d9173593d2dc0"
+    echo "$CURL_SHA256  curl-$CURL_VERSION.tar.gz" | sha256sum -c -
+fi
+if [ ! -f openssl-$OPENSSL_VERSION.tar.gz ]; then
+    wget https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz
+    OPENSSL_SHA256="aaf51a1fe064384f811daeaeb4ec4dce7340ec8bd893027eee676af31e83a04f"
+    echo "$OPENSSL_SHA256  openssl-$OPENSSL_VERSION.tar.gz" | sha256sum -c -
+fi
+if [ ! -f libffi-$LIBFFI_VERSION.tar.gz ]; then
+    wget https://github.com/libffi/libffi/releases/download/v$LIBFFI_VERSION/libffi-$LIBFFI_VERSION.tar.gz
+    LIBFFI_SHA256="f3a3082a23b37c293a4fcd1053147b371f2ff91fa7ea1b2a52e335676bac82dc"
+    echo "$LIBFFI_SHA256  libffi-$LIBFFI_VERSION.tar.gz" | sha256sum -c -
 fi
 
 # verify all archives
@@ -335,6 +367,29 @@ export LD_LIBRARY_PATH=$PREFIX/lib64
 # linking host-glibc symbols into libraries that should target the sysroot.
 export CC=$PREFIX/bin/gcc
 export CXX=$PREFIX/bin/g++
+# Point pkg-config at the sysroot so cmake / configure scripts that use it
+# (e.g. cmake's --system-curl) resolve to the sysroot's .pc files rather than
+# the host's, which would otherwise drag in /usr/include and host-glibc deps.
+# PKG_CONFIG_LIBDIR _replaces_ the default search path (no host fallback);
+# PKG_CONFIG_SYSROOT_DIR rewrites the -I/-L paths in those .pc files.
+export PKG_CONFIG_LIBDIR=$SYSROOT/usr/lib/pkgconfig:$SYSROOT/usr/lib64/pkgconfig:$SYSROOT/usr/share/pkgconfig
+export PKG_CONFIG_SYSROOT_DIR=$SYSROOT
+
+# Expose GCC's runtime libraries (libstdc++, libgcc_s) inside the sysroot.
+# clang with --sysroot=$SYSROOT looks for -lstdc++ / -lgcc_s in $SYSROOT/usr/lib*
+# but GCC installs them outside the sysroot at $PREFIX/lib64. Symlink them in
+# (both shared .so and static .a — mgconsole uses -static-libstdc++) so the
+# LLVM runtimes sub-build and other sysroot-aware C++ links resolve them
+# without extra -L flags. Relative symlinks keep the toolchain relocatable.
+log_tool_name "expose GCC libstdc++/libgcc_s in sysroot"
+if [[ ! -L "$SYSROOT/usr/lib64/libstdc++.so.6" ]]; then
+    mkdir -p $SYSROOT/usr/lib64
+    for lib in $PREFIX/lib64/libstdc++.so* $PREFIX/lib64/libstdc++.a \
+               $PREFIX/lib64/libgcc_s.so* $PREFIX/lib64/libsupc++.a; do
+        [[ -e "$lib" ]] || continue
+        ln -sf "../../../lib64/$(basename "$lib")" "$SYSROOT/usr/lib64/$(basename "$lib")"
+    done
+fi
 
 # NOTE: manually install gmp and mpfr (required by gdb)
 log_tool_name "gmp (from gcc)"
@@ -446,6 +501,108 @@ if [ ! -f "$PREFIX/bin/ld" ]; then
     # make -k check # run test suite
     make install
     popd && popd
+fi
+
+# ----------------------------------------------------------------------------
+# Sysroot support libraries: zlib, ncurses, openssl, libcurl. Built with the
+# toolchain GCC so they target the sysroot's glibc; installed into
+# $SYSROOT/usr so the toolchain GCC (and anything it links) find them by
+# default. Consumed by GDB / cmake / mgconsole.
+# ----------------------------------------------------------------------------
+
+log_tool_name "zlib $ZLIB_VERSION (sysroot)"
+if [[ ! -f "$SYSROOT/usr/lib/libz.a" ]]; then
+    if [[ -d "zlib-$ZLIB_VERSION" ]]; then
+        rm -rf zlib-$ZLIB_VERSION
+    fi
+    tar -xzf ../archives/zlib-$ZLIB_VERSION.tar.gz
+    pushd "zlib-$ZLIB_VERSION"
+    ./configure --prefix=/usr --static
+    make -j$CPUS
+    make install DESTDIR=$SYSROOT
+    popd
+fi
+
+log_tool_name "ncurses $NCURSES_VERSION (sysroot)"
+if [[ ! -f "$SYSROOT/usr/lib/libncurses.a" ]]; then
+    if [[ -d "ncurses-$NCURSES_VERSION" ]]; then
+        rm -rf ncurses-$NCURSES_VERSION
+    fi
+    tar -xzf ../archives/ncurses-$NCURSES_VERSION.tar.gz
+    pushd "ncurses-$NCURSES_VERSION"
+    # Narrow (8-bit) ncurses with flat /usr/include header layout. The toolchain
+    # tools (ccmake, GDB TUI) don't need wide-char support, and the flat layout
+    # matches cmake's FindCurses default expectations.
+    ./configure --prefix=/usr \
+        --with-shared \
+        --disable-widec \
+        --without-debug \
+        --without-ada \
+        --without-tests \
+        --without-manpages \
+        --with-termlib
+    make -j$CPUS
+    make install DESTDIR=$SYSROOT
+    popd
+fi
+
+log_tool_name "openssl $OPENSSL_VERSION (sysroot)"
+if [[ ! -f "$SYSROOT/usr/lib64/libssl.a" && ! -f "$SYSROOT/usr/lib/libssl.a" ]]; then
+    if [[ -d "openssl-$OPENSSL_VERSION" ]]; then
+        rm -rf openssl-$OPENSSL_VERSION
+    fi
+    tar -xzf ../archives/openssl-$OPENSSL_VERSION.tar.gz
+    pushd "openssl-$OPENSSL_VERSION"
+    ./config --prefix=/usr \
+        --openssldir=/usr/ssl \
+        no-shared \
+        no-dso \
+        enable-ec_nistp_64_gcc_128 \
+        enable-static-engine \
+        enable-deprecated
+    make -j$CPUS
+    make install_sw DESTDIR=$SYSROOT
+    popd
+fi
+
+log_tool_name "curl $CURL_VERSION (sysroot)"
+if [[ ! -f "$SYSROOT/usr/lib/libcurl.a" ]]; then
+    if [[ -d "curl-$CURL_VERSION" ]]; then
+        rm -rf curl-$CURL_VERSION
+    fi
+    tar -xzf ../archives/curl-$CURL_VERSION.tar.gz
+    pushd "curl-$CURL_VERSION"
+    ./configure --prefix=/usr \
+        --enable-static \
+        --disable-shared \
+        --with-openssl \
+        --with-zlib \
+        --without-libssh2 \
+        --without-libpsl \
+        --without-nghttp2 \
+        --without-libidn2 \
+        --without-brotli \
+        --without-zstd \
+        --disable-ldap
+    make -j$CPUS
+    make install DESTDIR=$SYSROOT
+    popd
+fi
+
+log_tool_name "libffi $LIBFFI_VERSION (sysroot)"
+if [[ ! -f "$SYSROOT/usr/lib/libffi.a" && ! -f "$SYSROOT/usr/lib64/libffi.a" ]]; then
+    if [[ -d "libffi-$LIBFFI_VERSION" ]]; then
+        rm -rf libffi-$LIBFFI_VERSION
+    fi
+    tar -xzf ../archives/libffi-$LIBFFI_VERSION.tar.gz
+    pushd "libffi-$LIBFFI_VERSION"
+    # --with-pic is required because libffi.a gets linked into LLVM's shared
+    # libraries (libLLVM.so etc.). Without it the link fails with
+    # "requires dynamic R_X86_64_PC32 reloc ... may overflow at runtime".
+    ./configure --prefix=/usr --libdir=/usr/lib --disable-shared --enable-static --with-pic
+    make -j$CPUS
+    make install DESTDIR=$SYSROOT
+    popd
 fi
 
 # log_tool_name "GDB $GDB_VERSION"
@@ -564,6 +721,16 @@ if [[ ! -f "$PREFIX/bin/cmake" ]]; then
     echo 'set(CMAKE_C_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C flags" FORCE)' >> build-flags.cmake
     echo 'set(CMAKE_CXX_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C++ flags" FORCE)' >> build-flags.cmake
     echo 'set(CMAKE_SKIP_BOOTSTRAP_TEST ON CACHE BOOL "Skip BootstrapTest" FORCE)' >> build-flags.cmake
+    # Point cmake's find_* at the sysroot so libcurl/ncurses/openssl from
+    # $SYSROOT/usr are found (and not the host's host-glibc-linked copies).
+    echo "set(CMAKE_SYSROOT \"$SYSROOT\" CACHE PATH \"Sysroot\" FORCE)" >> build-flags.cmake
+    # Force find_library / find_path / find_package to look ONLY inside the
+    # sysroot — otherwise cmake's default BOTH mode happily picks up host
+    # /usr/lib and /usr/include, which drags host-glibc-linked libs into the
+    # build. PROGRAM stays default so build tools like git/make/sh are found.
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY CACHE STRING "" FORCE)' >> build-flags.cmake
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY CACHE STRING "" FORCE)' >> build-flags.cmake
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY CACHE STRING "" FORCE)' >> build-flags.cmake
     echo 'set(BUILD_CursesDialog ON CACHE BOOL "Build curses GUI" FORCE)' >> build-flags.cmake
     mkdir build && pushd build
     ../bootstrap \
@@ -625,10 +792,24 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
 
     # NOTE: Go under llvmorg-$LLVM_VERSION/llvm/CMakeLists.txt to see all
     #       options, docs pages are not up to date.
-    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;lldb;lld;openmp"
-    TOOLCHAIN_LLVM_ENABLE_RUNTIMES="libunwind"
+    # compiler-rt and openmp moved out of LLVM_ENABLE_PROJECTS (deprecated as
+    # projects since LLVM 16+, fatal error in future releases) — they're built
+    # as runtimes by the just-built clang, not the host gcc.
+    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lldb;lld"
+    TOOLCHAIN_LLVM_ENABLE_RUNTIMES="libunwind;compiler-rt;openmp"
     if [[ "$TOOLCHAIN_STDCXX" = "libc++" ]]; then
         TOOLCHAIN_LLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES;libcxx;libcxxabi"
+    fi
+
+    # Match GCC's target triple. Without this, LLVM defaults to
+    # x86_64-unknown-linux-gnu, but our GCC was configured with
+    # --target=x86_64-linux-gnu so its install dir is
+    # $PREFIX/lib/gcc/x86_64-linux-gnu/ — clang can't find crtbeginS.o /
+    # libstdc++ when the triples don't match.
+    if [[ "$for_arm" = true ]]; then
+        TOOLCHAIN_LLVM_TARGET_TRIPLE=aarch64-linux-gnu
+    else
+        TOOLCHAIN_LLVM_TARGET_TRIPLE=x86_64-linux-gnu
     fi
 
     pushd "llvmorg-$LLVM_VERSION"
@@ -637,6 +818,11 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
     # influenced by: https://buildd.debian.org/status/fetch.php?pkg=llvm-toolchain-7&arch=amd64&ver=1%3A7.0.1%7E%2Brc2-1%7Eexp1&stamp=1541506173&raw=0
     cmake -S llvm -B build -G "Unix Makefiles" \
         -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+        -DCMAKE_SYSROOT="$SYSROOT" \
+        -DLLVM_DEFAULT_TARGET_TRIPLE="$TOOLCHAIN_LLVM_TARGET_TRIPLE" \
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
         -DCMAKE_C_COMPILER=$PREFIX/bin/gcc \
         -DCMAKE_CXX_COMPILER=$PREFIX/bin/g++ \
         -DCMAKE_CXX_LINK_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,$PREFIX/lib64" \
@@ -647,6 +833,8 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
         -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DLLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS" \
         -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \
+        -DRUNTIMES_CMAKE_ARGS="-DCMAKE_C_FLAGS=--gcc-toolchain=$PREFIX;-DCMAKE_CXX_FLAGS=--gcc-toolchain=$PREFIX;-DLIBOMP_OMPD_SUPPORT=OFF;-DLIBOMP_OMPD_GDB_SUPPORT=OFF" \
+        -DBUILTINS_CMAKE_ARGS="-DCMAKE_C_FLAGS=--gcc-toolchain=$PREFIX;-DCMAKE_CXX_FLAGS=--gcc-toolchain=$PREFIX" \
         -DLLVM_LINK_LLVM_DYLIB=ON \
         -DLLVM_INSTALL_UTILS=ON \
         -DLLVM_VERSION_SUFFIX= \
@@ -872,9 +1060,9 @@ fi
 
 # possible fix for debian 13 arm
 if [[ "$for_arm" = true ]]; then
-    export EXTRA_CLANG_TOOLCHAIN_FLAGS="--gcc-toolchain=$PREFIX --target=aarch64-linux-gnu"
+    export EXTRA_CLANG_TOOLCHAIN_FLAGS="--gcc-toolchain=$PREFIX --target=aarch64-linux-gnu --sysroot=$SYSROOT"
 else
-    export EXTRA_CLANG_TOOLCHAIN_FLAGS="--gcc-toolchain=$PREFIX --target=x86_64-linux-gnu"
+    export EXTRA_CLANG_TOOLCHAIN_FLAGS="--gcc-toolchain=$PREFIX --target=x86_64-linux-gnu --sysroot=$SYSROOT"
 fi
 
 export CXXFLAGS="${CXXFLAGS:-} $EXTRA_CLANG_TOOLCHAIN_FLAGS"
@@ -882,6 +1070,10 @@ export LDFLAGS="${LDFLAGS:-} $EXTRA_CLANG_TOOLCHAIN_FLAGS"
 
 COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX
                     -DCMAKE_PREFIX_PATH=$PREFIX
+                    -DCMAKE_SYSROOT=$SYSROOT
+                    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
+                    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+                    -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY
                     -DCMAKE_BUILD_TYPE=Release
                     -DCMAKE_C_COMPILER=$CC
                     -DCMAKE_CXX_COMPILER=$CXX
@@ -1114,62 +1306,9 @@ COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
 #     popd
 # fi
 
-# TODO: check if these are actually needed for mgconsole
-# Build OpenSSL and curl from source for RPM distributions
-if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
-    OPENSSL_TAG="openssl-3.6.0"
-    log_tool_name "openssl $OPENSSL_TAG"
-    if [[ ! -f "$PREFIX/lib64/libssl.a" ]] || [[ ! -f "$PREFIX/lib64/libcrypto.a" ]]; then
-        if [ -d openssl ]; then
-            rm -rf openssl
-        fi
-        git clone https://github.com/openssl/openssl.git openssl
-        pushd openssl
-        git checkout $OPENSSL_TAG
-
-        # Configure for static build
-        ./config --prefix=$PREFIX \
-          --openssldir=$PREFIX/ssl \
-          no-shared \
-          no-dso \
-          enable-ec_nistp_64_gcc_128 \
-          enable-static-engine \
-          enable-deprecated
-
-        make -j$CPUS
-        make install_sw
-        popd
-    fi
-fi
-
-if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-|debian-) ]]; then
-    CURL_TAG="curl-8_18_0"
-    log_tool_name "curl $CURL_TAG"
-    if [[ ! -f "$PREFIX/lib/libcurl.a" ]]; then
-        if [[ -d curl ]]; then
-            rm -rf curl
-        fi
-        git clone https://github.com/curl/curl.git curl
-        pushd curl
-        git checkout $CURL_TAG
-        cmake -B build -DCURL_ENABLE_SSL=ON \
-            -DCURL_USE_LIBSSH2=OFF \
-            -DCURL_USE_LIBPSL=OFF \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DBUILD_STATIC_LIBS=ON \
-            -DUSE_NGHTTP2=OFF \
-            -DUSE_LIBIDN2=OFF \
-            -DCURL_DISABLE_LDAP=ON \
-            $COMMON_CMAKE_FLAGS
-        pushd build
-        make -j$CPUS
-        make install
-        popd && popd
-    fi
-fi
-
-
-
+# openssl and libcurl are now built into the sysroot (see the support-libraries
+# section above binutils), so mgconsole picks them up via the toolchain GCC's
+# --with-sysroot automatically — no distro-specific build needed here.
 
 MGCONSOLE_TAG="v1.5.2"
 log_tool_name "mgconsole $MGCONSOLE_TAG"
