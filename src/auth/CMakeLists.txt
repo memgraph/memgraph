@@ -8,15 +8,14 @@ target_sources(mg-auth PRIVATE
     profiles/user_profiles.cpp
 )
 
-find_package(Seccomp REQUIRED)
+find_package(libseccomp REQUIRED)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 
 target_link_libraries(mg-auth
     PUBLIC mg-kvstore mg-license
     PRIVATE nlohmann_json::nlohmann_json libbcrypt::libbcrypt gflags fmt::fmt
-    mg-utils mg::system mg-slk ${Seccomp_LIBRARIES} openssl::openssl)
-target_include_directories(mg-auth SYSTEM PRIVATE ${Seccomp_INCLUDE_DIRS})
+    mg-utils mg::system mg-slk libseccomp::libseccomp openssl::openssl)
 
 # Install reference auth modules and their configuration files.
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/common.py

@@ -48,16 +48,23 @@ add_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_RUST_CPP})
 # The custom command builds the C++ bridge files, Rust library, and copies the header
 # We list all outputs so CMake knows they will be generated
 set(TEXT_SEARCH_HPP_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/text_search.hpp")
+
+# Pin cargo's cc-rs invocations to the toolchain clang+sysroot. The previous
+# approach (--unset=CFLAGS --unset=CXXFLAGS) avoided leaking -ftime-trace
+# into cc-rs but also dropped --sysroot/--gcc-toolchain, so the C++ bridge
+# .cc files got compiled against host /usr/include and ended up with
+# host-glibc symbols (e.g. __libc_single_threaded@GLIBC_2.32) in
+# libtantivy_text_search.a. CC/CXX point at toolchain clang and CFLAGS/
+# CXXFLAGS carry only sysroot-relevant flags — no -ftime-trace.
+set(MGCXX_TEXT_SEARCH_CC_FLAGS "--sysroot=${MG_TOOLCHAIN_SYSROOT} --gcc-toolchain=${MG_TOOLCHAIN_ROOT}")
+
 add_custom_command(
   OUTPUT ${MGCXX_TEXT_SEARCH_RUST_CPP} ${MGCXX_TEXT_SEARCH_RUST_LIB} ${TEXT_SEARCH_HPP_OUTPUT}
-  # Unset CFLAGS/CXXFLAGS around the cargo call so flags meaningful only to
-  # clang (notably -ftime-trace used for build-time profiling) don't leak
-  # into cargo's internal cc-rs invocations and break the Rust build. The
-  # --unset= form (vs. the shell prefix "CFLAGS= CXXFLAGS= ...") is portable
-  # across generators and doesn't rely on ninja wrapping COMMAND in /bin/sh.
   COMMAND ${CMAKE_COMMAND} -E env
-          --unset=CFLAGS
-          --unset=CXXFLAGS
+          CC=${MG_TOOLCHAIN_ROOT}/bin/clang
+          CXX=${MG_TOOLCHAIN_ROOT}/bin/clang++
+          CFLAGS=${MGCXX_TEXT_SEARCH_CC_FLAGS}
+          CXXFLAGS=${MGCXX_TEXT_SEARCH_CC_FLAGS}
           CARGO_TARGET_DIR=${CMAKE_CURRENT_BINARY_DIR}
           RUSTFLAGS=${MGCXX_TEXT_SEARCH_RUST_FLAGS_JOINED}
           ${CARGO_CMD}

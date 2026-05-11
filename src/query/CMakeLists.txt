@@ -191,6 +191,18 @@ else()
     find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
 endif()
 
+# Debian/Ubuntu split pyconfig.h between /usr/include/pythonX.Y/pyconfig.h
+# (a redirect) and /usr/include/<triple>/pythonX.Y/pyconfig.h (the real one).
+# cmake's FindPython3 returns only the first path, and our toolchain sysroot
+# blocks the redirect's <triple>/pythonX.Y/pyconfig.h fallback through the
+# default /usr/include search. -idirafter appends host /usr/include to the
+# tail of the search path, so it's only consulted for headers the sysroot
+# doesn't have (i.e. just the multiarch pyconfig redirect target).
+if(EXISTS "/usr/include/x86_64-linux-gnu/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/pyconfig.h"
+   OR EXISTS "/usr/include/aarch64-linux-gnu/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/pyconfig.h")
+    target_compile_options(Python3::Python INTERFACE -idirafter /usr/include)
+endif()
+
 # Generate Antlr openCypher parser
 set(opencypher_frontend ${CMAKE_CURRENT_SOURCE_DIR}/frontend/opencypher)
 set(opencypher_generated ${opencypher_frontend}/generated)

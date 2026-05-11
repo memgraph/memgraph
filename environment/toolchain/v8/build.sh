@@ -381,11 +381,12 @@ export PKG_CONFIG_SYSROOT_DIR=$SYSROOT
 # (both shared .so and static .a — mgconsole uses -static-libstdc++) so the
 # LLVM runtimes sub-build and other sysroot-aware C++ links resolve them
 # without extra -L flags. Relative symlinks keep the toolchain relocatable.
-log_tool_name "expose GCC libstdc++/libgcc_s in sysroot"
+log_tool_name "expose GCC libstdc++/libgcc_s/libatomic in sysroot"
 if [[ ! -L "$SYSROOT/usr/lib64/libstdc++.so.6" ]]; then
     mkdir -p $SYSROOT/usr/lib64
     for lib in $PREFIX/lib64/libstdc++.so* $PREFIX/lib64/libstdc++.a \
-               $PREFIX/lib64/libgcc_s.so* $PREFIX/lib64/libsupc++.a; do
+               $PREFIX/lib64/libgcc_s.so* $PREFIX/lib64/libsupc++.a \
+               $PREFIX/lib64/libatomic.so* $PREFIX/lib64/libatomic.a; do
         [[ -e "$lib" ]] || continue
         ln -sf "../../../lib64/$(basename "$lib")" "$SYSROOT/usr/lib64/$(basename "$lib")"
     done
