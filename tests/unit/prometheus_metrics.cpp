@@ -73,12 +73,13 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
   memgraph::metrics::PrometheusMetrics pm;
   memgraph::metrics::StorageSnapshot snapshot{
       .vertex_count = 7, .edge_count = 3, .disk_usage = 1024, .memory_res = 4096};
+  memgraph::utils::UUID const db1_uuid{};
   pm.SetStorageSnapshotResolver(
-      [&snapshot](std::string_view name) -> std::optional<memgraph::metrics::StorageSnapshot> {
-        if (name == "db1") return snapshot;
+      [&snapshot, &db1_uuid](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        if (uuid == db1_uuid) return snapshot;
         return std::nullopt;
       });
-  pm.AddDatabase(memgraph::utils::UUID{}, "db1");
+  pm.AddDatabase(db1_uuid, "db1");
 
   pm.UpdateGauges();
 
@@ -110,8 +111,8 @@ TEST(DatabaseMetrics, SwitchToOnDiskUpdatesSnapshotCallback) {
   {
     memgraph::dbms::Database db{config};
     memgraph::metrics::Metrics().SetStorageSnapshotResolver(
-        [&db](std::string_view name) -> std::optional<memgraph::metrics::StorageSnapshot> {
-          if (name != db.name()) return std::nullopt;
+        [&db](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
+          if (uuid != db.uuid()) return std::nullopt;
           auto const info = db.storage()->GetBaseInfo();
           return memgraph::metrics::StorageSnapshot{.vertex_count = info.vertex_count,
                                                     .edge_count = info.edge_count,

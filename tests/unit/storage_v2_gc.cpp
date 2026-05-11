@@ -59,8 +59,8 @@ class StorageV2GcMetricsTest : public testing::Test {
     storage = std::make_unique<memgraph::storage::InMemoryStorage>(
         config, std::nullopt, std::make_unique<memgraph::storage::PlanInvalidatorDefault>(), handles_);
     memgraph::metrics::Metrics().SetStorageSnapshotResolver(
-        [this](std::string_view name) -> std::optional<memgraph::metrics::StorageSnapshot> {
-          if (name != db_name_ || !storage) return std::nullopt;
+        [this](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
+          if (uuid != uuid_ || !storage) return std::nullopt;
           auto const info = storage->GetBaseInfo();
           return memgraph::metrics::StorageSnapshot{
               .vertex_count = info.vertex_count,

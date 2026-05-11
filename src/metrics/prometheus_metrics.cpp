@@ -857,7 +857,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
   if (name == dbms::kDefaultDB) {
     default_db_uuid_ = uuid;
   }
-  prometheus::Labels const labels{{"database", std::string(name)}};
+  prometheus::Labels const labels{{"database", std::string(name)}, {"uuid", std::string(uuid)}};
   databases_.entries.push_back(
       {
           .uuid = uuid,
@@ -977,17 +977,6 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   std::lock_guard const lock{databases_.mutex};
   auto it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
   if (it == databases_.entries.end()) return;
-  // Database name is not a unique identity (e.g. main + replica can coexist in
-  // same process in unit tests).  Prometheus metrics are keyed by labels, so
-  // equal db_name values point to the same metric objects.  Remove those
-  // objects only when the final entry for that name is erased.
-  auto const db_name = it->db_name;
-  bool const last_with_name =
-      r::none_of(databases_.entries, [&](auto const &e) { return e.uuid != uuid && e.db_name == db_name; });
-  if (!last_with_name) {
-    databases_.entries.erase(it);
-    return;
-  }
   auto &h = it->handles;
   vertex_count_family_.Remove(h.vertex_count.get());
   edge_count_family_.Remove(h.edge_count.get());
