@@ -15,9 +15,12 @@ namespace memgraph::storage {
 
 namespace {
 auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::ChunkedIterator it,
-                            utils::SkipListDb<Vertex>::ChunkedIterator end,
-                            std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
+                            utils::SkipListDb<Vertex>::ChunkedIterator end, std::optional<VertexAccessor> *vertex,
+                            Storage *storage, Transaction *tx, View view, uint64_t max_gid) {
   while (it != end) [[likely]] {
+    if (it->gid.AsUint() >= max_gid) {
+      return end;
+    }
     if (VertexAccessor::IsVisible(&*it, tx, view)) [[likely]] {
       vertex->emplace(&*it, storage, tx);
       break;
@@ -27,30 +30,27 @@ auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::ChunkedIterator it,
   return it;
 }
 
-auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::ChunkedIterator it,
-                            std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
+auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::ChunkedIterator it, std::optional<VertexAccessor> *vertex,
+                            Storage *storage, Transaction *tx, View view, uint64_t max_gid) {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
-  return AdvanceToVisibleVertex(
-      it, utils::SkipListDb<Vertex>::ChunkedIterator{}, vertex, storage, tx, view);
+  return AdvanceToVisibleVertex(it, utils::SkipListDb<Vertex>::ChunkedIterator{}, vertex, storage, tx, view, max_gid);
 }
 }  // namespace
 
 AllVerticesChunkedIterable::Iterator::Iterator(AllVerticesChunkedIterable *self,
                                                utils::SkipListDb<Vertex>::Chunk &chunk)
     : self_(self),
-      it_(AdvanceToVisibleVertex(chunk.begin(), chunk.end(), &cache_, self->storage_, self->transaction_,
-                                 self->view_)) {}
+      it_(AdvanceToVisibleVertex(chunk.begin(), chunk.end(), &cache_, self->storage_, self->transaction_, self->view_,
+                                 self->max_gid_)) {}
 
-AllVerticesChunkedIterable::Iterator::Iterator(
-    utils::SkipListDb<Vertex>::ChunkedIterator end)
-    : it_(end) {}
+AllVerticesChunkedIterable::Iterator::Iterator(utils::SkipListDb<Vertex>::ChunkedIterator end) : it_(end) {}
 
 VertexAccessor const &AllVerticesChunkedIterable::Iterator::operator*() const { return cache_.value(); }
 
 AllVerticesChunkedIterable::Iterator &AllVerticesChunkedIterable::Iterator::operator++() {
   ++it_;
-  it_ = AdvanceToVisibleVertex(it_, &cache_, self_->storage_, self_->transaction_, self_->view_);
+  it_ = AdvanceToVisibleVertex(it_, &cache_, self_->storage_, self_->transaction_, self_->view_, self_->max_gid_);
   return *this;
 }
 
