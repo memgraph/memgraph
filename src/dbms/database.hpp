@@ -213,6 +213,22 @@ class Database {
 
   int64_t TenantMemoryLimit() const noexcept { return db_total_memory_tracker_.HardLimit(); }
 
+  // RAII guard used by utils::Gatekeeper<Database> to ensure construction and
+  // destruction of Database happen with a clean arena TLS state, preventing
+  // cross-DB arena pool collisions and tcache mis-attribution.
+  struct GatekeeperGuard {
+    memory::DbArenaTlsState prev_;
+
+    GatekeeperGuard() noexcept : prev_(std::exchange(memory::tls_db_arena_state, {})) {}
+
+    GatekeeperGuard(const GatekeeperGuard &) noexcept = delete;
+    GatekeeperGuard &operator=(const GatekeeperGuard &) noexcept = delete;
+    GatekeeperGuard(GatekeeperGuard &&) noexcept = delete;
+    GatekeeperGuard &operator=(GatekeeperGuard &&) noexcept = delete;
+
+    ~GatekeeperGuard() noexcept { memory::tls_db_arena_state = prev_; }
+  };
+
  private:
   // Enforcement-only: caps total per-DB memory (tenant profile limit).
   // No parent — does not roll up to any global. Per-DB domain trackers list this

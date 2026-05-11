@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include "dbms/database.hpp"
+#include "memory/db_arena.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -88,6 +89,7 @@ class RecoverSnapshotTest : public ::testing::Test {
 TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
   // Create initial storage and add some data
   memgraph::dbms::Database db{config_};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
   // Add some data
@@ -219,30 +221,35 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
   // Create initial storage and add some data
   std::optional<memgraph::dbms::Database> db = std::make_optional<memgraph::dbms::Database>(config_);
   ASSERT_TRUE(db.has_value()) << "Database should be created";
-  auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db->storage());
-
-  // Add some data
-  {
-    auto acc = storage->Access(memgraph::storage::WRITE);
-    auto vertex = acc->CreateVertex();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Create a snapshot
-  auto snapshot_result = storage->CreateSnapshot();
-  ASSERT_TRUE(snapshot_result.has_value());
-
-  // Move the snapshot to the local storage
+  std::filesystem::path snapshot_path;
   TmpDirManager local_dir{"MG_test_unit_storage_v2_recover_snapshot_local"};
-  auto snapshot_path = snapshot_result.value();
-  std::filesystem::rename(snapshot_path, local_dir.Path() / snapshot_path.filename());
-  snapshot_path = local_dir.Path() / snapshot_path.filename();
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&db->Arena()};
+    auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db->storage());
+
+    // Add some data
+    {
+      auto acc = storage->Access(memgraph::storage::WRITE);
+      auto vertex = acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Create a snapshot
+    auto snapshot_result = storage->CreateSnapshot();
+    ASSERT_TRUE(snapshot_result.has_value());
+
+    // Move the snapshot to the local storage
+    snapshot_path = snapshot_result.value();
+    std::filesystem::rename(snapshot_path, local_dir.Path() / snapshot_path.filename());
+    snapshot_path = local_dir.Path() / snapshot_path.filename();
+  }
 
   // Restart storage
   db.reset();
   db.emplace(config_);
   ASSERT_TRUE(db.has_value()) << "Database should be created";
-  storage = static_cast<memgraph::storage::InMemoryStorage *>(db->storage());
+  const memgraph::memory::DbArenaScope arena_scope{&db->Arena()};
+  auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db->storage());
 
   // Verify storage is empty
   {
@@ -317,6 +324,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
   // Create initial storage and add some data
   std::optional<memgraph::dbms::Database> db = std::make_optional<memgraph::dbms::Database>(config_);
   ASSERT_TRUE(db.has_value()) << "Database should be created";
+  const memgraph::memory::DbArenaScope arena_scope{&db->Arena()};
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db->storage());
 
   // Add some data

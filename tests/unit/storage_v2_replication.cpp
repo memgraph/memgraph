@@ -26,6 +26,7 @@
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "memory/db_arena.hpp"
 #include "parameters/parameters.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/config.hpp"
@@ -201,6 +202,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   const auto *vertex_property_value = "vertex_property_value";
   std::optional<Gid> vertex_gid;
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
@@ -211,6 +213,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica.db.Arena()};
     auto acc = replica.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
@@ -230,6 +233,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
 
   // vertex remove label
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
@@ -238,6 +242,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica.db.Arena()};
     auto acc = replica.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
@@ -249,6 +254,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
 
   // vertex delete
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
@@ -257,6 +263,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica.db.Arena()};
     auto acc = replica.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_FALSE(v);
@@ -271,6 +278,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   const auto *edge_property_value = "edge_property_value";
   std::optional<Gid> edge_gid;
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
@@ -293,6 +301,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   };
 
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica.db.Arena()};
     auto acc = replica.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
@@ -311,6 +320,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
 
   // delete edge
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
@@ -322,6 +332,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica.db.Arena()};
     auto acc = replica.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
@@ -345,16 +356,19 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   const memgraph::storage::LabelPropertyIndexStats lp_stats{98, 76, 5.4, 3.2, 1.0};
 
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_TRUE(unique_acc->CreateIndex(main.db.storage()->NameToLabel(label)).has_value());
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label), l_stats);
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto unique_acc = main.CreateIndexAccessor();
     ASSERT_FALSE(
         !unique_acc->CreateIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property)})
@@ -362,6 +376,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto unique_acc = main.CreateIndexAccessor();
     ASSERT_FALSE(!unique_acc
                       ->CreateIndex(main.db.storage()->NameToLabel(label),
@@ -371,6 +386,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label),
                               std::array{memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(property)}},
@@ -378,6 +394,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(
         main.db.storage()->NameToLabel(label),
@@ -387,6 +404,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     // Create nested index
     auto unique_acc = main.CreateIndexAccessor();
     memgraph::storage::PropertyPath property_path{main.db.storage()->NameToProperty(nested_property1),
@@ -396,6 +414,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     // Create nested index stats
     auto unique_acc = main.db.UniqueAccess();
     memgraph::storage::PropertyPath property_path{main.db.storage()->NameToProperty(nested_property1),
@@ -405,6 +424,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto read_only_access = main.db.ReadOnlyAccess();
     ASSERT_TRUE(read_only_access
                     ->CreateExistenceConstraint(main.db.storage()->NameToLabel(label),
@@ -413,6 +433,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(read_only_access->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto read_only_access = main.db.ReadOnlyAccess();
     ASSERT_TRUE(read_only_access
                     ->CreateUniqueConstraint(main.db.storage()->NameToLabel(label),
@@ -423,6 +444,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica.db.Arena()};
     const auto indices = replica.db.Access(memgraph::storage::WRITE)->ListAllIndices();
     ASSERT_THAT(indices.label, UnorderedElementsAre(replica.db.storage()->NameToLabel(label)));
     ASSERT_THAT(
@@ -500,21 +522,25 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   // existence constraint drop
   // unique constriant drop
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->DeleteLabelIndexStats(main.db.storage()->NameToLabel(label));
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_TRUE(unique_acc->DropIndex(main.db.storage()->NameToLabel(label)).has_value());
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->DeleteLabelPropertyIndexStats(main.db.storage()->NameToLabel(label));
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto unique_acc = main.DropIndexAccessor();
     ASSERT_FALSE(
         !unique_acc->DropIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property)})
@@ -522,6 +548,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     // Drop nested index
     auto unique_acc = main.DropIndexAccessor();
     memgraph::storage::PropertyPath property_path{main.db.storage()->NameToProperty(nested_property1),
@@ -531,12 +558,14 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     // Drop nested index stats
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->DeleteLabelPropertyIndexStats(main.db.storage()->NameToLabel(label));
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto unique_acc = main.DropIndexAccessor();
     ASSERT_FALSE(!unique_acc
                       ->DropIndex(main.db.storage()->NameToLabel(label),
@@ -546,6 +575,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto read_only_access = main.db.ReadOnlyAccess();
     ASSERT_TRUE(read_only_access
                     ->DropExistenceConstraint(main.db.storage()->NameToLabel(label),
@@ -554,6 +584,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(read_only_access->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto read_only_access = main.db.ReadOnlyAccess();
     ASSERT_EQ(read_only_access->DropUniqueConstraint(
                   main.db.storage()->NameToLabel(label),
@@ -563,6 +594,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica.db.Arena()};
     const auto indices = replica.db.Access(memgraph::storage::WRITE)->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_properties.size(), 0);
@@ -615,6 +647,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   const auto *vertex_property_value = "property_value";
   std::optional<Gid> vertex_gid;
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(main.db.storage()->NameToLabel(vertex_label)).has_value());
@@ -625,6 +658,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   }
 
   const auto check_replica = [&](memgraph::dbms::Database &replica_database) {
+    const memgraph::memory::DbArenaScope arena_scope{&replica_database.Arena()};
     auto acc = replica_database.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
@@ -640,6 +674,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   auto handler = main.repl_handler;
   handler.UnregisterReplica(replicas[1]);
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
@@ -648,6 +683,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
 
   // REPLICA1 should contain the new vertex
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica1.db.Arena()};
     auto acc = replica1.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
@@ -656,6 +692,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
 
   // REPLICA2 should not contain the new vertex
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica2.db.Arena()};
     auto acc = replica2.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_FALSE(v);
@@ -678,6 +715,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     MinMemgraph main(conf);
 
     {
+      const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
       auto acc = main.db.Access(memgraph::storage::WRITE);
       // Create the vertex before registering a replica
       auto v = acc->CreateVertex();
@@ -696,12 +734,14 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     MinMemgraph main(conf);
     // Create vertices in 2 different transactions
     {
+      const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
       auto acc = main.db.Access(memgraph::storage::WRITE);
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
       ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
     }
     {
+      const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
       auto acc = main.db.Access(memgraph::storage::WRITE);
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
@@ -722,6 +762,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   static constexpr const auto *property_name = "property_name";
   static constexpr const auto property_value = 1;
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     // Force the creation of current WAL file
     auto acc = main.db.Access(memgraph::storage::WRITE);
     for (const auto &vertex_gid : vertex_gids) {
@@ -754,6 +795,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     }
 
     {
+      const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
       auto acc = main.db.Access(memgraph::storage::WRITE);
       for (const auto &vertex_gid : vertex_gids) {
         auto v = acc->FindVertex(vertex_gid, View::OLD);
@@ -763,6 +805,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
     }
     {
+      const memgraph::memory::DbArenaScope arena_scope{&replica.db.Arena()};
       auto acc = replica.db.Access(memgraph::storage::WRITE);
       for (const auto &vertex_gid : vertex_gids) {
         auto v = acc->FindVertex(vertex_gid, View::OLD);
@@ -787,6 +830,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     UpdatePaths(repl_conf, repl_storage_directory);
     MinMemgraph replica(repl_conf);
     {
+      const memgraph::memory::DbArenaScope arena_scope{&replica.db.Arena()};
       auto acc = replica.db.Access(memgraph::storage::WRITE);
       for (const auto &vertex_gid : vertex_gids) {
         auto v = acc->FindVertex(vertex_gid, View::OLD);
@@ -825,6 +869,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   static constexpr size_t vertices_create_num = 10;
   std::vector<Gid> created_vertices;
   for (size_t i = 0; i < vertices_create_num; ++i) {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     created_vertices.push_back(v.Gid());
@@ -843,6 +888,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   }
 
   ASSERT_TRUE(std::ranges::all_of(created_vertices, [&](const auto vertex_gid) {
+    const memgraph::memory::DbArenaScope arena_scope{&replica_async.db.Arena()};
     auto acc = replica_async.db.Access(memgraph::storage::WRITE);
     auto v = acc->FindVertex(vertex_gid, View::OLD);
     const bool exists = v.has_value();
@@ -882,18 +928,21 @@ TEST_F(ReplicationTest, EpochTest) {
 
   std::optional<Gid> vertex_gid;
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto acc = main.db.Access(memgraph::storage::WRITE);
     const auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica1.db.Arena()};
     auto acc = replica1.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica2.db.Arena()};
     auto acc = replica2.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
@@ -914,11 +963,13 @@ TEST_F(ReplicationTest, EpochTest) {
                   .has_value());
 
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto acc = main.db.Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica1.db.Arena()};
     auto acc = replica1.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
@@ -926,6 +977,7 @@ TEST_F(ReplicationTest, EpochTest) {
   }
   // Replica1 should forward it's vertex to Replica2
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica2.db.Arena()};
     auto acc = replica2.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
@@ -945,6 +997,7 @@ TEST_F(ReplicationTest, EpochTest) {
 
   {
     auto acc = main.db.Access(memgraph::storage::WRITE);
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     const auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
@@ -952,6 +1005,7 @@ TEST_F(ReplicationTest, EpochTest) {
   // Replica1 is not compatible with the main so it shouldn't contain
   // it's newest vertex
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica1.db.Arena()};
     auto acc = replica1.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_FALSE(v);
@@ -1236,6 +1290,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   auto file_locker = file_retainer.AddLocker();
 
   auto large_write_to_finalize_wal = [&]() {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     auto acc = in_mem->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.SetProperty(p, large_property).has_value());
@@ -1243,6 +1298,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   };
 
   auto create_vertex_and_commit = [&]() {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1250,12 +1306,14 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Nothing
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 0);
   }
 
   // Only Current
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     create_vertex_and_commit();
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
@@ -1264,6 +1322,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Only a single WAL
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     // Create a vertex with a property large enough to trigger WAL finalization and closing
     // Current is generated on the next transaction
     large_write_to_finalize_wal();
@@ -1274,6 +1333,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Multiple WALs
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     // Create a vertex with a property large enough to trigger WAL finalization and closing
     // Current is generated on the next transaction
     large_write_to_finalize_wal();
@@ -1287,6 +1347,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // WALs + Current
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     // A new current WAL is created on the next transaction after the previous one has been finalized
     create_vertex_and_commit();
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
@@ -1297,6 +1358,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Snapshot (with dirty WALs)
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     large_write_to_finalize_wal();
     ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
@@ -1309,6 +1371,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Only snapshot (without dirty WALs)
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     // Once we are over the allowed number of snapshots, we clean both snapshots and wals
     // Have to make a change to the db so the snapshot doesn't get aborted (to bypass SnapshotDigest)
     create_vertex_and_commit();
@@ -1324,6 +1387,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Snapshot + Current
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1335,6 +1399,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Snapshot + WALs (chain starts before snapshot)
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     large_write_to_finalize_wal();
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 2);
@@ -1344,6 +1409,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Snapshot + WALs + Current
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1391,12 +1457,14 @@ TEST_F(ReplicationTest, RecoverySteps) {
   main.emplace(config);
   in_mem = static_cast<InMemoryStorage *>(main->db.storage());
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     // On start we only have the snapshot to send
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     // Add current wal
     auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
@@ -1407,6 +1475,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[1]));
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     // Add finalized wal
     large_write_to_finalize_wal();
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
@@ -1415,6 +1484,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
   }
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     // Add both
     auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
@@ -1432,6 +1502,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   // Create more WALs
   // Break the WAL chain somewhere before the snapshot
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     large_write_to_finalize_wal();
     large_write_to_finalize_wal();
     std::filesystem::path wal_file;
@@ -1461,6 +1532,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   }
   // + Current
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main->db.Arena()};
     auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1512,6 +1584,8 @@ TEST_F(ReplicationTest, SchemaReplication) {
     return instance.db.storage()->schema_info_.ToJson(*instance.db.storage()->name_id_mapper_,
                                                       instance.db.storage()->enum_store_);
   };
+
+  std::optional<memgraph::memory::DbArenaScope> main_scope{std::in_place, &main->db.Arena()};
 
   auto l1 = main->db.storage()->NameToLabel("L1");
   auto l2 = main->db.storage()->NameToLabel("L2");
@@ -1623,6 +1697,8 @@ TEST_F(ReplicationTest, SchemaReplication) {
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
+  main_scope.reset();
+
   auto stop_replica = [&]() {
     replica.reset();
     {
@@ -1696,6 +1772,7 @@ TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {
 
   // Create base vertices
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
@@ -1711,6 +1788,7 @@ TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {
 
   // Transaction 1: Create edge from v1 to v2
   {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto tx1 = main.db.Access(memgraph::storage::WRITE);
     auto v1_tx1 = tx1->FindVertex(v1_gid, View::OLD);
     auto v2_tx1 = tx1->FindVertex(v2_gid, View::OLD);
@@ -1746,6 +1824,7 @@ TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {
 
   // Verify replica has both edges
   {
+    const memgraph::memory::DbArenaScope arena_scope{&replica.db.Arena()};
     auto acc = replica.db.Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, View::OLD);
     ASSERT_TRUE(v1.has_value());

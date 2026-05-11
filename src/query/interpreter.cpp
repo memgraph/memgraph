@@ -5280,7 +5280,8 @@ PreparedQuery PrepareReplicationInfoQuery(ParsedQuery parsed_query, bool in_expl
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
@@ -5421,7 +5422,8 @@ PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, bool in_explicit_
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 }
 
 PreparedQuery PrepareShowQueryCallableMappingsQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
@@ -5445,7 +5447,8 @@ PreparedQuery PrepareShowQueryCallableMappingsQuery(ParsedQuery parsed_query, bo
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 }
 
 TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
@@ -6219,7 +6222,8 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
@@ -6660,7 +6664,8 @@ PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, std::shared
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 }
 
 PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
@@ -6679,7 +6684,8 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
                              stream->Result(version_value);
                              return QueryHandlerResult::COMMIT;
                            },
-                       .rw_type = RWType::NONE};
+                       .rw_type = RWType::NONE,
+                       .priority = utils::Priority::HIGH};
 }
 
 PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
@@ -7796,7 +7802,8 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
         return std::nullopt;
       },
       .rw_type = RWType::NONE,
-      .db = query->db_name_};
+      .db = query->db_name_,
+      .priority = utils::Priority::HIGH};
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
@@ -7832,7 +7839,8 @@ PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curr
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
@@ -7957,9 +7965,13 @@ PreparedQuery PrepareShowMemoryInfoQuery([[maybe_unused]] ParsedQuery parsed_que
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 #else
-  throw QueryRuntimeException("SHOW MEMORY INFO is only available in the enterprise edition.");
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)interpreter_context;
+  throw EnterpriseOnlyException();
 #endif
 }
 

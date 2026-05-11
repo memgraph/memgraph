@@ -131,20 +131,12 @@ class ArenaPageSlabMemoryResource {
 // asserts there was no previous arena. It exists only for non-jemalloc builds
 // where all constructors compile to no-ops.
 struct DbArenaScope {
-  enum class Type : uint8_t {
-    DBG_CHECK,
-    FORCE,
-  };
-
-  // No-op scope: resets TLS arena to 0 (asserts no previous arena was set).
-  DbArenaScope() noexcept;
-
   // Acquire per-thread arena from the database's pool.
-  explicit DbArenaScope(const memgraph::dbms::Database *db, Type type = Type::DBG_CHECK);
+  explicit DbArenaScope(const memgraph::dbms::Database *db);
 
   // Acquire from the pool (or borrow if same pool already in TLS).
   // Releases back to the pool on destruction only when this scope acquired it.
-  explicit DbArenaScope(ArenaPool *arena_pool, Type type = Type::DBG_CHECK);
+  explicit DbArenaScope(ArenaPool *arena_pool);
 
   ~DbArenaScope() noexcept;
 
@@ -154,10 +146,9 @@ struct DbArenaScope {
   DbArenaScope &operator=(DbArenaScope &&) = delete;
 
  private:
-  ArenaPool *arena_pool_{nullptr};
-  ArenaPool *prev_arena_pool_{nullptr};
-  unsigned arena_idx_{0};
-  unsigned prev_arena_{0};
+  DbArenaTlsState prev_state_;
+  DbArenaTlsState cur_state_;  // pool = what we're scoping into; arena/tcache = acquired or borrowed
+  bool borrowed_{false};
 };
 
 // A std::jthread wrapper that sets tls_db_arena_state on the new thread so that
@@ -174,8 +165,8 @@ class DbAwareThread {
   explicit DbAwareThread(F &&f, Args &&...args)
       : DbAwareThread(tls_db_arena_state.arena_pool, std::forward<F>(f), std::forward<Args>(args)...) {}
 
-  // The new thread acquires from the pool for the lifetime
-  // of the supplied function and releases it when the function exits.
+  // The new thread acquires an arena and tcache from the pool for the
+  // lifetime of the supplied function and releases them when the function exits.
   template <typename F, typename... Args>
     requires(std::is_invocable_v<std::decay_t<F>, std::decay_t<Args>...> ||
              std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>)

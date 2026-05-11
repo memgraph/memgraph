@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <exception>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -145,13 +146,18 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
 
 namespace {
 
-void LogDestructorCleanupFailure(std::string_view owner, unsigned arena_idx, std::string_view operation,
-                                 std::string_view error) noexcept {
+template <typename... Args>
+void SafeLog(fmt::format_string<Args...> fmt, Args &&...args) noexcept {
   try {
-    spdlog::error("{} {}: {} failed during destructor cleanup: {}", owner, arena_idx, operation, error);
+    spdlog::error(fmt, std::forward<Args>(args)...);
   } catch (...) {
     (void)0;  // clang-tidy
   }
+}
+
+void LogDestructorCleanupFailure(std::string_view owner, unsigned arena_idx, std::string_view operation,
+                                 std::string_view error) noexcept {
+  SafeLog("{} {}: {} failed during destructor cleanup: {}", owner, arena_idx, operation, error);
 }
 
 bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_view error_context) {
@@ -274,6 +280,9 @@ ArenaPool::~ArenaPool() noexcept {
     DMG_ASSERT(free_count_ == arenas_.size(), "Destroying DB ArenaPool while some arenas are still in use");
     DMG_ASSERT(first_arena_use_count_ == 0, "Destroying DB ArenaPool while the first arena is still in use");
 
+    // First release all the tcached memory back to the arenas, then purge them
+    DestroyAllTcaches();
+
     for (const auto arena_idx : arenas_) {
       const std::string arena_key = "arena." + std::to_string(arena_idx);
 
@@ -357,25 +366,31 @@ unsigned ArenaPool::Acquire() {
   return new_idx;
 }
 
-void ArenaPool::Release(unsigned arena_idx) {
-  if (arena_idx == 0) return;
-  const std::lock_guard<std::mutex> lock(arena_mux_);
+void ArenaPool::Release(unsigned arena_idx) noexcept {
+  try {
+    if (arena_idx == 0) return;
+    const std::lock_guard<std::mutex> lock(arena_mux_);
 
-  if (arena_idx == first_arena_idx_) {
-    DMG_ASSERT(first_arena_use_count_ != 0, "Release: first arena not in use");
-    if (--first_arena_use_count_ > 0) return;
-    // If count reaches 0, fall through to move it to the free section of the vector
-  }
-
-  // Find the arena in the 'in-use' section [free_count_, size)
-  for (size_t i = free_count_; i < arenas_.size(); ++i) {
-    if (arenas_[i] == arena_idx) {
-      std::swap(arenas_[i], arenas_[free_count_]);
-      ++free_count_;
-      return;
+    if (arena_idx == first_arena_idx_) {
+      DMG_ASSERT(first_arena_use_count_ != 0, "Release: first arena not in use");
+      if (--first_arena_use_count_ > 0) return;
+      // If count reaches 0, fall through to move it to the free section of the vector
     }
+
+    // Find the arena in the 'in-use' section [free_count_, size)
+    for (size_t i = free_count_; i < arenas_.size(); ++i) {
+      if (arenas_[i] == arena_idx) {
+        std::swap(arenas_[i], arenas_[free_count_]);
+        ++free_count_;
+        return;
+      }
+    }
+    DMG_ASSERT(false, "Trying to release an areana that is not under the current pool.");
+  } catch (const std::exception &e) {
+    SafeLog("Exception while releasing arena {}: {}", arena_idx, e.what());
+  } catch (...) {
+    SafeLog("Exception while releasing arena {}: unknown exception", arena_idx);
   }
-  DMG_ASSERT(false, "Trying to release an areana that is not under the current pool.");
 }
 
 bool ArenaPool::Owns(unsigned arena_idx) const {
@@ -388,6 +403,7 @@ void ArenaPool::PurgeAllArenas() const {
   std::vector<unsigned> arena_indices;
   {
     const std::lock_guard<std::mutex> lock(arena_mux_);
+    arena_indices.reserve(arenas_.size());
     arena_indices = arenas_;
   }
 
@@ -395,6 +411,49 @@ void ArenaPool::PurgeAllArenas() const {
     if (arena_idx == 0) continue;
     je_mallctl(("arena." + std::to_string(arena_idx) + ".purge").c_str(), nullptr, nullptr, nullptr, 0);
   }
+}
+
+unsigned ArenaPool::AcquireTcache() {
+  {
+    const std::lock_guard<std::mutex> lock(tcache_mutex_);
+    if (!tcaches_.empty()) {
+      const unsigned tcache_id = tcaches_.back();
+      tcaches_.pop_back();
+      return tcache_id;
+    }
+  }
+
+  unsigned tcache_id = 0;
+  size_t sz = sizeof(unsigned);
+  if (je_mallctl("tcache.create", &tcache_id, &sz, nullptr, 0) != 0) {
+    return 0;
+  }
+  return tcache_id;
+}
+
+void ArenaPool::ReleaseTcache(unsigned tcache_id) noexcept {
+  if (tcache_id == 0) return;
+  try {
+    const std::lock_guard<std::mutex> lock(tcache_mutex_);
+    tcaches_.push_back(tcache_id);
+  } catch (const std::exception &e) {
+    const size_t sz = sizeof(unsigned);
+    je_mallctl("tcache.destroy", nullptr, nullptr, &tcache_id, sz);
+    SafeLog("Exception while releasing tcache {}: {}", tcache_id, e.what());
+  } catch (...) {
+    const size_t sz = sizeof(unsigned);
+    je_mallctl("tcache.destroy", nullptr, nullptr, &tcache_id, sz);
+    SafeLog("Exception while releasing tcache {}: unknown exception", tcache_id);
+  }
+}
+
+void ArenaPool::DestroyAllTcaches() {
+  const std::lock_guard<std::mutex> lock(tcache_mutex_);
+  for (unsigned tcache_id : tcaches_) {
+    const size_t sz = sizeof(unsigned);
+    je_mallctl("tcache.destroy", nullptr, nullptr, &tcache_id, sz);
+  }
+  tcaches_.clear();
 }
 
 }  // namespace memgraph::memory
@@ -413,11 +472,17 @@ unsigned ArenaPool::idx() const noexcept { return 0U; }
 
 unsigned ArenaPool::Acquire() { return 0U; }
 
-void ArenaPool::Release(unsigned /*arena_idx*/) {}
+void ArenaPool::Release(unsigned /*arena_idx*/) noexcept {}
 
 bool ArenaPool::Owns(unsigned /*arena_idx*/) const { return false; }
 
 void ArenaPool::PurgeAllArenas() const {}
+
+unsigned ArenaPool::AcquireTcache() { return 0U; }
+
+void ArenaPool::ReleaseTcache(unsigned /*tcache_id*/) noexcept {}
+
+void ArenaPool::DestroyAllTcaches() {}
 
 #endif
 
@@ -433,7 +498,12 @@ namespace memgraph::memory {
 void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
 #if USE_JEMALLOC
   if (idx != 0) {
-    int flags = MALLOCX_ARENA(idx) | MALLOCX_TCACHE_NONE;
+    int flags = MALLOCX_ARENA(idx);
+    if (tls_db_arena_state.tcache != 0) {
+      flags |= MALLOCX_TCACHE(tls_db_arena_state.tcache);
+    } else {
+      flags |= MALLOCX_TCACHE_NONE;
+    }
     if (alignment > alignof(std::max_align_t)) {
       flags |= MALLOCX_ALIGN(alignment);
     }
@@ -445,7 +515,27 @@ void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
 
 void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept {
 #if USE_JEMALLOC
-  int flags = MALLOCX_TCACHE_NONE;
+#ifndef NDEBUG
+  // Debug-only: verify the pointer belongs to the current DB's arena pool.
+  // A mismatch means we are about to free memory via the wrong tcache or
+  // arena, which can corrupt jemalloc state.
+  if (p != nullptr && tls_db_arena_state.arena_pool != nullptr) {
+    unsigned ptr_arena = 0;
+    size_t sz = sizeof(ptr_arena);
+    if (je_mallctl("arenas.lookup", &ptr_arena, &sz, static_cast<void *>(&p), sizeof(p)) == 0) {
+      if (!tls_db_arena_state.arena_pool->Owns(ptr_arena)) {
+        LOG_FATAL(
+            "DbDeallocateBytes: pointer {} belongs to arena {} which is NOT owned by current ArenaPool", p, ptr_arena);
+      }
+    }
+  }
+#endif
+  int flags = 0;
+  if (tls_db_arena_state.tcache != 0) {
+    flags |= MALLOCX_TCACHE(tls_db_arena_state.tcache);
+  } else {
+    flags |= MALLOCX_TCACHE_NONE;
+  }
   if (alignment > alignof(std::max_align_t)) {
     flags |= MALLOCX_ALIGN(alignment);
   }
@@ -455,42 +545,52 @@ void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexce
 #endif
 }
 
-DbArenaScope::DbArenaScope() noexcept : prev_arena_(tls_db_arena_state.arena) {
-  prev_arena_pool_ = tls_db_arena_state.arena_pool;
-  tls_db_arena_state.arena = 0U;
-  tls_db_arena_state.arena_pool = nullptr;
-  DMG_ASSERT(prev_arena_ == 0U, "Erasing DB scope!");
-}
-
-DbArenaScope::DbArenaScope(ArenaPool *arena_pool, DbArenaScope::Type type)
-    : arena_pool_(arena_pool), prev_arena_pool_(tls_db_arena_state.arena_pool), prev_arena_(tls_db_arena_state.arena) {
+DbArenaScope::DbArenaScope(ArenaPool *arena_pool) : prev_state_(tls_db_arena_state) {
+  cur_state_.arena_pool = arena_pool;
 #if USE_JEMALLOC
-  if (prev_arena_pool_ == arena_pool_) {
-    arena_idx_ = prev_arena_;
-    arena_pool_ = nullptr;  // Disable release, we are borrowing the arena from the same pool
+
+  auto acquire = [this]() {
+    cur_state_.arena = cur_state_.arena_pool ? cur_state_.arena_pool->Acquire() : 0U;
+    cur_state_.tcache = cur_state_.arena_pool ? cur_state_.arena_pool->AcquireTcache() : 0U;
+    tls_db_arena_state = cur_state_;
+  };
+
+  // Fast path: nested scope — same pool already active in TLS.
+  if (prev_state_.arena_pool == arena_pool) {
+    if (prev_state_.arena != 0) {  // Borrow
+      borrowed_ = true;
+      cur_state_.arena = prev_state_.arena;
+      cur_state_.tcache = prev_state_.tcache;
+    } else {  // Acquire from pool
+      acquire();
+    }
     return;
   }
-  DMG_ASSERT(type == Type::FORCE || prev_arena_pool_ == nullptr, "Crashing into a different DB arena pool!");
-  arena_idx_ = arena_pool_ ? arena_pool_->Acquire() : 0U;
-  tls_db_arena_state.arena = arena_idx_;
-  tls_db_arena_state.arena_pool = arena_pool_;
+
+  DMG_ASSERT(prev_state_.arena_pool == nullptr, "Crashing into a different DB arena pool!");
+
+  // Acquire from pool (first time or different pool).
+  acquire();
 #else
   (void)arena_pool;
   tls_db_arena_state.arena = 0U;
   tls_db_arena_state.arena_pool = nullptr;
-  DMG_ASSERT(prev_arena_ == 0U, "Erasing DB scope!");
+  DMG_ASSERT(prev_state_.arena == 0U, "Erasing DB scope!");
 #endif
 }
 
 DbArenaScope::~DbArenaScope() noexcept {
-  // Restore previous arena
-  tls_db_arena_state.arena = prev_arena_;
-  tls_db_arena_state.arena_pool = prev_arena_pool_;
-#if USE_JEMALLOC
-  if (arena_pool_) {
-    arena_pool_->Release(arena_idx_);
+  // Restore pre state
+  tls_db_arena_state = prev_state_;
+  // Cleanup
+  if (!borrowed_) {
+    if (cur_state_.arena_pool && cur_state_.arena != 0) {
+      cur_state_.arena_pool->Release(cur_state_.arena);
+    }
+    if (cur_state_.arena_pool && cur_state_.tcache != 0) {
+      cur_state_.arena_pool->ReleaseTcache(cur_state_.tcache);
+    }
   }
-#endif
 }
 
 }  // namespace memgraph::memory
