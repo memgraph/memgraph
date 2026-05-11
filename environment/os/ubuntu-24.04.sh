@@ -61,6 +61,7 @@ MEMGRAPH_BUILD_DEPS=(
     uuid-dev default-jre-headless # required by antlr
     libreadline-dev # for memgraph console
     libpython3-dev python3-dev # for query modules
+    patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
     libssl-dev
     libseccomp-dev
     netcat-traditional # tests are using nc to wait for memgraph

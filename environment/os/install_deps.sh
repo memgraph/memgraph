@@ -194,6 +194,14 @@ else
         else
             run_script "$OS_ARCH_SCRIPT" "$@" --skip-check
         fi
+
+        # After installing build deps, make sure the abi3 SONAME `libpython3.so`
+        # exists. Distros that ship a real abi3 stub (Fedora, RHEL, ...) already
+        # satisfy this; Debian/Ubuntu need an admin-created symlink, which we
+        # create here so that the CMake POST_BUILD patchelf step can run.
+        if [[ "$1" == "install" && "$2" == "MEMGRAPH_BUILD_DEPS" ]]; then
+            ensure_libpython3_so_symlink
+        fi
     else
         echo "Unsupported OS: $OS_ARCH"
         echo "Supported OS values: ${SUPPORTED_OS[*]}"
