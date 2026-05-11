@@ -14,10 +14,13 @@
 namespace memgraph::storage {
 
 namespace {
-auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::Iterator it,
-                            utils::SkipListDb<Vertex>::Iterator end,
-                            std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
+auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::Iterator it, utils::SkipListDb<Vertex>::Iterator end,
+                            std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view,
+                            uint64_t max_gid) {
   while (it != end) {
+    if (it->gid.AsUint() >= max_gid) {
+      return end;
+    }
     if (VertexAccessor::IsVisible(&*it, tx, view)) [[likely]] {
       vertex->emplace(&*it, storage, tx);
       break;
@@ -28,11 +31,10 @@ auto AdvanceToVisibleVertex(utils::SkipListDb<Vertex>::Iterator it,
 }
 }  // namespace
 
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self,
-                                        utils::SkipListDb<Vertex>::Iterator it)
+AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipListDb<Vertex>::Iterator it)
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->storage_, self->transaction_,
-                                 self->view_)) {}
+                                 self->view_, self->max_gid_)) {}
 
 VertexAccessor const &AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
@@ -42,7 +44,8 @@ AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
                                &self_->vertex_,
                                self_->storage_,
                                self_->transaction_,
-                               self_->view_);
+                               self_->view_,
+                               self_->max_gid_);
   return *this;
 }
 

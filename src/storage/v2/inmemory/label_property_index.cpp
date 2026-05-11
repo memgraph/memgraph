@@ -230,10 +230,14 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
 // decrease so UNDER means "stop, past range" and OVER means "skip, will reach range".
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex, auto &current_vertex_accessor,
                         auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
-                        const auto &upper_bound, auto &permutation_helper, bool use_cache = true,
+                        const auto &upper_bound, auto &permutation_helper, uint64_t max_gid, bool use_cache = true,
                         bool reverse_iteration = false) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
+      continue;
+    }
+
+    if (index_iterator->vertex->gid.AsUint() >= max_gid) {
       continue;
     }
 
@@ -1065,6 +1069,7 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
                      self_->lower_bound_,
                      self_->upper_bound_,
                      self_->permutation_helper_,
+                     self_->max_gid_,
                      /*use_cache=*/true,
                      /*reverse_iteration=*/is_desc);
 }
@@ -1075,7 +1080,7 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
                                                        LabelId label, PropertiesPaths const *properties,
                                                        PropertiesPermutationHelper const *permutation_helper,
                                                        std::span<PropertyValueRange const> ranges, View view,
-                                                       Storage *storage, Transaction *transaction)
+                                                       Storage *storage, Transaction *transaction, uint64_t max_gid)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -1083,7 +1088,8 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
       permutation_helper_{permutation_helper},
       view_(view),
       storage_(storage),
-      transaction_(transaction) {
+      transaction_(transaction),
+      max_gid_(max_gid) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
 }
 
@@ -1270,23 +1276,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(LabelId label, std::spa
                                                          View view, Storage *storage, Transaction *transaction)
     -> Iterable<EntryT> {
   auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
-  return {it->second->skiplist.access(),
-          std::move(vertices_acc),
-          label,
-          &it->first,
-          &it->second->permutations_helper,
-          range,
-          view,
-          storage,
-          transaction};
-}
-
-template <typename EntryT>
-InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(
-    LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-    utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage, Transaction *transaction,
-    size_t num_chunks) {
-  auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
+  const auto max_gid = storage->vertex_id_.load(std::memory_order_acquire);
   return {it->second->skiplist.access(),
           std::move(vertices_acc),
           label,
@@ -1296,7 +1286,27 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::
           view,
           storage,
           transaction,
-          num_chunks};
+          max_gid};
+}
+
+template <typename EntryT>
+InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(
+    LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
+    utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage, Transaction *transaction,
+    size_t num_chunks) {
+  auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
+  const auto max_gid = storage->vertex_id_.load(std::memory_order_acquire);
+  return {it->second->skiplist.access(),
+          std::move(vertices_acc),
+          label,
+          &it->first,
+          &it->second->permutations_helper,
+          range,
+          view,
+          storage,
+          transaction,
+          num_chunks,
+          max_gid};
 }
 
 void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
@@ -1388,6 +1398,7 @@ void InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::Iterator::AdvanceUntil
                      self_->lower_bound_,
                      self_->upper_bound_,
                      self_->permutation_helper_,
+                     self_->max_gid_,
                      /*use_cache=*/false,
                      /*reverse_iteration=*/is_desc);
 }
@@ -1397,7 +1408,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
     typename utils::SkipListDb<EntryT>::Accessor index_accessor,
     utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, PropertiesPaths const *properties,
     PropertiesPermutationHelper const *permutation_helper, std::span<PropertyValueRange const> ranges, View view,
-    Storage *storage, Transaction *transaction, size_t num_chunks)
+    Storage *storage, Transaction *transaction, size_t num_chunks, uint64_t max_gid)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -1405,7 +1416,8 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
       permutation_helper_(permutation_helper),
       view_(view),
       storage_(storage),
-      transaction_(transaction) {
+      transaction_(transaction),
+      max_gid_(max_gid) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
   if (!bounds_valid_) return;
 

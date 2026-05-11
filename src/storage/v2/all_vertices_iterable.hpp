@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <cstdint>
+#include <limits>
+
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/skip_list.hpp"
 
@@ -18,11 +21,16 @@ namespace memgraph::storage {
 
 class Storage;
 
+inline constexpr uint64_t kIteratorNoGidUpperBound = std::numeric_limits<uint64_t>::max();
+
 class AllVerticesIterable final {
   utils::SkipListDb<Vertex>::Accessor vertices_accessor_;
   Storage *storage_;
   Transaction *transaction_;
   View view_;
+  // upper bound; vertices created after this iterable opened are out of scope, preventing
+  // iterator-feedback loops when a downstream clause appends to storage mid-iteration.
+  uint64_t max_gid_;
   std::optional<VertexAccessor> vertex_;
 
  public:
@@ -42,9 +50,13 @@ class AllVerticesIterable final {
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
-  AllVerticesIterable(utils::SkipListDb<Vertex>::Accessor vertices_accessor,
-                      Storage *storage, Transaction *transaction, View view)
-      : vertices_accessor_(std::move(vertices_accessor)), storage_(storage), transaction_(transaction), view_(view) {}
+  AllVerticesIterable(utils::SkipListDb<Vertex>::Accessor vertices_accessor, Storage *storage, Transaction *transaction,
+                      View view, uint64_t max_gid)
+      : vertices_accessor_(std::move(vertices_accessor)),
+        storage_(storage),
+        transaction_(transaction),
+        view_(view),
+        max_gid_(max_gid) {}
 
   Iterator begin() { return {this, vertices_accessor_.begin()}; }
 
