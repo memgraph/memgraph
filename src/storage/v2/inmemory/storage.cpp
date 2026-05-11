@@ -3073,17 +3073,24 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
 
             if (prev.delta->commit_info->timestamp.load() < oldest_active_start_timestamp) {
-              // For a committed non-sequential predecessor, readers skip delta
-              // via next, so we must clear delta->next before freeing
-              // downstream delta to stop traversal into freed deltas.
-              if (!IsDeltaNonSequential(*prev.delta)) {
-                break;
+              if (IsDeltaNonSequential(*prev.delta)) {
+                // Non-sequential predecessor: readers follow next, so we must
+                // null it to stop traversal into freed memory. We can skip the
+                // lock because we know we are the only potential modifiers,
+                // since:
+                // - the predecessor delta is inactive
+                // - prepends only happen at the chain head
+                // - the GC is serialized via gc_lock_.
+                // Safe for concurrent readers: all deltas beyond this point are
+                // also inactive (guaranteed by waiting_gc_deltas_), so no
+                // active transaction needs to read past here.
+                prev.delta->next.store(nullptr, std::memory_order_release);
               }
+              break;
             }
 
-            // Previous is either active (committed or uncommitted), or inactive
-            // non-sequential. We need to find the parent object in order to be
-            // able to use its lock.
+            // Previous is active (committed or uncommitted). We need to find
+            // the parent object in order to be able to use its lock.
             auto parent = prev;
             while (parent.type == PreviousPtr::Type::DELTA) {
               parent = parent.delta->prev.Get();
