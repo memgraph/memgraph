@@ -81,7 +81,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
       streams_(
           std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams", db_arena_.get())),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
-  const memory::DbArenaScope db_arena_scope{this, memory::DbArenaScope::Type::FORCE};
+  const memory::DbArenaScope db_arena_scope{this};
 
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
