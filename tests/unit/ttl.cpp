@@ -339,8 +339,10 @@ TYPED_TEST(TTLFixture, Periodic) {
   this->ttl_->Enable();
   this->ttl_->Configure(this->RunEdgeTTL());
   EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(700)));
+  spdlog::info("Periodic test: Ensuring indices ready BEFORE Resume");
+  this->EnsureTTLIndicesReady();  // Ensure indices are created and ready BEFORE Resume()
+  spdlog::info("Periodic test: Resuming TTL scheduler");
   this->ttl_->Resume();
-  this->EnsureTTLIndicesReady();  // Ensure indices are created and ready
 
   // Wait for first TTL deletion (vertex with older timestamp)
   // TTL runs every 700ms, so we expect deletion within ~1.4s max
@@ -466,8 +468,10 @@ TYPED_TEST(TTLFixture, Edge) {
   this->ttl_->Enable();
   this->ttl_->Configure(this->RunEdgeTTL());
   EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(700)));
+  spdlog::info("Edge test: Ensuring indices ready BEFORE Resume");
+  this->EnsureTTLIndicesReady();  // Ensure indices are created and ready BEFORE Resume()
+  spdlog::info("Edge test: Resuming TTL scheduler");
   this->ttl_->Resume();
-  this->EnsureTTLIndicesReady();  // Ensure indices are created and ready
 
   // Expected counts after TTL deletions
   const size_t expected_vertices_first = 5;                        // One vertex with older TTL deleted
