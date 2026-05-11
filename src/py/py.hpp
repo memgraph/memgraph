@@ -23,23 +23,63 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
-#if PY_MAJOR_VERSION != 3 || PY_MINOR_VERSION < 5
-#error "Minimum supported Python API is 3.5"
+#if !defined(Py_LIMITED_API) || Py_LIMITED_API < 0x030a0000
+#error "py/py.hpp expects Py_LIMITED_API >= 0x030a0000 (Python 3.10 stable ABI floor)"
 #endif
 
-// Python 3.9 compatibility macro
-#ifndef Py_Is
-#define Py_Is(x, y) ((x) == (y))
-#endif
-
-// Python 3.13 compatibility macros
-#if PY_VERSION_HEX < 0x030d0000 && !defined(Py_IsFinalizing)
-#define Py_IsFinalizing() _Py_IsFinalizing()
-#endif
+#include <atomic>
 
 #include "utils/logging.hpp"
 
+// These Python C API functions are part of the stable ABI per the official
+// docs, but the limited-API headers (as of Python 3.14) only declare them in
+// `cpython/` subdirectories that are excluded when `Py_LIMITED_API` is set.
+// Forward-declare them at file scope, with C linkage, so call sites can keep
+// using the documented names — libpython exports the symbols, so the linker
+// resolves them against any conforming libpython at runtime.
+//
+// Declared OUTSIDE the `memgraph::py` namespace: `extern "C"` only controls
+// linkage; name lookup still respects the surrounding namespace.
+//
+//   - PyUnicode_AsUTF8    : stable since 3.10
+//   - PyGILState_Check    : stable since 3.4
+//   - PyRun_String        : stable since 3.2
+extern "C" const char *PyUnicode_AsUTF8(PyObject *unicode);
+extern "C" int PyGILState_Check(void);
+extern "C" PyObject *PyRun_String(const char *str, int start, PyObject *globals, PyObject *locals);
+
 namespace memgraph::py {
+
+// Replacement for `Py_IsFinalizing()` for floor < 3.13.
+//
+// The real `Py_IsFinalizing` only entered the stable ABI in Python 3.13; the
+// pre-3.13 fallback `_Py_IsFinalizing` is a private symbol that is not exposed
+// under `Py_LIMITED_API`. We approximate the semantics by registering a
+// `Py_AtExit` handler that flips a flag at the start of finalization — any
+// destructor that checks `IsPythonFinalizing()` after that point will skip
+// Python C API calls, just like the original code did.
+//
+// `EnsurePythonFinalizingHook()` must be called once after `Py_InitializeEx`
+// (it is called from `PyInitMgpModule` during module-table registration).
+inline std::atomic<bool> &PythonFinalizingFlag() noexcept {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  static std::atomic<bool> flag{false};
+  return flag;
+}
+
+inline bool IsPythonFinalizing() noexcept { return PythonFinalizingFlag().load(std::memory_order_acquire); }
+
+extern "C" inline void PythonFinalizingAtExitHook() { PythonFinalizingFlag().store(true, std::memory_order_release); }
+
+inline void EnsurePythonFinalizingHook() noexcept {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  static const int registered = Py_AtExit(&PythonFinalizingAtExitHook);
+  (void)registered;  // result intentionally ignored; nothing useful to do if it fails
+}
+
+// `Py_Is` is provided by Python.h as a function for floor >= 3.10. The local
+// shim is no longer needed.
+#define MG_PY_IS_FINALIZING() ::memgraph::py::IsPythonFinalizing()
 
 /// Ensure the current thread is ready to call Python C API.
 ///
@@ -74,7 +114,7 @@ class [[nodiscard]] Object final {
 
   /// Construct from a borrowed `PyObject *`, i.e. non-owned pointer.
   static Object FromBorrow(PyObject *ptr) noexcept {
-    if (ptr && !Py_IsFinalizing()) {
+    if (ptr && !MG_PY_IS_FINALIZING()) {
       EnsureGIL gil;
       Py_INCREF(ptr);
     }
@@ -82,14 +122,14 @@ class [[nodiscard]] Object final {
   }
 
   ~Object() noexcept {
-    if (ptr_ && !Py_IsFinalizing()) {
+    if (ptr_ && !MG_PY_IS_FINALIZING()) {
       EnsureGIL gil;
       Py_XDECREF(ptr_);
     }
   }
 
   Object(const Object &other) noexcept : ptr_(other.ptr_) {
-    if (ptr_ && !Py_IsFinalizing()) {
+    if (ptr_ && !MG_PY_IS_FINALIZING()) {
       EnsureGIL gil;
       Py_INCREF(ptr_);
     }
@@ -99,7 +139,7 @@ class [[nodiscard]] Object final {
 
   Object &operator=(const Object &other) noexcept {
     if (this == &other) return *this;
-    if (!Py_IsFinalizing()) {
+    if (!MG_PY_IS_FINALIZING()) {
       EnsureGIL gil;
       Py_XDECREF(ptr_);
       ptr_ = other.ptr_;
@@ -112,7 +152,7 @@ class [[nodiscard]] Object final {
 
   Object &operator=(Object &&other) noexcept {
     if (this == &other) return *this;
-    if (ptr_ && !Py_IsFinalizing()) {
+    if (ptr_ && !MG_PY_IS_FINALIZING()) {
       EnsureGIL gil;
       Py_XDECREF(ptr_);
     }
@@ -279,7 +319,7 @@ struct [[nodiscard]] ExceptionInfo final {
     return "(Python exception details unavailable)";
   }
   std::stringstream ss;
-  auto len = PyList_GET_SIZE(list.Ptr());
+  auto len = PyList_Size(list.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
     auto *py_str = PyList_GetItem(list.Ptr(), i);
     if (py_str == nullptr) {

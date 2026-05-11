@@ -1180,7 +1180,11 @@ int main(int argc, char **argv) {
     // OS reclaims all resources. This is standard practice for embedded Python.
     MG_ASSERT(python_thread_state, "Invalid Python thread state");
     PyEval_RestoreThread(python_thread_state);
-    PyMem_RawFree(program_name);
+    // `PyMem_RawFree(program_name)` is intentionally omitted: it only entered
+    // the stable ABI in Python 3.13 and our floor is 3.10. The allocation lives
+    // until process exit either way, so we let the OS reclaim it instead of
+    // taking on the 3.13 ABI dependency.
+    (void)program_name;
   }
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();

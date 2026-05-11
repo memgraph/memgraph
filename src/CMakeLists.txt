@@ -88,6 +88,51 @@ endif()
 
 mg_split_debug(memgraph INSTALL_DESTINATION lib/memgraph)
 
+# Rewrite DT_NEEDED on the memgraph binary so it depends on the abi3 SONAME
+# (`libpython3.so`) instead of the versioned `libpython3.X.so.1.0` the linker
+# picked up from the build-time libpython. The source code only references
+# stable-ABI symbols (Py_LIMITED_API is set in src/query/CMakeLists.txt), so
+# the resulting binary runs against any libpython3 with version >= the floor.
+#
+# The rewrite is gated on three conditions:
+#   1. `patchelf` is installed (it actually does the rewrite).
+#   2. `libpython3.so` exists on the dynamic linker's search path (otherwise
+#      the binary can't load, which also breaks downstream POST_BUILD steps
+#      like `config/generate.py` that execute the binary).
+#   3. The build hasn't opted out via `-DMG_PYTHON_REWRITE_DT_NEEDED=OFF`.
+#
+# When skipped, the binary keeps the versioned DT_NEEDED and will only run
+# against the matching libpython minor version; the source code is still
+# stable-ABI clean, so re-running on a host with `libpython3.so` installed
+# and running `patchelf --replace-needed` manually still works.
+option(MG_PYTHON_REWRITE_DT_NEEDED
+       "Rewrite memgraph's DT_NEEDED libpython entry to the abi3 SONAME"
+       ON)
+
+find_program(PATCHELF_EXECUTABLE patchelf)
+find_library(MG_LIBPYTHON3_SO python3)  # the abi3 SONAME (file named libpython3.so)
+
+if(MG_PYTHON_REWRITE_DT_NEEDED AND PATCHELF_EXECUTABLE AND MG_LIBPYTHON3_SO)
+        add_custom_command(TARGET memgraph POST_BUILD
+                COMMAND ${CMAKE_COMMAND}
+                        -DBINARY=$<TARGET_FILE:memgraph>
+                        -DPATCHELF=${PATCHELF_EXECUTABLE}
+                        -P ${CMAKE_SOURCE_DIR}/cmake/RewriteDtNeededAbi3.cmake
+                COMMENT "Rewriting DT_NEEDED on memgraph for Python stable-ABI portability")
+elseif(MG_PYTHON_REWRITE_DT_NEEDED)
+        # Explain why we skipped so the build isn't silent about it.
+        if(NOT PATCHELF_EXECUTABLE)
+                message(WARNING "patchelf not found; skipping DT_NEEDED rewrite. "
+                                "Install patchelf to make the memgraph binary version-portable across Python minor versions.")
+        endif()
+        if(NOT MG_LIBPYTHON3_SO)
+                message(WARNING "libpython3.so (unversioned abi3 SONAME) not found; skipping DT_NEEDED rewrite. "
+                                "On Debian/Ubuntu, symlink it manually: "
+                                "`sudo ln -sf libpython3.XX.so.1.0 /usr/lib/x86_64-linux-gnu/libpython3.so`. "
+                                "Without this, the binary keeps a versioned libpython dependency.")
+        endif()
+endif()
+
 # Generate the configuration file under the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py

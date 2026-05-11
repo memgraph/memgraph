@@ -1057,7 +1057,7 @@ bool PythonModule::Close() {
   // that involves running scripts, as it might fail or cause crashes.
   // We must check this *before* acquiring the GIL, as EnsureGIL will terminate
   // the thread if called during finalization.
-  if (Py_IsFinalizing()) {
+  if (MG_PY_IS_FINALIZING()) {
     procedures_.clear();
     transformations_.clear();
     functions_.clear();

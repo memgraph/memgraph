@@ -159,12 +159,70 @@ target_sources(mg-query-cppm
 )
 target_link_libraries(mg-query-cppm PUBLIC mg-aws mg::storage)
 
+if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
+    set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
+endif()
+
+# Build against the Python stable ABI (abi3) so the resulting binary works
+# against any libpython3 with version >= MG_PYTHON_STABLE_ABI_FLOOR.
+# Compile-time headers only need to exist for *some* compatible Python; the
+# runtime libpython is resolved via the version-less SONAME (libpython3.so).
+if("${MG_PYTHON_VERSION}" STREQUAL "")
+    find_package(Python3 3.10 REQUIRED COMPONENTS Development)
+else()
+    find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
+endif()
+
+# Hex form of the floor version: 3.10 = 0x030a0000.
+# 3.10 is the earliest floor where `Py_TYPE`, `Py_INCREF`, and `Py_DECREF` are
+# proper stable-ABI functions instead of macros that touch struct internals.
+set(MG_PYTHON_STABLE_ABI_FLOOR "0x030a0000" CACHE STRING
+    "Minimum Python version we promise to run on (Py_LIMITED_API value)")
+
+# Look for the unversioned `libpython3.so` — the abi3 SONAME that the stable
+# ABI guarantees is present on conforming Python installs (manylinux, Fedora,
+# RHEL, conda, etc.). When found, link against it directly so the resulting
+# binary's DT_NEEDED is also unversioned and the dynamic linker will accept
+# any compatible libpython3 at load time.
+#
+# On Debian/Ubuntu the unversioned symlink is not shipped by default; the
+# build falls back to `Python3::Python` (versioned libpython3.X.so), which
+# still benefits from Py_LIMITED_API for *source* portability but ends up
+# with a versioned runtime dependency. To get full version-portability on
+# Debian/Ubuntu, either:
+#   1. Create a symlink: `ln -s /usr/lib/$(arch)-linux-gnu/libpython3.X.so /usr/lib/$(arch)-linux-gnu/libpython3.so`
+#   2. Run `patchelf --replace-needed libpython3.X.so.1.0 libpython3.so memgraph`
+#      after build and ship libpython3.so alongside.
+find_library(MG_PYTHON_ABI3_LIB
+    NAMES python3
+    HINTS ${Python3_LIBRARY_DIRS}
+)
+
+if(MG_PYTHON_ABI3_LIB)
+    message(STATUS "Memgraph: linking against unversioned libpython3.so for abi3: ${MG_PYTHON_ABI3_LIB}")
+    # Wrap the abi3 lib in an INTERFACE target that also propagates Python's
+    # include dirs (which come from Python3::Python's interface).
+    add_library(mg_python_abi3 INTERFACE)
+    target_include_directories(mg_python_abi3 SYSTEM INTERFACE ${Python3_INCLUDE_DIRS})
+    target_link_libraries(mg_python_abi3 INTERFACE ${MG_PYTHON_ABI3_LIB})
+    set(MG_PYTHON_LINK_TARGET mg_python_abi3)
+else()
+    message(WARNING "Memgraph: unversioned libpython3.so not found; falling back to versioned "
+                    "${Python3_LIBRARIES}. The resulting binary will require the matching "
+                    "libpython3.X.so at runtime. To realise full abi3 version-portability, "
+                    "install/symlink an unversioned libpython3.so (see comment above).")
+    set(MG_PYTHON_LINK_TARGET Python3::Python)
+endif()
+
+target_compile_definitions(mg-query PUBLIC
+    "Py_LIMITED_API=${MG_PYTHON_STABLE_ABI_FLOOR}")
+
 target_link_libraries(mg-query
     PUBLIC
     dl
     cppitertools::cppitertools
     range-v3::range-v3
-    Python3::Python
+    ${MG_PYTHON_LINK_TARGET}
     mg-integrations-pulsar
     mg-integrations-kafka
     mg::storage
@@ -189,16 +247,6 @@ target_link_libraries(mg-query
     ctre::ctre
     simdjson::simdjson
 )
-
-if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
-    set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
-endif()
-
-if("${MG_PYTHON_VERSION}" STREQUAL "")
-    find_package(Python3 3.5 REQUIRED COMPONENTS Development)
-else()
-    find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
-endif()
 
 # Generate Antlr openCypher parser
 set(opencypher_frontend ${CMAKE_CURRENT_SOURCE_DIR}/frontend/opencypher)
