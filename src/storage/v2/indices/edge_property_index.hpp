@@ -20,10 +20,6 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
 
-namespace memgraph::metrics {
-struct DatabaseMetricHandles;
-}  // namespace memgraph::metrics
-
 namespace memgraph::storage {
 
 struct ActiveIndicesUpdater;
@@ -54,8 +50,6 @@ class EdgePropertyIndex {
   EdgePropertyIndex &operator=(EdgePropertyIndex &&) = delete;
 
   virtual ~EdgePropertyIndex() = default;
-
-  virtual void SetMetricHandles(metrics::DatabaseMetricHandles * /*metric_handles*/) {}
 
   virtual void DropGraphClearIndices() = 0;
 

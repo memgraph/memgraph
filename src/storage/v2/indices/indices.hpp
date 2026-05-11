@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include "metrics/prometheus_metrics.hpp"
 #include <memory>
+#include "metrics/prometheus_metrics.hpp"
 
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
@@ -35,17 +35,17 @@ class MemoryTracker;
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(const Config &config, StorageMode storage_mode,
-          utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
-          metrics::DatabaseMetricHandles *metric_handles = nullptr);
+  Indices(const Config &config, StorageMode storage_mode, utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
+          metrics::GaugeHandle active_label_indices = {}, metrics::GaugeHandle active_label_property_indices = {},
+          metrics::GaugeHandle active_edge_type_indices = {},
+          metrics::GaugeHandle active_edge_type_property_indices = {},
+          metrics::GaugeHandle active_edge_property_indices = {});
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;
   Indices &operator=(const Indices &) = delete;
   Indices &operator=(Indices &&) = delete;
   ~Indices() = default;
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
   /// This function should be called from garbage collection to clean up the
   /// vertex indices.

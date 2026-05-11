@@ -441,22 +441,6 @@ void InMemoryEdgeTypePropertyIndex::DropGraphClearIndices() {
   });
 }
 
-void InMemoryEdgeTypePropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
-  metric_handles_ = metric_handles;
-  if (!metric_handles_) return;
-  auto *gauge = metric_handles_->active_edge_type_property_indices.gauge;
-  index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &ptr) {
-    double count = 0;
-    for (auto const &[key, idx] : *ptr) {
-      if (idx->status.IsReady()) {
-        idx->gauge_ = metrics::ScopedGauge{gauge};
-        ++count;
-      }
-    }
-    metric_handles_->active_edge_type_property_indices.Set(count);
-  });
-}
-
 InMemoryEdgeTypePropertyIndex::Iterable::Iterable(
     utils::SkipListDb<InMemoryEdgeTypePropertyIndex::Entry>::Accessor index_accessor,
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,

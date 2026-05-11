@@ -103,7 +103,9 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       storage_mode_(storage_mode),
       db_arena_pool_(db_arena_pool),
       metric_handles_{std::move(metric_handles)},
-      indices_(config, storage_mode, db_embedding_memory_tracker, &metric_handles_),
+      indices_(config, storage_mode, db_embedding_memory_tracker, metric_handles_.active_label_indices,
+               metric_handles_.active_label_property_indices, metric_handles_.active_edge_type_indices,
+               metric_handles_.active_edge_type_property_indices, metric_handles_.active_edge_property_indices),
       constraints_(config, storage_mode, metric_handles_),
       invalidator_{std::move(invalidator)},
       database_protector_factory_{database_protector_factory ? std::move(database_protector_factory)
@@ -785,12 +787,12 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
     auto evicted = storage_->indices_.text_index_.DropIndex(index_name);
     auto &text_index = storage_->indices_.text_index_;
     auto shared_evicted = std::shared_ptr<TextIndexData>(std::move(evicted));
-    transaction_.commit_callbacks_.Add([&text_index, updater, shared_evicted, &metric_handles](
-                                           uint64_t /*commit_ts*/) mutable {
-      shared_evicted->deferred_drop = true;
-      text_index.PublishActiveIndices(updater);
-      metric_handles.active_text_indices.Decrement();
-    });
+    transaction_.commit_callbacks_.Add(
+        [&text_index, updater, shared_evicted, &metric_handles](uint64_t /*commit_ts*/) mutable {
+          shared_evicted->deferred_drop = true;
+          text_index.PublishActiveIndices(updater);
+          metric_handles.active_text_indices.Decrement();
+        });
     transaction_.abort_callbacks_.Add([&text_index, index_name, shared_evicted]() mutable {
       text_index.RestoreIndex(index_name, std::move(shared_evicted));
     });
@@ -798,12 +800,12 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
     auto evicted = storage_->indices_.text_edge_index_.DropIndex(index_name);
     auto &text_edge_index = storage_->indices_.text_edge_index_;
     auto shared_evicted = std::shared_ptr<TextEdgeIndexData>(std::move(evicted));
-    transaction_.commit_callbacks_.Add([&text_edge_index, updater, shared_evicted, &metric_handles](
-                                           uint64_t /*commit_ts*/) mutable {
-      shared_evicted->deferred_drop = true;
-      text_edge_index.PublishActiveIndices(updater);
-      metric_handles.active_text_edge_indices.Decrement();
-    });
+    transaction_.commit_callbacks_.Add(
+        [&text_edge_index, updater, shared_evicted, &metric_handles](uint64_t /*commit_ts*/) mutable {
+          shared_evicted->deferred_drop = true;
+          text_edge_index.PublishActiveIndices(updater);
+          metric_handles.active_text_edge_indices.Decrement();
+        });
     transaction_.abort_callbacks_.Add([&text_edge_index, index_name, shared_evicted]() mutable {
       text_edge_index.RestoreIndex(index_name, std::move(shared_evicted));
     });

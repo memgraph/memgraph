@@ -23,10 +23,6 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 
-namespace memgraph::metrics {
-struct DatabaseMetricHandles;
-}  // namespace memgraph::metrics
-
 namespace memgraph::storage {
 
 struct ActiveIndicesUpdater;
@@ -51,8 +47,6 @@ class EdgeTypeIndex {
   EdgeTypeIndex &operator=(EdgeTypeIndex &&) = delete;
 
   virtual ~EdgeTypeIndex() = default;
-
-  virtual void SetMetricHandles(metrics::DatabaseMetricHandles * /*metric_handles*/) {}
 
   virtual void DropGraphClearIndices() = 0;
 
