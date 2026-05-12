@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -6511,13 +6512,15 @@ auto ToStatusFilter(TransactionStatus status) -> std::optional<TransactionQueueQ
 // Builds (start_time, elapsed_ms) for a SHOW TRANSACTIONS row from the transaction's start
 // wall-clock time. elapsed_ms is clamped at 0 to absorb small backward clock steps.
 auto StartTimeAndElapsedMs(std::chrono::system_clock::time_point start) -> std::pair<TypedValue, int64_t> {
+  static const utils::Timezone kUtc = utils::DefaultTimezone();
   auto const start_us = std::chrono::duration_cast<std::chrono::microseconds>(start.time_since_epoch());
-  TypedValue start_tv(
-      utils::ZonedDateTime(std::chrono::sys_time<std::chrono::microseconds>{start_us}, utils::DefaultTimezone()));
+  TypedValue start_tv(utils::ZonedDateTime(std::chrono::sys_time<std::chrono::microseconds>{start_us}, kUtc));
   auto const elapsed_ms =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - start).count();
   return {std::move(start_tv), std::max<int64_t>(0, elapsed_ms)};
 }
+
+std::initializer_list<int> a;
 
 template <typename Func>
 auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,

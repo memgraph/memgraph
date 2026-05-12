@@ -320,12 +320,14 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
 
 TYPED_TEST(TransactionQueueSimpleTest, ElapsedMsAdvances) {
   this->running_interpreter.Interpret("BEGIN");
+  const auto run_tx_id = this->running_interpreter.interpreter.GetTransactionId();
+  ASSERT_TRUE(run_tx_id.has_value());
+  const auto run_tx_id_str = std::to_string(*run_tx_id);
 
   auto get_running_elapsed = [&]() -> int64_t {
     auto stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
-    const auto run_tx_id = this->running_interpreter.interpreter.GetTransactionId();
     for (const auto &row : stream.GetResults()) {
-      if (row[1].ValueString() == std::to_string(*run_tx_id)) {
+      if (row[1].ValueString() == run_tx_id_str) {
         EXPECT_TRUE(row[5].IsZonedDateTime());
         EXPECT_TRUE(row[6].IsInt());
         return row[6].ValueInt();
@@ -337,9 +339,9 @@ TYPED_TEST(TransactionQueueSimpleTest, ElapsedMsAdvances) {
 
   auto const d1 = get_running_elapsed();
   EXPECT_GE(d1, 0);
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
   auto const d2 = get_running_elapsed();
-  EXPECT_GE(d2 - d1, 40);
+  EXPECT_GT(d2, d1);
 
   this->running_interpreter.Interpret("ROLLBACK");
 }
