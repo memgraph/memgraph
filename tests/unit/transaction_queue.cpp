@@ -317,6 +317,48 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
   EXPECT_EQ(header[5], "duration_ms");
 }
 
+TYPED_TEST(TransactionQueueSimpleTest, DurationMsAdvances) {
+  // Start a long-lived transaction in another interpreter so duration_ms can grow.
+  std::atomic<bool> started{false};
+  std::jthread running_thread = std::jthread(
+      [this, &started](std::stop_token, int) {
+        this->running_interpreter.Interpret("BEGIN");
+        started.store(true, std::memory_order_release);
+      },
+      0);
+  while (!started.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+
+  auto get_running_duration = [&]() -> int64_t {
+    auto stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+    const auto run_tx_id = this->running_interpreter.interpreter.GetTransactionId();
+    for (const auto &row : stream.GetResults()) {
+      if (row[1].ValueString() == std::to_string(*run_tx_id)) {
+        EXPECT_TRUE(row[5].IsInt());
+        return row[5].ValueInt();
+      }
+    }
+    ADD_FAILURE() << "running transaction not visible in SHOW TRANSACTIONS";
+    return -1;
+  };
+
+  auto const d1 = get_running_duration();
+  EXPECT_GE(d1, 0);
+
+  constexpr auto kSleep = std::chrono::milliseconds(50);
+  std::this_thread::sleep_for(kSleep);
+
+  auto const d2 = get_running_duration();
+  EXPECT_GE(d2, d1);
+  // Generous slack for CI scheduling jitter; we slept 50ms so >=40ms gain is safe.
+  EXPECT_GE(d2 - d1, 40);
+
+  running_thread.request_stop();
+  running_thread.join();
+  this->running_interpreter.Interpret("ROLLBACK");
+}
+
 TYPED_TEST(TransactionQueueSimpleTest, ShowRunningTransactionsFilter) {
   // SHOW RUNNING TRANSACTIONS should show only running transactions (same as unfiltered here)
   auto show_stream = this->main_interpreter.Interpret("SHOW RUNNING TRANSACTIONS");
