@@ -259,7 +259,7 @@ void CleanDataDir(std::filesystem::path const &data_directory) {
 
 int main(int argc, char **argv) {
   memgraph::memory::SetHooks();
-  memgraph::memory::SetJemallocBackgroundThreads(true);
+  memgraph::memory::EnableBackgroundThreads();
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
 
@@ -269,7 +269,6 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   CheckSuspiciousPositionalArgs(argc, argv);
   WarnDeprecatedFlags();
-  memgraph::memory::SetJemallocBackgroundThreads(true);
 
   // Publish worker count early so allocators can pre-size thread-local structures
   memgraph::utils::SetNumWorkers(FLAGS_bolt_num_workers);

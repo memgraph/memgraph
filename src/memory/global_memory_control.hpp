@@ -36,11 +36,6 @@ void PurgeUnusedMemory();
 void EnsureJemallocThreadStateInitialized();
 void SetHooks();
 void UnsetHooks();
-void SetJemallocBackgroundThreads(bool enabled);
-
-/// Install Memgraph's custom jemalloc extent hooks (memory tracking) on a
-/// dynamically-created arena.  Must be called after SetHooks().  No-op when
-/// jemalloc is disabled.
-void InstallTrackingHooksOnArena(unsigned arena_id);
+void EnableBackgroundThreads();
 
 }  // namespace memgraph::memory
