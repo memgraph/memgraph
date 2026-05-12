@@ -6508,6 +6508,17 @@ auto ToStatusFilter(TransactionStatus status) -> std::optional<TransactionQueueQ
   }
 }
 
+// Builds (start_time, elapsed_ms) for a SHOW TRANSACTIONS row from the transaction's start
+// wall-clock time. elapsed_ms is clamped at 0 to absorb small backward clock steps.
+auto StartTimeAndElapsedMs(std::chrono::system_clock::time_point start) -> std::pair<TypedValue, int64_t> {
+  auto const start_us = std::chrono::duration_cast<std::chrono::microseconds>(start.time_since_epoch());
+  TypedValue start_tv(
+      utils::ZonedDateTime(std::chrono::sys_time<std::chrono::microseconds>{start_us}, utils::DefaultTimezone()));
+  auto const elapsed_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - start).count();
+  return {std::move(start_tv), std::max<int64_t>(0, elapsed_ms)};
+}
+
 template <typename Func>
 auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
                       Func &&privilege_checker, const std::vector<TransactionQueueQuery::StatusFilter> &status_filter)
@@ -6552,17 +6563,37 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
         }
       }
       results.back().emplace_back(metadata_tv);
-      auto const start_us = std::chrono::duration_cast<std::chrono::microseconds>(
-          interpreter->transaction_start_time_.time_since_epoch());
-      results.back().emplace_back(
-          utils::ZonedDateTime(std::chrono::sys_time<std::chrono::microseconds>{start_us}, utils::DefaultTimezone()));
-      auto const elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                  std::chrono::system_clock::now() - interpreter->transaction_start_time_)
-                                  .count();
-      results.back().emplace_back(static_cast<int64_t>(std::max<int64_t>(0, elapsed_ms)));
+      auto [start_tv, elapsed_ms] = StartTimeAndElapsedMs(interpreter->transaction_start_time_);
+      results.back().emplace_back(std::move(start_tv));
+      results.back().emplace_back(elapsed_ms);
     }
   }
   return results;
+}
+
+std::vector<TypedValue> BuildSnapshotTransactionRow(storage::SnapshotProgressView const &progress,
+                                                    std::string_view db_name) {
+  std::map<std::string, TypedValue> metadata;
+  metadata.emplace("phase", storage::SnapshotProgress::PhaseToString(progress.phase));
+  metadata.emplace("items_done", static_cast<int64_t>(progress.items_done));
+  metadata.emplace("items_total", static_cast<int64_t>(progress.items_total));
+  metadata.emplace("db_name", std::string{db_name});
+  TypedValue start_tv{};
+  int64_t elapsed_ms = 0;
+  if (progress.start_time_us > 0) {
+    auto const start_tp = std::chrono::system_clock::time_point{std::chrono::microseconds{progress.start_time_us}};
+    std::tie(start_tv, elapsed_ms) = StartTimeAndElapsedMs(start_tp);
+  }
+  std::vector<TypedValue> row;
+  row.reserve(7);
+  row.emplace_back("");
+  row.emplace_back("snapshot");
+  row.emplace_back(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")});
+  row.emplace_back("running");
+  row.emplace_back(std::move(metadata));
+  row.emplace_back(std::move(start_tv));
+  row.emplace_back(elapsed_ms);
+  return row;
 }
 
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
@@ -6597,31 +6628,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
             if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
             auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
             if (!mem_storage->IsSnapshotRunning()) return;
-            auto progress = mem_storage->GetSnapshotProgress();
-            // Build progress metadata
-            std::map<std::string, TypedValue> metadata;
-            metadata["phase"] = TypedValue(storage::SnapshotProgress::PhaseToString(progress.phase));
-            metadata["items_done"] = TypedValue(static_cast<int64_t>(progress.items_done));
-            metadata["items_total"] = TypedValue(static_cast<int64_t>(progress.items_total));
-            metadata["db_name"] = TypedValue(db_acc->name());
-            TypedValue start_time_tv{};
-            int64_t elapsed_ms = 0;
-            if (progress.start_time_us > 0) {
-              start_time_tv = TypedValue(utils::ZonedDateTime(
-                  std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds{progress.start_time_us}},
-                  utils::DefaultTimezone()));
-              auto const now_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                                      std::chrono::system_clock::now().time_since_epoch())
-                                      .count();
-              elapsed_ms = std::max<int64_t>(0, (now_us - progress.start_time_us) / 1000);
-            }
-            results.push_back({TypedValue(""),
-                               TypedValue("snapshot"),
-                               TypedValue(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")}),
-                               TypedValue("running"),
-                               TypedValue(metadata),
-                               std::move(start_time_tv),
-                               TypedValue(elapsed_ms)});
+            results.emplace_back(BuildSnapshotTransactionRow(mem_storage->GetSnapshotProgress(), db_acc->name()));
           });
         }
         return results;
