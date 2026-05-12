@@ -2734,7 +2734,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           std::move(active_constraints),
           std::move(async_index_helper),
           last_durable_ts,
-          metric_handles_.unreleased_delta_objects.gauge};
+          metric_handles_.unreleased_delta_objects};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {

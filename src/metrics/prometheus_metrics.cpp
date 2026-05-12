@@ -2142,7 +2142,6 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
   active_ws_v += static_cast<int64_t>(global.active_websocket_sessions->Value());
   bolt_messages_v += static_cast<int64_t>(global.bolt_messages->Value());
 
-  // Names must match APPLY_FOR_COUNTERS in event_counter.cpp exactly
   // clang-format off
   return {
     {"ReadQuery", read_query},

@@ -20,10 +20,7 @@ def test_metrics_json_format_returns_valid_json():
     with urllib.request.urlopen("http://localhost:9091/metrics") as response:
         assert response.status == 200
         body = response.read()
-        try:
-            json.loads(body)
-        except json.JSONDecodeError:
-            pytest.fail("Response is not valid JSON")
+        json.loads(body)
 
 
 if __name__ == "__main__":

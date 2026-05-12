@@ -66,12 +66,12 @@ using InstanceStatusResolver = std::function<std::vector<coordination::InstanceS
 struct GaugeHandle {
   prometheus::Gauge *gauge{nullptr};
 
-  void Increment() const {
-    if (gauge) gauge->Increment();
+  void Increment(double v = 1.0) const {
+    if (gauge) gauge->Increment(v);
   }
 
-  void Decrement() const {
-    if (gauge) gauge->Decrement();
+  void Decrement(double v = 1.0) const {
+    if (gauge) gauge->Decrement(v);
   }
 
   void Set(double v) const {

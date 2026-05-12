@@ -17,7 +17,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-#include "metrics/prometheus_metrics.hpp"
 
 #include "communication/bolt/metrics.hpp"
 #include "communication/bolt/v1/codes.hpp"
@@ -27,6 +26,7 @@
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"

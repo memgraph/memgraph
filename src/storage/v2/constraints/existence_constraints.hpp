@@ -11,18 +11,14 @@
 
 #pragma once
 
-namespace prometheus {
-class Gauge;
-}  // namespace prometheus
-
 #include <functional>
 #include <memory>
-
 #include <optional>
 #include <variant>
-#include "metrics/scoped_gauge.hpp"
 
 #include "absl/container/flat_hash_map.h"
+
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
@@ -40,7 +36,8 @@ class ExistenceConstraints {
   explicit ExistenceConstraints(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
 
   struct MultipleThreadsConstraintValidation {
-    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
+                    const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
 
@@ -48,7 +45,8 @@ class ExistenceConstraints {
   };
 
   struct SingleThreadConstraintValidation {
-    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
+                    const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
   };

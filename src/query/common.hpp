@@ -13,13 +13,13 @@
 #pragma once
 
 #include <concepts>
-
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include "metrics/prometheus_metrics.hpp"
 
 #include <range/v3/view/zip.hpp>
+
+#include "metrics/prometheus_metrics.hpp"
 #include "query/exceptions.hpp"
 #include "query/fmt.hpp"
 #include "query/frontend/ast/ordering.hpp"

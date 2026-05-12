@@ -134,7 +134,7 @@ struct Transaction {
               StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
               ActiveIndicesPtr active_indices, ActiveConstraintsPtr active_constraints,
               AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt,
-              prometheus::Gauge *unreleased_delta_gauge = nullptr)
+              metrics::GaugeHandle unreleased_delta_gauge = {})
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),

@@ -11,15 +11,14 @@
 
 #pragma once
 
+#include <forward_list>
+
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/delta.hpp"
 #include "utils/allocator/page_aligned.hpp"
 #include "utils/allocator/page_slab_memory_resource.hpp"
 #include "utils/static_vector.hpp"
-
-#include <forward_list>
-
-#include <prometheus/gauge.h>
 
 namespace memgraph::storage {
 namespace {
@@ -242,7 +241,7 @@ struct delta_container {
 
   delta_container() = default;
 
-  explicit delta_container(prometheus::Gauge *gauge) : gauge_{gauge} {}
+  explicit delta_container(metrics::GaugeHandle gauge) : gauge_{gauge} {}
 
   // move ctr: needed because of size_
   delta_container(delta_container &&other) noexcept
@@ -262,9 +261,7 @@ struct delta_container {
     return *this;
   }
 
-  ~delta_container() {
-    if (gauge_) gauge_->Decrement(static_cast<double>(size_));
-  }
+  ~delta_container() { gauge_.Decrement(static_cast<double>(size_)); }
 
   auto begin() { return Flatten(deltas_).begin(); }
 
@@ -281,7 +278,7 @@ struct delta_container {
         // no need for memory_resource
         auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)...);
         ++size_;
-        if (gauge_) gauge_->Increment();
+        gauge_.Increment();
         return delta;
       } else {
         // requires memory_resource
@@ -290,7 +287,7 @@ struct delta_container {
         }
         auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)..., memory_resource_.get());
         ++size_;
-        if (gauge_) gauge_->Increment();
+        gauge_.Increment();
         return delta;
       }
     };
@@ -311,7 +308,7 @@ struct delta_container {
   void clear() {
     deltas_.clear();
     memory_resource_.reset();
-    if (gauge_) gauge_->Decrement(static_cast<double>(size_));
+    gauge_.Decrement(static_cast<double>(size_));
     size_ = 0;
   }
 
@@ -325,6 +322,6 @@ struct delta_container {
   std::unique_ptr<utils::PageSlabMemoryResource> memory_resource_{};
   PageAlignedList<delta_slab> deltas_{};
   std::size_t size_{};
-  prometheus::Gauge *gauge_{nullptr};
+  metrics::GaugeHandle gauge_{};
 };
 }  // namespace memgraph::storage

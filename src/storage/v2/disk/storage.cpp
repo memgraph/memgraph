@@ -1474,9 +1474,9 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
                               CreateDeleteDeserializedObjectDelta(transaction, key, std::move(ts)));
 }
 
-VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils::SkipListDb<Vertex>::Accessor &accessor,
-                                                 storage::Gid gid, VertexKey label_ids, PropertyStore properties,
-                                                 Delta *delta) {
+VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction,
+                                                 utils::SkipListDb<Vertex>::Accessor &accessor, storage::Gid gid,
+                                                 VertexKey label_ids, PropertyStore properties, Delta *delta) {
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
@@ -2496,7 +2496,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           std::move(active_constraints),
           {},
           std::nullopt,
-          metric_handles_.unreleased_delta_objects.gauge};
+          metric_handles_.unreleased_delta_objects};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }

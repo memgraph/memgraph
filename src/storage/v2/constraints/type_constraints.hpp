@@ -11,19 +11,16 @@
 
 #pragma once
 
-namespace prometheus {
-class Gauge;
-}  // namespace prometheus
-
 #include <functional>
 #include <memory>
-
-#include <storage/v2/constraints/type_constraints_kind.hpp>
 #include <utility>
+
 #include "absl/container/flat_hash_map.h"
+
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
