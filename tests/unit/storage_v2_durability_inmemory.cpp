@@ -3922,6 +3922,20 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       std::get_if<memgraph::storage::ExistenceConstraints::MultipleThreadsConstraintValidation>(
           &variant_existence_constraint_creation_func);
   MG_ASSERT(pval_existence, "Chose wrong type of function for recovery of existence constraint data");
+
+  // Cleanup light edges to avoid ASAN leaks in tests that do manual recovery
+  if (GetParam().light_edge) {
+    auto vertex_acc = vertices.access();
+    for (auto &vertex : vertex_acc) {
+      for (auto const &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
+        if (edge_ref.ptr != nullptr) {
+          memgraph::memory::DbAwareAllocator<memgraph::storage::Edge> alloc;
+          std::destroy_at(edge_ref.ptr);
+          std::allocator_traits<decltype(alloc)>::deallocate(alloc, edge_ref.ptr, 1);
+        }
+      }
+    }
+  }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
