@@ -475,12 +475,9 @@ class Interpreter final {
   // When transaction_status_ is VERIFYING, current_transaction_ is stable.
   // When transaction_status_ is IDLE, current_transaction_ is nullopt.
   std::optional<uint64_t> current_transaction_{std::nullopt};
-  // Wall-clock timestamp captured when the transaction transitions to ACTIVE.
-  // Used for both start_time (ZonedDateTime) and elapsed_ms in SHOW TRANSACTIONS.
-  // Protected by transaction_status_ (see SetupInterpreterTransaction); read
-  // only by ShowTransactions while holding a verifier. Not cleared on end:
-  // readers can only observe it while status is in {ACTIVE, COMMITTING,
-  // ROLLBACK}, and the next Setup overwrites it before re-entering ACTIVE.
+  // Wall-clock time captured when the transaction transitions to ACTIVE. Published via the
+  // release-store on transaction_status_ in SetupInterpreterTransaction; ShowTransactions
+  // reads it only while holding a verifier (acquire on the same atomic).
   std::chrono::system_clock::time_point transaction_start_time_{};
 
   void ResetUser();
