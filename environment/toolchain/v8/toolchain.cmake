@@ -89,3 +89,19 @@ list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_ROOT}/lib/cmake/OpenSSL")
 list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_ROOT}/lib64/cmake/OpenSSL")
 list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/lib/cmake/OpenSSL")
 list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/lib64/cmake/OpenSSL")
+
+# Hide the sysroot's Python from memgraph. The toolchain ships Python in the
+# sysroot solely so GDB can build with --with-python and ship libpython3.X.so
+# alongside gdb. memgraph deliberately links the host's libpython at runtime
+# (so the resulting binary matches whatever Python the deploy distro ships),
+# so we exclude the sysroot Python install paths from find_package(Python3)
+# / find_path / find_library results. Keep these in sync with the
+# PYTHON_MAJMIN value in environment/toolchain/v8/build.sh when bumping.
+set(MG_TOOLCHAIN_PYTHON_MAJMIN "3.12")
+list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/bin/python3")
+list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/bin/python${MG_TOOLCHAIN_PYTHON_MAJMIN}")
+list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/include/python${MG_TOOLCHAIN_PYTHON_MAJMIN}")
+list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/lib/python${MG_TOOLCHAIN_PYTHON_MAJMIN}")
+list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/lib/libpython${MG_TOOLCHAIN_PYTHON_MAJMIN}.so")
+list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/lib/libpython${MG_TOOLCHAIN_PYTHON_MAJMIN}.so.1.0")
+list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/lib/pkgconfig")

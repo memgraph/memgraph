@@ -58,6 +58,14 @@ NCURSES_VERSION=6.6
 OPENSSL_VERSION=3.6.2
 CURL_VERSION=8.20.0
 LIBFFI_VERSION=3.5.2
+# Python lives in the sysroot solely so GDB can be built with scripting
+# support and ship libpython3.so alongside the toolchain. memgraph's CMake
+# ignores this Python via CMAKE_IGNORE_PATH in toolchain.cmake; consumers
+# of the toolchain that need Python use the host's interpreter.
+PYTHON_VERSION=3.12.7
+# Major.minor only — referenced by GDB --with-python path and by memgraph's
+# toolchain.cmake IGNORE_PATH entries. Update both when bumping above.
+PYTHON_MAJMIN=3.12
 
 # define the name used to make the toolchain archive
 DISTRO_FULL_NAME=${DISTRO}
@@ -194,6 +202,11 @@ if [ ! -f libffi-$LIBFFI_VERSION.tar.gz ]; then
     wget https://github.com/libffi/libffi/releases/download/v$LIBFFI_VERSION/libffi-$LIBFFI_VERSION.tar.gz
     LIBFFI_SHA256="f3a3082a23b37c293a4fcd1053147b371f2ff91fa7ea1b2a52e335676bac82dc"
     echo "$LIBFFI_SHA256  libffi-$LIBFFI_VERSION.tar.gz" | sha256sum -c -
+fi
+if [ ! -f Python-$PYTHON_VERSION.tgz ]; then
+    wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz
+    PYTHON_SHA256="73ac8fe780227bf371add8373c3079f42a0dc62deff8d612cd15a618082ab623"
+    echo "$PYTHON_SHA256  Python-$PYTHON_VERSION.tgz" | sha256sum -c -
 fi
 
 # verify all archives
@@ -606,108 +619,139 @@ if [[ ! -f "$SYSROOT/usr/lib/libffi.a" && ! -f "$SYSROOT/usr/lib64/libffi.a" ]];
     popd
 fi
 
-# log_tool_name "GDB $GDB_VERSION"
-# if [[ ! -f "$PREFIX/bin/gdb" ]]; then
-#     if [[ -d "gdb-$GDB_VERSION" ]]; then
-#         rm -rf gdb-$GDB_VERSION
-#     fi
-#     tar -xvf ../archives/gdb-$GDB_VERSION.tar.gz
-#     pushd "gdb-$GDB_VERSION"
-#     mkdir build && pushd build
-#     if [[ "$for_arm" = true ]]; then
-#         # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=arm64&ver=10.1-2&stamp=1614889767&raw=0
-#         env \
-#             CC=gcc \
-#             CXX=g++ \
-#             CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
-#             CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
-#             CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
-#             LDFLAGS="-Wl,-z,relro" \
-#             PYTHON="" \
-#             ../configure \
-#                 --build=aarch64-linux-gnu \
-#                 --host=aarch64-linux-gnu \
-#                 --prefix=$PREFIX \
-#                 --disable-maintainer-mode \
-#                 --disable-dependency-tracking \
-#                 --disable-silent-rules \
-#                 --disable-gdbtk \
-#                 --disable-shared \
-#                 --without-guile \
-#                 --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
-#                 --with-system-readline \
-#                 --with-expat \
-#                 --with-system-zlib \
-#                 --with-lzma \
-#                 --without-babeltrace \
-#                 --enable-tui \
-#                 --with-python=python3
-#     else
-#         # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=amd64&ver=8.2.1-2&stamp=1550831554&raw=0
-#         env \
-#             CC=gcc \
-#             CXX=g++ \
-#             CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
-#             CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
-#             CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
-#             LDFLAGS="-Wl,-z,relro" \
-#             PYTHON="" \
-#             ../configure \
-#                 --build=x86_64-linux-gnu \
-#                 --host=x86_64-linux-gnu \
-#                 --prefix=$PREFIX \
-#                 --disable-maintainer-mode \
-#                 --disable-dependency-tracking \
-#                 --disable-silent-rules \
-#                 --disable-gdbtk \
-#                 --disable-shared \
-#                 --without-guile \
-#                 --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
-#                 --with-system-readline \
-#                 --with-expat \
-#                 --with-system-zlib \
-#                 --with-lzma \
-#                 --with-babeltrace \
-#                 --with-intel-pt \
-#                 --enable-tui \
-#                 --with-python=python3
-#     fi
-#     make -j$CPUS
-#     make install
-#     popd && popd
-# fi
+log_tool_name "Python $PYTHON_VERSION (sysroot)"
+if [[ ! -f "$SYSROOT/usr/lib/libpython${PYTHON_MAJMIN}.so" ]]; then
+    if [[ -d "Python-$PYTHON_VERSION" ]]; then
+        rm -rf Python-$PYTHON_VERSION
+    fi
+    tar -xzf ../archives/Python-$PYTHON_VERSION.tgz
+    pushd "Python-$PYTHON_VERSION"
+    # Python is included solely so GDB can build with --with-python. We keep
+    # the build small (skip pip, tests, profile-guided optimisation) and link
+    # against sysroot openssl / libffi already installed above.
+    # --enable-shared so GDB gets libpython3.X.so to dlopen.
+    # LDFLAGS sets a relocatable rpath via $ORIGIN/../lib so libpython is
+    # resolved relative to the toolchain when GDB or python3 runs from
+    # /opt/toolchain-v8/sysroot/usr/bin.
+    LDFLAGS='-Wl,-rpath,$ORIGIN/../lib' \
+    ./configure --prefix=/usr \
+        --enable-shared \
+        --without-ensurepip \
+        --disable-test-modules \
+        --with-openssl="$SYSROOT/usr" \
+        --with-system-ffi
+    make -j$CPUS
+    make install DESTDIR=$SYSROOT
+    popd
+fi
 
-# log_tool_name "install pahole"
-# if [[ ! -d "$PREFIX/share/pahole-gdb" ]]; then
-#     unzip ../archives/pahole-gdb-master.zip
-#     mv pahole-gdb-master $PREFIX/share/pahole-gdb
-# fi
+log_tool_name "GDB $GDB_VERSION"
+if [[ ! -f "$PREFIX/bin/gdb" ]]; then
+    if [[ -d "gdb-$GDB_VERSION" ]]; then
+        rm -rf gdb-$GDB_VERSION
+    fi
+    tar -xvf ../archives/gdb-$GDB_VERSION.tar.gz
+    pushd "gdb-$GDB_VERSION"
+    mkdir build && pushd build
+    # GDB is built sysroot-aware via the toolchain GCC. --with-python points
+    # at the libpython we installed into the sysroot above. Features that
+    # require libraries not in the sysroot (expat, lzma, babeltrace, intel-pt,
+    # system readline) are disabled — GDB falls back to its bundled
+    # readline and skips the niche subsystems. TUI works because ncurses is
+    # in the sysroot.
+    if [[ "$for_arm" = true ]]; then
+        # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=arm64&ver=10.1-2&stamp=1614889767&raw=0
+        env \
+            CC=$PREFIX/bin/gcc \
+            CXX=$PREFIX/bin/g++ \
+            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
+            LDFLAGS="-Wl,-z,relro -Wl,-rpath,$PREFIX/sysroot/usr/lib" \
+            ../configure \
+                --build=aarch64-linux-gnu \
+                --host=aarch64-linux-gnu \
+                --prefix=$PREFIX \
+                --with-gmp=$PREFIX \
+                --with-mpfr=$PREFIX \
+                --disable-maintainer-mode \
+                --disable-dependency-tracking \
+                --disable-silent-rules \
+                --disable-gdbtk \
+                --disable-shared \
+                --without-guile \
+                --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
+                --without-expat \
+                --without-lzma \
+                --without-babeltrace \
+                --without-intel-pt \
+                --enable-tui \
+                --with-python=$SYSROOT/usr/bin/python$PYTHON_MAJMIN
+    else
+        # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=amd64&ver=8.2.1-2&stamp=1550831554&raw=0
+        env \
+            CC=$PREFIX/bin/gcc \
+            CXX=$PREFIX/bin/g++ \
+            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
+            LDFLAGS="-Wl,-z,relro -Wl,-rpath,$PREFIX/sysroot/usr/lib" \
+            ../configure \
+                --build=x86_64-linux-gnu \
+                --host=x86_64-linux-gnu \
+                --prefix=$PREFIX \
+                --with-gmp=$PREFIX \
+                --with-mpfr=$PREFIX \
+                --disable-maintainer-mode \
+                --disable-dependency-tracking \
+                --disable-silent-rules \
+                --disable-gdbtk \
+                --disable-shared \
+                --without-guile \
+                --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
+                --without-expat \
+                --without-lzma \
+                --without-babeltrace \
+                --without-intel-pt \
+                --enable-tui \
+                --with-python=$SYSROOT/usr/bin/python$PYTHON_MAJMIN
+    fi
+    make -j$CPUS
+    make install
+    popd && popd
+fi
 
-# log_tool_name "setup system gdbinit"
-# if [[ ! -f "$PREFIX/etc/gdb/gdbinit" ]]; then
-#     mkdir -p $PREFIX/etc/gdb
-#     cat >$PREFIX/etc/gdb/gdbinit <<EOF
-# # improve formatting
-# set print pretty on
-# set print object on
-# set print static-members on
-# set print vtbl on
-# set print demangle on
-# set demangle-style gnu-v3
-# set print sevenbit-strings off
+log_tool_name "install pahole"
+if [[ ! -d "$PREFIX/share/pahole-gdb" ]]; then
+    unzip ../archives/pahole-gdb-master.zip
+    mv pahole-gdb-master $PREFIX/share/pahole-gdb
+fi
 
-# # load libstdc++ pretty printers
-# add-auto-load-scripts-directory $PREFIX/lib64
-# add-auto-load-safe-path $PREFIX
+log_tool_name "setup system gdbinit"
+if [[ ! -f "$PREFIX/etc/gdb/gdbinit" ]]; then
+    mkdir -p $PREFIX/etc/gdb
+    cat >$PREFIX/etc/gdb/gdbinit <<EOF
+# improve formatting
+set print pretty on
+set print object on
+set print static-members on
+set print vtbl on
+set print demangle on
+set demangle-style gnu-v3
+set print sevenbit-strings off
 
-# # load pahole
-# python
-# sys.path.insert(0, "$PREFIX/share/pahole-gdb")
-# import offsets
-# import pahole
-# end
-# EOF
-# fi
+# load libstdc++ pretty printers
+add-auto-load-scripts-directory $PREFIX/lib64
+add-auto-load-safe-path $PREFIX
+
+# load pahole
+python
+sys.path.insert(0, "$PREFIX/share/pahole-gdb")
+import offsets
+import pahole
+end
+EOF
+fi
 
 log_tool_name "cmake $CMAKE_VERSION"
 if [[ ! -f "$PREFIX/bin/cmake" ]]; then
