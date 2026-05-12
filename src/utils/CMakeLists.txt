@@ -106,7 +106,6 @@ target_link_libraries(mg-settings PUBLIC mg-kvstore mg-utils PRIVATE mg-slk)
 add_library(mg-events STATIC)
 target_sources(mg-events
     PRIVATE
-    event_counter.cpp
     event_trigger.cpp
     event_map.cpp
 )
