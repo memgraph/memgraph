@@ -6551,6 +6551,10 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
         }
       }
       results.back().emplace_back(metadata_tv);
+      auto const duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::steady_clock::now() - interpreter->transaction_start_time_)
+                                   .count();
+      results.back().emplace_back(static_cast<int64_t>(duration_ms));
     }
   }
   return results;
@@ -6573,7 +6577,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                 status_filter = transaction_query->status_filter_](const auto &interpreters) {
         return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
       };
-      callback.header = {"username", "transaction_id", "query", "status", "metadata"};
+      callback.header = {"username", "transaction_id", "query", "status", "metadata", "duration_ms"};
       // Snapshot rows always have status "running"; skip them entirely if the filter
       // is active and RUNNING is not among the requested statuses.
       const bool include_snapshots =
@@ -6594,18 +6598,19 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
             metadata["phase"] = TypedValue(storage::SnapshotProgress::PhaseToString(progress.phase));
             metadata["items_done"] = TypedValue(static_cast<int64_t>(progress.items_done));
             metadata["items_total"] = TypedValue(static_cast<int64_t>(progress.items_total));
-            if (progress.start_time_us > 0) {
-              auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count();
-              metadata["elapsed_ms"] = TypedValue(static_cast<int64_t>((now_us - progress.start_time_us) / 1000));
-            }
             metadata["db_name"] = TypedValue(db_acc->name());
+            int64_t duration_ms = 0;
+            if (progress.start_time != std::chrono::steady_clock::time_point{}) {
+              duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                                  progress.start_time)
+                                .count();
+            }
             results.push_back({TypedValue(""),
                                TypedValue("snapshot"),
                                TypedValue(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")}),
                                TypedValue("running"),
-                               TypedValue(metadata)});
+                               TypedValue(metadata),
+                               TypedValue(duration_ms)});
           });
         }
         return results;
@@ -9804,6 +9809,9 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
   auto tx_id = interpreter_context_->id_handler.next();
   current_transaction_ = tx_id;
+  // Capture start time *before* the release-store below, which publishes this
+  // write to ShowTransactions readers that acquire via TryAcquireForVerification.
+  transaction_start_time_ = std::chrono::steady_clock::now();
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   if (query_logger_) {
     query_logger_->SetTransactionId(std::to_string(tx_id));

@@ -308,12 +308,13 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
   // Verify the SHOW TRANSACTIONS header includes the status column
   auto [stream, qid] = this->main_interpreter.Prepare("SHOW TRANSACTIONS");
   auto header = stream.GetHeader();
-  ASSERT_EQ(header.size(), 5U);
+  ASSERT_EQ(header.size(), 6U);
   EXPECT_EQ(header[0], "username");
   EXPECT_EQ(header[1], "transaction_id");
   EXPECT_EQ(header[2], "query");
   EXPECT_EQ(header[3], "status");
   EXPECT_EQ(header[4], "metadata");
+  EXPECT_EQ(header[5], "duration_ms");
 }
 
 TYPED_TEST(TransactionQueueSimpleTest, ShowRunningTransactionsFilter) {

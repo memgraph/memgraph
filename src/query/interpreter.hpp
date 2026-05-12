@@ -12,6 +12,7 @@
 #pragma once
 
 #include <gflags/gflags.h>
+#include <chrono>
 #include <optional>
 
 #include "dbms/database.hpp"
@@ -474,6 +475,12 @@ class Interpreter final {
   // When transaction_status_ is VERIFYING, current_transaction_ is stable.
   // When transaction_status_ is IDLE, current_transaction_ is nullopt.
   std::optional<uint64_t> current_transaction_{std::nullopt};
+  // Steady-clock timestamp captured when the transaction transitions to ACTIVE.
+  // Protected by transaction_status_ (see SetupInterpreterTransaction); read
+  // only by ShowTransactions while holding a verifier. Not cleared on end:
+  // readers can only observe it while status is in {ACTIVE, COMMITTING,
+  // ROLLBACK}, and the next Setup overwrites it before re-entering ACTIVE.
+  std::chrono::steady_clock::time_point transaction_start_time_{};
 
   void ResetUser();
 
