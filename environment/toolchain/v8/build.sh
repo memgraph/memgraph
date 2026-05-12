@@ -47,6 +47,7 @@ CMAKE_VERSION=4.3.2
 CPPCHECK_VERSION=2.20.0
 LLVM_VERSION=22.1.5
 SWIG_VERSION=4.4.1 # used only for LLVM compilation
+PCRE2_VERSION=10.45 # build-time dep of SWIG 4.4+ (hard requirement)
 # Sysroot: pin glibc/kernel-headers so the toolchain produces binaries that run
 # on any Linux with glibc >= GLIBC_VERSION and kernel >= 5.4.
 LINUX_HEADERS_VERSION=5.4.302
@@ -149,7 +150,10 @@ if [ ! -f gdb-$GDB_VERSION.tar.gz ]; then
     # wget https://ftp.gnu.org/gnu/gdb/gdb-$GDB_VERSION.tar.gz
     wget https://sourceware.org/pub/gdb/releases/gdb-$GDB_VERSION.tar.gz
     wget https://sourceware.org/pub/gdb/releases/sha512.sum
-    sha512sum -c sha512.sum | grep gdb-$GDB_VERSION.tar.gz
+    # sourceware's sha512.sum lists every gdb release. Feed only our line into
+    # sha512sum -c — otherwise it exits non-zero on the missing-file entries
+    # for the other releases and pipefail kills the script.
+    grep " gdb-$GDB_VERSION.tar.gz\$" sha512.sum | sha512sum -c -
 fi
 if [ ! -f cmake-$CMAKE_VERSION.tar.gz ]; then
     wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
@@ -167,6 +171,11 @@ if [ ! -f pahole-gdb-master.zip ]; then
 fi
 if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
     wget https://github.com/swig/swig/archive/refs/tags/v$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
+fi
+if [ ! -f pcre2-$PCRE2_VERSION.tar.gz ]; then
+    wget https://github.com/PCRE2Project/pcre2/releases/download/pcre2-$PCRE2_VERSION/pcre2-$PCRE2_VERSION.tar.gz
+    PCRE2_SHA256="0e138387df7835d7403b8351e2226c1377da804e0737db0e071b48f07c9d12ee"
+    echo "$PCRE2_SHA256  pcre2-$PCRE2_VERSION.tar.gz" | sha256sum -c -
 fi
 if [ ! -f linux-$LINUX_HEADERS_VERSION.tar.xz ]; then
     wget https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-$LINUX_HEADERS_VERSION.tar.xz
@@ -260,6 +269,13 @@ if [[ ! -f "$SYSROOT/lib64/libc.so.6" && ! -f "$SYSROOT/lib/libc.so.6" ]]; then
     # just-built libc.so.6. The C variant exercises the same dlopen machinery
     # without pulling in libstdc++.
     sed -i 's|^LINKS_DSO_PROGRAM = links-dso-program$|LINKS_DSO_PROGRAM = links-dso-program-c|' support/Makefile
+    # misc/syslog.c calls syslog(INTERNALLOG, ...) recursively on invalid
+    # priority bits. With recent host GCCs (>=12) the fortified inline of
+    # syslog in <sys/syslog.h> is active when compiling syslog.c itself,
+    # and the recursive call can't be inlined → hard `inlining failed in
+    # call to always_inline 'syslog'` error. Route the recursion through
+    # the internal __syslog symbol (same body, no fortified wrapper).
+    sed -i 's|^\(\s*\)syslog *(INTERNALLOG,|\1__syslog(INTERNALLOG,|' misc/syslog.c
     mkdir build && pushd build
     if [[ "$for_arm" = true ]]; then
         glibc_target=aarch64-linux-gnu
@@ -822,6 +838,11 @@ if [[ ! -d "swig-$SWIG_VERSION/install" ]]; then
     pushd "swig-$SWIG_VERSION"
     ./autogen.sh
     mkdir build && pushd build
+    # SWIG 4.4 has a hard PCRE2 build-time dependency. Tools/pcre-build.sh
+    # expects a pcre2-*.tar* in the directory configure runs from and stages
+    # a static PCRE2 in pcre/pcre-swig-install, which configure auto-detects.
+    cp ../../../archives/pcre2-$PCRE2_VERSION.tar.gz .
+    ../Tools/pcre-build.sh
     ../configure --prefix=$DIR/build/swig-$SWIG_VERSION/install
     make -j$CPUS
     make install
