@@ -127,6 +127,7 @@
 #include "utils/settings.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
@@ -6551,10 +6552,14 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
         }
       }
       results.back().emplace_back(metadata_tv);
+      auto const start_us = std::chrono::duration_cast<std::chrono::microseconds>(
+          interpreter->transaction_start_time_.time_since_epoch());
+      results.back().emplace_back(
+          utils::ZonedDateTime(std::chrono::sys_time<std::chrono::microseconds>{start_us}, utils::DefaultTimezone()));
       auto const elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                  std::chrono::steady_clock::now() - interpreter->transaction_start_time_)
+                                  std::chrono::system_clock::now() - interpreter->transaction_start_time_)
                                   .count();
-      results.back().emplace_back(static_cast<int64_t>(elapsed_ms));
+      results.back().emplace_back(static_cast<int64_t>(std::max<int64_t>(0, elapsed_ms)));
     }
   }
   return results;
@@ -6577,7 +6582,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                 status_filter = transaction_query->status_filter_](const auto &interpreters) {
         return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
       };
-      callback.header = {"username", "transaction_id", "query", "status", "metadata", "elapsed_ms"};
+      callback.header = {"username", "transaction_id", "query", "status", "metadata", "start_time", "elapsed_ms"};
       // Snapshot rows always have status "running"; skip them entirely if the filter
       // is active and RUNNING is not among the requested statuses.
       const bool include_snapshots =
@@ -6599,18 +6604,23 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
             metadata["items_done"] = TypedValue(static_cast<int64_t>(progress.items_done));
             metadata["items_total"] = TypedValue(static_cast<int64_t>(progress.items_total));
             metadata["db_name"] = TypedValue(db_acc->name());
+            TypedValue start_time_tv{};
             int64_t elapsed_ms = 0;
-            if (progress.start_time_ms > 0) {
-              auto const now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                      std::chrono::steady_clock::now().time_since_epoch())
+            if (progress.start_time_us > 0) {
+              start_time_tv = TypedValue(utils::ZonedDateTime(
+                  std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds{progress.start_time_us}},
+                  utils::DefaultTimezone()));
+              auto const now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                      std::chrono::system_clock::now().time_since_epoch())
                                       .count();
-              elapsed_ms = now_ms - progress.start_time_ms;
+              elapsed_ms = std::max<int64_t>(0, (now_us - progress.start_time_us) / 1000);
             }
             results.push_back({TypedValue(""),
                                TypedValue("snapshot"),
                                TypedValue(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")}),
                                TypedValue("running"),
                                TypedValue(metadata),
+                               std::move(start_time_tv),
                                TypedValue(elapsed_ms)});
           });
         }
@@ -9812,7 +9822,7 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   current_transaction_ = tx_id;
   // Capture start time *before* the release-store below, which publishes this
   // write to ShowTransactions readers that acquire via TryAcquireForVerification.
-  transaction_start_time_ = std::chrono::steady_clock::now();
+  transaction_start_time_ = std::chrono::system_clock::now();
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   if (query_logger_) {
     query_logger_->SetTransactionId(std::to_string(tx_id));

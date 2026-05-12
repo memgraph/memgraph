@@ -743,7 +743,7 @@ class InMemoryStorage final : public Storage {
     return {.phase = snapshot_progress_.phase.load(std::memory_order_acquire),
             .items_done = snapshot_progress_.items_done.load(std::memory_order_acquire),
             .items_total = snapshot_progress_.items_total.load(std::memory_order_acquire),
-            .start_time_ms = snapshot_progress_.start_time_ms.load(std::memory_order_acquire)};
+            .start_time_us = snapshot_progress_.start_time_us.load(std::memory_order_acquire)};
   }
 
   void CreateSnapshotHandler(std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb);
