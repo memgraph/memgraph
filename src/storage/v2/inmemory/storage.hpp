@@ -840,7 +840,7 @@ class InMemoryStorage final : public Storage {
 
   EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
-  void DeleteLightEdge(Edge *p);
+  static void DeleteLightEdge(Edge *p);
 
   // Free all pool-allocated Edge objects: walk out_edges of every vertex (each
   // edge appears exactly once) and drain the graveyard.  Must be called before

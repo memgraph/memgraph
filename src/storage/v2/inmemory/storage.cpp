@@ -202,7 +202,7 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
   return false;
 }
 
-void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id,
+void UnlinkAndRemoveDeltas(delta_container &deltas, [[maybe_unused]] uint64_t transaction_id,
                            std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_edges,
                            std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
                            IndexPerformanceTracker &impact_tracker, bool light_edge_mode = false,
