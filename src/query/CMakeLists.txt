@@ -183,13 +183,31 @@ target_link_libraries(mg-query
 
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
+elseif(NOT DEFINED Python3_ROOT_DIR)
+    # The toolchain sysroot ships a Python install solely for GDB --with-python.
+    # Without a hint, FindPython3 picks it up first (sysroot leads
+    # CMAKE_FIND_ROOT_PATH) and the resulting binary's NEEDED libpython is the
+    # toolchain's, not the host's — cmake even warns about the runtime shadow.
+    # Force the host Python (matches what the deploy distro will ship).
+    set(Python3_ROOT_DIR "/usr")
 endif()
+set(Python3_FIND_STRATEGY LOCATION)
 
+# FindPython3 hints go through find_path/find_library, which re-root absolute
+# paths against CMAKE_FIND_ROOT_PATH — so Python3_ROOT_DIR=/usr gets re-rooted
+# to ${SYSROOT}/usr and the sysroot Python wins anyway. Flip include/library
+# find modes to NEVER for the duration of this find_package so /usr stays /usr.
+set(_mg_saved_include_mode "${CMAKE_FIND_ROOT_PATH_MODE_INCLUDE}")
+set(_mg_saved_library_mode "${CMAKE_FIND_ROOT_PATH_MODE_LIBRARY}")
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY NEVER)
 if("${MG_PYTHON_VERSION}" STREQUAL "")
     find_package(Python3 3.5 REQUIRED COMPONENTS Development)
 else()
     find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
 endif()
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE "${_mg_saved_include_mode}")
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY "${_mg_saved_library_mode}")
 
 # Debian/Ubuntu split pyconfig.h between /usr/include/pythonX.Y/pyconfig.h
 # (a redirect) and /usr/include/<triple>/pythonX.Y/pyconfig.h (the real one).
