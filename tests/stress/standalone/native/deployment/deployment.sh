@@ -37,11 +37,13 @@ DEFAULT_FLAGS=(
 is_memgraph_running() {
     # Check if port is in use
     if nc -z 127.0.0.1 7687 2>/dev/null; then
+        echo "[DIAG] is_memgraph_running: YES (port 7687 open)"
         return 0
     fi
     # Check if data directory lock is held
     local lock_file="$DATA_DIR/.lock"
     if [[ -f "$lock_file" ]] && ! flock -n "$lock_file" true 2>/dev/null; then
+        echo "[DIAG] is_memgraph_running: YES (data dir lock held)"
         return 0
     fi
     # Check if PID is alive and not a zombie
@@ -52,10 +54,12 @@ is_memgraph_running() {
             local state
             state=$(awk '/^State:/{print $2}' /proc/"$pid"/status 2>/dev/null)
             if [[ "$state" != "Z" ]]; then
+                echo "[DIAG] is_memgraph_running: YES (pid $pid alive, state=$state)"
                 return 0
             fi
         fi
     fi
+    echo "[DIAG] is_memgraph_running: NO"
     return 1
 }
 
@@ -96,6 +100,8 @@ merge_flags() {
 
 start_memgraph() {
     echo "Starting Memgraph Standalone..."
+    echo "[DIAG] start_memgraph: port 7687 nc check: $(nc -z 127.0.0.1 7687 && echo OPEN || echo CLOSED)"
+    echo "[DIAG] start_memgraph: is_memgraph_running=$(is_memgraph_running && echo YES || echo NO)"
 
     # Ensure no lingering Memgraph process before starting
     if is_memgraph_running; then
@@ -115,26 +121,33 @@ start_memgraph() {
     mkdir -p "$LOG_DIR"
     $CMD &
     MG_PID=$!
+    echo "start_memgraph: launched Memgraph with PID=$MG_PID"
     echo $MG_PID > memgraph.pid
     wait_for_server 7687
+    echo "start_memgraph: Memgraph PID=$MG_PID ready on port 7687"
 }
 
 stop_memgraph() {
     local graceful_timeout_sec=60
 
+    echo "[DIAG] stop_memgraph: port 7687 nc check: $(nc -z 127.0.0.1 7687 && echo OPEN || echo CLOSED)"
+
     if [[ ! -f "memgraph.pid" ]]; then
-        echo "No running Memgraph process found."
+        echo "stop_memgraph: No memgraph.pid file. is_memgraph_running=$(is_memgraph_running && echo YES || echo NO)"
         return 0
     fi
 
     MG_PID=$(cat memgraph.pid)
-    echo "Stopping Memgraph Standalone (PID: $MG_PID)..."
+    echo "stop_memgraph: Stopping Memgraph Standalone (PID: $MG_PID)..."
+    echo "[DIAG] stop_memgraph: kill -0 check before kill: $(kill -0 "$MG_PID" 2>/dev/null && echo ALIVE || echo DEAD)"
     kill "$MG_PID" 2>/dev/null || true
 
     echo "Waiting for Memgraph to stop..."
     for ((i=1; i<=graceful_timeout_sec; i++)); do
         if ! is_memgraph_running; then
-            echo "Memgraph has stopped."
+            echo "Memgraph has stopped gracefully after ${i}s."
+            echo "[DIAG] stop_memgraph: final port 7687 nc check: $(nc -z 127.0.0.1 7687 && echo OPEN || echo CLOSED)"
+            echo "[DIAG] stop_memgraph: final is_memgraph_running=$(is_memgraph_running && echo YES || echo NO)"
             rm -f memgraph.pid
             clean_data_directory
             return 0
@@ -142,7 +155,7 @@ stop_memgraph() {
         sleep 1
     done
 
-    echo "Force killing..."
+    echo "[DIAG] stop_memgraph: graceful timeout expired, force killing PID=$MG_PID"
     kill -9 "$MG_PID" 2>/dev/null || true
 
     # Check if still running after SIGKILL
@@ -153,6 +166,7 @@ stop_memgraph() {
     fi
 
     echo "Memgraph has been force-killed."
+    echo "[DIAG] stop_memgraph: after force-kill, port 7687 nc check: $(nc -z 127.0.0.1 7687 && echo OPEN || echo CLOSED)"
     rm -f memgraph.pid
     clean_data_directory
 }

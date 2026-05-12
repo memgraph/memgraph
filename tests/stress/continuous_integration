@@ -139,7 +139,8 @@ def load_workloads_registry(deployment: str) -> List[Dict[str, Any]]:
 
 def start_deployment(deployment_script: str, args: List[str], env: Dict[str, str] = None) -> None:
     cmd = [deployment_script, "start"] + args
-    print(f"Starting Memgraph with: {' '.join(cmd)}")
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] Starting Memgraph with: {' '.join(cmd)} (caller pid={os.getpid()})")
 
     run_env = os.environ.copy()
     if env:
@@ -149,12 +150,15 @@ def start_deployment(deployment_script: str, args: List[str], env: Dict[str, str
 
     subprocess.run(cmd, check=True, env=run_env)
     time.sleep(2)
+    print(f"[{ts}] start_deployment returned ok, slept 2s")
 
 
 def stop_deployment(deployment_script: str) -> None:
     cmd = [deployment_script, "stop"]
-    print(f"Stopping Memgraph with: {' '.join(cmd)}")
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] Stopping Memgraph with: {' '.join(cmd)} (caller pid={os.getpid()})")
     subprocess.run(cmd, check=True)
+    print(f"[{ts}] stop_deployment returned ok")
 
 
 def check_deployment_status(deployment_script: str) -> bool:
@@ -440,12 +444,26 @@ def run_custom_workloads(config: Config, args: Args) -> Dict[str, Any]:
             runtimes[workload_name] = time.time() - start
 
         except Exception as ex:
+            print(f"[WORKLOAD ERROR] '{workload_name}' exception: {ex}")
             if config.manage_deployment:
                 stop_deployment(config.deployment_script)
             return {"error": f"Failed to execute workload '{workload_name}': {ex}"}
         finally:
             if config.manage_deployment:
+                print(f"[WORKLOAD FINALLY] Stopping deployment after workload '{workload_name}'")
                 stop_deployment(config.deployment_script)
+                print(f"[WORKLOAD FINALLY] Deployment stopped for '{workload_name}'")
+
+        # Log state between workloads
+        if config.manage_deployment and len(config.custom_workloads) > 1:
+            pgrep_result = subprocess.run(["pgrep", "-af", "memgraph"], capture_output=True, text=True)
+            if pgrep_result.stdout.strip():
+                print(
+                    f"[WORKLOAD TRANSITION] WARNING: memgraph process(es) still alive:\n{pgrep_result.stdout.strip()}"
+                )
+            nc_result = subprocess.run(["nc", "-z", "127.0.0.1", "7687"], capture_output=True, text=True)
+            port_open = nc_result.returncode == 0
+            print(f"[WORKLOAD TRANSITION] port 7687: {'OPEN' if port_open else 'CLOSED'}")
 
     return runtimes
 
