@@ -39,10 +39,10 @@
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "utils/exponential_backoff.hpp"
 #include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
-#include "utils/on_scope_exit.hpp"
 
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
@@ -531,11 +531,7 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
 void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_release); }
 
 auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
-  auto const _t0 = std::chrono::high_resolution_clock::now();
-  utils::OnScopeExit const _timer{[&] {
-    metrics::Metrics().global.data_failover_seconds->Observe(
-        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-  }};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.data_failover_seconds};
   auto const maybe_most_up_to_date_instance = GetInstanceForFailover();
   if (!maybe_most_up_to_date_instance) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
@@ -1123,11 +1119,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
 }
 
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state) {
-  auto const _t0 = std::chrono::high_resolution_clock::now();
-  utils::OnScopeExit const _timer{[&] {
-    metrics::Metrics().global.instance_succ_callback_seconds->Observe(
-        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-  }};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.instance_succ_callback_seconds};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     spdlog::trace("Leader is not ready, not executing instance success callback.");
@@ -1281,11 +1273,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 }
 
 void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name) {
-  auto const _t0 = std::chrono::high_resolution_clock::now();
-  utils::OnScopeExit const _timer{[&] {
-    metrics::Metrics().global.instance_fail_callback_seconds->Observe(
-        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-  }};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.instance_fail_callback_seconds};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     spdlog::trace("Leader is not ready, not executing instance fail callback.");
@@ -1328,11 +1316,7 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name) {
 auto CoordinatorInstance::ChooseMostUpToDateInstance(
     std::map<std::string, replication_coordination_glue::InstanceInfo> const &instances_info)
     -> std::optional<std::string> {
-  auto const _t0 = std::chrono::high_resolution_clock::now();
-  utils::OnScopeExit const _timer{[&] {
-    metrics::Metrics().global.choose_most_up_to_date_instance_seconds->Observe(
-        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-  }};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.choose_most_up_to_date_instance_seconds};
 
   // Find the instance with the largest system committed timestamp
   auto const largest_sys_ts_instance = std::ranges::max_element(instances_info, [](auto const &lhs, auto const &rhs) {
@@ -1486,11 +1470,7 @@ auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::s
 }
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {
-  auto const _t0 = std::chrono::high_resolution_clock::now();
-  utils::OnScopeExit const _timer{[&] {
-    metrics::Metrics().global.get_histories_seconds->Observe(
-        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-  }};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.get_histories_seconds};
 
   if (repl_instances_.empty()) {
     return std::nullopt;

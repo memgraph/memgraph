@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_rpc.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "replication_coordination_glue/common.hpp"
 
 #include <string>
@@ -80,11 +81,7 @@ void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume();
 
 auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
   auto &g = metrics::Metrics().global;
-  auto const _t0 = std::chrono::high_resolution_clock::now();
-  utils::OnScopeExit const _timer{[&] {
-    g.state_check_rpc_seconds->Observe(
-        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-  }};
+  metrics::ScopedHistogramTimer const timer{g.state_check_rpc_seconds};
   try {
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
     auto res = stream.SendAndWait();
@@ -100,11 +97,7 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
 auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     -> std::optional<replication_coordination_glue::InstanceInfo> {
   auto &g = metrics::Metrics().global;
-  auto const _t0 = std::chrono::high_resolution_clock::now();
-  utils::OnScopeExit const _timer{[&] {
-    g.get_database_histories_rpc_seconds->Observe(
-        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-  }};
+  metrics::ScopedHistogramTimer const timer{g.get_database_histories_rpc_seconds};
   try {
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
     auto res = stream.SendAndWait();

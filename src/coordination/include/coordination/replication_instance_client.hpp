@@ -17,9 +17,9 @@
 #include "coordination/instance_state.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/client.hpp"
-#include "utils/on_scope_exit.hpp"
 #include "utils/scheduler.hpp"
 
 namespace memgraph::coordination {
@@ -69,11 +69,7 @@ class ReplicationInstanceClient {
   template <rpc::IsRpc T, typename... Args>
   auto SendRpc(Args &&...args) const -> bool {
     auto &g = metrics::Metrics().global;
-    auto const _t0 = std::chrono::high_resolution_clock::now();
-    utils::OnScopeExit const _timer{[&] {
-      RpcInfo<T>::histogram(g)->Observe(
-          std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-    }};
+    metrics::ScopedHistogramTimer const timer{RpcInfo<T>::histogram(g)};
     try {
       auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...);
 

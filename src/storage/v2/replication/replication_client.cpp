@@ -14,6 +14,7 @@
 #include "flags/coord_flag_env_handler.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -70,11 +71,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // stream should be destroyed so that RPC lock is released before taking engine lock
   std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
       std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
-        auto const _t0 = std::chrono::high_resolution_clock::now();
-        utils::OnScopeExit const _timer{[&] {
-          metrics::Metrics().global.heartbeat_rpc_seconds->Observe(
-              std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-        }};
+        metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.heartbeat_rpc_seconds};
 
         // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
         // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
@@ -361,11 +358,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     }
     case READY: {
       try {
-        auto const _t0_stream = std::chrono::high_resolution_clock::now();
-        utils::OnScopeExit const _timer_stream{[&] {
-          metrics::Metrics().global.replica_stream_seconds->Observe(
-              std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0_stream).count());
-        }};
+        metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.replica_stream_seconds};
         std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
 
         // Try to obtain RPC stream for ASYNC replica. It is OK to fail.
@@ -443,11 +436,7 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
-  auto const _t0 = std::chrono::high_resolution_clock::now();
-  utils::OnScopeExit const _timer{[&] {
-    metrics::Metrics().global.finalize_txn_replication_seconds->Observe(
-        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-  }};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.finalize_txn_replication_seconds};
   auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
     spdlog::trace("Finalizing 1st phase on replica {} in state {}", client_.name_, StateToString(state));
 
@@ -522,11 +511,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
-  auto const _t0 = std::chrono::high_resolution_clock::now();
-  utils::OnScopeExit const _timer{[&] {
-    metrics::Metrics().global.finalize_txn_replication_seconds->Observe(
-        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-  }};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.finalize_txn_replication_seconds};
   auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
     spdlog::trace("Finalizing transaction on replica {} in state {}", client_.name_, StateToString(state));
 
@@ -944,11 +929,7 @@ void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) 
 }
 
 replication::PrepareCommitRes ReplicaStream::Finalize() {
-  auto const _t0 = std::chrono::high_resolution_clock::now();
-  utils::OnScopeExit const _timer{[&] {
-    metrics::Metrics().global.prepare_commit_rpc_seconds->Observe(
-        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
-  }};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.prepare_commit_rpc_seconds};
   return stream_.SendAndWaitProgress();
 }
 }  // namespace memgraph::storage

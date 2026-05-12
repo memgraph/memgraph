@@ -62,6 +62,10 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     // database probably aborted transaction because of some timeout,
     // deadlock, serialization error or something similar. We return
     // TransientError since retry of same transaction could succeed.
+
+    // If this is in the context of a database (i.e., we have database
+    // `metric_handles`), then log count failure in the db metrics;
+    // otherwise, count in the global metrics.
     if (metric_handles)
       metric_handles->transient_errors.Increment();
     else
