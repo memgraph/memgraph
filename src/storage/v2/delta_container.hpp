@@ -259,7 +259,6 @@ struct delta_container {
     std::swap(deltas_, other.deltas_);
     std::swap(size_, other.size_);
     std::swap(gauge_, other.gauge_);
-    other.clear();
     return *this;
   }
 
