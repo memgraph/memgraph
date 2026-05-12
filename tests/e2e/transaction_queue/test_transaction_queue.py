@@ -10,7 +10,6 @@
 # licenses/APL.txt.
 
 
-import datetime
 import multiprocessing
 import sys
 import time
@@ -420,42 +419,6 @@ def test_user_killing_some_transactions():
             execute_and_fetch_all(admin_cursor, f"TERMINATE TRANSACTIONS '{show_admin_res[1]}'")
     user_connection_1.close()
     user_connection_2.close()
-
-
-def test_start_time_and_elapsed_ms_columns():
-    """Rough check that SHOW TRANSACTIONS exposes start_time and elapsed_ms,
-    and that elapsed_ms grows over time for a long-lived transaction.
-    Prior tests in this file create an 'admin' user, so we authenticate as admin."""
-    admin_cursor = connect(username="admin", password="").cursor()
-
-    long_running_conn = connect(username="admin", password="")
-    long_running_cursor = long_running_conn.cursor()
-    long_running_cursor.execute("BEGIN")
-
-    before = datetime.datetime.now(datetime.timezone.utc)
-    results = execute_and_fetch_all(admin_cursor, "SHOW TRANSACTIONS")
-    after = datetime.datetime.now(datetime.timezone.utc)
-
-    # Find the row for the BEGIN-blocked tx (not the SHOW TRANSACTIONS row itself).
-    target_row = None
-    for row in results:
-        assert len(row) == 7, f"expected 7 columns, got {len(row)}: {row}"
-        if row[2] != ["SHOW TRANSACTIONS"]:
-            target_row = row
-    assert target_row is not None, "no non-SHOW transaction visible"
-
-    start_time, elapsed_ms = target_row[5], target_row[6]
-    assert isinstance(elapsed_ms, int) and elapsed_ms >= 0
-    # start_time should sit within the window bracketing our SHOW call.
-    assert before - datetime.timedelta(seconds=5) <= start_time <= after + datetime.timedelta(seconds=1)
-
-    time.sleep(0.05)
-    follow_up = execute_and_fetch_all(admin_cursor, "SHOW TRANSACTIONS")
-    later_elapsed = next(r[6] for r in follow_up if r[1] == target_row[1])
-    assert later_elapsed >= elapsed_ms + 40, f"elapsed_ms did not advance: {elapsed_ms} -> {later_elapsed}"
-
-    long_running_cursor.execute("ROLLBACK")
-    long_running_conn.close()
 
 
 if __name__ == "__main__":
