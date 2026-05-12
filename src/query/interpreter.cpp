@@ -6600,10 +6600,11 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
             metadata["items_total"] = TypedValue(static_cast<int64_t>(progress.items_total));
             metadata["db_name"] = TypedValue(db_acc->name());
             int64_t elapsed_ms = 0;
-            if (progress.start_time != std::chrono::steady_clock::time_point{}) {
-              elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                                                 progress.start_time)
-                               .count();
+            if (progress.start_time_ms > 0) {
+              auto const now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      std::chrono::steady_clock::now().time_since_epoch())
+                                      .count();
+              elapsed_ms = now_ms - progress.start_time_ms;
             }
             results.push_back({TypedValue(""),
                                TypedValue("snapshot"),
