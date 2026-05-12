@@ -216,7 +216,6 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
 
     Iterable Edges(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                   utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                    Transaction *transaction);

@@ -203,9 +203,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override;
     auto GetAbortProcessor() const -> AbortProcessor override;
 
-    Iterable Edges(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_acc,
-                   utils::SkipListDb<Edge>::ConstAccessor edge_acc, View view, Storage *storage,
-                   Transaction *transaction);
+    Iterable Edges(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_acc, View view,
+                   Storage *storage, Transaction *transaction);
 
     ChunkedIterable ChunkedEdges(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
                                  View view, Storage *storage, Transaction *transaction, size_t num_chunks);

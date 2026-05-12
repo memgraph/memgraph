@@ -388,8 +388,8 @@ void InMemoryEdgeTypeIndex::RunGC() {
 }
 
 InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(
-    EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_acc,
-    utils::SkipListDb<Edge>::ConstAccessor /*edge_acc*/, View view, Storage *storage, Transaction *transaction) {
+    EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_acc, View view, Storage *storage,
+    Transaction *transaction) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
   auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();

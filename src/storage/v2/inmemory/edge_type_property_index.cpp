@@ -502,7 +502,6 @@ void InMemoryEdgeTypePropertyIndex::RunGC() {
 
 InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveIndices::Edges(
     EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor /*edge_accessor*/,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
@@ -511,10 +510,9 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
             "Index for edge type {} and property {} doesn't exist",
             edge_type.AsUint(),
             property.AsUint());
-  auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   return {it->second->skiplist.access(),
-          std::move(vertex_acc),
+          std::move(vertex_accessor),
           std::move(edge_pin),
           edge_type,
           property,

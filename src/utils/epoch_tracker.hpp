@@ -32,8 +32,13 @@ namespace memgraph::utils {
 /// The implementation is a simplified variant of the SkipListGc bitmap
 /// approach: accessor IDs are packed into 64-bit fields inside fixed-size
 /// Blocks linked in a doubly-linked list.  Unlike SkipListGc, fully-dead
-/// blocks are never reclaimed (blocks are small and very few in practice), so
-/// the implementation is free of the tricky races that accompany block removal.
+/// blocks are never reclaimed, so the implementation is free of the tricky
+/// races that accompany block removal.
+///
+/// Memory bound: each block holds 4096 IDs and costs ~512 bytes.  A server
+/// processing 1 billion unique edge-index scans will retain ~122 MB of tracker
+/// memory for the lifetime of the storage instance.  If this becomes a concern
+/// in practice, consider adding safe block reclamation (TODO).
 class EpochTracker {
  private:
   static constexpr uint64_t kIdsInField = sizeof(uint64_t) * 8;        // 64 bits per field

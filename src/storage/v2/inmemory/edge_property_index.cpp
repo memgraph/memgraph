@@ -485,7 +485,6 @@ void InMemoryEdgePropertyIndex::RunGC() {
 
 InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Edges(
     PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor /*edge_accessor*/,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
