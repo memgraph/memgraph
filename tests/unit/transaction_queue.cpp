@@ -314,11 +314,11 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
   EXPECT_EQ(header[2], "query");
   EXPECT_EQ(header[3], "status");
   EXPECT_EQ(header[4], "metadata");
-  EXPECT_EQ(header[5], "duration_ms");
+  EXPECT_EQ(header[5], "elapsed_ms");
 }
 
-TYPED_TEST(TransactionQueueSimpleTest, DurationMsAdvances) {
-  // Start a long-lived transaction in another interpreter so duration_ms can grow.
+TYPED_TEST(TransactionQueueSimpleTest, ElapsedMsAdvances) {
+  // Start a long-lived transaction in another interpreter so elapsed_ms can grow.
   std::atomic<bool> started{false};
   std::jthread running_thread = std::jthread(
       [this, &started](std::stop_token, int) {
@@ -330,7 +330,7 @@ TYPED_TEST(TransactionQueueSimpleTest, DurationMsAdvances) {
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
 
-  auto get_running_duration = [&]() -> int64_t {
+  auto get_running_elapsed = [&]() -> int64_t {
     auto stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
     const auto run_tx_id = this->running_interpreter.interpreter.GetTransactionId();
     for (const auto &row : stream.GetResults()) {
@@ -343,13 +343,13 @@ TYPED_TEST(TransactionQueueSimpleTest, DurationMsAdvances) {
     return -1;
   };
 
-  auto const d1 = get_running_duration();
+  auto const d1 = get_running_elapsed();
   EXPECT_GE(d1, 0);
 
   constexpr auto kSleep = std::chrono::milliseconds(50);
   std::this_thread::sleep_for(kSleep);
 
-  auto const d2 = get_running_duration();
+  auto const d2 = get_running_elapsed();
   EXPECT_GE(d2, d1);
   // Generous slack for CI scheduling jitter; we slept 50ms so >=40ms gain is safe.
   EXPECT_GE(d2 - d1, 40);
