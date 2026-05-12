@@ -58,7 +58,6 @@ struct SnapshotProgressView {
   SnapshotProgress::Phase phase;
   uint64_t items_done;
   uint64_t items_total;
-  // system_clock microseconds since POSIX epoch; 0 means "not started".
   int64_t start_time_us;
 };
 

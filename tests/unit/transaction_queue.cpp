@@ -319,15 +319,7 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
 }
 
 TYPED_TEST(TransactionQueueSimpleTest, ElapsedMsAdvances) {
-  // Start a long-lived transaction in another interpreter so elapsed_ms can grow.
-  std::atomic<bool> started{false};
-  std::thread running_thread([this, &started] {
-    this->running_interpreter.Interpret("BEGIN");
-    started.store(true, std::memory_order_release);
-  });
-  while (!started.load(std::memory_order_acquire)) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  }
+  this->running_interpreter.Interpret("BEGIN");
 
   auto get_running_elapsed = [&]() -> int64_t {
     auto stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
@@ -345,16 +337,10 @@ TYPED_TEST(TransactionQueueSimpleTest, ElapsedMsAdvances) {
 
   auto const d1 = get_running_elapsed();
   EXPECT_GE(d1, 0);
-
-  constexpr auto kSleep = std::chrono::milliseconds(50);
-  std::this_thread::sleep_for(kSleep);
-
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
   auto const d2 = get_running_elapsed();
-  EXPECT_GE(d2, d1);
-  // Generous slack for CI scheduling jitter; we slept 50ms so >=40ms gain is safe.
   EXPECT_GE(d2 - d1, 40);
 
-  running_thread.join();
   this->running_interpreter.Interpret("ROLLBACK");
 }
 
