@@ -91,6 +91,7 @@ print_help () {
   echo -e "  copy [OPTIONS]                     Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph                   Create memgraph package from built binary inside mgbuild container"
   echo -e "  package-docker [OPTIONS]           Create memgraph docker image and pack it as .tar.gz"
+  echo -e "  package-smoke-image [OPTIONS]      Build a Docker image with the .deb/.rpm package installed (for smoke tests)"
   echo -e "  package-mage-deb [OPTIONS]         Create MAGE DEB package"
   echo -e "  package-mage-docker [OPTIONS]      Create MAGE docker image"
   echo -e "  pull                               Pull mgbuild image from dockerhub"
@@ -165,6 +166,10 @@ print_help () {
   echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
   echo -e "                                This directory should contain the memgraph package."
   echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
+
+  echo -e "\npackage-smoke-image options:"
+  echo -e "  --src-dir string              Relative path inside memgraph directory containing the .deb/.rpm package."
+  echo -e "  --image-tag string            Tag to apply to the resulting memgraph/memgraph:<tag> image (required)."
 
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login (default empty)"
@@ -892,6 +897,101 @@ package_docker() {
   mkdir -p "$docker_host_folder"
   cp "$docker_build_folder/$docker_image_name" "$docker_host_folder"
   echo "Docker images saved to $docker_host_image_path."
+}
+
+package_smoke_image() {
+  # Build a Docker image with the produced .deb/.rpm installed, tagged so the
+  # existing smoke test framework (which expects a Docker image) can run it.
+  local package_dir="$PROJECT_ROOT/build/output/$os"
+  local image_tag=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --src-dir)
+        package_dir="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      --image-tag)
+        image_tag=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ -z "$image_tag" ]]; then
+    echo "Error: --image-tag is required for package-smoke-image"
+    exit 1
+  fi
+
+  local package_name
+  package_name=$(cd "$package_dir" && ls -t memgraph* 2>/dev/null | head -1)
+  if [[ -z "$package_name" ]]; then
+    echo "Error: No memgraph package found in $package_dir"
+    exit 1
+  fi
+  echo "Building smoke image from package: $package_dir/$package_name"
+
+  local base_image=""
+  local pkg_format=""
+  case "$os" in
+    ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb" ;;
+    ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb" ;;
+    ubuntu-20.04*) base_image="ubuntu:20.04"; pkg_format="deb" ;;
+    debian-11*)    base_image="debian:11";    pkg_format="deb" ;;
+    debian-12*)    base_image="debian:12";    pkg_format="deb" ;;
+    debian-13*)    base_image="debian:13";    pkg_format="deb" ;;
+    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
+    centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
+    rocky-9.3*)    base_image="rockylinux:9.3"; pkg_format="rpm" ;;
+    rocky-10*)     base_image="rockylinux:10";  pkg_format="rpm" ;;
+    fedora-38*)    base_image="fedora:38"; pkg_format="rpm" ;;
+    fedora-39*)    base_image="fedora:39"; pkg_format="rpm" ;;
+    fedora-41*)    base_image="fedora:41"; pkg_format="rpm" ;;
+    fedora-42*)    base_image="fedora:42"; pkg_format="rpm" ;;
+    *)
+      echo "Error: Unsupported OS for package-smoke-image: $os"
+      exit 1
+    ;;
+  esac
+
+  local build_dir
+  build_dir=$(mktemp -d)
+  cp "$package_dir/$package_name" "$build_dir/"
+
+  local install_cmd
+  if [[ "$pkg_format" == "deb" ]]; then
+    install_cmd="export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y --no-install-recommends /pkg/$package_name && rm -rf /var/lib/apt/lists/*"
+  else
+    install_cmd="dnf install -y /pkg/$package_name && dnf clean all"
+  fi
+
+  cat > "$build_dir/Dockerfile" <<EOF
+FROM $base_image
+COPY $package_name /pkg/$package_name
+RUN $install_cmd
+USER memgraph
+WORKDIR /usr/lib/memgraph
+EXPOSE 7687
+ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
+CMD [""]
+EOF
+
+  echo "--- Dockerfile ---"
+  cat "$build_dir/Dockerfile"
+  echo "------------------"
+
+  docker build -t "memgraph/memgraph:$image_tag" "$build_dir"
+  local rc=$?
+  rm -rf "$build_dir"
+  if [[ $rc -ne 0 ]]; then
+    echo "Error: docker build failed for memgraph/memgraph:$image_tag"
+    exit $rc
+  fi
+  echo "Built smoke image: memgraph/memgraph:$image_tag"
 }
 
 copy_memgraph() {
@@ -2442,6 +2542,9 @@ case $command in
     ;;
     package-docker)
       package_docker $@
+    ;;
+    package-smoke-image)
+      package_smoke_image $@
     ;;
     build-heaptrack)
       build_heaptrack $@
