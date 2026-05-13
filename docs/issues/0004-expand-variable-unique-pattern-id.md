@@ -1,7 +1,7 @@
 ---
 title: Extend fusion to ExpandVariable (var-length scratch edges)
 type: AFK
-status: needs-triage
+status: done
 ---
 
 ## Parent

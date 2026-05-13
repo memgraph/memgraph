@@ -174,15 +174,38 @@ inline std::shared_ptr<LogicalOperator> TryFuse(std::shared_ptr<LogicalOperator>
                                                 const std::unordered_set<Symbol> &used_symbols) {
   auto *euf = dynamic_cast<EdgeUniquenessFilter *>(op.get());
   if (!euf) return op;
-  auto *expand = dynamic_cast<Expand *>(euf->input_.get());
-  if (!expand || expand->common_.edge_symbol != euf->expand_symbol_ || expand->unique_pattern_id_ != -1 ||
-      euf->candidate_kind_ != EdgeUniquenessFilter::SymbolKind::Edge || used_symbols.contains(euf->expand_symbol_)) {
-    return op;
+  if (used_symbols.contains(euf->expand_symbol_)) return op;
+
+  // Plain single-hop Expand: SymbolKind::Edge.
+  if (euf->candidate_kind_ == EdgeUniquenessFilter::SymbolKind::Edge) {
+    auto *expand = dynamic_cast<Expand *>(euf->input_.get());
+    if (!expand || expand->common_.edge_symbol != euf->expand_symbol_ || expand->unique_pattern_id_ != -1) {
+      return op;
+    }
+    expand->unique_pattern_id_ = euf->pattern_id_;
+    expand->unique_previous_symbols_ = std::move(euf->previous_symbols_);
+    expand->unique_is_topmost_ = euf->is_topmost_;
+    return euf->input_;
   }
-  expand->unique_pattern_id_ = euf->pattern_id_;
-  expand->unique_previous_symbols_ = std::move(euf->previous_symbols_);
-  expand->unique_is_topmost_ = euf->is_topmost_;
-  return euf->input_;
+
+  // Var-length Expand: SymbolKind::EdgeList.
+  if (euf->candidate_kind_ == EdgeUniquenessFilter::SymbolKind::EdgeList) {
+    auto *evar = dynamic_cast<ExpandVariable *>(euf->input_.get());
+    // Only fuse for plain DFS-style var-length; BFS/Dijkstra/AllShortestPaths
+    // share the ExpandVariable type but do their own uniqueness internally
+    // and never go through EUF on the hot path. Be defensive and require the
+    // default DEPTH_FIRST type.
+    if (!evar || evar->common_.edge_symbol != euf->expand_symbol_ || evar->unique_pattern_id_ != -1 ||
+        evar->type_ != EdgeAtom::Type::DEPTH_FIRST) {
+      return op;
+    }
+    evar->unique_pattern_id_ = euf->pattern_id_;
+    evar->unique_previous_symbols_ = std::move(euf->previous_symbols_);
+    evar->unique_is_topmost_ = euf->is_topmost_;
+    return euf->input_;
+  }
+
+  return op;
 }
 
 /// Recursively walks the plan tree, fusing each Expand+EUF pair whose edge

@@ -1207,6 +1207,17 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   /// Limit for the number of paths returned in kshortest path expansion.
   Expression *limit_;
 
+  /// Uniqueness duty absorbed from a fused EdgeUniquenessFilter. -1 means no
+  /// duty (default; ExpandVariable behaves exactly as before). Otherwise
+  /// selects the per-context shared container slot in `edge_uniqueness_sets`.
+  int unique_pattern_id_{-1};
+  /// Mirrors EdgeUniquenessFilter::previous_symbols_ - non-empty only when
+  /// this ExpandVariable absorbed the bottommost EUF of its pattern.
+  std::vector<Symbol> unique_previous_symbols_{};
+  /// Mirrors EdgeUniquenessFilter::is_topmost_ - when true, the accepted
+  /// path's Gids are not published into the shared container.
+  bool unique_is_topmost_{false};
+
   std::string_view OperatorName() const;
 
   std::string ToString() const override;

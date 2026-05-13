@@ -2219,8 +2219,19 @@ class ExpandVariableCursor : public Cursor {
 
     AbortCheck(context);
 
+    // Re-entry: pop whatever the previous accepted Pull pushed into the
+    // shared uniqueness container.
+    if (self_.unique_pattern_id_ >= 0 && pushed_this_cycle_ != 0) {
+      auto &set = GetUniquenessSet(context, self_.unique_pattern_id_);
+      set.resize(set.size() - pushed_this_cycle_);
+      pushed_this_cycle_ = 0;
+    }
+
     while (true) {
-      if (Expand(frame, context)) return true;
+      if (Expand(frame, context)) {
+        if (!TryCommitUniqueness(frame, context)) continue;
+        return true;
+      }
 
       if (PullInput(frame, context)) {
         // if lower bound is zero we also yield empty paths
@@ -2229,9 +2240,11 @@ class ExpandVariableCursor : public Cursor {
           if (!self_.common_.existing_node) {
             auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
             frame_writer.Write(self_.common_.node_symbol, start_vertex);
+            if (!TryCommitUniqueness(frame, context)) continue;
             return true;
           }
           if (CheckExistingNode(start_vertex, self_.common_.node_symbol, frame)) {
+            if (!TryCommitUniqueness(frame, context)) continue;
             return true;
           }
         }
@@ -2250,6 +2263,7 @@ class ExpandVariableCursor : public Cursor {
     input_cursor_->Reset();
     edges_.clear();
     edges_it_.clear();
+    pushed_this_cycle_ = 0;
   }
 
  private:
@@ -2269,6 +2283,56 @@ class ExpandVariableCursor : public Cursor {
   utils::pmr::vector<ExpandEdges> edges_;
   // an iterator indicating the position in the corresponding edges_ element
   utils::pmr::vector<decltype(edges_.begin()->begin())> edges_it_;
+
+  // Number of Gids pushed into the shared uniqueness slot on the most recent
+  // accepted Pull. Popped at re-entry. Only used when
+  // self_.unique_pattern_id_ >= 0.
+  size_t pushed_this_cycle_{0};
+
+  // When this ExpandVariable has absorbed an EUF, check the candidate path
+  // (the edge list on the frame plus the bottommost-seed previous symbols)
+  // against the shared container. On accept push the appropriate Gids and
+  // record pushed_this_cycle_. Returns true if accepted, false on conflict
+  // (caller continues to the next candidate).
+  bool TryCommitUniqueness(Frame &frame, ExecutionContext &context) {
+    if (self_.unique_pattern_id_ < 0) return true;
+    auto &set = GetUniquenessSet(context, self_.unique_pattern_id_);
+    const size_t set_size_before = set.size();
+
+    auto push_value = [&set](const TypedValue &v) {
+      if (v.type() == TypedValue::Type::List) [[unlikely]] {
+        for (const TypedValue &elem : v.ValueList()) {
+          set.push_back(elem.ValueEdge().Gid().AsUint());
+        }
+      } else {
+        set.push_back(v.ValueEdge().Gid().AsUint());
+      }
+    };
+
+    // Bottommost-EUF seed.
+    for (const auto &sym : self_.unique_previous_symbols_) push_value(frame[sym]);
+
+    // Read the edge list on the frame (var-length always produces a list).
+    const TypedValue &edges_value = frame[self_.common_.edge_symbol];
+    if (edges_value.type() == TypedValue::Type::List) {
+      const auto &edges_list = edges_value.ValueList();
+      for (const TypedValue &elem : edges_list) {
+        const uint64_t gid = elem.ValueEdge().Gid().AsUint();
+        // Collision against seed or against gids already in the set from
+        // outer Expands of the same pattern. Note we deliberately do not
+        // detect intra-path collisions here - those are already prevented by
+        // ExpandVariable's per-path uniqueness invariant.
+        if (std::ranges::find(std::ranges::subrange(set.begin(), set.begin() + set_size_before), gid) !=
+            set.begin() + set_size_before) {
+          set.resize(set_size_before);
+          return false;
+        }
+        if (!self_.unique_is_topmost_) set.push_back(gid);
+      }
+    }
+    pushed_this_cycle_ = set.size() - set_size_before;
+    return true;
+  }
 
   /**
    * Helper function that Pulls from the input vertex and
@@ -4350,6 +4414,9 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
   }
   object->total_weight_ = total_weight_;
   object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
+  object->unique_pattern_id_ = unique_pattern_id_;
+  object->unique_previous_symbols_ = unique_previous_symbols_;
+  object->unique_is_topmost_ = unique_is_topmost_;
   return object;
 }
 
