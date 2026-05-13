@@ -21,6 +21,7 @@
 #include "disk_test_utils.hpp"
 #include "flags/general.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/storage.hpp"
 
 namespace {
 

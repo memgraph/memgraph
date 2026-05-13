@@ -3713,7 +3713,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL, {}};
   memgraph::storage::ReplicationStorageState repl_storage_state;
   memgraph::storage::EnumStore enum_store;
-  memgraph::storage::ttl::TTL ttl{nullptr, nullptr, nullptr};
+  memgraph::storage::ttl::TTL ttl{nullptr, {}, {}};
 
   memgraph::storage::durability::Recovery recovery{
       config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory,
