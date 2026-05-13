@@ -23,13 +23,16 @@ struct SnapshotProgress {
   std::atomic<Phase> phase{Phase::IDLE};
   std::atomic<uint64_t> items_done{0};
   std::atomic<uint64_t> items_total{0};
-  // system_clock microseconds since POSIX epoch; 0 means "not started".
-  // Used for both wall-clock display (start_time) and elapsed_ms in
-  // SHOW TRANSACTIONS. A wall-clock step (NTP / manual clock change) during
-  // a long snapshot can briefly skew elapsed_ms; the value is display-only.
+  // system_clock us since epoch (display); 0 means "not started". steady_clock ms since epoch
+  // (elapsed_ms) is only meaningful when start_time_us != 0.
   std::atomic<int64_t> start_time_us{0};
+  std::atomic<int64_t> start_steady_ms{0};
 
   void Start() {
+    start_steady_ms.store(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count(),
+        std::memory_order_release);
     start_time_us.store(
         std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
             .count(),
@@ -49,6 +52,7 @@ struct SnapshotProgress {
     items_done.store(0, std::memory_order_release);
     items_total.store(0, std::memory_order_release);
     start_time_us.store(0, std::memory_order_release);
+    start_steady_ms.store(0, std::memory_order_release);
   }
 
   static const char *PhaseToString(Phase phase);
@@ -59,6 +63,7 @@ struct SnapshotProgressView {
   uint64_t items_done;
   uint64_t items_total;
   int64_t start_time_us;
+  int64_t start_steady_ms;
 };
 
 /// RAII helper that batches progress increments into a local counter,

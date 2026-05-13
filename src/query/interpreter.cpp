@@ -6509,18 +6509,15 @@ auto ToStatusFilter(TransactionStatus status) -> std::optional<TransactionQueueQ
   }
 }
 
-// Builds (start_time, elapsed_ms) for a SHOW TRANSACTIONS row from the transaction's start
-// wall-clock time. elapsed_ms is clamped at 0 to absorb small backward clock steps.
-auto StartTimeAndElapsedMs(std::chrono::system_clock::time_point start) -> std::pair<TypedValue, int64_t> {
+auto StartTimeAndElapsedMs(std::chrono::system_clock::time_point start,
+                           std::chrono::steady_clock::time_point steady_start) -> std::pair<TypedValue, int64_t> {
   static const utils::Timezone kUtc = utils::DefaultTimezone();
   auto const start_us = std::chrono::duration_cast<std::chrono::microseconds>(start.time_since_epoch());
   TypedValue start_tv(utils::ZonedDateTime(std::chrono::sys_time<std::chrono::microseconds>{start_us}, kUtc));
   auto const elapsed_ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - start).count();
-  return {std::move(start_tv), std::max<int64_t>(0, elapsed_ms)};
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - steady_start).count();
+  return {std::move(start_tv), elapsed_ms};
 }
-
-std::initializer_list<int> a;
 
 template <typename Func>
 auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
@@ -6566,7 +6563,8 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
         }
       }
       results.back().emplace_back(metadata_tv);
-      auto [start_tv, elapsed_ms] = StartTimeAndElapsedMs(interpreter->transaction_start_time_);
+      auto [start_tv, elapsed_ms] =
+          StartTimeAndElapsedMs(interpreter->transaction_start_time_, interpreter->transaction_start_steady_);
       results.back().emplace_back(std::move(start_tv));
       results.back().emplace_back(elapsed_ms);
     }
@@ -6585,7 +6583,9 @@ std::vector<TypedValue> BuildSnapshotTransactionRow(storage::SnapshotProgressVie
   int64_t elapsed_ms = 0;
   if (progress.start_time_us > 0) {
     auto const start_tp = std::chrono::system_clock::time_point{std::chrono::microseconds{progress.start_time_us}};
-    std::tie(start_tv, elapsed_ms) = StartTimeAndElapsedMs(start_tp);
+    auto const steady_start =
+        std::chrono::steady_clock::time_point{std::chrono::milliseconds{progress.start_steady_ms}};
+    std::tie(start_tv, elapsed_ms) = StartTimeAndElapsedMs(start_tp, steady_start);
   }
   std::vector<TypedValue> row;
   row.reserve(7);
@@ -9830,9 +9830,9 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
   auto tx_id = interpreter_context_->id_handler.next();
   current_transaction_ = tx_id;
-  // Capture start time *before* the release-store below, which publishes this
-  // write to ShowTransactions readers that acquire via TryAcquireForVerification.
   transaction_start_time_ = std::chrono::system_clock::now();
+  transaction_start_steady_ = std::chrono::steady_clock::now();
+  // Release publishes the start-time writes above to verifier-holding readers.
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   if (query_logger_) {
     query_logger_->SetTransactionId(std::to_string(tx_id));
