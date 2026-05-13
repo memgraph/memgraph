@@ -16,10 +16,13 @@
 
 #include <gtest/gtest.h>
 #include <prometheus/metric_family.h>
+#include <prometheus/registry.h>
 
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
 #include "flags/general.hpp"
+#include "metrics/scoped_gauge.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -130,4 +133,38 @@ TEST(DatabaseMetrics, SwitchToOnDiskUpdatesSnapshotCallback) {
 
   std::filesystem::remove_all(config.durability.storage_directory);
   disk_test_utils::RemoveRocksDbDirs("SwitchToOnDiskMetrics");
+}
+
+TEST(MetricHandles, GaugeHandleNullSafety) {
+  memgraph::metrics::GaugeHandle h{};
+  EXPECT_NO_FATAL_FAILURE(h.Increment());
+  EXPECT_NO_FATAL_FAILURE(h.Decrement());
+  EXPECT_NO_FATAL_FAILURE(h.Set(5.0));
+  EXPECT_EQ(h.Value(), 0.0);
+}
+
+TEST(MetricHandles, CounterHandleNullSafety) {
+  memgraph::metrics::CounterHandle h{};
+  EXPECT_NO_FATAL_FAILURE(h.Increment());
+  EXPECT_NO_FATAL_FAILURE(h.Increment(10.0));
+  EXPECT_EQ(h.Value(), 0.0);
+}
+
+TEST(MetricHandles, ScopedGaugeIncrementsAndDecrements) {
+  auto registry = std::make_shared<prometheus::Registry>();
+  auto &gauge = prometheus::BuildGauge().Name("test").Register(*registry).Add({});
+  EXPECT_EQ(gauge.Value(), 0.0);
+  {
+    memgraph::metrics::ScopedGauge scoped{&gauge};
+    EXPECT_EQ(gauge.Value(), 1.0);
+  }
+  EXPECT_EQ(gauge.Value(), 0.0);
+}
+
+TEST(MetricHandles, ScopedGaugeNullSafety) {
+  EXPECT_NO_FATAL_FAILURE([] { memgraph::metrics::ScopedGauge scoped{nullptr}; }());
+}
+
+TEST(MetricHandles, ScopedHistogramTimerNullSafety) {
+  EXPECT_NO_FATAL_FAILURE([] { memgraph::metrics::ScopedHistogramTimer timer{nullptr}; }());
 }
