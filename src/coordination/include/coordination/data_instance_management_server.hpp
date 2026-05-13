@@ -21,7 +21,7 @@ namespace memgraph::coordination {
 class DataInstanceManagementServer {
  public:
   explicit DataInstanceManagementServer(const ManagementServerConfig &config,
-                                        std::optional<utils::TlsConfig> const &tls_config);
+                                        std::optional<utils::TlsServerConfig> const &tls_config);
   DataInstanceManagementServer(const DataInstanceManagementServer &) = delete;
   DataInstanceManagementServer(DataInstanceManagementServer &&) = delete;
   DataInstanceManagementServer &operator=(const DataInstanceManagementServer &) = delete;

@@ -31,8 +31,6 @@ constexpr auto *kReplicaServer = "replica_server";
 constexpr auto *kPort = "replica_port";
 constexpr auto *kSyncMode = "replica_sync_mode";
 constexpr auto *kCheckFrequency = "replica_check_frequency";
-constexpr auto *kSSLKeyFile = "replica_ssl_key_file";
-constexpr auto *kSSLCertFile = "replica_ssl_cert_file";
 constexpr auto *kReplicationRole = "replication_role";
 constexpr auto *kVersion = "durability_version";
 constexpr auto *kMainUUID = "main_uuid";
@@ -107,24 +105,11 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
                                {kCheckFrequency, p.config.replica_check_frequency.count()}};
 
   common[kReplicaServer] = p.config.repl_server_endpoint;  // non-resolved
-
-  if (p.config.ssl.has_value()) {
-    common[kSSLKeyFile] = p.config.ssl->key_file;
-    common[kSSLCertFile] = p.config.ssl->cert_file;
-  } else {
-    common[kSSLKeyFile] = nullptr;
-    common[kSSLCertFile] = nullptr;
-  }
   j = std::move(common);
 }
 
 void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   using io::network::Endpoint;
-
-  const auto &key_file = j.at(kSSLKeyFile);
-  const auto &cert_file = j.at(kSSLCertFile);
-
-  MG_ASSERT(key_file.is_null() == cert_file.is_null());
 
   auto const seconds = j.at(kCheckFrequency).get<std::chrono::seconds::rep>();
   auto config = ReplicationClientConfig{
@@ -142,11 +127,6 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
 
   config.repl_server_endpoint = std::move(repl_server_endpoint);
 
-  if (!key_file.is_null()) {
-    config.ssl = ReplicationClientConfig::SSL{};
-    key_file.get_to(config.ssl->key_file);
-    cert_file.get_to(config.ssl->cert_file);
-  }
   p = ReplicationReplicaEntry{.config = std::move(config)};
 }
 }  // namespace memgraph::replication::durability

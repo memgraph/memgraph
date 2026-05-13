@@ -293,9 +293,17 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
 // coordinator instance, make sure everything is initialized in coordinator instance
 // prior to calling InitRaftServer. To be specific, this function
 // will call `become_leader_cb_`
-auto RaftState::InitRaftServer() -> void {
+auto RaftState::InitRaftServer(std::optional<utils::TlsServerConfig> const &tls_config) -> void {
   asio_service::options asio_opts;
   asio_opts.thread_pool_size_ = 1;
+
+  // Enable TLS connections
+  if (tls_config.has_value()) {
+    asio_opts.enable_ssl_ = true;
+    asio_opts.server_cert_file_ = tls_config->cert_file;
+    asio_opts.server_key_file_ = tls_config->key_file;
+    asio_opts.root_cert_file_ = tls_config->ca_file;
+  }
 
   raft_params params;
   params.heart_beat_interval_ = 1000;

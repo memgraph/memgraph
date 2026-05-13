@@ -80,7 +80,7 @@ using nuraft::ptr;
 using namespace std::chrono_literals;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
-    : tls_config(config.tls_config),
+    : tls_config_(config.tls_config),
       coordinator_management_server_{ManagementServerConfig{io::network::Endpoint{
                                          kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}},
                                      config.tls_config} {
@@ -90,7 +90,7 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
   raft_state_ = std::make_unique<RaftState>(
       config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(), CoordinationClusterChangeObserver{this});
   UpdateClientConnectors(raft_state_->GetCoordinatorInstancesAux());
-  raft_state_->InitRaftServer();
+  raft_state_->InitRaftServer(config.tls_config);
 
   // Last thing to contruct is the server and RPC handlers (that use instance and raft state)
   CoordinatorInstanceManagementServerHandlers::Register(coordinator_management_server_, *this);
@@ -218,7 +218,9 @@ void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstance
     connectors->emplace(connectors->end(),
                         std::piecewise_construct,
                         std::forward_as_tuple(coordinator.id),
-                        std::forward_as_tuple(ManagementServerConfig{std::move(*mgmt_endpoint)}, tls_config));
+                        std::forward_as_tuple(ManagementServerConfig{std::move(*mgmt_endpoint)},
+                                              utils::TlsClientConfig{.key_file = tls_config_->key_file,
+                                                                     .cert_file = tls_config_->cert_file}));
   }
 }
 
@@ -471,11 +473,12 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   }
 
   std::ranges::for_each(raft_state_data_instances, [this](auto const &data_instance) {
-    auto &instance = repl_instances_.emplace_back(data_instance.config,
-                                                  this,
-                                                  raft_state_->GetInstanceDownTimeoutSec(),
-                                                  raft_state_->GetInstanceHealthCheckFrequencySec(),
-                                                  tls_config);
+    auto &instance = repl_instances_.emplace_back(
+        data_instance.config,
+        this,
+        raft_state_->GetInstanceDownTimeoutSec(),
+        raft_state_->GetInstanceHealthCheckFrequencySec(),
+        utils::TlsClientConfig{.key_file = tls_config_->key_file, .cert_file = tls_config_->cert_file});
     instance.StartStateCheck();
   });
 
@@ -787,11 +790,12 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
-  auto *new_instance = &repl_instances_.emplace_back(config,
-                                                     this,
-                                                     raft_state_->GetInstanceDownTimeoutSec(),
-                                                     raft_state_->GetInstanceHealthCheckFrequencySec(),
-                                                     tls_config);
+  auto *new_instance = &repl_instances_.emplace_back(
+      config,
+      this,
+      raft_state_->GetInstanceDownTimeoutSec(),
+      raft_state_->GetInstanceHealthCheckFrequencySec(),
+      utils::TlsClientConfig{.key_file = tls_config_->key_file, .cert_file = tls_config_->cert_file});
 
   // Try sending RPC now but the failure is not fatal, we will try again in the reconciliation loop
   // From the user's perspective, as soon as the log is committed to Raft logs, the in-memory state will eventually

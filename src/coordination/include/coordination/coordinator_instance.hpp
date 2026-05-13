@@ -165,7 +165,7 @@ class CoordinatorInstance {
     return StatusEnum::LEADER_NOT_FOUND;
   }
 
-  std::optional<utils::TlsConfig> tls_config;
+  std::optional<utils::TlsServerConfig> tls_config_;
 
   // Cache which stores information db->num_committed_txns from the current main. This gets updated through the
   // StateCheckRpc call which is only used on the leader

@@ -40,7 +40,7 @@ class ReplicationInstanceClient {
   explicit ReplicationInstanceClient(std::string instance_name, io::network::Endpoint mgt_server,
                                      CoordinatorInstance *coord_instance,
                                      std::chrono::seconds instance_health_check_frequency_sec,
-                                     std::optional<utils::TlsConfig> const &tls_config);
+                                     std::optional<utils::TlsClientConfig> const &tls_config);
 
   ~ReplicationInstanceClient() = default;
 

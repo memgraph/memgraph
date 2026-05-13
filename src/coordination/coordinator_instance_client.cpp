@@ -13,20 +13,11 @@
 
 #include "coordination/coordinator_instance_client.hpp"
 
-namespace {
-auto CreateClientContext(std::optional<memgraph::utils::TlsConfig> const &tls_config)
-    -> memgraph::communication::ClientContext {
-  return tls_config.has_value() ? memgraph::communication::ClientContext{tls_config->key_file, tls_config->cert_file}
-                                : memgraph::communication::ClientContext{};
-}
-
-}  // namespace
-
 namespace memgraph::coordination {
 
 CoordinatorInstanceClient::CoordinatorInstanceClient(ManagementServerConfig const &config,
-                                                     std::optional<utils::TlsConfig> const &tls_config)
-    : rpc_context_(CreateClientContext(tls_config)), rpc_client_{config.endpoint, &rpc_context_} {}
+                                                     std::optional<utils::TlsClientConfig> const &tls_config)
+    : rpc_context_(communication::CreateClientContext(tls_config)), rpc_client_{config.endpoint, &rpc_context_} {}
 
 auto CoordinatorInstanceClient::RpcClient() const -> rpc::Client & { return rpc_client_; }
 }  // namespace memgraph::coordination

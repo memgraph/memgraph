@@ -15,12 +15,19 @@
 
 namespace memgraph::utils {
 
-struct TlsConfig {
+struct TlsServerConfig {
   std::string key_file;
   std::string cert_file;
   std::string ca_file;
 
-  friend bool operator==(TlsConfig const &, TlsConfig const &) = default;
+  friend bool operator==(TlsServerConfig const &, TlsServerConfig const &) = default;
+};
+
+struct TlsClientConfig {
+  std::string key_file;
+  std::string cert_file;
+
+  friend bool operator==(TlsClientConfig const &, TlsClientConfig const &) = default;
 };
 
 }  // namespace memgraph::utils

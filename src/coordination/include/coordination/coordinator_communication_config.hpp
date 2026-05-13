@@ -41,7 +41,7 @@ struct UpdateInstanceConfig {
 struct ReplicationInstanceInitConfig {
   int management_port{0};
   // No need to persist TlsConfig, this is just cached value from gflags
-  std::optional<utils::TlsConfig> tls_config;
+  std::optional<utils::TlsServerConfig> tls_config;
 };
 
 // If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but without sinks effectively
@@ -55,7 +55,7 @@ struct CoordinatorInstanceInitConfig {
   std::string coordinator_hostname;
   std::string nuraft_log_file;
   // No need to persist TlsConfig, this is just cached value from gflags
-  std::optional<utils::TlsConfig> tls_config;
+  std::optional<utils::TlsServerConfig> tls_config;
 };
 
 struct LogStoreDurability {

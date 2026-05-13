@@ -34,22 +34,14 @@ struct ReplicationClientConfig {
   // that seems like a reasonable timeframe in which main should notice a
   // replica is down.
   std::chrono::seconds replica_check_frequency{1};
-
-  // TODO: (andi) Maybe refactor to use utils::TlsConfig
-  struct SSL {
-    std::string key_file;
-    std::string cert_file;
-    friend bool operator==(const SSL &, const SSL &) = default;
-  };
-
-  std::optional<SSL> ssl{};
+  std::optional<utils::TlsClientConfig> tls_config{};
 
   friend bool operator==(ReplicationClientConfig const &, ReplicationClientConfig const &) = default;
 };
 
 struct ReplicationServerConfig {
   io::network::Endpoint repl_server;  // could be IP or domain name
-  std::optional<utils::TlsConfig> tls_config;
+  std::optional<utils::TlsServerConfig> tls_config;
 
   friend bool operator==(ReplicationServerConfig const &, ReplicationServerConfig const &) = default;
 };

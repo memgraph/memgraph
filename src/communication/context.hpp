@@ -130,12 +130,19 @@ class ServerContext final {
   std::atomic<std::shared_ptr<boost::asio::ssl::context>> ctx_;
 };
 
-inline auto CreateServerContext(std::optional<utils::TlsConfig> const &tls_config) -> communication::ServerContext {
+inline auto CreateServerContext(std::optional<utils::TlsServerConfig> const &tls_config)
+    -> communication::ServerContext {
   return tls_config.has_value() ? communication::ServerContext{tls_config->key_file,
                                                                tls_config->cert_file,
                                                                tls_config->ca_file,
                                                                /*verify_peer=*/true}
                                 : communication::ServerContext{};
+}
+
+inline auto CreateClientContext(std::optional<utils::TlsClientConfig> const &tls_config)
+    -> communication::ClientContext {
+  return tls_config.has_value() ? communication::ClientContext{tls_config->key_file, tls_config->cert_file}
+                                : communication::ClientContext{};
 }
 
 }  // namespace memgraph::communication
