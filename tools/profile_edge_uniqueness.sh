@@ -99,11 +99,12 @@ echo "==> Starting perf record on PID $MG_PID..."
 
 # Attach perf in background; it records until we send SIGINT to it.
 # -F 999:  ~1kHz sampling - enough for a 400ms window without too much overhead
-# --call-graph dwarf: full unwind through inlined/optimised frames
+# --call-graph fp: frame-pointer unwind (RelWithDebInfo builds with -fno-omit-frame-pointer).
+# ~10x faster post-processing than dwarf on AMD Zen3 (no LBR).
 perf record \
     -F 999 \
     -p "$MG_PID" \
-    --call-graph dwarf \
+    --call-graph fp \
     -o "$OUTPUT_DIR/perf.data" \
     &
 PERF_PID=$!
