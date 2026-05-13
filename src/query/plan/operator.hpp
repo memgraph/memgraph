@@ -1728,10 +1728,33 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
+  // Whether the candidate symbol is a single edge or a list of edges.
+  // Determined by the planner from the symbol's Type (EDGE vs EDGE_LIST).
+  enum class SymbolKind : uint8_t { Edge, EdgeList };
+
   EdgeUniquenessFilter() = default;
 
+  // Constructor used by the planner.
+  //   expand_symbol     - the new edge symbol being filtered for uniqueness
+  //   candidate_kind    - whether expand_symbol holds an Edge or a List<Edge>
+  //   previous_symbols  - on the bottommost EUF of a pattern, the leading edge
+  //                       symbol(s) that must be seeded into the shared
+  //                       container (one-time per cycle). Empty for
+  //                       non-bottommost EUFs. The planner sets exactly one;
+  //                       tests may set multiple to simulate a stack in a
+  //                       single operator.
+  //   pattern_id        - planner-assigned pattern index used to select the
+  //                       shared container slot in ExecutionContext.
+  //   is_topmost        - true for the topmost EUF in a pattern; topmost
+  //                       skips the push (nothing above reads its Gid).
+  EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol, SymbolKind candidate_kind,
+                       std::vector<Symbol> previous_symbols, int pattern_id, bool is_topmost);
+
+  // Back-compat constructor for tests that build a single standalone EUF.
+  // Defaults: candidate is a single edge, pattern_id=0, is_topmost=true.
   EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol,
                        const std::vector<Symbol> &previous_symbols);
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1746,7 +1769,10 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol expand_symbol_;
-  std::vector<Symbol> previous_symbols_;
+  SymbolKind candidate_kind_{SymbolKind::Edge};
+  std::vector<Symbol> previous_symbols_{};  // non-empty only on the bottommost EUF
+  int pattern_id_{0};
+  bool is_topmost_{true};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -1761,6 +1787,9 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
    private:
     const EdgeUniquenessFilter &self_;
     const UniqueCursorPtr input_cursor_;
+    // Number of Gids pushed onto the shared container on the most recent
+    // accepted Pull. Popped at the top of the next Pull (re-entry).
+    uint8_t pushed_this_cycle_{0};
   };
 };
 

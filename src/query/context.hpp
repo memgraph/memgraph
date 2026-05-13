@@ -14,6 +14,9 @@
 #include <atomic>
 #include <memory>
 #include <type_traits>
+#include <vector>
+
+#include <absl/container/inlined_vector.h>
 
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/metadata.hpp"
@@ -136,6 +139,12 @@ struct ExecutionContext {
   // acquire from it when work leaves the main query thread, so TLS-scoped
   // allocations still attribute to the parent DB.
   memgraph::memory::ArenaPool *db_arena_pool{nullptr};
+
+  // Shared per-pattern uniqueness sets used by EdgeUniquenessFilter cursors.
+  // Indexed by the operator's pattern_id_ (assigned by the planner).
+  // Each slot stores the flat Gids of edges already bound in that pattern's
+  // current match instance. Sized lazily by EUF cursors on first access.
+  std::vector<absl::InlinedVector<uint64_t, 8>> edge_uniqueness_sets;
 
   auto commit_args() -> storage::CommitArgs;
 };

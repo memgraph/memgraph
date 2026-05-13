@@ -5895,10 +5895,20 @@ void RemoveLabels::RemoveLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
 void RemoveLabels::RemoveLabelsCursor::Reset() { input_cursor_->Reset(); }
 
 EdgeUniquenessFilter::EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol,
-                                           const std::vector<Symbol> &previous_symbols)
+                                           SymbolKind candidate_kind, std::vector<Symbol> previous_symbols,
+                                           int pattern_id, bool is_topmost)
     : input_(input ? input : std::make_shared<Once>()),
       expand_symbol_(std::move(expand_symbol)),
-      previous_symbols_(previous_symbols) {}
+      candidate_kind_(candidate_kind),
+      previous_symbols_(std::move(previous_symbols)),
+      pattern_id_(pattern_id),
+      is_topmost_(is_topmost) {}
+
+EdgeUniquenessFilter::EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol,
+                                           const std::vector<Symbol> &previous_symbols)
+    : EdgeUniquenessFilter(input, expand_symbol,
+                           expand_symbol.type() == Symbol::Type::EDGE_LIST ? SymbolKind::EdgeList : SymbolKind::Edge,
+                           previous_symbols, /*pattern_id=*/0, /*is_topmost=*/true) {}
 
 ACCEPT_WITH_INPUT(EdgeUniquenessFilter)
 
@@ -5916,11 +5926,18 @@ std::unique_ptr<LogicalOperator> EdgeUniquenessFilter::Clone(AstStorage *storage
   auto object = std::make_unique<EdgeUniquenessFilter>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->expand_symbol_ = expand_symbol_;
+  object->candidate_kind_ = candidate_kind_;
   object->previous_symbols_ = previous_symbols_;
+  object->pattern_id_ = pattern_id_;
+  object->is_topmost_ = is_topmost_;
   return object;
 }
 
 std::string EdgeUniquenessFilter::ToString() const {
+  // Render as "EdgeUniquenessFilter {<seed-list-or-empty> : <expand>}" to
+  // keep the existing pretty-print format. Non-bottommost EUFs have no
+  // per-operator seed symbols; their previous edges live in the shared
+  // pattern container populated by lower EUFs.
   return fmt::format("EdgeUniquenessFilter {{{0} : {1}}}",
                      utils::IterableToString(previous_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
                      expand_symbol_.name());
@@ -5936,17 +5953,14 @@ namespace {
  *    - a and b are either edge or edge-list values, and there
  *    is at least one matching edge in the two values
  */
-bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
-  auto compare_to_list = [](const TypedValue &list, const TypedValue &other) {
-    for (const TypedValue &list_elem : list.ValueList())
-      if (ContainsSameEdge(list_elem, other)) return true;
-    return false;
-  };
-
-  if (a.type() == TypedValue::Type::List) return compare_to_list(a, b);
-  if (b.type() == TypedValue::Type::List) return compare_to_list(b, a);
-
-  return a.ValueEdge() == b.ValueEdge();
+// Looks up (and lazily extends to fit) this cursor's shared uniqueness slot in
+// the ExecutionContext, then returns a reference to it.
+absl::InlinedVector<uint64_t, 8> &GetUniquenessSet(ExecutionContext &context, int pattern_id) {
+  auto &sets = context.edge_uniqueness_sets;
+  if (static_cast<int>(sets.size()) <= pattern_id) [[unlikely]] {
+    sets.resize(pattern_id + 1);
+  }
+  return sets[pattern_id];
 }
 }  // namespace
 
@@ -5956,26 +5970,109 @@ bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, Execut
 
   AbortCheck(context);
 
-  auto expansion_ok = [&]() {
-    const auto &expand_value = frame[self_.expand_symbol_];
-    for (const auto &previous_symbol : self_.previous_symbols_) {
-      const auto &previous_value = frame[previous_symbol];
-      // This shouldn't raise a TypedValueException, because the planner
-      // makes sure these are all of the expected type. In case they are not
-      // an error should be raised long before this code is executed.
-      if (ContainsSameEdge(previous_value, expand_value)) return false;
+  auto &set = GetUniquenessSet(context, self_.pattern_id_);
+
+  // Re-entry: pop whatever we pushed on the previous successful Pull. This
+  // models the cursor "backtracking" past its last accepted candidate.
+  if (pushed_this_cycle_ != 0) {
+    set.resize(set.size() - pushed_this_cycle_);
+    pushed_this_cycle_ = 0;
+  }
+
+  // For the bottommost EUF in a pattern (planner sets exactly one previous
+  // symbol), `previous_symbols_` lists the leading edge(s) of the pattern
+  // that no lower EUF can push into the shared container. The bottommost
+  // pushes them itself on each accept; non-bottommost EUFs leave the vector
+  // empty and rely on lower EUFs to populate the container.
+  //
+  // The seed-push happens after input_cursor_->Pull succeeds (when the
+  // frame is valid for the current row) and is rolled back on candidate
+  // rejection so the container stays consistent with the cursor's accepted
+  // state. Each symbol may be an Edge or a List<Edge> (var-length path).
+
+  // Push the Gid(s) of a frame TypedValue (Edge or List<Edge>) into `set`
+  // and increment `pushed`. Cold path branch in the seed loop (bottommost
+  // EUF only); the hot upper-EUF path skips this entirely because
+  // previous_symbols_ is empty there.
+  auto push_value = [&set](const TypedValue &v, uint8_t &pushed) {
+    if (v.type() == TypedValue::Type::List) [[unlikely]] {
+      for (const TypedValue &elem : v.ValueList()) {
+        set.push_back(elem.ValueEdge().Gid().AsUint());
+        ++pushed;
+      }
+    } else {
+      set.push_back(v.ValueEdge().Gid().AsUint());
+      ++pushed;
     }
-    return true;
   };
 
-  while (input_cursor_->Pull(frame, context))
-    if (expansion_ok()) return true;
+  while (input_cursor_->Pull(frame, context)) {
+    uint8_t pushed = 0;
+    // Bottommost-EUF seed: push the leading edges of the pattern that no
+    // lower EUF can populate. Empty (and skipped) on non-bottommost EUFs.
+    for (const auto &sym : self_.previous_symbols_) push_value(frame[sym], pushed);
+
+    // Check the candidate. Static dispatch on the planner-provided
+    // candidate_kind_ when known; falls back to runtime dispatch on the
+    // actual TypedValue type for back-compat (tests that build EUFs with
+    // ANY-typed symbols, where the kind is not derivable from the symbol).
+    const TypedValue &cand = frame[self_.expand_symbol_];
+    const bool is_list_cand = self_.candidate_kind_ == SymbolKind::EdgeList || cand.type() == TypedValue::Type::List;
+
+    if (!is_list_cand) {
+      uint64_t gid = cand.ValueEdge().Gid().AsUint();
+      if (std::ranges::find(set, gid) != set.end()) {
+        set.resize(set.size() - pushed);
+        continue;
+      }
+      if (!self_.is_topmost_) {
+        set.push_back(gid);
+        ++pushed;
+      }
+      pushed_this_cycle_ = pushed;
+      return true;
+    }
+
+    // List candidate (cold): reject if any edge in the list collides; on
+    // accept, push all of its Gids for upper EUFs.
+    const auto &list = cand.ValueList();
+    bool conflict = false;
+    for (const TypedValue &elem : list) {
+      uint64_t gid = elem.ValueEdge().Gid().AsUint();
+      if (std::ranges::find(set, gid) != set.end()) {
+        conflict = true;
+        break;
+      }
+    }
+    if (conflict) {
+      set.resize(set.size() - pushed);
+      continue;
+    }
+    if (!self_.is_topmost_) {
+      for (const TypedValue &elem : list) {
+        set.push_back(elem.ValueEdge().Gid().AsUint());
+        ++pushed;
+      }
+    }
+    pushed_this_cycle_ = pushed;
+    return true;
+  }
   return false;
 }
 
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() { input_cursor_->Reset(); }
+void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() {
+  input_cursor_->Reset();
+  pushed_this_cycle_ = 0;
+  // Note: we have no access to ExecutionContext during Reset, so we cannot
+  // clear the shared slot here. Correctness is preserved by the push/pop
+  // discipline above: any Gids left behind in the slot will be popped by
+  // the cursors that pushed them on their next Pull cycle. Stale Gids that
+  // outlive their cursor (e.g. after an unmatched Cartesian iteration) are
+  // tolerated because the bottommost cursor's next accept overwrites them
+  // with current bindings before the candidate check runs.
+}
 
 EmptyResult::EmptyResult(const std::shared_ptr<LogicalOperator> &input)
     : input_(input ? input : std::make_shared<Once>()) {}

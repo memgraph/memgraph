@@ -549,6 +549,16 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
   TPlanningContext *context_;
 
+  // Per-pattern bookkeeping for EdgeUniquenessFilter construction. The keys
+  // are pointers into `Matching::edge_symbols` (stable for the duration of
+  // planning). Each pattern gets a unique sequential id used to address its
+  // shared uniqueness container on ExecutionContext. `topmost_per_pattern_`
+  // holds the most recently constructed EUF per pattern so that, when a
+  // newer one is built above it, the older one can be demoted (is_topmost_
+  // flipped false).
+  std::unordered_map<const std::unordered_set<Symbol> *, int> pattern_ids_;
+  std::unordered_map<int, EdgeUniquenessFilter *> topmost_per_pattern_;
+
   storage::LabelId GetLabel(const LabelIx &label) { return context_->db->NameToLabel(label.name); }
 
   storage::PropertyId GetProperty(const PropertyIx &prop) { return context_->db->NameToProperty(prop.name); }
@@ -1299,6 +1309,13 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                                         const std::unordered_set<Symbol> &bound_symbols) {
     // Ensure Cyphermorphism (different edge symbols always map to
     // different edges).
+    //
+    // Each EdgeUniquenessFilter is tied to one pattern (one element of
+    // `matching.edge_symbols`). All EUFs for the same pattern share a flat
+    // Gids container on ExecutionContext, indexed by `pattern_id`. The
+    // bottommost EUF (first one built for a pattern) seeds the leading edge
+    // into the container; the topmost (most recently built) skips the push
+    // on accept because nothing above reads its Gid.
     for (const auto &edge_symbols : matching.edge_symbols) {
       if (edge_symbols.size() <= 1) {
         // nothing to test edge uniqueness with
@@ -1314,9 +1331,48 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         }
         other_symbols.push_back(symbol);
       }
-      if (!other_symbols.empty()) {
-        last_op = std::make_unique<EdgeUniquenessFilter>(std::move(last_op), edge_symbol, other_symbols);
+      if (other_symbols.empty()) {
+        continue;
       }
+
+      // Find or assign a stable pattern_id for this edge_symbols set. The
+      // pointer-to-element is stable across this matching's lifetime, which
+      // is enough for the planner's purposes.
+      auto [id_it, id_inserted] = pattern_ids_.try_emplace(&edge_symbols, static_cast<int>(pattern_ids_.size()));
+      const int pattern_id = id_it->second;
+
+      // Flip the previously-topmost EUF (if any) for this pattern back to
+      // non-topmost. The new EUF we are about to build is the topmost.
+      const auto prev_topmost_it = topmost_per_pattern_.find(pattern_id);
+      const bool is_first_in_pattern = (prev_topmost_it == topmost_per_pattern_.end());
+      if (!is_first_in_pattern) {
+        prev_topmost_it->second->is_topmost_ = false;
+      }
+
+      // Bottommost EUF seeds all previously-bound edge symbols of the
+      // pattern into the shared container. By the calling convention of
+      // EnsureCyphermorphism (invoked after every new edge binding), the
+      // typical case for a bottommost EUF is exactly one previous symbol -
+      // but to remain robust against subqueries / non-standard binding
+      // orders, we seed all of `other_symbols` and let the cursor flatten
+      // any List-typed ones at seed time.
+      std::vector<Symbol> seed_symbols;
+      if (is_first_in_pattern) {
+        seed_symbols = other_symbols;
+      }
+
+      const auto candidate_kind = edge_symbol.type() == Symbol::Type::EDGE_LIST
+                                      ? EdgeUniquenessFilter::SymbolKind::EdgeList
+                                      : EdgeUniquenessFilter::SymbolKind::Edge;
+
+      auto new_op = std::make_unique<EdgeUniquenessFilter>(std::move(last_op),
+                                                           edge_symbol,
+                                                           candidate_kind,
+                                                           std::move(seed_symbols),
+                                                           pattern_id,
+                                                           /*is_topmost=*/true);
+      topmost_per_pattern_[pattern_id] = new_op.get();
+      last_op = std::move(new_op);
     }
 
     return last_op;
