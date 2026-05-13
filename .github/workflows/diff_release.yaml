@@ -191,6 +191,10 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
+      - name: Cancel run on merge_group failure
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        uses: ./.github/actions/cancel-on-failure-in-merge-queue
+
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
@@ -425,6 +429,10 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
+      - name: Cancel run on merge_group failure
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        uses: ./.github/actions/cancel-on-failure-in-merge-queue
+
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
     name: "End to end tests"
@@ -546,6 +554,10 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/docker_cleanup.sh
+
+      - name: Cancel run on merge_group failure
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        uses: ./.github/actions/cancel-on-failure-in-merge-queue
 
   stress:
     if: ${{ inputs.run_stress == 'true' }}
@@ -677,6 +689,10 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
+      - name: Cancel run on merge_group failure
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        uses: ./.github/actions/cancel-on-failure-in-merge-queue
+
   query_modules:
     if: ${{ inputs.run_query_modules == 'true' }}
     name: "Query modules tests"
@@ -777,3 +793,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/docker_cleanup.sh
+
+      - name: Cancel run on merge_group failure
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        uses: ./.github/actions/cancel-on-failure-in-merge-queue
