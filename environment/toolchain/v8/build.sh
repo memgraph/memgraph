@@ -563,6 +563,12 @@ if [[ ! -f "$SYSROOT/usr/lib/libncurses.a" ]]; then
     # Narrow (8-bit) ncurses with flat /usr/include header layout. The toolchain
     # tools (ccmake, GDB TUI) don't need wide-char support, and the flat layout
     # matches cmake's FindCurses default expectations.
+    # LDFLAGS bakes a RUNPATH into libncurses.so.6 so it finds the sysroot's
+    # libtinfo.so.6 (NEEDED) at runtime rather than falling back to whatever
+    # libtinfo the host's ld.so.cache happens to have — older hosts (Ubuntu
+    # 20.04 ships ncurses 6.2) lack symbols this ncurses 6.6 introduced
+    # (_nc_tiparm, etc.), and Python's build-time module import test fails.
+    LDFLAGS="-Wl,-rpath,$SYSROOT/usr/lib" \
     ./configure --prefix=/usr \
         --with-shared \
         --disable-widec \
@@ -646,10 +652,12 @@ if [[ ! -f "$SYSROOT/usr/lib/libpython${PYTHON_MAJMIN}.so" ]]; then
     # the build small (skip pip, tests, profile-guided optimisation) and link
     # against sysroot openssl / libffi already installed above.
     # --enable-shared so GDB gets libpython3.X.so to dlopen.
-    # LDFLAGS sets a relocatable rpath via $ORIGIN/../lib so libpython is
-    # resolved relative to the toolchain when GDB or python3 runs from
-    # /opt/toolchain-v8/sysroot/usr/bin.
-    LDFLAGS='-Wl,-rpath,$ORIGIN/../lib' \
+    # rpath is hardcoded to the final install location rather than $ORIGIN:
+    # python's autoconf→make→shell substitution chain eats every plausible
+    # escape ($ORIGIN → empty make var; $$ORIGIN → empty shell var after make
+    # collapses $$→$). The toolchain prefix is fixed at /opt/toolchain-v8
+    # throughout this script, so the absolute path is stable and reliable.
+    LDFLAGS="-Wl,-rpath,$SYSROOT/usr/lib" \
     ./configure --prefix=/usr \
         --enable-shared \
         --without-ensurepip \
@@ -1385,7 +1393,17 @@ if [[ ! -f "$PREFIX/bin/mgconsole" ]]; then
     git clone https://github.com/memgraph/mgconsole.git mgconsole
     pushd mgconsole
     git checkout $MGCONSOLE_TAG
+    # mgconsole builds mgclient as an ExternalProject, which does NOT inherit
+    # CMAKE_SYSROOT / CMAKE_FIND_ROOT_PATH_MODE_* from this top-level cmake
+    # call. Without a hint, mgclient's find_package(OpenSSL) finds the host's
+    # /usr/include/openssl/ssl.h (where SSL_get_peer_certificate is a real
+    # function under the 1.1 ABI), then links against the sysroot's OpenSSL
+    # 3.x libs (where it was renamed SSL_get1_peer_certificate) and fails to
+    # resolve. OPENSSL_ROOT_DIR is consulted by FindOpenSSL via the env, so
+    # it crosses the parent→ExternalProject boundary cleanly.
+    OPENSSL_ROOT_DIR="$SYSROOT/usr" \
     cmake -B build $COMMON_CMAKE_FLAGS
+    OPENSSL_ROOT_DIR="$SYSROOT/usr" \
     cmake --build build -j$CPUS --target mgconsole install
     popd
 fi
