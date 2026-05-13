@@ -260,14 +260,13 @@ auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipLi
 bool InMemoryEdgePropertyIndex::PublishIndex(PropertyId property, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(property);
   if (!index) return false;
-  auto *gauge = gauge_;
-  index->Publish(commit_timestamp, gauge);
+  index->Publish(commit_timestamp, gauge_);
   return true;
 }
 
-void InMemoryEdgePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
+void InMemoryEdgePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status_.Commit(commit_timestamp);
-  gauge_ = metrics::ScopedGauge{gauge};
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() = default;

@@ -139,12 +139,11 @@ Indices::Indices(const Config &config, StorageMode storage_mode, utils::MemoryTr
                active_edge_type_property_indices,
                active_edge_property_indices]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      label_index_ = std::make_unique<InMemoryLabelIndex>(active_label_indices.gauge);
-      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(active_label_property_indices.gauge);
-      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>(active_edge_type_indices.gauge);
-      edge_type_property_index_ =
-          std::make_unique<InMemoryEdgeTypePropertyIndex>(active_edge_type_property_indices.gauge);
-      edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>(active_edge_property_indices.gauge);
+      label_index_ = std::make_unique<InMemoryLabelIndex>(active_label_indices);
+      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(active_label_property_indices);
+      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>(active_edge_type_indices);
+      edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>(active_edge_type_property_indices);
+      edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>(active_edge_property_indices);
     } else {
       label_index_ = std::make_unique<DiskLabelIndex>(config);
       label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);

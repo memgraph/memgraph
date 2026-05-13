@@ -130,7 +130,7 @@ class DbmsHandler {
    *
    * @param configs storage configuration
    */
-  explicit DbmsHandler(storage::Config config);
+  DbmsHandler(storage::Config config);
 #else
   /**
    * @brief Initialize the handler. A single database is supported in community edition.

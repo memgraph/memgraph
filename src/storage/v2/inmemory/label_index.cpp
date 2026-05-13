@@ -87,14 +87,13 @@ auto InMemoryLabelIndex::GetIndividualIndex(LabelId label) const -> std::shared_
 auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) -> bool {
   auto index = GetIndividualIndex(label);
   if (!index) return false;
-  auto *gauge = gauge_;
-  index->Publish(commit_timestamp, gauge);
+  index->Publish(commit_timestamp, gauge_);
   return true;
 }
 
-void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
+void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = metrics::ScopedGauge{gauge};
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&index_accessor,

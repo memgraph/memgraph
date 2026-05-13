@@ -203,14 +203,13 @@ bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, Property
 bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(edge_type, property);
   if (!index) return false;
-  auto *gauge = gauge_;
-  index->Publish(commit_timestamp, gauge);
+  index->Publish(commit_timestamp, gauge_);
   return true;
 }
 
-void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
+void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = metrics::ScopedGauge{gauge};
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property,

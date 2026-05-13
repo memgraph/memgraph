@@ -196,14 +196,13 @@ bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpd
 bool InMemoryEdgeTypeIndex::PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(edge_type);
   if (!index) return false;
-  auto *gauge = gauge_;
-  index->Publish(commit_timestamp, gauge);
+  index->Publish(commit_timestamp, gauge_);
   return true;
 }
 
-void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
+void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status_.Commit(commit_timestamp);
-  gauge_ = metrics::ScopedGauge{gauge};
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() = default;

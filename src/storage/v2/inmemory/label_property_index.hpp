@@ -11,13 +11,10 @@
 
 #pragma once
 
-namespace prometheus {
-class Gauge;
-}  // namespace prometheus
-
 #include <span>
 
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -66,7 +63,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   using DescEntry = BasicEntry<true>;
 
  public:
-  explicit InMemoryLabelPropertyIndex(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
+  explicit InMemoryLabelPropertyIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
   template <typename EntryT = Entry>
   struct IndividualIndex {
@@ -76,7 +73,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         : permutations_helper(std::move(permutations_helper)), skiplist{} {}
 
     ~IndividualIndex() = default;
-    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
 
     PropertiesPermutationHelper const permutations_helper;
     utils::SkipListDb<EntryT> skiplist{};
@@ -477,7 +474,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
       -> std::shared_ptr<IndividualIndex<EntryT>>;
 
-  prometheus::Gauge *gauge_{nullptr};
+  metrics::GaugeHandle gauge_{};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

@@ -11,14 +11,11 @@
 
 #pragma once
 
-namespace prometheus {
-class Gauge;
-}  // namespace prometheus
-
 #include <map>
 #include <utility>
 
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
@@ -55,7 +52,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   };
 
  public:
-  explicit InMemoryEdgeTypeIndex(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
+  explicit InMemoryEdgeTypeIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
   class Iterable {
    public:
@@ -170,7 +167,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     explicit IndividualIndex() : skip_list_{} {}
 
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
 
     utils::SkipListDb<Entry> skip_list_;
     IndexStatus status_{};
@@ -261,7 +258,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   bool InstallIndividualIndex_(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> entry,
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
 
-  prometheus::Gauge *gauge_{nullptr};
+  metrics::GaugeHandle gauge_{};
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer const>()};
 

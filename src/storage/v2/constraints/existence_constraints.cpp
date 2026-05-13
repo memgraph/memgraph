@@ -96,7 +96,7 @@ bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property,
     return false;
   }
   constraint->status.Commit(commit_timestamp);
-  constraint->gauge_ = metrics::ScopedGauge{gauge_};
+  constraint->gauge_ = metrics::ScopedGauge{gauge_.gauge};
   return true;
 }
 

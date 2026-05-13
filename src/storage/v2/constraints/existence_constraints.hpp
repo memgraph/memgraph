@@ -18,6 +18,7 @@
 
 #include "absl/container/flat_hash_map.h"
 
+#include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
@@ -33,7 +34,7 @@ namespace memgraph::storage {
 
 class ExistenceConstraints {
  public:
-  explicit ExistenceConstraints(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
+  explicit ExistenceConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
   struct MultipleThreadsConstraintValidation {
     auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
@@ -141,7 +142,7 @@ class ExistenceConstraints {
 
   bool InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr);
 
-  prometheus::Gauge *gauge_{nullptr};
+  metrics::GaugeHandle gauge_{};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> constraints_{std::make_shared<Container const>()};
 };
 

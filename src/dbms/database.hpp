@@ -19,7 +19,11 @@
 
 #include "memory/db_arena_fwd.hpp"
 #include "query/cypher_query_interpreter.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v2/access_type.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/database_protector.hpp"
+#include "storage/v2/isolation_level.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/safe_string.hpp"
 #include "utils/thread_pool.hpp"
@@ -246,7 +250,7 @@ class Database {
   // Avoids double-counting: if this had graph_memory_tracker as parent, we'd count each
   // query PMR byte twice (once via TrackingMemoryResource::Alloc, once via arena hooks).
   utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
-  std::unique_ptr<memory::ArenaPool> db_arena_;         //!< Per-DB jemalloc arena pool with tracking hooks
+  std::unique_ptr<memory::ArenaPool> db_arena_;  //!< Per-DB jemalloc arena pool with tracking hooks
 
   // RAII guard that de-registers this database's metric handles from the
   // global PrometheusMetrics registry on destruction.

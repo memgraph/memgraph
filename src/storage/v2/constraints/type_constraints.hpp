@@ -17,6 +17,7 @@
 
 #include "absl/container/flat_hash_map.h"
 
+#include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
@@ -33,7 +34,7 @@ namespace memgraph::storage {
 
 class TypeConstraints {
  public:
-  explicit TypeConstraints(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
+  explicit TypeConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
   struct MultipleThreadsConstraintValidation {
     std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
@@ -122,7 +123,7 @@ class TypeConstraints {
 
   bool InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr, bool restore_l2p);
 
-  prometheus::Gauge *gauge_{nullptr};
+  metrics::GaugeHandle gauge_{};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

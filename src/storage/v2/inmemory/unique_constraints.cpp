@@ -312,9 +312,9 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 
 // --- IndividualConstraint implementation ---
 
-void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
+void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = metrics::ScopedGauge{gauge};
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 // --- ActiveConstraints implementation ---
@@ -537,8 +537,7 @@ bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
                                                   uint64_t commit_timestamp) {
   auto constraint = GetIndividualConstraint(label, properties);
   if (!constraint) return false;
-  auto *gauge = gauge_;
-  constraint->Publish(commit_timestamp, gauge);
+  constraint->Publish(commit_timestamp, gauge_);
   return true;
 }
 

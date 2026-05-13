@@ -11,14 +11,12 @@
 
 #pragma once
 
-namespace prometheus {
-class Gauge;
-}  // namespace prometheus
-
 #include <memory>
 #include <optional>
 #include <variant>
+
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
 
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
@@ -38,7 +36,7 @@ struct Transaction;
 
 class InMemoryUniqueConstraints : public UniqueConstraints {
  public:
-  explicit InMemoryUniqueConstraints(prometheus::Gauge *gauge = nullptr) : gauge_{gauge} {}
+  explicit InMemoryUniqueConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
   struct Entry {
     std::vector<PropertyValue> values;
@@ -77,7 +75,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     explicit IndividualConstraint() : skiplist{} {}
 
     ~IndividualConstraint();
-    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
 
     utils::SkipListDb<Entry> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
@@ -183,7 +181,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   auto InstallConstraint_(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr ptr)
       -> IndividualConstraintPtr;
 
-  prometheus::Gauge *gauge_{nullptr};
+  metrics::GaugeHandle gauge_{};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

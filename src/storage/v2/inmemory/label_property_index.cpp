@@ -537,10 +537,9 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
 
 bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths const &properties,
                                               uint64_t commit_timestamp, IndexOrder order) {
-  auto *gauge = gauge_;
   auto publish = [&](auto const &index) {
     if (!index) return false;
-    index->Publish(commit_timestamp, gauge);
+    index->Publish(commit_timestamp, gauge_);
     return true;
   };
   return (order == IndexOrder::ASC) ? publish(GetIndividualIndex<Entry>(label, properties))
@@ -548,9 +547,10 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
 }
 
 template <typename EntryT>
-void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
+void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(uint64_t commit_timestamp,
+                                                                  metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = metrics::ScopedGauge{gauge};
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 template <typename EntryT>
