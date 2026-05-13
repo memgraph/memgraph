@@ -62,7 +62,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   using Entry = BasicEntry<false>;
   using DescEntry = BasicEntry<true>;
 
- public:
   explicit InMemoryLabelPropertyIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
   template <typename EntryT = Entry>

@@ -590,11 +590,11 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
     auto const it = indices_map.find(added_label);
     if (it == indices_map.cend()) return;
     for (auto &[props, index] : it->second | rv::filter(relevant_index)) {
-      auto values = index->permutations_helper.Extract(vertex_after_update->properties);
+      auto &[permutations_helper, skiplist, status, _] = *index;
+      auto values = permutations_helper.Extract(vertex_after_update->properties);
       if (AnyNonNull(values)) {
-        auto acc = index->skiplist.access();
-        acc.insert(
-            {index->permutations_helper.ApplyPermutation(std::move(values)), vertex_after_update, tx.start_timestamp});
+        auto acc = skiplist.access();
+        acc.insert({permutations_helper.ApplyPermutation(std::move(values)), vertex_after_update, tx.start_timestamp});
       }
     }
   };

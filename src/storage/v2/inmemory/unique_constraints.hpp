@@ -14,10 +14,8 @@
 #include <memory>
 #include <optional>
 #include <variant>
-
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/prometheus_metrics.hpp"
-
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
@@ -141,6 +139,10 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// Publishes a constraint after validation, making it visible at the given commit timestamp.
   bool PublishConstraint(LabelId label, const std::set<PropertyId> &properties, uint64_t commit_timestamp);
 
+  /// Drops a constraint. Returns the evicted IndividualConstraint so the caller
+  /// can reinstall it via RestoreConstraint on abort, alongside the deletion
+  /// status. {SUCCESS, ptr} on success; {NOT_FOUND/EMPTY_PROPERTIES/..., nullptr}
+  /// otherwise.
   struct DropResult {
     DeletionStatus status;
     IndividualConstraintPtr evicted;
