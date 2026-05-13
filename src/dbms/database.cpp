@@ -61,64 +61,7 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
-Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
-      metrics_(config.salient.uuid, ([&config]() -> metrics::DatabaseMetricHandles {
-                 auto const should_register =
-                     !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
-                 if (!should_register) {
-                   return {};
-                 }
-                 return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
-               })()),
-      after_commit_trigger_pool_{1,
-                                 [this]() -> utils::ThreadPool::TaskSignature {
-                                   auto db_arena_scope = std::make_unique<memory::DbArenaScope>(db_arena_.get());
-                                   return [db_arena_scope = std::move(db_arena_scope)]() mutable {
-                                     db_arena_scope.reset();
-                                   };
-                                 }},
-      streams_(
-          std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams", db_arena_.get())),
-      plan_cache_{FLAGS_query_plan_cache_max_size} {
-  const memory::DbArenaScope db_arena_scope{this};
-
-  trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
-  std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
-
-  if (auto global_max = utils::total_memory_tracker.MaximumHardLimit(); global_max > 0) {
-    db_total_memory_tracker_.SetMaximumHardLimit(global_max);
-    db_total_memory_tracker_.SetHardLimit(0);
-  }
-
-  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
-      utils::DirExists(config.disk.main_storage_directory)) {
-    config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
-    storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
-                                                      std::move(invalidator),
-                                                      metrics_.handles(),
-                                                      std::move(database_protector_factory),
-                                                      db_arena_.get(),
-                                                      &db_embedding_memory_tracker_);
-  } else {
-    storage_ = dbms::CreateInMemoryStorage(std::move(config),
-                                           std::move(invalidator),
-                                           metrics_.handles(),
-                                           std::move(database_protector_factory),
-                                           db_arena_.get(),
-                                           &db_embedding_memory_tracker_);
-  }
-}
-
-// Keep default destructor out-of-line because Database owns unique_ptrs
-// to forward declared types.
 Database::~Database() = default;
-
-Database::DatabaseMetricsRegistration::~DatabaseMetricsRegistration() { metrics::Metrics().RemoveDatabase(uuid_); }
-
-memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
-
-memory::ArenaPool &Database::Arena() const noexcept { return *db_arena_; }
 
 std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType rw_type,
                                                     std::optional<storage::IsolationLevel> override_isolation_level,
@@ -148,6 +91,66 @@ storage::StorageMode Database::GetStorageMode() const noexcept { return storage_
 
 storage::ttl::TTL &Database::ttl() { return storage_->ttl_; }
 
+memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
+
+memory::ArenaPool &Database::Arena() const noexcept { return *db_arena_; }
+
+Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
+    : db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
+      metrics_(config.salient.uuid, ([&config]() -> metrics::DatabaseMetricHandles {
+                 auto const should_register =
+                     !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
+                 if (!should_register) {
+                   return {};
+                 }
+                 return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
+               })()),
+      after_commit_trigger_pool_{1,
+                                 // After-commit triggers run on a dedicated DB worker.
+                                 // Keep a DB arena scope alive for the full worker lifetime.
+                                 [this]() -> utils::ThreadPool::TaskSignature {
+                                   auto db_arena_scope = std::make_unique<memory::DbArenaScope>(this);
+                                   return [db_arena_scope = std::move(db_arena_scope)]() mutable {
+                                     db_arena_scope.reset();
+                                   };
+                                 }},
+      streams_(
+          std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams", db_arena_.get())),
+      plan_cache_{FLAGS_query_plan_cache_max_size} {
+  // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
+  const memory::DbArenaScope db_arena_scope{this};
+
+  // Postpone creation after the scope has been created
+  trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
+  std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
+
+  // Bound the per-DB cap by the global --memory-limit; SetHardLimit(0) falls back to it.
+  if (auto global_max = utils::total_memory_tracker.MaximumHardLimit(); global_max > 0) {
+    db_total_memory_tracker_.SetMaximumHardLimit(global_max);
+    db_total_memory_tracker_.SetHardLimit(0);
+  }
+
+  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
+      utils::DirExists(config.disk.main_storage_directory)) {
+    config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+    storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
+                                                      std::move(invalidator),
+                                                      metrics_.handles(),
+                                                      database_protector_factory,
+                                                      db_arena_.get(),
+                                                      &db_embedding_memory_tracker_);
+  } else {
+    storage_ = dbms::CreateInMemoryStorage(std::move(config),
+                                           std::move(invalidator),
+                                           metrics_.handles(),
+                                           database_protector_factory,
+                                           db_arena_.get(),
+                                           &db_embedding_memory_tracker_);
+  }
+}
+
+Database::DatabaseMetricsRegistration::~DatabaseMetricsRegistration() { metrics::Metrics().RemoveDatabase(uuid_); }
+
 DatabaseInfo Database::GetInfo() const {
   DatabaseInfo info;
   info.storage_info = storage_->GetInfo();
@@ -175,7 +178,7 @@ void Database::SwitchToOnDisk() {
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
                                                               std::make_unique<storage::PlanInvalidatorDefault>(),
                                                               metrics_.handles(),
-                                                              std::move(preserved_factory),
+                                                              preserved_factory,
                                                               db_arena_.get(),
                                                               &db_embedding_memory_tracker_);
 }
