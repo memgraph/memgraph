@@ -382,7 +382,7 @@ uint64_t ComputeProfilingKey(const T *obj) {
 // Checking abort is a cheap check but is still doing atomic
 // reads. Reducing the frequency of those reads will reduce their
 // impact on performance for the expected (non-abort) case.
-thread_local auto maybe_check_abort = utils::ResettableCounter{20};
+thread_local auto maybe_check_abort = utils::ResettableCounter{200};
 
 inline void AbortCheck(ExecutionContext const &context) {
   if (!maybe_check_abort()) return;
