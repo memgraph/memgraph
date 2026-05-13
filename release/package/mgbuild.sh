@@ -944,21 +944,25 @@ package_smoke_image() {
   local base_image=""
   local pkg_format=""
   local libpython_pkg=""
+  # numpy 1.26.4 has no prebuilt wheel for Python 3.13, and the source build
+  # fails inside the smoke image (no compiler/headers). Distros that ship
+  # Python 3.13 as the default (debian-13, fedora-41+) need numpy 2.1.0.
+  local numpy_version="1.26.4"
   case "$os" in
     ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb"; libpython_pkg="libpython3.12" ;;
     ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb"; libpython_pkg="libpython3.10" ;;
     ubuntu-20.04*) base_image="ubuntu:20.04"; pkg_format="deb"; libpython_pkg="libpython3.8" ;;
     debian-11*)    base_image="debian:11";    pkg_format="deb"; libpython_pkg="libpython3.9" ;;
     debian-12*)    base_image="debian:12";    pkg_format="deb"; libpython_pkg="libpython3.11" ;;
-    debian-13*)    base_image="debian:13";    pkg_format="deb"; libpython_pkg="libpython3.13" ;;
+    debian-13*)    base_image="debian:13";    pkg_format="deb"; libpython_pkg="libpython3.13"; numpy_version="2.1.0" ;;
     centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
     centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
     rocky-9.3*)    base_image="rockylinux:9.3"; pkg_format="rpm" ;;
     rocky-10*)     base_image="rockylinux:10";  pkg_format="rpm" ;;
     fedora-38*)    base_image="fedora:38"; pkg_format="rpm" ;;
     fedora-39*)    base_image="fedora:39"; pkg_format="rpm" ;;
-    fedora-41*)    base_image="fedora:41"; pkg_format="rpm" ;;
-    fedora-42*)    base_image="fedora:42"; pkg_format="rpm" ;;
+    fedora-41*)    base_image="fedora:41"; pkg_format="rpm"; numpy_version="2.1.0" ;;
+    fedora-42*)    base_image="fedora:42"; pkg_format="rpm"; numpy_version="2.1.0" ;;
     *)
       echo "Error: Unsupported OS for package-smoke-image: $os"
       exit 1
@@ -972,7 +976,7 @@ package_smoke_image() {
   # so it must be supplied as a pre-built wheel via --wheels-dir.
   local pip_packages="cryptography==46.0.7 PyJWT==2.12.1 requests==2.32.5 \
 ldap3==2.6 pyyaml==6.0.1 python3-saml==1.16.0 lxml==6.1.0 xmlsec==1.3.16 \
-gssapi==1.11.1 numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3"
+gssapi==1.11.1 numpy==${numpy_version} scipy==1.13.0 networkx==3.4.2 gensim==4.3.3"
 
   local build_dir
   build_dir=$(mktemp -d)
@@ -989,26 +993,44 @@ gssapi==1.11.1 numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3"
     fi
   fi
 
+  # PIP_BREAK_SYSTEM_PACKAGES env var is honoured by pip on distros that
+  # ship the PEP 668 marker (e.g. Ubuntu 24.04, Debian 12+). Older pip
+  # versions (e.g. Ubuntu 22.04's) don't recognise the --break-system-packages
+  # CLI flag at all, but they ignore the env var so it's safe everywhere.
   local install_cmd
   if [[ "$pkg_format" == "deb" ]]; then
     # Mirror release/docker/v7_deb.dockerfile runtime deps so the smoke image
     # has the same package surface memgraph expects in production. libpython3.X
     # provides libpython3.X.so which memgraph dlopens to embed Python; python3
     # alone only pulls in libpython3.X-minimal.
-    install_cmd="export DEBIAN_FRONTEND=noninteractive && apt-get update && \
+    #
+    # Ubuntu Docker base images filter /usr/share/doc/* via
+    # /etc/dpkg/dpkg.cfg.d/excludes, dropping memgraph's license files
+    # (MEL.pdf/BSL.txt/APL.txt) which the smoke license check verifies.
+    # Add a path-include exception before installing the package, matching
+    # the workaround in release/docker/v7_deb.dockerfile.
+    install_cmd="export DEBIAN_FRONTEND=noninteractive && \
+      export PIP_BREAK_SYSTEM_PACKAGES=1 && \
+      apt-get update && \
       apt-get install -y --no-install-recommends \
         libcurl4 libseccomp2 python3 ${libpython_pkg} python3-pip \
         libatomic1 adduser ca-certificates libkrb5-3 && \
       apt-get install -y libxmlsec1 && \
+      if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
+        echo '' >> /etc/dpkg/dpkg.cfg.d/excludes && \
+        echo '# Include all memgraph documentation files (licenses, etc.)' >> /etc/dpkg/dpkg.cfg.d/excludes && \
+        echo 'path-include=/usr/share/doc/memgraph/*' >> /etc/dpkg/dpkg.cfg.d/excludes; \
+      fi && \
       apt-get install -y --no-install-recommends /pkg/$package_name && \
-      pip3 install --no-cache-dir --break-system-packages ${pip_find_links} ${pip_packages} && \
+      pip3 install --no-cache-dir ${pip_find_links} ${pip_packages} && \
       rm -rf /var/lib/apt/lists/*"
   else
     # RPM declares Requires for openssl/curl/python3/logrotate/shadow-utils;
     # dnf will resolve them. Add the runtime libs memgraph dlopens but which
     # aren't part of the declared Requires, then pip-install the Python
     # packages needed by bundled query modules.
-    install_cmd="dnf install -y xmlsec1 libseccomp libatomic python3-libs python3-pip krb5-libs /pkg/$package_name && \
+    install_cmd="export PIP_BREAK_SYSTEM_PACKAGES=1 && \
+      dnf install -y xmlsec1 libseccomp libatomic python3-libs python3-pip krb5-libs /pkg/$package_name && \
       pip3 install --no-cache-dir ${pip_find_links} ${pip_packages} && \
       dnf clean all"
   fi

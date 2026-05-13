@@ -12,8 +12,7 @@ check_container_licenses() {
         "APL.txt"
     )
     for license in "${licenses[@]}"; do
-        docker exec -u root memgraph_next_data bash -c "test -f /usr/share/doc/memgraph/$license" 2>&1 > /dev/null
-        if [ $? -ne 0 ]; then
+        if ! docker exec -u root memgraph_next_data bash -c "test -f /usr/share/doc/memgraph/$license" > /dev/null 2>&1; then
             echo "Error: $license license not found"
             exit 1
         else
