@@ -26,11 +26,11 @@ namespace memgraph::coordination {
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define RpcInfoSpecialize(RPC, SUCC, FAIL, HIST)                                                             \
   template <>                                                                                                \
-  prometheus::Counter *RpcInfo<RPC>::succ_counter(metrics::GlobalMetricHandles &g) { return g.SUCC; }       \
+  prometheus::Counter *RpcInfo<RPC>::succ_counter() { return metrics::Metrics().global.SUCC; }              \
   template <>                                                                                                \
-  prometheus::Counter *RpcInfo<RPC>::fail_counter(metrics::GlobalMetricHandles &g) { return g.FAIL; }       \
+  prometheus::Counter *RpcInfo<RPC>::fail_counter() { return metrics::Metrics().global.FAIL; }              \
   template <>                                                                                                \
-  prometheus::Histogram *RpcInfo<RPC>::histogram(metrics::GlobalMetricHandles &g) { return g.HIST; }
+  prometheus::Histogram *RpcInfo<RPC>::histogram() { return metrics::Metrics().global.HIST; }
 
 RpcInfoSpecialize(PromoteToMainRpc,            promote_to_main_rpc_success,               promote_to_main_rpc_fail,               promote_to_main_rpc_seconds)
 RpcInfoSpecialize(DemoteMainToReplicaRpc,      demote_main_to_replica_rpc_success,        demote_main_to_replica_rpc_fail,        demote_main_to_replica_rpc_seconds)

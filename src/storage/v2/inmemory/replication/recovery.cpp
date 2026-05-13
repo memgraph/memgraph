@@ -20,18 +20,18 @@
 namespace memgraph::storage {
 
 template <>
-prometheus::Histogram *RpcInfo<replication::WalFilesRpc>::histogram(metrics::GlobalMetricHandles &g) {
-  return g.wal_files_rpc_seconds;
+prometheus::Histogram *RpcInfo<replication::WalFilesRpc>::histogram() {
+  return metrics::Metrics().global.wal_files_rpc_seconds;
 }
 
 template <>
-prometheus::Histogram *RpcInfo<replication::CurrentWalRpc>::histogram(metrics::GlobalMetricHandles &g) {
-  return g.current_wal_rpc_seconds;
+prometheus::Histogram *RpcInfo<replication::CurrentWalRpc>::histogram() {
+  return metrics::Metrics().global.current_wal_rpc_seconds;
 }
 
 template <>
-prometheus::Histogram *RpcInfo<replication::SnapshotRpc>::histogram(metrics::GlobalMetricHandles &g) {
-  return g.snapshot_rpc_seconds;
+prometheus::Histogram *RpcInfo<replication::SnapshotRpc>::histogram() {
+  return metrics::Metrics().global.snapshot_rpc_seconds;
 }
 
 /// This method tries to find the optimal path for recovering a single replica.

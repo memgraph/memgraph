@@ -26,9 +26,9 @@ namespace memgraph::coordination {
 
 template <rpc::IsRpc T>
 struct RpcInfo {
-  static prometheus::Counter *succ_counter(metrics::GlobalMetricHandles &g);
-  static prometheus::Counter *fail_counter(metrics::GlobalMetricHandles &g);
-  static prometheus::Histogram *histogram(metrics::GlobalMetricHandles &g);
+  static prometheus::Counter *succ_counter();
+  static prometheus::Counter *fail_counter();
+  static prometheus::Histogram *histogram();
 };
 
 class CoordinatorInstance;
@@ -68,22 +68,21 @@ class ReplicationInstanceClient {
 
   template <rpc::IsRpc T, typename... Args>
   auto SendRpc(Args &&...args) const -> bool {
-    auto &g = metrics::Metrics().global;
-    metrics::ScopedHistogramTimer const timer{RpcInfo<T>::histogram(g)};
+    metrics::ScopedHistogramTimer const timer{RpcInfo<T>::histogram()};
     try {
       auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...);
 
       if (!stream.SendAndWait().arg_) {
         spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
-        RpcInfo<T>::fail_counter(g)->Increment();
+        RpcInfo<T>::fail_counter()->Increment();
         return false;
       }
 
-      RpcInfo<T>::succ_counter(g)->Increment();
+      RpcInfo<T>::succ_counter()->Increment();
       return true;
     } catch (rpc::RpcFailedException const &e) {
       spdlog::error("Failed to receive response to {}. Error occurred: {}", T::Request::kType.name, e.what());
-      RpcInfo<T>::fail_counter(g)->Increment();
+      RpcInfo<T>::fail_counter()->Increment();
       return false;
     }
   }
