@@ -944,25 +944,27 @@ package_smoke_image() {
   local base_image=""
   local pkg_format=""
   local libpython_pkg=""
-  # numpy 1.26.4 has no prebuilt wheel for Python 3.13, and the source build
-  # fails inside the smoke image (no compiler/headers). Distros that ship
-  # Python 3.13 as the default (debian-13, fedora-41+) need numpy 2.1.0.
+  # numpy 1.26.4 / scipy 1.13.0 have no prebuilt wheels for Python 3.13, and
+  # the source builds fail inside the smoke image (no compiler/headers).
+  # Distros that ship Python 3.13 as the default (debian-13, fedora-41+) need
+  # numpy 2.1.0 / scipy 1.15.0.
   local numpy_version="1.26.4"
+  local scipy_version="1.13.0"
   case "$os" in
     ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb"; libpython_pkg="libpython3.12" ;;
     ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb"; libpython_pkg="libpython3.10" ;;
     ubuntu-20.04*) base_image="ubuntu:20.04"; pkg_format="deb"; libpython_pkg="libpython3.8" ;;
     debian-11*)    base_image="debian:11";    pkg_format="deb"; libpython_pkg="libpython3.9" ;;
     debian-12*)    base_image="debian:12";    pkg_format="deb"; libpython_pkg="libpython3.11" ;;
-    debian-13*)    base_image="debian:13";    pkg_format="deb"; libpython_pkg="libpython3.13"; numpy_version="2.1.0" ;;
+    debian-13*)    base_image="debian:13";    pkg_format="deb"; libpython_pkg="libpython3.13"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
     centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
     centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
     rocky-9.3*)    base_image="rockylinux:9.3"; pkg_format="rpm" ;;
     rocky-10*)     base_image="rockylinux:10";  pkg_format="rpm" ;;
     fedora-38*)    base_image="fedora:38"; pkg_format="rpm" ;;
     fedora-39*)    base_image="fedora:39"; pkg_format="rpm" ;;
-    fedora-41*)    base_image="fedora:41"; pkg_format="rpm"; numpy_version="2.1.0" ;;
-    fedora-42*)    base_image="fedora:42"; pkg_format="rpm"; numpy_version="2.1.0" ;;
+    fedora-41*)    base_image="fedora:41"; pkg_format="rpm"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
+    fedora-42*)    base_image="fedora:42"; pkg_format="rpm"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
     *)
       echo "Error: Unsupported OS for package-smoke-image: $os"
       exit 1
@@ -976,7 +978,7 @@ package_smoke_image() {
   # so it must be supplied as a pre-built wheel via --wheels-dir.
   local pip_packages="cryptography==46.0.7 PyJWT==2.12.1 requests==2.32.5 \
 ldap3==2.6 pyyaml==6.0.1 python3-saml==1.16.0 lxml==6.1.0 xmlsec==1.3.16 \
-gssapi==1.11.1 numpy==${numpy_version} scipy==1.13.0 networkx==3.4.2 gensim==4.3.3"
+gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==3.4.2 gensim==4.3.3"
 
   local build_dir
   build_dir=$(mktemp -d)
