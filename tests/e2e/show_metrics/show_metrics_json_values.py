@@ -16,8 +16,11 @@ import urllib.request
 import mgclient
 import pytest
 
-# Expected JSON categories and metric names. If any metric is added or removed,
-# this test will fail — forcing an explicit update.
+METRICS_HTTP_TIMEOUT_S = 30.0
+
+# Expected JSON categories and metric names. If metrics or categories are
+# added, this list must also be amended because "unexpected" metrics also
+# rank as failures.
 EXPECTED_JSON_METRICS = {
     "General": {
         "vertex_count",
@@ -292,8 +295,6 @@ def populated_databases():
         pass
     execute(cursor, "MATCH (n) DETACH DELETE n")
 
-    # memgraph: 2 label indices, 1 label-property index, 1 existence constraint
-    #           3 vertices, 1 edge
     execute(cursor, "CREATE INDEX ON :Person;")
     execute(cursor, "CREATE INDEX ON :Company;")
     execute(cursor, "CREATE INDEX ON :Person(name);")
@@ -302,7 +303,6 @@ def populated_databases():
     execute(cursor, "MATCH (a:Person {name: 'Alice'}), (c:Company {name: 'Acme'}) CREATE (a)-[:WORKS_AT]->(c)")
     execute(cursor, "MATCH (n) RETURN n")
 
-    # db2: 1 label index, 2 vertices, 0 edges
     execute(cursor, "CREATE DATABASE db2")
     execute(cursor, "USE DATABASE db2")
     execute(cursor, "CREATE INDEX ON :Item;")
@@ -324,7 +324,7 @@ def populated_databases():
 
 
 def scrape_json():
-    with urllib.request.urlopen("http://localhost:9091/metrics") as resp:
+    with urllib.request.urlopen("http://localhost:9091/metrics", timeout=METRICS_HTTP_TIMEOUT_S) as resp:
         return json.loads(resp.read())
 
 
@@ -334,10 +334,10 @@ def test_json_no_unexpected_metrics(populated_databases):
     expected_categories = set(EXPECTED_JSON_METRICS.keys())
     unexpected = actual_categories - expected_categories
     assert not unexpected, f"Unexpected JSON categories: {unexpected}"
+    missing_categories = expected_categories - actual_categories
+    assert not missing_categories, f"Missing JSON categories: {missing_categories}"
 
     for category, expected_names in EXPECTED_JSON_METRICS.items():
-        if category not in m:
-            continue
         actual_names = set(m[category].keys())
         unexpected_names = actual_names - expected_names
         assert not unexpected_names, f"Unexpected metrics in {category}: {unexpected_names}"
@@ -355,7 +355,6 @@ def test_json_storage_fields_reflect_default_db(populated_databases):
 def test_json_index_gauges_are_global(populated_databases):
     m = scrape_json()
     # Index counters are global (event counters), not per-db
-    # memgraph: 2 label + db2: 1 label = 3
     assert m["Index"]["ActiveLabelIndices"] == 3
     assert m["Index"]["ActiveLabelPropertyIndices"] == 1
 
@@ -373,7 +372,6 @@ def test_json_transaction_counters_incremented(populated_databases):
 
 def test_json_query_type_counters_incremented(populated_databases):
     m = scrape_json()
-    # We ran at least one write query and one read query
     assert m["QueryType"]["WriteQuery"] > 0
     assert m["QueryType"]["ReadQuery"] > 0
 
