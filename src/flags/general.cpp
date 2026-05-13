@@ -247,3 +247,9 @@ DEFINE_string(query_callable_mappings_path, "",
 DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(cluster_cert_file, "", "Certificate file used for intra-cluster TLS communication.");
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(cluster_key_file, "", "Key file used for intra-cluster TLS communication.");
