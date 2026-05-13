@@ -964,9 +964,19 @@ package_smoke_image() {
 
   local install_cmd
   if [[ "$pkg_format" == "deb" ]]; then
-    install_cmd="export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y --no-install-recommends /pkg/$package_name && rm -rf /var/lib/apt/lists/*"
+    # Mirror release/docker/v7_deb.dockerfile runtime deps so the smoke image
+    # has the same package surface memgraph expects in production.
+    install_cmd="export DEBIAN_FRONTEND=noninteractive && apt-get update && \
+      apt-get install -y --no-install-recommends \
+        libcurl4 libseccomp2 python3 libatomic1 adduser ca-certificates && \
+      apt-get install -y libxmlsec1 && \
+      apt-get install -y --no-install-recommends /pkg/$package_name && \
+      rm -rf /var/lib/apt/lists/*"
   else
-    install_cmd="dnf install -y /pkg/$package_name && dnf clean all"
+    # RPM declares Requires for openssl/curl/python3/logrotate/shadow-utils;
+    # dnf will resolve them. Add the runtime libs memgraph dlopens but which
+    # aren't part of the declared Requires.
+    install_cmd="dnf install -y xmlsec1 libseccomp libatomic /pkg/$package_name && dnf clean all"
   fi
 
   cat > "$build_dir/Dockerfile" <<EOF
