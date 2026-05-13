@@ -170,6 +170,7 @@ print_help () {
   echo -e "\npackage-smoke-image options:"
   echo -e "  --src-dir string              Relative path inside memgraph directory containing the .deb/.rpm package."
   echo -e "  --image-tag string            Tag to apply to the resulting memgraph/memgraph:<tag> image (required)."
+  echo -e "  --wheels-dir string           Optional relative path containing pre-built Python wheels (e.g. gssapi)."
 
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login (default empty)"
@@ -904,6 +905,7 @@ package_smoke_image() {
   # existing smoke test framework (which expects a Docker image) can run it.
   local package_dir="$PROJECT_ROOT/build/output/$os"
   local image_tag=""
+  local wheels_dir=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --src-dir)
@@ -912,6 +914,10 @@ package_smoke_image() {
       ;;
       --image-tag)
         image_tag=$2
+        shift 2
+      ;;
+      --wheels-dir)
+        wheels_dir="$PROJECT_ROOT/$2"
         shift 2
       ;;
       *)
@@ -937,13 +943,14 @@ package_smoke_image() {
 
   local base_image=""
   local pkg_format=""
+  local libpython_pkg=""
   case "$os" in
-    ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb" ;;
-    ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb" ;;
-    ubuntu-20.04*) base_image="ubuntu:20.04"; pkg_format="deb" ;;
-    debian-11*)    base_image="debian:11";    pkg_format="deb" ;;
-    debian-12*)    base_image="debian:12";    pkg_format="deb" ;;
-    debian-13*)    base_image="debian:13";    pkg_format="deb" ;;
+    ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb"; libpython_pkg="libpython3.12" ;;
+    ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb"; libpython_pkg="libpython3.10" ;;
+    ubuntu-20.04*) base_image="ubuntu:20.04"; pkg_format="deb"; libpython_pkg="libpython3.8" ;;
+    debian-11*)    base_image="debian:11";    pkg_format="deb"; libpython_pkg="libpython3.9" ;;
+    debian-12*)    base_image="debian:12";    pkg_format="deb"; libpython_pkg="libpython3.11" ;;
+    debian-13*)    base_image="debian:13";    pkg_format="deb"; libpython_pkg="libpython3.13" ;;
     centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
     centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
     rocky-9.3*)    base_image="rockylinux:9.3"; pkg_format="rpm" ;;
@@ -958,30 +965,58 @@ package_smoke_image() {
     ;;
   esac
 
+  # Python packages installed globally so memgraph's embedded Python can
+  # import them when loading bundled query modules (node2vec_online,
+  # mgp_networkx, nxalg, wcc, graph_analyzer, etc.). Mirrors the pip
+  # installs in release/docker/v7_deb.dockerfile. gssapi has no PyPI wheels
+  # so it must be supplied as a pre-built wheel via --wheels-dir.
+  local pip_packages="cryptography==46.0.7 PyJWT==2.12.1 requests==2.32.5 \
+ldap3==2.6 pyyaml==6.0.1 python3-saml==1.16.0 lxml==6.1.0 xmlsec==1.3.16 \
+gssapi==1.11.1 numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3"
+
   local build_dir
   build_dir=$(mktemp -d)
   cp "$package_dir/$package_name" "$build_dir/"
 
+  local pip_find_links=""
+  local copy_wheels_line=""
+  if [[ -n "$wheels_dir" && -d "$wheels_dir" ]]; then
+    mkdir -p "$build_dir/wheels"
+    cp "$wheels_dir"/*.whl "$build_dir/wheels/" 2>/dev/null || true
+    if compgen -G "$build_dir/wheels/*.whl" >/dev/null; then
+      pip_find_links="--find-links=/wheels"
+      copy_wheels_line="COPY wheels /wheels"
+    fi
+  fi
+
   local install_cmd
   if [[ "$pkg_format" == "deb" ]]; then
     # Mirror release/docker/v7_deb.dockerfile runtime deps so the smoke image
-    # has the same package surface memgraph expects in production.
+    # has the same package surface memgraph expects in production. libpython3.X
+    # provides libpython3.X.so which memgraph dlopens to embed Python; python3
+    # alone only pulls in libpython3.X-minimal.
     install_cmd="export DEBIAN_FRONTEND=noninteractive && apt-get update && \
       apt-get install -y --no-install-recommends \
-        libcurl4 libseccomp2 python3 libatomic1 adduser ca-certificates && \
+        libcurl4 libseccomp2 python3 ${libpython_pkg} python3-pip \
+        libatomic1 adduser ca-certificates libkrb5-3 && \
       apt-get install -y libxmlsec1 && \
       apt-get install -y --no-install-recommends /pkg/$package_name && \
+      pip3 install --no-cache-dir --break-system-packages ${pip_find_links} ${pip_packages} && \
       rm -rf /var/lib/apt/lists/*"
   else
     # RPM declares Requires for openssl/curl/python3/logrotate/shadow-utils;
     # dnf will resolve them. Add the runtime libs memgraph dlopens but which
-    # aren't part of the declared Requires.
-    install_cmd="dnf install -y xmlsec1 libseccomp libatomic /pkg/$package_name && dnf clean all"
+    # aren't part of the declared Requires, then pip-install the Python
+    # packages needed by bundled query modules.
+    install_cmd="dnf install -y xmlsec1 libseccomp libatomic python3-libs python3-pip krb5-libs /pkg/$package_name && \
+      pip3 install --no-cache-dir ${pip_find_links} ${pip_packages} && \
+      dnf clean all"
   fi
 
   cat > "$build_dir/Dockerfile" <<EOF
 FROM $base_image
 COPY $package_name /pkg/$package_name
+${copy_wheels_line}
 RUN $install_cmd
 USER memgraph
 WORKDIR /usr/lib/memgraph
