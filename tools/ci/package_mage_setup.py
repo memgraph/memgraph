@@ -98,7 +98,7 @@ class PackageMageSetup:
             "memgraph_download_link": "",
             "push_to_s3": False,
             "s3_dest_dir": "mage-unofficial",
-            "run_smoke_tests": False,
+            "run_smoke_tests": True,
             "run_tests": True,
             "package_deb": "default",
             "generate_sbom": False,

@@ -87,12 +87,12 @@ class PackageSetup:
             # For pull_request events, return default values
             return {
                 "build_type": "Release",
-                "toolchain": "v6",
                 "push_to_s3": "false",
                 "s3_dest_dir": "",
                 "push_to_github": "false",
                 "malloc": "false",
                 "generate_sbom": "false",
+                "run_smoke_tests": "true",
             }
 
     def _setup_workflow_dispatch(self) -> None:
