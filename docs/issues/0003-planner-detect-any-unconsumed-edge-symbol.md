@@ -1,7 +1,7 @@
 ---
 title: Generalize planner to detect any unconsumed edge symbol
 type: AFK
-status: needs-triage
+status: done
 ---
 
 ## Parent

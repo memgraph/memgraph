@@ -417,14 +417,10 @@ TYPED_TEST(TestPlanner, MatchMultiPatternSameExpandStart) {
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")), PATTERN(NODE("m"), EDGE("e"), NODE("l"))), RETURN("n")));
   // We expect the second pattern to generate only an Expand. Another
   // ScanAll would be redundant, as it would generate the nodes obtained from
-  // expansion. Additionally, a uniqueness filter is expected.
-  CheckPlan<TypeParam>(query,
-                       this->storage,
-                       ExpectScanAll(),
-                       ExpectExpand(),
-                       ExpectExpand(),
-                       ExpectEdgeUniquenessFilter(),
-                       ExpectProduce());
+  // expansion. The uniqueness check would normally appear as an
+  // EdgeUniquenessFilter, but since neither r nor e is consumed downstream
+  // the fusion pass absorbs it into the upper Expand.
+  CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectExpand(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MultiMatch) {
@@ -444,10 +440,11 @@ TYPED_TEST(TestPlanner, MultiMatch) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   // Multiple MATCH clauses form a Cartesian product, so the uniqueness should
-  // not cross MATCH boundaries.
+  // not cross MATCH boundaries. The fusion pass absorbs the uniqueness check
+  // on the right pattern's second edge into its Expand because neither r nor
+  // e nor f is referenced downstream.
   std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanAll(), new ExpectExpand()};
-  std::list<BaseOpChecker *> right_cartesian_ops{
-      new ExpectScanAll(), new ExpectExpand(), new ExpectExpand(), new ExpectEdgeUniquenessFilter()};
+  std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAll(), new ExpectExpand(), new ExpectExpand()};
   CheckPlan(planner.plan(), symbol_table, ExpectCartesian(left_cartesian_ops, right_cartesian_ops), ExpectProduce());
 
   DeleteListContent(&left_cartesian_ops);

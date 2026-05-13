@@ -29,6 +29,7 @@
 #include "query/plan/pretty_print.hpp"
 #include "query/plan/rewrite/edge_index_lookup.hpp"
 #include "query/plan/rewrite/enum.hpp"
+#include "query/plan/rewrite/fuse_edge_uniqueness.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
 #include "query/plan/rewrite/parallel_rewrite.hpp"
@@ -84,7 +85,8 @@ class PostProcessor final {
            } |
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db, parallel_exec); } |
-           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); }
+           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } |
+           [&](auto p) { return RewriteWithFuseEdgeUniquenessFilter(std::move(p), symbol_table); }
 #ifdef MG_ENTERPRISE
            |
            // Keep at the end

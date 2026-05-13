@@ -557,22 +557,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   // newer one is built above it, the older one can be demoted (is_topmost_
   // flipped false).
   std::unordered_map<const std::unordered_set<Symbol> *, int> pattern_ids_;
-
-  // Reference to the topmost uniqueness-checker (either an EdgeUniquenessFilter
-  // or an Expand that absorbed one via Stage 1 fusion). Exactly one of the two
-  // pointers is non-null. When a newer EUF is built above, the previous
-  // topmost is demoted via Demote().
-  struct TopmostUniquenessRef {
-    EdgeUniquenessFilter *euf{nullptr};
-    Expand *expand{nullptr};
-
-    void Demote() {
-      if (euf) euf->is_topmost_ = false;
-      if (expand) expand->unique_is_topmost_ = false;
-    }
-  };
-
-  std::unordered_map<int, TopmostUniquenessRef> topmost_per_pattern_;
+  std::unordered_map<int, EdgeUniquenessFilter *> topmost_per_pattern_;
 
   storage::LabelId GetLabel(const LabelIx &label) { return context_->db->NameToLabel(label.name); }
 
@@ -1356,13 +1341,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       auto [id_it, id_inserted] = pattern_ids_.try_emplace(&edge_symbols, static_cast<int>(pattern_ids_.size()));
       const int pattern_id = id_it->second;
 
-      // Flip the previously-topmost uniqueness-checker (EUF or fused Expand)
-      // for this pattern back to non-topmost. The new EUF we are about to
-      // build is the topmost.
+      // Flip the previously-topmost EUF (if any) for this pattern back to
+      // non-topmost. The new EUF we are about to build is the topmost.
       const auto prev_topmost_it = topmost_per_pattern_.find(pattern_id);
       const bool is_first_in_pattern = (prev_topmost_it == topmost_per_pattern_.end());
       if (!is_first_in_pattern) {
-        prev_topmost_it->second.Demote();
+        prev_topmost_it->second->is_topmost_ = false;
       }
 
       // Bottommost EUF seeds all previously-bound edge symbols of the
@@ -1381,45 +1365,14 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                       ? EdgeUniquenessFilter::SymbolKind::EdgeList
                                       : EdgeUniquenessFilter::SymbolKind::Edge;
 
-      // Stage 1 fusion: when the candidate is an anonymous single-edge symbol
-      // produced by a plain Expand directly below the EUF and that symbol is
-      // not consumed downstream, absorb the EUF into the Expand and skip the
-      // EUF entirely. Anonymous edge symbols cannot appear in user
-      // expressions (the user has no name to reference them by); the only
-      // consumer they can have is a NamedPath that captures the pattern's
-      // edges, which we check explicitly.
-      Expand *fusable_expand = nullptr;
-      if (!edge_symbol.user_declared() && candidate_kind == EdgeUniquenessFilter::SymbolKind::Edge) {
-        bool used_in_named_path = false;
-        for (const auto &[path_sym, members] : matching.named_paths) {
-          if (std::find(members.begin(), members.end(), edge_symbol) != members.end()) {
-            used_in_named_path = true;
-            break;
-          }
-        }
-        if (!used_in_named_path) {
-          auto *expand = dynamic_cast<Expand *>(last_op.get());
-          if (expand && expand->common_.edge_symbol == edge_symbol && expand->unique_pattern_id_ == -1) {
-            fusable_expand = expand;
-          }
-        }
-      }
-
-      if (fusable_expand) {
-        fusable_expand->unique_pattern_id_ = pattern_id;
-        fusable_expand->unique_previous_symbols_ = std::move(seed_symbols);
-        fusable_expand->unique_is_topmost_ = true;
-        topmost_per_pattern_[pattern_id] = TopmostUniquenessRef{.expand = fusable_expand};
-      } else {
-        auto new_op = std::make_unique<EdgeUniquenessFilter>(std::move(last_op),
-                                                             edge_symbol,
-                                                             candidate_kind,
-                                                             std::move(seed_symbols),
-                                                             pattern_id,
-                                                             /*is_topmost=*/true);
-        topmost_per_pattern_[pattern_id] = TopmostUniquenessRef{.euf = new_op.get()};
-        last_op = std::move(new_op);
-      }
+      auto new_op = std::make_unique<EdgeUniquenessFilter>(std::move(last_op),
+                                                           edge_symbol,
+                                                           candidate_kind,
+                                                           std::move(seed_symbols),
+                                                           pattern_id,
+                                                           /*is_topmost=*/true);
+      topmost_per_pattern_[pattern_id] = new_op.get();
+      last_op = std::move(new_op);
     }
 
     return last_op;

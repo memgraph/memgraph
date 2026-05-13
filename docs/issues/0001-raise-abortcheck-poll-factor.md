@@ -1,7 +1,7 @@
 ---
 title: Raise AbortCheck poll factor 20 → 200
 type: AFK
-status: in-progress
+status: done
 ---
 
 ## Parent

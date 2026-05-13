@@ -1,7 +1,7 @@
 ---
 title: Add Expand::unique_pattern_id_, fuse narrow Expand→EUF case in planner
 type: AFK
-status: in-progress
+status: done
 ---
 
 ## Parent
