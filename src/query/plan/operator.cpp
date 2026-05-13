@@ -175,6 +175,19 @@ namespace memgraph::query::plan {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
+namespace {
+// Looks up (and lazily extends to fit) this cursor's shared uniqueness slot in
+// the ExecutionContext, then returns a reference to it. Shared between
+// EdgeUniquenessFilter and Expand (when the latter absorbs a fused EUF).
+absl::InlinedVector<uint64_t, 8> &GetUniquenessSet(ExecutionContext &context, int pattern_id) {
+  auto &sets = context.edge_uniqueness_sets;
+  if (static_cast<int>(sets.size()) <= pattern_id) [[unlikely]] {
+    sets.resize(pattern_id + 1);
+  }
+  return sets[pattern_id];
+}
+}  // namespace
+
 ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &storage)
     : type_{other.type_},
       lower_{other.lower_
@@ -1838,6 +1851,9 @@ std::unique_ptr<LogicalOperator> Expand::Clone(AstStorage *storage) const {
   object->input_symbol_ = input_symbol_;
   object->common_ = common_;
   object->view_ = view_;
+  object->unique_pattern_id_ = unique_pattern_id_;
+  object->unique_previous_symbols_ = unique_previous_symbols_;
+  object->unique_is_topmost_ = unique_is_topmost_;
   return object;
 }
 
@@ -1855,6 +1871,14 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
+  // Uniqueness re-entry: pop whatever we pushed on the previous accepted Pull,
+  // so subsequent candidates are checked against the correct set state.
+  if (self_.unique_pattern_id_ >= 0 && pushed_this_cycle_ != 0) {
+    auto &set = GetUniquenessSet(context, self_.unique_pattern_id_);
+    set.resize(set.size() - pushed_this_cycle_);
+    pushed_this_cycle_ = 0;
+  }
+
   // A helper function for expanding a node from an edge.
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
   auto pull_node = [this, &frame_writer]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
@@ -1867,6 +1891,37 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     } else {
       LOG_FATAL("Must indicate exact expansion direction here");
     }
+  };
+
+  // Uniqueness commit: when this Expand absorbed an EUF, check the candidate
+  // against the shared container and push the appropriate Gids on accept.
+  // Returns true if the edge is accepted, false on conflict (caller skips).
+  auto try_commit_uniqueness = [this, &frame, &context](const EdgeAccessor &edge) -> bool {
+    if (self_.unique_pattern_id_ < 0) return true;
+    auto &set = GetUniquenessSet(context, self_.unique_pattern_id_);
+    const uint64_t gid = edge.Gid().AsUint();
+    if (std::ranges::find(set, gid) != set.end()) return false;
+    uint8_t pushed = 0;
+    // Bottommost-EUF seed: push leading edges of the pattern. Empty (and
+    // skipped) on non-bottommost fused Expands.
+    for (const auto &sym : self_.unique_previous_symbols_) {
+      const TypedValue &v = frame[sym];
+      if (v.type() == TypedValue::Type::List) [[unlikely]] {
+        for (const TypedValue &elem : v.ValueList()) {
+          set.push_back(elem.ValueEdge().Gid().AsUint());
+          ++pushed;
+        }
+      } else {
+        set.push_back(v.ValueEdge().Gid().AsUint());
+        ++pushed;
+      }
+    }
+    if (!self_.unique_is_topmost_) {
+      set.push_back(gid);
+      ++pushed;
+    }
+    pushed_this_cycle_ = pushed;
+    return true;
   };
 
   while (true) {
@@ -1883,6 +1938,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
 #endif
 
+      if (!try_commit_uniqueness(edge)) continue;
       frame_writer.Write(self_.common_.edge_symbol, edge);
       pull_node(edge, utils::tag_v<EdgeAtom::Direction::IN>);
       return true;
@@ -1903,6 +1959,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
         continue;
       }
 #endif
+      if (!try_commit_uniqueness(edge)) continue;
       frame_writer.Write(self_.common_.edge_symbol, edge);
       pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
       return true;
@@ -1924,6 +1981,11 @@ void Expand::ExpandCursor::Reset() {
   in_edges_it_ = std::nullopt;
   out_edges_ = std::nullopt;
   out_edges_it_ = std::nullopt;
+  // We have no access to ExecutionContext during Reset, so we cannot pop our
+  // contribution from the shared uniqueness slot. Correctness is preserved by
+  // the push/pop discipline in Pull: any stale Gids will be popped on the
+  // next re-entry.
+  pushed_this_cycle_ = 0;
 }
 
 ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame) {
@@ -5946,23 +6008,6 @@ std::string EdgeUniquenessFilter::ToString() const {
 EdgeUniquenessFilter::EdgeUniquenessFilterCursor::EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &self,
                                                                              utils::MemoryResource *mem)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
-
-namespace {
-/**
- * Returns true if:
- *    - a and b are either edge or edge-list values, and there
- *    is at least one matching edge in the two values
- */
-// Looks up (and lazily extends to fit) this cursor's shared uniqueness slot in
-// the ExecutionContext, then returns a reference to it.
-absl::InlinedVector<uint64_t, 8> &GetUniquenessSet(ExecutionContext &context, int pattern_id) {
-  auto &sets = context.edge_uniqueness_sets;
-  if (static_cast<int>(sets.size()) <= pattern_id) [[unlikely]] {
-    sets.resize(pattern_id + 1);
-  }
-  return sets[pattern_id];
-}
-}  // namespace
 
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;

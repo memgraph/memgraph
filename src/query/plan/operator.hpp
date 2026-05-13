@@ -1076,6 +1076,10 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     ExpansionInfo expansion_info_;
     int64_t prev_input_degree_{-1};
     int64_t prev_existing_degree_{-1};
+    // Number of Gids pushed into the shared uniqueness slot on the most recent
+    // accepted Pull. Popped at the top of the next Pull (re-entry). Only used
+    // when self_.unique_pattern_id_ >= 0.
+    uint8_t pushed_this_cycle_{0};
 
     bool InitEdges(Frame &, ExecutionContext &);
   };
@@ -1085,6 +1089,16 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::ExpandCommon common_;
   /// State from which the input node should get expanded.
   storage::View view_;
+  /// Uniqueness duty absorbed from a fused EdgeUniquenessFilter. -1 means no
+  /// duty (default; Expand behaves exactly as before). Otherwise selects the
+  /// per-context shared container slot in `edge_uniqueness_sets`.
+  int unique_pattern_id_{-1};
+  /// Mirrors EdgeUniquenessFilter::previous_symbols_ - non-empty only when
+  /// this Expand absorbed the bottommost EUF of its pattern.
+  std::vector<Symbol> unique_previous_symbols_{};
+  /// Mirrors EdgeUniquenessFilter::is_topmost_ - when true, the accepted
+  /// Gid is not published into the shared container (nothing above reads it).
+  bool unique_is_topmost_{false};
 
   std::string ToString() const override;
 
