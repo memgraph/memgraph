@@ -706,6 +706,10 @@ int main(int argc, char **argv) {
       constexpr auto kRaftDataDir = "/high_availability/raft_data";
       auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
+      std::optional<memgraph::utils::TlsConfig> maybe_ssl;
+      if (memgraph::flags::IsIntraClusterTLSEnabled()) {
+        maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file, FLAGS_cluster_ca_file);
+      }
       coordinator_state = std::make_shared<CoordinatorState>(
           CoordinatorInstanceInitConfig{.coordinator_id = coordination_setup.coordinator_id,
                                         .coordinator_port = coordination_setup.coordinator_port,
@@ -713,7 +717,8 @@ int main(int argc, char **argv) {
                                         .management_port = coordination_setup.management_port,
                                         .durability_dir = high_availability_data_dir,
                                         .coordinator_hostname = coordination_setup.coordinator_hostname,
-                                        .nuraft_log_file = coordination_setup.nuraft_log_file});
+                                        .nuraft_log_file = coordination_setup.nuraft_log_file,
+                                        .tls_config = std::move(maybe_ssl)});
     } else {
       coordinator_state = std::make_shared<CoordinatorState>(
           ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});

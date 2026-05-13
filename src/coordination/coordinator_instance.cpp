@@ -80,7 +80,8 @@ using nuraft::ptr;
 using namespace std::chrono_literals;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
-    : coordinator_management_server_{ManagementServerConfig{
+    : tls_config(config.tls_config),
+      coordinator_management_server_{ManagementServerConfig{
           io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}}} {
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
@@ -213,7 +214,10 @@ void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstance
                   coordinator.management_server);
     auto mgmt_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator.management_server);
     MG_ASSERT(mgmt_endpoint.has_value(), "Failed to create management server when creating new coordinator connector.");
-    connectors->emplace(connectors->end(), coordinator.id, ManagementServerConfig{std::move(*mgmt_endpoint)});
+    connectors->emplace(connectors->end(),
+                        std::piecewise_construct,
+                        std::forward_as_tuple(coordinator.id),
+                        std::forward_as_tuple(ManagementServerConfig{std::move(*mgmt_endpoint)}, tls_config));
   }
 }
 

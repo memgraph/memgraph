@@ -19,6 +19,7 @@
 #include "replication/state.hpp"
 #include "replication/status.hpp"
 #include "utils/file.hpp"
+#include "utils/tls.hpp"
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -198,9 +199,9 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               try {
                 // Creating Epoll object could throw an exception
                 if (memgraph::flags::IsIntraClusterTLSEnabled()) {
-                  r.config.ssl = ReplicationServerConfig::SSL{.key_file = FLAGS_cluster_key_file,
-                                                              .cert_file = FLAGS_cluster_cert_file,
-                                                              .ca_file = FLAGS_cluster_ca_file};
+                  r.config.tls_config = utils::TlsConfig{.key_file = FLAGS_cluster_key_file,
+                                                         .cert_file = FLAGS_cluster_cert_file,
+                                                         .ca_file = FLAGS_cluster_ca_file};
                 }
                 server = std::make_unique<ReplicationServer>(r.config);
               } catch (utils::BasicException const &e) {

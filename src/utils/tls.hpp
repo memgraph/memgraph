@@ -11,23 +11,16 @@
 
 #pragma once
 
-#include "coordination/coordinator_communication_config.hpp"
-#include "rpc/client.hpp"
-#include "utils/tls.hpp"
+#include <string>
 
-#ifdef MG_ENTERPRISE
-namespace memgraph::coordination {
+namespace memgraph::utils {
 
-class CoordinatorInstanceClient {
- public:
-  explicit CoordinatorInstanceClient(ManagementServerConfig const &config,
-                                     std::optional<utils::TlsConfig> const &tls_config);
+struct TlsConfig {
+  std::string key_file;
+  std::string cert_file;
+  std::string ca_file;
 
-  auto RpcClient() const -> rpc::Client &;
-
- private:
-  communication::ClientContext rpc_context_;
-  mutable rpc::Client rpc_client_;
+  friend bool operator==(TlsConfig const &, TlsConfig const &) = default;
 };
-}  // namespace memgraph::coordination
-#endif
+
+}  // namespace memgraph::utils

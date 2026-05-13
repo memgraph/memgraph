@@ -25,6 +25,7 @@
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
+#include "utils/tls.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
@@ -51,6 +52,7 @@ struct CoordinatorInstanceInitConfig {
   std::filesystem::path durability_dir;
   std::string coordinator_hostname;
   std::string nuraft_log_file;
+  std::optional<utils::TlsConfig> tls_config;
 };
 
 struct LogStoreDurability {

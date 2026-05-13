@@ -22,8 +22,10 @@ namespace memgraph::replication {
 namespace {
 
 auto CreateServerContext(const memgraph::replication::ReplicationServerConfig &config) -> communication::ServerContext {
-  return (config.ssl) ? communication::ServerContext{config.ssl->key_file, config.ssl->cert_file, config.ssl->ca_file}
-                      : communication::ServerContext{};
+  return config.tls_config ? communication::ServerContext{config.tls_config->key_file,
+                                                          config.tls_config->cert_file,
+                                                          config.tls_config->ca_file}
+                           : communication::ServerContext{};
 }
 
 // NOTE: The replication server must have a single thread for processing

@@ -16,6 +16,7 @@
 #include "coordination/include/coordination/data_instance_management_server.hpp"
 #include "flags/general.hpp"
 #include "replication/state.hpp"
+#include "utils/tls.hpp"
 
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
@@ -281,7 +282,7 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
   coordination::DemoteMainToReplicaReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  std::optional<memgraph::replication::ReplicationServerConfig::SSL> maybe_ssl;
+  std::optional<utils::TlsConfig> maybe_ssl;
   if (memgraph::flags::IsIntraClusterTLSEnabled()) {
     maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file, FLAGS_cluster_ca_file);
   }
@@ -289,7 +290,7 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
   // Use localhost as ip for creating ReplicationServer
   const replication::ReplicationServerConfig clients_config{
       .repl_server = io::network::Endpoint("0.0.0.0", req.replication_client_info_.replication_server.GetPort()),
-      .ssl = std::move(maybe_ssl)};
+      .tls_config = std::move(maybe_ssl)};
 
   if (!replication_handler.SetReplicationRoleReplica(clients_config, req.main_uuid_)) {
     spdlog::error("Demoting main to replica failed.");
