@@ -26,7 +26,7 @@ namespace memgraph::storage {
 //
 // Edge-index Iterables store either a utils::SkipListDb<Edge>::ConstAccessor (normal-edge mode,
 // prevents GC from freeing the edges_ skiplist nodes that hold the Edge structs) or one of
-// these guards (light-edge mode, where edges_ is empty and edges are pool-allocated instead).
+// these guards (light-edge mode, where edges_ is empty and edges are allocated instead).
 //
 // The graveyard drain condition uses EpochTracker::IsSafeToFree(guard_epoch) to allow draining
 // once all readers that existed before the graveyard entry was inserted have finished — more

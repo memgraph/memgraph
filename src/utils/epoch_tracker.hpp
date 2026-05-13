@@ -39,6 +39,9 @@ namespace memgraph::utils {
 /// processing 1 billion unique edge-index scans will retain ~122 MB of tracker
 /// memory for the lifetime of the storage instance.  If this becomes a concern
 /// in practice, consider adding safe block reclamation (TODO).
+
+// TODO This is just the skiplist allocator's epoch tracker. Can we move the skiplist's out and use this there as well?
+// Audit to make sure the logic is EXACTLY the same.
 class EpochTracker {
  private:
   static constexpr uint64_t kIdsInField = sizeof(uint64_t) * 8;        // 64 bits per field

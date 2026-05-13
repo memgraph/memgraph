@@ -13,7 +13,7 @@
 
 All tests are identical but Memgraph is started with --storage-light-edge
 and --storage-properties-on-edges so that snapshots and WALs are written
-and recovered using pool-allocated (light) edges.
+and recovered using light edges.
 """
 
 import os

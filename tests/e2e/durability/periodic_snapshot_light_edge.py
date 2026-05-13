@@ -13,7 +13,7 @@
 
 All tests are identical but Memgraph is started with --storage-light-edge
 and --storage-properties-on-edges so the snapshot scheduler is exercised
-with pool-allocated (light) edges.
+with light edges.
 """
 
 import sys

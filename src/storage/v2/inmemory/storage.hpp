@@ -842,7 +842,7 @@ class InMemoryStorage final : public Storage {
 
   static void DeleteLightEdge(Edge *p);
 
-  // Free all pool-allocated Edge objects: walk out_edges of every vertex (each
+  // Free all light Edge objects: walk out_edges of every vertex (each
   // edge appears exactly once) and drain the graveyard.  Must be called before
   // vertices_.clear() so the adjacency lists are still intact.
   // Requires gc_lock_ to be held by the caller.

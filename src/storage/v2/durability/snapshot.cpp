@@ -1169,14 +1169,24 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
   }
 }
 
-// Manages pool-allocated Edge objects during snapshot recovery.
+// Manages light Edge objects during snapshot recovery.
 // Encapsulates the per-batch GID->Edge* maps, merge, and cleanup.
 struct LightEdgeLoader {
   bool use_light_edges{false};
+  bool map_released_{false};
   absl::flat_hash_map<uint64_t, Edge *> all_edges;
   std::vector<absl::flat_hash_map<uint64_t, Edge *>> per_batch;
 
   explicit LightEdgeLoader(bool use_light) : use_light_edges{use_light} {}
+
+  ~LightEdgeLoader() {
+    // RAII: if ownership has NOT been transferred to storage, free everything.
+    // If ReleaseMap() was already called, edges belong to the storage layer
+    // and all_edges is already empty — nothing to do.
+    if (!map_released_) {
+      FreeAll();
+    }
+  }
 
   // Free all light edges; safe to call on any partially-populated state.
   void FreeAll() noexcept {
@@ -1198,7 +1208,10 @@ struct LightEdgeLoader {
 
   // Release the GID->Edge* lookup table after connectivity has been wired.
   // Edge objects remain alive in the pool; only the flat-hash-map memory is freed.
-  void ReleaseMap() noexcept { absl::flat_hash_map<uint64_t, Edge *>{}.swap(all_edges); }
+  void ReleaseMap() noexcept {
+    map_released_ = true;
+    absl::flat_hash_map<uint64_t, Edge *>{}.swap(all_edges);
+  }
 
   const absl::flat_hash_map<uint64_t, Edge *> *MapPtr() const noexcept {
     return use_light_edges ? &all_edges : nullptr;
@@ -1937,6 +1950,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
 
     spdlog::info("Connectivity is recovered.");
     // Release the lookup map now that all EdgeRefs are wired into vertices.
+    // TODO: Can this be RAII?
     loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.

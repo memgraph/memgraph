@@ -2059,7 +2059,7 @@ TEST(LightEdgesStress, ConcurrentCrudWithIndices) {
 // 12. DropGraph tests
 // ===========================================================================
 
-// DropGraph on a light-edge storage must free all pool-allocated edges (no
+// DropGraph on a light-edge storage must free all edges (no
 // ASAN/MSAN errors), leave the storage empty, and leave the pool reusable.
 TEST(LightEdgesCleanup, DropGraphFreesEdgesAndPool) {
   auto store = MakeLightEdgeStorage();
