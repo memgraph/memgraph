@@ -68,27 +68,20 @@ PYTHON_VERSION=3.12.7
 # toolchain.cmake IGNORE_PATH entries. Update both when bumping above.
 PYTHON_MAJMIN=3.12
 
-# define the name used to make the toolchain archive
-DISTRO_FULL_NAME=${DISTRO}
-if [[ "${DISTRO}" == centos* || "${DISTRO}" == rocky* || "${DISTRO}" == fedora* ]]; then
-    if [[ "$for_arm" = "true" ]]; then
-        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-aarch64"
-    else
-        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-x86_64"
-    fi
+# Define the archive tag. The toolchain bundles its own sysroot (glibc, kernel
+# headers, runtime libs), so a single archive per architecture is portable
+# across distros with glibc >= GLIBC_VERSION — the build distro no longer
+# belongs in the name.
+if [[ "$for_arm" = "true" ]]; then
+    ARCHIVE_ARCH_TAG="aarch64"
 else
-    if [[ "$for_arm" = "true" ]]; then
-        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-arm64"
-    else
-        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-amd64"
-    fi
+    ARCHIVE_ARCH_TAG="x86_64"
 fi
 if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
-    # Pass because infra scripts assume there is not C++ standard lib in the name.
     echo "NOTE: Not adding anything to the archive name, GCC C++ standard lib is used to build libraries."
 else
     echo "NOTE: Adding libc++ to the archive name, all libraries are built with LLVM standard C++ library."
-    DISTRO_FULL_NAME="$DISTRO_FULL_NAME-libc++"
+    ARCHIVE_ARCH_TAG="$ARCHIVE_ARCH_TAG-libc++"
 fi
 
 # Set the right operating system setup script.
@@ -1418,8 +1411,8 @@ cp -v $DIR/toolchain.cmake $PREFIX/
 mkdir -p output
 pushd output
 # Create the toolchain archive.
-if [[ ! -f "$NAME-binaries-$DISTRO_FULL_NAME.tar.gz" ]]; then
-    tar --owner=root --group=root -cpvzf "$NAME-binaries-$DISTRO_FULL_NAME.tar.gz" -C /opt $NAME
+if [[ ! -f "$NAME-binaries-$ARCHIVE_ARCH_TAG.tar.gz" ]]; then
+    tar --owner=root --group=root -cpvzf "$NAME-binaries-$ARCHIVE_ARCH_TAG.tar.gz" -C /opt $NAME
 else
   echo "NOTE: Skipping archiving because the file already exists"
 fi
