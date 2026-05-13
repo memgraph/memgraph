@@ -295,7 +295,7 @@ jobs:
           fi
 
       - name: "Log in to Docker Hub"
-        uses: ./.github/actions/docker-login
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -532,7 +532,7 @@ jobs:
           echo "Copied Ubuntu 24.04 MAGE packages to s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
 
       - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
