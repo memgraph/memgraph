@@ -1854,6 +1854,7 @@ std::unique_ptr<LogicalOperator> Expand::Clone(AstStorage *storage) const {
   object->unique_pattern_id_ = unique_pattern_id_;
   object->unique_previous_symbols_ = unique_previous_symbols_;
   object->unique_is_topmost_ = unique_is_topmost_;
+  object->skip_edge_frame_write_ = skip_edge_frame_write_;
   return object;
 }
 
@@ -1939,7 +1940,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
 #endif
 
       if (!try_commit_uniqueness(edge)) continue;
-      frame_writer.Write(self_.common_.edge_symbol, edge);
+      if (!self_.skip_edge_frame_write_) {
+        frame_writer.Write(self_.common_.edge_symbol, edge);
+      }
       pull_node(edge, utils::tag_v<EdgeAtom::Direction::IN>);
       return true;
     }
@@ -1960,7 +1963,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
 #endif
       if (!try_commit_uniqueness(edge)) continue;
-      frame_writer.Write(self_.common_.edge_symbol, edge);
+      if (!self_.skip_edge_frame_write_) {
+        frame_writer.Write(self_.common_.edge_symbol, edge);
+      }
       pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
       return true;
     }

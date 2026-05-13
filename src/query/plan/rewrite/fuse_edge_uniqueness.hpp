@@ -208,6 +208,74 @@ inline std::shared_ptr<LogicalOperator> TryFuse(std::shared_ptr<LogicalOperator>
   return op;
 }
 
+/// Walks down from `start` (inclusive) following single-input chains and
+/// returns the first plain Expand whose `common_.edge_symbol` equals `s`,
+/// or nullptr if none is reachable through a chain of single-input
+/// operators.
+inline Expand *FindLeadingExpand(LogicalOperator *start, const Symbol &s) {
+  for (auto *op = start; op != nullptr;) {
+    if (auto *expand = dynamic_cast<Expand *>(op); expand && expand->common_.edge_symbol == s) {
+      return expand;
+    }
+    if (!op->HasSingleInput()) return nullptr;
+    op = op->input().get();
+  }
+  return nullptr;
+}
+
+/// If `prev_symbols` is a single-symbol seed list and the Expand below
+/// produces it and is fusable as a leading pusher (unfused, not consumed
+/// elsewhere), stamp the lower Expand and clear `prev_symbols`. The lower
+/// Expand becomes the "first edge" of the fused chain: it pushes its Gid
+/// into the shared container so callers above can check against it,
+/// removing the need for them to seed from the frame.
+inline void TryElevateLeadingPusher(std::vector<Symbol> &prev_symbols, LogicalOperator *below_root, int pattern_id,
+                                    const std::unordered_set<Symbol> &used_symbols) {
+  if (prev_symbols.size() != 1) return;
+  const Symbol seed = prev_symbols.front();
+  if (used_symbols.contains(seed)) return;
+  Expand *leading = FindLeadingExpand(below_root, seed);
+  if (!leading || leading->unique_pattern_id_ != -1) return;
+  leading->unique_pattern_id_ = pattern_id;
+  leading->unique_previous_symbols_ = {};
+  leading->unique_is_topmost_ = false;
+  prev_symbols.clear();
+}
+
+/// Second-pass walk over a fused tree. For every fused Expand and every
+/// surviving EUF that still carries a one-symbol seed, push that
+/// responsibility down into the producing leading Expand (see
+/// TryElevateLeadingPusher). Then stamp `skip_edge_frame_write_` on any
+/// fused Expand whose edge symbol is provably unused.
+class PostFusionVisitor final : public HierarchicalLogicalOperatorVisitor {
+ public:
+  explicit PostFusionVisitor(const std::unordered_set<Symbol> &used_symbols) : used_symbols_(used_symbols) {}
+
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool Visit(Once &) override { return true; }
+
+  bool PreVisit(Expand &op) override {
+    if (op.unique_pattern_id_ >= 0) {
+      TryElevateLeadingPusher(op.unique_previous_symbols_, op.input_.get(), op.unique_pattern_id_, used_symbols_);
+      if (!used_symbols_.contains(op.common_.edge_symbol)) {
+        op.skip_edge_frame_write_ = true;
+      }
+    }
+    return true;
+  }
+
+  bool PreVisit(EdgeUniquenessFilter &op) override {
+    TryElevateLeadingPusher(op.previous_symbols_, op.input_.get(), op.pattern_id_, used_symbols_);
+    return true;
+  }
+
+ private:
+  const std::unordered_set<Symbol> &used_symbols_;
+};
+
 /// Recursively walks the plan tree, fusing each Expand+EUF pair whose edge
 /// symbol is not present in @p used_symbols. Mutates sub-plans in place.
 /// Returns the (possibly replaced) `op` for the parent to wire up.
@@ -312,6 +380,11 @@ inline std::unique_ptr<LogicalOperator> RewriteWithFuseEdgeUniquenessFilter(std:
     recurse_field(hj->left_op_);
     recurse_field(hj->right_op_);
   }
+
+  // Second pass: elevate leading Expands to pushers and stamp
+  // skip_edge_frame_write_ on fused Expands whose edge symbol is dead.
+  impl::PostFusionVisitor post{used};
+  root_op->Accept(post);
 
   return root_op;
 }

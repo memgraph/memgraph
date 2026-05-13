@@ -1099,6 +1099,10 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   /// Mirrors EdgeUniquenessFilter::is_topmost_ - when true, the accepted
   /// Gid is not published into the shared container (nothing above reads it).
   bool unique_is_topmost_{false};
+  /// When true, the cursor omits the frame write of `common_.edge_symbol`.
+  /// Set by the fuse-edge-uniqueness rewrite when the symbol is provably
+  /// dead (fused, and no operator references it).
+  bool skip_edge_frame_write_{false};
 
   std::string ToString() const override;
 
