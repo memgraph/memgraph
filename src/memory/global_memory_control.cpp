@@ -143,16 +143,6 @@ void UnsetHooks() {
 #endif
 }
 
-void EnableBackgroundThreads() {
-#if USE_JEMALLOC
-  bool enable = true;
-  int err = je_mallctl("background_thread", nullptr, nullptr, &enable, sizeof(enable));
-  if (err) {
-    LOG_FATAL("Failed to enable jemalloc background threads: {} ({})", strerror(err), err);
-  }
-#endif
-}
-
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC
   je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
@@ -179,6 +169,16 @@ void EnsureJemallocThreadStateInitialized() {
     }
   }
   state = State::kInitialized;
+#endif
+}
+
+void EnableBackgroundThreads() {
+#if USE_JEMALLOC
+  bool enable = true;
+  int err = je_mallctl("background_thread", nullptr, nullptr, &enable, sizeof(enable));
+  if (err) {
+    LOG_FATAL("Failed to enable jemalloc background threads: {} ({})", strerror(err), err);
+  }
 #endif
 }
 

@@ -469,7 +469,8 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
 }
 
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                              Constraints *constraints, utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                              Constraints *constraints, utils::SkipListDb<Vertex> *vertices,
+                              NameIdMapper *name_id_mapper,
                               const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::info("Recreating {} unique constraints from metadata.", constraints_metadata.unique.size());
@@ -611,8 +612,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                                           enum_store,
                                           schema_info,
                                           ttl,
-                                          description_store,
-                                          std::nullopt);
+                                          description_store);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
