@@ -1,7 +1,7 @@
 ---
 title: Simplify surviving EUF cursor — drop now-dead branches
 type: AFK
-status: needs-triage
+status: done
 ---
 
 ## Parent
@@ -23,6 +23,23 @@ are no longer reachable, e.g.:
   fallback may be unreachable.
 
 Pure simplification — no behavioural change.
+
+## Audit result
+
+After Stages 1-3 landed (commits `8bf265fb54`, `dac6f825ac`, `2af3f2f0fd`),
+the EUF cursor was audited. **No dead branches were found.** A surviving
+EUF still needs:
+
+- The `previous_symbols_` seed-push, reachable when the bottommost EUF of
+  a pattern survives (e.g. `MATCH (a)-[e1]->()-[e2]->(b) RETURN e2`
+  surfaces an EUF for `e2` with `previous_symbols_=[e1]`).
+- Both `SymbolKind::Edge` and `SymbolKind::EdgeList` dispatch, because
+  either kind can be consumed downstream and therefore survive fusion.
+- The `cand.type() == List` runtime fallback for the back-compat
+  constructor used by unit tests with ANY-typed symbols.
+
+The audit conclusion is encoded as a reachability comment at the top of
+`EdgeUniquenessFilterCursor::Pull`.
 
 ## Acceptance criteria
 

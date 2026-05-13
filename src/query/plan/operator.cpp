@@ -6077,6 +6077,21 @@ EdgeUniquenessFilter::EdgeUniquenessFilterCursor::EdgeUniquenessFilterCursor(con
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
+  // Reachability note (post-fusion):
+  //
+  // An EdgeUniquenessFilter survives only when its `expand_symbol_` is
+  // referenced downstream - otherwise the post-rewrite pass in
+  // rewrite/fuse_edge_uniqueness.hpp absorbs it into the Expand /
+  // ExpandVariable directly below. All branches below remain reachable on
+  // the surviving plans:
+  //   - `previous_symbols_` seed-push: still hit when the bottommost EUF of
+  //     a pattern survives, e.g. MATCH (a)-[e1]->()-[e2]->(b) RETURN e2 -
+  //     the EUF for e2 stays and seeds e1's Gid.
+  //   - Edge vs EdgeList dispatch: both kinds can survive when a (var-length
+  //     or single) edge is consumed downstream.
+  //   - The `cand.type() == List` runtime fallback: kept for unit tests that
+  //     build EUF directly with ANY-typed symbols via the back-compat
+  //     constructor (the planner always sets candidate_kind_ explicitly).
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("EdgeUniquenessFilter");
 
