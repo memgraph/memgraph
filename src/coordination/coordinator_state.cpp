@@ -35,8 +35,8 @@ CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) 
   ManagementServerConfig const mgmt_config{
       io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)},
   };
-  data_ = CoordinatorMainReplicaData{.data_instance_management_server_ =
-                                         std::make_unique<DataInstanceManagementServer>(mgmt_config)};
+  data_ = CoordinatorMainReplicaData{.data_instance_management_server_ = std::make_unique<DataInstanceManagementServer>(
+                                         mgmt_config, config.tls_config)};
   spdlog::trace("Created data instance management server on address {}:{}.",
                 mgmt_config.endpoint.GetAddress(),
                 mgmt_config.endpoint.GetPort());

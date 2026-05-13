@@ -20,6 +20,8 @@
 #include <optional>
 #include <string>
 
+#include "utils/tls.hpp"
+
 // Centos 7 OpenSSL includes libkrb5 which has brings in macros TRUE and FALSE. undef to prevent issues.
 #undef TRUE
 #undef FALSE
@@ -127,5 +129,13 @@ class ServerContext final {
   bool verify_peer_{false};
   std::atomic<std::shared_ptr<boost::asio::ssl::context>> ctx_;
 };
+
+inline auto CreateServerContext(std::optional<utils::TlsConfig> const &tls_config) -> communication::ServerContext {
+  return tls_config.has_value() ? communication::ServerContext{tls_config->key_file,
+                                                               tls_config->cert_file,
+                                                               tls_config->ca_file,
+                                                               /*verify_peer=*/true}
+                                : communication::ServerContext{};
+}
 
 }  // namespace memgraph::communication

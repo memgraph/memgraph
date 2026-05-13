@@ -81,8 +81,9 @@ using namespace std::chrono_literals;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
     : tls_config(config.tls_config),
-      coordinator_management_server_{ManagementServerConfig{
-          io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}}} {
+      coordinator_management_server_{ManagementServerConfig{io::network::Endpoint{
+                                         kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}},
+                                     config.tls_config} {
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
   // If something is not yet constructed in coordinator instance, we get UB
@@ -473,7 +474,8 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     auto &instance = repl_instances_.emplace_back(data_instance.config,
                                                   this,
                                                   raft_state_->GetInstanceDownTimeoutSec(),
-                                                  raft_state_->GetInstanceHealthCheckFrequencySec());
+                                                  raft_state_->GetInstanceHealthCheckFrequencySec(),
+                                                  tls_config);
     instance.StartStateCheck();
   });
 
@@ -785,8 +787,11 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
-  auto *new_instance = &repl_instances_.emplace_back(
-      config, this, raft_state_->GetInstanceDownTimeoutSec(), raft_state_->GetInstanceHealthCheckFrequencySec());
+  auto *new_instance = &repl_instances_.emplace_back(config,
+                                                     this,
+                                                     raft_state_->GetInstanceDownTimeoutSec(),
+                                                     raft_state_->GetInstanceHealthCheckFrequencySec(),
+                                                     tls_config);
 
   // Try sending RPC now but the failure is not fatal, we will try again in the reconciliation loop
   // From the user's perspective, as soon as the log is committed to Raft logs, the in-memory state will eventually

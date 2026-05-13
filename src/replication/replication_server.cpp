@@ -21,13 +21,6 @@ class FileReplicationHandler;
 namespace memgraph::replication {
 namespace {
 
-auto CreateServerContext(const memgraph::replication::ReplicationServerConfig &config) -> communication::ServerContext {
-  return config.tls_config ? communication::ServerContext{config.tls_config->key_file,
-                                                          config.tls_config->cert_file,
-                                                          config.tls_config->ca_file}
-                           : communication::ServerContext{};
-}
-
 // NOTE: The replication server must have a single thread for processing
 // because there is no need for more processing threads - each replica can
 // have only a single main server. Also, the single-threaded guarantee
@@ -36,7 +29,7 @@ constexpr auto kReplicationServerThreads = 1;
 }  // namespace
 
 ReplicationServer::ReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
-    : rpc_server_context_{CreateServerContext(config)},
+    : rpc_server_context_{communication::CreateServerContext(config.tls_config)},
       rpc_server_{config.repl_server, &rpc_server_context_, kReplicationServerThreads} {
   rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>(
       [](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
