@@ -317,7 +317,7 @@ void InMemoryEdgeTypeIndex::ActiveIndices::AbortEntries(EdgeTypeIndex::Abortable
     auto &index_storage = it->second;
     auto acc = index_storage->skip_list_.access();
     for (const auto &[from_vertex, to_vertex, edge] : edges) {
-      acc.remove(Entry{from_vertex, to_vertex, edge, exact_start_timestamp});
+      acc.remove(Entry{from_vertex, to_vertex, edge.ptr, exact_start_timestamp});
     }
   }
 }

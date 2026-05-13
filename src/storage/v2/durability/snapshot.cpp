@@ -44,6 +44,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
@@ -768,10 +769,8 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipListDb<Edge>
     if (items.properties_on_edges) {
       Edge *edge_ptr = nullptr;
       if (items.storage_light_edge) {
-        // LIGHT EDGES: allocate via DbAwareAllocator (routes to current DB arena)
-        memory::DbAwareAllocator<Edge> alloc;
-        edge_ptr = std::allocator_traits<decltype(alloc)>::allocate(alloc, 1);
-        std::construct_at(edge_ptr, Gid::FromUint(*gid), nullptr);
+        // LIGHT EDGES: allocate via helper (routes to thread-local DB arena)
+        edge_ptr = CreateLightEdge(Gid::FromUint(*gid), nullptr);
         // Track immediately so cleanup can deallocate if property recovery throws
         if (light_edge_output) {
           light_edge_output->emplace(*gid, edge_ptr);
@@ -1191,16 +1190,13 @@ struct LightEdgeLoader {
   // Free all light edges; safe to call on any partially-populated state.
   void FreeAll() noexcept {
     if (!use_light_edges) return;
-    memory::DbAwareAllocator<Edge> alloc;
     for (auto &[g, p] : all_edges) {
-      std::destroy_at(p);
-      std::allocator_traits<decltype(alloc)>::deallocate(alloc, p, 1);
+      DestroyLightEdge(p);
     }
     all_edges.clear();
     for (auto &m : per_batch) {
       for (auto &[g, p] : m) {
-        std::destroy_at(p);
-        std::allocator_traits<decltype(alloc)>::deallocate(alloc, p, 1);
+        DestroyLightEdge(p);
       }
     }
     per_batch.clear();

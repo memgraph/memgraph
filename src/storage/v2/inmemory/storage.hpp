@@ -122,6 +122,15 @@ class InMemoryStorage final : public Storage {
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
+
+  /// Light-weight wrapper around DbAwareAllocator<Edge> for light-edge
+  /// allocation and destruction.  DbAwareAllocator is stateless (reads the
+  /// thread-local arena at each call), so Create/Destroy are safe to call
+  /// from any thread with an active DbArenaScope.
+  struct LightEdgePool {
+    Edge *Create(Gid gid, Delta *delta);
+    void Destroy(Edge *p) noexcept;
+  };
   enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
 
   static const char *CreateSnapshotErrorToString(CreateSnapshotError error) {
@@ -184,6 +193,11 @@ class InMemoryStorage final : public Storage {
     std::expected<void, ConstraintViolation> UniqueConstraintsViolation() const;
 
     void CheckForFastDiscardOfDeltas();
+
+    std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
+                                                   DeltaChainState from_state, DeltaChainState to_state,
+                                                   storage::Gid gid, bool track_async_indices,
+                                                   std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
 
     [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,
@@ -840,6 +854,12 @@ class InMemoryStorage final : public Storage {
 
   EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
+  EdgeInfo FindLightEdgeFromMetadata(Gid gid);
+
+  EdgeInfo FindLightEdgeByScan(Gid gid);
+
+  EdgeInfo FindHeavyEdge(Gid gid);
+
   static void DeleteLightEdge(Edge *p);
 
   // Free all light Edge objects: walk out_edges of every vertex (each
@@ -849,6 +869,10 @@ class InMemoryStorage final : public Storage {
   void ClearLightEdges();
 
   memgraph::memory::ArenaPool *db_arena_{nullptr};
+
+  // Light-edge allocator pool — wraps DbAwareAllocator<Edge> for thread-safe
+  // light-edge creation and destruction (routes to the current DB arena via TLS).
+  LightEdgePool light_edge_pool_;
 
   // Main object storage — DbAwareAllocator routes node allocations through the
   // current DB TLS scope, while long-lived DB work establishes that scope at
@@ -1026,5 +1050,12 @@ struct SingleTxnDeltasProcessingResult {
   uint64_t num_txns_committed;
   uint32_t current_batch_counter;
 };
+
+// Free helpers for light-edge lifecycle, usable from durability code
+// (snapshot.cpp / wal.cpp) where no InMemoryStorage* is available.
+// Each call creates a temporary LightEdgePool (stateless — reads TLS arena).
+inline Edge *CreateLightEdge(Gid gid, Delta *delta) { return InMemoryStorage::LightEdgePool{}.Create(gid, delta); }
+
+inline void DestroyLightEdge(Edge *p) noexcept { InMemoryStorage::LightEdgePool{}.Destroy(p); }
 
 }  // namespace memgraph::storage

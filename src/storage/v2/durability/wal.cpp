@@ -32,6 +32,7 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -1358,9 +1359,7 @@ std::optional<RecoveryInfo> LoadWal(
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
             if (items.storage_light_edge) {
-              memory::DbAwareAllocator<Edge> alloc;
-              auto *edge_ptr = std::allocator_traits<decltype(alloc)>::allocate(alloc, 1);
-              std::construct_at(edge_ptr, data.gid, nullptr);
+              auto *edge_ptr = CreateLightEdge(data.gid, nullptr);
               return EdgeRef{edge_ptr};
             }
             auto [edge, inserted] = edge_acc.insert(Edge{(data.gid), nullptr});
