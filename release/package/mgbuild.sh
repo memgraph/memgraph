@@ -978,7 +978,7 @@ package_smoke_image() {
   # so it must be supplied as a pre-built wheel via --wheels-dir.
   local pip_packages="cryptography==46.0.7 PyJWT==2.12.1 requests==2.32.5 \
 ldap3==2.6 pyyaml==6.0.1 python3-saml==1.16.0 lxml==6.1.0 xmlsec==1.3.16 \
-gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==3.4.2 gensim==4.3.3"
+gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==3.4.2 gensim==4.4.0"
 
   local build_dir
   build_dir=$(mktemp -d)
