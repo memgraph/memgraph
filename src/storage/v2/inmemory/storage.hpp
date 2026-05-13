@@ -128,8 +128,8 @@ class InMemoryStorage final : public Storage {
   /// thread-local arena at each call), so Create/Destroy are safe to call
   /// from any thread with an active DbArenaScope.
   struct LightEdgePool {
-    Edge *Create(Gid gid, Delta *delta);
-    void Destroy(Edge *p) noexcept;
+    static Edge *Create(Gid gid, Delta *delta);
+    static void Destroy(Edge *p) noexcept;
   };
   enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
 

@@ -284,6 +284,24 @@ auto Batch(auto &&acc, const uint64_t items_per_batch) {
   return batches;
 }
 
+inline std::vector<memory::DbAwareThread> RunWorkerPool(SafeTaskQueue &tasks, uint64_t thread_count,
+                                                        std::string_view name_prefix) {
+  const auto n_workers = std::min(thread_count, tasks.size());
+  std::vector<memory::DbAwareThread> workers;
+  workers.reserve(n_workers);
+  for (int i = 0; i < n_workers; ++i) {
+    workers.emplace_back([&tasks, i, name_prefix] {
+      utils::ThreadSetName(std::string(name_prefix) + std::to_string(i));
+      while (true) {
+        auto task = tasks.PopTask();
+        if (!task) break;
+        (*task)();
+      }
+    });
+  }
+  return workers;
+}
+
 bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Vertex> *vertices,
                            auto &&partial_edge_handler, auto &&partial_vertex_handler, const uint64_t items_per_batch,
                            uint64_t &offset_edges, uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder,
@@ -358,19 +376,7 @@ bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Ver
     });
   }
 
-  const auto n_workers = std::min(thread_count, tasks.size());
-  std::vector<memory::DbAwareThread> workers;
-  workers.reserve(n_workers);
-  for (int i = 0; i < n_workers; ++i) {
-    workers.emplace_back([&, i] {
-      utils::ThreadSetName("snapshot" + std::to_string(i));
-      while (true) {
-        auto task = tasks.PopTask();
-        if (!task) break;  // No more tasks; if aborted, run through all tasks to mark them as done
-        (*task)();         // Execute the task
-      }
-    });
-  }
+  auto workers = RunWorkerPool(tasks, thread_count, "snapshot");
 
   bool all_ok = true;
   // Wait for tasks to finish and combine results as they come in
@@ -12285,6 +12291,177 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
 }
 
+namespace {
+
+struct CollectedEdge {
+  uint64_t gid;
+  std::map<PropertyId, PropertyValue> props;
+};
+
+template <typename AbortFn, typename WriteEdgeFn, typename WriteMappingFn>
+void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::SkipListDb<Vertex> *vertices,
+                            SnapshotEncoder &snapshot, AbortFn &&snapshot_aborted, uint64_t &offset_edges,
+                            uint64_t &edges_count, std::vector<BatchInfo> &edge_batch_infos,
+                            WriteEdgeFn &&write_edge_record, WriteMappingFn &&write_mapping,
+                            SnapshotProgress *progress) {
+  const bool parallel = storage->config_.durability.allow_parallel_snapshot_creation;
+  const auto items_per_batch = storage->config_.durability.items_per_batch;
+
+  if (!parallel) {
+    // ---------- Single-threaded path (original) ----------
+    std::vector<CollectedEdge> collected;
+    BatchedProgressCounter progress_counter(progress);
+
+    auto vacc = vertices->access();
+
+    for (auto &vertex : vacc) {
+      if (snapshot_aborted()) return;
+      auto va = VertexAccessor::Create(&vertex, storage, transaction, View::OLD);
+      if (!va) continue;
+      auto maybe_out = va->OutEdges(View::OLD);
+      if (!maybe_out.has_value()) continue;
+      for (auto &ea : maybe_out->edges) {
+        auto gid = ea.Gid().AsUint();
+        auto maybe_props = ea.Properties(View::OLD);
+        MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
+        collected.push_back({gid, std::move(*maybe_props)});
+      }
+    }
+
+    // Sort by GID for deterministic, recoverable output
+    std::ranges::sort(collected, [](auto &a, auto &b) { return a.gid < b.gid; });
+
+    offset_edges = snapshot.GetPosition();
+    uint64_t items_in_batch = 0;
+    auto batch_start_offset = snapshot.GetPosition();
+
+    for (auto &entry : collected) {
+      if (snapshot_aborted()) return;
+      write_edge_record(snapshot, entry.gid, entry.props, write_mapping);
+      ++edges_count;
+      progress_counter.Increment();
+      ++items_in_batch;
+      if (items_in_batch == items_per_batch) {
+        edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
+        batch_start_offset = snapshot.GetPosition();
+        items_in_batch = 0;
+      }
+    }
+    if (items_in_batch > 0) {
+      edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
+    }
+    progress_counter.Flush();
+    return;
+  }
+
+  // ---------- Parallel path ----------
+  if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, vertices->size());
+
+  // 1. Partition vertices into T ranges using Batch() (same as heavy-edge path)
+  auto vacc = vertices->access();
+  auto vertex_batches = Batch(vacc, items_per_batch);
+  const auto n_batches = vertex_batches.size() - 1;  // last entry is kEnd sentinel
+
+  // Per-worker edge collections
+  struct WorkerResult {
+    std::vector<CollectedEdge> edges;
+  };
+
+  std::vector<WorkerResult> worker_results(n_batches);
+
+  // 2. Create and enqueue collection tasks
+  SafeTaskQueue tasks;
+  for (int id = 0; id < n_batches; ++id) {
+    tasks.AddTask([&worker_results,
+                   id,
+                   start_gid = vertex_batches[id],
+                   end_gid = vertex_batches[id + 1],
+                   &vertices,
+                   storage,
+                   transaction,
+                   &snapshot_aborted] {
+      auto &result = worker_results[id];
+      auto vacc_local = vertices->access();
+      auto it = vacc_local.find_equal_or_greater(Gid::FromInt(start_gid));
+      for (; it != vacc_local.end() && it->gid.AsInt() < end_gid; ++it) {
+        if (snapshot_aborted()) return;
+        auto va = VertexAccessor::Create(&*it, storage, transaction, View::OLD);
+        if (!va) continue;
+        auto maybe_out = va->OutEdges(View::OLD);
+        if (!maybe_out.has_value()) continue;
+        for (auto &ea : maybe_out->edges) {
+          auto gid = ea.Gid().AsUint();
+          auto maybe_props = ea.Properties(View::OLD);
+          MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
+          result.edges.push_back({gid, std::move(*maybe_props)});
+        }
+      }
+      // Sort edges by GID for deterministic merge
+      std::ranges::sort(result.edges, [](auto &a, auto &b) { return a.gid < b.gid; });
+    });
+  }
+
+  // 3. Spawn workers and execute tasks
+  auto workers = RunWorkerPool(tasks, storage->config_.durability.snapshot_thread_count, "snap_light");
+
+  // Wait for all workers to finish
+  for (auto &w : workers) {
+    w.join();
+  }
+
+  // 4. k-way merge: write edges in strictly increasing GID order
+  offset_edges = snapshot.GetPosition();
+  uint64_t items_in_batch = 0;
+  auto batch_start_offset = snapshot.GetPosition();
+  BatchedProgressCounter progress_counter(progress);
+
+  // Min-heap ordered by edge GID (will produce globally sorted output)
+  using Iter = std::vector<CollectedEdge>::const_iterator;
+
+  struct HeapEntry {
+    uint64_t gid;
+    Iter current;
+    Iter end;
+  };
+
+  auto cmp = [](const HeapEntry &a, const HeapEntry &b) { return a.gid > b.gid; };
+  std::priority_queue<HeapEntry, std::vector<HeapEntry>, decltype(cmp)> heap{cmp};
+
+  for (auto &wr : worker_results) {
+    if (!wr.edges.empty()) {
+      heap.push({wr.edges.front().gid, wr.edges.begin(), wr.edges.end()});
+    }
+  }
+
+  while (!heap.empty()) {
+    if (snapshot_aborted()) return;
+    auto entry = heap.top();
+    heap.pop();
+
+    write_edge_record(snapshot, entry.current->gid, entry.current->props, write_mapping);
+    ++edges_count;
+    progress_counter.Increment();
+    ++items_in_batch;
+    if (items_in_batch == items_per_batch) {
+      edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
+      batch_start_offset = snapshot.GetPosition();
+      items_in_batch = 0;
+    }
+
+    auto next = entry.current + 1;
+    if (next != entry.end) {
+      heap.push({next->gid, next, entry.end});
+    }
+  }
+
+  if (items_in_batch > 0) {
+    edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
+  }
+  progress_counter.Flush();
+}
+
+}  // namespace
+
 std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
                                                     const std::filesystem::path &snapshot_directory,
                                                     const std::filesystem::path &wal_directory,
@@ -12611,133 +12788,72 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   std::vector<BatchInfo> edge_batch_infos;
   std::vector<BatchInfo> vertex_batch_infos;
 
-  // LIGHT EDGES: collect edges from vertex adjacency lists via MVCC instead of the
-  // edges_ skip list. Uses VertexAccessor::OutEdges(View::OLD) so that edges deleted
-  // by uncommitted concurrent transactions are still correctly included (delta undo
-  // restores them to the adjacency list for the snapshot's view).
-  auto write_light_edges_section = [&, progress]() {
-    struct CollectedEdge {
-      uint64_t gid;
-      std::map<PropertyId, PropertyValue> props;
-    };
-    std::vector<CollectedEdge> collected;
-    BatchedProgressCounter progress_counter(progress);
-
-    auto vacc = vertices->access();
-
-    for (auto &vertex : vacc) {
-      if (snapshot_aborted()) return;
-      auto va = VertexAccessor::Create(&vertex, storage, transaction, View::OLD);
-      if (!va) continue;
-      auto maybe_out = va->OutEdges(View::OLD);
-      if (!maybe_out.has_value()) continue;
-      for (auto &ea : maybe_out->edges) {
-        auto gid = ea.Gid().AsUint();
-        auto maybe_props = ea.Properties(View::OLD);
-        MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
-        collected.push_back({gid, std::move(*maybe_props)});
-      }
-    }
-
-    // Sort by GID for deterministic, recoverable output
-    std::ranges::sort(collected, [](auto &a, auto &b) { return a.gid < b.gid; });
-
-    offset_edges = snapshot.GetPosition();
-    uint64_t items_in_batch = 0;
-    auto batch_start_offset = snapshot.GetPosition();
-
-    for (auto &entry : collected) {
-      if (snapshot_aborted()) return;
-      write_edge_record(snapshot, entry.gid, entry.props, write_mapping);
-      ++edges_count;
-      progress_counter.Increment();
-      ++items_in_batch;
-      if (items_in_batch == storage->config_.durability.items_per_batch) {
-        edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
-        batch_start_offset = snapshot.GetPosition();
-        items_in_batch = 0;
-      }
-    }
-    if (items_in_batch > 0) {
-      edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
-    }
-    progress_counter.Flush();
-  };
-
   bool const light_edges = storage->config_.salient.items.storage_light_edge;
+  bool const heavy_edges = !light_edges && storage->config_.salient.items.properties_on_edges;
 
   if (storage->config_.durability.allow_parallel_snapshot_creation) {
-    if (light_edges && storage->config_.salient.items.properties_on_edges) {
-      // Write light edges single-threaded (edges must precede vertices in the file),
-      // then run the parallel workflow for vertices only.
-      write_light_edges_section();
-      if (snapshot_aborted()) return std::nullopt;
-      if (!MultiThreadedWorkflow(static_cast<utils::SkipListDb<Edge> *>(nullptr),
-                                 vertices,
-                                 partial_edge_handler,
-                                 partial_vertex_handler,
-                                 storage->config_.durability.items_per_batch,
-                                 offset_edges,
-                                 offset_vertices,
-                                 snapshot,
-                                 edges_count,
-                                 vertices_count,
-                                 edge_batch_infos,
-                                 vertex_batch_infos,
-                                 used_ids,
-                                 storage->config_.durability.snapshot_thread_count,
-                                 snapshot_aborted,
-                                 progress)) {
-        spdlog::warn(
-            "Failed to execute some tasks when doing a multi-threaded snapshot, snapshot will be aborted and snapshot "
-            "creation will be retried on the next scheduled interval");
-        snapshot.Close();
-        // Clean up the partial main snapshot file
-        std::error_code ec;
-        std::filesystem::remove(path, ec);
-        return std::nullopt;
-      }
-    } else {
-      auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
-      if (!MultiThreadedWorkflow(edge_ptr,
-                                 vertices,
-                                 partial_edge_handler,
-                                 partial_vertex_handler,
-                                 storage->config_.durability.items_per_batch,
-                                 offset_edges,
-                                 offset_vertices,
-                                 snapshot,
-                                 edges_count,
-                                 vertices_count,
-                                 edge_batch_infos,
-                                 vertex_batch_infos,
-                                 used_ids,
-                                 storage->config_.durability.snapshot_thread_count,
-                                 snapshot_aborted,
-                                 progress)) {
-        spdlog::warn(
-            "Failed to execute some tasks when doing a multi-threaded snapshot, snapshot will be aborted and snapshot "
-            "creation will be retried on the next scheduled interval");
-        snapshot.Close();
-        // Clean up the partial main snapshot file
-        std::error_code ec;
-        std::filesystem::remove(path, ec);
-        return std::nullopt;
-      }
+    // Write light edges (parallel collection + k-way merge; edges must precede vertices in the file),
+    // then run the parallel workflow for vertices only.
+    if (light_edges) {
+      WriteLightEdgesSection(storage,
+                             transaction,
+                             vertices,
+                             snapshot,
+                             snapshot_aborted,
+                             offset_edges,
+                             edges_count,
+                             edge_batch_infos,
+                             write_edge_record,
+                             write_mapping,
+                             progress);
+    }
+    auto *edge_ptr = heavy_edges ? edges : nullptr;
+    if (!MultiThreadedWorkflow(edge_ptr,
+                               vertices,
+                               partial_edge_handler,
+                               partial_vertex_handler,
+                               storage->config_.durability.items_per_batch,
+                               offset_edges,
+                               offset_vertices,
+                               snapshot,
+                               edges_count,
+                               vertices_count,
+                               edge_batch_infos,
+                               vertex_batch_infos,
+                               used_ids,
+                               storage->config_.durability.snapshot_thread_count,
+                               snapshot_aborted,
+                               progress)) {
+      spdlog::warn(
+          "Failed to execute some tasks when doing a multi-threaded snapshot, snapshot will be aborted and snapshot "
+          "creation will be retried on the next scheduled interval");
+      snapshot.Close();
+      // Clean up the partial main snapshot file
+      std::error_code ec;
+      std::filesystem::remove(path, ec);
+      return std::nullopt;
     }
   } else {
-    if (storage->config_.salient.items.properties_on_edges) {
-      if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
-      if (light_edges) {
-        write_light_edges_section();
-      } else {
-        offset_edges = snapshot.GetPosition();  // Global edge offset
-        // Handle edges
-        const auto res = partial_edge_handler(0, kEnd, snapshot);
-        edges_count = res.count;
-        edge_batch_infos = res.batch_info;
-        used_ids.insert(res.used_ids.begin(), res.used_ids.end());
-      }
+    if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
+    if (light_edges) {
+      WriteLightEdgesSection(storage,
+                             transaction,
+                             vertices,
+                             snapshot,
+                             snapshot_aborted,
+                             offset_edges,
+                             edges_count,
+                             edge_batch_infos,
+                             write_edge_record,
+                             write_mapping,
+                             progress);
+    } else if (heavy_edges) {
+      offset_edges = snapshot.GetPosition();  // Global edge offset
+      // Handle edges
+      const auto res = partial_edge_handler(0, kEnd, snapshot);
+      edges_count = res.count;
+      edge_batch_infos = res.batch_info;
+      used_ids.insert(res.used_ids.begin(), res.used_ids.end());
     }
     if (snapshot_aborted()) {
       return std::nullopt;
