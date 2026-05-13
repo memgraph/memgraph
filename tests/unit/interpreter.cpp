@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <map>
+#include <set>
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
@@ -1701,4 +1703,57 @@ TYPED_TEST(InterpreterTest, ShowConfigQueryPriorityIsHigh) {
 TYPED_TEST(InterpreterTest, ShowTransactionsQueryPriorityIsHigh) {
   auto [stream, qid] = this->Prepare("SHOW TRANSACTIONS");
   EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+// When ASC and DESC label-property indexes coexist on the same
+// (label, properties), ANALYZE GRAPH would scan vertices and emit stats once
+// per index order, producing duplicate result rows and redundant
+// SetIndexStats writes for the same (label, properties) slot.
+//
+// The create-side dedup is observable through duplicate result rows. The
+// delete-side dedup eliminates redundant `MetadataDelta::label_property_index
+// _stats_clear` emissions, which are not visible through query results — the
+// assertion below only verifies that `DELETE STATISTICS` returns one row per
+// (label, properties) regardless of the number of (label, properties, order)
+// entries that were deduplicated.
+TYPED_TEST(InterpreterTest, AnalyzeGraphDeduplicatesAscDescIndexes) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "DESC label-property indexes are not supported on disk storage.";
+  }
+
+  this->Interpret("CREATE INDEX ON :LabelA(prop);");
+  this->Interpret(R"(CREATE INDEX ON :LabelA(prop) WITH CONFIG {"order": "DESC"};)");
+  this->Interpret("CREATE INDEX ON :LabelB(prop);");
+  this->Interpret(R"(CREATE INDEX ON :LabelB(prop) WITH CONFIG {"order": "DESC"};)");
+  this->Interpret("FOREACH (i IN range(1, 10) | CREATE (n:LabelA {prop: i}));");
+  this->Interpret("FOREACH (i IN range(1, 5) | CREATE (n:LabelB {prop: i}));");
+
+  // ANALYZE GRAPH result columns: label, property, num estimation nodes, ...
+  constexpr std::size_t kLabelCol = 0;
+  constexpr std::size_t kPropertyCol = 1;
+  constexpr std::size_t kCountCol = 2;
+
+  auto stream = this->Interpret("ANALYZE GRAPH;");
+  const auto &results = stream.GetResults();
+  ASSERT_EQ(results.size(), 2U) << "ANALYZE GRAPH should produce exactly one row per "
+                                   "(label, properties); ASC/DESC duplicates must be deduped.";
+  std::map<std::string, int64_t> counts_by_label;
+  for (const auto &row : results) {
+    const auto &props = row[kPropertyCol].ValueList();
+    ASSERT_EQ(props.size(), 1U);
+    EXPECT_EQ(props[0].ValueString(), "prop");
+    counts_by_label[row[kLabelCol].ValueString()] = row[kCountCol].ValueInt();
+  }
+  EXPECT_EQ(counts_by_label["LabelA"], 10);
+  EXPECT_EQ(counts_by_label["LabelB"], 5);
+
+  auto delete_stream = this->Interpret("ANALYZE GRAPH DELETE STATISTICS;");
+  const auto &delete_results = delete_stream.GetResults();
+  ASSERT_EQ(delete_results.size(), 2U) << "ANALYZE GRAPH DELETE STATISTICS should report each "
+                                          "(label, properties) at most once.";
+  std::set<std::string> deleted_labels;
+  for (const auto &row : delete_results) {
+    deleted_labels.insert(row[kLabelCol].ValueString());
+  }
+  EXPECT_EQ(deleted_labels, (std::set<std::string>{"LabelA", "LabelB"}));
 }

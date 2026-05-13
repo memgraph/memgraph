@@ -32,6 +32,7 @@
 #include <thread>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <usearch/index_plugins.hpp>
 #include <utility>
 #include <variant>
@@ -3898,7 +3899,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     return label_stats;
   };
 
-  auto populate_label_property_stats = [execution_db_accessor, view](auto index_info) {
+  auto populate_label_property_stats = [execution_db_accessor, view](auto &index_info) {
     std::map<LPIndex, std::map<std::vector<storage::PropertyValue>, int64_t>> label_property_counter;
     std::map<LPIndex, uint64_t> vertex_degree_counter;
 
@@ -4028,6 +4029,15 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
   std::vector<LPIndex> label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
+  // Stats are keyed by (label, properties) only — `IndexOrder` does not affect
+  // count/chi-squared/avg_degree. Collapse entries that differ only in order
+  // so we don't perform a redundant full vertex scan when both ASC and DESC
+  // indexes exist on the same key.
+  auto const stats_key_proj = [](LPIndex const &e) { return e.stats_key(); };
+  std::ranges::sort(label_property_indices_info, std::less{}, stats_key_proj);
+  label_property_indices_info.erase(
+      std::ranges::unique(label_property_indices_info, std::equal_to{}, stats_key_proj).begin(),
+      label_property_indices_info.end());
   auto label_property_stats = populate_label_property_stats(label_property_indices_info);
 
   std::vector<std::vector<TypedValue>> results;
@@ -4114,11 +4124,10 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   auto populate_label_property_results = [execution_db_accessor](auto const &index_info) {
     std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyPath>>> label_property_results;
     label_property_results.reserve(index_info.size());
-
     std::for_each(index_info.begin(),
                   index_info.end(),
-                  [execution_db_accessor, &label_property_results](const storage::LabelPropertyIndexEntry &entry) {
-                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(entry.label);
+                  [execution_db_accessor, &label_property_results](const storage::LabelId &label) {
+                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(label);
                     label_property_results.insert(
                         label_property_results.end(), std::move_iterator{res.begin()}, std::move_iterator{res.end()});
                   });
@@ -4134,7 +4143,15 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
 
   auto label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
-  auto label_prop_results = populate_label_property_results(label_property_indices_info);
+  // `DeleteLabelPropertyIndexStats` is keyed by label and wipes every
+  // (label, properties) entry in one call — collapse to unique labels so
+  // repeated entries (different property combos, or ASC/DESC pairs) don't
+  // produce redundant replicated metadata deltas.
+  auto unique_labels =
+      label_property_indices_info | rv::transform(&storage::LabelPropertyIndexEntry::label) | ranges::to<std::vector>();
+  std::ranges::sort(unique_labels);
+  unique_labels.erase(std::ranges::unique(unique_labels).begin(), unique_labels.end());
+  auto label_prop_results = populate_label_property_results(unique_labels);
 
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
