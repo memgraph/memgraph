@@ -386,7 +386,7 @@ class Storage {
   // A way to tell async operation to stop
   std::stop_source stop_source;
 
-  ttl::TTL ttl_{this, metric_handles_.deleted_nodes.counter, metric_handles_.deleted_edges.counter};  // TTL handler
+  ttl::TTL ttl_{this, metric_handles_.deleted_nodes, metric_handles_.deleted_edges};  // TTL handler
 
   // Factory function to create database protectors for async operations
   // Used by async indexer and TTL system to get protectors for committing transactions
