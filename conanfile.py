@@ -112,6 +112,7 @@ class Memgraph(ConanFile):
         self.requires("protobuf/3.21.12")
         self.requires("pulsar-client-cpp/4.0.0-memgraph")
         self.requires("range-v3/0.12.0")
+        self.requires("roaring/4.5.0")
         self.requires("rocksdb/8.1.1-memgraph")
         self.requires("simdjson/4.2.2")
         self.requires("spdlog/1.15.3")
