@@ -414,9 +414,15 @@ class ReplQueryHandler {
     } else {
       ValidatePort(port);
 
+      std::optional<memgraph::replication::ReplicationServerConfig::SSL> maybe_ssl;
+      if (memgraph::flags::IsIntraClusterTLSEnabled()) {
+        maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file, FLAGS_cluster_ca_file);
+      }
+
       auto const config = memgraph::replication::ReplicationServerConfig{
           .repl_server = memgraph::io::network::Endpoint(memgraph::replication::kDefaultReplicationServerIp,
-                                                         static_cast<uint16_t>(*port))};
+                                                         static_cast<uint16_t>(*port)),
+          .ssl = std::move(maybe_ssl)};
 
       if (!handler_->TrySetReplicationRoleReplica(config)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
@@ -448,12 +454,17 @@ class ReplQueryHandler {
       throw QueryRuntimeException("Invalid socket address. {}", kSocketErrorExplanation);
     }
 
+    std::optional<replication::ReplicationClientConfig::SSL> maybe_ssl;
+    if (flags::IsIntraClusterTLSEnabled()) {
+      maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file);
+    }
+
     const auto replication_config =
         replication::ReplicationClientConfig{.name = name,
                                              .mode = repl_mode,
                                              .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
                                              .replica_check_frequency = replica_check_frequency,
-                                             .ssl = std::nullopt};
+                                             .ssl = std::move(maybe_ssl)};
 
     const auto error = handler_->TryRegisterReplica(replication_config);
 

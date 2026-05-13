@@ -250,6 +250,13 @@ DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(cluster_cert_file, "", "Certificate file used for intra-cluster TLS communication.");
-
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(cluster_key_file, "", "Key file used for intra-cluster TLS communication.");
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(cluster_ca_file, "",
+              "The file used for storing certificate of the Certificate Authority you trust for intra-cluster TLS "
+              "communication.");
+
+auto memgraph::flags::IsIntraClusterTLSEnabled() -> bool {
+  return !FLAGS_cluster_cert_file.empty() && !FLAGS_cluster_key_file.empty() && !FLAGS_cluster_ca_file.empty();
+}

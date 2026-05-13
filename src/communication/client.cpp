@@ -48,13 +48,14 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
   socket_.SetUserTimeout();
 
   if (context_->use_ssl()) {
+    spdlog::trace("Using SSL for client connect");
     // Release leftover SSL objects.
     ReleaseSslObjects();
 
     // Create a new SSL object that will be used for SSL communication.
     ssl_ = SSL_new(context_->context());
     if (ssl_ == nullptr) {
-      SPDLOG_ERROR("Couldn't create client SSL object!");
+      spdlog::error("Couldn't create client SSL object!");
       socket_.Close();
       return false;
     }
@@ -65,7 +66,7 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
     // handle that in our socket destructor).
     bio_ = BIO_new_socket(socket_.fd(), BIO_NOCLOSE);
     if (bio_ == nullptr) {
-      SPDLOG_ERROR("Couldn't create client BIO object!");
+      spdlog::error("Couldn't create client BIO object!");
       socket_.Close();
       return false;
     }
@@ -81,7 +82,7 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
     // Perform the TLS handshake.
     auto ret = SSL_connect(ssl_);
     if (ret != 1) {
-      SPDLOG_WARN("Couldn't connect to SSL server: {}", SslGetLastError());
+      spdlog::warn("Couldn't connect to SSL server: {}", SslGetLastError());
       socket_.Close();
       return false;
     }

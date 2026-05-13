@@ -53,7 +53,6 @@ struct ReplicationServerConfig {
     std::string key_file;
     std::string cert_file;
     std::string ca_file;
-    bool verify_peer{};
     friend bool operator==(SSL const &, SSL const &) = default;
   };
 

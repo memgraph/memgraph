@@ -13,6 +13,7 @@
 #include <variant>
 
 #include "flags/coord_flag_env_handler.hpp"
+#include "flags/general.hpp"
 #include "replication/replication_client.hpp"
 #include "replication/replication_server.hpp"
 #include "replication/state.hpp"
@@ -196,6 +197,11 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               std::unique_ptr<ReplicationServer> server;
               try {
                 // Creating Epoll object could throw an exception
+                if (memgraph::flags::IsIntraClusterTLSEnabled()) {
+                  r.config.ssl = ReplicationServerConfig::SSL{.key_file = FLAGS_cluster_key_file,
+                                                              .cert_file = FLAGS_cluster_cert_file,
+                                                              .ca_file = FLAGS_cluster_ca_file};
+                }
                 server = std::make_unique<ReplicationServer>(r.config);
               } catch (utils::BasicException const &e) {
                 spdlog::warn(e.what());
