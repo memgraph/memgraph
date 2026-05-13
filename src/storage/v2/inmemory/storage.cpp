@@ -718,15 +718,13 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
         for (auto const &ea : deleted_edges) {
           deleted_light_edges.push_back(ea.edge_.ptr);
         }
-        uint64_t mark_timestamp = 0;
-        {
-          // TODO: I don't like that we take the engine lock here. What are we actually trying to do?
-          // We are deleting the edge, but are we actually deleting it here? No we are in a transaction.
-          // This exists just to mark flags for gc. The actual graveyard logic should be happening in the
-          // Commit/Abort/GC?
-          auto engine_guard = std::unique_lock{mem_storage->engine_lock_};
-          mark_timestamp = mem_storage->timestamp_;
-        }
+        // ANALYTICAL mode has no commit/abort cycle — deletion is immediate.
+        // Phase 1 (index cleanup) uses mark_timestamp to defer until no active
+        // reader can see the edge. In ANALYTICAL mode there are no start-
+        // timestamp readers; guard_epoch in Phase 2 already ensures no active
+        // index iterable holds an Edge* before the memory is freed.
+        // mark_timestamp = 0 means "process immediately in the next GC cycle".
+        uint64_t const mark_timestamp = 0;
         auto guard_epoch = mem_storage->light_edge_iterable_tracker_.CurrentEpoch();
         mem_storage->light_edge_graveyard_.WithLock([&](auto &graveyard) {
           graveyard.push_back({mark_timestamp, guard_epoch, std::move(deleted_light_edges)});
