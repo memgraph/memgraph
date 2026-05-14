@@ -286,6 +286,18 @@ jobs:
           echo "IMAGE_TAG=$image_tag" >> $GITHUB_ENV
           echo "Resolved IMAGE_TAG=$image_tag"
 
+      - name: "Bolt smoke test (no-arg startup)"
+        if: ${{ env.FOR_DOCKER == 'true' }}
+        run: |
+          image="memgraph/memgraph:${IMAGE_TAG}"
+          # --keep-image-loaded is only true when run_smoke_tests is set, so
+          # load from the tarball when needed.
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            image_archive="$(ls -1t "$DOCKER_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+            docker load -i "$image_archive"
+          fi
+          ./tools/ci/smoke_test_docker_image.sh "$image"
+
       - name: "Generate Build SBOM"
         if: ${{ env.GENERATE_SBOM == 'true'  && env.FOR_DOCKER != 'true' }}
         run: |

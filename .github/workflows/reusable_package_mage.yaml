@@ -444,6 +444,12 @@ jobs:
             --custom-mirror true \
             --cuda $CUDA
 
+      - name: "Bolt smoke test (no-arg startup)"
+        # cugraph/cuda images need an Nvidia GPU and can't start on CI runners.
+        if: ${{ !inputs.cugraph && !inputs.cuda }}
+        run: |
+          ./tools/ci/smoke_test_docker_image.sh "${DOCKER_REPOSITORY_NAME}:${IMAGE_TAG}"
+
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
         run: |
