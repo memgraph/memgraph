@@ -75,8 +75,11 @@ TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
 TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
   FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
-  memgraph::metrics::StorageSnapshot snapshot{
-      .vertex_count = 7, .edge_count = 3, .disk_usage = 1024, .memory_res = 4096};
+  memgraph::metrics::StorageSnapshot snapshot{.vertex_count = 7,
+                                              .edge_count = 3,
+                                              .disk_usage = 1024,
+                                              .db_memory_tracked = 4096,
+                                              .db_peak_memory_tracked = 8192};
   memgraph::utils::UUID const db1_uuid{};
   pm.SetStorageSnapshotResolver(
       [&snapshot, &db1_uuid](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
@@ -91,7 +94,8 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 7.0);
   EXPECT_EQ(FindSample(families, "memgraph_edge_count", "db1"), 3.0);
   EXPECT_EQ(FindSample(families, "memgraph_disk_usage_bytes", "db1"), 1024.0);
-  EXPECT_EQ(FindSample(families, "memgraph_memory_res_bytes", "db1"), 4096.0);
+  EXPECT_EQ(FindSample(families, "memgraph_db_memory_tracked_bytes", "db1"), 4096.0);
+  EXPECT_EQ(FindSample(families, "memgraph_db_peak_memory_tracked_bytes", "db1"), 8192.0);
 }
 
 TEST(PrometheusMetrics, RemoveDatabaseRemovesMetrics) {
@@ -118,10 +122,8 @@ TEST(DatabaseMetrics, SwitchToOnDiskUpdatesSnapshotCallback) {
         [&db](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
           if (uuid != db.uuid()) return std::nullopt;
           auto const info = db.storage()->GetBaseInfo();
-          return memgraph::metrics::StorageSnapshot{.vertex_count = info.vertex_count,
-                                                    .edge_count = info.edge_count,
-                                                    .disk_usage = info.disk_usage,
-                                                    .memory_res = info.memory_res};
+          return memgraph::metrics::StorageSnapshot{
+              .vertex_count = info.vertex_count, .edge_count = info.edge_count, .disk_usage = info.disk_usage};
         });
     memgraph::metrics::Metrics().UpdateGauges();
 

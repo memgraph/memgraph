@@ -52,7 +52,11 @@ struct StorageSnapshot {
   uint64_t vertex_count;
   uint64_t edge_count;
   uint64_t disk_usage;
-  uint64_t memory_res;
+  int64_t db_memory_tracked;
+  int64_t db_peak_memory_tracked;
+  int64_t db_storage_memory_tracked;
+  int64_t db_embedding_memory_tracked;
+  int64_t db_query_memory_tracked;
 };
 
 /// Retrieves `StorageSnapshot` for the given database UUID, or `std::nullopt`
@@ -124,7 +128,13 @@ struct DatabaseMetricHandles {
   GaugeHandle vertex_count;
   GaugeHandle edge_count;
   GaugeHandle disk_usage_bytes;
-  GaugeHandle memory_res_bytes;
+
+  // Per-database memory tracking
+  GaugeHandle db_memory_tracked_bytes;
+  GaugeHandle db_peak_memory_tracked_bytes;
+  GaugeHandle db_storage_memory_tracked_bytes;
+  GaugeHandle db_embedding_memory_tracked_bytes;
+  GaugeHandle db_query_memory_tracked_bytes;
 
   // Operators
   CounterHandle once_operator;
@@ -251,6 +261,7 @@ struct GlobalMetricHandles {
   prometheus::Counter *bolt_messages;
 
   // Memory
+  prometheus::Gauge *memory_res_bytes;
   prometheus::Gauge *peak_memory_res_bytes;
 
   // Transaction (global) — incremented when no per-db context is available
@@ -388,7 +399,11 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &vertex_count_family_;
   prometheus::Family<prometheus::Gauge> &edge_count_family_;
   prometheus::Family<prometheus::Gauge> &disk_usage_family_;
-  prometheus::Family<prometheus::Gauge> &memory_res_family_;
+  prometheus::Family<prometheus::Gauge> &db_memory_tracked_family_;
+  prometheus::Family<prometheus::Gauge> &db_peak_memory_tracked_family_;
+  prometheus::Family<prometheus::Gauge> &db_storage_memory_tracked_family_;
+  prometheus::Family<prometheus::Gauge> &db_embedding_memory_tracked_family_;
+  prometheus::Family<prometheus::Gauge> &db_query_memory_tracked_family_;
 
   // Per-database metric families — transaction (partial: active/committed/rolled_back/failed)
   prometheus::Family<prometheus::Gauge> &active_transactions_family_;
@@ -508,6 +523,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &show_storage_info_family_;
 
   // Global metric families — memory
+  prometheus::Family<prometheus::Gauge> &memory_res_family_;
   prometheus::Family<prometheus::Gauge> &peak_memory_res_family_;
 
   // No separate global families needed — global no-db counters reuse the per-db families with no label

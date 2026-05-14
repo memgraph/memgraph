@@ -27,6 +27,7 @@
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
 #include "utils/logging.hpp"
+#include "utils/stat.hpp"
 #ifdef MG_ENTERPRISE
 #include "coordination/include/coordination/instance_status.hpp"
 #endif
@@ -92,10 +93,26 @@ PrometheusMetrics::PrometheusMetrics()
                              .Name("memgraph_disk_usage_bytes")
                              .Help("Disk usage of the database in bytes")
                              .Register(registry_)},
-      memory_res_family_{prometheus::BuildGauge()
-                             .Name("memgraph_memory_res_bytes")
-                             .Help("Resident memory usage of the database in bytes")
-                             .Register(registry_)},
+      db_memory_tracked_family_{prometheus::BuildGauge()
+                                    .Name("memgraph_db_memory_tracked_bytes")
+                                    .Help("Total tracked memory usage of the database in bytes")
+                                    .Register(registry_)},
+      db_peak_memory_tracked_family_{prometheus::BuildGauge()
+                                         .Name("memgraph_db_peak_memory_tracked_bytes")
+                                         .Help("Peak tracked memory usage of the database in bytes")
+                                         .Register(registry_)},
+      db_storage_memory_tracked_family_{prometheus::BuildGauge()
+                                            .Name("memgraph_db_storage_memory_tracked_bytes")
+                                            .Help("Storage memory usage of the database in bytes")
+                                            .Register(registry_)},
+      db_embedding_memory_tracked_family_{prometheus::BuildGauge()
+                                              .Name("memgraph_db_embedding_memory_tracked_bytes")
+                                              .Help("Embedding memory usage of the database in bytes")
+                                              .Register(registry_)},
+      db_query_memory_tracked_family_{prometheus::BuildGauge()
+                                          .Name("memgraph_db_query_memory_tracked_bytes")
+                                          .Help("Query memory usage of the database in bytes")
+                                          .Register(registry_)},
       active_transactions_family_{prometheus::BuildGauge()
                                       .Name("memgraph_active_transactions")
                                       .Help("Number of active transactions")
@@ -483,7 +500,11 @@ PrometheusMetrics::PrometheusMetrics()
                                     .Name("memgraph_show_storage_info_total")
                                     .Help("Number of times SHOW STORAGE INFO was called")
                                     .Register(registry_)},
-      // Memory
+      // Memory (global)
+      memory_res_family_{prometheus::BuildGauge()
+                             .Name("memgraph_memory_res_bytes")
+                             .Help("Resident memory usage of the process in bytes")
+                             .Register(registry_)},
       peak_memory_res_family_{prometheus::BuildGauge()
                                   .Name("memgraph_peak_memory_res_bytes")
                                   .Help("Peak resident memory usage in bytes")
@@ -761,6 +782,7 @@ PrometheusMetrics::PrometheusMetrics()
   global.active_websocket_sessions = &active_websocket_sessions_family_.Add(no_labels);
   global.bolt_messages = &bolt_messages_family_.Add(no_labels);
 
+  global.memory_res_bytes = &memory_res_family_.Add(no_labels);
   global.peak_memory_res_bytes = &peak_memory_res_family_.Add(no_labels);
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
@@ -869,7 +891,11 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .vertex_count = {&vertex_count_family_.Add(labels)},
                   .edge_count = {&edge_count_family_.Add(labels)},
                   .disk_usage_bytes = {&disk_usage_family_.Add(labels)},
-                  .memory_res_bytes = {&memory_res_family_.Add(labels)},
+                  .db_memory_tracked_bytes = {&db_memory_tracked_family_.Add(labels)},
+                  .db_peak_memory_tracked_bytes = {&db_peak_memory_tracked_family_.Add(labels)},
+                  .db_storage_memory_tracked_bytes = {&db_storage_memory_tracked_family_.Add(labels)},
+                  .db_embedding_memory_tracked_bytes = {&db_embedding_memory_tracked_family_.Add(labels)},
+                  .db_query_memory_tracked_bytes = {&db_query_memory_tracked_family_.Add(labels)},
                   .once_operator = {&once_operator_family_.Add(labels)},
                   .create_node_operator = {&create_node_operator_family_.Add(labels)},
                   .create_expand_operator = {&create_expand_operator_family_.Add(labels)},
@@ -983,7 +1009,11 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   vertex_count_family_.Remove(h.vertex_count.get());
   edge_count_family_.Remove(h.edge_count.get());
   disk_usage_family_.Remove(h.disk_usage_bytes.get());
-  memory_res_family_.Remove(h.memory_res_bytes.get());
+  db_memory_tracked_family_.Remove(h.db_memory_tracked_bytes.get());
+  db_peak_memory_tracked_family_.Remove(h.db_peak_memory_tracked_bytes.get());
+  db_storage_memory_tracked_family_.Remove(h.db_storage_memory_tracked_bytes.get());
+  db_embedding_memory_tracked_family_.Remove(h.db_embedding_memory_tracked_bytes.get());
+  db_query_memory_tracked_family_.Remove(h.db_query_memory_tracked_bytes.get());
   once_operator_family_.Remove(h.once_operator.get());
   create_node_operator_family_.Remove(h.create_node_operator.get());
   create_expand_operator_family_.Remove(h.create_expand_operator.get());
@@ -1099,9 +1129,15 @@ void PrometheusMetrics::UpdateGauges() {
       it->handles.vertex_count.Set(static_cast<double>(snapshot.vertex_count));
       it->handles.edge_count.Set(static_cast<double>(snapshot.edge_count));
       it->handles.disk_usage_bytes.Set(static_cast<double>(snapshot.disk_usage));
-      it->handles.memory_res_bytes.Set(static_cast<double>(snapshot.memory_res));
+      it->handles.db_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_memory_tracked));
+      it->handles.db_peak_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_peak_memory_tracked));
+      it->handles.db_storage_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_storage_memory_tracked));
+      it->handles.db_embedding_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_embedding_memory_tracked));
+      it->handles.db_query_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_query_memory_tracked));
     }
   }
+
+  global.memory_res_bytes->Set(static_cast<double>(utils::GetMemoryRES()));
 
 #ifdef MG_ENTERPRISE
   std::vector<coordination::InstanceStatus> instances;
@@ -1254,7 +1290,11 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
 
   // Memory
   out.push_back({"DiskUsage", "Memory", "Gauge", static_cast<int64_t>(snapshot.disk_usage)});
-  out.push_back({"MemoryRes", "Memory", "Gauge", static_cast<int64_t>(snapshot.memory_res)});
+  out.push_back({"DbMemoryTracked", "Memory", "Gauge", snapshot.db_memory_tracked});
+  out.push_back({"DbPeakMemoryTracked", "Memory", "Gauge", snapshot.db_peak_memory_tracked});
+  out.push_back({"DbStorageMemoryTracked", "Memory", "Gauge", snapshot.db_storage_memory_tracked});
+  out.push_back({"DbEmbeddingMemoryTracked", "Memory", "Gauge", snapshot.db_embedding_memory_tracked});
+  out.push_back({"DbQueryMemoryTracked", "Memory", "Gauge", snapshot.db_query_memory_tracked});
   out.push_back(
       {"UnreleasedDeltaObjects", "Memory", "Gauge", static_cast<int64_t>(h.unreleased_delta_objects.Value())});
   AppendHistogramPercentiles(out, "GCLatency", "Memory", *h.gc_latency_seconds.get());
@@ -1667,7 +1707,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   }
 
   out.push_back({"DiskUsage", "Memory", "Gauge", static_cast<int64_t>(default_snapshot.disk_usage)});
-  out.push_back({"MemoryRes", "Memory", "Gauge", static_cast<int64_t>(default_snapshot.memory_res)});
+  out.push_back({"MemoryRes", "Memory", "Gauge", static_cast<int64_t>(utils::GetMemoryRES())});
   out.push_back({"UnreleasedDeltaObjects", "Memory", "Gauge", total_unreleased_deltas});
 
   // Operator
@@ -1851,6 +1891,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   std::vector<MetricInfo> out;
 
   // Memory (global only)
+  out.push_back({"MemoryRes", "Memory", "Gauge", static_cast<int64_t>(global.memory_res_bytes->Value())});
   out.push_back({"PeakMemoryRes", "Memory", "Gauge", static_cast<int64_t>(global.peak_memory_res_bytes->Value())});
 
   // Session

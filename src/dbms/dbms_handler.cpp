@@ -619,7 +619,11 @@ std::optional<memgraph::metrics::StorageSnapshot> DbmsHandler::TryGetStorageSnap
     return memgraph::metrics::StorageSnapshot{.vertex_count = info.vertex_count,
                                               .edge_count = info.edge_count,
                                               .disk_usage = info.disk_usage,
-                                              .memory_res = info.memory_res};
+                                              .db_memory_tracked = db->DbMemoryUsage(),
+                                              .db_peak_memory_tracked = db->DbPeakMemoryUsage(),
+                                              .db_storage_memory_tracked = db->DbStorageMemoryUsage(),
+                                              .db_embedding_memory_tracked = db->DbEmbeddingMemoryUsage(),
+                                              .db_query_memory_tracked = db->DbQueryMemoryUsage()};
   } catch (UnknownDatabaseException const &) {
     return std::nullopt;
   }
@@ -630,7 +634,11 @@ std::optional<memgraph::metrics::StorageSnapshot> DbmsHandler::TryGetStorageSnap
   return memgraph::metrics::StorageSnapshot{.vertex_count = info.vertex_count,
                                             .edge_count = info.edge_count,
                                             .disk_usage = info.disk_usage,
-                                            .memory_res = info.memory_res};
+                                            .db_memory_tracked = (*db_opt)->DbMemoryUsage(),
+                                            .db_peak_memory_tracked = (*db_opt)->DbPeakMemoryUsage(),
+                                            .db_storage_memory_tracked = (*db_opt)->DbStorageMemoryUsage(),
+                                            .db_embedding_memory_tracked = (*db_opt)->DbEmbeddingMemoryUsage(),
+                                            .db_query_memory_tracked = (*db_opt)->DbQueryMemoryUsage()};
 #endif
 }
 

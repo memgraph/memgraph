@@ -66,7 +66,6 @@ class StorageV2GcMetricsTest : public testing::Test {
               .vertex_count = info.vertex_count,
               .edge_count = info.edge_count,
               .disk_usage = info.disk_usage,
-              .memory_res = info.memory_res,
           };
         });
   }
