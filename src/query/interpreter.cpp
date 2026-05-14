@@ -3077,10 +3077,12 @@ struct PullPlan {
                                                         std::map<std::string, TypedValue> *summary);
 
  private:
+  // ctx_ must precede cursor_ so that &ctx_.stats is valid when cursor_'s
+  // init-list runs MakeCursor with a ProfileContext (see ctor below).
+  ExecutionContext ctx_;
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
   plan::UniqueCursorPtr cursor_ = nullptr;
   Frame frame_;
-  ExecutionContext ctx_;
   std::optional<size_t> memory_limit_;
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::optional<QueryLogger> &query_logger_;
@@ -3114,7 +3116,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 #endif
                    )
     : plan_(plan),
-      cursor_(plan->plan().MakeCursor(execution_memory)),
+      cursor_(plan->plan().MakeCursor(
+          execution_memory, is_profile_query ? plan::ProfileContext{&ctx_.stats, dba} : plan::ProfileContext{})),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit),
       query_logger_(query_logger)

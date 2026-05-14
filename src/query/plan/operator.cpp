@@ -332,6 +332,42 @@ ExpressionRange::ExpressionRange(Type type, std::optional<utils::Bound<Expressio
     : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
 
 namespace {
+// Append a child ProfilingStats slot under `parent` (if non-null), assigning
+// `key` and `name`. Returns the new slot, or nullptr when parent is null.
+ProfilingStats *AppendProfileChild(ProfilingStats *parent, uint64_t key, std::string name) {
+  if (!parent) return nullptr;
+  auto &slot = parent->children.emplace_back();
+  slot.key = key;
+  slot.name = std::move(name);
+  return &slot;
+}
+
+// Helper for operators whose MakeCursor body must pre-resolve the slot
+// before constructing the child cursor (so the child gets the right
+// ChildContext). Mirrors what the Cursor(profile, op) base ctor does.
+ProfilingStats *AppendOpSlot(ProfileContext profile, const NamedLogicalOperator &op) {
+  if (!profile.parent_stats) return nullptr;
+  op.dba_ = profile.db_accessor;
+  auto name = op.ToString();
+  op.dba_ = nullptr;
+  return AppendProfileChild(profile.parent_stats, reinterpret_cast<uint64_t>(&op), std::move(name));
+}
+}  // namespace
+
+Cursor::Cursor(ProfileContext profile, const NamedLogicalOperator &op) {
+  if (!profile.parent_stats) return;
+  op.dba_ = profile.db_accessor;
+  auto name = op.ToString();
+  op.dba_ = nullptr;
+  profile_slot_ = AppendProfileChild(profile.parent_stats, reinterpret_cast<uint64_t>(&op), std::move(name));
+}
+
+Cursor::Cursor(ProfileContext profile, const char *name) {
+  if (!profile.parent_stats) return;
+  profile_slot_ = AppendProfileChild(profile.parent_stats, reinterpret_cast<uint64_t>(name), std::string{name});
+}
+
+namespace {
 template <typename>
 constexpr auto kAlwaysFalse = false;
 
@@ -537,21 +573,9 @@ struct PlanCreationHelper {
 
 }  // namespace
 
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define SCOPED_PROFILE_OP(name)                                                                    \
-  const std::optional<ScopedProfile> profile =                                                     \
-      context.is_profile_query                                                                     \
-          ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), name, &context) \
-          : std::nullopt;
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define SCOPED_PROFILE_OP_BY_REF(ref)                                                                                  \
-  std::optional<ScopedProfile> const profile =                                                                         \
-      context.is_profile_query ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), ref, &context) \
-                               : std::nullopt;
-
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Once");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -562,10 +586,10 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   return false;
 }
 
-UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::OnceOperator);
 
-  return MakeUniqueCursorPtr<OnceCursor>(mem);
+  return MakeUniqueCursorPtr<OnceCursor>(mem, profile);
 }
 
 WITHOUT_SINGLE_INPUT(Once);
@@ -640,10 +664,10 @@ VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame
 
 ACCEPT_WITH_INPUT(CreateNode)
 
-UniqueCursorPtr CreateNode::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr CreateNode::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CreateNodeOperator);
 
-  return MakeUniqueCursorPtr<CreateNodeCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<CreateNodeCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> CreateNode::ModifiedSymbols(const SymbolTable &table) const {
@@ -659,12 +683,15 @@ std::unique_ptr<LogicalOperator> CreateNode::Clone(AstStorage *storage) const {
   return object;
 }
 
-CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::MemoryResource *mem,
+                                               ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("CreateNode");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -713,10 +740,10 @@ CreateExpand::CreateExpand(NodeCreationInfo node_info, EdgeCreationInfo edge_inf
 
 ACCEPT_WITH_INPUT(CreateExpand)
 
-UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CreateExpandOperator);
 
-  return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> CreateExpand::ModifiedSymbols(const SymbolTable &table) const {
@@ -749,8 +776,11 @@ std::unique_ptr<LogicalOperator> CreateExpand::Clone(AstStorage *storage) const 
   return object;
 }
 
-CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self, utils::MemoryResource *mem,
+                                                     ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 namespace {
 
@@ -807,7 +837,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, const storage::EdgeTy
 
 bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP_BY_REF(self_);
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -907,18 +937,18 @@ VertexAccessor const &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
-  explicit ScanAllCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View view,
-                         TVerticesFun get_vertices, const char *op_name)
-      : self_(self),
+  ScanAllCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View view,
+                TVerticesFun get_vertices, ProfilingStats *slot)
+      : Cursor(slot),
+        self_(self),
         output_symbol_(std::move(output_symbol)),
         input_cursor_(std::move(input_cursor)),
         view_(view),
-        get_vertices_(std::move(get_vertices)),
-        op_name_(op_name) {}
+        get_vertices_(std::move(get_vertices)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -977,23 +1007,22 @@ class ScanAllCursor : public Cursor {
   std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
   std::optional<decltype(vertices_->begin())> vertices_it_;
   std::optional<decltype(vertices_->end())> vertices_end_it_;
-  const char *op_name_;
 };
 
 template <typename TEdgesFun>
 class ScanAllByEdgeCursor : public Cursor {
  public:
-  explicit ScanAllByEdgeCursor(const ScanAllByEdge &self, UniqueCursorPtr input_cursor, storage::View view,
-                               TEdgesFun get_edges, const char *op_name)
-      : self_(self),
+  ScanAllByEdgeCursor(const ScanAllByEdge &self, UniqueCursorPtr input_cursor, storage::View view, TEdgesFun get_edges,
+                      ProfilingStats *slot)
+      : Cursor(slot),
+        self_(self),
         input_cursor_(std::move(input_cursor)),
         view_(view),
-        get_edges_(std::move(get_edges)),
-        op_name_(op_name) {}
+        get_edges_(std::move(get_edges)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -1061,7 +1090,6 @@ class ScanAllByEdgeCursor : public Cursor {
   std::optional<typename std::result_of<TEdgesFun(Frame &, ExecutionContext &)>::type::value_type> edges_;
   std::optional<decltype(edges_->begin())> edges_it_;
   std::optional<decltype(edges_->end())> edges_end_it_;
-  const char *op_name_;
   bool do_reverse_output_{false};
 };
 
@@ -1070,15 +1098,21 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_sy
 
 ACCEPT_WITH_INPUT(ScanAll)
 
-UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);
 
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAll");
+  auto *slot = AppendOpSlot(profile, *this);
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem,
+                                                                *this,
+                                                                output_symbol_,
+                                                                input_->MakeCursor(mem, ChildContext(profile, slot)),
+                                                                view_,
+                                                                std::move(vertices),
+                                                                slot);
 }
 
 std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
@@ -1103,15 +1137,21 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Sy
 
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
-UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelOperator);
 
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabel");
+  auto *slot = AppendOpSlot(profile, *this);
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem,
+                                                                *this,
+                                                                output_symbol_,
+                                                                input_->MakeCursor(mem, ChildContext(profile, slot)),
+                                                                view_,
+                                                                std::move(vertices),
+                                                                slot);
 }
 
 std::string ScanAllByLabel::ToString() const {
@@ -1134,7 +1174,7 @@ ScanAllByEdge::ScanAllByEdge(const std::shared_ptr<LogicalOperator> &input, Symb
 
 ACCEPT_WITH_INPUT(ScanAllByEdge)
 
-UniqueCursorPtr ScanAllByEdge::MakeCursor(utils::MemoryResource * /*mem*/) const {
+UniqueCursorPtr ScanAllByEdge::MakeCursor(utils::MemoryResource * /*mem*/, ProfileContext /*profile*/) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
 
   throw utils::NotYetImplemented("Sequential scan over edges!");
@@ -1175,7 +1215,7 @@ ScanAllByEdgeType::ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &inp
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeType)
 
-UniqueCursorPtr ScanAllByEdgeType::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByEdgeType::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypeOperator);
 
   auto edges = [this](Frame &, ExecutionContext &context) {
@@ -1183,8 +1223,10 @@ UniqueCursorPtr ScanAllByEdgeType::MakeCursor(utils::MemoryResource *mem) const 
     return std::make_optional(db->Edges(view_, common_.edge_types[0]));
   };
 
+  auto *slot = AppendOpSlot(profile, *this);
+
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(edges)>>(
-      mem, *this, input_->MakeCursor(mem), view_, std::move(edges), "ScanAllByEdgeType");
+      mem, *this, input_->MakeCursor(mem, ChildContext(profile, slot)), view_, std::move(edges), slot);
 }
 
 std::string ScanAllByEdgeType::ToString() const {
@@ -1216,7 +1258,7 @@ ScanAllByEdgeTypeProperty::ScanAllByEdgeTypeProperty(const std::shared_ptr<Logic
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypeProperty)
 
-UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyOperator);
 
   const auto get_edges = [this](Frame &, ExecutionContext &context) {
@@ -1224,8 +1266,10 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
     return std::make_optional(db->Edges(view_, common_.edge_types[0], property_));
   };
 
+  auto *slot = AppendOpSlot(profile, *this);
+
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, input_->MakeCursor(mem), view_, std::move(get_edges), "ScanAllByEdgeTypeProperty");
+      mem, *this, input_->MakeCursor(mem, ChildContext(profile, slot)), view_, std::move(get_edges), slot);
 }
 
 std::string ScanAllByEdgeTypeProperty::ToString() const {
@@ -1358,7 +1402,7 @@ ScanAllByEdgeTypePropertyValue::ScanAllByEdgeTypePropertyValue(const std::shared
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypePropertyValue)
 
-UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyValueOperator);
 
   const auto get_edges = [this](Frame &frame, ExecutionContext &context)
@@ -1370,8 +1414,10 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource
     return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, *maybe_prop_value));
   };
 
+  auto *slot = AppendOpSlot(profile, *this);
+
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, input_->MakeCursor(mem), view_, std::move(get_edges), "ScanAllByEdgeTypePropertyValue");
+      mem, *this, input_->MakeCursor(mem, ChildContext(profile, slot)), view_, std::move(get_edges), slot);
 }
 
 std::string ScanAllByEdgeTypePropertyValue::ToString() const {
@@ -1408,7 +1454,7 @@ ScanAllByEdgeTypePropertyRange::ScanAllByEdgeTypePropertyRange(
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypePropertyRange)
 
-UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyRangeOperator);
 
   const auto get_edges = [this](Frame &frame, ExecutionContext &context)
@@ -1431,8 +1477,10 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
     return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, maybe_lower, maybe_upper));
   };
 
+  auto *slot = AppendOpSlot(profile, *this);
+
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, input_->MakeCursor(mem), view_, std::move(get_edges), "ScanAllByEdgeTypePropertyRange");
+      mem, *this, input_->MakeCursor(mem, ChildContext(profile, slot)), view_, std::move(get_edges), slot);
 }
 
 std::string ScanAllByEdgeTypePropertyRange::ToString() const {
@@ -1472,7 +1520,7 @@ ScanAllByEdgeProperty::ScanAllByEdgeProperty(const std::shared_ptr<LogicalOperat
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeProperty)
 
-UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyOperator);
 
   const auto get_edges = [this](Frame &, ExecutionContext &context) {
@@ -1480,8 +1528,10 @@ UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem) co
     return std::make_optional(db->Edges(view_, property_));
   };
 
+  auto *slot = AppendOpSlot(profile, *this);
+
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, input_->MakeCursor(mem), view_, std::move(get_edges), "ScanAllByEdgeProperty");
+      mem, *this, input_->MakeCursor(mem, ChildContext(profile, slot)), view_, std::move(get_edges), slot);
 }
 
 std::string ScanAllByEdgeProperty::ToString() const {
@@ -1513,7 +1563,7 @@ ScanAllByEdgePropertyValue::ScanAllByEdgePropertyValue(const std::shared_ptr<Log
 
 ACCEPT_WITH_INPUT(ScanAllByEdgePropertyValue)
 
-UniqueCursorPtr ScanAllByEdgePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByEdgePropertyValue::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyValueOperator);
 
   const auto get_edges = [this](Frame &frame, ExecutionContext &context)
@@ -1525,8 +1575,10 @@ UniqueCursorPtr ScanAllByEdgePropertyValue::MakeCursor(utils::MemoryResource *me
     return std::make_optional(db->Edges(view_, property_, *maybe_prop_value));
   };
 
+  auto *slot = AppendOpSlot(profile, *this);
+
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, input_->MakeCursor(mem), view_, std::move(get_edges), "ScanAllByEdgePropertyValue");
+      mem, *this, input_->MakeCursor(mem, ChildContext(profile, slot)), view_, std::move(get_edges), slot);
 }
 
 std::string ScanAllByEdgePropertyValue::ToString() const {
@@ -1561,7 +1613,7 @@ ScanAllByEdgePropertyRange::ScanAllByEdgePropertyRange(const std::shared_ptr<Log
 
 ACCEPT_WITH_INPUT(ScanAllByEdgePropertyRange)
 
-UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyRangeOperator);
 
   const auto get_edges = [this](Frame &frame, ExecutionContext &context)
@@ -1584,8 +1636,10 @@ UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *me
     return std::make_optional(db->Edges(view_, property_, maybe_lower, maybe_upper));
   };
 
+  auto *slot = AppendOpSlot(profile, *this);
+
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, input_->MakeCursor(mem), view_, std::move(get_edges), "ScanAllByEdgePropertyRange");
+      mem, *this, input_->MakeCursor(mem, ChildContext(profile, slot)), view_, std::move(get_edges), slot);
 }
 
 std::string ScanAllByEdgePropertyRange::ToString() const {
@@ -1629,7 +1683,7 @@ ScanAllByLabelProperties::ScanAllByLabelProperties(const std::shared_ptr<Logical
 
 ACCEPT_WITH_INPUT(ScanAllByLabelProperties)
 
-UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertiesOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context)
@@ -1653,8 +1707,14 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
 
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabelProperties");
+  auto *slot = AppendOpSlot(profile, *this);
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem,
+                                                                *this,
+                                                                output_symbol_,
+                                                                input_->MakeCursor(mem, ChildContext(profile, slot)),
+                                                                view_,
+                                                                std::move(vertices),
+                                                                slot);
 }
 
 std::string ScanAllByLabelProperties::ToString() const {
@@ -1694,7 +1754,7 @@ ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol o
 
 ACCEPT_WITH_INPUT(ScanAllById)
 
-UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByIdOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
@@ -1716,8 +1776,14 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     if (!maybe_vertex) return std::nullopt;
     return std::vector<VertexAccessor>{*maybe_vertex};
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllById");
+  auto *slot = AppendOpSlot(profile, *this);
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem,
+                                                                *this,
+                                                                output_symbol_,
+                                                                input_->MakeCursor(mem, ChildContext(profile, slot)),
+                                                                view_,
+                                                                std::move(vertices),
+                                                                slot);
 }
 
 std::string ScanAllById::ToString() const { return fmt::format("ScanAllById ({})", output_symbol_.name()); }
@@ -1740,7 +1806,7 @@ ScanAllByEdgeId::ScanAllByEdgeId(const std::shared_ptr<LogicalOperator> &input, 
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeId)
 
-UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeIdOperator);
 
   auto edges = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<EdgeAccessor>> {
@@ -1762,8 +1828,9 @@ UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem) const {
     if (!maybe_edge) return std::nullopt;
     return std::vector<EdgeAccessor>{*maybe_edge};
   };
+  auto *slot = AppendOpSlot(profile, *this);
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(edges)>>(
-      mem, *this, input_->MakeCursor(mem), view_, std::move(edges), "ScanAllByEdgeId");
+      mem, *this, input_->MakeCursor(mem, ChildContext(profile, slot)), view_, std::move(edges), slot);
 }
 
 std::string ScanAllByEdgeId::ToString() const {
@@ -1820,10 +1887,10 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
 
 ACCEPT_WITH_INPUT(Expand)
 
-UniqueCursorPtr Expand::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Expand::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ExpandOperator);
 
-  return MakeUniqueCursorPtr<ExpandCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<ExpandCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> Expand::ModifiedSymbols(const SymbolTable &table) const {
@@ -1858,19 +1925,22 @@ std::unique_ptr<LogicalOperator> Expand::Clone(AstStorage *storage) const {
   return object;
 }
 
-Expand::ExpandCursor::ExpandCursor(const Expand &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+Expand::ExpandCursor::ExpandCursor(const Expand &self, utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 Expand::ExpandCursor::ExpandCursor(const Expand &self, int64_t input_degree, int64_t existing_node_degree,
-                                   utils::MemoryResource *mem)
-    : self_(self),
-      input_cursor_(self.input_->MakeCursor(mem)),
+                                   utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
       prev_input_degree_(input_degree),
       prev_existing_degree_(existing_node_degree) {}
 
 bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP_BY_REF(self_);
+  ScopedProfile profile{profile_slot_};
 
   // Uniqueness re-entry: pop whatever we pushed on the previous accepted Pull,
   // so subsequent candidates are checked against the correct set state.
@@ -2215,12 +2285,16 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
 class ExpandVariableCursor : public Cursor {
  public:
-  ExpandVariableCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), edges_(mem), edges_it_(mem) {}
+  ExpandVariableCursor(const ExpandVariable &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+        edges_(mem),
+        edges_it_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -2549,8 +2623,10 @@ class ExpandVariableCursor : public Cursor {
 
 class STShortestPathCursor : public query::plan::Cursor {
  public:
-  STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {
+  STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_cursor_(self_.input()->MakeCursor(mem, ChildContext(profile, profile_slot_))) {
     MG_ASSERT(self_.common_.existing_node,
               "s-t shortest path algorithm should only "
               "be used when `existing_node` flag is "
@@ -2559,7 +2635,7 @@ class STShortestPathCursor : public query::plan::Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("STShortestPath");
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -2822,9 +2898,10 @@ class STShortestPathCursor : public query::plan::Cursor {
 
 class SingleSourceShortestPathCursor : public query::plan::Cursor {
  public:
-  SingleSourceShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self_.input()->MakeCursor(mem)),
+  SingleSourceShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, "SingleSourceShortestPath"),
+        self_(self),
+        input_cursor_(self_.input()->MakeCursor(mem, ChildContext(profile, profile_slot_))),
         processed_(mem),
         to_visit_next_(mem),
         to_visit_current_(mem) {
@@ -2837,7 +2914,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("SingleSourceShortestPath");
+    ScopedProfile profile{profile_slot_};
 
     ExpressionEvaluator evaluator(&frame,
                                   context.symbol_table,
@@ -3101,9 +3178,10 @@ TypedValue CalculateNextWeight(const std::optional<memgraph::query::plan::Expans
 
 class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
  public:
-  ExpandWeightedShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self_.input_->MakeCursor(mem)),
+  ExpandWeightedShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, "ExpandWeightedShortestPath"),
+        self_(self),
+        input_cursor_(self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
         total_cost_(mem),
         previous_(mem),
         yielded_vertices_(mem),
@@ -3111,7 +3189,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
+    ScopedProfile profile{profile_slot_};
 
     ExpressionEvaluator evaluator(&frame,
                                   context.symbol_table,
@@ -3416,9 +3494,10 @@ inline bool are_equal(const TypedValue &lhs, const TypedValue &rhs) {
 
 class ExpandAllShortestPathsCursor : public query::plan::Cursor {
  public:
-  ExpandAllShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self_.input_->MakeCursor(mem)),
+  ExpandAllShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, "ExpandAllShortestPathsCursor"),
+        self_(self),
+        input_cursor_(self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
         cheapest_cost_(mem),
         visited_cost_(mem),
         total_cost_(mem),
@@ -3428,7 +3507,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
+    ScopedProfile profile{profile_slot_};
 
     ExpressionEvaluator evaluator(&frame,
                                   context.symbol_table,
@@ -3829,9 +3908,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 // K-Shortest Paths Cursor using lazy-evaluated Yen's algorithm
 class KShortestPathsCursor : public Cursor {
  public:
-  KShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self.input_->MakeCursor(mem)),
+  KShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, "KShortestPaths"),
+        self_(self),
+        input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
         shortest_paths_(mem),
         candidate_paths_(mem),
         found_paths_set_(mem),
@@ -3844,7 +3924,7 @@ class KShortestPathsCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("KShortestPaths");
+    ScopedProfile profile{profile_slot_};
 
     ExpressionEvaluator evaluator(&frame,
                                   context.symbol_table,
@@ -4359,25 +4439,25 @@ class KShortestPathsCursor : public Cursor {
   }
 };
 
-UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ExpandVariableOperator);
 
   switch (type_) {
     case EdgeAtom::Type::BREADTH_FIRST: {
-      return common_.existing_node ? MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem)
-                                   : MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
+      return common_.existing_node ? MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem, profile)
+                                   : MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem, profile);
     }
     case EdgeAtom::Type::DEPTH_FIRST: {
-      return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem);
+      return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem, profile);
     }
     case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH: {
-      return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem);
+      return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem, profile);
     }
     case EdgeAtom::Type::ALL_SHORTEST_PATHS: {
-      return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem);
+      return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem, profile);
     }
     case EdgeAtom::Type::KSHORTEST: {
-      return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem);
+      return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem, profile);
     }
     case EdgeAtom::Type::SINGLE: {
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
@@ -4448,12 +4528,14 @@ std::string_view ExpandVariable::OperatorName() const {
 
 class ConstructNamedPathCursor : public Cursor {
  public:
-  ConstructNamedPathCursor(ConstructNamedPath self, utils::MemoryResource *mem)
-      : self_(std::move(self)), input_cursor_(self_.input()->MakeCursor(mem)) {}
+  ConstructNamedPathCursor(ConstructNamedPath self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(std::move(self)),
+        input_cursor_(self_.input()->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("ConstructNamedPath");
+    ScopedProfile profile{profile_slot_};
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -4533,10 +4615,10 @@ class ConstructNamedPathCursor : public Cursor {
 
 ACCEPT_WITH_INPUT(ConstructNamedPath)
 
-UniqueCursorPtr ConstructNamedPath::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ConstructNamedPath::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ConstructNamedPathOperator);
 
-  return MakeUniqueCursorPtr<ConstructNamedPathCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<ConstructNamedPathCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> ConstructNamedPath::ModifiedSymbols(const SymbolTable &table) const {
@@ -4575,10 +4657,10 @@ bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::FilterOperator);
 
-  return MakeUniqueCursorPtr<FilterCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<FilterCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
@@ -4695,27 +4777,28 @@ std::string Filter::ToString() const {
 }
 
 static std::vector<UniqueCursorPtr> MakeCursorVector(const std::vector<std::shared_ptr<LogicalOperator>> &ops,
-                                                     utils::MemoryResource *mem) {
+                                                     utils::MemoryResource *mem, ProfileContext profile) {
   std::vector<UniqueCursorPtr> cursors;
   cursors.reserve(ops.size());
 
   if (!ops.empty()) {
     for (const auto &op : ops) {
-      cursors.push_back(op->MakeCursor(mem));
+      cursors.push_back(op->MakeCursor(mem, profile));
     }
   }
 
   return cursors;
 }
 
-Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
-    : self_(self),
-      input_cursor_(self_.input_->MakeCursor(mem)),
-      pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem)) {}
+Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+      pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem, ChildContext(profile, profile_slot_))) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP_BY_REF(self_);
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -4748,15 +4831,18 @@ EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperat
 
 ACCEPT_WITH_INPUT(EvaluatePatternFilter);
 
-UniqueCursorPtr EvaluatePatternFilter::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr EvaluatePatternFilter::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::EvaluatePatternFilterOperator);
 
-  return MakeUniqueCursorPtr<EvaluatePatternFilterCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<EvaluatePatternFilterCursor>(mem, *this, mem, profile);
 }
 
 EvaluatePatternFilter::EvaluatePatternFilterCursor::EvaluatePatternFilterCursor(const EvaluatePatternFilter &self,
-                                                                                utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+                                                                                utils::MemoryResource *mem,
+                                                                                ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &table) const {
   return input_->ModifiedSymbols(table);
@@ -4770,7 +4856,7 @@ std::unique_ptr<LogicalOperator> EvaluatePatternFilter::Clone(AstStorage *storag
 }
 
 bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("EvaluatePatternFilter");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -4796,10 +4882,10 @@ Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vecto
 
 ACCEPT_WITH_INPUT(Produce)
 
-UniqueCursorPtr Produce::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Produce::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ProduceOperator);
 
-  return MakeUniqueCursorPtr<ProduceCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<ProduceCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> Produce::OutputSymbols(const SymbolTable &symbol_table) const {
@@ -4827,12 +4913,14 @@ std::string Produce::ToString() const {
                      utils::IterableToString(named_expressions_, ", ", [](const auto &nexpr) { return nexpr->name_; }));
 }
 
-Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP_BY_REF(self_);
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -4864,10 +4952,10 @@ Delete::Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<
 
 ACCEPT_WITH_INPUT(Delete)
 
-UniqueCursorPtr Delete::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Delete::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::DeleteOperator);
 
-  return MakeUniqueCursorPtr<DeleteCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<DeleteCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> Delete::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
@@ -4885,8 +4973,10 @@ std::unique_ptr<LogicalOperator> Delete::Clone(AstStorage *storage) const {
   return object;
 }
 
-Delete::DeleteCursor::DeleteCursor(const Delete &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+Delete::DeleteCursor::DeleteCursor(const Delete &self, utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &context) {
   // Delete should get the latest information, this way it is also possible
@@ -4985,7 +5075,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
 
 bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Delete");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -5062,10 +5152,10 @@ SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage:
 
 ACCEPT_WITH_INPUT(SetProperty)
 
-UniqueCursorPtr SetProperty::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr SetProperty::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::SetPropertyOperator);
 
-  return MakeUniqueCursorPtr<SetPropertyCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<SetPropertyCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> SetProperty::ModifiedSymbols(const SymbolTable &table) const {
@@ -5081,12 +5171,15 @@ std::unique_ptr<LogicalOperator> SetProperty::Clone(AstStorage *storage) const {
   return object;
 }
 
-SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils::MemoryResource *mem,
+                                                  ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("SetProperty");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -5174,10 +5267,10 @@ SetNestedProperty::SetNestedProperty(const std::shared_ptr<LogicalOperator> &inp
 
 ACCEPT_WITH_INPUT(SetNestedProperty)
 
-UniqueCursorPtr SetNestedProperty::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr SetNestedProperty::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::SetNestedPropertyOperator);
 
-  return MakeUniqueCursorPtr<SetNestedPropertyCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<SetNestedPropertyCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> SetNestedProperty::ModifiedSymbols(const SymbolTable &table) const {
@@ -5194,12 +5287,14 @@ std::unique_ptr<LogicalOperator> SetNestedProperty::Clone(AstStorage *storage) c
 }
 
 SetNestedProperty::SetNestedPropertyCursor::SetNestedPropertyCursor(const SetNestedProperty &self,
-                                                                    utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+                                                                    utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("SetNestedProperty");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -5349,10 +5444,10 @@ SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input, Symb
 
 ACCEPT_WITH_INPUT(SetProperties)
 
-UniqueCursorPtr SetProperties::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr SetProperties::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::SetPropertiesOperator);
 
-  return MakeUniqueCursorPtr<SetPropertiesCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<SetPropertiesCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> SetProperties::ModifiedSymbols(const SymbolTable &table) const {
@@ -5368,8 +5463,11 @@ std::unique_ptr<LogicalOperator> SetProperties::Clone(AstStorage *storage) const
   return object;
 }
 
-SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &self, utils::MemoryResource *mem,
+                                                        ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 namespace {
 
@@ -5517,7 +5615,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 
 bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("SetProperties");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -5592,10 +5690,10 @@ SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input
 
 ACCEPT_WITH_INPUT(SetLabels)
 
-UniqueCursorPtr SetLabels::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr SetLabels::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::SetLabelsOperator);
 
-  return MakeUniqueCursorPtr<SetLabelsCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<SetLabelsCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> SetLabels::ModifiedSymbols(const SymbolTable &table) const {
@@ -5610,12 +5708,14 @@ std::unique_ptr<LogicalOperator> SetLabels::Clone(AstStorage *storage) const {
   return object;
 }
 
-SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("SetLabels");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -5690,10 +5790,10 @@ RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input, st
 
 ACCEPT_WITH_INPUT(RemoveProperty)
 
-UniqueCursorPtr RemoveProperty::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr RemoveProperty::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::RemovePropertyOperator);
 
-  return MakeUniqueCursorPtr<RemovePropertyCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<RemovePropertyCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> RemoveProperty::ModifiedSymbols(const SymbolTable &table) const {
@@ -5708,12 +5808,15 @@ std::unique_ptr<LogicalOperator> RemoveProperty::Clone(AstStorage *storage) cons
   return object;
 }
 
-RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(const RemoveProperty &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(const RemoveProperty &self, utils::MemoryResource *mem,
+                                                           ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("RemoveProperty");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -5799,10 +5902,10 @@ RemoveNestedProperty::RemoveNestedProperty(const std::shared_ptr<LogicalOperator
 
 ACCEPT_WITH_INPUT(RemoveNestedProperty)
 
-UniqueCursorPtr RemoveNestedProperty::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr RemoveNestedProperty::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::RemoveNestedPropertyOperator);
 
-  return MakeUniqueCursorPtr<RemoveNestedPropertyCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<RemoveNestedPropertyCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> RemoveNestedProperty::ModifiedSymbols(const SymbolTable &table) const {
@@ -5818,12 +5921,15 @@ std::unique_ptr<LogicalOperator> RemoveNestedProperty::Clone(AstStorage *storage
 }
 
 RemoveNestedProperty::RemoveNestedPropertyCursor::RemoveNestedPropertyCursor(const RemoveNestedProperty &self,
-                                                                             utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+                                                                             utils::MemoryResource *mem,
+                                                                             ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("RemoveNestedProperty");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -5934,10 +6040,10 @@ RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol
 
 ACCEPT_WITH_INPUT(RemoveLabels)
 
-UniqueCursorPtr RemoveLabels::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr RemoveLabels::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::RemoveLabelsOperator);
 
-  return MakeUniqueCursorPtr<RemoveLabelsCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<RemoveLabelsCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> RemoveLabels::ModifiedSymbols(const SymbolTable &table) const {
@@ -5952,12 +6058,15 @@ std::unique_ptr<LogicalOperator> RemoveLabels::Clone(AstStorage *storage) const 
   return object;
 }
 
-RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, utils::MemoryResource *mem,
+                                                     ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("RemoveLabels");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -6046,10 +6155,10 @@ EdgeUniquenessFilter::EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator
 
 ACCEPT_WITH_INPUT(EdgeUniquenessFilter)
 
-UniqueCursorPtr EdgeUniquenessFilter::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr EdgeUniquenessFilter::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::EdgeUniquenessFilterOperator);
 
-  return MakeUniqueCursorPtr<EdgeUniquenessFilterCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<EdgeUniquenessFilterCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> EdgeUniquenessFilter::ModifiedSymbols(const SymbolTable &table) const {
@@ -6078,8 +6187,11 @@ std::string EdgeUniquenessFilter::ToString() const {
 }
 
 EdgeUniquenessFilter::EdgeUniquenessFilterCursor::EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &self,
-                                                                             utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+                                                                             utils::MemoryResource *mem,
+                                                                             ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   // Reachability note (post-fusion):
@@ -6098,7 +6210,7 @@ bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, Execut
   //     build EUF directly with ANY-typed symbols via the back-compat
   //     constructor (the planner always sets candidate_kind_ explicitly).
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("EdgeUniquenessFilter");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -6221,11 +6333,11 @@ std::vector<Symbol> EmptyResult::ModifiedSymbols(const SymbolTable &) const {  /
 
 class EmptyResultCursor : public Cursor {
  public:
-  EmptyResultCursor(const EmptyResult &self, utils::MemoryResource *mem)
-      : input_cursor_(self.input_->MakeCursor(mem)) {}
+  EmptyResultCursor(const EmptyResult &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self), input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("EmptyResult");
+    ScopedProfile profile{profile_slot_};
 
     if (!pulled_all_input_) {
       while (input_cursor_->Pull(frame, context)) {
@@ -6248,10 +6360,10 @@ class EmptyResultCursor : public Cursor {
   bool pulled_all_input_{false};
 };
 
-UniqueCursorPtr EmptyResult::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr EmptyResult::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::EmptyResultOperator);
 
-  return MakeUniqueCursorPtr<EmptyResultCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<EmptyResultCursor>(mem, *this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> EmptyResult::Clone(AstStorage *storage) const {
@@ -6270,12 +6382,15 @@ std::vector<Symbol> Accumulate::ModifiedSymbols(const SymbolTable &) const { ret
 
 class AccumulateCursor : public Cursor {
  public:
-  AccumulateCursor(const Accumulate &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), cache_(mem) {}
+  AccumulateCursor(const Accumulate &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+        cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("Accumulate");
+    ScopedProfile profile{profile_slot_};
 
     auto &dba = *context.db_accessor;
     // cache all the input
@@ -6319,10 +6434,10 @@ class AccumulateCursor : public Cursor {
   bool pulled_all_input_{false};
 };
 
-UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::AccumulateOperator);
 
-  return MakeUniqueCursorPtr<AccumulateCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<AccumulateCursor>(mem, *this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> Accumulate::Clone(AstStorage *storage) const {
@@ -6398,15 +6513,16 @@ class AggregateCursor : public Cursor {
 #ifdef MG_ENTERPRISE
   friend class AggregateParallelCursor;
 #endif
-  AggregateCursor(const Aggregate &self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self_.input_->MakeCursor(mem)),
+  AggregateCursor(const Aggregate &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_cursor_(self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
         aggregation_(mem),
         reused_group_by_(self.group_by_.size(), mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    ScopedProfile profile{profile_slot_};
     AbortCheck(context);
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     if (!pulled_all_input_) {
@@ -6877,10 +6993,10 @@ class AggregateCursor : public Cursor {
   }
 };
 
-UniqueCursorPtr Aggregate::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Aggregate::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
 
-  return MakeUniqueCursorPtr<AggregateCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<AggregateCursor>(mem, *this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> Aggregate::Clone(AstStorage *storage) const {
@@ -6936,16 +7052,17 @@ class OrderByCursor : public Cursor {
  public:
   friend class OrderByParallelCursor;
 
-  OrderByCursor(const OrderBy &self, utils::MemoryResource *mem, bool parallel_execution = false)
-      : self_(self),
-        input_cursor_(self_.input_->MakeCursor(mem)),
+  OrderByCursor(const OrderBy &self, utils::MemoryResource *mem, bool parallel_execution, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_cursor_(self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
         parallel_execution_(parallel_execution),
         cache_(mem),
         order_by_cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    ScopedProfile profile{profile_slot_};
 
     if (!did_pull_all_) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame,
@@ -7047,10 +7164,10 @@ class OrderByCursor : public Cursor {
   decltype(order_by_cache_.begin()) order_by_cache_it_ = order_by_cache_.begin();
 };
 
-UniqueCursorPtr OrderBy::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr OrderBy::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::OrderByOperator);
 
-  return MakeUniqueCursorPtr<OrderByCursor>(mem, *this, mem, parallel_execution_);
+  return MakeUniqueCursorPtr<OrderByCursor>(mem, *this, mem, parallel_execution_, profile);
 }
 
 std::unique_ptr<LogicalOperator> OrderBy::Clone(AstStorage *storage) const {
@@ -7082,10 +7199,10 @@ bool Merge::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-UniqueCursorPtr Merge::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Merge::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::MergeOperator);
 
-  return MakeUniqueCursorPtr<MergeCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<MergeCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> Merge::ModifiedSymbols(const SymbolTable &table) const {
@@ -7105,14 +7222,15 @@ std::unique_ptr<LogicalOperator> Merge::Clone(AstStorage *storage) const {
   return object;
 }
 
-Merge::MergeCursor::MergeCursor(const Merge &self, utils::MemoryResource *mem)
-    : input_cursor_(self.input_->MakeCursor(mem)),
-      merge_match_cursor_(self.merge_match_->MakeCursor(mem)),
-      merge_create_cursor_(self.merge_create_->MakeCursor(mem)) {}
+Merge::MergeCursor::MergeCursor(const Merge &self, utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+      merge_match_cursor_(self.merge_match_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+      merge_create_cursor_(self.merge_create_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Merge");
+  ScopedProfile profile{profile_slot_};
 
   context.evaluation_context.scope.in_merge = true;
   memgraph::utils::OnScopeExit merge_exit([&] { context.evaluation_context.scope.in_merge = false; });
@@ -7176,10 +7294,10 @@ bool Optional::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-UniqueCursorPtr Optional::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Optional::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::OptionalOperator);
 
-  return MakeUniqueCursorPtr<OptionalCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<OptionalCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> Optional::ModifiedSymbols(const SymbolTable &table) const {
@@ -7197,12 +7315,15 @@ std::unique_ptr<LogicalOperator> Optional::Clone(AstStorage *storage) const {
   return object;
 }
 
-Optional::OptionalCursor::OptionalCursor(const Optional &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)), optional_cursor_(self.optional_->MakeCursor(mem)) {}
+Optional::OptionalCursor::OptionalCursor(const Optional &self, utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+      optional_cursor_(self.optional_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Optional");
+  ScopedProfile profile{profile_slot_};
 
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -7270,12 +7391,15 @@ std::vector<Symbol> Unwind::ModifiedSymbols(const SymbolTable &table) const {
 
 class UnwindCursor : public Cursor {
  public:
-  UnwindCursor(const Unwind &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), input_value_(mem) {}
+  UnwindCursor(const Unwind &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+        input_value_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("Unwind");
+    ScopedProfile profile{profile_slot_};
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -7329,10 +7453,10 @@ class UnwindCursor : public Cursor {
   decltype(input_value_)::iterator input_value_it_ = input_value_.end();
 };
 
-UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::UnwindOperator);
 
-  return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> Unwind::Clone(AstStorage *storage) const {
@@ -7345,12 +7469,15 @@ std::unique_ptr<LogicalOperator> Unwind::Clone(AstStorage *storage) const {
 
 class DistinctCursor : public Cursor {
  public:
-  DistinctCursor(const Distinct &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), seen_rows_(mem) {}
+  DistinctCursor(const Distinct &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+        seen_rows_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("Distinct");
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -7396,9 +7523,10 @@ class DistinctParallelCursor : public Cursor {
 
   /// Constructor for parallel distinct (uses shared state with local caching)
   DistinctParallelCursor(const Distinct &self, utils::MemoryResource *mem,
-                         std::shared_ptr<SharedDistinctState> shared_state)
-      : self_(self),
-        input_cursor_(self.input_->MakeCursor(mem)),
+                         std::shared_ptr<SharedDistinctState> shared_state, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
         shared_state_(std::move(shared_state)),
         local_seen_(mem) {
     DMG_ASSERT(shared_state_, "DistinctParallelCursor must be created with a shared state");
@@ -7406,7 +7534,7 @@ class DistinctParallelCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("Distinct");
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -7541,19 +7669,19 @@ Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input, const std::vec
 ACCEPT_WITH_INPUT(Distinct)
 
 // Distinct::MakeCursor implementation - needs to be after parallel namespace to access plan_creation_helper_
-UniqueCursorPtr Distinct::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Distinct::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::DistinctOperator);
 #ifdef MG_ENTERPRISE
   if (parallel_execution_) {
     // Parallel mode: use shared state for global deduplication
     auto shared_state = plan_creation_helper_.GetSharedDistinctState(this, mem);
     if (shared_state) {
-      return MakeUniqueCursorPtr<DistinctParallelCursor>(mem, *this, mem, std::move(shared_state));
+      return MakeUniqueCursorPtr<DistinctParallelCursor>(mem, *this, mem, std::move(shared_state), profile);
     }
     throw QueryRuntimeException("Failed to create distinct cursor");
   }
 #endif
-  return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> Distinct::OutputSymbols(const SymbolTable &symbol_table) const {
@@ -7580,10 +7708,10 @@ Union::Union(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_
       left_symbols_(left_symbols),
       right_symbols_(right_symbols) {}
 
-UniqueCursorPtr Union::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Union::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::UnionOperator);
 
-  return MakeUniqueCursorPtr<Union::UnionCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<Union::UnionCursor>(mem, *this, mem, profile);
 }
 
 bool Union::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
@@ -7617,12 +7745,15 @@ std::string Union::ToString() const {
                      utils::IterableToString(right_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
 }
 
-Union::UnionCursor::UnionCursor(const Union &self, utils::MemoryResource *mem)
-    : self_(self), left_cursor_(self.left_op_->MakeCursor(mem)), right_cursor_(self.right_op_->MakeCursor(mem)) {}
+Union::UnionCursor::UnionCursor(const Union &self, utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      left_cursor_(self.left_op_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+      right_cursor_(self.right_op_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP_BY_REF(self_);
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -7680,19 +7811,20 @@ namespace {
 
 class CartesianCursor : public Cursor {
  public:
-  CartesianCursor(const Cartesian &self, utils::MemoryResource *mem)
-      : self_(self),
+  CartesianCursor(const Cartesian &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
         left_op_frames_(mem),
         right_op_frame_(mem),
-        left_op_cursor_(self.left_op_->MakeCursor(mem)),
-        right_op_cursor_(self_.right_op_->MakeCursor(mem)) {
+        left_op_cursor_(self.left_op_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+        right_op_cursor_(self_.right_op_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {
     MG_ASSERT(left_op_cursor_ != nullptr, "CartesianCursor: Missing left operator cursor.");
     MG_ASSERT(right_op_cursor_ != nullptr, "CartesianCursor: Missing right operator cursor.");
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    ScopedProfile profile{profile_slot_};
 
     if (!cartesian_pull_initialized_) {
       // Pull all left_op frames.
@@ -7762,10 +7894,10 @@ class CartesianCursor : public Cursor {
 
 }  // namespace
 
-UniqueCursorPtr Cartesian::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Cartesian::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CartesianOperator);
 
-  return MakeUniqueCursorPtr<CartesianCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<CartesianCursor>(mem, *this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> Cartesian::Clone(AstStorage *storage) const {
@@ -7788,7 +7920,7 @@ WITHOUT_SINGLE_INPUT(OutputTable);
 
 class OutputTableCursor : public Cursor {
  public:
-  explicit OutputTableCursor(const OutputTable &self) : self_(self) {}
+  OutputTableCursor(const OutputTable &self, ProfileContext profile) : Cursor(profile, self), self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -7830,8 +7962,8 @@ class OutputTableCursor : public Cursor {
   bool pulled_{false};
 };
 
-UniqueCursorPtr OutputTable::MakeCursor(utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<OutputTableCursor>(mem, *this);
+UniqueCursorPtr OutputTable::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
+  return MakeUniqueCursorPtr<OutputTableCursor>(mem, *this, profile);
 }
 
 std::unique_ptr<LogicalOperator> OutputTable::Clone(AstStorage *storage) const {
@@ -7850,7 +7982,8 @@ WITHOUT_SINGLE_INPUT(OutputTableStream);
 
 class OutputTableStreamCursor : public Cursor {
  public:
-  explicit OutputTableStreamCursor(const OutputTableStream *self) : self_(self) {}
+  OutputTableStreamCursor(const OutputTableStream *self, ProfileContext profile)
+      : Cursor(profile, *self), self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -7881,8 +8014,8 @@ class OutputTableStreamCursor : public Cursor {
   const OutputTableStream *self_;
 };
 
-UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<OutputTableStreamCursor>(mem, this);
+UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
+  return MakeUniqueCursorPtr<OutputTableStreamCursor>(mem, this, profile);
 }
 
 std::unique_ptr<LogicalOperator> OutputTableStream::Clone(AstStorage *storage) const {
@@ -8041,9 +8174,10 @@ class CallProcedureCursor : public Cursor {
   std::optional<std::function<void()>> cleanup_{std::nullopt};
 
  public:
-  CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self_->input_->MakeCursor(mem)),
+  CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, *self),
+        self_(self),
+        input_cursor_(self_->input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. We don't use the memory dedicated for QueryExecution (and Frame),
         // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
@@ -8085,7 +8219,7 @@ class CallProcedureCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(*self_);
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -8208,10 +8342,10 @@ class CallProcedureCursor : public Cursor {
   }
 };
 
-UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CallProcedureOperator);
   CallProcedure::IncrementCounter(procedure_name_);
-  return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
+  return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> CallProcedure::Clone(AstStorage *storage) const {
@@ -8339,12 +8473,14 @@ class LoadCsvCursor : public Cursor {
   std::optional<utils::pmr::string> nullif_;
 
  public:
-  LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
+  LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, *self),
+        self_(self),
+        input_cursor_(self_->input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(*self_);
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -8440,8 +8576,8 @@ class LoadCsvCursor : public Cursor {
   }
 };
 
-UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem);
+UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
+  return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> LoadCsv::Clone(AstStorage *storage) const {
@@ -8488,12 +8624,15 @@ class LoadParquetCursor : public Cursor {
   Row row_;
 
  public:
-  LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), row_(mem) {}
+  LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, *self),
+        self_(self),
+        input_cursor_(self_->input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+        row_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(*self_);
+    ScopedProfile profile{profile_slot_};
     AbortCheck(context);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
@@ -8557,8 +8696,8 @@ class LoadParquetCursor : public Cursor {
   void Shutdown() override { input_cursor_->Shutdown(); }
 };
 
-UniqueCursorPtr LoadParquet::MakeCursor(utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<LoadParquetCursor>(mem, this, mem);
+UniqueCursorPtr LoadParquet::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
+  return MakeUniqueCursorPtr<LoadParquetCursor>(mem, this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> LoadParquet::Clone(AstStorage *storage) const {
@@ -8602,12 +8741,14 @@ class LoadJsonlCursor : public Cursor {
   std::optional<JsonlReader> reader_;
 
  public:
-  LoadJsonlCursor(const LoadJsonl *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
+  LoadJsonlCursor(const LoadJsonl *self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, *self),
+        self_(self),
+        input_cursor_(self_->input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(*self_);
+    ScopedProfile profile{profile_slot_};
     AbortCheck(context);
 
     auto *mem = context.evaluation_context.memory;
@@ -8668,8 +8809,8 @@ class LoadJsonlCursor : public Cursor {
   void Shutdown() override { input_cursor_->Shutdown(); }
 };
 
-UniqueCursorPtr LoadJsonl::MakeCursor(utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<LoadJsonlCursor>(mem, this, mem);
+UniqueCursorPtr LoadJsonl::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
+  return MakeUniqueCursorPtr<LoadJsonlCursor>(mem, this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> LoadJsonl::Clone(AstStorage *storage) const {
@@ -8684,15 +8825,16 @@ std::string LoadJsonl::ToString() const { return fmt::format("LoadJsonl {{{}}}",
 
 class ForeachCursor : public Cursor {
  public:
-  explicit ForeachCursor(const Foreach &foreach, utils::MemoryResource *mem)
-      : loop_variable_symbol_(foreach.loop_variable_symbol_),
-        input_(foreach.input_->MakeCursor(mem)),
-        updates_(foreach.update_clauses_->MakeCursor(mem)),
+  ForeachCursor(const Foreach &foreach, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, foreach),
+        loop_variable_symbol_(foreach.loop_variable_symbol_),
+        input_(foreach.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+        updates_(foreach.update_clauses_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
         expression(foreach.expression_) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP(op_name_);
+    ScopedProfile profile{profile_slot_};
 
     if (!input_->Pull(frame, context)) {
       return false;
@@ -8744,7 +8886,6 @@ class ForeachCursor : public Cursor {
   const UniqueCursorPtr input_;
   const UniqueCursorPtr updates_;
   Expression *expression;
-  const char *op_name_{"Foreach"};
 };
 
 Foreach::Foreach(std::shared_ptr<LogicalOperator> input, std::shared_ptr<LogicalOperator> updates, Expression *expr,
@@ -8754,9 +8895,9 @@ Foreach::Foreach(std::shared_ptr<LogicalOperator> input, std::shared_ptr<Logical
       expression_(expr),
       loop_variable_symbol_(std::move(loop_variable_symbol)) {}
 
-UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ForeachOperator);
-  return MakeUniqueCursorPtr<ForeachCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<ForeachCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> Foreach::ModifiedSymbols(const SymbolTable &table) const {
@@ -8795,16 +8936,17 @@ bool Apply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-UniqueCursorPtr Apply::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Apply::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ApplyOperator);
 
-  return MakeUniqueCursorPtr<ApplyCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<ApplyCursor>(mem, *this, mem, profile);
 }
 
-Apply::ApplyCursor::ApplyCursor(const Apply &self, utils::MemoryResource *mem)
-    : self_(self),
-      input_(self.input_->MakeCursor(mem)),
-      subquery_(self.subquery_->MakeCursor(mem)),
+Apply::ApplyCursor::ApplyCursor(const Apply &self, utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+      subquery_(self.subquery_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
       subquery_has_return_(self.subquery_has_return_) {}
 
 std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
@@ -8826,7 +8968,7 @@ std::unique_ptr<LogicalOperator> Apply::Clone(AstStorage *storage) const {
 
 bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Apply");
+  ScopedProfile profile{profile_slot_};
 
   while (true) {
     AbortCheck(context);
@@ -8873,14 +9015,18 @@ bool IndexedJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-UniqueCursorPtr IndexedJoin::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr IndexedJoin::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::IndexedJoinOperator);
 
-  return MakeUniqueCursorPtr<IndexedJoinCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<IndexedJoinCursor>(mem, *this, mem, profile);
 }
 
-IndexedJoin::IndexedJoinCursor::IndexedJoinCursor(const IndexedJoin &self, utils::MemoryResource *mem)
-    : self_(self), main_branch_(self.main_branch_->MakeCursor(mem)), sub_branch_(self.sub_branch_->MakeCursor(mem)) {}
+IndexedJoin::IndexedJoinCursor::IndexedJoinCursor(const IndexedJoin &self, utils::MemoryResource *mem,
+                                                  ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      main_branch_(self.main_branch_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+      sub_branch_(self.sub_branch_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {}
 
 std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const {
   // Since Apply is the Cartesian product, modified symbols are combined from
@@ -8899,7 +9045,7 @@ std::unique_ptr<LogicalOperator> IndexedJoin::Clone(AstStorage *storage) const {
 }
 
 bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("IndexedJoin");
+  ScopedProfile profile{profile_slot_};
 
   while (true) {
     AbortCheck(context);
@@ -8951,10 +9097,11 @@ namespace {
 
 class HashJoinCursor : public Cursor {
  public:
-  HashJoinCursor(const HashJoin &self, utils::MemoryResource *mem)
-      : self_(self),
-        left_op_cursor_(self.left_op_->MakeCursor(mem)),
-        right_op_cursor_(self_.right_op_->MakeCursor(mem)),
+  HashJoinCursor(const HashJoin &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        left_op_cursor_(self.left_op_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+        right_op_cursor_(self_.right_op_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
         hashtable_(mem),
         right_op_frame_(mem) {
     MG_ASSERT(left_op_cursor_ != nullptr, "HashJoinCursor: Missing left operator cursor.");
@@ -8962,7 +9109,7 @@ class HashJoinCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("HashJoin");
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -9075,9 +9222,9 @@ class HashJoinCursor : public Cursor {
 };
 }  // namespace
 
-UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::HashJoinOperator);
-  return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> HashJoin::Clone(AstStorage *storage) const {
@@ -9129,17 +9276,18 @@ namespace {
 
 class RollUpApplyCursor : public Cursor {
  public:
-  RollUpApplyCursor(const RollUpApply &self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self.input_->MakeCursor(mem)),
-        list_collection_cursor_(self_.list_collection_branch_->MakeCursor(mem)) {
+  RollUpApplyCursor(const RollUpApply &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+        list_collection_cursor_(self_.list_collection_branch_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {
     MG_ASSERT(input_cursor_ != nullptr, "RollUpApplyCursor: Missing left operator cursor.");
     MG_ASSERT(list_collection_cursor_ != nullptr, "RollUpApplyCursor: Missing right operator cursor.");
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -9180,9 +9328,9 @@ class RollUpApplyCursor : public Cursor {
 };
 }  // namespace
 
-UniqueCursorPtr RollUpApply::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr RollUpApply::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::RollUpApplyOperator);
-  return MakeUniqueCursorPtr<RollUpApplyCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<RollUpApplyCursor>(mem, *this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> RollUpApply::Clone(AstStorage *storage) const {
@@ -9213,8 +9361,10 @@ namespace {
 
 class PeriodicCommitCursor : public Cursor {
  public:
-  PeriodicCommitCursor(const PeriodicCommit &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {
+  PeriodicCommitCursor(const PeriodicCommit &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_cursor_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {
     MG_ASSERT(input_cursor_ != nullptr, "PeriodicCommitCursor: Missing input cursor.");
     MG_ASSERT(self_.commit_frequency_ != nullptr, "Commit frequency should be defined at this point!");
   }
@@ -9223,7 +9373,7 @@ class PeriodicCommitCursor : public Cursor {
     // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
     // NOLINTNEXTLINE(misc-const-correctness)
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -9277,9 +9427,9 @@ class PeriodicCommitCursor : public Cursor {
 };
 }  // namespace
 
-UniqueCursorPtr PeriodicCommit::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr PeriodicCommit::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicCommitOperator);
-  return MakeUniqueCursorPtr<PeriodicCommitCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<PeriodicCommitCursor>(mem, *this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> PeriodicCommit::Clone(AstStorage *storage) const {
@@ -9315,10 +9465,11 @@ std::vector<Symbol> PeriodicSubquery::ModifiedSymbols(const SymbolTable &table) 
 namespace {
 class PeriodicSubqueryCursor : public Cursor {
  public:
-  PeriodicSubqueryCursor(const PeriodicSubquery &self, utils::MemoryResource *mem)
-      : self_(self),
-        input_(self.input_->MakeCursor(mem)),
-        subquery_(self.subquery_->MakeCursor(mem)),
+  PeriodicSubqueryCursor(const PeriodicSubquery &self, utils::MemoryResource *mem, ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_(self.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+        subquery_(self.subquery_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
         subquery_has_return_(self.subquery_has_return_) {
     MG_ASSERT(self_.commit_frequency_ != nullptr, "Commit frequency should be defined at this point!");
   }
@@ -9327,7 +9478,7 @@ class PeriodicSubqueryCursor : public Cursor {
     // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
     // NOLINTNEXTLINE(misc-const-correctness)
-    SCOPED_PROFILE_OP("PeriodicSubquery");
+    ScopedProfile profile{profile_slot_};
 
     AbortCheck(context);
 
@@ -9410,10 +9561,10 @@ class PeriodicSubqueryCursor : public Cursor {
 };
 }  // namespace
 
-UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicSubqueryOperator);
 
-  return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem, profile);
 }
 
 std::unique_ptr<LogicalOperator> PeriodicSubquery::Clone(AstStorage *storage) const {
@@ -9438,7 +9589,7 @@ ScanAllByPointDistance::ScanAllByPointDistance(const std::shared_ptr<LogicalOper
 
 ACCEPT_WITH_INPUT(ScanAllByPointDistance)
 
-UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointDistanceOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
@@ -9460,8 +9611,14 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) c
     return std::make_optional(
         context.db_accessor->PointVertices(label_, property_, *crs, value, boundary_value, boundary_condition_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByPointDistance");
+  auto *slot = AppendOpSlot(profile, *this);
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem,
+                                                                *this,
+                                                                output_symbol_,
+                                                                input_->MakeCursor(mem, ChildContext(profile, slot)),
+                                                                view_,
+                                                                std::move(vertices),
+                                                                slot);
 }
 
 std::string ScanAllByPointDistance::ToString() const {
@@ -9498,7 +9655,7 @@ ScanAllByPointWithinbbox::ScanAllByPointWithinbbox(const std::shared_ptr<Logical
 
 ACCEPT_WITH_INPUT(ScanAllByPointWithinbbox)
 
-UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointWithinbboxOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
@@ -9528,8 +9685,14 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem)
     return std::make_optional(context.db_accessor->PointVertices(
         label_, property_, *crs1, bottom_left_value, top_right_value, boundary_condition));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByPointWithinbbox");
+  auto *slot = AppendOpSlot(profile, *this);
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem,
+                                                                *this,
+                                                                output_symbol_,
+                                                                input_->MakeCursor(mem, ChildContext(profile, slot)),
+                                                                view_,
+                                                                std::move(vertices),
+                                                                slot);
 }
 
 std::string ScanAllByPointWithinbbox::ToString() const {
@@ -9625,7 +9788,7 @@ ScanChunk::ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol outpu
 
 ACCEPT_WITH_INPUT(ScanChunk)
 
-UniqueCursorPtr ScanChunk::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanChunk::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   auto vertices = [state_symbol = state_symbol_, state = std::unique_ptr<ParallelStateOnFrame>()](
                       Frame &frame,
                       ExecutionContext & /*context*/) mutable -> std::optional<VerticesChunkedIterable::Chunk> {
@@ -9634,8 +9797,14 @@ UniqueCursorPtr ScanChunk::MakeCursor(utils::MemoryResource *mem) const {
     if (!state) return std::nullopt;
     return state->GetVerticesChunk();
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanChunk");
+  auto *slot = AppendOpSlot(profile, *this);
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem,
+                                                                *this,
+                                                                output_symbol_,
+                                                                input_->MakeCursor(mem, ChildContext(profile, slot)),
+                                                                view_,
+                                                                std::move(vertices),
+                                                                slot);
 }
 
 std::string ScanChunk::ToString() const { return fmt::format("ScanChunk ({})", output_symbol_.name()); }
@@ -9658,7 +9827,7 @@ ScanChunkByEdge::ScanChunkByEdge(const std::shared_ptr<LogicalOperator> &input, 
 
 ACCEPT_WITH_INPUT(ScanChunkByEdge)
 
-UniqueCursorPtr ScanChunkByEdge::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanChunkByEdge::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
 
   auto edges = [state_symbol = state_symbol_, state = std::unique_ptr<ParallelStateOnFrame>()](
@@ -9668,8 +9837,10 @@ UniqueCursorPtr ScanChunkByEdge::MakeCursor(utils::MemoryResource *mem) const {
     return state->GetEdgesChunk();
   };
 
+  auto *slot = AppendOpSlot(profile, *this);
+
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(edges)>>(
-      mem, *this, input_->MakeCursor(mem), view_, std::move(edges), "ScanChunkByEdge");
+      mem, *this, input_->MakeCursor(mem, ChildContext(profile, slot)), view_, std::move(edges), slot);
 }
 
 std::vector<Symbol> ScanChunkByEdge::ModifiedSymbols(const SymbolTable &table) const {
@@ -9705,12 +9876,16 @@ std::unique_ptr<LogicalOperator> ScanChunkByEdge::Clone(AstStorage *storage) con
 template <typename TChunksFun>
 class ScanParallelCursor : public Cursor {
  public:
-  ScanParallelCursor(const ScanParallel &self, utils::MemoryResource *mem, TChunksFun get_chunks)
-      : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), get_chunks_(std::move(get_chunks)) {}
+  ScanParallelCursor(const ScanParallel &self, utils::MemoryResource *mem, TChunksFun get_chunks,
+                     ProfileContext profile)
+      : Cursor(profile, self),
+        self_(self),
+        input_cursor_(self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))),
+        get_chunks_(std::move(get_chunks)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    ScopedProfile profile{profile_slot_};
     size_t index = 0;
     uint64_t current_batch = 0;
 
@@ -9779,7 +9954,7 @@ class ScanParallelCursor : public Cursor {
 };
 #endif
 
-UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*unused*/, ExecutionContext &context) {
@@ -9787,7 +9962,7 @@ UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     return db->ChunkedVertices(view_, num_threads_);
   };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks), profile);
 #else
   (void)mem;
   throw QueryRuntimeException("ScanParallel is not supported in the community edition");
@@ -9817,14 +9992,14 @@ ScanParallelByLabel::ScanParallelByLabel(const std::shared_ptr<LogicalOperator> 
 
 ACCEPT_WITH_INPUT(ScanParallelByLabel)
 
-UniqueCursorPtr ScanParallelByLabel::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallelByLabel::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelOperator);
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return db->ChunkedVertices(view_, label_, num_threads_);
   };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks), profile);
 #else
   (void)mem;
   throw QueryRuntimeException("ScanParallelByLabel is not supported in the community edition");
@@ -9851,14 +10026,14 @@ ScanParallelByEdgeType::ScanParallelByEdgeType(const std::shared_ptr<LogicalOper
 
 ACCEPT_WITH_INPUT(ScanParallelByEdgeType)
 
-UniqueCursorPtr ScanParallelByEdgeType::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallelByEdgeType::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypeOperator);
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return db->ChunkedEdges(view_, edge_type_, num_threads_);
   };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks), profile);
 #else
   (void)mem;
   throw QueryRuntimeException("ScanParallelByEdgeType is not supported in the community edition");
@@ -9893,7 +10068,7 @@ ScanParallelByLabelProperties::ScanParallelByLabelProperties(const std::shared_p
 
 ACCEPT_WITH_INPUT(ScanParallelByLabelProperties)
 
-UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertiesOperator);
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
@@ -9918,7 +10093,7 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
                                num_threads_,
                                index_order_);
   };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks), profile);
 #else
   (void)mem;
   throw QueryRuntimeException("ScanParallelByLabelProperties is not supported in the community edition");
@@ -9962,14 +10137,14 @@ ScanParallelByEdgeTypeProperty::ScanParallelByEdgeTypeProperty(const std::shared
 
 ACCEPT_WITH_INPUT(ScanParallelByEdgeTypeProperty)
 
-UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyOperator);
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return db->ChunkedEdges(view_, edge_type_, property_, num_threads_);
   };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks), profile);
 #else
   (void)mem;
   throw QueryRuntimeException("ScanParallelByEdgeTypeProperty is not supported in the community edition");
@@ -10006,7 +10181,8 @@ ScanParallelByEdgeTypePropertyRange::ScanParallelByEdgeTypePropertyRange(
 
 ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyRange)
 
-UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem,
+                                                                ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyRangeOperator);
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
@@ -10024,7 +10200,7 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
   };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks), profile);
 #else
   (void)mem;
   throw QueryRuntimeException("ScanParallelByEdgeTypePropertyRange is not supported in the community edition");
@@ -10064,14 +10240,14 @@ ScanParallelByEdgeProperty::ScanParallelByEdgeProperty(const std::shared_ptr<Log
 
 ACCEPT_WITH_INPUT(ScanParallelByEdgeProperty)
 
-UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyOperator);
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return db->ChunkedEdges(view_, property_, num_threads_);
   };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks), profile);
 #else
   (void)mem;
   throw QueryRuntimeException("ScanParallelByEdgeProperty is not supported in the community edition");
@@ -10101,7 +10277,7 @@ ScanParallelByEdgePropertyValue::ScanParallelByEdgePropertyValue(const std::shar
 
 ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyValue)
 
-UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyValueOperator);
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
@@ -10109,7 +10285,7 @@ UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResourc
     auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
     return db->ChunkedEdges(view_, property_, maybe_prop_value.value_or(storage::PropertyValue()), num_threads_);
   };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks), profile);
 #else
   (void)mem;
   throw QueryRuntimeException("ScanParallelByEdgePropertyValue is not supported in the community edition");
@@ -10144,7 +10320,7 @@ ScanParallelByEdgePropertyRange::ScanParallelByEdgePropertyRange(const std::shar
 
 ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyRange)
 
-UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyRangeOperator);
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
@@ -10162,7 +10338,7 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
   };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks), profile);
 #else
   (void)mem;
   throw QueryRuntimeException("ScanParallelByEdgePropertyRange is not supported in the community edition");
@@ -10203,7 +10379,7 @@ ScanParallelByEdge::ScanParallelByEdge(const std::shared_ptr<LogicalOperator> &i
 
 ACCEPT_WITH_INPUT(ScanParallelByEdge)
 
-UniqueCursorPtr ScanParallelByEdge::MakeCursor(utils::MemoryResource * /*mem*/) const {
+UniqueCursorPtr ScanParallelByEdge::MakeCursor(utils::MemoryResource * /*mem*/, ProfileContext /*profile*/) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
 #ifdef MG_ENTERPRISE
   throw utils::NotYetImplemented("Parallel scan over edges!");
@@ -10245,7 +10421,8 @@ ScanParallelByEdgeTypePropertyValue::ScanParallelByEdgeTypePropertyValue(
 
 ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyValue)
 
-UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource *mem,
+                                                                ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyValueOperator);
 #ifdef MG_ENTERPRISE
   // Note: There's no ChunkedEdges(edge_type, property, value) method, so we use the range version
@@ -10261,7 +10438,7 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryRes
     auto bound = utils::MakeBoundInclusive(*maybe_prop_value);
     return db->ChunkedEdges(view_, edge_type_, property_, bound, bound, num_threads_);
   };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks), profile);
 #else
   (void)mem;
   throw QueryRuntimeException("ScanParallelByEdgeTypePropertyValue is not supported in the community edition");
@@ -10307,9 +10484,9 @@ std::vector<Symbol> ParallelMerge::ModifiedSymbols(const SymbolTable &table) con
   return input_->ModifiedSymbols(table);
 }
 
-UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
 #ifdef MG_ENTERPRISE
-  return MakeUniqueCursorPtr<ParallelMergeCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<ParallelMergeCursor>(mem, *this, mem, profile);
 #else
   (void)mem;
   throw QueryRuntimeException("ParallelMerge is not supported in the community edition");
@@ -10319,13 +10496,13 @@ UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem) const {
 #ifdef MG_ENTERPRISE
 class ParallelMergeCursor : public Cursor {
  public:
-  ParallelMergeCursor(const ParallelMerge &self, utils::MemoryResource *mem)
+  ParallelMergeCursor(const ParallelMerge &self, utils::MemoryResource *mem, ProfileContext profile)
       : self_(self),
         // Collection scheduler is executed by the first parallel operator only
         collection_scheduler_(std::exchange(plan_creation_helper_.collection_scheduler_, nullptr)),
         input_cursor_(std::invoke([&]() {
           if (!plan_creation_helper_.cursor_) {
-            plan_creation_helper_.cursor_ = self_.input_->MakeCursor(mem);
+            plan_creation_helper_.cursor_ = self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_));
           }
           return plan_creation_helper_.cursor_;
         })) {}
@@ -10372,7 +10549,7 @@ class ParallelMergeCursor : public Cursor {
 class ParallelBranchCursor : public Cursor {
  public:
   ParallelBranchCursor(const std::shared_ptr<LogicalOperator> &branch_input, size_t num_threads,
-                       utils::MemoryResource *mem)
+                       utils::MemoryResource *mem, ProfileContext profile)
       : collection_scheduler_(std::make_shared<utils::CollectionScheduler>(nullptr, nullptr)),
         branch_plan_quotas_(num_threads),
         branch_cursors_(std::invoke([&]() {
@@ -10445,10 +10622,10 @@ class ParallelBranchCursor : public Cursor {
         if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
           mem_tracking.StartTracking();
         }
-        // Create parallel operator entry in branch's stats tree
-        context.stats_root = nullptr;
-        context.stats = plan::ProfilingStats();
-        SCOPED_PROFILE_OP_BY_REF(self);
+        // Branch's profile slot lives in the parent ParallelBranchCursor's
+        // stats tree (resolved at construction); the timer just times this
+        // branch's work into our own slot.
+        ScopedProfile profile{profile_slot_};
 
         DMG_ASSERT(!context.auth_checker || context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
         const auto &cursor = branch_cursors_[i];
@@ -10479,9 +10656,9 @@ class ParallelBranchCursor : public Cursor {
         Frame frame_local(static_cast<int64_t>(frame_size));
 
         auto on_exit = utils::OnScopeExit([&]() {
-          // Force state reset (life extended through the context)
-          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-          const_cast<std::optional<ScopedProfile> &>(profile).reset();
+          // Finalise the branch's profile timer before the surrounding
+          // mem-tracking/profile_execution_time accounting runs.
+          profile.Stop();
           if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
             // NOTE: Parallel operators have to PullAll, so no need to worry about switching threads (at the bolt level)
             // Main thread is handled by the higher level
@@ -10555,10 +10732,10 @@ class ParallelBranchCursor : public Cursor {
     // Nothing to pull, return
     if (pull_result.load() == 0) return false;
 
-    // Unify context fields from all branches
-    plan::ProfilingStats *parallel_stats = context.stats_root;  // save before resetting the profile
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-    const_cast<std::optional<ScopedProfile> &>(profile).reset();
+    // Unify context fields from all branches. Finalise our own timer first so
+    // its contribution lands before the merge accounting runs.
+    plan::ProfilingStats *parallel_stats = profile_slot_;
+    profile.Stop();
     UnifyContexts(context, branch_contexts, branch_trigger_collectors, branch_frame_collectors, parallel_stats);
 
     return true;
@@ -10905,12 +11082,12 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
 
 class AggregateParallelCursor : public ParallelBranchCursor {
  public:
-  AggregateParallelCursor(const AggregateParallel &self, utils::MemoryResource *mem)
-      : ParallelBranchCursor(self.input_, self.num_threads_, mem), self_(self) {}
+  AggregateParallelCursor(const AggregateParallel &self, utils::MemoryResource *mem, ProfileContext profile)
+      : ParallelBranchCursor(self.input_, self.num_threads_, mem, profile), self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    ScopedProfile profile{profile_slot_};
 
     if (branch_cursors_.empty()) {
       return false;
@@ -11024,13 +11201,13 @@ AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> & /*
 }
 #endif
 
-UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException("AggregateParallel is not supported in the community edition");
   }
-  return MakeUniqueCursorPtr<AggregateParallelCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<AggregateParallelCursor>(mem, *this, mem, profile);
 #else
   (void)mem;
   throw QueryRuntimeException("AggregateParallel is not supported in the community edition");
@@ -11054,12 +11231,12 @@ ACCEPT_WITH_INPUT(AggregateParallel);
 #ifdef MG_ENTERPRISE
 class OrderByParallelCursor : public ParallelBranchCursor {
  public:
-  OrderByParallelCursor(const OrderByParallel &self, utils::MemoryResource *mem)
-      : ParallelBranchCursor(self.input_, self.num_threads_, mem), self_(self) {}
+  OrderByParallelCursor(const OrderByParallel &self, utils::MemoryResource *mem, ProfileContext profile)
+      : ParallelBranchCursor(self.input_, self.num_threads_, mem, profile), self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    ScopedProfile profile{profile_slot_};
 
     if (branch_cursors_.empty()) {
       return false;
@@ -11157,13 +11334,13 @@ OrderByParallel::OrderByParallel(const std::shared_ptr<LogicalOperator> & /*orde
 }
 #endif
 
-UniqueCursorPtr OrderByParallel::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr OrderByParallel::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::OrderByOperator);
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException("OrderByParallel is not supported in the community edition");
   }
-  return MakeUniqueCursorPtr<OrderByParallelCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<OrderByParallelCursor>(mem, *this, mem, profile);
 #else
   (void)mem;
   throw QueryRuntimeException("OrderByParallel is not supported in the community edition");
@@ -11198,10 +11375,10 @@ Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression
 
 ACCEPT_WITH_INPUT(Skip)
 
-UniqueCursorPtr Skip::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Skip::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::SkipOperator);
 
-  return MakeUniqueCursorPtr<SkipCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<SkipCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> Skip::OutputSymbols(const SymbolTable &symbol_table) const {
@@ -11219,8 +11396,10 @@ std::unique_ptr<LogicalOperator> Skip::Clone(AstStorage *storage) const {
   return object;
 }
 
-Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {
+Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {
 #ifdef MG_ENTERPRISE
   if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution
@@ -11232,7 +11411,7 @@ Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
 
 bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Skip");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 
@@ -11287,10 +11466,10 @@ Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expressi
 
 ACCEPT_WITH_INPUT(Limit)
 
-UniqueCursorPtr Limit::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr Limit::MakeCursor(utils::MemoryResource *mem, ProfileContext profile) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::LimitOperator);
 
-  return MakeUniqueCursorPtr<LimitCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<LimitCursor>(mem, *this, mem, profile);
 }
 
 std::vector<Symbol> Limit::OutputSymbols(const SymbolTable &symbol_table) const {
@@ -11308,8 +11487,10 @@ std::unique_ptr<LogicalOperator> Limit::Clone(AstStorage *storage) const {
   return object;
 }
 
-Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {
+Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem, ProfileContext profile)
+    : Cursor(profile, self),
+      self_(self),
+      input_cursor_(self_.input_->MakeCursor(mem, ChildContext(profile, profile_slot_))) {
 #ifdef MG_ENTERPRISE
   if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution
@@ -11321,7 +11502,7 @@ Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
 
 bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Limit");
+  ScopedProfile profile{profile_slot_};
 
   AbortCheck(context);
 

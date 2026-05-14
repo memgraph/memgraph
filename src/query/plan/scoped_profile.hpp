@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,100 +13,68 @@
 
 #include <cstdint>
 
-#include "query/context.hpp"
 #include "query/plan/profile.hpp"
-#include "utils/likely.hpp"
 #include "utils/tsc.hpp"
+
+namespace memgraph::query {
+class DbAccessor;
+}
 
 namespace memgraph::query::plan {
 
-/**
- * A RAII class used for profiling logical operators. Instances of this class
- * update the profiling data stored within the `ExecutionContext` object and build
- * up a tree of `ProfilingStats` instances. The structure of the `ProfilingStats`
- * tree depends on the `LogicalOperator`s that were executed.
- */
+/// Small struct threaded through MakeCursor so each cursor's ctor can
+/// resolve its `ProfilingStats *` slot once, instead of having every Pull
+/// search/create the slot under a shifting parent pointer in
+/// ExecutionContext.
+///
+/// `parent_stats == nullptr` is the "no profiling" sentinel - propagates
+/// down through ChildContext so cursors built under it keep their own
+/// `profile_slot_` null and skip the timer in Pull entirely.
+struct ProfileContext {
+  ProfilingStats *parent_stats{nullptr};
+  const DbAccessor *db_accessor{nullptr};
+};
+
+/// Returns the ProfileContext to pass to the children of an operator that
+/// has just appended its own slot. When `child_slot` is null (profiling
+/// is off), children get a no-profiling context too.
+inline ProfileContext ChildContext(ProfileContext parent, ProfilingStats *child_slot) noexcept {
+  parent.parent_stats = child_slot;
+  return parent;
+}
+
+/// RAII timer over a precomputed slot. The cursor's ctor resolved the
+/// slot once; Pull just times the call. When `slot` is null the ctor
+/// and dtor are both predicted-out branches.
 class ScopedProfile {
  public:
-  ScopedProfile(uint64_t key, const query::plan::NamedLogicalOperator &op, query::ExecutionContext *context) noexcept
-      : context_(context), root_{context_->stats_root} {
-    DMG_ASSERT(context_->is_profile_query);
-
-    // Are we the root logical operator?
-    if (!root_) {
-      stats_ = &context_->stats;
-      stats_->key = key;
-      op.dba_ = context->db_accessor;
-      stats_->name = op.ToString();
-      op.dba_ = nullptr;
-    } else {
-      stats_ = nullptr;
-
-      // Was this logical operator already hit on one of the previous pulls?
-      auto it =
-          std::find_if(root_->children.begin(), root_->children.end(), [key](auto &stats) { return stats.key == key; });
-
-      if (it == root_->children.end()) {
-        root_->children.emplace_back();
-        stats_ = &root_->children.back();
-        stats_->key = key;
-        op.dba_ = context->db_accessor;
-        stats_->name = op.ToString();
-        op.dba_ = nullptr;
-      } else {
-        stats_ = &(*it);
-      }
+  explicit ScopedProfile(ProfilingStats *slot) noexcept : slot_(slot) {
+    if (slot_) {
+      slot_->actual_hits++;
+      start_time_ = utils::ReadTSC();
     }
-
-    context_->stats_root = stats_;
-    stats_->actual_hits++;
-    start_time_ = utils::ReadTSC();
   }
 
-  ScopedProfile(uint64_t key, const char *name, query::ExecutionContext *context) noexcept
-      : context_(context), root_{context_->stats_root} {
-    DMG_ASSERT(context_->is_profile_query);
+  ScopedProfile(const ScopedProfile &) = delete;
+  ScopedProfile &operator=(const ScopedProfile &) = delete;
+  ScopedProfile(ScopedProfile &&) = delete;
+  ScopedProfile &operator=(ScopedProfile &&) = delete;
 
-    // Are we the root logical operator?
-    if (!root_) {
-      stats_ = &context_->stats;
-      stats_->key = key;
-      stats_->name = name;
-    } else {
-      stats_ = nullptr;
+  ~ScopedProfile() noexcept { Stop(); }
 
-      // Was this logical operator already hit on one of the previous pulls?
-      auto it =
-          std::find_if(root_->children.begin(), root_->children.end(), [key](auto &stats) { return stats.key == key; });
-
-      if (it == root_->children.end()) {
-        root_->children.emplace_back();
-        stats_ = &root_->children.back();
-        stats_->key = key;
-        stats_->name = name;
-      } else {
-        stats_ = &(*it);
-      }
+  /// Finalise the timer early (idempotent). Used by parallel-execution branch
+  /// scopes that need to attribute time to the branch before running the
+  /// surrounding cleanup/accounting in an OnScopeExit handler.
+  void Stop() noexcept {
+    if (slot_) {
+      slot_->num_cycles += utils::ReadTSC() - start_time_;
+      slot_ = nullptr;
     }
-
-    context_->stats_root = stats_;
-    stats_->actual_hits++;
-    start_time_ = utils::ReadTSC();
-  }
-
-  ~ScopedProfile() {
-    DMG_ASSERT(context_->is_profile_query);
-    stats_->num_cycles += utils::ReadTSC() - start_time_;
-
-    // Restore the old root ("pop")
-    context_->stats_root = root_;
   }
 
  private:
-  query::ExecutionContext *context_;
-  ProfilingStats *root_{nullptr};
-  ProfilingStats *stats_{nullptr};
-  unsigned long long start_time_{0};
+  ProfilingStats *slot_;
+  uint64_t start_time_{0};
 };
 
 }  // namespace memgraph::query::plan

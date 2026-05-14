@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <vector>
 
 #include <nlohmann/json_fwd.hpp>
@@ -29,8 +30,10 @@ struct ProfilingStats {
   unsigned long long num_cycles{0};
   uint64_t key{0};
   std::string name;
-  // TODO: This should use the allocator for query execution
-  std::vector<ProfilingStats> children;
+  // Deque (not vector) so that pointers into children survive subsequent
+  // emplace_back calls - cursors that resolve their profile slot at
+  // construction time hold long-lived pointers into here.
+  std::deque<ProfilingStats> children;
 };
 
 struct ProfilingStatsWithTotalTime {

@@ -112,8 +112,15 @@ class ProfilingStatsToTableHelper {
 }  // namespace
 
 std::vector<std::vector<TypedValue>> ProfilingStatsToTable(const ProfilingStatsWithTotalTime &stats) {
-  ProfilingStatsToTableHelper helper{stats.cumulative_stats.num_cycles, stats.total_time};
-  helper.Output(stats.cumulative_stats);
+  // The post-#0007 stats tree has a synthetic meta-root (ctx_.stats with no
+  // name/key/cycles) whose first child is the top-level operator. Skip the
+  // meta-root for display so the output matches the pre-#0007 shape.
+  const ProfilingStats *root = &stats.cumulative_stats;
+  if (root->name.empty() && root->actual_hits == 0 && !root->children.empty()) {
+    root = &root->children[0];
+  }
+  ProfilingStatsToTableHelper helper{root->num_cycles, stats.total_time};
+  helper.Output(*root);
   return helper.rows();
 }
 
@@ -160,8 +167,13 @@ class ProfilingStatsToJsonHelper {
 }  // namespace
 
 nlohmann::json ProfilingStatsToJson(const ProfilingStatsWithTotalTime &stats) {
-  ProfilingStatsToJsonHelper helper{stats.cumulative_stats.num_cycles, stats.total_time};
-  helper.Output(stats.cumulative_stats);
+  // Skip the synthetic meta-root, same reason as ProfilingStatsToTable.
+  const ProfilingStats *root = &stats.cumulative_stats;
+  if (root->name.empty() && root->actual_hits == 0 && !root->children.empty()) {
+    root = &root->children[0];
+  }
+  ProfilingStatsToJsonHelper helper{root->num_cycles, stats.total_time};
+  helper.Output(*root);
   return helper.ToJson();
 }
 

@@ -119,7 +119,6 @@ struct ExecutionContext {
   bool is_profile_query{false};
   std::chrono::duration<double> profile_execution_time{0};
   plan::ProfilingStats stats;
-  plan::ProfilingStats *stats_root{nullptr};
   ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
   FrameChangeCollector *frame_change_collector{nullptr};
