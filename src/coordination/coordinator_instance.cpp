@@ -219,8 +219,10 @@ void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstance
                         std::piecewise_construct,
                         std::forward_as_tuple(coordinator.id),
                         std::forward_as_tuple(ManagementServerConfig{std::move(*mgmt_endpoint)},
-                                              utils::TlsClientConfig{.key_file = tls_config_->key_file,
-                                                                     .cert_file = tls_config_->cert_file}));
+                                              tls_config_.and_then([](utils::TlsServerConfig const &tls) {
+                                                return std::make_optional(utils::TlsClientConfig{
+                                                    .key_file = tls.key_file, .cert_file = tls.cert_file});
+                                              })));
   }
 }
 
@@ -478,7 +480,11 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
         this,
         raft_state_->GetInstanceDownTimeoutSec(),
         raft_state_->GetInstanceHealthCheckFrequencySec(),
-        utils::TlsClientConfig{.key_file = tls_config_->key_file, .cert_file = tls_config_->cert_file});
+        tls_config_.and_then([](utils::TlsServerConfig const &tls) {
+          return std::make_optional(utils::TlsClientConfig{.key_file = tls.key_file, .cert_file = tls.cert_file});
+        })
+
+    );
     instance.StartStateCheck();
   });
 
@@ -795,7 +801,9 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
       this,
       raft_state_->GetInstanceDownTimeoutSec(),
       raft_state_->GetInstanceHealthCheckFrequencySec(),
-      utils::TlsClientConfig{.key_file = tls_config_->key_file, .cert_file = tls_config_->cert_file});
+      tls_config_.and_then([](utils::TlsServerConfig const &tls) {
+        return std::make_optional(utils::TlsClientConfig{.key_file = tls.key_file, .cert_file = tls.cert_file});
+      }));
 
   // Try sending RPC now but the failure is not fatal, we will try again in the reconciliation loop
   // From the user's perspective, as soon as the log is committed to Raft logs, the in-memory state will eventually
