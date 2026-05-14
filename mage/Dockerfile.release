@@ -114,7 +114,7 @@ USER memgraph
 EXPOSE 7687
 
 ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
-CMD [""]
+CMD []
 
 
 FROM base AS relwithdebinfo
@@ -163,4 +163,4 @@ USER memgraph
 EXPOSE 7687
 
 ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
-CMD [""]
+CMD []
