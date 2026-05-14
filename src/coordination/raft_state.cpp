@@ -293,7 +293,7 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
 // coordinator instance, make sure everything is initialized in coordinator instance
 // prior to calling InitRaftServer. To be specific, this function
 // will call `become_leader_cb_`
-auto RaftState::InitRaftServer(std::optional<utils::TlsServerConfig> const &tls_config) -> void {
+auto RaftState::InitRaftServer(std::optional<utils::TlsConfig> const &tls_config) -> void {
   asio_service::options asio_opts;
   asio_opts.thread_pool_size_ = 1;
 

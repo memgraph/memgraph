@@ -21,7 +21,7 @@ namespace memgraph::coordination {
 class CoordinatorInstanceConnector {
  public:
   explicit CoordinatorInstanceConnector(ManagementServerConfig const &config,
-                                        std::optional<utils::TlsClientConfig> const &tls_config)
+                                        std::optional<utils::TlsConfig> const &tls_config)
       : client_{config, tls_config} {}
 
   template <rpc::IsRpc Rpc, typename... Args>

@@ -16,7 +16,7 @@
 namespace memgraph::coordination {
 
 CoordinatorInstanceClient::CoordinatorInstanceClient(ManagementServerConfig const &config,
-                                                     std::optional<utils::TlsClientConfig> const &tls_config)
+                                                     std::optional<utils::TlsConfig> const &tls_config)
     : rpc_context_(communication::CreateClientContext(tls_config)), rpc_client_{config.endpoint, &rpc_context_} {}
 
 auto CoordinatorInstanceClient::RpcClient() const -> rpc::Client & { return rpc_client_; }

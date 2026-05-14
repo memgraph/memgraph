@@ -20,7 +20,7 @@ namespace memgraph::coordination {
 class CoordinatorInstanceManagementServer {
  public:
   explicit CoordinatorInstanceManagementServer(const ManagementServerConfig &config,
-                                               std::optional<utils::TlsServerConfig> const &tls_config);
+                                               std::optional<utils::TlsConfig> const &tls_config);
   CoordinatorInstanceManagementServer(const CoordinatorInstanceManagementServer &) = delete;
   CoordinatorInstanceManagementServer(CoordinatorInstanceManagementServer &&) = delete;
   CoordinatorInstanceManagementServer &operator=(const CoordinatorInstanceManagementServer &) = delete;

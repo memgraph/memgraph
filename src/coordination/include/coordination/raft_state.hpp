@@ -50,7 +50,7 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftState {
  public:
-  auto InitRaftServer(std::optional<utils::TlsServerConfig> const &tls_config) -> void;
+  auto InitRaftServer(std::optional<utils::TlsConfig> const &tls_config) -> void;
   explicit RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb,
                      std::optional<CoordinationClusterChangeObserver> observer = std::nullopt);

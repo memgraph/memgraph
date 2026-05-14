@@ -44,7 +44,7 @@ RpcInfoSpecialize(UpdateDataInstanceConfigRpc, update_data_instance_config_rpc_s
     ReplicationInstanceClient::ReplicationInstanceClient(std::string instance_name, io::network::Endpoint mgt_server,
                                                          CoordinatorInstance *coord_instance,
                                                          const std::chrono::seconds instance_health_check_frequency_sec,
-                                                         std::optional<utils::TlsClientConfig> const &tls_config)
+                                                         std::optional<utils::TlsConfig> const &tls_config)
     : rpc_context_{communication::CreateClientContext(tls_config)},
       rpc_client_{std::move(mgt_server), &rpc_context_},
       instance_name_(std::move(instance_name)),

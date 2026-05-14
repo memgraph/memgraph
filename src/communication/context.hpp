@@ -46,10 +46,10 @@ class ClientContext final {
   /**
    * This constructor constructs a ClientContext that uses SSL and uses the
    * specific client private key and certificate combination. If the parameters
-   * `key_file` and `cert_file` are equal to "" then the constructor falls back
+   * `key_file`, `cert_file`, `ca_file` are equal to "" then the constructor falls back
    * to the above constructor that uses SSL without certificates.
    */
-  ClientContext(const std::string &key_file, const std::string &cert_file);
+  ClientContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file);
 
   // This object can't be copied because the underlying SSL implementation is
   // messy and ownership can't be handled correctly.
@@ -130,8 +130,8 @@ class ServerContext final {
   std::atomic<std::shared_ptr<boost::asio::ssl::context>> ctx_;
 };
 
-inline auto CreateServerContext(std::optional<utils::TlsServerConfig> const &tls_config)
-    -> communication::ServerContext {
+// TODO: (andi) Templatize
+inline auto CreateServerContext(std::optional<utils::TlsConfig> const &tls_config) -> communication::ServerContext {
   return tls_config.has_value() ? communication::ServerContext{tls_config->key_file,
                                                                tls_config->cert_file,
                                                                tls_config->ca_file,
@@ -139,10 +139,10 @@ inline auto CreateServerContext(std::optional<utils::TlsServerConfig> const &tls
                                 : communication::ServerContext{};
 }
 
-inline auto CreateClientContext(std::optional<utils::TlsClientConfig> const &tls_config)
-    -> communication::ClientContext {
-  return tls_config.has_value() ? communication::ClientContext{tls_config->key_file, tls_config->cert_file}
-                                : communication::ClientContext{};
+inline auto CreateClientContext(std::optional<utils::TlsConfig> const &tls_config) -> communication::ClientContext {
+  return tls_config.has_value()
+             ? communication::ClientContext{tls_config->key_file, tls_config->cert_file, tls_config->ca_file}
+             : communication::ClientContext{};
 }
 
 }  // namespace memgraph::communication

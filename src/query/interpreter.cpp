@@ -414,7 +414,7 @@ class ReplQueryHandler {
     } else {
       ValidatePort(port);
 
-      std::optional<utils::TlsServerConfig> maybe_ssl;
+      std::optional<utils::TlsConfig> maybe_ssl;
       if (memgraph::flags::IsIntraClusterTLSEnabled()) {
         maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file, FLAGS_cluster_ca_file);
       }
@@ -454,9 +454,9 @@ class ReplQueryHandler {
       throw QueryRuntimeException("Invalid socket address. {}", kSocketErrorExplanation);
     }
 
-    std::optional<utils::TlsClientConfig> maybe_ssl;
+    std::optional<utils::TlsConfig> maybe_ssl;
     if (flags::IsIntraClusterTLSEnabled()) {
-      maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file);
+      maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file, FLAGS_cluster_ca_file);
     }
 
     const auto replication_config =

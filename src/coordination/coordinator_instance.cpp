@@ -218,11 +218,7 @@ void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstance
     connectors->emplace(connectors->end(),
                         std::piecewise_construct,
                         std::forward_as_tuple(coordinator.id),
-                        std::forward_as_tuple(ManagementServerConfig{std::move(*mgmt_endpoint)},
-                                              tls_config_.and_then([](utils::TlsServerConfig const &tls) {
-                                                return std::make_optional(utils::TlsClientConfig{
-                                                    .key_file = tls.key_file, .cert_file = tls.cert_file});
-                                              })));
+                        std::forward_as_tuple(ManagementServerConfig{std::move(*mgmt_endpoint)}, tls_config_));
   }
 }
 
@@ -475,14 +471,11 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   }
 
   std::ranges::for_each(raft_state_data_instances, [this](auto const &data_instance) {
-    auto &instance = repl_instances_.emplace_back(
-        data_instance.config,
-        this,
-        raft_state_->GetInstanceDownTimeoutSec(),
-        raft_state_->GetInstanceHealthCheckFrequencySec(),
-        tls_config_.and_then([](utils::TlsServerConfig const &tls) {
-          return std::make_optional(utils::TlsClientConfig{.key_file = tls.key_file, .cert_file = tls.cert_file});
-        })
+    auto &instance = repl_instances_.emplace_back(data_instance.config,
+                                                  this,
+                                                  raft_state_->GetInstanceDownTimeoutSec(),
+                                                  raft_state_->GetInstanceHealthCheckFrequencySec(),
+                                                  tls_config_
 
     );
     instance.StartStateCheck();
@@ -796,14 +789,11 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
-  auto *new_instance = &repl_instances_.emplace_back(
-      config,
-      this,
-      raft_state_->GetInstanceDownTimeoutSec(),
-      raft_state_->GetInstanceHealthCheckFrequencySec(),
-      tls_config_.and_then([](utils::TlsServerConfig const &tls) {
-        return std::make_optional(utils::TlsClientConfig{.key_file = tls.key_file, .cert_file = tls.cert_file});
-      }));
+  auto *new_instance = &repl_instances_.emplace_back(config,
+                                                     this,
+                                                     raft_state_->GetInstanceDownTimeoutSec(),
+                                                     raft_state_->GetInstanceHealthCheckFrequencySec(),
+                                                     tls_config_);
 
   // Try sending RPC now but the failure is not fatal, we will try again in the reconciliation loop
   // From the user's perspective, as soon as the log is committed to Raft logs, the in-memory state will eventually

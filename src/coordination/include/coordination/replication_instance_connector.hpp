@@ -46,7 +46,7 @@ class ReplicationInstanceConnector {
   ReplicationInstanceConnector(DataInstanceConfig const &config, CoordinatorInstance *coord_instance,
                                uint32_t instance_down_timeout_sec,
                                std::chrono::seconds instance_health_check_frequency_sec,
-                               std::optional<utils::TlsClientConfig> const &tls_config);
+                               std::optional<utils::TlsConfig> const &tls_config);
 
   ReplicationInstanceConnector(ReplicationInstanceConnector const &other) = delete;
   ReplicationInstanceConnector &operator=(ReplicationInstanceConnector const &other) = delete;

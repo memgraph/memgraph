@@ -25,7 +25,7 @@ constexpr auto kDataInstanceManagementServerThreads = 1;
 namespace memgraph::coordination {
 
 DataInstanceManagementServer::DataInstanceManagementServer(const ManagementServerConfig &config,
-                                                           std::optional<utils::TlsServerConfig> const &tls_config)
+                                                           std::optional<utils::TlsConfig> const &tls_config)
     : rpc_server_context_{communication::CreateServerContext(tls_config)},
       rpc_server_{config.endpoint, &rpc_server_context_, kDataInstanceManagementServerThreads} {}
 

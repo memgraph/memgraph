@@ -193,9 +193,9 @@ auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::Replic
                                                              coordination::ReplicationClientInfo const &config)
     -> bool {
   auto const converter = [&config](const auto &repl_info_config) {
-    std::optional<utils::TlsClientConfig> maybe_ssl;
+    std::optional<utils::TlsConfig> maybe_ssl;
     if (flags::IsIntraClusterTLSEnabled()) {
-      maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file);
+      maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file, FLAGS_cluster_ca_file);
     }
 
     return replication::ReplicationClientConfig{.name = repl_info_config.instance_name,
@@ -282,7 +282,7 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
   coordination::DemoteMainToReplicaReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  std::optional<utils::TlsServerConfig> maybe_ssl;
+  std::optional<utils::TlsConfig> maybe_ssl;
   if (memgraph::flags::IsIntraClusterTLSEnabled()) {
     maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file, FLAGS_cluster_ca_file);
   }
