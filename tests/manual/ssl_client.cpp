@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@ DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 54321, "Server port");
 DEFINE_string(cert_file, "", "Certificate file to use.");
 DEFINE_string(key_file, "", "Key file to use.");
+DEFINE_string(ca_file, "", "CA file to use.");
 
 bool EchoMessage(memgraph::communication::Client &client, const std::string &data) {
   uint16_t size = data.size();
@@ -52,7 +53,7 @@ int main(int argc, char **argv) {
 
   memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
 
-  memgraph::communication::ClientContext context(FLAGS_key_file, FLAGS_cert_file);
+  memgraph::communication::ClientContext context(FLAGS_key_file, FLAGS_cert_file, FLAGS_ca_file);
   memgraph::communication::Client client(&context);
 
   if (!client.Connect(endpoint)) return 1;
