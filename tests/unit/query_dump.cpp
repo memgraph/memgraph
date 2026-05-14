@@ -17,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <tuple>
 #include <vector>
 
 #include "communication/result_stream_faker.hpp"
@@ -125,16 +126,12 @@ struct DatabaseState {
 };
 
 bool operator<(const DatabaseState::Vertex &first, const DatabaseState::Vertex &second) {
-  if (first.id != second.id) return first.id < second.id;
-  if (first.labels != second.labels) return first.labels < second.labels;
-  return first.props < second.props;
+  return std::tie(first.id, first.labels, first.props) < std::tie(second.id, second.labels, second.props);
 }
 
 bool operator<(const DatabaseState::Edge &first, const DatabaseState::Edge &second) {
-  if (first.from != second.from) return first.from < second.from;
-  if (first.to != second.to) return first.to < second.to;
-  if (first.edge_type != second.edge_type) return first.edge_type < second.edge_type;
-  return first.props < second.props;
+  return std::tie(first.from, first.to, first.edge_type, first.props) <
+         std::tie(second.from, second.to, second.edge_type, second.props);
 }
 
 bool operator<(const DatabaseState::LabelItem &first, const DatabaseState::LabelItem &second) {
@@ -143,41 +140,33 @@ bool operator<(const DatabaseState::LabelItem &first, const DatabaseState::Label
 
 bool operator<(const DatabaseState::OrderedLabelPropertiesItem &first,
                const DatabaseState::OrderedLabelPropertiesItem &second) {
-  if (first.label != second.label) return first.label < second.label;
-  return first.properties < second.properties;
+  return std::tie(first.label, first.properties) < std::tie(second.label, second.properties);
 }
 
 bool operator<(const DatabaseState::LabelPropertyItem &first, const DatabaseState::LabelPropertyItem &second) {
-  if (first.label != second.label) return first.label < second.label;
-  return first.property < second.property;
+  return std::tie(first.label, first.property) < std::tie(second.label, second.property);
 }
 
 bool operator<(const DatabaseState::TextNodeItem &first, const DatabaseState::TextNodeItem &second) {
-  if (first.index_name != second.index_name) return first.index_name < second.index_name;
-  if (first.label != second.label) return first.label < second.label;
-  return first.properties < second.properties;
+  return std::tie(first.index_name, first.label, first.properties) <
+         std::tie(second.index_name, second.label, second.properties);
 }
 
 bool operator<(const DatabaseState::TextEdgeItem &first, const DatabaseState::TextEdgeItem &second) {
-  if (first.index_name != second.index_name) return first.index_name < second.index_name;
-  if (first.edge_type != second.edge_type) return first.edge_type < second.edge_type;
-  return first.properties < second.properties;
+  return std::tie(first.index_name, first.edge_type, first.properties) <
+         std::tie(second.index_name, second.edge_type, second.properties);
 }
 
 bool operator<(const DatabaseState::PointItem &first, const DatabaseState::PointItem &second) {
-  if (first.label != second.label) return first.label < second.label;
-  return first.property < second.property;
+  return std::tie(first.label, first.property) < std::tie(second.label, second.property);
 }
 
 bool operator<(const DatabaseState::LabelPropertiesItem &first, const DatabaseState::LabelPropertiesItem &second) {
-  if (first.label != second.label) return first.label < second.label;
-  return first.properties < second.properties;
+  return std::tie(first.label, first.properties) < std::tie(second.label, second.properties);
 }
 
 bool operator<(const DatabaseState::LabelPropertyType &first, const DatabaseState::LabelPropertyType &second) {
-  if (first.label != second.label) return first.label < second.label;
-  if (first.property != second.property) return first.property < second.property;
-  return first.type < second.type;
+  return std::tie(first.label, first.property, first.type) < std::tie(second.label, second.property, second.type);
 }
 
 bool operator==(const DatabaseState::Vertex &first, const DatabaseState::Vertex &second) {
