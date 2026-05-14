@@ -190,6 +190,35 @@ jobs:
           copy \
           --sbom
 
+      - name: "Build gssapi wheel for smoke image"
+        if: ${{ env.FOR_DOCKER != 'true' && inputs.run_smoke_tests }}
+        run: |
+          # gssapi has no prebuilt linux wheels on PyPI, so build one inside
+          # the MGBUILD container (which has libkrb5/krb5-devel available) and
+          # drop it into a local wheels dir that the smoke image build will
+          # pip-install from via --find-links.
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            build-gssapi \
+            --dest-dir build/output/smoke-wheels
+
+      - name: "Build smoke image from package"
+        if: ${{ env.FOR_DOCKER != 'true' && inputs.run_smoke_tests }}
+        run: |
+          image_tag="smoke-${OS}-${ARCH}-${BUILD_TYPE}"
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            package-smoke-image \
+            --src-dir $PACKAGE_ARTIFACT_DIR \
+            --image-tag "$image_tag" \
+            --wheels-dir build/output/smoke-wheels
+          echo "IMAGE_TAG=$image_tag" >> $GITHUB_ENV
+          echo "Resolved IMAGE_TAG=$image_tag"
+
       - name: "Build heaptrack"
         if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
         run: |
@@ -319,8 +348,8 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ inputs.s3_region }}
 
-      - name: Run Docker smoke tests
-        if: ${{ env.FOR_DOCKER == 'true' && inputs.run_smoke_tests }}
+      - name: Run smoke tests
+        if: ${{ inputs.run_smoke_tests }}
         env:
           MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
           MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
