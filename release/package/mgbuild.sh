@@ -962,7 +962,7 @@ package_smoke_image() {
     centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm"; networkx_version="3.2.1" ;;
     centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
     rocky-9.3*)    base_image="rockylinux:9.3"; pkg_format="rpm"; networkx_version="3.2.1" ;;
-    rocky-10*)     base_image="rockylinux:10";  pkg_format="rpm" ;;
+    rocky-10*)     base_image="rockylinux/rockylinux:10";  pkg_format="rpm" ;;
     fedora-38*)    base_image="fedora:38"; pkg_format="rpm" ;;
     fedora-39*)    base_image="fedora:39"; pkg_format="rpm" ;;
     fedora-41*)    base_image="fedora:41"; pkg_format="rpm"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
