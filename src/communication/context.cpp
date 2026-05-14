@@ -174,16 +174,16 @@ auto ServerContext::reload() -> std::expected<void, SSL_CTX_Error> {
       return std::unexpected{SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_LOAD_CA, .msg = std::move(err_msg)}};
     }
 
-    MG_ASSERT(verify_peer_, "verify_peer_ must be set to true when ca_file exists");
-
-    // Enable verification of the client certificate.
-    // NOLINTNEXTLINE(hicpp-signed-bitwise, bugprone-unused-return-value)
-    new_ctx->set_verify_mode(ssl::verify_peer | ssl::verify_fail_if_no_peer_cert, ec);
-    if (ec) {
-      auto err_msg = fmt::format("Setting SSL verification mode failed! Error: {}", ec.message());
-      spdlog::error(err_msg);
-      return std::unexpected{
-          SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_SET_SSL_VERIFICATION_MODE, .msg = std::move(err_msg)}};
+    if (verify_peer_) {
+      // Enable verification of the client certificate.
+      // NOLINTNEXTLINE(hicpp-signed-bitwise, bugprone-unused-return-value)
+      new_ctx->set_verify_mode(ssl::verify_peer | ssl::verify_fail_if_no_peer_cert, ec);
+      if (ec) {
+        auto err_msg = fmt::format("Setting SSL verification mode failed! Error: {}", ec.message());
+        spdlog::error(err_msg);
+        return std::unexpected{
+            SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_SET_SSL_VERIFICATION_MODE, .msg = std::move(err_msg)}};
+      }
     }
   }
   ctx_.store(std::move(new_ctx), std::memory_order_release);
