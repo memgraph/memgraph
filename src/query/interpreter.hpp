@@ -681,6 +681,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
       mh->failed_query.Increment();
       mh->failed_pull.Increment();
+    } else {
+      metrics::Metrics().global.failed_query->Increment();
+      metrics::Metrics().global.failed_pull->Increment();
     }
     // PeriodicCommitException means the storage layer already aborted the transaction internally.
     // Null the accessor first so AbortCommand does not call Abort() a second time.
@@ -696,6 +699,8 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     metrics::FirstSuccessfulQuery();
     if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
       mh->successful_query.Increment();
+    } else {
+      metrics::Metrics().global.successful_query->Increment();
     }
     // return the execution summary
     maybe_summary->insert_or_assign("has_more", false);

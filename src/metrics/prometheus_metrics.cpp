@@ -767,6 +767,8 @@ PrometheusMetrics::PrometheusMetrics()
   global.transient_errors = &transient_errors_family_.Add(no_labels);
   global.failed_query = &failed_query_family_.Add(no_labels);
   global.failed_prepare = &failed_prepare_family_.Add(no_labels);
+  global.failed_pull = &failed_pull_family_.Add(no_labels);
+  global.successful_query = &successful_query_family_.Add(no_labels);
   global.read_query = &read_query_family_.Add(no_labels);
   global.write_query = &write_query_family_.Add(no_labels);
   global.read_write_query = &read_write_query_family_.Add(no_labels);
@@ -1779,8 +1781,12 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
                  "Transaction",
                  "Counter",
                  total_failed_prepare + static_cast<int64_t>(global.failed_prepare->Value())});
-  out.push_back({"FailedPull", "Transaction", "Counter", total_failed_pull});
-  out.push_back({"SuccessfulQuery", "Transaction", "Counter", total_successful_query});
+  out.push_back(
+      {"FailedPull", "Transaction", "Counter", total_failed_pull + static_cast<int64_t>(global.failed_pull->Value())});
+  out.push_back({"SuccessfulQuery",
+                 "Transaction",
+                 "Counter",
+                 total_successful_query + static_cast<int64_t>(global.successful_query->Value())});
   out.push_back({"WriteWriteConflicts", "Transaction", "Counter", total_write_write_conflicts});
 
   // QueryType — include global fallback counters for queries fired without a db context

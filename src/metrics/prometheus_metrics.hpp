@@ -257,6 +257,8 @@ struct GlobalMetricHandles {
   prometheus::Counter *transient_errors;
   prometheus::Counter *failed_query;
   prometheus::Counter *failed_prepare;
+  prometheus::Counter *failed_pull;
+  prometheus::Counter *successful_query;
   prometheus::Counter *read_query;
   prometheus::Counter *write_query;
   prometheus::Counter *read_write_query;
