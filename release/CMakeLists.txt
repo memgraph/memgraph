@@ -38,7 +38,13 @@ set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")
-set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+# Auto-shlibdeps is OFF: dpkg-shlibdeps reads the build host's libc6.symbols
+# (which has `Build-Depends-Package: libc6-dev` forcing minimum to whatever
+# libc6 the build host ships), so building on Ubuntu 24.04 results in
+# `libc6 (>= 2.38)` regardless of the symbols the binary actually uses. The
+# binary itself is sysroot-clean (no symbols above GLIBC_2.30), so we write
+# Depends manually with a realistic libc6 floor instead.
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
 
 # Description formatting is important, summary must be followed with a newline and 1 space.
 set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
@@ -46,9 +52,20 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
  speed, simplicity and scale required to build the next generation of
  applications driver by real-time connected data.")
 
-# Add `openssl` package to dependencies list. Used to generate SSL certificates.
-# We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "openssl (>= 1.1.0), python3 (>= 3.5.0)")
+# Explicit runtime deps. Format:
+#   libc6 (>= 2.31)           — matches the toolchain sysroot glibc floor.
+#   libstdc++6 (>= 9)         — std::filesystem in plain libstdc++ since GCC 9
+#                                (Ubuntu 20.04 LTS has libstdc++6 10).
+#   libgcc-s1                 — provides libgcc_s.so.1 (Ubuntu 20.04+).
+#   openssl                   — CLI; pulls libssl{3,1.1} transitively, name
+#                                stable across libssl3 / libssl3t64.
+#   python3 (>= 3.5.0)        — pulls libpython3 transitively. NOTE: the
+#                                binary's NEEDED libpython3.X.so.1.0 must
+#                                match a Python actually available on the
+#                                deploy distro — set MG_PYTHON_VERSION at
+#                                configure time to control this.
+set(CPACK_DEBIAN_PACKAGE_DEPENDS
+    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, openssl (>= 1.1.0), python3 (>= 3.5.0)")
 
 # Setting architecture extension for rpm packages
 set(MG_ARCH_EXTENSION_RPM "noarch")

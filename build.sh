@@ -134,7 +134,7 @@ if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD
 fi
 
 # Initialize arrays for arguments
-HOST_PROFILES=("-pr:h" "memgraph_toolchain_v7")
+HOST_PROFILES=("-pr:h" "memgraph_toolchain_v8")
 CONAN_COMMON_ARGS=(
   -pr:b memgraph_build_profile
   -s build_type="$BUILD_TYPE"
@@ -231,7 +231,7 @@ fi
 # generate dependency graph and exit early
 if [[ "$graph_info" = true ]]; then
     echo "Generating dependency graph -> graph.html"
-    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan graph info . \
+    MG_TOOLCHAIN_ROOT="/opt/toolchain-v8" conan graph info . \
       "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
       --format=html > graph.html
     echo "Open graph.html in a browser to view the dependency graph"
@@ -243,7 +243,7 @@ if [[ "$update_lockfile" = true ]]; then
     echo "Updating conan.lock"
     # Resolve recipe revisions from remotes (including local-recipes-index),
     # not from any stale local cache export, so lockfiles stay portable.
-    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan lock create . \
+    MG_TOOLCHAIN_ROOT="/opt/toolchain-v8" conan lock create . \
       "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
       --update \
       --lockfile="" \
@@ -251,7 +251,7 @@ if [[ "$update_lockfile" = true ]]; then
 fi
 
 # install conan dependencies
-MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install . --build=missing \
+MG_TOOLCHAIN_ROOT="/opt/toolchain-v8" conan install . --build=missing \
   "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}"
 
 source build/generators/conanbuild.sh

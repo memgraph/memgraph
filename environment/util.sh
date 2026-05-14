@@ -14,12 +14,18 @@ function operating_system() {
             ubuntu-24.*|ubuntu-25.*)
                 echo "ubuntu-24.04"
                 ;;
+            ubuntu-26.*)
+                echo "ubuntu-26.04"
+                ;;
             # Linux Mint mappings
             linuxmint-20*|linuxmint-21*)
                 echo "ubuntu-22.04"
                 ;;
             linuxmint-22*)
                 echo "ubuntu-24.04"
+                ;;
+            linuxmint-23*)
+                echo "ubuntu-26.04"
                 ;;
             # Direct mappings
             debian-11|debian-12|debian-13|centos-9|centos-10|fedora-41|fedora-42)

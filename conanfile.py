@@ -99,6 +99,16 @@ class Memgraph(ConanFile):
         self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.6.1")
         self.requires("librdtsc/0.3-memgraph")
+        # libseccomp and libuuid were previously picked up implicitly from
+        # /usr/include on the host; with the toolchain's sysroot the host
+        # headers aren't visible, so we need them as explicit deps so conan
+        # builds them against our glibc 2.31 sysroot.
+        # - libseccomp: src/auth/module.cpp uses seccomp-bpf for syscall
+        #   sandboxing of the auth module subprocess. Vendored recipe under
+        #   conan_recipes/recipes/libseccomp.
+        # - libuuid: src/utils/uuid.hpp pulls in <uuid/uuid.h>.
+        self.requires("libseccomp/2.6.0")
+        self.requires("libuuid/1.0.3")
         self.requires("mgclient/1.4.3")
         self.requires("nlohmann_json/3.11.3-memgraph")
         self.requires("nuraft/2.1.0-memgraph")

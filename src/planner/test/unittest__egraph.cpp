@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <boost/container/detail/placement_new.hpp>
 
 #include "test_symbols.hpp"
 

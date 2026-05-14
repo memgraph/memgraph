@@ -1,0 +1,84 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 598c728..816c705 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1242,7 +1242,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
+
+   if(ROCKSDB_BUILD_SHARED)
+     install(
+-      TARGETS ${ROCKSDB_SHARED_LIB}
++      TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL
+       EXPORT RocksDBTargets
+       COMPONENT runtime
+       ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+diff --git a/db/version_builder.cc b/db/version_builder.cc
+index 4f0e3a8..5e20f41 100644
+--- a/db/version_builder.cc
++++ b/db/version_builder.cc
+@@ -34,6 +34,34 @@
+ #include "table/table_reader.h"
+ #include "util/string_util.h"
+
++namespace {
++
++template <typename Callable,
++          typename = std::enable_if_t<std::is_invocable_v<Callable>>>
++struct OnScopeExit {
++    template <typename U,
++              typename = std::enable_if_t<
++                  std::is_constructible_v<Callable, std::decay_t<U>>>>
++
++    OnScopeExit(U&& func) : func_{std::forward<U>(func)} {}
++
++    OnScopeExit(OnScopeExit const&) = delete;
++    OnScopeExit& operator=(OnScopeExit const&) = delete;
++    OnScopeExit(OnScopeExit&&) = default;
++    OnScopeExit& operator=(OnScopeExit&&) = default;
++    ~OnScopeExit() noexcept(std::is_nothrow_invocable_v<Callable>) {
++        std::invoke(std::move(func_));
++    }
++
++   private:
++    Callable func_;
++};
++
++template <typename Callable>
++OnScopeExit(Callable) -> OnScopeExit<std::decay_t<Callable>>;
++
++}
++
+ namespace ROCKSDB_NAMESPACE {
+
+ class VersionBuilder::Rep {
+@@ -1312,6 +1340,8 @@ class VersionBuilder::Rep {
+       }
+     }
+
++    if (files_meta.empty()) return Status::OK();
++
+     std::atomic<size_t> next_file_meta_idx(0);
+     std::function<void()> load_handlers_func([&]() {
+       while (true) {
+@@ -1339,12 +1369,16 @@ class VersionBuilder::Rep {
+     });
+
+     std::vector<port::Thread> threads;
+-    for (int i = 1; i < max_threads; i++) {
+-      threads.emplace_back(load_handlers_func);
+-    }
+-    load_handlers_func();
+-    for (auto& t : threads) {
+-      t.join();
++    {
++      auto join_on_exit = OnScopeExit{[&](){
++        for (auto& t : threads) {
++          t.join();
++        }
++      }};
++      for (int i = 1; i < max_threads; i++) {
++        threads.emplace_back(load_handlers_func);
++      }
++      load_handlers_func();
+     }
+     Status ret;
+     for (const auto& s : statuses) {
