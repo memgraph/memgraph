@@ -289,7 +289,7 @@ inline std::vector<memory::DbAwareThread> RunWorkerPool(SafeTaskQueue &tasks, ui
   const auto n_workers = std::min(thread_count, tasks.size());
   std::vector<memory::DbAwareThread> workers;
   workers.reserve(n_workers);
-  for (int i = 0; i < n_workers; ++i) {
+  for (uint64_t i = 0; i < n_workers; ++i) {
     workers.emplace_back([&tasks, i, name_prefix] {
       utils::ThreadSetName(std::string(name_prefix) + std::to_string(i));
       while (true) {
@@ -12371,7 +12371,7 @@ void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::S
 
   // 2. Create and enqueue collection tasks
   SafeTaskQueue tasks;
-  for (int id = 0; id < n_batches; ++id) {
+  for (size_t id = 0; id < n_batches; ++id) {
     tasks.AddTask([&worker_results,
                    id,
                    start_gid = vertex_batches[id],

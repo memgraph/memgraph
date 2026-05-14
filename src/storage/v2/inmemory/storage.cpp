@@ -764,7 +764,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeInterna
     if (config_.storage_light_edge) {
       // Light edge: allocate via pool (routes to thread-local DB arena), store only in vertex adjacency lists
       // (no global skip list).
-      edge_ptr = mem_storage->light_edge_pool_.Create(gid, delta);
+      edge_ptr = InMemoryStorage::LightEdgePool::Create(gid, delta);
     } else {
       // SchemaInfo handles edge creation via vertices; add collector here if that ever changes
       edge_acc = mem_storage->edges_.access();
@@ -4755,7 +4755,7 @@ void InMemoryStorage::LightEdgePool::Destroy(Edge *p) noexcept {
   std::allocator_traits<decltype(alloc)>::deallocate(alloc, p, 1);
 }
 
-void InMemoryStorage::DeleteLightEdge(Edge *p) { LightEdgePool{}.Destroy(p); }
+void InMemoryStorage::DeleteLightEdge(Edge *p) { LightEdgePool::Destroy(p); }
 
 void InMemoryStorage::ClearLightEdges() {
   // Iterate out_edges only: each edge appears exactly once across all vertices
