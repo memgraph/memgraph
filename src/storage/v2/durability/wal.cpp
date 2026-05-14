@@ -1360,6 +1360,9 @@ std::optional<RecoveryInfo> LoadWal(
           if (items.properties_on_edges) {
             if (items.storage_light_edge) {
               auto *edge_ptr = CreateLightEdge(data.gid, nullptr);
+              if (!edge_ptr)
+                throw RecoveryFailure("Failed to allocate a light edge! Current ldt is: {}",
+                                      ret->last_durable_timestamp);
               return EdgeRef{edge_ptr};
             }
             auto [edge, inserted] = edge_acc.insert(Edge{(data.gid), nullptr});
@@ -1448,10 +1451,7 @@ std::optional<RecoveryInfo> LoadWal(
         }
         if (items.properties_on_edges) {
           if (items.storage_light_edge) {
-            // Deallocate the light edge using DbAwareAllocator
-            memory::DbAwareAllocator<Edge> alloc;
-            std::destroy_at(edge_ref.ptr);
-            std::allocator_traits<decltype(alloc)>::deallocate(alloc, edge_ref.ptr, 1);
+            DestroyLightEdge(edge_ref.ptr);
           } else {
             if (!edge_acc.remove(data.gid))
               throw RecoveryFailure("The edge must be removed here! Current ldt is: {}", ret->last_durable_timestamp);

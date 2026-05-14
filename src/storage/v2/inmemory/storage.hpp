@@ -870,10 +870,6 @@ class InMemoryStorage final : public Storage {
 
   memgraph::memory::ArenaPool *db_arena_{nullptr};
 
-  // Light-edge allocator pool — wraps DbAwareAllocator<Edge> for thread-safe
-  // light-edge creation and destruction (routes to the current DB arena via TLS).
-  LightEdgePool light_edge_pool_;
-
   // Main object storage — DbAwareAllocator routes node allocations through the
   // current DB TLS scope, while long-lived DB work establishes that scope at
   // the appropriate execution boundary.
@@ -1054,8 +1050,8 @@ struct SingleTxnDeltasProcessingResult {
 // Free helpers for light-edge lifecycle, usable from durability code
 // (snapshot.cpp / wal.cpp) where no InMemoryStorage* is available.
 // Each call creates a temporary LightEdgePool (stateless — reads TLS arena).
-inline Edge *CreateLightEdge(Gid gid, Delta *delta) { return InMemoryStorage::LightEdgePool{}.Create(gid, delta); }
+inline Edge *CreateLightEdge(Gid gid, Delta *delta) { return InMemoryStorage::LightEdgePool::Create(gid, delta); }
 
-inline void DestroyLightEdge(Edge *p) noexcept { InMemoryStorage::LightEdgePool{}.Destroy(p); }
+inline void DestroyLightEdge(Edge *p) noexcept { InMemoryStorage::LightEdgePool::Destroy(p); }
 
 }  // namespace memgraph::storage

@@ -777,6 +777,7 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipListDb<Edge>
       if (items.storage_light_edge) {
         // LIGHT EDGES: allocate via helper (routes to thread-local DB arena)
         edge_ptr = CreateLightEdge(Gid::FromUint(*gid), nullptr);
+        if (!edge_ptr) throw RecoveryFailure("Failed to allocate a light edge!");
         // Track immediately so cleanup can deallocate if property recovery throws
         if (light_edge_output) {
           light_edge_output->emplace(*gid, edge_ptr);
@@ -1176,22 +1177,15 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
 
 // Manages light Edge objects during snapshot recovery.
 // Encapsulates the per-batch GID->Edge* maps, merge, and cleanup.
+// On failure the LoadSnapshot cleanup lambda must call FreeAll().
+// On success the loader simply goes out of scope; edges remain alive in
+// vertex adjacency lists and are freed later by the storage layer.
 struct LightEdgeLoader {
   bool use_light_edges{false};
-  bool map_released_{false};
   absl::flat_hash_map<uint64_t, Edge *> all_edges;
   std::vector<absl::flat_hash_map<uint64_t, Edge *>> per_batch;
 
   explicit LightEdgeLoader(bool use_light) : use_light_edges{use_light} {}
-
-  ~LightEdgeLoader() {
-    // RAII: if ownership has NOT been transferred to storage, free everything.
-    // If ReleaseMap() was already called, edges belong to the storage layer
-    // and all_edges is already empty — nothing to do.
-    if (!map_released_) {
-      FreeAll();
-    }
-  }
 
   // Free all light edges; safe to call on any partially-populated state.
   void FreeAll() noexcept {
@@ -1206,13 +1200,6 @@ struct LightEdgeLoader {
       }
     }
     per_batch.clear();
-  }
-
-  // Release the GID->Edge* lookup table after connectivity has been wired.
-  // Edge objects remain alive in the pool; only the flat-hash-map memory is freed.
-  void ReleaseMap() noexcept {
-    map_released_ = true;
-    absl::flat_hash_map<uint64_t, Edge *>{}.swap(all_edges);
   }
 
   const absl::flat_hash_map<uint64_t, Edge *> *MapPtr() const noexcept {
@@ -1279,10 +1266,8 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
       edges_metadata->clear();
       epoch_history->clear();
       if (items.storage_light_edge) {
-        memory::DbAwareAllocator<Edge> alloc;
         for (auto &[_, ptr] : light_edge_map) {
-          std::destroy_at(ptr);
-          std::allocator_traits<decltype(alloc)>::deallocate(alloc, ptr, 1);
+          DestroyLightEdge(ptr);
         }
       }
     }
@@ -1358,9 +1343,8 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
 
           Edge *edge_ptr;
           if (items.storage_light_edge) {
-            memory::DbAwareAllocator<Edge> alloc;
-            edge_ptr = std::allocator_traits<decltype(alloc)>::allocate(alloc, 1);
-            std::construct_at(edge_ptr, Gid::FromUint(*gid), nullptr);
+            edge_ptr = CreateLightEdge(Gid::FromUint(*gid), nullptr);
+            if (!edge_ptr) throw RecoveryFailure("Failed to allocate a light edge!");
             light_edge_map.emplace(*gid, edge_ptr);
           } else {
             auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
@@ -1951,9 +1935,6 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
         vertex_batches);
 
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    // TODO: Can this be RAII?
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -2273,8 +2254,6 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
         vertex_batches);
 
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -2656,8 +2635,6 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
         vertex_batches);
 
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -3126,8 +3103,6 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
         vertex_batches);
 
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -3613,8 +3588,6 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
         vertex_batches);
 
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -4154,8 +4127,6 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
         vertex_batches);
 
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -4744,8 +4715,6 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
           vertex_batches);
     }
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -5398,8 +5367,6 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
           vertex_batches);
     }
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -6025,8 +5992,6 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
           vertex_batches);
     }
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -6654,8 +6619,6 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
           vertex_batches);
     }
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -7335,8 +7298,6 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
           vertex_batches);
     }
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -8027,8 +7988,6 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
           vertex_batches);
     }
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -8784,8 +8743,6 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
           vertex_batches);
     }
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -9579,8 +9536,6 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
           vertex_batches);
     }
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -10469,8 +10424,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           vertex_batches);
     }
     spdlog::info("Connectivity is recovered.");
-    // Release the lookup map now that all EdgeRefs are wired into vertices.
-    loader.ReleaseMap();
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;

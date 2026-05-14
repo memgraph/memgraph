@@ -12,13 +12,17 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <deque>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -233,4 +237,86 @@ TEST_F(CreateSnapshotTest, ModeSwitchSnapshotDurableTimestampCoversAnalyticalWri
     snapshot = infos.back();
   }
   EXPECT_GT(snapshot.durable_timestamp, ldt_before_switch);
+}
+
+/// Corrupts a light-edge snapshot and verifies that LoadSnapshot throws
+/// RecoveryFailure, leaving all target containers empty.
+TEST_F(CreateSnapshotTest, LoadSnapshotLightEdgeCorruptionThrowsRecoveryFailure) {
+  // Use a large items_per_batch so all edges land in a single batch.
+  auto config = CreateConfig();
+  config.durability.items_per_batch = 1'000'000;
+  config.salient.items.properties_on_edges = true;
+  config.salient.items.storage_light_edge = true;
+
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+  // Create 3 vertices and 2 edges (no properties).
+  {
+    auto acc = mem_storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto v3 = acc->CreateVertex();
+
+    auto et = acc->NameToEdgeType("REL");
+    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, et).has_value());
+    ASSERT_TRUE(acc->CreateEdge(&v2, &v3, et).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Create snapshot.
+  auto result = mem_storage->CreateSnapshot();
+  ASSERT_TRUE(result.has_value());
+  auto snapshot_path = result.value();
+
+  // Read snapshot info to locate the edge section.
+  auto snapshot_info = memgraph::storage::durability::ReadSnapshotInfo(snapshot_path);
+  ASSERT_NE(snapshot_info.offset_edges, memgraph::storage::durability::SnapshotInfo::kInvalidOffset);
+
+  // Corrupt the second edge's SECTION_EDGE marker.
+  // Each edge record without properties is:
+  //   1 byte  SECTION_EDGE marker
+  //   9 bytes TYPE_INT + GID
+  //   9 bytes TYPE_INT + prop_count(0)
+  // = 19 bytes total.
+  {
+    std::fstream file(snapshot_path, std::ios::in | std::ios::out | std::ios::binary);
+    ASSERT_TRUE(file.is_open());
+    file.seekp(static_cast<std::streamoff>(snapshot_info.offset_edges + 19));
+    char corrupted = static_cast<char>(0x99);
+    file.write(&corrupted, 1);
+    ASSERT_TRUE(file.good());
+  }
+
+  // Attempt to load the corrupted snapshot directly.
+  memgraph::utils::SkipListDb<memgraph::storage::Vertex> vertices;
+  memgraph::utils::SkipListDb<memgraph::storage::Edge> edges;
+  memgraph::utils::SkipListDb<memgraph::storage::EdgeMetadata> edges_metadata;
+  std::deque<std::pair<std::string, uint64_t>> epoch_history;
+  memgraph::storage::NameIdMapper name_id_mapper;
+  std::atomic<uint64_t> edge_count{0};
+  memgraph::storage::EnumStore enum_store;
+  memgraph::storage::ttl::TTL ttl{nullptr};
+  memgraph::storage::DescriptionStore description_store;
+
+  ASSERT_THROW(memgraph::storage::durability::LoadSnapshot(snapshot_path,
+                                                           &vertices,
+                                                           &edges,
+                                                           &edges_metadata,
+                                                           &epoch_history,
+                                                           &name_id_mapper,
+                                                           &edge_count,
+                                                           config,
+                                                           &enum_store,
+                                                           nullptr,
+                                                           &ttl,
+                                                           &description_store),
+               memgraph::storage::durability::RecoveryFailure);
+
+  // Verify all containers were cleaned up and remain empty.
+  EXPECT_EQ(vertices.size(), 0);
+  EXPECT_EQ(edges.size(), 0);
+  EXPECT_EQ(edges_metadata.size(), 0);
+  EXPECT_EQ(edge_count.load(), 0);
 }

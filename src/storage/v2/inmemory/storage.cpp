@@ -765,6 +765,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeInterna
       // Light edge: allocate via pool (routes to thread-local DB arena), store only in vertex adjacency lists
       // (no global skip list).
       edge_ptr = InMemoryStorage::LightEdgePool::Create(gid, delta);
+      MG_ASSERT(edge_ptr, "Failed to allocate a light edge!");
     } else {
       // SchemaInfo handles edge creation via vertices; add collector here if that ever changes
       edge_acc = mem_storage->edges_.access();
@@ -4743,7 +4744,12 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
 
 Edge *InMemoryStorage::LightEdgePool::Create(Gid gid, Delta *delta) {
   memory::DbAwareAllocator<Edge> alloc;
-  auto *edge_ptr = std::allocator_traits<decltype(alloc)>::allocate(alloc, 1);
+  Edge *edge_ptr = nullptr;
+  try {
+    edge_ptr = std::allocator_traits<decltype(alloc)>::allocate(alloc, 1);
+  } catch (const std::bad_alloc &) {
+    return nullptr;
+  }
   std::construct_at(edge_ptr, gid, delta);
   return edge_ptr;
 }
