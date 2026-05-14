@@ -947,19 +947,21 @@ package_smoke_image() {
   # numpy 1.26.4 / scipy 1.13.0 have no prebuilt wheels for Python 3.13, and
   # the source builds fail inside the smoke image (no compiler/headers).
   # Distros that ship Python 3.13 as the default (debian-13, fedora-41+) need
-  # numpy 2.1.0 / scipy 1.15.0.
+  # numpy 2.1.0 / scipy 1.15.0. networkx 3.4 requires Python 3.10+, so
+  # centos-9 (Python 3.9) needs to stay on 3.2.1.
   local numpy_version="1.26.4"
   local scipy_version="1.13.0"
+  local networkx_version="3.4.2"
   case "$os" in
     ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb"; libpython_pkg="libpython3.12" ;;
     ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb"; libpython_pkg="libpython3.10" ;;
     ubuntu-20.04*) base_image="ubuntu:20.04"; pkg_format="deb"; libpython_pkg="libpython3.8" ;;
-    debian-11*)    base_image="debian:11";    pkg_format="deb"; libpython_pkg="libpython3.9" ;;
+    debian-11*)    base_image="debian:11";    pkg_format="deb"; libpython_pkg="libpython3.9"; networkx_version="3.2.1" ;;
     debian-12*)    base_image="debian:12";    pkg_format="deb"; libpython_pkg="libpython3.11" ;;
     debian-13*)    base_image="debian:13";    pkg_format="deb"; libpython_pkg="libpython3.13"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
-    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
+    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm"; networkx_version="3.2.1" ;;
     centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
-    rocky-9.3*)    base_image="rockylinux:9.3"; pkg_format="rpm" ;;
+    rocky-9.3*)    base_image="rockylinux:9.3"; pkg_format="rpm"; networkx_version="3.2.1" ;;
     rocky-10*)     base_image="rockylinux:10";  pkg_format="rpm" ;;
     fedora-38*)    base_image="fedora:38"; pkg_format="rpm" ;;
     fedora-39*)    base_image="fedora:39"; pkg_format="rpm" ;;
@@ -978,7 +980,7 @@ package_smoke_image() {
   # so it must be supplied as a pre-built wheel via --wheels-dir.
   local pip_packages="cryptography==46.0.7 PyJWT==2.12.1 requests==2.32.5 \
 ldap3==2.6 pyyaml==6.0.1 python3-saml==1.16.0 lxml==6.1.0 xmlsec==1.3.16 \
-gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==3.4.2 gensim==4.4.0"
+gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==${networkx_version} gensim==4.4.0"
 
   local build_dir
   build_dir=$(mktemp -d)
@@ -1031,8 +1033,13 @@ gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==3.4.2 g
     # dnf will resolve them. Add the runtime libs memgraph dlopens but which
     # aren't part of the declared Requires, then pip-install the Python
     # packages needed by bundled query modules.
+    #
+    # Fedora/CentOS/Rocky minimal docker images set tsflags=nodocs in
+    # /etc/dnf/dnf.conf, which strips memgraph's license files in
+    # /usr/share/doc/memgraph/. Override on the dnf install line so the
+    # smoke license check passes.
     install_cmd="export PIP_BREAK_SYSTEM_PACKAGES=1 && \
-      dnf install -y xmlsec1 libseccomp libatomic python3-libs python3-pip krb5-libs /pkg/$package_name && \
+      dnf install -y --setopt=tsflags='' xmlsec1 libseccomp libatomic python3-libs python3-pip krb5-libs /pkg/$package_name && \
       pip3 install --no-cache-dir ${pip_find_links} ${pip_packages} && \
       dnf clean all"
   fi

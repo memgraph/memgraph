@@ -6,7 +6,10 @@ test_mgconsole() {
     # tests whether the `mgconsole` binary exists and works inside the container
     expected_version="${1:-1.5}"
     expected_path="/usr/bin/mgconsole"
-    path="$(docker exec -u memgraph memgraph_next_data which mgconsole)"
+    # Use `command -v` (bash builtin) instead of `which` — minimal CentOS 10
+    # and similar base images don't ship the `which` utility, causing
+    # exit 127 + silent script abort under `set -e`.
+    path="$(docker exec -u memgraph memgraph_next_data bash -c 'command -v mgconsole')"
     if [ "$path" != "$expected_path" ]; then
         echo "Error: mgconsole binary not found inside container PATH"
         echo "Expected path: $expected_path"
