@@ -978,6 +978,11 @@ gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==${netwo
 
   local build_dir
   build_dir=$(mktemp -d)
+  # Ensure the temp build context is removed on any exit path — the script
+  # runs under `set -e`, so a failing docker build below would otherwise skip
+  # an unguarded cleanup line. Expanded eagerly so the path is captured even
+  # if $build_dir's scope has unwound by the time the trap fires.
+  trap "rm -rf '$build_dir'" EXIT
   cp "$package_dir/$package_name" "$build_dir/"
 
   local pip_find_links=""
@@ -1040,12 +1045,9 @@ EOF
   cat "$build_dir/Dockerfile"
   echo "------------------"
 
-  docker build -t "memgraph/memgraph:$image_tag" "$build_dir"
-  local rc=$?
-  rm -rf "$build_dir"
-  if [[ $rc -ne 0 ]]; then
+  if ! docker build -t "memgraph/memgraph:$image_tag" "$build_dir"; then
     echo "Error: docker build failed for memgraph/memgraph:$image_tag" >&2
-    exit $rc
+    exit 1
   fi
   echo "Built smoke image: memgraph/memgraph:$image_tag"
 }
