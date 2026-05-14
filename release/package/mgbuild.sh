@@ -921,7 +921,7 @@ package_smoke_image() {
         shift 2
       ;;
       *)
-        echo "Error: Unknown flag '$1'"
+        echo "Error: Unknown flag '$1'" >&2
         print_help
         exit 1
       ;;
@@ -929,14 +929,14 @@ package_smoke_image() {
   done
 
   if [[ -z "$image_tag" ]]; then
-    echo "Error: --image-tag is required for package-smoke-image"
+    echo "Error: --image-tag is required for package-smoke-image" >&2
     exit 1
   fi
 
   local package_name
   package_name=$(cd "$package_dir" && ls -t memgraph* 2>/dev/null | head -1)
   if [[ -z "$package_name" ]]; then
-    echo "Error: No memgraph package found in $package_dir"
+    echo "Error: No memgraph package found in $package_dir" >&2
     exit 1
   fi
   echo "Building smoke image from package: $package_dir/$package_name"
@@ -955,20 +955,14 @@ package_smoke_image() {
   case "$os" in
     ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb"; libpython_pkg="libpython3.12" ;;
     ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb"; libpython_pkg="libpython3.10" ;;
-    ubuntu-20.04*) base_image="ubuntu:20.04"; pkg_format="deb"; libpython_pkg="libpython3.8" ;;
-    debian-11*)    base_image="debian:11";    pkg_format="deb"; libpython_pkg="libpython3.9"; networkx_version="3.2.1" ;;
     debian-12*)    base_image="debian:12";    pkg_format="deb"; libpython_pkg="libpython3.11" ;;
     debian-13*)    base_image="debian:13";    pkg_format="deb"; libpython_pkg="libpython3.13"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
     centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm"; networkx_version="3.2.1" ;;
     centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
-    rocky-9.3*)    base_image="rockylinux:9.3"; pkg_format="rpm"; networkx_version="3.2.1" ;;
     rocky-10*)     base_image="rockylinux/rockylinux:10";  pkg_format="rpm" ;;
-    fedora-38*)    base_image="fedora:38"; pkg_format="rpm" ;;
-    fedora-39*)    base_image="fedora:39"; pkg_format="rpm" ;;
-    fedora-41*)    base_image="fedora:41"; pkg_format="rpm"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
     fedora-42*)    base_image="fedora:42"; pkg_format="rpm"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
     *)
-      echo "Error: Unsupported OS for package-smoke-image: $os"
+      echo "Error: Unsupported OS for package-smoke-image: $os" >&2
       exit 1
     ;;
   esac
@@ -997,17 +991,8 @@ gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==${netwo
     fi
   fi
 
-  # PIP_BREAK_SYSTEM_PACKAGES env var is honoured by pip on distros that
-  # ship the PEP 668 marker (e.g. Ubuntu 24.04, Debian 12+). Older pip
-  # versions (e.g. Ubuntu 22.04's) don't recognise the --break-system-packages
-  # CLI flag at all, but they ignore the env var so it's safe everywhere.
   local install_cmd
   if [[ "$pkg_format" == "deb" ]]; then
-    # Mirror release/docker/v7_deb.dockerfile runtime deps so the smoke image
-    # has the same package surface memgraph expects in production. libpython3.X
-    # provides libpython3.X.so which memgraph dlopens to embed Python; python3
-    # alone only pulls in libpython3.X-minimal.
-    #
     # Ubuntu Docker base images filter /usr/share/doc/* via
     # /etc/dpkg/dpkg.cfg.d/excludes, dropping memgraph's license files
     # (MEL.pdf/BSL.txt/APL.txt) which the smoke license check verifies.
@@ -1029,11 +1014,6 @@ gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==${netwo
       pip3 install --no-cache-dir ${pip_find_links} ${pip_packages} && \
       rm -rf /var/lib/apt/lists/*"
   else
-    # RPM declares Requires for openssl/curl/python3/logrotate/shadow-utils;
-    # dnf will resolve them. Add the runtime libs memgraph dlopens but which
-    # aren't part of the declared Requires, then pip-install the Python
-    # packages needed by bundled query modules.
-    #
     # Fedora/CentOS/Rocky minimal docker images set tsflags=nodocs in
     # /etc/dnf/dnf.conf, which strips memgraph's license files in
     # /usr/share/doc/memgraph/. Override on the dnf install line so the
@@ -1064,7 +1044,7 @@ EOF
   local rc=$?
   rm -rf "$build_dir"
   if [[ $rc -ne 0 ]]; then
-    echo "Error: docker build failed for memgraph/memgraph:$image_tag"
+    echo "Error: docker build failed for memgraph/memgraph:$image_tag" >&2
     exit $rc
   fi
   echo "Built smoke image: memgraph/memgraph:$image_tag"
