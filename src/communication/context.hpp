@@ -46,6 +46,14 @@ class ClientContext final {
   /**
    * This constructor constructs a ClientContext that uses SSL and uses the
    * specific client private key and certificate combination. If the parameters
+   * `key_file` and `cert_file` are equal to "" then the constructor falls back
+   * to the above constructor that uses SSL without certificates.
+   */
+  ClientContext(const std::string &key_file, const std::string &cert_file);
+
+  /**
+   * This constructor constructs a ClientContext that uses SSL and uses the
+   * specific client private key and certificate combination. If the parameters
    * `key_file`, `cert_file`, `ca_file` are equal to "" then the constructor falls back
    * to the above constructor that uses SSL without certificates.
    */
