@@ -54,8 +54,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
    public:
     Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
              utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-             utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
-             View view, Storage *storage, Transaction *transaction);
+             utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, View view, Storage *storage,
+             Transaction *transaction);
 
     class Iterator {
      public:
@@ -96,17 +96,16 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
    public:
     ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
                     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                    utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-                    EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction, size_t num_chunks);
+                    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, View view,
+                    Storage *storage, Transaction *transaction, size_t num_chunks);
 
     class Iterator {
      public:
-      Iterator(ChunkedIterable *self,
-               utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
+      Iterator(ChunkedIterable *self, utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
           : self_(self),
             index_iterator_(index_iterator),
-            current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId{}, nullptr, nullptr, self_->storage_,
-                                   self_->transaction_) {
+            current_edge_accessor_(EdgeRef{nullptr}, nullptr, nullptr, self_->storage_, self_->transaction_,
+                                   EdgeTypeId{}) {
         AdvanceUntilValid();
       }
 
@@ -205,15 +204,13 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override;
     auto GetAbortProcessor() const -> AbortProcessor override;
 
-    Iterable Edges(EdgeTypeId edge_type,
-                   utils::SkipListDb<Vertex>::ConstAccessor vertex_acc,
-                   utils::SkipListDb<Edge>::ConstAccessor edge_acc, View view,
-                   Storage *storage, Transaction *transaction);
+    Iterable Edges(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_acc,
+                   utils::SkipListDb<Edge>::ConstAccessor edge_acc, View view, Storage *storage,
+                   Transaction *transaction);
 
-    ChunkedIterable ChunkedEdges(EdgeTypeId edge_type,
-                                 utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                                 utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-                                 View view, Storage *storage, Transaction *transaction, size_t num_chunks);
+    ChunkedIterable ChunkedEdges(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                                 utils::SkipListDb<Edge>::ConstAccessor edge_accessor, View view, Storage *storage,
+                                 Transaction *transaction, size_t num_chunks);
 
    private:
     std::shared_ptr<IndicesContainer const> index_container_;
@@ -222,8 +219,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   InMemoryEdgeTypeIndex() = default;
 
   /// @throw std::bad_alloc
-  bool CreateIndexOnePass(EdgeTypeId edge_type,
-                          utils::SkipListDb<Vertex>::Accessor vertices,
+  bool CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 

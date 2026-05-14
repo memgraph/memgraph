@@ -856,7 +856,7 @@ auto VertexAccessor::BuildResultOutEdges(edge_store const &out_edges) const {
   auto ret = std::vector<EdgeAccessor>{};
   ret.reserve(out_edges.size());
   for (const auto &[edge_type, to_vertex, edge] : out_edges) {
-    ret.emplace_back(edge, edge_type, vertex_, to_vertex, storage_, transaction_);
+    ret.emplace_back(edge, vertex_, to_vertex, storage_, transaction_, edge_type);
   }
   return ret;
 };
@@ -865,7 +865,7 @@ auto VertexAccessor::BuildResultInEdges(edge_store const &out_edges) const {
   auto ret = std::vector<EdgeAccessor>{};
   ret.reserve(out_edges.size());
   for (const auto &[edge_type, from_vertex, edge] : out_edges) {
-    ret.emplace_back(edge, edge_type, from_vertex, vertex_, storage_, transaction_);
+    ret.emplace_back(edge, from_vertex, vertex_, storage_, transaction_, edge_type);
   }
   return ret;
 };
@@ -1074,7 +1074,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
                                      .expanded_count = expanded_count};
   }
   /// InMemoryStorage
-  return EdgesVertexAccessorResult{.edges = BuildResultOutEdges(out_edges), .expanded_count = expanded_count};
+  return Result<EdgesVertexAccessorResult>{std::in_place, BuildResultOutEdges(out_edges), expanded_count};
 }
 
 Result<size_t> VertexAccessor::InDegree(View view) const {

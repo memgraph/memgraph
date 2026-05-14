@@ -283,10 +283,10 @@ auto Batch(auto &&acc, const uint64_t items_per_batch) {
   return batches;
 }
 
-bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Vertex> *vertices, auto &&partial_edge_handler,
-                           auto &&partial_vertex_handler, const uint64_t items_per_batch, uint64_t &offset_edges,
-                           uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder, uint64_t &edges_count,
-                           uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
+bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Vertex> *vertices,
+                           auto &&partial_edge_handler, auto &&partial_vertex_handler, const uint64_t items_per_batch,
+                           uint64_t &offset_edges, uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder,
+                           uint64_t &edges_count, uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
                            std::vector<BatchInfo> &vertex_batch_infos, std::unordered_set<uint64_t> &used_ids,
                            uint64_t thread_count, auto &&snapshot_aborted, SnapshotProgress *progress = nullptr) {
   SafeTaskQueue tasks;
@@ -11344,7 +11344,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       // type and invalid from/to pointers because we don't know them here,
       // but that isn't an issue because we won't use that part of the API
       // here.
-      auto ea = EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, storage, transaction};
+      auto ea = EdgeAccessor{edge_ref, nullptr, nullptr, storage, transaction, EdgeTypeId::FromUint(0UL)};
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);

@@ -30,8 +30,8 @@ class EdgeAccessor final {
   friend class Storage;
 
  public:
-  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
-               Transaction *transaction, bool for_deleted = false)
+  EdgeAccessor(EdgeRef edge, Vertex *from_vertex, Vertex *to_vertex, Storage *storage, Transaction *transaction,
+               EdgeTypeId edge_type, bool for_deleted = false)
       : edge_(edge),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
@@ -40,8 +40,8 @@ class EdgeAccessor final {
         edge_type_(edge_type),
         for_deleted_(for_deleted) {}
 
-  static std::optional<EdgeAccessor> Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
-                                            Storage *storage, Transaction *transaction, View view,
+  static std::optional<EdgeAccessor> Create(EdgeRef edge, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
+                                            Transaction *transaction, EdgeTypeId edge_type, View view,
                                             bool for_deleted = false);
 
   bool IsDeleted() const;

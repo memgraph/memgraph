@@ -778,7 +778,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     }
   });
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
+  return EdgeAccessor(edge, from_vertex, to_vertex, storage_, &transaction_, edge_type);
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, const View view, EdgeTypeId edge_type,
@@ -903,7 +903,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     }
   });
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
+  return EdgeAccessor(edge, from_vertex, to_vertex, storage_, &transaction_, edge_type);
 }
 
 void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex) {
@@ -2686,7 +2686,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
     return std::nullopt;
   }
   const auto &[edge_ref, edge_type, from, to] = *maybe_edge_info;
-  return EdgeAccessor::Create(edge_ref, edge_type, from, to, storage_, &transaction_, view);
+  return EdgeAccessor::Create(edge_ref, from, to, storage_, &transaction_, edge_type, view);
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) {
@@ -2695,7 +2695,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid edge
     return std::nullopt;
   }
   const auto &[edge_ref, edge_type, from, to] = *maybe_edge_info;
-  return EdgeAccessor::Create(edge_ref, edge_type, from, to, storage_, &transaction_, view);
+  return EdgeAccessor::Create(edge_ref, from, to, storage_, &transaction_, edge_type, view);
 }
 
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
@@ -4750,7 +4750,7 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
     auto &[edge_tuple, distance, score] = item;
     auto &[from_vertex, to_vertex, edge] = edge_tuple;
     return std::make_tuple(
-        EdgeAccessor{EdgeRef{edge}, edge_type_id, from_vertex, to_vertex, storage_, &transaction_}, distance, score);
+        EdgeAccessor{EdgeRef{edge}, from_vertex, to_vertex, storage_, &transaction_, edge_type_id}, distance, score);
   });
 
   return result;

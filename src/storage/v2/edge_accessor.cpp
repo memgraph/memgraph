@@ -63,14 +63,14 @@ void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, const Config
 }
 }  // namespace
 
-std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
-                                                 Vertex *to_vertex, Storage *storage, Transaction *transaction,
-                                                 View view, bool for_deleted) {
+std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
+                                                 Transaction *transaction, EdgeTypeId edge_type, View view,
+                                                 bool for_deleted) {
   if (!IsEdgeVisible(edge.ptr, transaction, view)) {
     return std::nullopt;
   }
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage, transaction, for_deleted);
+  return EdgeAccessor(edge, from_vertex, to_vertex, storage, transaction, edge_type, for_deleted);
 }
 
 bool EdgeAccessor::IsDeleted() const {

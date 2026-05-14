@@ -1452,7 +1452,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           edge_info.emplace(edge_ref, edge_type, from_vertex, vertex_to);
 
           auto const &[er, et, fv, tv] = *edge_info;
-          EdgeAccessor ea{er, et, fv, tv, storage, &transaction->GetTransaction()};
+          EdgeAccessor ea{er, fv, tv, storage, &transaction->GetTransaction(), et};
           edge_set_property_cache.emplace(cache_key, ea);  // Fast edge accessor lookup cache
           auto ret = ea.SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
           if (!ret) {

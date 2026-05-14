@@ -566,7 +566,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
         auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
         auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
         if (edge_cleared_from_both_directions) {
-          deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
+          deleted_edges.emplace_back(edge_ref, from_vertex, to_vertex, storage_, &transaction_, edge_type, true);
         }
         CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
         if (schema_acc && edge_cleared_from_both_directions) {
@@ -656,7 +656,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
         auto *from_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
         auto *to_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
         if (edge_cleared_from_both_directions) {
-          deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
+          deleted_edges.emplace_back(edge_ref, from_vertex, to_vertex, storage_, &transaction_, edge_type, true);
         }
 
         // This will get called from both ends; execute only if possible to lock

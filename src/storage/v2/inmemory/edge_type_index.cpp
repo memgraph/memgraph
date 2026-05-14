@@ -102,7 +102,7 @@ inline void AdvanceUntilValid_(auto &index_iterator, const auto &end_iterator, E
     auto *to_vertex = index_iterator->to_vertex;
     auto edge_ref = EdgeRef(index_iterator->edge);
 
-    auto accessor = EdgeAccessor{edge_ref, edge_type, from_vertex, to_vertex, storage, transaction};
+    auto accessor = EdgeAccessor{edge_ref, from_vertex, to_vertex, storage, transaction, edge_type};
     if (!accessor.IsVisible(view)) {
       continue;
     }
@@ -355,7 +355,7 @@ InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(
     : self_(self),
       index_iterator_(index_iterator),
       current_edge_(nullptr),
-      current_accessor_(EdgeRef{nullptr}, EdgeTypeId::FromInt(0), nullptr, nullptr, self_->storage_, nullptr) {
+      current_accessor_(EdgeRef{nullptr}, nullptr, nullptr, self_->storage_, nullptr, EdgeTypeId::FromInt(0)) {
   AdvanceUntilValid();
 }
 

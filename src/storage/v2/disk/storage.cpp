@@ -1121,7 +1121,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   }
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
+  return EdgeAccessor(edge, from_vertex, to_vertex, storage_, &transaction_, edge_type);
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View view, EdgeTypeId edge_type,
@@ -1478,9 +1478,9 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
                               CreateDeleteDeserializedObjectDelta(transaction, key, std::move(ts)));
 }
 
-VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils::SkipListDb<Vertex>::Accessor &accessor,
-                                                 storage::Gid gid, VertexKey label_ids, PropertyStore properties,
-                                                 Delta *delta) {
+VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction,
+                                                 utils::SkipListDb<Vertex>::Accessor &accessor, storage::Gid gid,
+                                                 VertexKey label_ids, PropertyStore properties, Delta *delta) {
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
@@ -1534,7 +1534,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
   if (edge_import_mode_active) {
     auto import_mode_edge_cache_acc = edge_import_mode_cache_->AccessToEdges();
     if (auto it = import_mode_edge_cache_acc.find(gid); it != import_mode_edge_cache_acc.end()) {
-      return EdgeAccessor(EdgeRef(&*it), edge_type, from_vertex, to_vertex, this, transaction);
+      return EdgeAccessor(EdgeRef(&*it), from_vertex, to_vertex, this, transaction, edge_type);
     }
   }
 
@@ -1560,7 +1560,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     transaction->manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
   }
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, this, transaction);
+  return EdgeAccessor(edge, from_vertex, to_vertex, this, transaction, edge_type);
 }
 
 std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex,

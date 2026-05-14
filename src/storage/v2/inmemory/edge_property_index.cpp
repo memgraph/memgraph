@@ -163,7 +163,7 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
     auto edge_ref = EdgeRef(index_iterator->edge);
     auto edge_type = index_iterator->edge_type;
 
-    auto accessor = EdgeAccessor{edge_ref, edge_type, from_vertex, to_vertex, storage, transaction};
+    auto accessor = EdgeAccessor{edge_ref, from_vertex, to_vertex, storage, transaction, edge_type};
     // TODO: Do we even need this since we performed CurrentVersionHasProperty?
     if (!accessor.IsVisible(view)) {
       continue;
@@ -448,7 +448,7 @@ InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(
     : self_(self),
       index_iterator_(index_iterator),
       current_edge_(nullptr),
-      current_accessor_(EdgeRef{nullptr}, EdgeTypeId::FromInt(0), nullptr, nullptr, self_->storage_, nullptr) {
+      current_accessor_(EdgeRef{nullptr}, nullptr, nullptr, self_->storage_, nullptr, EdgeTypeId::FromInt(0)) {
   AdvanceUntilValid();
 }
 
