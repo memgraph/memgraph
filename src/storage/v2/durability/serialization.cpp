@@ -862,9 +862,9 @@ bool Decoder::SkipExternalPropertyValue() {
   }
 }
 
-std::optional<uint64_t> Decoder::GetSize() { return file_.GetSize(); }
+std::optional<uint64_t> Decoder::GetSize() const { return file_.GetSize(); }
 
-std::optional<uint64_t> Decoder::GetPosition() { return file_.GetPosition(); }
+std::optional<uint64_t> Decoder::GetPosition() const { return const_cast<utils::InputFile &>(file_).GetPosition(); }
 
 bool Decoder::SetPosition(uint64_t position) { return !!file_.SetPosition(utils::InputFile::Position::SET, position); }
 

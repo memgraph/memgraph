@@ -113,6 +113,12 @@ class BaseDecoder {
 
   virtual bool SkipString() = 0;
   virtual bool SkipExternalPropertyValue() = 0;
+
+  virtual std::optional<uint64_t> GetPosition() const { return std::nullopt; }
+
+  virtual std::optional<uint64_t> GetSize() const { return std::nullopt; }
+
+  virtual bool SetPosition(uint64_t /*position*/) { return false; }
 };
 
 /// Decoder that is used to read a generated snapshot/WAL.
@@ -139,9 +145,9 @@ class Decoder final : public BaseDecoder {
   bool SkipString() override;
   bool SkipExternalPropertyValue() override;
 
-  std::optional<uint64_t> GetSize();
-  std::optional<uint64_t> GetPosition();
-  bool SetPosition(uint64_t position);
+  std::optional<uint64_t> GetSize() const override;
+  std::optional<uint64_t> GetPosition() const override;
+  bool SetPosition(uint64_t position) override;
 
  private:
   utils::InputFile file_;
