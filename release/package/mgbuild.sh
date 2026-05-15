@@ -94,6 +94,7 @@ print_help () {
   echo -e "  package-smoke-image [OPTIONS]      Build a Docker image with the .deb/.rpm package installed (for smoke tests)"
   echo -e "  package-mage-deb [OPTIONS]         Create MAGE DEB package"
   echo -e "  package-mage-docker [OPTIONS]      Create MAGE docker image"
+  echo -e "  package-mage-offline-installer [OPTIONS]  Build a self-contained .run installer for Memgraph + MAGE on Ubuntu 24.04"
   echo -e "  pull                               Pull mgbuild image from dockerhub"
   echo -e "  push [OPTIONS]                     Push mgbuild image to dockerhub"
   echo -e "  run [OPTIONS]                      Run mgbuild container"
@@ -189,6 +190,12 @@ print_help () {
 
   echo -e "\ngenerate-mage-image-sbom options:"
   echo -e "  --image-name string           Specify the image name (required)"
+
+  echo -e "\npackage-mage-offline-installer options:"
+  echo -e "  --memgraph-deb PATH           Path to the memgraph .deb (required)"
+  echo -e "  --mage-deb PATH               Path to the memgraph-mage .deb (required)"
+  echo -e "  --output PATH                 Output path for the .run file (default: ./memgraph-mage-offline-<version>-<arch>.run)"
+  echo -e "  --wheels-dir PATH             Directory of pre-built host wheels to bundle (default: \"\$PROJECT_ROOT/mage/wheels\")"
 
   echo -e "\nToolchain v4 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V4[*]}\""
@@ -1814,6 +1821,62 @@ package_mage_docker() {
   echo -e "${GREEN_BOLD}Docker image packaged successfully${RESET}"
 }
 
+package_mage_offline_installer() {
+
+  echo -e "${GREEN_BOLD}Building MAGE offline installer (.run)${RESET}"
+
+  local memgraph_deb=""
+  local mage_deb=""
+  local output=""
+  local wheels_dir="$PROJECT_ROOT/mage/wheels"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --memgraph-deb)
+        memgraph_deb=$2
+        shift 2
+      ;;
+      --mage-deb)
+        mage_deb=$2
+        shift 2
+      ;;
+      --output)
+        output=$2
+        shift 2
+      ;;
+      --wheels-dir)
+        wheels_dir=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ -z "$memgraph_deb" || -z "$mage_deb" ]]; then
+    echo -e "${RED_BOLD}Error: package-mage-offline-installer requires --memgraph-deb and --mage-deb${RESET}"
+    exit 1
+  fi
+
+  # The mgbuild --arch values are amd/arm; the offline installer script speaks
+  # debian/dpkg arch (amd64/arm64).
+  local dpkg_arch="${arch}64"
+
+  local build_args=(
+    --memgraph-deb "$memgraph_deb"
+    --mage-deb "$mage_deb"
+    --arch "$dpkg_arch"
+    --wheels-dir "$wheels_dir"
+  )
+  if [[ -n "$output" ]]; then
+    build_args+=(--output "$output")
+  fi
+
+  "$PROJECT_ROOT/tools/ci/mage-build/build-offline-installer.sh" "${build_args[@]}"
+}
+
 test_mage() {
   # TODO: move other tests into this function like the test_memgraph function
 
@@ -2618,6 +2681,9 @@ case $command in
     ;;
     package-mage-docker)
       package_mage_docker $@
+    ;;
+    package-mage-offline-installer)
+      package_mage_offline_installer $@
     ;;
     test-mage)
       test_mage $@

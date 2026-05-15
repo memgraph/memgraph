@@ -391,6 +391,23 @@ jobs:
           DEB_PACKAGE="$(ls output/memgraph-mage*.deb)"
           echo "DEB_PACKAGE=${DEB_PACKAGE}" >> $GITHUB_ENV
 
+      - name: Build offline installer (.run) for Ubuntu 24.04
+        # CPU-only amd64 today; the build script rejects other arch/cuda combos.
+        # Drops the .run into output/ so the existing S3 sync picks it up.
+        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_DEB == 'true' && inputs.arch == 'amd' && !inputs.cuda && !inputs.cugraph }}
+        run: |
+          OFFLINE_RUN="output/memgraph-mage-offline-${MEMGRAPH_VERSION}-amd64.run"
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            package-mage-offline-installer \
+            --memgraph-deb mage/memgraph.deb \
+            --mage-deb "$DEB_PACKAGE" \
+            --output "$OFFLINE_RUN"
+          echo "OFFLINE_INSTALLER=${OFFLINE_RUN}" >> $GITHUB_ENV
+
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
         run: |
