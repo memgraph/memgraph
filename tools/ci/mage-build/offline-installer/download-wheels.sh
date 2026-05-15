@@ -27,6 +27,20 @@ apt-get install -y --no-install-recommends \
 
 export PIP_BREAK_SYSTEM_PACKAGES=1
 
+# Copy any prebuilt wheels supplied by the host (gssapi is built by the
+# build-gssapi mgbuild subcommand and lives in mage/wheels/). They must land
+# in $OUTPUT_DIR *before* pip download runs — pip checks the dest dir for an
+# existing wheel that satisfies the requirement and skips fetching it, which
+# is how we avoid pip trying to build gssapi from its sdist (it has no PyPI
+# wheel and the build needs krb5-config + libkrb5-dev).
+if [[ -d "$INPUT_DIR/wheels-prebuilt" ]]; then
+  shopt -s nullglob
+  for whl in "$INPUT_DIR/wheels-prebuilt"/*.whl; do
+    cp -v "$whl" "$OUTPUT_DIR/"
+  done
+  shopt -u nullglob
+fi
+
 # --prefer-binary biases pip toward wheels over sdists so we don't bundle
 # anything that would need a compiler at install time on the target.
 PIP_FLAGS=(--dest "$OUTPUT_DIR" --prefer-binary)
@@ -58,15 +72,5 @@ for wheel in "${S3_WHEELS[@]}"; do
   echo "Fetching $wheel"
   curl -fsSL -o "$OUTPUT_DIR/$wheel" "$BASE_URL/$wheel"
 done
-
-# Copy any prebuilt wheels supplied by the host (gssapi is built by the
-# build-gssapi mgbuild subcommand and lives in mage/wheels/).
-if [[ -d "$INPUT_DIR/wheels-prebuilt" ]]; then
-  shopt -s nullglob
-  for whl in "$INPUT_DIR/wheels-prebuilt"/*.whl; do
-    cp -v "$whl" "$OUTPUT_DIR/"
-  done
-  shopt -u nullglob
-fi
 
 echo "Downloaded $(ls "$OUTPUT_DIR" | wc -l) wheels to $OUTPUT_DIR"
