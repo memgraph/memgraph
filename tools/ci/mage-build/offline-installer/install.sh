@@ -12,6 +12,7 @@ set -euo pipefail
 BUNDLE_DIR=${BUNDLE_DIR:-"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"}
 DEBS_DIR="$BUNDLE_DIR/debs"
 WHEELS_DIR="$BUNDLE_DIR/wheels"
+REQS_DIR="$BUNDLE_DIR/requirements"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Error: install.sh must run as root (try: sudo ./memgraph-mage-offline.run)" >&2
@@ -108,10 +109,23 @@ restore_pip_conf() {
 
 trap restore_pip_conf EXIT
 
-# Install every wheel in one shot. pip resolves the dep graph using the wheels
-# in $WHEELS_DIR and never reaches out to PyPI because of pip.conf above.
-chown -R memgraph:memgraph "$WHEELS_DIR"
-su - memgraph -c "python3 -m pip install --no-cache-dir $WHEELS_DIR/*.whl"
+chown -R memgraph:memgraph "$WHEELS_DIR" "$REQS_DIR"
+
+# Install via the bundled requirements files (the same ones we used for
+# `pip download` at build time). pip resolves to one version per package
+# using the pins in these files; passing wheels directly via `pip install
+# *.whl` instead would fail because the wheel cache contains multiple
+# versions of some packages (e.g. cryptography 46 from auth-module pin +
+# cryptography 48 from oracledb's looser >=3.2.1 constraint).
+su - memgraph -c "python3 -m pip install --no-cache-dir \
+  -r $REQS_DIR/mage-requirements.txt \
+  -r $REQS_DIR/auth-module-requirements.txt"
+
+# Now the PyG / DGL extras that don't appear in any requirements file
+# (install_python_requirements.sh installs them by S3 URL). Resolved by
+# name from the wheel cache via pip.conf's find-links.
+su - memgraph -c "python3 -m pip install --no-cache-dir \
+  torch-cluster torch-geometric torch-scatter torch-sparse torch-spline-conv dgl"
 
 # ---------------------------------------------------------------------------
 # 4. Install memgraph and memgraph-mage debs.

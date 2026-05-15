@@ -96,11 +96,18 @@ STAGING=$(mktemp -d -t mg-offline-build-XXXXXX)
 trap 'rm -rf "$STAGING"' EXIT
 
 echo "==> Staging bundle in $STAGING"
-mkdir -p "$STAGING/bundle/debs" "$STAGING/bundle/wheels"
+mkdir -p "$STAGING/bundle/debs" "$STAGING/bundle/wheels" "$STAGING/bundle/requirements"
 
 # Copy memgraph + mage debs into the bundle.
 cp -v "$MEMGRAPH_DEB" "$STAGING/bundle/debs/"
 cp -v "$MAGE_DEB" "$STAGING/bundle/debs/"
+
+# Bundle the requirements files install.sh will pass to `pip install -r`.
+# These are the same files we feed to `pip download` in the wheels pass.
+cp -v "$PROJECT_ROOT/mage/python/requirements.txt" \
+  "$STAGING/bundle/requirements/mage-requirements.txt"
+cp -v "$PROJECT_ROOT/src/auth/reference_modules/requirements.txt" \
+  "$STAGING/bundle/requirements/auth-module-requirements.txt"
 
 # Stage the input for the wheels container: requirements files + any prebuilt
 # wheels the caller wants us to include.
