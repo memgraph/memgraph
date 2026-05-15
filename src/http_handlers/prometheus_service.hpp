@@ -52,8 +52,15 @@ class PrometheusRequestHandler final {
       return send(bad_request("Unknown HTTP-method"));
     }
 
-    if (req.target().empty() || req.target()[0] != '/' || req.target().find("..") != boost::beast::string_view::npos) {
-      return send(bad_request("Illegal request-target"));
+    if (req.target() != "/" && req.target() != "/metrics") {
+      boost::beast::http::response<boost::beast::http::string_body> res{boost::beast::http::status::not_found,
+                                                                        req.version()};
+      res.set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(boost::beast::http::field::content_type, "text/plain");
+      res.keep_alive(req.keep_alive());
+      res.body() = "Not Found";
+      res.prepare_payload();
+      return send(std::move(res));
     }
 
     metrics_->UpdateGauges();
