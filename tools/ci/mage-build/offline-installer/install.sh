@@ -27,66 +27,29 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 
 # ---------------------------------------------------------------------------
-# 1. Install apt dependencies from a temporary local apt repository.
+# 1. Install apt dependencies directly from the bundled .deb files.
 # ---------------------------------------------------------------------------
 echo "==> Installing apt dependencies from bundled .deb files"
 
-# dpkg-scanpackages lives in dpkg-dev; we bundle dpkg-dev itself. Install it
-# with dpkg first so we can scan the rest into a local Packages index.
-# (Two passes — dpkg doesn't topo-sort across a single -i call.)
-dpkg -i "$DEBS_DIR"/dpkg-dev*.deb "$DEBS_DIR"/libdpkg-perl*.deb 2>/dev/null || true
-dpkg -i "$DEBS_DIR"/dpkg-dev*.deb "$DEBS_DIR"/libdpkg-perl*.deb
-
-# Build the local repo index inside the bundle directory.
-(
-  cd "$DEBS_DIR"
-  dpkg-scanpackages --multiversion . /dev/null > Packages
-  gzip -9kf Packages
-)
-
-# Point apt at the local repo and only the local repo for the duration of the
-# install — this is how we guarantee zero network use. Save existing sources
-# so we can restore them when we're done.
-SOURCES_BACKUP="/etc/apt/sources.list.memgraph-offline.bak"
-SOURCES_D_BACKUP="/etc/apt/sources.list.d.memgraph-offline.bak"
-[[ -f /etc/apt/sources.list ]] && mv /etc/apt/sources.list "$SOURCES_BACKUP" || true
-[[ -d /etc/apt/sources.list.d ]] && mv /etc/apt/sources.list.d "$SOURCES_D_BACKUP" || true
-mkdir -p /etc/apt/sources.list.d
-echo "deb [trusted=yes] file:$DEBS_DIR ./" > /etc/apt/sources.list.d/memgraph-offline.list
-
-restore_apt_sources() {
-  rm -f /etc/apt/sources.list.d/memgraph-offline.list
-  rmdir /etc/apt/sources.list.d 2>/dev/null || true
-  [[ -d "$SOURCES_D_BACKUP" ]] && mv "$SOURCES_D_BACKUP" /etc/apt/sources.list.d || true
-  [[ -f "$SOURCES_BACKUP" ]] && mv "$SOURCES_BACKUP" /etc/apt/sources.list || true
-}
-trap restore_apt_sources EXIT
-
-apt-get -o Acquire::Check-Valid-Until=false update
-
-# Order matches mage/install_runtime_requirements.sh + the runtime control deps.
-# Don't list dpkg-dev again (already installed); list everything else.
-RUNTIME_PACKAGES=(
-  libcurl4
-  libpython3.12
-  openssl
-  python3
-  python3-pip
-  python3-setuptools
-  adduser
-  libgomp1
-  libaio1t64
-  libatomic1
-  libkrb5-3
-  libseccomp2
-  libxmlsec1
-  ca-certificates
-  msodbcsql18
-  unixodbc-dev
-)
-
+# Pre-accept the msodbcsql18 EULA before its postinst runs.
 echo "msodbcsql18 msodbcsql/ACCEPT_EULA boolean true" | debconf-set-selections
-ACCEPT_EULA=Y apt-get install -y --no-install-recommends "${RUNTIME_PACKAGES[@]}"
+export ACCEPT_EULA=Y
+
+# Install every apt dep deb in a single dpkg call so dpkg can resolve all
+# in-batch dependencies. We exclude the memgraph + memgraph-mage debs here —
+# they get installed in step 4 once the python wheels are in place. Two
+# passes settle any ordering issues (dpkg unpacks all then configures, but
+# transient configure failures clear once all packages are unpacked).
+APT_DEBS=()
+for deb in "$DEBS_DIR"/*.deb; do
+  case "$(basename "$deb")" in
+    memgraph_*.deb|memgraph-mage_*.deb) continue ;;
+    *) APT_DEBS+=("$deb") ;;
+  esac
+done
+
+dpkg -i "${APT_DEBS[@]}" 2>/dev/null || true
+dpkg -i "${APT_DEBS[@]}"
 
 # Match install_runtime_requirements.sh: provide the libaio.so.1 symlink some
 # of the python modules link against.
@@ -128,8 +91,7 @@ restore_pip_conf() {
   [[ -f "$PIP_CONF_BACKUP" ]] && mv "$PIP_CONF_BACKUP" /etc/pip.conf || true
 }
 
-# Compose with the apt restore trap.
-trap 'restore_pip_conf; restore_apt_sources' EXIT
+trap restore_pip_conf EXIT
 
 # Install every wheel in one shot. pip resolves the dep graph using the wheels
 # in $WHEELS_DIR and never reaches out to PyPI because of pip.conf above.
@@ -153,9 +115,11 @@ if [[ -z "$MAGE_DEB" ]]; then
   exit 1
 fi
 
-# Use the local apt repo so the memgraph + mage debs' Depends: lines resolve
-# without touching the network.
-apt-get install -y --no-install-recommends "$MEMGRAPH_DEB" "$MAGE_DEB"
+# All Depends: from these debs (openssl, python3, libcurl4, etc.) were
+# already installed in step 1, so dpkg has everything it needs in-batch.
+# Two passes for safety — memgraph-mage Depends: memgraph, so order matters.
+dpkg -i "$MEMGRAPH_DEB" "$MAGE_DEB" 2>/dev/null || true
+dpkg -i "$MEMGRAPH_DEB" "$MAGE_DEB"
 
 echo
 echo "Memgraph + MAGE installed successfully."

@@ -37,12 +37,6 @@ MSSQL_PACKAGES=(
   unixodbc-dev
 )
 
-# dpkg-dev gives us dpkg-scanpackages on the target so install.sh can build
-# a local apt repo from the bundled debs without needing network access.
-INSTALLER_TOOLS=(
-  dpkg-dev
-)
-
 mkdir -p "$OUTPUT_DIR"
 
 export DEBIAN_FRONTEND=noninteractive
@@ -67,8 +61,7 @@ echo "msodbcsql18 msodbcsql/ACCEPT_EULA boolean true" | debconf-set-selections
 apt-get clean
 apt-get install -y --no-install-recommends --download-only --reinstall \
   "${RUNTIME_PACKAGES[@]}" \
-  "${MSSQL_PACKAGES[@]}" \
-  "${INSTALLER_TOOLS[@]}"
+  "${MSSQL_PACKAGES[@]}"
 
 cp -v /var/cache/apt/archives/*.deb "$OUTPUT_DIR/"
 
