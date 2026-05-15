@@ -700,7 +700,7 @@ kubectl exec memgraph-data-0-0 -- bash -c "mgconsole < /var/lib/memgraph/pre_upg
 echo "Run test queries on old version"
 
 # --- Upgrade chart values ---
-helm upgrade "$RELEASE" memgraph/memgraph-high-availability -f new_values.yaml
+helm upgrade "$RELEASE" memgraph/memgraph-high-availability -f new_values.yaml --version 0.2.19
 echo "Updated versions"
 
 
