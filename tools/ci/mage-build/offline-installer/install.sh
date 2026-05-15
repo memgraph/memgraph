@@ -43,10 +43,14 @@ export ACCEPT_EULA=Y
 # packages (notably python3) carry Pre-Depends that require their prereq to
 # be *configured*, not merely unpacked, before unpack can proceed. The
 # configure-then-retry loop converges within two or three rounds.
+# memgraph.deb arrives renamed by the workflow (mv memgraph_x.y.z_amd64.deb
+# -> memgraph.deb in reusable_package_mage.yaml so the Dockerfile build
+# context can find it at a stable path). memgraph-mage keeps its versioned
+# filename. Exclude both forms here — they install in step 4.
 APT_DEBS=()
 for deb in "$DEBS_DIR"/*.deb; do
   case "$(basename "$deb")" in
-    memgraph_*.deb|memgraph-mage_*.deb) continue ;;
+    memgraph.deb|memgraph_*.deb|memgraph-mage.deb|memgraph-mage_*.deb) continue ;;
     *) APT_DEBS+=("$deb") ;;
   esac
 done
@@ -132,15 +136,22 @@ su - memgraph -c "python3 -m pip install --no-cache-dir \
 # ---------------------------------------------------------------------------
 echo "==> Installing memgraph + memgraph-mage"
 
-MEMGRAPH_DEB=$(ls "$DEBS_DIR"/memgraph_*.deb 2>/dev/null | head -1 || true)
-MAGE_DEB=$(ls "$DEBS_DIR"/memgraph-mage_*.deb 2>/dev/null | head -1 || true)
+# Accept both filename forms (see step-1 comment).
+MEMGRAPH_DEB=""
+for candidate in "$DEBS_DIR"/memgraph.deb "$DEBS_DIR"/memgraph_*.deb; do
+  if [[ -f "$candidate" ]]; then MEMGRAPH_DEB="$candidate"; break; fi
+done
+MAGE_DEB=""
+for candidate in "$DEBS_DIR"/memgraph-mage.deb "$DEBS_DIR"/memgraph-mage_*.deb; do
+  if [[ -f "$candidate" ]]; then MAGE_DEB="$candidate"; break; fi
+done
 
 if [[ -z "$MEMGRAPH_DEB" ]]; then
-  echo "Error: no memgraph_*.deb found in $DEBS_DIR" >&2
+  echo "Error: no memgraph .deb found in $DEBS_DIR (expected memgraph.deb or memgraph_*.deb)" >&2
   exit 1
 fi
 if [[ -z "$MAGE_DEB" ]]; then
-  echo "Error: no memgraph-mage_*.deb found in $DEBS_DIR" >&2
+  echo "Error: no memgraph-mage .deb found in $DEBS_DIR (expected memgraph-mage.deb or memgraph-mage_*.deb)" >&2
   exit 1
 fi
 
