@@ -55,7 +55,12 @@ for attempt in 1 2 3; do
     break
   fi
   echo "==> dpkg pass $attempt left packages half-installed, running --configure -a"
-  dpkg --configure -a
+  # `|| true` is critical here: the configure pass *will* fail until enough
+  # packages are unpacked (e.g. python3-pip can't configure until python3 is
+  # there). We need to let the loop iterate so the next dpkg -i can unpack
+  # the packages whose Pre-Depends are now satisfied. set -euo pipefail would
+  # otherwise kill the script after this line.
+  dpkg --configure -a || true
 done
 # Final verification: any half-configured package here is a real bug, not an
 # ordering glitch, so let the script die.
@@ -133,7 +138,7 @@ for attempt in 1 2 3; do
   if dpkg -i "$MEMGRAPH_DEB" "$MAGE_DEB"; then
     break
   fi
-  dpkg --configure -a
+  dpkg --configure -a || true
 done
 dpkg --configure -a
 
