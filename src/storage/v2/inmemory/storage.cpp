@@ -1824,10 +1824,14 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                   transaction_.start_timestamp,
                                   mem_storage->name_id_mapper_.get());
     // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
-    if (!my_deleted_edges.empty() && mem_storage->config_.salient.items.enable_edges_metadata) {
+    if (mem_storage->config_.salient.items.enable_edges_metadata &&
+        (!my_deleted_edges.empty() || !my_deleted_light_edges.empty())) {
       auto edges_metadata_acc = mem_storage->edges_metadata_.access();
       for (auto gid : my_deleted_edges) {
         edges_metadata_acc.remove(gid);
+      }
+      for (auto *edge : my_deleted_light_edges) {
+        edges_metadata_acc.remove(edge->gid);
       }
     }
 
@@ -1854,13 +1858,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // (abort_mark_timestamp <= oldest_active_start_timestamp) ensures all such readers
     // have finished before the pool memory is reclaimed.
     if (!my_deleted_light_edges.empty()) {
-      // TODO: Don't like this metadata logic here. How is it handled for the heavy edges?
-      if (mem_storage->config_.salient.items.enable_edges_metadata) {
-        auto edges_metadata_acc = mem_storage->edges_metadata_.access();
-        for (auto *edge : my_deleted_light_edges) {
-          edges_metadata_acc.remove(edge->gid);
-        }
-      }
       auto guard_epoch = mem_storage->light_edge_iterable_tracker_.CurrentEpoch();
       mem_storage->light_edge_graveyard_.WithLock([&](auto &graveyard) {
         graveyard.push_back({abort_mark_timestamp, guard_epoch, std::move(my_deleted_light_edges)});
@@ -3300,7 +3297,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // concurrent aborts can produce timestamps that interleave with commit timestamps.
   // We must therefore iterate ALL entries (not break early) and use continue to
   // skip entries whose mark_timestamp is not yet safe.
-  // TODO: Think about a sorted list and splicing the graveyard.
+  // Future optimization: use a sorted container (e.g. std::map keyed by mark_timestamp)
+  // so we can break early once mark_timestamp > oldest_active_start_timestamp.
   // To avoid holding the SpinLock across the heavy index-cleanup work we swap the
   // list out under the lock, process off-lock, then splice everything back.
   if (light_edges) {
@@ -4742,7 +4740,7 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
   return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
 }
 
-Edge *InMemoryStorage::LightEdgePool::Create(Gid gid, Delta *delta) {
+Edge *InMemoryStorage::LightEdgePool::Create(Gid gid, Delta *delta) noexcept {
   memory::DbAwareAllocator<Edge> alloc;
   Edge *edge_ptr = nullptr;
   try {

@@ -128,7 +128,7 @@ class InMemoryStorage final : public Storage {
   /// thread-local arena at each call), so Create/Destroy are safe to call
   /// from any thread with an active DbArenaScope.
   struct LightEdgePool {
-    static Edge *Create(Gid gid, Delta *delta);
+    static Edge *Create(Gid gid, Delta *delta) noexcept;
     static void Destroy(Edge *p) noexcept;
   };
   enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
@@ -822,7 +822,7 @@ class InMemoryStorage final : public Storage {
   // Normal-edge mode: ConstAccessor on edges_ (prevents skiplist GC from freeing edge nodes).
   // Light-edge mode:  LightEdgeIterableGuard (acquires an epoch ID from light_edge_iterable_tracker_
   //                   so the graveyard drain only unblocks once all pre-existing readers are done).
-  EdgePin MakeEdgePin() const {
+  [[nodiscard]] EdgePin MakeEdgePin() const {
     if (config_.salient.items.storage_light_edge) {
       return LightEdgeIterableGuard{&light_edge_iterable_tracker_};
     }
