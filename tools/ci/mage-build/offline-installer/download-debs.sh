@@ -31,11 +31,14 @@ RUNTIME_PACKAGES=(
   libseccomp2
   libxmlsec1
   ca-certificates
-  # libdw-dev is listed in memgraph-mage's debian control Depends. It pulls
-  # in libdw1 + headers; arguably the control file should depend on libdw1
-  # alone, but until that's fixed we have to ship the -dev package or
-  # memgraph-mage refuses to configure.
-  libdw-dev
+  # libdw1t64 (the t64 transition rename of libdw1) is what memgraph-mage
+  # actually needs at runtime — the symbol lookup happens against
+  # /lib/.../libdw.so.1. The previous libdw-dev choice pulled the whole
+  # build toolchain (libc6-dev, zlib1g-dev, linux-libc-dev, libelf-dev,
+  # rpcsvc-proto, ...), and several of those have strict-version Depends on
+  # libc6/gcc-14-base, which caused offline installs to fail on hosts whose
+  # base image was slightly behind the build container.
+  libdw1t64
 )
 
 # msodbcsql18 comes from the Microsoft apt source. Pull it in too so the
@@ -89,8 +92,36 @@ dpkg-query -W -f '${Package}\n' | sort -u > "$ALL_PKGS"
 printf '%s\n' curl gnupg apt-utils | sort -u > "$EXCLUDE"
 comm -23 <(comm -13 "$BASE_PKGS" "$ALL_PKGS") "$EXCLUDE" > "$DELTA_PKGS"
 
-echo "Downloading $(wc -l < "$DELTA_PKGS") packages to $OUTPUT_DIR"
+# The snapshot-diff captures packages that are *new* on the target relative
+# to ubuntu:24.04 base. But several debs in the delta carry strict-version
+# Depends on base packages (e.g. libatomic1 requires `gcc-14-base (= X.Y)`,
+# libc6-dev requires `libc6 (= X.Y)`). If the target's base image is a patch
+# release older than ours, those strict deps fail. Walk the strict-version
+# Depends/Pre-Depends of the delta — and any newly-added base packages —
+# until we reach a fixed point, then download everything we found.
+TO_SHIP=$(mktemp)
+PREV=$(mktemp)
+sort -u "$DELTA_PKGS" > "$TO_SHIP"
+while true; do
+  cp "$TO_SHIP" "$PREV"
+  # `dpkg-query -W -f 'Pre-Depends:\nDepends:'` returns both fields per pkg.
+  # Split on commas, keep only `(= version)` constraints (strict pins —
+  # the ones that fail when the target's base packages are slightly older),
+  # and extract the package name.
+  STRICT=$(xargs -a "$TO_SHIP" -r dpkg-query -W \
+             -f '${Pre-Depends}\n${Depends}\n' 2>/dev/null \
+           | tr ',' '\n' \
+           | grep -E '\([[:space:]]*=' \
+           | sed -E 's/^[[:space:]]*([A-Za-z0-9._+-]+).*/\1/' \
+           | sort -u)
+  printf '%s\n' "$STRICT" | sort -u | grep -v '^$' \
+    | cat - "$TO_SHIP" | sort -u > "$TO_SHIP.new"
+  mv "$TO_SHIP.new" "$TO_SHIP"
+  cmp -s "$PREV" "$TO_SHIP" && break
+done
+
+echo "Downloading $(wc -l < "$TO_SHIP") packages to $OUTPUT_DIR (incl. strict-version base deps)"
 cd "$OUTPUT_DIR"
-xargs -a "$DELTA_PKGS" -n1 apt-get download
+xargs -a "$TO_SHIP" -n1 apt-get download
 
 echo "Downloaded $(ls "$OUTPUT_DIR" | wc -l) .deb files"
