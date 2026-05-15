@@ -41,30 +41,12 @@ if [[ -d "$INPUT_DIR/wheels-prebuilt" ]]; then
   shopt -u nullglob
 fi
 
-# --prefer-binary biases pip toward wheels over sdists so we don't bundle
-# anything that would need a compiler at install time on the target.
-# --find-links=$OUTPUT_DIR makes pip *resolve* against wheels we've already
-# placed there (e.g. the prebuilt gssapi wheel). Without it, pip only looks
-# at $OUTPUT_DIR to detect "already downloaded" by exact filename — which
-# fails for gssapi because PyPI ships only an sdist (gssapi-1.11.1.tar.gz)
-# whereas our prebuilt is gssapi-1.11.1-cp311-abi3-linux_x86_64.whl, and pip
-# would otherwise grab the sdist and try to build it (krb5-config missing).
-PIP_FLAGS=(--dest "$OUTPUT_DIR" --find-links "$OUTPUT_DIR" --prefer-binary)
-
-# Resolve mage's runtime requirements + transitive deps.
-python3 -m pip download \
-  "${PIP_FLAGS[@]}" \
-  --requirement "$INPUT_DIR/requirements.txt"
-
-# Resolve auth module requirements + transitive deps. Some overlap with the
-# above is fine — pip download just rewrites identical filenames.
-python3 -m pip download \
-  "${PIP_FLAGS[@]}" \
-  --requirement "$INPUT_DIR/auth-module-requirements.txt"
-
-# Special wheels hosted in our S3 bucket (PyG ecosystem + DGL). install_python_
-# requirements.sh fetches these as a fallback layer after the requirements.txt
-# pass — we bundle them directly so the offline target never reaches out.
+# Special wheels hosted in our S3 bucket (PyG ecosystem + DGL).
+# install_python_requirements.sh fetches these as a fallback layer after the
+# requirements.txt pass. We pull them down *before* `pip download` runs so
+# subsequent download passes can resolve their transitive deps too — e.g.
+# torch-geometric needs pyparsing, which is otherwise never pulled into the
+# wheel cache and bites at install time on the target.
 BASE_URL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels/amd64"
 S3_WHEELS=(
   "torch_cluster-1.6.3-cp312-cp312-linux_x86_64.whl"
@@ -78,5 +60,35 @@ for wheel in "${S3_WHEELS[@]}"; do
   echo "Fetching $wheel"
   curl -fsSL -o "$OUTPUT_DIR/$wheel" "$BASE_URL/$wheel"
 done
+
+# --prefer-binary biases pip toward wheels over sdists so we don't bundle
+# anything that would need a compiler at install time on the target.
+# --find-links=$OUTPUT_DIR makes pip *resolve* against wheels we've already
+# placed there (e.g. the prebuilt gssapi + S3 PyG wheels). Without it, pip
+# only looks at $OUTPUT_DIR to detect "already downloaded" by exact filename
+# — which fails for gssapi because PyPI ships only an sdist
+# (gssapi-1.11.1.tar.gz) whereas our prebuilt is
+# gssapi-1.11.1-cp311-abi3-linux_x86_64.whl, and pip would otherwise grab the
+# sdist and try to build it (krb5-config missing).
+PIP_FLAGS=(--dest "$OUTPUT_DIR" --find-links "$OUTPUT_DIR" --prefer-binary)
+
+# Resolve mage's runtime requirements + transitive deps.
+python3 -m pip download \
+  "${PIP_FLAGS[@]}" \
+  --requirement "$INPUT_DIR/requirements.txt"
+
+# Resolve auth module requirements + transitive deps. Some overlap with the
+# above is fine — pip download just rewrites identical filenames.
+python3 -m pip download \
+  "${PIP_FLAGS[@]}" \
+  --requirement "$INPUT_DIR/auth-module-requirements.txt"
+
+# Explicitly resolve the PyG/DGL extras now so their transitive deps land in
+# the cache. They're already in $OUTPUT_DIR from the curl loop above, so pip
+# picks those wheels via --find-links and only downloads anything missing
+# (pyparsing for torch-geometric, etc.).
+python3 -m pip download \
+  "${PIP_FLAGS[@]}" \
+  torch-cluster torch-geometric torch-scatter torch-sparse torch-spline-conv dgl
 
 echo "Downloaded $(ls "$OUTPUT_DIR" | wc -l) wheels to $OUTPUT_DIR"
