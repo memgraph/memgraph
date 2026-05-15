@@ -31,6 +31,11 @@ RUNTIME_PACKAGES=(
   libseccomp2
   libxmlsec1
   ca-certificates
+  # libdw-dev is listed in memgraph-mage's debian control Depends. It pulls
+  # in libdw1 + headers; arguably the control file should depend on libdw1
+  # alone, but until that's fixed we have to ship the -dev package or
+  # memgraph-mage refuses to configure.
+  libdw-dev
 )
 
 # msodbcsql18 comes from the Microsoft apt source. Pull it in too so the
