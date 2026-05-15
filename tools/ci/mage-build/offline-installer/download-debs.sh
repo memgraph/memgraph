@@ -1,9 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 # Run me inside a clean ubuntu:24.04 container as root.
-# Downloads (without installing) every .deb required to bring a vanilla
-# ubuntu:24.04 host up to the level of dependencies that memgraph + MAGE need,
-# plus dpkg-dev so the installer can build a tiny local apt repo on the target.
+# Downloads (without installing on the target) every .deb required to bring a
+# vanilla ubuntu:24.04 host up to the level of dependencies that memgraph +
+# MAGE need. Strategy: snapshot installed packages before/after `apt install`,
+# then download .debs for the delta — that's the exact closure of packages
+# that need to ship in the bundle, including transitive deps that were
+# pre-installed in the build container and would otherwise be missing.
 # Output: /output/debs/*.deb
 
 OUTPUT_DIR=${OUTPUT_DIR:-/output/debs}
@@ -41,28 +44,48 @@ mkdir -p "$OUTPUT_DIR"
 
 export DEBIAN_FRONTEND=noninteractive
 
+# Snapshot the base ubuntu:24.04 package set BEFORE we install anything. The
+# delta after install is the exact set of packages a fresh ubuntu:24.04 host
+# is missing, which is what the offline installer must ship.
+BASE_PKGS=$(mktemp)
+dpkg-query -W -f '${Package}\n' | sort -u > "$BASE_PKGS"
+
 apt-get update
 
-# Microsoft repo for msodbcsql18. ca-certificates is required so curl can
-# verify the HTTPS cert on packages.microsoft.com — the ubuntu:24.04 base
-# image does not ship one.
-apt-get install -y --no-install-recommends curl gnupg ca-certificates
+# bootstrap deps that the script itself needs (not the target):
+#   - curl, gnupg, ca-certificates: fetch the microsoft apt source
+#   - apt-utils: silences the "delaying package configuration" debconf noise
+# These get rolled into the install closure; we strip them back out at the end.
+apt-get install -y --no-install-recommends curl gnupg ca-certificates apt-utils
+
+# Microsoft repo for msodbcsql18.
 curl -sSL -O https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb
 dpkg -i packages-microsoft-prod.deb
 rm -f packages-microsoft-prod.deb
 apt-get update
 
-# Pre-accept the EULA for msodbcsql18 so we can resolve it.
+# Pre-accept the EULA for msodbcsql18 so its postinst doesn't block.
 echo "msodbcsql18 msodbcsql/ACCEPT_EULA boolean true" | debconf-set-selections
+export ACCEPT_EULA=Y
 
-# --download-only places .debs into /var/cache/apt/archives/. --reinstall makes
-# it also download already-installed base packages, which is what we want so
-# the bundle works on minimal hosts that may be missing some of them.
-apt-get clean
-apt-get install -y --no-install-recommends --download-only --reinstall \
+# Actually install (not just download) so apt resolves the entire transitive
+# dependency closure. We collect the resulting deltas in a moment.
+apt-get install -y --no-install-recommends \
   "${RUNTIME_PACKAGES[@]}" \
   "${MSSQL_PACKAGES[@]}"
 
-cp -v /var/cache/apt/archives/*.deb "$OUTPUT_DIR/"
+# Compute the delta: packages installed *because of* our request, minus the
+# base image set. Exclude bootstrap packages (curl/gnupg/etc.) that we only
+# needed in this container; they're not required on the target.
+ALL_PKGS=$(mktemp)
+DELTA_PKGS=$(mktemp)
+EXCLUDE=$(mktemp)
+dpkg-query -W -f '${Package}\n' | sort -u > "$ALL_PKGS"
+printf '%s\n' curl gnupg apt-utils | sort -u > "$EXCLUDE"
+comm -23 <(comm -13 "$BASE_PKGS" "$ALL_PKGS") "$EXCLUDE" > "$DELTA_PKGS"
 
-echo "Downloaded $(ls "$OUTPUT_DIR" | wc -l) .deb files to $OUTPUT_DIR"
+echo "Downloading $(wc -l < "$DELTA_PKGS") packages to $OUTPUT_DIR"
+cd "$OUTPUT_DIR"
+xargs -a "$DELTA_PKGS" -n1 apt-get download
+
+echo "Downloaded $(ls "$OUTPUT_DIR" | wc -l) .deb files"
