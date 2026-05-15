@@ -117,10 +117,23 @@ add_custom_target(copy_mage_python_query_modules ALL
 )
 
 # Install C++ query modules
-install(TARGETS convert convert_c example_c example_cpp schema mgps_cpp text_search vector_search pagerank_online
-    community_detection_online katz_centrality_online
+set(MG_QUERY_MODULE_TARGETS
+    convert convert_c example_c example_cpp schema mgps_cpp
+    text_search vector_search pagerank_online
+    community_detection_online katz_centrality_online)
+install(TARGETS ${MG_QUERY_MODULE_TARGETS}
     DESTINATION lib/memgraph/query_modules
 )
+
+# Per-module .debug sidecars ship in the separate "debuginfo" component
+# (memgraph-debuginfo_*.deb / memgraph-debuginfo*.rpm). OPTIONAL so builds
+# without MG_SPLIT_DEBUG still pass install().
+foreach(_qm_target IN LISTS MG_QUERY_MODULE_TARGETS)
+    install(FILES $<TARGET_FILE:${_qm_target}>.debug
+        DESTINATION lib/memgraph/query_modules
+        COMPONENT debuginfo
+        OPTIONAL)
+endforeach()
 
 # Install the Python example and modules
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)

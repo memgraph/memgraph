@@ -115,6 +115,16 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 install(TARGETS memgraph
     RUNTIME DESTINATION lib/memgraph)
 
+# Install the .debug sidecar into a separate "debuginfo" component so it
+# ships as memgraph-debuginfo_*.deb / memgraph-debuginfo*.rpm rather than
+# bloating the main package. OPTIONAL because Release builds (and any build
+# without MG_SPLIT_DEBUG) don't produce one. gdb auto-locates the sidecar
+# via .gnu_debuglink (basename match next to the binary).
+install(FILES $<TARGET_FILE:memgraph>.debug
+    DESTINATION lib/memgraph
+    COMPONENT debuginfo
+    OPTIONAL)
+
 # Install custom libstdc++
 get_property(CUSTOM_LIBSTDCXX_PATH GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH)
 message(STATUS "Installing custom libstdc++.so.6: ${CUSTOM_LIBSTDCXX_PATH}")
