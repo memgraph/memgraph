@@ -6,7 +6,19 @@ case "$1" in
         # install requirements as user memgraph
         CUDA=@CUDA@
         ARCH=@ARCH@
-        su - memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA --arch $ARCH"
+        # install_python_requirements.sh attempts to fetch torch/PyG/DGL wheels
+        # from the internet. In an offline install scenario the wheels are
+        # already on disk from the .run installer's wheel-install pass, so the
+        # network access fails (and `curl` may not even be present). Treat the
+        # script's failure as a warning so the deb still configures cleanly —
+        # the python deps are already installed, the script just can't verify
+        # them without network.
+        if ! su - memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA --arch $ARCH"; then
+            echo "WARNING: install_python_requirements.sh exited non-zero." >&2
+            echo "         This is expected during an offline install — the python deps were" >&2
+            echo "         installed by the offline installer. If you ran apt/dpkg directly," >&2
+            echo "         re-run with network access or ensure the wheels are pre-installed." >&2
+        fi
         systemctl restart memgraph.service
     ;;
 esac
