@@ -388,5 +388,47 @@ def test_json_session_gauges(populated_databases):
     assert m["Session"]["ActiveBoltSessions"] >= 1
 
 
+def test_json_storage_fields_are_default_db_only(populated_databases):
+    """Storage fields (vertex_count etc.) reflect the default DB, not an aggregate."""
+    m = scrape_json()
+    assert m["General"]["vertex_count"] == 3
+
+
+def test_json_transaction_counters_are_aggregate_across_databases(populated_databases):
+    """Transaction counters aggregate across all databases."""
+    conn = mgclient.connect(host="localhost", port=7687)
+    conn.autocommit = True
+    cursor = conn.cursor()
+
+    before = scrape_json()["Transaction"]["CommitedTransactions"]
+
+    execute(cursor, "USE DATABASE memgraph")
+    execute(cursor, "CREATE ()")
+    execute(cursor, "USE DATABASE db2")
+    execute(cursor, "CREATE ()")
+
+    after = scrape_json()["Transaction"]["CommitedTransactions"]
+    assert after - before >= 2
+    conn.close()
+
+
+def test_json_query_type_counters_are_aggregate_across_databases(populated_databases):
+    """Query type counters aggregate across all databases."""
+    conn = mgclient.connect(host="localhost", port=7687)
+    conn.autocommit = True
+    cursor = conn.cursor()
+
+    before = scrape_json()["QueryType"]["WriteQuery"]
+
+    execute(cursor, "USE DATABASE memgraph")
+    execute(cursor, "CREATE ()")
+    execute(cursor, "USE DATABASE db2")
+    execute(cursor, "CREATE ()")
+
+    after = scrape_json()["QueryType"]["WriteQuery"]
+    assert after - before >= 2
+    conn.close()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

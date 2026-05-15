@@ -22,19 +22,11 @@ show_metrics_snapshot_cluster: &show_metrics_snapshot_cluster
       setup_queries: []
       validation_queries: []
 
-show_metrics_json_format_cluster: &show_metrics_json_format_cluster
-  cluster:
-    main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--metrics-port=9091", "--metrics-format=JSON"]
-      log_file: "show_metrics_json_format.log"
-      setup_queries: []
-      validation_queries: []
-
-show_metrics_openmetrics_format_cluster: &show_metrics_openmetrics_format_cluster
+show_metrics_openmetrics_cluster: &show_metrics_openmetrics_cluster
   cluster:
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE", "--metrics-port=9091", "--metrics-format=OpenMetrics"]
-      log_file: "show_metrics_openmetrics_format.log"
+      log_file: "show_metrics_openmetrics.log"
       setup_queries: []
       validation_queries: []
 
@@ -59,17 +51,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["show_metrics/show_metrics_recovery.py"]
 
-  - name: "Show metrics JSON format"
+  - name: "Show metrics values"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["show_metrics/show_metrics_json_format.py"]
-    <<: *show_metrics_json_format_cluster
-
-  - name: "Show metrics OpenMetrics format"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["show_metrics/show_metrics_openmetrics_format.py"]
-    <<: *show_metrics_openmetrics_format_cluster
-
-  - name: "Show metrics JSON aggregation"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["show_metrics/show_metrics_json_aggregation.py"]
-    <<: *show_metrics_json_format_cluster
+    args: ["show_metrics/show_metrics_openmetrics_values.py"]
+    <<: *show_metrics_openmetrics_cluster
