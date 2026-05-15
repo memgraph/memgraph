@@ -408,6 +408,29 @@ jobs:
             --output "$OFFLINE_RUN"
           echo "OFFLINE_INSTALLER=${OFFLINE_RUN}" >> $GITHUB_ENV
 
+      - name: Smoke test offline installer
+        # Runs the built .run inside a fresh ubuntu:24.04 container with no
+        # network access, then verifies memgraph reaches Bolt readiness using
+        # tools/ci/wait_for_memgraph_bolt.sh (mgconsole is part of the
+        # memgraph .deb that the installer lays down, so it's on $PATH after
+        # the installer finishes).
+        if: ${{ inputs.run_smoke_tests && env.OFFLINE_INSTALLER != '' }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --network none \
+            -v "$PWD/${OFFLINE_INSTALLER}:/installer.run:ro" \
+            -v "$PWD/tools/ci/wait_for_memgraph_bolt.sh:/wait_for_memgraph_bolt.sh:ro" \
+            ubuntu:24.04 \
+            bash -euxo pipefail -c '
+              /installer.run
+              su - memgraph -c "/usr/lib/memgraph/memgraph --also-log-to-stderr" \
+                > /tmp/memgraph.log 2>&1 &
+              MG_PID=$!
+              trap "kill $MG_PID 2>/dev/null || true; wait $MG_PID 2>/dev/null || true" EXIT
+              bash /wait_for_memgraph_bolt.sh 127.0.0.1 7687 60 1
+            '
+
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
         run: |
