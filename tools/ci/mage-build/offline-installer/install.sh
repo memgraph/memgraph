@@ -37,9 +37,11 @@ export ACCEPT_EULA=Y
 
 # Install every apt dep deb in a single dpkg call so dpkg can resolve all
 # in-batch dependencies. We exclude the memgraph + memgraph-mage debs here —
-# they get installed in step 4 once the python wheels are in place. Two
-# passes settle any ordering issues (dpkg unpacks all then configures, but
-# transient configure failures clear once all packages are unpacked).
+# they get installed in step 4 once the python wheels are in place. Multiple
+# passes with `dpkg --configure -a` between them are needed because some
+# packages (notably python3) carry Pre-Depends that require their prereq to
+# be *configured*, not merely unpacked, before unpack can proceed. The
+# configure-then-retry loop converges within two or three rounds.
 APT_DEBS=()
 for deb in "$DEBS_DIR"/*.deb; do
   case "$(basename "$deb")" in
@@ -48,8 +50,16 @@ for deb in "$DEBS_DIR"/*.deb; do
   esac
 done
 
-dpkg -i "${APT_DEBS[@]}" 2>/dev/null || true
-dpkg -i "${APT_DEBS[@]}"
+for attempt in 1 2 3; do
+  if dpkg -i "${APT_DEBS[@]}"; then
+    break
+  fi
+  echo "==> dpkg pass $attempt left packages half-installed, running --configure -a"
+  dpkg --configure -a
+done
+# Final verification: any half-configured package here is a real bug, not an
+# ordering glitch, so let the script die.
+dpkg --configure -a
 
 # Match install_runtime_requirements.sh: provide the libaio.so.1 symlink some
 # of the python modules link against.
@@ -116,10 +126,16 @@ if [[ -z "$MAGE_DEB" ]]; then
 fi
 
 # All Depends: from these debs (openssl, python3, libcurl4, etc.) were
-# already installed in step 1, so dpkg has everything it needs in-batch.
-# Two passes for safety — memgraph-mage Depends: memgraph, so order matters.
-dpkg -i "$MEMGRAPH_DEB" "$MAGE_DEB" 2>/dev/null || true
-dpkg -i "$MEMGRAPH_DEB" "$MAGE_DEB"
+# already installed and configured in step 1. memgraph-mage Depends: memgraph
+# so install order matters; loop with --configure -a between passes in case
+# of any Pre-Depends/ordering quirks (same pattern as step 1).
+for attempt in 1 2 3; do
+  if dpkg -i "$MEMGRAPH_DEB" "$MAGE_DEB"; then
+    break
+  fi
+  dpkg --configure -a
+done
+dpkg --configure -a
 
 echo
 echo "Memgraph + MAGE installed successfully."
