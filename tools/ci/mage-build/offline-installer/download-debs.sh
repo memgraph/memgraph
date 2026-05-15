@@ -49,8 +49,10 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
 
-# Microsoft repo for msodbcsql18.
-apt-get install -y --no-install-recommends curl gnupg
+# Microsoft repo for msodbcsql18. ca-certificates is required so curl can
+# verify the HTTPS cert on packages.microsoft.com — the ubuntu:24.04 base
+# image does not ship one.
+apt-get install -y --no-install-recommends curl gnupg ca-certificates
 curl -sSL -O https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb
 dpkg -i packages-microsoft-prod.deb
 rm -f packages-microsoft-prod.deb
