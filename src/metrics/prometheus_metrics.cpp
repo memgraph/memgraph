@@ -1152,11 +1152,15 @@ void PrometheusMetrics::UpdateGauges() {
   for (auto it = instance_gauges_.up.begin(); it != instance_gauges_.up.end();) {
     if (!active_names.contains(it->first)) {
       instance_up_family_.Remove(it->second);
-      instance_is_leader_family_.Remove(instance_gauges_.is_leader.at(it->first));
-      instance_is_main_family_.Remove(instance_gauges_.is_main.at(it->first));
+      if (auto lit = instance_gauges_.is_leader.find(it->first); lit != instance_gauges_.is_leader.end()) {
+        instance_is_leader_family_.Remove(lit->second);
+        instance_gauges_.is_leader.erase(lit);
+      }
+      if (auto mit = instance_gauges_.is_main.find(it->first); mit != instance_gauges_.is_main.end()) {
+        instance_is_main_family_.Remove(mit->second);
+        instance_gauges_.is_main.erase(mit);
+      }
       instance_last_response_seconds_family_.Remove(instance_gauges_.last_response_seconds.at(it->first));
-      instance_gauges_.is_leader.erase(it->first);
-      instance_gauges_.is_main.erase(it->first);
       instance_gauges_.last_response_seconds.erase(it->first);
       it = instance_gauges_.up.erase(it);
     } else {
@@ -1167,16 +1171,24 @@ void PrometheusMetrics::UpdateGauges() {
   // Add or update gauges for current instances
   for (auto const &inst : instances) {
     prometheus::Labels const labels{{"mg_instance", inst.instance_name}};
+    auto const is_coordinator = inst.cluster_role == "leader" || inst.cluster_role == "follower";
+
     if (!instance_gauges_.up.contains(inst.instance_name)) {
       instance_gauges_.up.emplace(inst.instance_name, &instance_up_family_.Add(labels));
-      instance_gauges_.is_leader.emplace(inst.instance_name, &instance_is_leader_family_.Add(labels));
-      instance_gauges_.is_main.emplace(inst.instance_name, &instance_is_main_family_.Add(labels));
       instance_gauges_.last_response_seconds.emplace(inst.instance_name,
                                                      &instance_last_response_seconds_family_.Add(labels));
+      if (is_coordinator) {
+        instance_gauges_.is_leader.emplace(inst.instance_name, &instance_is_leader_family_.Add(labels));
+      } else {
+        instance_gauges_.is_main.emplace(inst.instance_name, &instance_is_main_family_.Add(labels));
+      }
     }
     instance_gauges_.up.at(inst.instance_name)->Set(inst.health == "up" ? 1.0 : 0.0);
-    instance_gauges_.is_leader.at(inst.instance_name)->Set(inst.cluster_role == "leader" ? 1.0 : 0.0);
-    instance_gauges_.is_main.at(inst.instance_name)->Set(inst.cluster_role == "main" ? 1.0 : 0.0);
+    if (is_coordinator) {
+      instance_gauges_.is_leader.at(inst.instance_name)->Set(inst.cluster_role == "leader" ? 1.0 : 0.0);
+    } else {
+      instance_gauges_.is_main.at(inst.instance_name)->Set(inst.cluster_role == "main" ? 1.0 : 0.0);
+    }
     instance_gauges_.last_response_seconds.at(inst.instance_name)
         ->Set(static_cast<double>(inst.last_succ_resp_ms) / 1000.0);
   }
