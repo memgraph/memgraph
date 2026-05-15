@@ -432,8 +432,17 @@ jobs:
             artifact_path="$PACKAGE_ARTIFACT_DIR"
           fi
 
-          # find the existing file name
-          old_name="$(ls -1 $artifact_path/memgraph* 2>/dev/null | head -n 1)"
+          # find the existing main-package file name. memgraph_*.deb (underscore)
+          # / memgraph-[0-9]*.rpm match the main package; memgraph-debuginfo_*
+          # is a separate companion produced by component packaging and renamed
+          # in its own pass below.
+          if [ "$FOR_DOCKER" == "true" ]; then
+            old_name="$(ls -1 $artifact_path/memgraph* 2>/dev/null | head -n 1)"
+          elif [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
+            old_name="$(ls -1 $artifact_path/memgraph_*.deb 2>/dev/null | head -n 1)"
+          else
+            old_name="$(ls -1 $artifact_path/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)"
+          fi
 
           # determine new name
           if [ "$FOR_DOCKER" == "true" ]; then
@@ -459,10 +468,14 @@ jobs:
       - name: Output Package S3 URL
         id: output_package_s3_url
         run: |
+          # Pick the main package, not memgraph-debuginfo, which is a sibling
+          # produced by component packaging and uploaded as part of the s3 sync.
           if [[ "$FOR_DOCKER" == "true" ]]; then
             filename="$(ls -1 $DOCKER_ARTIFACT_DIR/memgraph* 2>/dev/null | head -n 1)"
+          elif [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
+            filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph_*.deb 2>/dev/null | head -n 1)"
           else
-            filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph* 2>/dev/null | head -n 1)"
+            filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)"
           fi
           # URL-encode the filename to handle unsafe characters like +, ~, etc.
           encoded_filename=$(python3 -c "import urllib.parse; import sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$(basename "$filename")")

@@ -813,11 +813,11 @@ package_memgraph() {
       docker exec -u root "$build_container" bash -c "pip install rpmlint==2.8.0 --user"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake"
   elif [[ "$os" =~ ^"fedora".* ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph-[0-9]*.rpm"
   elif [[ "$os" == "rocky-10" ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph-[0-9]*.rpm"
   elif [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"amzn".* ]] || [[ "$os" =~ ^"rocky".* ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph-[0-9]*.rpm"
   fi
 
   if [[ "$os" =~ ^"debian".* ]]; then
@@ -830,15 +830,20 @@ package_memgraph() {
   fi
   docker exec -u root "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
   if [[ "$os" == "centos-10" ]]; then
-    docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
+    docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph-[0-9]*.rpm|| echo 'Warning: rpmlint failed, but package was created successfully'"
   fi
 
   # check for mgconsole inside package
   if [[ "$os" =~ ^"ubuntu".* || "$os" =~ ^"debian".* ]]; then
-    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.deb")"
+    # memgraph_*.deb (underscore) matches the main package only — excludes
+    # memgraph-debuginfo_*.deb (hyphen) which is also produced under
+    # component packaging. Without this tightening, ls returns both files
+    # and the newline-separated value breaks the downstream dpkg -c call.
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph_*.deb")"
     check_output="$(docker exec -u mg $build_container bash -c "dpkg -c $package_name")"
   else
-    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.rpm")"
+    # memgraph-[0-9]*.rpm matches the main package; excludes memgraph-debuginfo-*.rpm.
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph-[0-9]*.rpm")"
     check_output="$(docker exec -u mg $build_container bash -c "rpm -ql $package_name")"
   fi
   if ! grep -q "mgconsole" <<< "$check_output"; then
@@ -1167,7 +1172,11 @@ copy_memgraph() {
         artifact="package"
         local container_package_dir="$MGBUILD_BUILD_DIR/output"
         host_dir="$PROJECT_BUILD_DIR/output/$os"
-        artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph* | head -1")
+        # Identify the main package via the underscore/version pattern (memgraph_*.deb
+        # or memgraph-<digits>*.rpm). With component packaging in play the output dir
+        # may also contain memgraph-debuginfo_*.deb / memgraph-debuginfo-*.rpm, which
+        # are handled below by the artifact-copy fan-out.
+        artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1")
         container_artifact_path="$container_package_dir/$artifact_name"
         shift 1
       ;;
@@ -1275,7 +1284,14 @@ copy_memgraph() {
     docker exec -u mg "$build_container" bash -c "rm -rf $temp_log_dir"
     echo -e "Log files copied to $host_dir!"
   elif [[ "$artifact" == "package" ]]; then
-    docker cp $build_container:$container_artifact_path $host_artifact_path
+    # Copy every memgraph package CPack produced: the main one and (when
+    # component packaging is in use) the sibling memgraph-debuginfo package.
+    # The downstream workflow looks for the main package by its underscore
+    # pattern, and aws s3 sync handles arbitrary additional files in the dir.
+    for pkg_name in $(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls memgraph_*.deb memgraph-debuginfo_*.deb memgraph-[0-9]*.rpm memgraph-debuginfo-*.rpm 2>/dev/null"); do
+      docker cp "$build_container:$container_package_dir/$pkg_name" "$host_dir/$pkg_name"
+      echo -e "Copied $pkg_name to $host_dir/"
+    done
   else
     docker cp -L $build_container:$container_artifact_path $host_artifact_path
   fi
