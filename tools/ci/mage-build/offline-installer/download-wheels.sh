@@ -43,7 +43,13 @@ fi
 
 # --prefer-binary biases pip toward wheels over sdists so we don't bundle
 # anything that would need a compiler at install time on the target.
-PIP_FLAGS=(--dest "$OUTPUT_DIR" --prefer-binary)
+# --find-links=$OUTPUT_DIR makes pip *resolve* against wheels we've already
+# placed there (e.g. the prebuilt gssapi wheel). Without it, pip only looks
+# at $OUTPUT_DIR to detect "already downloaded" by exact filename — which
+# fails for gssapi because PyPI ships only an sdist (gssapi-1.11.1.tar.gz)
+# whereas our prebuilt is gssapi-1.11.1-cp311-abi3-linux_x86_64.whl, and pip
+# would otherwise grab the sdist and try to build it (krb5-config missing).
+PIP_FLAGS=(--dest "$OUTPUT_DIR" --find-links "$OUTPUT_DIR" --prefer-binary)
 
 # Resolve mage's runtime requirements + transitive deps.
 python3 -m pip download \
