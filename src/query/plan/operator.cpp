@@ -10059,7 +10059,6 @@ class ScanParallelCursor : public Cursor {
     std::shared_ptr<ChunksType> chunks;
     size_t index = 0;
     uint64_t current_batch = 0;
-    std::optional<Frame> producer_frame;
 
     while (true) {
       bool should_pull_input = false;
@@ -10110,11 +10109,16 @@ class ScanParallelCursor : public Cursor {
           producer_waiters_.NotifyAll();
         });
 
-        // The producer owns the next batch locally until it is fully built and
-        // published under mutex_. That lets the shared upstream pull yield
-        // safely without exposing half-built shared scan state to other branches.
-        producer_frame.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
-        auto input_ra = input_cursor_->Pull(*producer_frame, context);
+        // Use frame_ directly for the upstream pull (same as master version).
+        // frame_ is a stable member so the upstream generator (which captures the
+        // frame reference in its coroutine frame) always writes to the correct
+        // location regardless of which branch is the current producer.
+        // producer_active_ protects frame_ from being read by other branches
+        // while the upstream pull is in progress.
+        if (!frame_) {
+          frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+        }
+        auto input_ra = input_cursor_->Pull(*frame_, context);
         const bool res = co_await input_ra;
 
         if (!res) {
@@ -10123,19 +10127,17 @@ class ScanParallelCursor : public Cursor {
           co_return false;
         }
 
-        auto new_chunks = std::make_shared<ChunksType>(get_chunks_(*producer_frame, context));
+        auto new_chunks = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
         {
           const std::lock_guard lock(mutex_);
           index_ = 0;
           ++batch_version_;  // New input batch - caches need to be cleared
-          frame_ = *producer_frame;
           chunks_ = std::move(new_chunks);
           current_batch = batch_version_;
           frame = *frame_;
           chunks = chunks_;
           index = index_++;
         }
-        producer_frame.reset();
       }
 
       // Clear caches if this branch hasn't seen this batch yet.
