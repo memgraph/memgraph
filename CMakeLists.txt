@@ -13,6 +13,13 @@ endif()
 # to download dependencies
 project(memgraph LANGUAGES C CXX)
 
+# Default component for any install(...) that doesn't specify COMPONENT.
+# With component-aware CPack (CPACK_DEB_COMPONENT_INSTALL=ON), only files in
+# components listed in CPACK_COMPONENTS_ALL (memgraph, debuginfo) are packaged.
+# An install rule without a COMPONENT would otherwise land in the implicit
+# "Unspecified" bucket and disappear. Subdirectories override this locally.
+set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
+
 # Enable ccache
 find_program(CCACHE_PROGRAM ccache)
 
