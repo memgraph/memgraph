@@ -48,7 +48,6 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
   socket_.SetUserTimeout();
 
   if (context_->use_ssl()) {
-    spdlog::trace("Using SSL for client connect");
     // Release leftover SSL objects.
     ReleaseSslObjects();
 
@@ -80,6 +79,7 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
     ERR_clear_error();
 
     // Perform the TLS handshake.
+    spdlog::trace("Trying to do SSL_connect");
     auto ret = SSL_connect(ssl_);
     if (ret != 1) {
       spdlog::warn("Couldn't connect to SSL server: {}", SslGetLastError());
