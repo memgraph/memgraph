@@ -14,6 +14,7 @@ CONTROL_LEIN_RUN_STDERR_LOGS=1
 _JEPSEN_RUN_EXIT_STATUS=0
 ENTERPRISE_LICENSE=""
 ORGANIZATION_NAME=""
+INTRA_CLUSTER_TLS="false"
 WGET_OR_CLONE_TIMEOUT=60
 
 PRINT_CONTEXT() {
@@ -157,6 +158,11 @@ PROCESS_ARGS() {
                 ORGANIZATION_NAME="$1"
                 shift
             ;;
+            --intra-cluster-tls)
+                shift
+                INTRA_CLUSTER_TLS="$1"
+                shift
+            ;;
             *)
                 ERROR "Unknown option $1."
                 HELP_EXIT
@@ -254,6 +260,24 @@ COPY_FILES() {
        fi
        $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
        $docker_exec "touch /opt/memgraph/memgraph.log"
+
+       # Copy intra-cluster TLS certs (n1..n3 -> instanceN, n4..n6 -> coord(N-3)),
+       # placed under a canonical path so support.clj can hard-code it.
+       if [ "$INTRA_CLUSTER_TLS" = "true" ]; then
+           $docker_exec "mkdir -p /opt/memgraph-certs"
+           if [ "$iter" -le 3 ]; then
+               cert_basename="instance$iter"
+           else
+               cert_basename="coord$((iter - 3))"
+           fi
+           docker cp "$script_dir/resources/tls_certs/${cert_basename}.crt" \
+               "$jepsen_node_name:/opt/memgraph-certs/cluster.crt"
+           docker cp "$script_dir/resources/tls_certs/${cert_basename}.key" \
+               "$jepsen_node_name:/opt/memgraph-certs/cluster.key"
+           docker cp "$script_dir/resources/tls_certs/ca.crt" \
+               "$jepsen_node_name:/opt/memgraph-certs/ca.crt"
+           INFO "Copied intra-cluster TLS certs (${cert_basename}) to $jepsen_node_name."
+       fi
        INFO "Copying $binary_name to $jepsen_node_name DONE."
    done
 
