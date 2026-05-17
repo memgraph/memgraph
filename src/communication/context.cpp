@@ -39,28 +39,29 @@ ClientContext::ClientContext(bool use_ssl) : use_ssl_(use_ssl), ctx_(nullptr) {
 }
 
 ClientContext::ClientContext(const std::string &key_file, const std::string &cert_file) : ClientContext(true) {
-  MG_ASSERT(!key_file.empty(), "Key file cannot be empty when initializing client context");
-  MG_ASSERT(!cert_file.empty(), "Cert file cannot be empty when initializing client context");
-  MG_ASSERT(SSL_CTX_use_certificate_file(ctx_, cert_file.c_str(), SSL_FILETYPE_PEM) == 1,
-            "Couldn't load client certificate from file: {}",
-            cert_file);
-  MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx_, key_file.c_str(), SSL_FILETYPE_PEM) == 1,
-            "Couldn't load client private key from file: ",
-            key_file);
+  if (!key_file.empty() && !cert_file.empty()) {
+    MG_ASSERT(SSL_CTX_use_certificate_file(ctx_, cert_file.c_str(), SSL_FILETYPE_PEM) == 1,
+              "Couldn't load client certificate from file: {}",
+              cert_file);
+    MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx_, key_file.c_str(), SSL_FILETYPE_PEM) == 1,
+              "Couldn't load client private key from file: ",
+              key_file);
+  }
 }
 
 ClientContext::ClientContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file)
     : ClientContext(key_file, cert_file) {
-  MG_ASSERT(!ca_file.empty(), "CA file cannot be empty when initializing client context");
-  MG_ASSERT(SSL_CTX_use_certificate_file(ctx_, cert_file.c_str(), SSL_FILETYPE_PEM) == 1,
-            "Couldn't load client certificate from file: {}",
-            cert_file);
-  MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx_, key_file.c_str(), SSL_FILETYPE_PEM) == 1,
-            "Couldn't load client private key from file: ",
-            key_file);
-  MG_ASSERT(
-      SSL_CTX_load_verify_locations(ctx_, ca_file.c_str(), nullptr) == 1, "Couldn't load CA from file {}", ca_file);
-  SSL_CTX_set_verify(ctx_, SSL_VERIFY_PEER, nullptr);
+  if (!ca_file.empty()) {
+    MG_ASSERT(SSL_CTX_use_certificate_file(ctx_, cert_file.c_str(), SSL_FILETYPE_PEM) == 1,
+              "Couldn't load client certificate from file: {}",
+              cert_file);
+    MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx_, key_file.c_str(), SSL_FILETYPE_PEM) == 1,
+              "Couldn't load client private key from file: ",
+              key_file);
+    MG_ASSERT(
+        SSL_CTX_load_verify_locations(ctx_, ca_file.c_str(), nullptr) == 1, "Couldn't load CA from file {}", ca_file);
+    SSL_CTX_set_verify(ctx_, SSL_VERIFY_PEER, nullptr);
+  }
 }
 
 ClientContext::ClientContext(ClientContext &&other) noexcept : use_ssl_(other.use_ssl_), ctx_(other.ctx_) {
