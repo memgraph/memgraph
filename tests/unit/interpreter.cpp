@@ -632,6 +632,8 @@ TYPED_TEST(InterpreterTest, ShowStorageInfoIncludesQueryTrackingFields) {
   EXPECT_TRUE(values.contains("db_storage_memory_tracked"));
   EXPECT_TRUE(values.contains("db_embedding_memory_tracked"));
   EXPECT_TRUE(values.contains("db_query_memory_tracked"));
+  EXPECT_TRUE(values.contains("db_disk_usage"));
+  EXPECT_TRUE(values.contains("global_disk_usage"));
 
   EXPECT_TRUE(values.at("global_memory_tracked").IsString());
   EXPECT_TRUE(values.at("db_memory_tracked").IsString());

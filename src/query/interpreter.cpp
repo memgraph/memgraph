@@ -7146,6 +7146,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
           const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
           const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
+          const auto global_disk = utils::GetDirDiskUsage(storage->config_.durability.root_data_directory);
+
           const std::vector<std::vector<TypedValue>> results{
               {TypedValue("name"), TypedValue(storage->name())},
               {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
@@ -7157,8 +7159,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
               {TypedValue("peak_memory_res"),
                TypedValue(utils::GetReadableSize(static_cast<double>(info.peak_memory_res)))},
               {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
-              {TypedValue("global_disk_usage"),
-               TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
+              {TypedValue("db_disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
+              {TypedValue("global_disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(global_disk)))},
               {TypedValue("global_memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
               {TypedValue("global_runtime_allocation_limit"),
