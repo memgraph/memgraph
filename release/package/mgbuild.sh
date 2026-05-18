@@ -945,8 +945,17 @@ package_docker() {
       exit 1
     ;;
   esac
+  # Pick the main memgraph package only. With component-aware cpack the dir
+  # also contains memgraph-debuginfo_*.deb / memgraph-debuginfo-*.rpm, and
+  # the downstream release/docker/package_docker helper derives the companion
+  # path from the main one — so we must pass it the main package.
   # shellcheck disable=SC2012
-  local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
+  local last_package_name=$(cd $package_dir && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1)
+  if [[ -z "$last_package_name" ]]; then
+    echo "Error: no main memgraph package found in $package_dir" >&2
+    echo "       (expected memgraph_*.deb or memgraph-<version>*.rpm)" >&2
+    exit 1
+  fi
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
   echo "Using custom mirror: $custom_mirror"
