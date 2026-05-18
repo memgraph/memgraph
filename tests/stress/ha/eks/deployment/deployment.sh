@@ -508,7 +508,13 @@ start_cluster() {
 start_memgraph() {
     log_info "Installing Memgraph HA on EKS cluster..."
 
-    kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=${ENTERPRISE_LICENSE} --from-literal=MEMGRAPH_ORGANIZATION_NAME=${ORGANIZATION_NAME}
+    : "${MEMGRAPH_ENTERPRISE_LICENSE:?MEMGRAPH_ENTERPRISE_LICENSE must be set}"
+    : "${MEMGRAPH_ORGANIZATION_NAME:?MEMGRAPH_ORGANIZATION_NAME must be set}"
+
+    kubectl create secret generic memgraph-secrets \
+        --from-literal=MEMGRAPH_ENTERPRISE_LICENSE="${MEMGRAPH_ENTERPRISE_LICENSE}" \
+        --from-literal=MEMGRAPH_ORGANIZATION_NAME="${MEMGRAPH_ORGANIZATION_NAME}" \
+        --dry-run=client -o yaml | kubectl apply -f -
 
     install_memgraph_ha
     wait_for_pods
