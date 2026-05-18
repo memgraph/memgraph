@@ -3392,8 +3392,9 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
         PyDateTime_DELTA_GET_DAYS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
     auto microseconds =
         std::abs(days) * microseconds_in_days +
-        PyDateTime_DELTA_GET_SECONDS(o) * 1000 *  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-            1000 +
+        static_cast<int64_t>(
+            PyDateTime_DELTA_GET_SECONDS(o)) *  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+            kMicrosecondsInSecond +
         PyDateTime_DELTA_GET_MICROSECONDS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
     microseconds *= days < 0 ? -1 : 1;
 
