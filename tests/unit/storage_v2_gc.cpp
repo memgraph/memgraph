@@ -12,6 +12,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <random>
+#include <thread>
+#include <vector>
+
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
@@ -1456,6 +1462,8 @@ TEST(StorageV2Gc, ClearDrainsWaitingGcDeltas) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
+<<<<<<< Updated upstream
+=======
 
 // ---------------------------------------------------------------------------
 // Light-edge GC tests: same scenarios as above but with storage_light_edge=true.
@@ -1674,3 +1682,91 @@ TEST(StorageV2GcLightEdge, AnalyticalModeDeleteGoesToGraveyard) {
   }
   // storage destructor runs here — must not crash or report sanitizer errors.
 }
+
+// ===========================================================================
+// Light-Edge Graveyard UAF reproduction tests
+// ===========================================================================
+
+namespace {
+
+auto MakeLightEdgeStorage() -> std::unique_ptr<ms::Storage> {
+  return std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.salient = {.items = {.properties_on_edges = true, .storage_light_edge = true}}});
+}
+
+auto CreateTwoVertices(ms::Storage *store) -> std::pair<ms::Gid, ms::Gid> {
+  auto acc = store->Access(ms::WRITE);
+  auto v1 = acc->CreateVertex();
+  auto v2 = acc->CreateVertex();
+  auto gid1 = v1.Gid();
+  auto gid2 = v2.Gid();
+  EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  return {gid1, gid2};
+}
+
+}  // namespace
+
+TEST(LightEdgesGraveyard, ConcurrentDeleteAndGC) {
+  auto store = MakeLightEdgeStorage();
+  auto [gid_from, gid_to] = CreateTwoVertices(store.get());
+
+  constexpr int kEdges = 100;
+
+  {
+    auto acc = store->Access(ms::WRITE);
+    auto vf = acc->FindVertex(gid_from, ms::View::NEW);
+    auto vt = acc->FindVertex(gid_to, ms::View::NEW);
+    auto et = acc->NameToEdgeType("CONC");
+    for (int i = 0; i < kEdges; ++i) {
+      ASSERT_TRUE(acc->CreateEdge(&*vf, &*vt, et).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  std::atomic<bool> gc_running{true};
+  std::atomic<uint64_t> total_deleted{0};
+
+  std::thread gc_thread([&]() {
+    while (gc_running.load()) {
+      store->FreeMemory();
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    store->FreeMemory();
+    store->FreeMemory();
+  });
+
+  constexpr int kDeleteThreads = 4;
+  std::vector<std::thread> deleters;
+  deleters.reserve(kDeleteThreads);
+  for (int t = 0; t < kDeleteThreads; ++t) {
+    deleters.emplace_back([&]() {
+      while (true) {
+        auto acc = store->Access(ms::WRITE);
+        auto vf = acc->FindVertex(gid_from, ms::View::NEW);
+        if (!vf) break;
+        auto out = vf->OutEdges(ms::View::NEW);
+        if (!out.has_value() || out->edges.empty()) break;
+
+        auto edge = out->edges[0];
+        auto del = acc->DeleteEdge(&edge);
+        if (!del.has_value()) continue;
+
+        if (acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) {
+          total_deleted.fetch_add(1);
+        }
+      }
+    });
+  }
+
+  for (auto &d : deleters) d.join();
+  gc_running.store(false);
+  gc_thread.join();
+
+  {
+    auto acc = store->Access(ms::WRITE);
+    auto vf = acc->FindVertex(gid_from, ms::View::OLD);
+    ASSERT_EQ(vf->OutEdges(ms::View::OLD)->edges.size(), 0);
+  }
+  EXPECT_EQ(total_deleted.load(), kEdges);
+}
+>>>>>>> Stashed changes

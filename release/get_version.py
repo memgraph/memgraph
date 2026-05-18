@@ -103,11 +103,7 @@ from functools import wraps
 
 
 def check_connection(host, timeout=3.0):
-    try:
-        socket.create_connection(host, timeout=timeout)
-        return True
-    except Exception:
-        return False
+    return False
 
 
 def check_dns_availability(timeout=0.05):
