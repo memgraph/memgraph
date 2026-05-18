@@ -70,7 +70,8 @@ class Client {
   };
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,
-         std::unordered_map<std::string_view, int> const &rpc_timeouts_ms = Client::default_rpc_timeouts_ms);
+         std::unordered_map<std::string_view, int> const &rpc_timeouts_ms = Client::default_rpc_timeouts_ms,
+         std::chrono::milliseconds connect_timeout_ms = std::chrono::milliseconds{5000});
 
   /// Object used to handle streaming of request data to the RPC server.
   template <class TRequestResponse>
@@ -421,7 +422,7 @@ class Client {
 
     // Connect to the remote server.
     if (!client_) {
-      client_.emplace(context_);
+      client_.emplace(context_, connect_timeout_ms_);
       if (!client_->Connect(endpoint_)) {
         spdlog::error("Couldn't connect to remote address {}", endpoint_.SocketAddress());
         client_ = std::nullopt;
@@ -490,6 +491,7 @@ class Client {
   communication::ClientContext *context_;
   std::optional<communication::Client> client_;
   std::unordered_map<std::string_view, int> rpc_timeouts_ms_;
+  std::chrono::milliseconds connect_timeout_ms_;
 
   mutable utils::ResourceLock mutex_;
 };

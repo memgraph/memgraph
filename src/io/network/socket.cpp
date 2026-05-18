@@ -34,10 +34,6 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 
-namespace {
-constexpr auto timeout_ms = std::chrono::milliseconds(5000);
-}  // namespace
-
 namespace memgraph::io::network {
 
 Socket::Socket(Socket &&other) noexcept : socket_(other.socket_), endpoint_(std::move(other.endpoint_)) {
@@ -78,7 +74,8 @@ void Socket::Close(int const sfd, std::string_view socket_addr) {
   }
 }
 
-bool Socket::Connect(const Endpoint &endpoint) {
+bool Socket::Connect(const Endpoint &endpoint, std::chrono::milliseconds const connect_timeout_ms,
+                     bool const keep_non_blocking) {
   if (socket_ != -1) {
     spdlog::trace("Socket::Connect failed, socket_ not ready!");
     return false;
@@ -122,7 +119,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
         }
 
         auto const start_time = std::chrono::steady_clock::now();
-        auto const deadline = start_time + timeout_ms;
+        auto const deadline = start_time + connect_timeout_ms;
 
         while (true) {
           auto const now = std::chrono::steady_clock::now();
@@ -172,7 +169,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
         continue;
       }
 
-      if (fcntl(sfd, F_SETFL, sockfd_flags_orig) < 0) {
+      if (!keep_non_blocking && fcntl(sfd, F_SETFL, sockfd_flags_orig) < 0) {
         spdlog::error("Failed to set socket to blocking mode during connect");
         Close(sfd, socket_addr);
         continue;
@@ -181,6 +178,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
       // Success
       socket_ = sfd;
       endpoint_ = endpoint;
+
       break;
     }
   } catch (const NetworkError &e) {

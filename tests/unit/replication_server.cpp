@@ -30,6 +30,7 @@ using memgraph::replication::ReplicationServerConfig;
 using memgraph::replication_coordination_glue::FrequentHeartbeatRpc;
 using memgraph::rpc::Client;
 using memgraph::rpc::RpcFailedException;
+using memgraph::rpc::RpcFailedToConnectException;
 using memgraph::utils::TlsConfig;
 
 using namespace std::string_view_literals;
@@ -48,8 +49,6 @@ TEST(ReplicationServer, NoTlsConnection) {
   EXPECT_NO_THROW(stream.SendAndWait());
 }
 
-// TODO: (andi) Need to handle SSL_connect timeout
-/*
 TEST(ReplicationServer, TlsClientToNoTlsServer) {
   ReplicationServerConfig cfg{.repl_server = Endpoint("0.0.0.0", port)};
   ReplicationServer server(cfg);
@@ -62,11 +61,10 @@ TEST(ReplicationServer, TlsClientToNoTlsServer) {
   auto const ca_file = (certs_dir / "ca.crt").string();
   ClientContext client_conntext(key_file, cert_file, ca_file);
   auto const rpc_timeouts = std::unordered_map{std::make_pair("FrequentHeartbeatReq"sv, 500)};
-  Client client(Endpoint("0.0.0.0", port), &client_conntext, rpc_timeouts);
-  auto stream = client.Stream<FrequentHeartbeatRpc>();
-  EXPECT_THROW(stream.SendAndWait(), RpcFailedException);
+  Client client(Endpoint("0.0.0.0", port), &client_conntext, rpc_timeouts, std::chrono::milliseconds{500});
+  // Fails after 5s because the timeout is 5s on socket connect
+  EXPECT_THROW(client.Stream<FrequentHeartbeatRpc>(), RpcFailedToConnectException);
 }
-*/
 
 TEST(ReplicationServer, TlsClientTlsServer) {
   // Test that instance1 can connect to instance2

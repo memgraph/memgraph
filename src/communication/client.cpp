@@ -24,7 +24,8 @@
 
 namespace memgraph::communication {
 
-Client::Client(ClientContext *context) : context_(context) {}
+Client::Client(ClientContext *context, std::chrono::milliseconds const connect_timeout_ms)
+    : context_(context), connect_timeout_ms_(connect_timeout_ms) {}
 
 Client::~Client() {
   Close();
@@ -32,20 +33,11 @@ Client::~Client() {
 }
 
 bool Client::Connect(const io::network::Endpoint &endpoint) {
-  // Try to establish a socket connection.
-  if (!socket_.Connect(endpoint)) {
+  // Try to establish a socket connection. If SSL should be used, socket should not restore socket to the blocking mode,
+  // we will do it here.
+  if (!socket_.Connect(endpoint, connect_timeout_ms_, context_->use_ssl())) {
     return false;
   }
-
-  // Enable TCP keep alive for all connections.
-  // Because we manually always set the `have_more` flag to the socket
-  // `Write` call we can disable the Nagle algorithm because we know that we
-  // are always sending optimal packets. Even if we don't send optimal
-  // packets, there will be no delay between packets and throughput won't
-  // suffer.
-  socket_.SetKeepAlive();
-  socket_.SetNoDelay();
-  socket_.SetUserTimeout();
 
   if (context_->use_ssl()) {
     // Release leftover SSL objects.
@@ -74,19 +66,77 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
     // stream it should use for communication. We use the same object for both
     // the read and write end. This function cannot fail.
     SSL_set_bio(ssl_, bio_, bio_);
-
-    // Clear all leftover errors.
     ERR_clear_error();
-
-    // Perform the TLS handshake.
     spdlog::trace("Trying to do SSL_connect");
-    auto ret = SSL_connect(ssl_);
-    if (ret != 1) {
-      spdlog::warn("Couldn't connect to SSL server: {}", SslGetLastError());
+    // Drive the TLS handshake — socket is already non-blocking because we
+    // asked Socket::Connect to leave it that way.
+    const int fd = socket_.fd();
+    auto const deadline = std::chrono::steady_clock::now() + connect_timeout_ms_;
+    bool handshake_ok = false;
+
+    while (true) {
+      ERR_clear_error();
+      const int ret = SSL_connect(ssl_);
+      if (ret == 1) {
+        handshake_ok = true;
+        break;
+      }
+
+      const int ssl_err = SSL_get_error(ssl_, ret);
+      short events;
+      if (ssl_err == SSL_ERROR_WANT_READ) {
+        events = POLLIN;
+      } else if (ssl_err == SSL_ERROR_WANT_WRITE) {
+        events = POLLOUT;
+      } else {
+        spdlog::warn("Couldn't connect to SSL server: {}", SslGetLastError());
+        break;
+      }
+
+      auto const now = std::chrono::steady_clock::now();
+      if (now >= deadline) {
+        spdlog::warn("SSL handshake timed out after {}ms", connect_timeout_ms_.count());
+        break;
+      }
+      auto const ms_remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+
+      pollfd pfds[] = {{.fd = fd, .events = events, .revents = 0}};
+      const int poll_status = poll(pfds, 1, static_cast<int>(ms_remaining));
+
+      if (poll_status == 0) {
+        spdlog::warn("SSL handshake timed out after {}ms", connect_timeout_ms_.count());
+        break;
+      }
+      if (poll_status < 0) {
+        if (errno == EINTR) continue;
+        spdlog::warn("poll() during SSL handshake failed: {}", std::strerror(errno));
+        break;
+      }
+    }
+
+    if (!handshake_ok) {
+      socket_.Close();
+      return false;
+    }
+
+    // This is safe to do because we only ever modify blocking and non-blocking mode. Be careful if you mess with
+    // O_APPEND, O_ASYNC, O_DIRECT or O_NOATIME
+    if (fcntl(fd, F_SETFL, 0) < 0) {
+      spdlog::error("Failed to restore socket to blocking mode after SSL handshake");
       socket_.Close();
       return false;
     }
   }
+
+  // Enable TCP keep alive for all connections.
+  // Because we manually always set the `have_more` flag to the socket
+  // `Write` call we can disable the Nagle algorithm because we know that we
+  // are always sending optimal packets. Even if we don't send optimal
+  // packets, there will be no delay between packets and throughput won't
+  // suffer.
+  socket_.SetKeepAlive();
+  socket_.SetNoDelay();
+  socket_.SetUserTimeout();
 
   return true;
 }

@@ -23,6 +23,7 @@
 #include "rpc/utils.hpp"
 #include "utils/tls.hpp"
 
+#include <chrono>
 #include <unordered_map>
 
 namespace fs = std::filesystem;
@@ -37,6 +38,7 @@ using memgraph::replication_coordination_glue::SwapMainUUIDRes;
 using memgraph::replication_coordination_glue::SwapMainUUIDRpc;
 using memgraph::rpc::Client;
 using memgraph::rpc::RpcFailedException;
+using memgraph::rpc::RpcFailedToConnectException;
 using memgraph::utils::TlsConfig;
 using memgraph::utils::UUID;
 
@@ -100,6 +102,20 @@ TYPED_TEST(ManagementServerTest, NoTlsConnection) {
   Client client(Endpoint("0.0.0.0", this->port), &client_context);
   auto stream = client.template Stream<SwapMainUUIDRpc>(UUID{});
   EXPECT_NO_THROW(stream.SendAndWait());
+}
+
+TYPED_TEST(ManagementServerTest, TlsClientToNoTlsServer) {
+  // Server uses instance2, client uses instance1 — both signed by the shared CA.
+  ManagementServerConfig cfg{Endpoint("0.0.0.0", this->port)};
+  TypeParam server(cfg, std::nullopt);
+  server.template Register<SwapMainUUIDRpc>(MakeSwapHandler());
+  ASSERT_TRUE(server.Start());
+
+  auto const client_tls = MakeTlsConfig("instance1");
+  ClientContext client_context(client_tls.key_file, client_tls.cert_file, client_tls.ca_file);
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SwapMainUUIDReq"sv, 500)};
+  Client client(Endpoint("0.0.0.0", this->port), &client_context, rpc_timeouts, std::chrono::milliseconds{500});
+  EXPECT_THROW(client.template Stream<SwapMainUUIDRpc>(UUID{}), RpcFailedToConnectException);
 }
 
 TYPED_TEST(ManagementServerTest, TlsClientTlsServer) {
