@@ -10169,6 +10169,7 @@ UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<ParallelMergeCursor>(mem, *this, mem, metric_handles);
 #else
   (void)mem;
+  (void)metric_handles;
   throw QueryRuntimeException("ParallelMerge is not supported in the community edition");
 #endif
 }
