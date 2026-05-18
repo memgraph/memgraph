@@ -27,6 +27,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "storage_test_utils.hpp"
@@ -707,5 +708,7 @@ TYPED_TEST(MgpGraphTest, GetTransactionId) {
   mgp_graph graph = this->CreateGraph();
   int64_t tx_id{0};
   EXPECT_SUCCESS(mgp_graph_get_transaction_id(&graph, &tx_id));
-  EXPECT_GE(tx_id, 0);
+  // The first transaction on a fresh storage starts at kTransactionInitialId
+  // (1ULL << 63, used to disambiguate transaction IDs from commit timestamps).
+  EXPECT_EQ(tx_id, static_cast<int64_t>(memgraph::storage::kTransactionInitialId));
 }
