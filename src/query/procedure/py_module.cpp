@@ -378,7 +378,7 @@ PyObject *PyGraphIsMutable(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(CallBool(mgp_graph_is_mutable, self->graph));
 }
 
-PyObject *PyGraphGetTransactionId(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
+static PyObject *PyGraphGetTransactionId(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(PyGraphIsValidImpl(*self));
   int64_t tx_id{0};
   if (RaiseExceptionFromErrorCode(mgp_graph_get_transaction_id(self->graph, &tx_id))) {
@@ -3391,10 +3391,10 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     const auto days =
         PyDateTime_DELTA_GET_DAYS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
     auto microseconds =
-        std::abs(days) * microseconds_in_days +
-        static_cast<int64_t>(
-            PyDateTime_DELTA_GET_SECONDS(o)) *  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-            kMicrosecondsInSecond +
+        (std::abs(days) * microseconds_in_days) +
+        (static_cast<int64_t>(
+             PyDateTime_DELTA_GET_SECONDS(o)) *  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+         kMicrosecondsInSecond) +
         PyDateTime_DELTA_GET_MICROSECONDS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
     microseconds *= days < 0 ? -1 : 1;
 
