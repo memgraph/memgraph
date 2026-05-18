@@ -27,9 +27,13 @@ constexpr std::string_view kProcedureRelType = "rel_type_properties";
 constexpr std::string_view kProcedureAssert = "assert";
 constexpr std::string_view kReturnLabels = "nodeLabels";
 constexpr std::string_view kReturnRelType = "relType";
+constexpr std::string_view kReturnSourceNodeLabels = "sourceNodeLabels";
+constexpr std::string_view kReturnTargetNodeLabels = "targetNodeLabels";
 constexpr std::string_view kReturnPropertyName = "propertyName";
 constexpr std::string_view kReturnPropertyType = "propertyTypes";
 constexpr std::string_view kReturnMandatory = "mandatory";
+constexpr std::string_view kReturnPropertyObservations = "propertyObservations";
+constexpr std::string_view kReturnTotalObservations = "totalObservations";
 constexpr std::string_view kReturnLabel = "label";
 constexpr std::string_view kReturnKey = "key";
 constexpr std::string_view kReturnKeys = "keys";
@@ -54,11 +58,13 @@ std::string TypeOf(const mgp::Type &type);
 
 template <typename T>
 void ProcessPropertiesNode(mgp::Record &record, const std::string &type, const mgp::List &labels,
-                           const std::string &propertyName, const T &propertyType, const bool &mandatory);
+                           const std::string &propertyName, const T &propertyType, bool mandatory,
+                           int64_t property_observations, int64_t total_observations);
 
 template <typename T>
-void ProcessPropertiesRel(mgp::Record &record, const std::string_view &type, const std::string &propertyName,
-                          const T &propertyType, const bool &mandatory);
+void ProcessPropertiesRel(mgp::Record &record, const std::string &type, const mgp::List &source_labels,
+                          const mgp::List &target_labels, const std::string &propertyName, const T &propertyType,
+                          bool mandatory, int64_t property_observations, int64_t total_observations);
 
 void NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
@@ -112,21 +118,30 @@ std::string Schema::TypeOf(const mgp::Type &type) {
 
 template <typename T>
 void Schema::ProcessPropertiesNode(mgp::Record &record, const std::string &type, const mgp::List &labels,
-                                   const std::string &propertyName, const T &propertyType, const bool &mandatory) {
+                                   const std::string &propertyName, const T &propertyType, bool mandatory,
+                                   int64_t property_observations, int64_t total_observations) {
   record.Insert(std::string(kReturnNodeType).c_str(), type);
   record.Insert(std::string(kReturnLabels).c_str(), labels);
   record.Insert(std::string(kReturnPropertyName).c_str(), propertyName);
   record.Insert(std::string(kReturnPropertyType).c_str(), propertyType);
   record.Insert(std::string(kReturnMandatory).c_str(), mandatory);
+  record.Insert(std::string(kReturnPropertyObservations).c_str(), property_observations);
+  record.Insert(std::string(kReturnTotalObservations).c_str(), total_observations);
 }
 
 template <typename T>
-void Schema::ProcessPropertiesRel(mgp::Record &record, const std::string_view &type, const std::string &propertyName,
-                                  const T &propertyType, const bool &mandatory) {
+void Schema::ProcessPropertiesRel(mgp::Record &record, const std::string &type, const mgp::List &source_labels,
+                                  const mgp::List &target_labels, const std::string &propertyName,
+                                  const T &propertyType, bool mandatory, int64_t property_observations,
+                                  int64_t total_observations) {
   record.Insert(std::string(kReturnRelType).c_str(), type);
+  record.Insert(std::string(kReturnSourceNodeLabels).c_str(), source_labels);
+  record.Insert(std::string(kReturnTargetNodeLabels).c_str(), target_labels);
   record.Insert(std::string(kReturnPropertyName).c_str(), propertyName);
   record.Insert(std::string(kReturnPropertyType).c_str(), propertyType);
   record.Insert(std::string(kReturnMandatory).c_str(), mandatory);
+  record.Insert(std::string(kReturnPropertyObservations).c_str(), property_observations);
+  record.Insert(std::string(kReturnTotalObservations).c_str(), total_observations);
 }
 
 struct PropertyInfo {
@@ -203,6 +218,42 @@ struct LabelsComparator {
   bool operator()(const std::set<std::string> &lhs, const std::set<std::string> &rhs) const { return lhs == rhs; }
 };
 
+struct RelKey {
+  std::string rel_type;
+  std::set<std::string> source_labels;
+  std::set<std::string> target_labels;
+  bool operator==(const RelKey &) const = default;
+};
+
+struct RelKeyHash {
+  std::size_t operator()(const RelKey &k) const noexcept {
+    std::size_t seed = std::hash<std::string>{}(k.rel_type);
+    boost::hash_combine(seed, boost::hash_range(k.source_labels.begin(), k.source_labels.end()));
+    boost::hash_combine(seed, boost::hash_range(k.target_labels.begin(), k.target_labels.end()));
+    return seed;
+  }
+};
+
+namespace {
+mgp::List LabelsToList(const std::set<std::string> &labels) {
+  auto list = mgp::List();
+  list.Reserve(labels.size());
+  for (const auto &label : labels) {
+    list.AppendExtend(mgp::Value(label));
+  }
+  return list;
+}
+
+mgp::List PropertyTypesToList(const std::unordered_set<std::string> &types) {
+  auto list = mgp::List();
+  list.Reserve(types.size());
+  for (const auto &t : types) {
+    list.AppendExtend(mgp::Value(t));
+  }
+  return list;
+}
+}  // namespace
+
 void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
@@ -278,25 +329,28 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
 
     for (auto &[node_type, labels_info] : node_types_properties) {  // node type is a set of labels
       std::string label_type;
-      auto labels_list = mgp::List();
       for (const auto &label : node_type) {
-        label_type += ":`" + std::string(label) + "`";
-        labels_list.AppendExtend(mgp::Value(label));
+        label_type += ":`" + label + "`";
       }
-      auto effective_count =
+      auto labels_list = LabelsToList(node_type);
+      const auto effective_count =
           (sample > 0) ? std::min(sample, labels_info.number_of_occurrences) : labels_info.number_of_occurrences;
-      for (const auto &prop : labels_info.properties) {
-        auto prop_types = mgp::List();
-        for (const auto &prop_type : prop.second.property_types) {
-          prop_types.AppendExtend(mgp::Value(prop_type));
-        }
-        bool mandatory = prop.second.number_of_property_occurrences == effective_count;
+      for (const auto &[prop_name, prop_info] : labels_info.properties) {
+        auto prop_types = PropertyTypesToList(prop_info.property_types);
+        const bool mandatory = prop_info.number_of_property_occurrences == effective_count;
         auto record = record_factory.NewRecord();
-        ProcessPropertiesNode(record, label_type, labels_list, prop.first, prop_types, mandatory);
+        ProcessPropertiesNode(record,
+                              label_type,
+                              labels_list,
+                              prop_name,
+                              prop_types,
+                              mandatory,
+                              prop_info.number_of_property_occurrences,
+                              effective_count);
       }
       if (labels_info.properties.empty()) {
         auto record = record_factory.NewRecord();
-        ProcessPropertiesNode<mgp::List>(record, label_type, labels_list, "", mgp::List(), false);
+        ProcessPropertiesNode<mgp::List>(record, label_type, labels_list, "", mgp::List(), false, 0, effective_count);
       }
     }
 
@@ -309,7 +363,7 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
 void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
 
-  std::unordered_map<std::string, LabelOrRelTypeInfo> rel_types_properties;
+  std::unordered_map<RelKey, LabelOrRelTypeInfo, RelKeyHash> rel_types_properties;
   const auto record_factory = mgp::RecordFactory(result);
   try {
     auto arguments = mgp::List(args);
@@ -332,12 +386,12 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
         break;
       }
 
-      std::set<std::string> node_labels;
+      std::set<std::string> source_labels;
       for (const auto label : node.Labels()) {
-        node_labels.emplace(label);
+        source_labels.emplace(label);
       }
 
-      if (!ShouldIncludeLabels(node_labels, include_labels, exclude_labels)) {
+      if (!ShouldIncludeLabels(source_labels, include_labels, exclude_labels)) {
         continue;
       }
 
@@ -349,7 +403,7 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
           break;
         }
 
-        std::string rel_type = std::string(rel.Type());
+        std::string rel_type{rel.Type()};
 
         if (!ShouldIncludeRelType(rel_type, include_rels, exclude_rels)) {
           continue;
@@ -357,39 +411,53 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
 
         rels_read++;
 
-        auto &rel_info = rel_types_properties[rel_type];
+        std::set<std::string> target_labels;
+        for (const auto label : rel.To().Labels()) {
+          target_labels.emplace(label);
+        }
+
+        RelKey key{std::move(rel_type), source_labels, std::move(target_labels)};
+        auto &rel_info = rel_types_properties[std::move(key)];
         rel_info.number_of_occurrences++;
 
         if (rel.Properties().empty()) {
           continue;
         }
 
-        for (auto &[key, prop] : rel.Properties()) {
+        for (auto &[prop_name, prop] : rel.Properties()) {
           auto prop_type = TypeOf(prop.Type());
-          if (rel_info.properties.find(key) == rel_info.properties.end()) {
-            rel_info.properties[key] = PropertyInfo{std::move(prop_type)};
+          if (auto it = rel_info.properties.find(prop_name); it == rel_info.properties.end()) {
+            rel_info.properties.emplace(prop_name, PropertyInfo{std::move(prop_type)});
           } else {
-            rel_info.properties[key].property_types.emplace(prop_type);
-            rel_info.properties[key].number_of_property_occurrences++;
+            it->second.property_types.emplace(std::move(prop_type));
+            it->second.number_of_property_occurrences++;
           }
         }
       }
     }
 
-    for (auto &[rel_type, labels_info] : rel_types_properties) {
-      std::string type_str = ":`" + std::string(rel_type) + "`";
-      for (const auto &prop : labels_info.properties) {
-        auto prop_types = mgp::List();
-        for (const auto &prop_type : prop.second.property_types) {
-          prop_types.AppendExtend(mgp::Value(prop_type));
-        }
-        bool mandatory = prop.second.number_of_property_occurrences == labels_info.number_of_occurrences;
+    for (auto &[key, labels_info] : rel_types_properties) {
+      const std::string type_str = ":`" + key.rel_type + "`";
+      auto source_list = LabelsToList(key.source_labels);
+      auto target_list = LabelsToList(key.target_labels);
+      for (const auto &[prop_name, prop_info] : labels_info.properties) {
+        auto prop_types = PropertyTypesToList(prop_info.property_types);
+        const bool mandatory = prop_info.number_of_property_occurrences == labels_info.number_of_occurrences;
         auto record = record_factory.NewRecord();
-        ProcessPropertiesRel(record, type_str, prop.first, prop_types, mandatory);
+        ProcessPropertiesRel(record,
+                             type_str,
+                             source_list,
+                             target_list,
+                             prop_name,
+                             prop_types,
+                             mandatory,
+                             prop_info.number_of_property_occurrences,
+                             labels_info.number_of_occurrences);
       }
       if (labels_info.properties.empty()) {
         auto record = record_factory.NewRecord();
-        ProcessPropertiesRel<mgp::List>(record, type_str, "", mgp::List(), false);
+        ProcessPropertiesRel<mgp::List>(
+            record, type_str, source_list, target_list, "", mgp::List(), false, 0, labels_info.number_of_occurrences);
       }
     }
 
@@ -838,8 +906,10 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  {mgp::Return(Schema::kReturnNodeType, mgp::Type::String),
                   mgp::Return(Schema::kReturnLabels, {mgp::Type::List, mgp::Type::String}),
                   mgp::Return(Schema::kReturnPropertyName, mgp::Type::String),
-                  mgp::Return(Schema::kReturnPropertyType, mgp::Type::Any),
-                  mgp::Return(Schema::kReturnMandatory, mgp::Type::Bool)},
+                  mgp::Return(Schema::kReturnPropertyType, {mgp::Type::List, mgp::Type::String}),
+                  mgp::Return(Schema::kReturnMandatory, mgp::Type::Bool),
+                  mgp::Return(Schema::kReturnPropertyObservations, mgp::Type::Int),
+                  mgp::Return(Schema::kReturnTotalObservations, mgp::Type::Int)},
                  module,
                  memory);
 
@@ -848,9 +918,13 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  mgp::ProcedureType::Read,
                  {mgp::Parameter(Schema::kParameterConfig, {mgp::Type::Map, mgp::Type::Any}, mgp::Value(mgp::Map{}))},
                  {mgp::Return(Schema::kReturnRelType, mgp::Type::String),
+                  mgp::Return(Schema::kReturnSourceNodeLabels, {mgp::Type::List, mgp::Type::String}),
+                  mgp::Return(Schema::kReturnTargetNodeLabels, {mgp::Type::List, mgp::Type::String}),
                   mgp::Return(Schema::kReturnPropertyName, mgp::Type::String),
-                  mgp::Return(Schema::kReturnPropertyType, mgp::Type::Any),
-                  mgp::Return(Schema::kReturnMandatory, mgp::Type::Bool)},
+                  mgp::Return(Schema::kReturnPropertyType, {mgp::Type::List, mgp::Type::String}),
+                  mgp::Return(Schema::kReturnMandatory, mgp::Type::Bool),
+                  mgp::Return(Schema::kReturnPropertyObservations, mgp::Type::Int),
+                  mgp::Return(Schema::kReturnTotalObservations, mgp::Type::Int)},
                  module,
                  memory);
     AddProcedure(
