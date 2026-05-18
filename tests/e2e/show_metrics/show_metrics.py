@@ -224,7 +224,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "DeletedEdges", "type": "TTL", "metric type": "Counter"},
         {"name": "DeletedNodes", "type": "TTL", "metric type": "Counter"},
         {"name": "ActiveTransactions", "type": "Transaction", "metric type": "Counter"},
-        {"name": "CommitedTransactions", "type": "Transaction", "metric type": "Counter"},
+        {"name": "CommittedTransactions", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedPrepare", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedPull", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedQuery", "type": "Transaction", "metric type": "Counter"},
