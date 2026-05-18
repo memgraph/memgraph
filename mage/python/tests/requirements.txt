@@ -1,6 +1,6 @@
 pytest==8.3.4
 PyYAML==6.0.2
-black==24.10.0
+black==26.5.0
 flake8==7.1.1
 pymgclient==1.5.2
 pytest-pylint==0.21.0
