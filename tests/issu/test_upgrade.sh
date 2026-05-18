@@ -209,9 +209,6 @@ fi
 ENTERPRISE_LICENSE=${MEMGRAPH_ENTERPRISE_LICENSE:-""}
 ORGANIZATION_NAME=${MEMGRAPH_ORGANIZATION_NAME:-""}
 
-echo -e "${YELLOW} Creating secret with license details"
-kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=${ENTERPRISE_LICENSE} --from-literal=MEMGRAPH_ORGANIZATION_NAME=${ORGANIZATION_NAME}
-
 sed -e "s/{{VERSION_TAG}}/${LAST_TAG}/g" \
     values_template.yaml > old_values.yaml
 echo -e "${GREEN}Generated old_values.yaml with tag: ${LAST_TAG}${NC}"
@@ -565,10 +562,11 @@ for i in "${!nodes[@]}"; do
   fi
 done
 
+echo -e "${YELLOW} Creating secret with license details"
+kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=${ENTERPRISE_LICENSE} --from-literal=MEMGRAPH_ORGANIZATION_NAME=${ORGANIZATION_NAME}
 
 # --- Helm chart prep ---
 helm repo add memgraph https://memgraph.github.io/helm-charts
-
 
 # --- Helm install ---
 echo -e "${GREEN}Installing Helm chart...${NC}"
