@@ -1106,6 +1106,9 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   snapshot_recovery_latency_family_.Remove(h.snapshot_recovery_latency_seconds.get());
   gc_latency_family_.Remove(h.gc_latency_seconds.get());
   gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds.get());
+  if (default_db_uuid_ && *default_db_uuid_ == uuid) {
+    default_db_uuid_.reset();
+  }
   databases_.entries.erase(it);
 }
 
@@ -1504,7 +1507,11 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
 }
 
 std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
-  auto const default_snapshot = default_db_uuid_ ? ResolveStorageSnapshot(*default_db_uuid_) : StorageSnapshot{};
+  auto const default_db_uuid = [&] {
+    std::shared_lock const lock{databases_.mutex};
+    return default_db_uuid_;
+  }();
+  auto const default_snapshot = default_db_uuid ? ResolveStorageSnapshot(*default_db_uuid) : StorageSnapshot{};
 
   std::vector<MetricInfo> out;
   auto const default_vertex_count = static_cast<int64_t>(default_snapshot.vertex_count);
