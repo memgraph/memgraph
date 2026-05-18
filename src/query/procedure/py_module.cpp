@@ -378,7 +378,8 @@ PyObject *PyGraphIsMutable(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(CallBool(mgp_graph_is_mutable, self->graph));
 }
 
-static PyObject *PyGraphGetTransactionId(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
+namespace {
+PyObject *PyGraphGetTransactionId(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(PyGraphIsValidImpl(*self));
   int64_t tx_id{0};
   if (RaiseExceptionFromErrorCode(mgp_graph_get_transaction_id(self->graph, &tx_id))) {
@@ -386,6 +387,7 @@ static PyObject *PyGraphGetTransactionId(PyGraph *self, PyObject *Py_UNUSED(igno
   }
   return PyLong_FromLongLong(tx_id);
 }
+}  // namespace
 
 PyObject *MakePyVertexWithoutCopy(mgp_vertex &vertex, PyGraph *py_graph);
 
