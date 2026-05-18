@@ -49,6 +49,7 @@ DEFINE_VALIDATED_int32(metrics_port, 9091, "Port on which the Memgraph server fo
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_string(metrics_format, "JSON",
                         "Format for the metrics endpoint. Supported values: OpenMetrics, JSON. JSON is deprecated.", {
+                          (void)flagname;
                           if (value == "OpenMetrics") return true;
                           if (value == "JSON") {
                             // As JSON is currently the default, if `--metrics-format=JSON` is

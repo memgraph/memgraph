@@ -7635,7 +7635,7 @@ class OutputTableCursor : public Cursor {
 };
 
 UniqueCursorPtr OutputTable::MakeCursor(utils::MemoryResource *mem,
-                                        metrics::DatabaseMetricHandles &metric_handles) const {
+                                        metrics::DatabaseMetricHandles & /*metric_handles*/) const {
   return MakeUniqueCursorPtr<OutputTableCursor>(mem, *this);
 }
 
@@ -7687,7 +7687,7 @@ class OutputTableStreamCursor : public Cursor {
 };
 
 UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem,
-                                              metrics::DatabaseMetricHandles &metric_handles) const {
+                                              metrics::DatabaseMetricHandles & /*metric_handles*/) const {
   return MakeUniqueCursorPtr<OutputTableStreamCursor>(mem, this);
 }
 

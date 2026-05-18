@@ -102,7 +102,7 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       db_arena_pool_(db_arena_pool),
-      metric_handles_{std::move(metric_handles)},
+      metric_handles_{metric_handles},
       indices_(config, storage_mode, db_embedding_memory_tracker, metric_handles_.active_label_indices,
                metric_handles_.active_label_property_indices, metric_handles_.active_edge_type_indices,
                metric_handles_.active_edge_type_property_indices, metric_handles_.active_edge_property_indices),

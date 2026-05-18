@@ -310,7 +310,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
                                  memgraph::memory::ArenaPool *db_arena,
                                  utils::MemoryTracker *db_embedding_memory_tracker)
-    : Storage(config, config.salient.storage_mode, std::move(invalidator), std::move(metric_handles), db_arena,
+    : Storage(config, config.salient.storage_mode, std::move(invalidator), metric_handles, db_arena,
               db_embedding_memory_tracker, std::move(database_protector_factory)),
       db_arena_(db_arena),
       vertices_{},
@@ -355,7 +355,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Disable ttl until after recovery and role switch / write enabled
     ttl_.SetUserCheck([]() -> bool { return false; });
     // Recover data
-    utils::Timer recovery_timer;
+    utils::Timer const recovery_timer;
     auto info = recovery_.RecoverData(
         uuid(),
         repl_storage_state_,

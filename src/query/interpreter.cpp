@@ -6714,7 +6714,7 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
 }
 
 PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
-                                       InterpreterContext *interpreter_context) {
+                                       InterpreterContext * /*interpreter_context*/) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -10209,7 +10209,7 @@ void Interpreter::Commit() {
   }
 
   auto *metric_handles = (*current_db_.db_acc_)->metric_handles();
-  utils::OnScopeExit update_metrics([metric_handles]() { metric_handles->committed_transactions.Increment(); });
+  utils::OnScopeExit const update_metrics([metric_handles]() { metric_handles->committed_transactions.Increment(); });
 
   std::optional<TriggerContext> trigger_context = std::nullopt;
   if (current_db_.trigger_context_collector_) {

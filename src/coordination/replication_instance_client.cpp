@@ -23,7 +23,7 @@
 namespace memgraph::coordination {
 
 // clang-format off
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+// NOLINTBEGIN(cppcoreguidelines-macro-usage,bugprone-macro-parentheses)
 #define RpcInfoSpecialize(RPC, SUCC, FAIL, HIST)                                                             \
   template <>                                                                                                \
   prometheus::Counter *RpcInfo<RPC>::succ_counter() { return metrics::Metrics().global.SUCC; }              \
@@ -31,6 +31,7 @@ namespace memgraph::coordination {
   prometheus::Counter *RpcInfo<RPC>::fail_counter() { return metrics::Metrics().global.FAIL; }              \
   template <>                                                                                                \
   prometheus::Histogram *RpcInfo<RPC>::histogram() { return metrics::Metrics().global.HIST; }
+// NOLINTEND(cppcoreguidelines-macro-usage,bugprone-macro-parentheses)
 
 RpcInfoSpecialize(PromoteToMainRpc,            promote_to_main_rpc_success,               promote_to_main_rpc_fail,               promote_to_main_rpc_seconds)
 RpcInfoSpecialize(DemoteMainToReplicaRpc,      demote_main_to_replica_rpc_success,        demote_main_to_replica_rpc_fail,        demote_main_to_replica_rpc_seconds)
