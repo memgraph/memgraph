@@ -1276,7 +1276,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
     std::shared_lock const lock{databases_.mutex};
     auto const it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
     if (it == databases_.entries.end()) {
-      return std::unexpected(fmt::format("Database '{}' not found in metrics registry", std::string(uuid)));
+      return std::unexpected(fmt::format("Metrics registry has no database with UUID '{}'", std::string(uuid)));
     }
   }
 
@@ -1287,7 +1287,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   std::shared_lock const lock{databases_.mutex};
   auto const it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
   if (it == databases_.entries.end()) {
-    return std::unexpected(fmt::format("Database '{}' not found in metrics registry", std::string(uuid)));
+    return std::unexpected(fmt::format("Metrics registry has no database with UUID '{}'", std::string(uuid)));
   }
 
   auto const &h = it->handles;
