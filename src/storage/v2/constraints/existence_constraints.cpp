@@ -104,6 +104,7 @@ ExistenceConstraints::IndividualConstraintPtr ExistenceConstraints::DropConstrai
   return constraints_.WithLock([&](ContainerPtr &constraints) -> IndividualConstraintPtr {
     auto it = constraints->find({label, property});
     if (it == constraints->end()) return nullptr;
+    // Clear ScopedGauge, which decrements the gauge backing this metric.
     it->second->gauge_ = {};
     auto evicted = it->second;
 

@@ -232,6 +232,7 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   db_transactional_accessor_.reset();
   execution_db_accessor_.reset();
   trigger_context_collector_.reset();
+  // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
 }
 

@@ -15,6 +15,8 @@
 
 namespace memgraph::metrics {
 
+/// Non-owning RAII wrapper over a prometheus::Gauge. The gauge is incremented
+/// on construction and decremented when the wrapper is destructed.
 class ScopedGauge {
  public:
   ScopedGauge() = default;

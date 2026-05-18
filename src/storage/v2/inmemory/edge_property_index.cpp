@@ -277,6 +277,7 @@ auto InMemoryEdgePropertyIndex::DropIndex(PropertyId property, ActiveIndicesUpda
       [&](std::shared_ptr<IndicesContainer const> &indices_container) -> std::shared_ptr<IndividualIndex> {
         auto const it = indices_container->indices_.find(property);
         if (it == indices_container->indices_.cend()) return {};
+        // Clear ScopedGauge, which decrements the gauge backing this metric.
         it->second->gauge_ = {};
         auto evicted_entry = it->second;
 

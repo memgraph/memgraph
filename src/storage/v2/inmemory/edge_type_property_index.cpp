@@ -233,6 +233,7 @@ auto InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId p
         if (it == index_container->end()) [[unlikely]] {
           return {};
         }
+        // Clear ScopedGauge, which decrements the gauge backing this metric.
         it->second->gauge_ = {};
         auto evicted_entry = it->second;
         auto new_container = std::make_shared<IndexContainer>(*index_container);
