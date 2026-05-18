@@ -108,7 +108,7 @@ EXPECTED_JSON_METRICS = {
     },
     "Transaction": {
         "ActiveTransactions",
-        "CommitedTransactions",
+        "CommittedTransactions",
         "RollbackedTransactions",
         "FailedQuery",
         "FailedPrepare",
@@ -366,7 +366,7 @@ def test_json_constraint_gauges(populated_databases):
 
 def test_json_transaction_counters_incremented(populated_databases):
     m = scrape_json()
-    assert m["Transaction"]["CommitedTransactions"] > 0
+    assert m["Transaction"]["CommittedTransactions"] > 0
     assert m["Transaction"]["SuccessfulQuery"] > 0
 
 
