@@ -17,6 +17,7 @@ on:
         options:
           - prod
           - debug
+          - both
       os:
         type: choice
         description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS."

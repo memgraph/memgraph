@@ -212,7 +212,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04]
         arch: [amd, arm]
-        package_flavour: [prod, debug]
+        package_flavour: [both]
         malloc: [false]
         include:
           - os: ubuntu-24.04

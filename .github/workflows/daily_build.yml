@@ -152,7 +152,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04]
         arch: [amd, arm]
-        package_flavour: [prod, debug]
+        package_flavour: [both]
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
