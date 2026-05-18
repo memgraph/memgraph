@@ -53,14 +53,15 @@ class ArenaPool {
   ArenaPool &operator=(ArenaPool &&) = delete;
 
   // Returns the constructor-created base arena used by long-lived arena-aware
-  // owners and short-lived DB-scoped work.
+  // owners (e.g. Storage containers). Short-lived DB-scoped work should use
+  // Acquire() / Release() so the pool can be shared across threads.
   unsigned idx() const noexcept;
 
   // Acquire an arena for DB-owned thread work.
   unsigned Acquire();
 
   // Return an arena acquired from this pool so a future Acquire() can reuse it.
-  void Release(unsigned arena_idx);
+  void Release(unsigned arena_idx) noexcept;
 
   // Returns true if this pool owns the arena index.
   bool Owns(unsigned arena_idx) const;
@@ -68,6 +69,15 @@ class ArenaPool {
   // Decay and purge all arenas currently owned by this pool so extent hooks can
   // report released pages back to the DB memory tracker.
   void PurgeAllArenas() const;
+
+  // Acquire an explicit tcache for DB-owned thread work.
+  unsigned AcquireTcache();
+
+  // Return a tcache acquired from this pool so a future AcquireTcache() can reuse it.
+  void ReleaseTcache(unsigned tcache_id) noexcept;
+
+  // Destroy all pooled tcaches. Must only be called when no tcaches are in use.
+  void DestroyAllTcaches();
 
  private:
 #if USE_JEMALLOC
@@ -80,10 +90,16 @@ class ArenaPool {
   std::vector<unsigned> arenas_;
   std::size_t free_count_{0};
 
-  // Cache of the first arena for backwards compatibility
+  // The base arena created in the ArenaPool constructor. Used as the fallback
+  // when Acquire() cannot create a new arena, and by long-lived owners that
+  // capture an explicit arena index (e.g. Storage containers).
   unsigned first_arena_idx_{0};
 
   unsigned first_arena_use_count_{0};
+
+  // Tcache pool members
+  std::mutex tcache_mutex_;
+  std::vector<unsigned> tcaches_;
 #endif
 };
 
@@ -94,7 +110,8 @@ class ArenaPool {
 // `base_hooks` – jemalloc's default hooks; the callbacks call through to these.
 // After calling this, install with:
 //   const extent_hooks_t *p = &h.hooks;
-//   je_mallctl("arena.N.extent_hooks", nullptr, nullptr, &p, sizeof(p));
+//   je_mallctl("arena.N.extent_hooks", nullptr, nullptr, static_cast<void *>(const_cast<extent_hooks_t **>(&p)),
+//   sizeof(p));
 void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hooks_t *base_hooks);
 
 // Singleton pool that recycles jemalloc arena indices across database ArenaPool lifetimes.

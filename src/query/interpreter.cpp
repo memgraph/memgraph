@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -31,6 +32,7 @@
 #include <thread>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <usearch/index_plugins.hpp>
 #include <utility>
 #include <variant>
@@ -127,6 +129,7 @@
 #include "utils/settings.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
@@ -3896,7 +3899,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     return label_stats;
   };
 
-  auto populate_label_property_stats = [execution_db_accessor, view](auto index_info) {
+  auto populate_label_property_stats = [execution_db_accessor, view](auto &index_info) {
     std::map<LPIndex, std::map<std::vector<storage::PropertyValue>, int64_t>> label_property_counter;
     std::map<LPIndex, uint64_t> vertex_degree_counter;
 
@@ -4026,6 +4029,15 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
   std::vector<LPIndex> label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
+  // Stats are keyed by (label, properties) only — `IndexOrder` does not affect
+  // count/chi-squared/avg_degree. Collapse entries that differ only in order
+  // so we don't perform a redundant full vertex scan when both ASC and DESC
+  // indexes exist on the same key.
+  auto const stats_key_proj = [](LPIndex const &e) { return e.stats_key(); };
+  std::ranges::sort(label_property_indices_info, std::less{}, stats_key_proj);
+  label_property_indices_info.erase(
+      std::ranges::unique(label_property_indices_info, std::equal_to{}, stats_key_proj).begin(),
+      label_property_indices_info.end());
   auto label_property_stats = populate_label_property_stats(label_property_indices_info);
 
   std::vector<std::vector<TypedValue>> results;
@@ -4112,11 +4124,10 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   auto populate_label_property_results = [execution_db_accessor](auto const &index_info) {
     std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyPath>>> label_property_results;
     label_property_results.reserve(index_info.size());
-
     std::for_each(index_info.begin(),
                   index_info.end(),
-                  [execution_db_accessor, &label_property_results](const storage::LabelPropertyIndexEntry &entry) {
-                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(entry.label);
+                  [execution_db_accessor, &label_property_results](const storage::LabelId &label) {
+                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(label);
                     label_property_results.insert(
                         label_property_results.end(), std::move_iterator{res.begin()}, std::move_iterator{res.end()});
                   });
@@ -4132,7 +4143,15 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
 
   auto label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
-  auto label_prop_results = populate_label_property_results(label_property_indices_info);
+  // `DeleteLabelPropertyIndexStats` is keyed by label and wipes every
+  // (label, properties) entry in one call — collapse to unique labels so
+  // repeated entries (different property combos, or ASC/DESC pairs) don't
+  // produce redundant replicated metadata deltas.
+  auto unique_labels =
+      label_property_indices_info | rv::transform(&storage::LabelPropertyIndexEntry::label) | ranges::to<std::vector>();
+  std::ranges::sort(unique_labels);
+  unique_labels.erase(std::ranges::unique(unique_labels).begin(), unique_labels.end());
+  auto label_prop_results = populate_label_property_results(unique_labels);
 
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
@@ -5280,7 +5299,8 @@ PreparedQuery PrepareReplicationInfoQuery(ParsedQuery parsed_query, bool in_expl
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
@@ -5421,7 +5441,8 @@ PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, bool in_explicit_
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 }
 
 PreparedQuery PrepareShowQueryCallableMappingsQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
@@ -5445,7 +5466,8 @@ PreparedQuery PrepareShowQueryCallableMappingsQuery(ParsedQuery parsed_query, bo
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 }
 
 TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
@@ -6219,7 +6241,8 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
@@ -6503,6 +6526,16 @@ auto ToStatusFilter(TransactionStatus status) -> std::optional<TransactionQueueQ
   }
 }
 
+auto StartTimeAndElapsedMs(std::chrono::system_clock::time_point start,
+                           std::chrono::steady_clock::time_point steady_start) -> std::pair<TypedValue, int64_t> {
+  static const utils::Timezone kUtc = utils::DefaultTimezone();
+  auto const start_us = std::chrono::duration_cast<std::chrono::microseconds>(start.time_since_epoch());
+  TypedValue start_tv(utils::ZonedDateTime(std::chrono::sys_time<std::chrono::microseconds>{start_us}, kUtc));
+  auto const elapsed_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - steady_start).count();
+  return {std::move(start_tv), elapsed_ms};
+}
+
 template <typename Func>
 auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
                       Func &&privilege_checker, const std::vector<TransactionQueueQuery::StatusFilter> &status_filter)
@@ -6547,9 +6580,40 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
         }
       }
       results.back().emplace_back(metadata_tv);
+      auto [start_tv, elapsed_ms] =
+          StartTimeAndElapsedMs(interpreter->transaction_start_time_, interpreter->transaction_start_steady_);
+      results.back().emplace_back(std::move(start_tv));
+      results.back().emplace_back(elapsed_ms);
     }
   }
   return results;
+}
+
+std::vector<TypedValue> BuildSnapshotTransactionRow(storage::SnapshotProgressView const &progress,
+                                                    std::string_view db_name) {
+  std::map<std::string, TypedValue> metadata;
+  metadata.emplace("phase", storage::SnapshotProgress::PhaseToString(progress.phase));
+  metadata.emplace("items_done", static_cast<int64_t>(progress.items_done));
+  metadata.emplace("items_total", static_cast<int64_t>(progress.items_total));
+  metadata.emplace("db_name", std::string{db_name});
+  TypedValue start_tv{};
+  int64_t elapsed_ms = 0;
+  if (progress.start_time_us > 0) {
+    auto const start_tp = std::chrono::system_clock::time_point{std::chrono::microseconds{progress.start_time_us}};
+    auto const steady_start =
+        std::chrono::steady_clock::time_point{std::chrono::milliseconds{progress.start_steady_ms}};
+    std::tie(start_tv, elapsed_ms) = StartTimeAndElapsedMs(start_tp, steady_start);
+  }
+  std::vector<TypedValue> row;
+  row.reserve(7);
+  row.emplace_back("");
+  row.emplace_back("snapshot");
+  row.emplace_back(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")});
+  row.emplace_back("running");
+  row.emplace_back(std::move(metadata));
+  row.emplace_back(std::move(start_tv));
+  row.emplace_back(elapsed_ms);
+  return row;
 }
 
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
@@ -6569,7 +6633,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                 status_filter = transaction_query->status_filter_](const auto &interpreters) {
         return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
       };
-      callback.header = {"username", "transaction_id", "query", "status", "metadata"};
+      callback.header = {"username", "transaction_id", "query", "status", "metadata", "start_time", "elapsed_ms"};
       // Snapshot rows always have status "running"; skip them entirely if the filter
       // is active and RUNNING is not among the requested statuses.
       const bool include_snapshots =
@@ -6584,24 +6648,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
             if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
             auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
             if (!mem_storage->IsSnapshotRunning()) return;
-            auto progress = mem_storage->GetSnapshotProgress();
-            // Build progress metadata
-            std::map<std::string, TypedValue> metadata;
-            metadata["phase"] = TypedValue(storage::SnapshotProgress::PhaseToString(progress.phase));
-            metadata["items_done"] = TypedValue(static_cast<int64_t>(progress.items_done));
-            metadata["items_total"] = TypedValue(static_cast<int64_t>(progress.items_total));
-            if (progress.start_time_us > 0) {
-              auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count();
-              metadata["elapsed_ms"] = TypedValue(static_cast<int64_t>((now_us - progress.start_time_us) / 1000));
-            }
-            metadata["db_name"] = TypedValue(db_acc->name());
-            results.push_back({TypedValue(""),
-                               TypedValue("snapshot"),
-                               TypedValue(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")}),
-                               TypedValue("running"),
-                               TypedValue(metadata)});
+            results.emplace_back(BuildSnapshotTransactionRow(mem_storage->GetSnapshotProgress(), db_acc->name()));
           });
         }
         return results;
@@ -6660,7 +6707,8 @@ PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, std::shared
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 }
 
 PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
@@ -6679,7 +6727,8 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
                              stream->Result(version_value);
                              return QueryHandlerResult::COMMIT;
                            },
-                       .rw_type = RWType::NONE};
+                       .rw_type = RWType::NONE,
+                       .priority = utils::Priority::HIGH};
 }
 
 PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
@@ -7796,7 +7845,8 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
         return std::nullopt;
       },
       .rw_type = RWType::NONE,
-      .db = query->db_name_};
+      .db = query->db_name_,
+      .priority = utils::Priority::HIGH};
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
@@ -7832,7 +7882,8 @@ PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curr
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
@@ -7957,9 +8008,13 @@ PreparedQuery PrepareShowMemoryInfoQuery([[maybe_unused]] ParsedQuery parsed_que
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 #else
-  throw QueryRuntimeException("SHOW MEMORY INFO is only available in the enterprise edition.");
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)interpreter_context;
+  throw EnterpriseOnlyException();
 #endif
 }
 
@@ -9792,6 +9847,9 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
   auto tx_id = interpreter_context_->id_handler.next();
   current_transaction_ = tx_id;
+  transaction_start_time_ = std::chrono::system_clock::now();
+  transaction_start_steady_ = std::chrono::steady_clock::now();
+  // Release publishes the start-time writes above to verifier-holding readers.
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   if (query_logger_) {
     query_logger_->SetTransactionId(std::to_string(tx_id));

@@ -308,12 +308,42 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
   // Verify the SHOW TRANSACTIONS header includes the status column
   auto [stream, qid] = this->main_interpreter.Prepare("SHOW TRANSACTIONS");
   auto header = stream.GetHeader();
-  ASSERT_EQ(header.size(), 5U);
+  ASSERT_EQ(header.size(), 7U);
   EXPECT_EQ(header[0], "username");
   EXPECT_EQ(header[1], "transaction_id");
   EXPECT_EQ(header[2], "query");
   EXPECT_EQ(header[3], "status");
   EXPECT_EQ(header[4], "metadata");
+  EXPECT_EQ(header[5], "start_time");
+  EXPECT_EQ(header[6], "elapsed_ms");
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, ElapsedMsAdvances) {
+  this->running_interpreter.Interpret("BEGIN");
+  const auto run_tx_id = this->running_interpreter.interpreter.GetTransactionId();
+  ASSERT_TRUE(run_tx_id.has_value());
+  const auto run_tx_id_str = std::to_string(*run_tx_id);
+
+  auto get_running_elapsed = [&]() -> int64_t {
+    auto stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+    for (const auto &row : stream.GetResults()) {
+      if (row[1].ValueString() == run_tx_id_str) {
+        EXPECT_TRUE(row[5].IsZonedDateTime());
+        EXPECT_TRUE(row[6].IsInt());
+        return row[6].ValueInt();
+      }
+    }
+    ADD_FAILURE() << "running transaction not visible in SHOW TRANSACTIONS";
+    return -1;
+  };
+
+  auto const d1 = get_running_elapsed();
+  EXPECT_GE(d1, 0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  auto const d2 = get_running_elapsed();
+  EXPECT_GT(d2, d1);
+
+  this->running_interpreter.Interpret("ROLLBACK");
 }
 
 TYPED_TEST(TransactionQueueSimpleTest, ShowRunningTransactionsFilter) {

@@ -94,7 +94,7 @@ constexpr const char *kMgExperimentalEnabled = "MEMGRAPH_EXPERIMENTAL_ENABLED";
 constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
 
-constexpr uint64_t kMgVmMaxMapCount = 262'144;
+constexpr uint64_t kMgVmMaxMapCount = 524'288;
 
 void WarnDeprecatedFlags() {
   auto warn_if_set = [](std::string_view name, std::string_view message) {
@@ -328,10 +328,10 @@ int main(int argc, char **argv) {
         MG_ASSERT(setdl);
         auto *arg = PyTuple_New(1);
         MG_ASSERT(arg);
-        MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);
+        MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);  // steals flag
         PyObject_CallObject(setdl, arg);
-        Py_DECREF(flag);
-        Py_DECREF(setdl);
+        // flag stolen by SetItem — do NOT Py_DECREF it
+        // setdl is a borrowed ref from PySys_GetObject — do NOT Py_DECREF it
         Py_DECREF(arg);
       }
     } else {
@@ -1074,8 +1074,11 @@ int main(int argc, char **argv) {
   }
   python_gc_scheduler.Stop();
   Py_END_ALLOW_THREADS;
-  // Shutdown Python
-  Py_Finalize();
+  // NOTE: We intentionally skip Py_Finalize(). Third-party extensions (DGL,
+  // PyTorch, numpy) may have spawned background threads that race with
+  // CPython's TSS teardown, causing "gilstate_tss_set: failed to set current
+  // tstate" fatal errors (bpo-42969). Since the process is about to exit, the
+  // OS reclaims all resources. This is standard practice for embedded Python.
   PyMem_RawFree(program_name);
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();

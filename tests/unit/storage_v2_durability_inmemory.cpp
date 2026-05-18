@@ -33,6 +33,7 @@
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "license/license.hpp"
+#include "memory/db_arena.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
@@ -1463,6 +1464,7 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
                        .allow_parallel_snapshot_creation = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     CreateExtendedDataset(db.storage());
@@ -1480,6 +1482,7 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -1504,6 +1507,7 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
   }
@@ -1519,6 +1523,7 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -1553,6 +1558,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     auto const ensure_snapshot_is_written = [&](auto &&func) {
       auto const pre_count = GetSnapshotsList().size();
@@ -1593,6 +1599,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -1614,6 +1621,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
@@ -1645,6 +1653,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     CreateBaseDataset(db.storage(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
@@ -1687,6 +1696,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
                      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
                  };
                  memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
                "");
@@ -1701,6 +1711,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
@@ -1725,6 +1736,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     // Restore unrelated snapshots after the database has been started.
     RestoreBackups();
     CreateBaseDataset(db.storage(), GetParam());
@@ -1749,6 +1761,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -1775,6 +1788,7 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     CreateExtendedDataset(db.storage());
@@ -1794,6 +1808,7 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
   }
 
@@ -1804,6 +1819,7 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
   }
@@ -1827,6 +1843,7 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -1848,6 +1865,7 @@ TEST_P(DurabilityTest, SnapshotBackup) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
@@ -1869,6 +1887,7 @@ TEST_P(DurabilityTest, SnapshotBackup) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -1891,6 +1910,7 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
         .salient = {.items = {.properties_on_edges = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), false);
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, false, false);
     CreateExtendedDataset(db.storage());
@@ -1908,6 +1928,7 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
       .salient = {.items = {.properties_on_edges = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, false, false);
 
   // Try to use the storage.
@@ -1934,6 +1955,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
         .salient = {.items = {.properties_on_edges = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), true);
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, true, false);
     CreateExtendedDataset(db.storage());
@@ -1953,6 +1975,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
                      .salient = {.items = {.properties_on_edges = false}},
                  };
                  memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
                "");
@@ -1967,6 +1990,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
         .salient = {.items = {.properties_on_edges = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), true);
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, true, false);
     CreateExtendedDataset(db.storage());
@@ -2011,6 +2035,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
       .salient = {.items = {.properties_on_edges = false}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, false, false);
 
   // Try to use the storage.
@@ -2037,6 +2062,7 @@ TEST_P(DurabilityTest, WalBasic) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     CreateExtendedDataset(db.storage());
   }
@@ -2052,6 +2078,7 @@ TEST_P(DurabilityTest, WalBasic) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -2079,6 +2106,7 @@ TEST_P(DurabilityTest, WalBackup) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
@@ -2102,6 +2130,7 @@ TEST_P(DurabilityTest, WalBackup) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2124,6 +2153,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
   }
 
@@ -2141,6 +2171,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
     };
     ;
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
   }
 
@@ -2157,6 +2188,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateExtendedDataset(db.storage());
   }
 
@@ -2171,6 +2203,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -2200,6 +2233,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto acc = db.Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     gid_v1 = v1.Gid();
@@ -2236,6 +2270,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   {
     auto acc = db.Access(memgraph::storage::WRITE);
 
@@ -2348,6 +2383,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     CreateExtendedDataset(db.storage());
     auto indices = [&] {
@@ -2401,6 +2437,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   {
     auto acc = db.Access(memgraph::storage::WRITE);
     auto indices = acc->ListAllIndices();
@@ -2447,6 +2484,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto acc1 = db.Access(memgraph::storage::WRITE);
     auto acc2 = db.Access(memgraph::storage::WRITE);
 
@@ -2542,6 +2580,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   {
     auto acc = db.Access(memgraph::storage::WRITE);
     for (auto [gid, id] : std::vector<std::pair<memgraph::storage::Gid, int64_t>>{{gid1, 1}, {gid2, 2}, {gid3, 3}}) {
@@ -2581,6 +2620,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     CreateExtendedDataset(db.storage());
     auto label_indexed = db.storage()->NameToLabel("base_indexed");
@@ -2607,6 +2647,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(),
                 DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS,
                 GetParam(),
@@ -2641,6 +2682,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
           .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
       };
       memgraph::dbms::Database db{config};
+      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
       // Create one million vertices.
       for (uint64_t i = 0; i < 1'000'000; ++i) {
         auto acc = db.Access(memgraph::storage::WRITE);
@@ -2683,6 +2725,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     {
       auto acc = db.Access(memgraph::storage::WRITE);
       auto iterable = acc->Vertices(memgraph::storage::View::OLD);
@@ -2712,6 +2755,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   {
     uint64_t current = 0;
     auto acc = db.Access(memgraph::storage::WRITE);
@@ -2747,6 +2791,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
@@ -2774,6 +2819,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     const uint64_t kNumVertices = 1000;
     std::vector<memgraph::storage::Gid> gids;
     gids.reserve(kNumVertices);
@@ -2823,6 +2869,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
                      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
                  };
                  memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
                "");
@@ -2843,6 +2890,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
@@ -2870,6 +2918,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     const uint64_t kNumVertices = 1000;
     std::vector<memgraph::storage::Gid> gids;
     gids.reserve(kNumVertices);
@@ -2919,6 +2968,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
                      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
                  };
                  memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
                "");
@@ -2939,6 +2989,7 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     CreateExtendedDataset(db.storage(), /* single_transaction = */ true);
   }
@@ -2962,6 +3013,7 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   // The extended dataset shouldn't be recovered because its WAL transaction was
   // corrupt.
   VerifyDataset(db.storage(),
@@ -2994,6 +3046,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
@@ -3041,6 +3094,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   {
     auto acc = db.Access(memgraph::storage::WRITE);
     uint64_t count = 0;
@@ -3078,6 +3132,7 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
     CreateExtendedDataset(db.storage());
@@ -3094,6 +3149,7 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -3115,6 +3171,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
   }
 
@@ -3131,6 +3188,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
   }
 
@@ -3147,6 +3205,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateExtendedDataset(db.storage());
   }
 
@@ -3161,6 +3220,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -3187,6 +3247,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
   }
 
@@ -3203,6 +3264,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
   }
 
@@ -3219,6 +3281,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateExtendedDataset(db.storage());
   }
 
@@ -3241,6 +3304,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
     auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
@@ -3263,6 +3327,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(),
                 DatasetType::BASE_WITH_EXTENDED,
                 GetParam(),
@@ -3311,6 +3376,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
@@ -3340,6 +3406,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     // Restore unrelated snapshots after the database has been started.
     RestoreBackups();
     memgraph::utils::Timer timer;
@@ -3371,6 +3438,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
           .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
       };
       memgraph::dbms::Database db{config};
+      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
       auto acc = db.Access(memgraph::storage::WRITE);
       for (uint64_t j = 0; j < items_created; ++j) {
         auto vertex = acc->FindVertex(memgraph::storage::Gid::FromUint(j), memgraph::storage::View::OLD);
@@ -3391,6 +3459,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
                      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
                  };
                  memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
                "");
@@ -3411,6 +3480,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
@@ -3434,6 +3504,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
     CreateExtendedDataset(db.storage());
@@ -3459,6 +3530,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -3483,6 +3555,7 @@ TEST_P(DurabilityTest, ParallelSnapshotRecovery) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     CreateExtendedDataset(db.storage());
@@ -3504,6 +3577,7 @@ TEST_P(DurabilityTest, ParallelSnapshotRecovery) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 }
 
@@ -3522,6 +3596,7 @@ TEST_P(DurabilityTest, ParallelWalRecovery) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     CreateExtendedDataset(db.storage());
@@ -3545,6 +3620,7 @@ TEST_P(DurabilityTest, ParallelWalRecovery) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 }
 
@@ -3567,6 +3643,7 @@ TEST_P(DurabilityTest, ParallelSnapshotWalRecovery) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     // Manually create database in the middle
@@ -3592,6 +3669,7 @@ TEST_P(DurabilityTest, ParallelSnapshotWalRecovery) {
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 }
 
@@ -3610,6 +3688,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
     config.durability.recover_on_startup = false;
     config.durability.snapshot_on_exit = true;
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     CreateExtendedDataset(db.storage());
@@ -3697,6 +3776,7 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     CreateEdgeIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"));
@@ -3713,6 +3793,7 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
   memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                                    .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(
       db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam(), config.salient.items.enable_schema_info);
 
@@ -3736,6 +3817,7 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     CreateEdgeIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"));
@@ -3760,6 +3842,7 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
   memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                                    .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(),
                 DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED,
                 GetParam(),
@@ -3785,6 +3868,7 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     CreateEdgePropertyIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"), db.storage()->NameToProperty("id"));
@@ -3806,6 +3890,7 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
   memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                                    .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(),
                 DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED,
                 GetParam(),
@@ -3831,6 +3916,7 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
   }
@@ -3845,6 +3931,7 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient.items = {.properties_on_edges = GetParam(), .enable_edges_metadata = true, .enable_schema_info = false}};
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
 
   // Check if data has been loaded correctly.
@@ -3886,6 +3973,7 @@ TEST_F(DurabilityTest, TtlDurability) {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     // Configure TTL with edge TTL enabled
     {
@@ -3918,6 +4006,7 @@ TEST_F(DurabilityTest, TtlDurability) {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                                      .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     // Verify TTL configuration was recovered
     {
@@ -3933,6 +4022,7 @@ TEST_F(DurabilityTest, TtlDurability) {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     // Configure TTL with edge TTL disabled
     {
@@ -3961,6 +4051,7 @@ TEST_F(DurabilityTest, TtlDurability) {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     // Disable TTL
     {
@@ -3986,6 +4077,7 @@ TEST_F(DurabilityTest, TtlDurability) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
         .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     // Perform various TTL operations that will be logged to WAL
     {
@@ -4045,6 +4137,7 @@ TEST_F(DurabilityTest, TtlDurability) {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                                      .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     // Verify final TTL configuration (last operation was ConfigureTtl with 1-hour period and edge TTL enabled)
     {
@@ -4067,6 +4160,7 @@ TEST_F(DurabilityTest, TtlDurability) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
         .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     ASSERT_FALSE(db.storage()->ttl_.Running());
     ASSERT_FALSE(db.storage()->ttl_.Enabled());
@@ -4104,6 +4198,7 @@ TEST_F(DurabilityTest, TtlDurability) {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                                      .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     // Verify TTL is stopped
     {
@@ -4126,6 +4221,7 @@ TEST_F(DurabilityTest, TtlDurability) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
         .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     // Verify setup and stopped TTL
     {
@@ -4149,6 +4245,7 @@ TEST_F(DurabilityTest, TtlDurability) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
         .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     // Verify setup and stopped TTL
     {
@@ -4181,6 +4278,7 @@ TEST_F(DurabilityTest, TtlDurability) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
         .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     // Verify setup and running TTL
     {
@@ -4204,6 +4302,7 @@ TEST_F(DurabilityTest, TtlDurability) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
         .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     // Verify setup and running TTL
     {
@@ -4230,6 +4329,7 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsPath) {
   };
 
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -4269,6 +4369,7 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsErrorForReplica) {
   };
 
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
   auto result = mem_storage->CreateSnapshot();
@@ -4452,6 +4553,7 @@ TEST_P(DurabilityTest, SnapshotWithNonSequentialDeltas) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     {
       auto acc = db.Access(memgraph::storage::WRITE);
@@ -4501,6 +4603,7 @@ TEST_P(DurabilityTest, SnapshotWithNonSequentialDeltas) {
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{recovery_config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     auto acc = db.Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
@@ -4540,6 +4643,7 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     {
       auto acc = db.Access(memgraph::storage::WRITE);
@@ -4578,6 +4682,7 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
   memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                                    .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
   {
     auto acc = db.Access(memgraph::storage::READ);
@@ -4605,6 +4710,7 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
                        .snapshot_on_exit = false},
         .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
     memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     {
       auto acc = db.Access(memgraph::storage::WRITE);
@@ -4634,6 +4740,7 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
   memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                                    .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
   memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
   {
     auto acc = db.Access(memgraph::storage::READ);

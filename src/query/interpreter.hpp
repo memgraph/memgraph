@@ -12,6 +12,7 @@
 #pragma once
 
 #include <gflags/gflags.h>
+#include <chrono>
 #include <optional>
 
 #include "dbms/database.hpp"
@@ -214,7 +215,7 @@ struct PreparedQuery {
   std::move_only_function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
   std::optional<std::string> db{};
-  utils::Priority priority{utils::Priority::HIGH};
+  utils::Priority priority{utils::Priority::LOW};
 };
 
 /**
@@ -474,6 +475,11 @@ class Interpreter final {
   // When transaction_status_ is VERIFYING, current_transaction_ is stable.
   // When transaction_status_ is IDLE, current_transaction_ is nullopt.
   std::optional<uint64_t> current_transaction_{std::nullopt};
+  // Set in SetupInterpreterTransaction; published via the release-store on transaction_status_
+  // and read by ShowTransactions under a verifier (acquire on the same atomic). system_clock
+  // is used for start_time; steady_clock for elapsed_ms (immune to NTP / manual clock jumps).
+  std::chrono::system_clock::time_point transaction_start_time_{};
+  std::chrono::steady_clock::time_point transaction_start_steady_{};
 
   void ResetUser();
 
