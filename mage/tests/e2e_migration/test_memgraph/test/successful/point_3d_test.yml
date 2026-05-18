@@ -1,0 +1,18 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.point_3d_col AS point_3d_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.point_3d_col) AS point_3d_col_type,
+         row.point_3d_col.x AS point_3d_col_x,
+         row.point_3d_col.y AS point_3d_col_y,
+         row.point_3d_col.z AS point_3d_col_z,
+         row.point_3d_col.srid AS point_3d_col_srid
+
+output:
+  - point_3d_col_type: 'POINT'
+    point_3d_col_x: 1.0
+    point_3d_col_y: 2.0
+    point_3d_col_z: 3.0
+    point_3d_col_srid: 9157

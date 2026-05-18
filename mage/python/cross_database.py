@@ -222,7 +222,9 @@ def _convert_bolt_value(value):
         pass
 
     if isinstance(value, Neo4jPoint):
-        raise ValueError(f"Point type is not yet supported in cross-database queries: {value}")
+        if len(value) == 2:
+            return mgp.Point2d(value.x, value.y, value.srid)
+        return mgp.Point3d(value.x, value.y, value.z, value.srid)
 
     if isinstance(value, list):
         return [_convert_bolt_value(item) for item in value]
