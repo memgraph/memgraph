@@ -16,6 +16,8 @@
 #include <optional>
 #include <string>
 
+#include "metrics/prometheus_metrics.hpp"
+
 #ifdef MG_ENTERPRISE
 
 #include <fmt/core.h>
@@ -23,8 +25,6 @@
 
 #include "utils/exceptions.hpp"
 #include "utils/scheduler.hpp"
-
-#include "metrics/prometheus_metrics.hpp"
 
 namespace memgraph::storage {
 class Storage;
