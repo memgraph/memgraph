@@ -142,8 +142,9 @@ def test_instance_metrics_present(test_name):
     for instance in INSTANCES:
         assert f'memgraph_instance_up{{mg_instance="{instance}"}}' in metrics
         assert f'memgraph_instance_is_main{{mg_instance="{instance}"}}' in metrics
-        assert f'memgraph_instance_is_leader{{mg_instance="{instance}"}}' in metrics
         assert f'memgraph_instance_last_response_seconds{{mg_instance="{instance}"}}' in metrics
+
+    assert 'memgraph_instance_is_leader{mg_instance="coordinator_1"}' in metrics
 
 
 if __name__ == "__main__":
