@@ -151,4 +151,11 @@ DECLARE_string(cluster_ca_file);
 
 namespace memgraph::flags {
 auto IsIntraClusterTLSEnabled() -> bool;
+
+// Validates that --cluster-cert-file, --cluster-key-file, and --cluster-ca-file
+// are either all set or all empty. Calls LOG_FATAL on a partial configuration
+// (refuses to start in a half-configured TLS state). Emits an info banner when
+// intra-cluster TLS is fully configured. Should be called once at startup,
+// after the logger is initialized.
+void ValidateIntraClusterTLSFlags();
 }  // namespace memgraph::flags

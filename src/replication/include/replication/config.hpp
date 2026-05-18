@@ -41,7 +41,8 @@ struct ReplicationClientConfig {
 
 struct ReplicationServerConfig {
   io::network::Endpoint repl_server;  // could be IP or domain name
-  std::optional<utils::TlsConfig> tls_config;
+  std::optional<utils::TlsConfig>
+      tls_config;  // not persisted. Previously was persisted but always as nullptr and never actually read
 
   friend bool operator==(ReplicationServerConfig const &, ReplicationServerConfig const &) = default;
 };

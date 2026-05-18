@@ -21,10 +21,12 @@
 #include <string>
 #include <thread>
 
-#include "spdlog/spdlog.h"
+#include <spdlog/spdlog.h>
+
 #include "storage/v2/config.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/system_info.hpp"
 
@@ -259,4 +261,22 @@ DEFINE_string(cluster_ca_file, "",
 
 auto memgraph::flags::IsIntraClusterTLSEnabled() -> bool {
   return !FLAGS_cluster_cert_file.empty() && !FLAGS_cluster_key_file.empty() && !FLAGS_cluster_ca_file.empty();
+}
+
+void memgraph::flags::ValidateIntraClusterTLSFlags() {
+  const int set_count = static_cast<int>(!FLAGS_cluster_cert_file.empty()) +
+                        static_cast<int>(!FLAGS_cluster_key_file.empty()) +
+                        static_cast<int>(!FLAGS_cluster_ca_file.empty());
+  if (set_count != 0 && set_count != 3) {
+    LOG_FATAL(
+        "Intra-cluster TLS requires --cluster-cert-file, --cluster-key-file, and --cluster-ca-file to be set "
+        "together (or all three to be empty). Refusing to start in a partially-configured TLS state. "
+        "cert_file=\"{}\" key_file=\"{}\" ca_file=\"{}\"",
+        FLAGS_cluster_cert_file,
+        FLAGS_cluster_key_file,
+        FLAGS_cluster_ca_file);
+  }
+  if (set_count == 3) {
+    spdlog::info("Intra-cluster TLS enabled (mTLS).");
+  }
 }

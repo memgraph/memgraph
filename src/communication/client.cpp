@@ -100,8 +100,8 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
       }
       auto const ms_remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
 
-      pollfd pfds[] = {{.fd = fd, .events = events, .revents = 0}};
-      const int poll_status = poll(pfds, 1, static_cast<int>(ms_remaining));
+      std::array<pollfd, 1> pfds{{{.fd = fd, .events = events, .revents = 0}}};
+      const int poll_status = poll(pfds.data(), pfds.size(), static_cast<int>(ms_remaining));
 
       if (poll_status == 0) {
         spdlog::warn("SSL handshake timed out after {}ms", connect_timeout_ms_.count());

@@ -131,8 +131,8 @@ bool Socket::Connect(const Endpoint &endpoint, std::chrono::milliseconds const c
 
           auto const ms_remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
 
-          pollfd pfds[] = {{.fd = fd, .events = POLLOUT}};
-          int const poll_status = poll(pfds, 1, static_cast<int>(ms_remaining));
+          std::array<pollfd, 1> pfds{{{.fd = fd, .events = POLLOUT}}};
+          int const poll_status = poll(pfds.data(), pfds.size(), static_cast<int>(ms_remaining));
 
           // Socket is ready, likely writeable
           if (poll_status > 0) {

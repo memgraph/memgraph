@@ -288,6 +288,10 @@ int main(int argc, char **argv) {
   // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
 
+  // Fail fast if --cluster-{cert,key,ca}-file are partially configured.
+  // Must run after logger init so the fatal message is delivered.
+  memgraph::flags::ValidateIntraClusterTLSFlags();
+
   // Block SIGTERM/SIGINT as early as possible so that every thread we spawn
   // inherits the blocked mask.  The main thread will consume them
   // synchronously via sigwait() later.
@@ -705,6 +709,10 @@ int main(int argc, char **argv) {
     std::optional<memgraph::utils::TlsConfig> maybe_ssl;
     if (memgraph::flags::IsIntraClusterTLSEnabled()) {
       maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file, FLAGS_cluster_ca_file);
+    } else {
+      spdlog::warn(memgraph::utils::MessageWithLink(
+          "Running HA without intra-cluster TLS. Replication, coordinator, and management traffic is unencrypted.",
+          "https://memgr.ph/cluster-tls"));
     }
 
     if (is_coordinator_instance) {
