@@ -212,12 +212,12 @@ def _convert_bolt_value(value):
         if isinstance(value, (Neo4jDateTime, Neo4jDate, Neo4jTime)):
             return value.to_native()
         if isinstance(value, Neo4jDuration):
-            if value.months != 0:
-                raise ValueError(
-                    f"Duration with months is not supported in cross-database queries: {value}. "
-                    "Python timedelta cannot represent month/year components precisely."
-                )
-            return datetime.timedelta(days=value.days, seconds=value.seconds, microseconds=value.nanoseconds // 1000)
+            # Python's datetime.timedelta has no months component. Flatten months into days
+            # using Cypher's own convention of 30 days per month (see Cypher Manual,
+            # duration functions: "The conversions use general standards (30 days in a
+            # month, 24 hours in a day)").
+            days = value.days + value.months * 30
+            return datetime.timedelta(days=days, seconds=value.seconds, microseconds=value.nanoseconds // 1000)
     except ImportError:
         pass
 
