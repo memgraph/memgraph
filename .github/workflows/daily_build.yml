@@ -128,22 +128,6 @@ jobs:
             package_flavour: prod
             arch: amd
             additional_build_args: '--disable-jemalloc'
-          - os: ubuntu-24.04
-            package_flavour: debug
-            arch: arm
-            additional_build_args: ''
-          - os: ubuntu-24.04
-            package_flavour: debug
-            arch: amd
-            additional_build_args: ''
-          - os: ubuntu-24.04
-            package_flavour: debug
-            arch: amd
-            additional_build_args: '--disable-jemalloc'
-          - os: ubuntu-24.04
-            package_flavour: debug
-            arch: arm
-            additional_build_args: '--disable-jemalloc'
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
