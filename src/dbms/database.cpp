@@ -98,6 +98,9 @@ memory::ArenaPool &Database::Arena() const noexcept { return *db_arena_; }
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
       metrics_(config.salient.uuid, ([&config]() -> metrics::DatabaseMetricHandles {
+                 if (!config.register_metrics) {
+                   return {};
+                 }
                  auto const should_register =
                      !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
                  if (!should_register) {

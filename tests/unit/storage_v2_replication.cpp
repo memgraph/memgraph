@@ -86,6 +86,7 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
+        .register_metrics = false,
     };
     UpdatePaths(config, storage_directory);
     return config;
@@ -99,6 +100,7 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
+        .register_metrics = false,
     };
     UpdatePaths(config, repl_storage_directory);
     return config;
@@ -112,6 +114,7 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
+        .register_metrics = false,
     };
     UpdatePaths(config, repl2_storage_directory);
     return config;
@@ -1560,6 +1563,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
               .properties_on_edges = true,
               .enable_schema_info = true,
           },
+      .register_metrics = false,
   };
 
   auto repl_conf = conf;
