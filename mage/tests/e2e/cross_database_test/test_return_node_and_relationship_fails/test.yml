@@ -1,0 +1,10 @@
+query: >
+    CALL cross_database.bolt('MATCH (n)-[r]->(m) RETURN n, r, m', {
+        host: 'localhost',
+        port: 7687
+    })
+    YIELD row
+    RETURN row
+
+exception: >
+    Returning raw node and relationship objects is not supported

@@ -1,0 +1,11 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.localdatetime_col AS localdatetime_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.localdatetime_col) AS localdatetime_col_type, toString(row.localdatetime_col) AS localdatetime_col
+
+output:
+  - localdatetime_col_type: 'LOCAL_DATE_TIME'
+    localdatetime_col: '2023-12-25T10:30:45.000000'

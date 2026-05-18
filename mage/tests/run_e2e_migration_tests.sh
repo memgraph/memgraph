@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --help)
             echo "Usage: $0 [-k FILTER] --mage-container CONTAINER [--mysql-container CONTAINER] [--postgresql-container CONTAINER] [--mysql-image IMAGE] [--postgresql-image IMAGE]"
-            echo "  -k FILTER                    Filter tests by database type (e.g., 'mysql', 'postgresql')"
+            echo "  -k FILTER                    Filter tests by database type (e.g., 'mysql', 'postgresql', 'memgraph')"
             echo "  --mage-container NAME        MAGE container name (required)"
             echo "  --mysql-container NAME       MySQL container name (required if mysql tests are run)"
             echo "  --postgresql-container NAME  PostgreSQL container name (required if postgresql tests are run)"
@@ -132,6 +132,18 @@ run_postgresql_tests() {
     cd ../..
 }
 
+run_memgraph_tests() {
+    echo "Seeding Memgraph test data..."
+    docker exec -i "$MAGE_CONTAINER" mgconsole < e2e_migration/test_memgraph/data/init.cypher
+
+    echo "Running Memgraph migration tests..."
+    python3 -m pytest e2e_migration/test_migration.py -v -k memgraph
+
+    echo "Cleaning up Memgraph test data..."
+    docker exec -i "$MAGE_CONTAINER" mgconsole <<< "MATCH (n:DummyNode) DETACH DELETE n;"
+    docker exec -i "$MAGE_CONTAINER" mgconsole <<< "MATCH (n:DummyNode2) DETACH DELETE n;"
+}
+
 # Main execution
 if [ -z "$TEST_FILTER" ] || [ "$TEST_FILTER" = "mysql" ]; then
     run_mysql_tests
@@ -139,4 +151,8 @@ fi
 
 if [ -z "$TEST_FILTER" ] || [ "$TEST_FILTER" = "postgresql" ]; then
     run_postgresql_tests
+fi
+
+if [ -z "$TEST_FILTER" ] || [ "$TEST_FILTER" = "memgraph" ]; then
+    run_memgraph_tests
 fi

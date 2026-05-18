@@ -27,6 +27,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "storage_test_utils.hpp"
@@ -701,4 +702,13 @@ TYPED_TEST(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
   MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 65, &this->memory)};
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_edge_underlying_graph_is_mutable, edge.get()), 0);
   EXPECT_EQ(mgp_edge_set_property(edge.get(), "property", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+}
+
+TYPED_TEST(MgpGraphTest, GetTransactionId) {
+  mgp_graph graph = this->CreateGraph();
+  int64_t tx_id{0};
+  EXPECT_SUCCESS(mgp_graph_get_transaction_id(&graph, &tx_id));
+  // The first transaction on a fresh storage starts at kTransactionInitialId
+  // (1ULL << 63, used to disambiguate transaction IDs from commit timestamps).
+  EXPECT_EQ(tx_id, static_cast<int64_t>(memgraph::storage::kTransactionInitialId));
 }

@@ -1,0 +1,9 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNodeEnum) RETURN n.enum_col AS enum_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN row
+
+exception: true

@@ -1202,6 +1202,24 @@ class Graph:
 
         return not self._graph.is_immutable()
 
+    @property
+    def transaction_id(self) -> int:
+        """
+        Get the transaction ID associated with the current graph access.
+
+        Returns:
+            An `int` representing the transaction ID.
+
+        Raises:
+            InvalidContextError: If the graph is not in a valid context.
+
+        Examples:
+            ```graph.transaction_id```
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._graph.transaction_id
+
     def create_vertex(self) -> Vertex:
         """
         Create an empty vertex.
