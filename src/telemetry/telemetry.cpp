@@ -89,8 +89,17 @@ void Telemetry::AddCollector(std::string name, FuncSig func) {
   collectors_.emplace_back(std::move(name), std::move(func));
 }
 
-Telemetry::~Telemetry() {
+void Telemetry::Stop() {
+  abort_.store(true, std::memory_order_relaxed);
   scheduler_.Stop();
+}
+
+Telemetry::~Telemetry() {
+  Stop();
+  // Clear the abort flag so the final shutdown collection can actually send
+  // data (with the 10s timeout). Without this, the in-flight curl transfer
+  // would be aborted immediately because the flag is still set.
+  abort_.store(false, std::memory_order_relaxed);
   CollectData("shutdown");
 }
 
@@ -106,7 +115,7 @@ void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &dat
   storage_.Put(fmt::format("{}:{}", uuid_, event.dump()), payload.dump());
 }
 
-void Telemetry::SendData() {
+void Telemetry::SendData(int timeout_seconds) {
   std::vector<std::string> keys;
   nlohmann::json payload = nlohmann::json::array();
 
@@ -122,7 +131,8 @@ void Telemetry::SendData() {
 
   if (requests::RequestPostJson(url_,
                                 payload,
-                                /* timeout_in_seconds = */ 2 * 60)) {
+                                /* timeout_in_seconds = */ timeout_seconds,
+                                &abort_)) {
     for (const auto &key : keys) {
       if (!storage_.Delete(key)) {
         SPDLOG_WARN(
@@ -156,7 +166,9 @@ void Telemetry::CollectData(const std::string &event) {
     StoreData(event, data);
   }
   if (num_ % send_every_n_ == 0 || event == "shutdown") {
-    SendData();
+    // Use shorter timeout for shutdown event
+    int timeout = (event == "shutdown") ? 10 : (2 * 60);
+    SendData(timeout);
   }
 }
 

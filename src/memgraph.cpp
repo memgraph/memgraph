@@ -929,12 +929,11 @@ int main(int argc, char **argv) {
     telemetry->AddExceptionCollector();
     telemetry->Start();
   }
-  memgraph::license::LicenseInfoSender const license_info_sender(
-      telemetry_server,
-      memgraph::glue::run_id_,
-      machine_id,
-      memory_limit,
-      memgraph::license::global_license_checker.GetLicenseInfo());
+  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server,
+                                                           memgraph::glue::run_id_,
+                                                           machine_id,
+                                                           memory_limit,
+                                                           memgraph::license::global_license_checker.GetLicenseInfo());
 
   memgraph::communication::websocket::SafeAuth websocket_auth{auth_.get()};
   memgraph::communication::websocket::Server websocket_server{
@@ -969,10 +968,23 @@ int main(int argc, char **argv) {
                       &interpreter_context_,
                       &dbms_handler,
                       &repl_state,
-                      &worker_pool_] {
+                      &worker_pool_,
+                      &license_info_sender,
+                      &telemetry] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     spdlog::trace("Shutting down handler!");
+
+    // STOP LICENSE SENDER IMMEDIATELY
+    // Prevents blocking on license HTTP requests during shutdown
+    license_info_sender.Stop();
+
+    // STOP TELEMETRY IMMEDIATELY
+    // Prevents blocking on telemetry HTTP requests during shutdown
+    if (telemetry) {
+      telemetry->Stop();
+    }
+
     spdlog::info("Workers shutting down.");
     if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server
