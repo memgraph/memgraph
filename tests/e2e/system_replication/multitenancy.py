@@ -1905,10 +1905,10 @@ def _parse_size_bytes_mt(size_str):
 
 
 def _get_db_memory_bytes_mt(cursor):
-    """Return db_memory_tracked from SHOW STORAGE INFO as bytes."""
-    info = execute_and_fetch_all(cursor, "SHOW STORAGE INFO")
+    """Return tenant_memory_tracked from SHOW STORAGE INFO as bytes."""
+    info = execute_and_fetch_all(cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")
     info_dict = {row[0]: row[1] for row in info}
-    return _parse_size_bytes_mt(info_dict.get("db_memory_tracked", "0B"))
+    return _parse_size_bytes_mt(info_dict.get("tenant_memory_tracked", "0B"))
 
 
 def test_db_memory_tracking_cross_db_replication_isolation(connection, test_name):
@@ -1916,8 +1916,8 @@ def test_db_memory_tracking_cross_db_replication_isolation(connection, test_name
     Per-DB memory tracking must be isolated across replicated databases.
 
     Write 5000 nodes to database A on MAIN. Verify on replica_1 (SYNC):
-      - Database A's db_memory_tracked grew.
-      - Database B's db_memory_tracked did NOT grow significantly.
+      - Database A's tenant_memory_tracked grew.
+      - Database B's tenant_memory_tracked did NOT grow significantly.
 
     This validates that replication deltas are attributed to the correct DB arena on
     the replica, not leaked into unrelated databases.
@@ -1980,13 +1980,13 @@ def test_db_memory_tracking_cross_db_replication_isolation(connection, test_name
     after_b = _get_db_memory_bytes_mt(replica_cursor2)
 
     assert after_a > baseline_a, (
-        f"replica_1 database A db_memory_tracked should grow after replicating 5000 nodes. "
+        f"replica_1 database A tenant_memory_tracked should grow after replicating 5000 nodes. "
         f"baseline_a={baseline_a} after_a={after_a}"
     )
 
     # Allow up to 512 KiB noise for background threads / jemalloc rounding
     assert after_b <= baseline_b + 512 * 1024, (
-        f"replica_1 database B db_memory_tracked must NOT grow when only writing to A. "
+        f"replica_1 database B tenant_memory_tracked must NOT grow when only writing to A. "
         f"baseline_b={baseline_b} after_b={after_b}"
     )
 

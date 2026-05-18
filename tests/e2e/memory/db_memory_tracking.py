@@ -73,6 +73,10 @@ def fetch_all(cursor, query, params=None):
 
 
 def get_storage_info(cursor):
+    return {row[0]: row[1] for row in fetch_all(cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")}
+
+
+def get_global_storage_info(cursor):
     return {row[0]: row[1] for row in fetch_all(cursor, "SHOW STORAGE INFO")}
 
 
@@ -162,12 +166,14 @@ def drop_all_triggers(cursor):
 
 def metric_triplet(cursor):
     info = get_storage_info(cursor)
+    graph = parse_size_bytes(info["graph_memory_tracked"])
+    vector = parse_size_bytes(info["vector_index_memory_tracked"])
+    query = parse_size_bytes(info["query_memory_tracked"])
     return {
-        "db_memory_tracked": parse_size_bytes(info["db_memory_tracked"]),
-        "db_storage_memory_tracked": parse_size_bytes(info["db_storage_memory_tracked"]),
-        "db_embedding_memory_tracked": parse_size_bytes(info["db_embedding_memory_tracked"]),
-        "db_query_memory_tracked": parse_size_bytes(info["db_query_memory_tracked"]),
-        "global_memory_tracked": parse_size_bytes(info["global_memory_tracked"]),
+        "db_memory_tracked": graph + vector + query,
+        "db_storage_memory_tracked": graph,
+        "db_embedding_memory_tracked": vector,
+        "db_query_memory_tracked": query,
     }
 
 
@@ -287,11 +293,9 @@ def test_show_storage_info_contains_db_split_fields():
     conn.close()
 
     required = {
-        "db_memory_tracked",
-        "db_storage_memory_tracked",
-        "db_embedding_memory_tracked",
-        "db_query_memory_tracked",
-        "global_memory_tracked",
+        "graph_memory_tracked",
+        "vector_index_memory_tracked",
+        "query_memory_tracked",
     }
     assert required.issubset(set(info.keys())), f"Missing keys: {required - set(info.keys())}"
 
@@ -1004,8 +1008,9 @@ def test_drop_database_releases_global_memory():
     memgraph_cursor = memgraph_conn.cursor()
     execute(memgraph_cursor, "FREE MEMORY")
     execute(memgraph_cursor, "FREE MEMORY")
-    baseline = metric_triplet(memgraph_cursor)
-    debug_log(f"drop-db baseline db={db_name} metrics={baseline}")
+    global_info = get_global_storage_info(memgraph_cursor)
+    baseline_global = parse_size_bytes(global_info.get("memory_tracked", "0B"))
+    debug_log(f"drop-db baseline db={db_name} global_memory_tracked={baseline_global}")
 
     db_conn = connect(db_name)
     db_cursor = db_conn.cursor()
@@ -1013,9 +1018,10 @@ def test_drop_database_releases_global_memory():
     execute(db_cursor, "CREATE INDEX ON :DropNode;")
     execute(db_cursor, "FREE MEMORY")
     execute(db_cursor, "FREE MEMORY")
-    db_after_alloc = metric_triplet(memgraph_cursor)
-    debug_log(f"drop-db after alloc db={db_name} metrics={db_after_alloc}")
-    assert db_after_alloc["global_memory_tracked"] > baseline["global_memory_tracked"]
+    global_info = get_global_storage_info(memgraph_cursor)
+    db_after_alloc_global = parse_size_bytes(global_info.get("memory_tracked", "0B"))
+    debug_log(f"drop-db after alloc db={db_name} global_memory_tracked={db_after_alloc_global}")
+    assert db_after_alloc_global > baseline_global
 
     db_conn.close()
     drop_database(admin_cursor, db_name)
@@ -1023,18 +1029,19 @@ def test_drop_database_releases_global_memory():
     execute(memgraph_cursor, "FREE MEMORY")
     assert_metric_returns_near_baseline(
         memgraph_cursor,
-        "global_memory_tracked",
-        baseline["global_memory_tracked"],
+        "memory_tracked",
+        baseline_global,
         1024 * 1024,
         message="total memory tracker did not return near baseline after database drop",
     )
-    after_drop = metric_triplet(memgraph_cursor)
-    debug_log(f"drop-db after drop db={db_name} metrics={after_drop}")
+    global_info = get_global_storage_info(memgraph_cursor)
+    after_drop_global = parse_size_bytes(global_info.get("memory_tracked", "0B"))
+    debug_log(f"drop-db after drop db={db_name} global_memory_tracked={after_drop_global}")
 
     memgraph_conn.close()
     admin.close()
 
-    assert after_drop["global_memory_tracked"] <= baseline["global_memory_tracked"] + 1024 * 1024
+    assert after_drop_global <= baseline_global + 1024 * 1024
 
 
 if __name__ == "__main__":

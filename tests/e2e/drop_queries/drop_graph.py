@@ -40,7 +40,7 @@ def test_create_everything_then_drop_graph(memgraph):
     assert get_results_length(memgraph, "SHOW INDEX INFO") == 0
     assert get_results_length(memgraph, "SHOW TRIGGERS") == 0
 
-    storage_info = list(memgraph.execute_and_fetch("SHOW STORAGE INFO"))
+    storage_info = list(memgraph.execute_and_fetch("SHOW STORAGE INFO ON CURRENT DATABASE"))
     print(storage_info)
     vertex_count = [x for x in storage_info if x["storage info"] == "vertex_count"][0]
     edge_count = [x for x in storage_info if x["storage info"] == "edge_count"][0]

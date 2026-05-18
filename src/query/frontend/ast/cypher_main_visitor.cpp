@@ -188,8 +188,12 @@ antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfo
   query_ = info_query;
   if (ctx->storageInfo()) {
     info_query->info_type_ = SystemInfoQuery::InfoType::STORAGE;
-    if (ctx->storageInfo()->db) {
-      info_query->database_ = std::any_cast<std::string>(ctx->storageInfo()->db->accept(this));
+    if (ctx->storageInfo()->ON()) {
+      if (ctx->storageInfo()->db) {
+        info_query->database_ = std::any_cast<std::string>(ctx->storageInfo()->db->accept(this));
+      } else if (ctx->storageInfo()->CURRENT()) {
+        info_query->is_current_database_ = true;
+      }
     }
     return info_query;
   }

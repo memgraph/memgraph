@@ -16,28 +16,17 @@ import mgclient
 import pytest
 
 default_storage_info_dict = {
-    "name": "memgraph",
-    "database_uuid": "abcd",
-    "vertex_count": 0,
-    "edge_count": 0,
-    "average_degree": 0,
     "vm_max_map_count": 0,  # machine dependent
     "memory_res": "",  # machine dependent
     "peak_memory_res": "",  # machine dependent
-    "unreleased_delta_objects": 0,
-    "db_disk_usage": "",  # machine dependent
-    "global_disk_usage": "",  # machine dependent
-    "global_memory_tracked": "",  # machine dependent
-    "global_runtime_allocation_limit": "",  # machine dependent
-    "global_license_allocation_limit": "",  # license dependent
-    "global_isolation_level": "SNAPSHOT_ISOLATION",
+    "disk_usage": "",  # machine dependent
+    "memory_tracked": "",  # machine dependent
+    "runtime_allocation_limit": "",  # machine dependent
+    "license_allocation_limit": "",  # license dependent
+    "isolation_level": "SNAPSHOT_ISOLATION",
     "session_isolation_level": "",
     "next_session_isolation_level": "",
     "storage_mode": "IN_MEMORY_TRANSACTIONAL",
-    "db_memory_tracked": "",  # machine dependent
-    "db_storage_memory_tracked": "",  # machine dependent
-    "db_embedding_memory_tracked": "",  # machine dependent
-    "db_query_memory_tracked": "",  # machine dependent
 }
 
 
@@ -64,18 +53,12 @@ def test_does_default_config_match():
 
     # The default value of these is dependent on the given machine.
     machine_dependent_configurations = [
-        "database_uuid",
         "memory_res",
         "peak_memory_res",
-        "db_disk_usage",
-        "global_disk_usage",
-        "global_memory_tracked",
-        "global_runtime_allocation_limit",
-        "global_license_allocation_limit",
-        "db_memory_tracked",
-        "db_storage_memory_tracked",
-        "db_embedding_memory_tracked",
-        "db_query_memory_tracked",
+        "disk_usage",
+        "memory_tracked",
+        "runtime_allocation_limit",
+        "license_allocation_limit",
         "vm_max_map_count",
     ]
     # Number of different data-points returned by SHOW STORAGE INFO
@@ -114,7 +97,7 @@ def test_info_change():
     ]
 
     expected_values = {
-        "global_isolation_level": "READ_UNCOMMITTED",
+        "isolation_level": "READ_UNCOMMITTED",
         "session_isolation_level": "READ_COMMITTED",
         "next_session_isolation_level": "READ_COMMITTED",
     }
@@ -161,7 +144,7 @@ def test_show_storage_info_on_database():
     # Session-level fields must NOT be present.
     assert "session_isolation_level" not in config
     assert "next_session_isolation_level" not in config
-    assert "global_memory_tracked" not in config
+    assert "memory_tracked" not in config
 
     assert config["name"] == "memgraph"
     assert config["storage_mode"] in ("IN_MEMORY_TRANSACTIONAL", "IN_MEMORY_ANALYTICAL")
