@@ -18,7 +18,7 @@ CLUSTER_CONFIG_FILE="${SCRIPT_DIR}/cluster.yaml"
 # Helm configuration
 HELM_RELEASE_NAME="${HELM_RELEASE_NAME:-mem-ha-test}"
 HELM_CHART_PATH="${HELM_CHART_PATH:-memgraph/memgraph-high-availability}"
-HELM_CHART_VERSION="${HELM_CHART_VERSION:-0.2.19}"
+HELM_CHART_VERSION="${HELM_CHART_VERSION:-1.0.1}"
 HELM_REPO_NAME="memgraph"
 HELM_REPO_URL="https://memgraph.github.io/helm-charts"
 
@@ -1130,7 +1130,7 @@ print_usage() {
     echo "  CLUSTER_REGION                - AWS region (default: eu-west-1)"
     echo "  HELM_RELEASE_NAME             - Helm release name (default: mem-ha-test)"
     echo "  HELM_CHART_PATH               - Path to Helm chart (default: memgraph/memgraph-high-availability)"
-    echo "  HELM_CHART_VERSION            - Pin Helm chart version (default: 0.2.19)"
+    echo "  HELM_CHART_VERSION            - Pin Helm chart version (default: 1.0.1)"
     echo "  POD_READY_TIMEOUT             - Timeout for pods to be ready in seconds (default: 600)"
     echo "  ENABLE_MONITORING             - Install kube-prometheus-stack (default: true)"
     echo ""

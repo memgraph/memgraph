@@ -73,7 +73,7 @@ test_k8s_single() {
   kind load docker-image $MEMGRAPH_NEXT_DOCKERHUB_IMAGE -n smoke-release-testing
   MEMGRAPH_NEXT_DOCKERHUB_TAG="${MEMGRAPH_NEXT_DOCKERHUB_IMAGE##*:}"
   helm install memgraph-single-smoke memgraph/memgraph \
-    --version 0.2.19 \
+    --version 1.0.1 \
     -f "$SCRIPT_DIR/values-single.yaml" \
     --set "image.tag=$MEMGRAPH_NEXT_DOCKERHUB_TAG"
   kubectl wait --for=condition=Ready pod/memgraph-single-smoke-0 --timeout=120s

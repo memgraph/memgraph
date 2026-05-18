@@ -572,7 +572,7 @@ helm repo add memgraph https://memgraph.github.io/helm-charts
 
 # --- Helm install ---
 echo -e "${GREEN}Installing Helm chart...${NC}"
-helm install "$RELEASE" memgraph/memgraph-high-availability --version 0.2.19 -f old_values.yaml --timeout 120s --wait --debug | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
+helm install "$RELEASE" memgraph/memgraph-high-availability --version 1.0.1 -f old_values.yaml --timeout 120s --wait --debug | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
 
 # --- Wait & verify resources ---
 echo -e "${GREEN}Waiting for resources to be created...${NC}"
@@ -699,7 +699,7 @@ kubectl exec memgraph-data-0-0 -- bash -c "mgconsole < /var/lib/memgraph/pre_upg
 echo "Run test queries on old version"
 
 # --- Upgrade chart values ---
-helm upgrade "$RELEASE" memgraph/memgraph-high-availability --version 0.2.19 -f new_values.yaml
+helm upgrade "$RELEASE" memgraph/memgraph-high-availability --version 1.0.1 -f new_values.yaml
 echo "Updated versions"
 
 
