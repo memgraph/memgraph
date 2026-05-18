@@ -23,19 +23,15 @@ copy_e2e_python_files_from_parent_folder(high_availability ".." memgraph.py)
 copy_e2e_python_files_from_parent_folder(high_availability ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(high_availability ".." mg_utils.py)
 
-copy_e2e_files(high_availability ca.crt)
-copy_e2e_files(high_availability coord1.crt)
-copy_e2e_files(high_availability coord1.key)
-copy_e2e_files(high_availability coord2.crt)
-copy_e2e_files(high_availability coord2.key)
-copy_e2e_files(high_availability coord3.crt)
-copy_e2e_files(high_availability coord3.key)
-copy_e2e_files(high_availability instance1.crt)
-copy_e2e_files(high_availability instance1.key)
-copy_e2e_files(high_availability instance2.crt)
-copy_e2e_files(high_availability instance2.key)
-copy_e2e_files(high_availability instance3.crt)
-copy_e2e_files(high_availability instance3.key)
+# Copy the entire tls_certs/ directory (CA + per-instance leaf certs and keys)
+# to the build dir. tls_cluster.py resolves cert paths via
+# `interactive_mg_runner.SCRIPT_DIR / "tls_certs"` at runtime.
+add_custom_target(memgraph__e2e__high_availability__tls_certs_dir ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/tls_certs
+    ${CMAKE_CURRENT_BINARY_DIR}/tls_certs
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tls_certs)
+add_dependencies(memgraph__e2e memgraph__e2e__high_availability__tls_certs_dir)
 
 if (MG_ENTERPRISE)
 add_executable(memgraph__e2e__high_availability_rpc_comm rpc_comm.cpp)
