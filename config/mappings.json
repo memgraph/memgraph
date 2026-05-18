@@ -2,10 +2,6 @@
   "apoc.algo.aStar": "algo.astar",
   "apoc.algo.allSimplePaths": "algo.all_simple_paths",
   "apoc.algo.cover": "algo.cover",
-  "apoc.algo.aStar": "algo.astar",
-  "apoc.algo.allSimplePaths": "algo.all_simple_paths",
-  "apoc.algo.cover": "algo.cover",
-
   "apoc.coll.avg": "collections.avg",
   "apoc.coll.contains": "collections.contains",
   "apoc.coll.containsAll": "collections.contains_all",
@@ -24,11 +20,9 @@
   "apoc.coll.toSet": "collections.to_set",
   "apoc.coll.union": "collections.union",
   "apoc.coll.unionAll": "collections.union_all",
-
   "apoc.convert.fromJsonList": "json_util.from_json_list",
   "apoc.convert.toJson": "json_util.to_json",
   "apoc.convert.toTree": "convert_c.to_tree",
-
   "apoc.create.node": "create.node",
   "apoc.create.nodes": "create.nodes",
   "apoc.create.relationship": "create.relationship",
@@ -40,27 +34,21 @@
   "apoc.create.setRelProperty": "create.set_rel_property",
   "apoc.create.setRelProperties": "create.set_rel_properties",
   "apoc.create.uuid": "uuid_generator.get",
-
   "apoc.date.add": "date.add",
   "apoc.date.format": "date.format",
   "apoc.date.parse": "date.parse",
   "apoc.date.convertFormat": "date.convert_format",
-
   "apoc.do.case": "do.case",
   "apoc.do.when": "do.when",
-
   "apoc.export.csv.graph": "export_util.csv_graph",
   "apoc.export.csv.query": "export_util.csv_query",
   "apoc.export.cypher.all": "export_util.cypher_all",
   "apoc.export.graphml.all": "export_util.graphml",
   "apoc.export.json.all": "export_util.json",
   "apoc.export.json.graph": "export_util.json_graph",
-
   "apoc.import.graphml": "import_util.graphml",
   "apoc.import.json": "import_util.json",
-
   "apoc.label.exists": "label.exists",
-
   "apoc.map.flatten": "map.flatten",
   "apoc.map.fromLists": "map.from_lists",
   "apoc.map.fromNodes": "map.from_nodes",
@@ -70,31 +58,24 @@
   "apoc.map.removeKey": "map.remove_key",
   "apoc.map.removeKeys": "map.remove_keys",
   "apoc.map.setKey": "map.set_key",
-
   "apoc.math.round": "math.round",
-
   "apoc.merge.node": "merge.node",
   "apoc.merge.relationship": "merge.relationship",
-
   "apoc.meta.nodeTypeProperties": "schema.node_type_properties",
   "apoc.meta.relTypeProperties": "schema.rel_type_properties",
   "apoc.meta.schema": "meta_util.schema",
   "apoc.meta.stats": "meta.stats_online",
-
   "apoc.neighbors.athop": "neighbors.at_hop",
   "apoc.neighbors.byhop": "neighbors.by_hop",
-
   "apoc.node.degree.in": "node.degree_in",
   "apoc.node.degree.out": "node.degree_out",
   "apoc.node.relationship.exists": "node.relationship_exists",
   "apoc.node.relationship.types": "node.relationship_types",
   "apoc.node.relationships.exist": "node.relationship_exists",
-
   "apoc.nodes.delete": "nodes.delete",
   "apoc.nodes.link": "nodes.link",
   "apoc.nodes.relationship.types": "nodes.relationship_types",
   "apoc.nodes.relationships.exist": "nodes.relationships_exist",
-
   "apoc.path.expand": "path.expand",
   "apoc.path.expandConfig": "path.expand",
   "apoc.path.subgraphAll": "path.subgraph_all",
@@ -103,7 +84,6 @@
   "apoc.path.create": "path.create",
   "apoc.path.elements": "path.elements",
   "apoc.path.slice": "path.slice",
-
   "apoc.periodic.iterate": "periodic.iterate",
   "apoc.refactor.categorize": "refactor.categorize",
   "apoc.refactor.cloneNodes": "refactor.clone_nodes",
@@ -121,30 +101,22 @@
   "apoc.refactor.rename.typeProperty": "refactor.rename_type_property",
   "apoc.refactor.renameType": "refactor.rename_type",
   "apoc.refactor.to": "refactor.to",
-
   "apoc.temporal.format": "temporal.format",
-
   "apoc.text.format": "text.format",
   "apoc.text.indexOf": "text.indexOf",
   "apoc.text.join": "text.join",
   "apoc.text.regReplace": "text.regreplace",
   "apoc.text.regexGroups": "text.regexGroups",
   "apoc.text.replace": "text.replace",
-
   "apoc.util.md5": "util_module.md5",
   "apoc.util.validate": "mgps_cpp.validate",
   "apoc.util.validatePredicate": "mgps.validate_predicate",
-
   "apoc.version": "mgps.version",
-
   "apoc.xml.parse": "xml_module.parse",
-
   "db.awaitIndexes": "mgps.await_indexes",
   "db.schema.nodeTypeProperties": "schema.node_type_properties",
   "db.schema.relTypeProperties": "schema.rel_type_properties",
-
   "dbms.components": "mgps.components",
-
   "migrate.mysql": "cross_database.mysql",
   "migrate.sql_server": "cross_database.sql_server",
   "migrate.oracle_db": "cross_database.oracle_db",

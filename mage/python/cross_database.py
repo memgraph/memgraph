@@ -43,7 +43,7 @@ class Constants:
     URI_SCHEME = "uri_scheme"
     USERNAME = "username"
     ALREADY_RUNNING_ERROR = (
-        "Migrate module with these parameters is already running. "
+        "Cross database module with these parameters is already running. "
         "Please wait for it to finish before starting a new one."
     )
 
@@ -212,6 +212,11 @@ def _convert_bolt_value(value):
         if isinstance(value, (Neo4jDateTime, Neo4jDate, Neo4jTime)):
             return value.to_native()
         if isinstance(value, Neo4jDuration):
+            if value.months != 0:
+                raise ValueError(
+                    f"Duration with months is not supported in cross-database queries: {value}. "
+                    "Python timedelta cannot represent month/year components precisely."
+                )
             return datetime.timedelta(days=value.days, seconds=value.seconds, microseconds=value.nanoseconds // 1000)
     except ImportError:
         pass
@@ -359,7 +364,6 @@ def bolt(
 
 def _cleanup_bolt():
     """Cleanup function called by mgp framework (no parameters)."""
-    print("Cleanup bolt")
     pass
 
 
@@ -380,7 +384,16 @@ def _init_neo4j(
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
-    _bolt_init_state(_neo4j_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
+    _bolt_init_state(
+        _neo4j_state,
+        ctx.graph.transaction_id,
+        label_or_rel_or_query,
+        config,
+        config_path,
+        params,
+        default_username="neo4j",
+        default_password="password",
+    )
 
 
 def neo4j(

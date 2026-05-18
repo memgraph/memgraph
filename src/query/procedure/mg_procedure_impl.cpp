@@ -3692,11 +3692,7 @@ mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
 mgp_error mgp_graph_get_transaction_id(mgp_graph *graph, int64_t *result) {
   return WrapExceptions([graph, result] {
     auto maybe_tx_id = graph->getImpl()->GetTransactionId();
-    if (!maybe_tx_id) {
-      throw std::runtime_error(
-          "Cannot retrieve transaction ID: the transaction associated with this graph is no longer active. "
-          "This can happen if the procedure is called outside of a valid transaction context.");
-    }
+    DMG_ASSERT(maybe_tx_id, "Procedure must be called within an active transaction");
     *result = static_cast<int64_t>(*maybe_tx_id);
   });
 }
