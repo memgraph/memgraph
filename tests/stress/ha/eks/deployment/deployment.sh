@@ -328,18 +328,6 @@ install_memgraph_ha() {
         log_info "Using image tag: $MEMGRAPH_IMAGE_TAG"
     fi
 
-    # Override license if MEMGRAPH_ENTERPRISE_LICENSE is set
-    if [[ -n "${MEMGRAPH_ENTERPRISE_LICENSE:-}" ]]; then
-        helm_cmd+=" --set env.MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE"
-        log_info "Enterprise license configured"
-    fi
-
-    # Override organization name if MEMGRAPH_ORGANIZATION_NAME is set
-    if [[ -n "${MEMGRAPH_ORGANIZATION_NAME:-}" ]]; then
-        helm_cmd+=" --set env.MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME"
-        log_info "Organization name configured"
-    fi
-
     log_info "Running: helm install $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE [+ overrides]"
     eval "$helm_cmd"
 
@@ -519,6 +507,8 @@ start_cluster() {
 
 start_memgraph() {
     log_info "Installing Memgraph HA on EKS cluster..."
+
+    kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=${ENTERPRISE_LICENSE} --from-literal=MEMGRAPH_ORGANIZATION_NAME=${ORGANIZATION_NAME}
 
     install_memgraph_ha
     wait_for_pods
@@ -717,16 +707,6 @@ upgrade_memgraph() {
         helm_cmd+=" --set image.repository=$img_repo --set image.tag=$img_tag"
     elif [[ -n "${MEMGRAPH_IMAGE_TAG:-}" ]]; then
         helm_cmd+=" --set image.tag=$MEMGRAPH_IMAGE_TAG"
-    fi
-
-    # Override license if MEMGRAPH_ENTERPRISE_LICENSE is set
-    if [[ -n "${MEMGRAPH_ENTERPRISE_LICENSE:-}" ]]; then
-        helm_cmd+=" --set env.MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE"
-    fi
-
-    # Override organization name if MEMGRAPH_ORGANIZATION_NAME is set
-    if [[ -n "${MEMGRAPH_ORGANIZATION_NAME:-}" ]]; then
-        helm_cmd+=" --set env.MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME"
     fi
 
     # Pass any additional arguments
@@ -1136,8 +1116,8 @@ print_usage() {
     echo ""
     echo "  MEMGRAPH_IMAGE                - Override image repo:tag"
     echo "  MEMGRAPH_IMAGE_TAG            - Override image.tag in values.yaml"
-    echo "  MEMGRAPH_ENTERPRISE_LICENSE   - Override env.MEMGRAPH_ENTERPRISE_LICENSE in values.yaml"
-    echo "  MEMGRAPH_ORGANIZATION_NAME    - Override env.MEMGRAPH_ORGANIZATION_NAME in values.yaml"
+    echo "  MEMGRAPH_ENTERPRISE_LICENSE   - Used in k8s secret"
+    echo "  MEMGRAPH_ORGANIZATION_NAME    - Used in k8s secret"
     echo ""
     echo "Examples:"
     echo "  $0 start-all                       # Create cluster + deploy Memgraph"
