@@ -59,6 +59,10 @@ on:
         description: "Build deb package (true|false|default)"
         # default is build only for Release/RelWithDebInfo + amd64/arm64 (other combinations are not actually different)
         default: default
+      build_offline_installer:
+        type: boolean
+        description: "Build offline installer (.run) for Ubuntu 24.04"
+        default: false
       generate_sbom:
         type: boolean
         description: "Generate SBOM"
@@ -107,7 +111,7 @@ jobs:
   BuildAndPush:
     name: "Build and Test MAGE"
     runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
-    timeout-minutes: ${{ (inputs.cugraph || inputs.cuda || (inputs.build_type == 'Release' && inputs.arch == 'amd' && inputs.run_smoke_tests)) && 45 || 35 }}
+    timeout-minutes: ${{ (inputs.cugraph || inputs.cuda || inputs.build_offline_installer) && 45 || 35 }}
     outputs:
       s3_package_url: ${{ steps.output-url.outputs.s3_url }}
     steps:
@@ -394,7 +398,7 @@ jobs:
       - name: Build offline installer (.run) for Ubuntu 24.04
         # CPU-only amd64 today; the build script rejects other arch/cuda combos.
         # Drops the .run into output/ so the existing S3 sync picks it up.
-        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_DEB == 'true' && inputs.arch == 'amd' && !inputs.cuda && !inputs.cugraph }}
+        if: ${{ inputs.build_offline_installer && env.PACKAGE_DEB == 'true' }}
         run: |
           OFFLINE_RUN="output/memgraph-mage-offline-${MEMGRAPH_VERSION}-amd64.run"
           ./release/package/mgbuild.sh \
