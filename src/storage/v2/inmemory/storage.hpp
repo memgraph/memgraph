@@ -718,10 +718,9 @@ class InMemoryStorage final : public Storage {
     /// During commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
-    void GCRapidDeltaCleanup(std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_edges,
+    void GCRapidDeltaCleanup(std::vector<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
                              std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
-                             IndexPerformanceTracker &impact_tracker,
-                             std::vector<Edge *> *out_deleted_light_edges = nullptr);
+                             IndexPerformanceTracker &impact_tracker);
     SalientConfig::Items config_;
 
     uint64_t commit_flag_wal_position_{0};
@@ -790,25 +789,17 @@ class InMemoryStorage final : public Storage {
 
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
-  // Graveyard for light edges: deleted Edge* kept alive until GC determines
-  // no active transaction can see them.  Two conditions must both hold before
-  // draining: the timestamp condition (no reader can see the edge alive) and
-  // the epoch condition (no edge-index iterable that pre-dates this entry is
-  // still active).
+  // Graveyard for light edges: deleted Edge* kept alive until the
+  // epoch tracker confirms all in-flight edge-index iterables are done.
   //
-  // Two-phase drain:
-  //   Phase 1 (commit time): entry added with mark_timestamp and an initial guard_epoch.
-  //   Phase 2 (GC, after RemoveObsoleteEdgeEntries): guard_epoch is re-snapped to
-  //     CurrentEpoch() AFTER index entries are atomically removed, and index_cleaned
-  //     is set. This mirrors SkipList GC which records the high-water accessor ID at
-  //     node-removal time, covering post-commit readers that read Edge* from a stale
-  //     index entry before cleanup ran.
-  //   Drain: only when index_cleaned == true AND IsSafeToFree(guard_epoch).
+  // GC populates the graveyard during delta unlinking (same as heavy edges
+  // removing from the skiplist), AFTER all index cleanup is complete.
+  // The drain runs in FreeMemory after edges_.run_gc() and checks only
+  // IsSafeToFree(guard_epoch) — no additional mark_timestamp is needed
+  // because RemoveObsoleteEdgeEntries already handled MVCC safety.
   struct LightEdgeGraveyardEntry {
-    uint64_t mark_timestamp;
     uint64_t guard_epoch;
-    std::vector<Edge *> edges;
-    bool index_cleaned{false};
+    std::vector<Edge *, memory::DbAwareAllocator<Edge *>> edges;
   };
 
   // Test helper: number of entries currently sitting in the light-edge graveyard.
@@ -830,6 +821,10 @@ class InMemoryStorage final : public Storage {
   }
 
   void Clear();
+
+  // Drain the light-edge graveyard: free Edge* whose guard_epoch is safe.
+  // Called from FreeMemory after edges_.run_gc() — analogous to skiplist GC.
+  void DrainLightEdgeGraveyard();
 
  private:
   /// @throw std::system_error
@@ -950,8 +945,10 @@ class InMemoryStorage final : public Storage {
   utils::Synchronized<std::list<Gid, memory::DbAwareAllocator<Gid>>, utils::SpinLock> deleted_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
-  // storage.
-  utils::Synchronized<std::list<Gid, memory::DbAwareAllocator<Gid>>, utils::SpinLock> deleted_edges_;
+  // storage.  Stored as Edge* rather than Gid to avoid a Gid→Edge* skiplist
+  // lookup when processing in CollectGarbage — the pointer remains valid
+  // until edge_acc.remove() is called in the same GC cycle.
+  utils::Synchronized<std::list<Edge *, memory::DbAwareAllocator<Edge *>>, utils::SpinLock> deleted_edges_;
 
   utils::Synchronized<std::list<LightEdgeGraveyardEntry>, utils::SpinLock> light_edge_graveyard_;
 
