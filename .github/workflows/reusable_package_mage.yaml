@@ -396,32 +396,38 @@ jobs:
           echo "DEB_PACKAGE=${DEB_PACKAGE}" >> $GITHUB_ENV
 
       - name: Build offline installer (.run) for Ubuntu 24.04
-        # CPU-only amd64 today; the build script rejects other arch/cuda combos.
         # Drops the .run into output/ so the existing S3 sync picks it up.
         # The filename encodes the variant suffix (-relwithdebinfo/-malloc/
-        # -cuda/-cugraph) so future per-variant .run builds don't collide in
-        # S3 and the promote workflow can probe each matrix variant.
+        # -cuda or -cugraph) — must match matrix.image_ext in
+        # promote_rc_release.yml so the promote step finds it. -cuda and
+        # -cugraph are mutually exclusive (cugraph implies cuda but only the
+        # "cugraph" tag shows in image_ext).
         if: ${{ inputs.build_offline_installer && env.PACKAGE_DEB == 'true' }}
         run: |
           SUFFIX=""
           [[ "$BUILD_TYPE" == "RelWithDebInfo" ]] && SUFFIX="${SUFFIX}-relwithdebinfo"
           [[ "$MALLOC" == "true" ]]               && SUFFIX="${SUFFIX}-malloc"
-          [[ "$CUDA" == "true" ]]                 && SUFFIX="${SUFFIX}-cuda"
-          [[ "$CUGRAPH" == "true" ]]              && SUFFIX="${SUFFIX}-cugraph"
-          # ARCH is "amd"/"arm" → dpkg arch "amd64"/"arm64"; the build script
-          # currently rejects non-amd64, but using $ARCH64 here means once arm
-          # support lands the filename automatically picks up arm64 and the
-          # promote workflow doesn't need a second pass of changes.
+          if [[ "$CUGRAPH" == "true" ]]; then
+            SUFFIX="${SUFFIX}-cugraph"
+          elif [[ "$CUDA" == "true" ]]; then
+            SUFFIX="${SUFFIX}-cuda"
+          fi
+          # ARCH is "amd"/"arm" → dpkg arch "amd64"/"arm64".
           OFFLINE_RUN="output/memgraph-mage-offline-${MEMGRAPH_VERSION}-${ARCH}64${SUFFIX}.run"
+          PACKAGE_ARGS=()
+          [[ "$MALLOC" == "true" ]] && PACKAGE_ARGS+=(--malloc)
+          [[ "$CUDA" == "true" ]]   && PACKAGE_ARGS+=(--cuda)
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
             package-mage-offline-installer \
             --memgraph-deb mage/memgraph.deb \
             --mage-deb "$DEB_PACKAGE" \
-            --output "$OFFLINE_RUN"
+            --output "$OFFLINE_RUN" \
+            "${PACKAGE_ARGS[@]}"
           echo "OFFLINE_INSTALLER=${OFFLINE_RUN}" >> $GITHUB_ENV
 
       - name: Smoke test offline installer
@@ -429,8 +435,10 @@ jobs:
         # network access, then verifies memgraph reaches Bolt readiness using
         # tools/ci/wait_for_memgraph_bolt.sh (mgconsole is part of the
         # memgraph .deb that the installer lays down, so it's on $PATH after
-        # the installer finishes).
-        if: ${{ inputs.run_smoke_tests && env.OFFLINE_INSTALLER != '' }}
+        # the installer finishes). Skipped only for the cugraph variant —
+        # cugraph needs an Nvidia GPU at startup, which CI runners don't
+        # have. CUDA-built memgraph starts fine without a GPU.
+        if: ${{ inputs.run_smoke_tests && env.OFFLINE_INSTALLER != '' && !inputs.cugraph }}
         run: |
           set -euo pipefail
           docker run --rm \

@@ -532,13 +532,6 @@ jobs:
           echo "Copied Ubuntu 24.04 MAGE packages to s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
 
       - name: Setup offline installer paths
-        # The .run filename encodes both the arch and the variant suffix
-        # (matches matrix.image_ext) so each matrix slot probes amd64 + arm64
-        # independently. Today only the bare "-relwithdebinfo" / amd64 slot
-        # finds a file (per build_offline_installer gating in build_rc.yml
-        # and the amd64-only build script); other slots no-op cleanly. Arm
-        # support drops in when the build side allows it — no promote change
-        # needed.
         run: |
           offline_run_amd="memgraph-mage-offline-${RELEASE_VERSION}-amd64${{ matrix.image_ext }}.run"
           offline_run_arm="memgraph-mage-offline-${RELEASE_VERSION}-arm64${{ matrix.image_ext }}.run"
