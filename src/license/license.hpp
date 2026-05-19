@@ -40,6 +40,11 @@ constexpr bool IsEnterpriseTier(LicenseType type) noexcept {
 
 std::string LicenseTypeToString(LicenseType license_type);
 
+inline constexpr std::string_view kLicenseTypeEnterprise = "enterprise";
+inline constexpr std::string_view kLicenseTypeOem = "oem";
+inline constexpr std::string_view kLicenseTypeOemCommunity = "oem_community";
+inline constexpr std::string_view kLicenseTypeAiPlatform = "ai_platform";
+
 struct License {
   License() = default;
 

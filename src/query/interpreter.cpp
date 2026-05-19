@@ -7190,18 +7190,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         };
       } else {
         MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
-        handler = [storage = current_db.db_acc_->get()->storage(),
-                   db = current_db.db_acc_->get(),
-                   interpreter_context,
-                   interpreter_isolation_level,
-                   next_transaction_isolation_level] {
+        handler = [interpreter_context, interpreter_isolation_level, next_transaction_isolation_level] {
           const auto instance_info = GetInstanceStorageInfo();
-          int64_t global_query_memory = 0;
-          if (interpreter_context->dbms_handler) {
-            global_query_memory = 0;
-            interpreter_context->dbms_handler->ForEach(
-                [&global_query_memory](auto db_acc) { global_query_memory += db_acc->DbQueryMemoryUsage(); });
-          }
           const std::vector<std::vector<TypedValue>> results{
               {TypedValue("vm_max_map_count"), TypedValue(instance_info.vm_max_map_count)},
               {TypedValue("memory_res"),
@@ -7212,19 +7202,17 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.disk_usage)))},
               {TypedValue("memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
-              {TypedValue("runtime_allocation_limit"),
+              {TypedValue("memory_limit"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.MaximumHardLimit())))},
-              {TypedValue("license_allocation_limit"), TypedValue(std::invoke([] {
+              {TypedValue("license_memory_limit"), TypedValue(std::invoke([] {
                  auto info = license::global_license_checker.GetLicenseInfo().Lock();
                  const int64_t limit = info->has_value() ? (*info)->license.memory_limit : 0;
                  return limit > 0 ? utils::GetReadableSize(static_cast<double>(limit)) : std::string("unlimited");
                }))},
-              {TypedValue("graph_memory_tracked"),
+              {TypedValue("query_graph_memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
               {TypedValue("vector_index_memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::vector_index_memory_tracker.Amount())))},
-              {TypedValue("query_memory_tracked"),
-               TypedValue(utils::GetReadableSize(static_cast<double>(global_query_memory)))},
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(flags::ParseIsolationLevel()))},
               {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
               {TypedValue("next_session_isolation_level"),
@@ -7257,9 +7245,14 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       header = {"license info", "value"};
       handler = [] {
         const auto license_info = license::global_license_checker.GetDetailedLicenseInfo();
-        const auto memory_limit = license_info.memory_limit != 0
-                                      ? utils::GetReadableSize(static_cast<double>(license_info.memory_limit))
-                                      : "UNLIMITED";
+        std::string memory_limit_policy = "Memory usage is not limited.";
+        std::string memory_limit = "UNLIMITED";
+        if (license_info.memory_limit != 0) {
+          memory_limit = utils::GetReadableSize(static_cast<double>(license_info.memory_limit));
+          memory_limit_policy = license_info.license_type == license::kLicenseTypeAiPlatform
+                                    ? "Graph and query memory are limited. Vector index memory is not limited."
+                                    : "All memory usage is limited.";
+        }
 
         const std::vector<std::vector<TypedValue>> results{
             {TypedValue("organization_name"), TypedValue(license_info.organization_name)},
@@ -7267,8 +7260,9 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("is_valid"), TypedValue(license_info.is_valid)},
             {TypedValue("license_type"), TypedValue(license_info.license_type)},
             {TypedValue("valid_until"), TypedValue(license_info.valid_until)},
-            {TypedValue("memory_limit"), TypedValue(memory_limit)},
+            {TypedValue("memory_limit"), TypedValue(std::move(memory_limit))},
             {TypedValue("status"), TypedValue(license_info.status)},
+            {TypedValue("memory_limit_policy"), TypedValue(std::move(memory_limit_policy))},
         };
 
         return std::pair{results, QueryHandlerResult::NOTHING};
