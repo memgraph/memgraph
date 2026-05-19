@@ -34,6 +34,10 @@ enum class LicenseType : uint8_t {
   OEM = 3,
 };
 
+constexpr bool IsEnterpriseTier(LicenseType type) noexcept {
+  return type == LicenseType::ENTERPRISE || type == LicenseType::AI_PLATFORM || type == LicenseType::OEM;
+}
+
 std::string LicenseTypeToString(LicenseType license_type);
 
 struct License {

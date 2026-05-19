@@ -343,10 +343,7 @@ LicenseCheckResult LicenseChecker::IsEnterpriseValid(std::string_view license_ke
     return basic;
   }
 
-  const bool is_enterprise_tier = maybe_license->type == LicenseType::ENTERPRISE ||
-                                  maybe_license->type == LicenseType::AI_PLATFORM ||
-                                  maybe_license->type == LicenseType::OEM;
-  if (!is_enterprise_tier) {
+  if (!IsEnterpriseTier(maybe_license->type)) {
     return std::unexpected{LicenseCheckError::NOT_ENTERPRISE_LICENSE};
   }
   return {};
@@ -459,9 +456,7 @@ bool LicenseChecker::IsEnterpriseValidFast() const {
   // Acquire synchronizes with release stores in RevalidateLicense/EnableTesting.
   // This ensures we see the license_type_ write that precedes those release stores,
   // avoiding a data race on the non-atomic license_type_.
-  return is_valid_.load(std::memory_order_acquire) &&
-         (license_type_ == LicenseType::ENTERPRISE || license_type_ == LicenseType::AI_PLATFORM ||
-          license_type_ == LicenseType::OEM);
+  return is_valid_.load(std::memory_order_acquire) && IsEnterpriseTier(license_type_);
 }
 
 std::string Encode(const License &license) {
@@ -510,16 +505,15 @@ std::optional<License> Decode(std::string_view license_key) {
     slk::Load(&memory_limit, &reader);
     std::underlying_type_t<LicenseType> license_type{0};
     slk::Load(&license_type, &reader);
-    switch (license_type) {
-      case std::to_underlying(LicenseType::ENTERPRISE):
-      case std::to_underlying(LicenseType::OEM_COMMUNITY):
-      case std::to_underlying(LicenseType::AI_PLATFORM):
-      case std::to_underlying(LicenseType::OEM):
-        break;
-      default:
-        return std::nullopt;
+    const auto typed = static_cast<LicenseType>(license_type);
+    switch (typed) {
+      case LicenseType::ENTERPRISE:
+      case LicenseType::OEM_COMMUNITY:
+      case LicenseType::AI_PLATFORM:
+      case LicenseType::OEM:
+        return License{organization_name, valid_until, memory_limit, typed};
     }
-    return {License{organization_name, valid_until, memory_limit, LicenseType(license_type)}};
+    return std::nullopt;
   } catch (const slk::SlkReaderException &e) {
     return std::nullopt;
   }
