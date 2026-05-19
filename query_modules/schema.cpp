@@ -237,13 +237,41 @@ struct RelKey {
   bool operator==(const RelKey &) const = default;
 };
 
+struct RelKeyView {
+  std::string_view rel_type;
+  const std::set<std::string> &source_labels;
+  const std::set<std::string> &target_labels;
+};
+
 struct RelKeyHash {
-  std::size_t operator()(const RelKey &k) const noexcept {
-    std::size_t seed = std::hash<std::string>{}(k.rel_type);
-    boost::hash_combine(seed, boost::hash_range(k.source_labels.begin(), k.source_labels.end()));
-    boost::hash_combine(seed, boost::hash_range(k.target_labels.begin(), k.target_labels.end()));
+  using is_transparent = void;
+
+  std::size_t operator()(const RelKey &k) const noexcept { return Hash(k.rel_type, k.source_labels, k.target_labels); }
+
+  std::size_t operator()(const RelKeyView &k) const noexcept {
+    return Hash(k.rel_type, k.source_labels, k.target_labels);
+  }
+
+ private:
+  static std::size_t Hash(std::string_view rt, const std::set<std::string> &s,
+                          const std::set<std::string> &t) noexcept {
+    std::size_t seed = std::hash<std::string_view>{}(rt);
+    boost::hash_combine(seed, boost::hash_range(s.begin(), s.end()));
+    boost::hash_combine(seed, boost::hash_range(t.begin(), t.end()));
     return seed;
   }
+};
+
+struct RelKeyEqual {
+  using is_transparent = void;
+
+  bool operator()(const RelKey &a, const RelKey &b) const noexcept { return a == b; }
+
+  bool operator()(const RelKey &a, const RelKeyView &b) const noexcept {
+    return a.rel_type == b.rel_type && a.source_labels == b.source_labels && a.target_labels == b.target_labels;
+  }
+
+  bool operator()(const RelKeyView &a, const RelKey &b) const noexcept { return (*this)(b, a); }
 };
 
 mgp::List LabelsToList(const std::set<std::string> &labels) {
@@ -323,10 +351,6 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
         continue;
       }
 
-      if (node.Properties().empty()) {
-        continue;
-      }
-
       for (const auto &[key, prop] : node.Properties()) {
         auto prop_type = TypeOf(prop.Type());
         if (current_labels_info.properties.find(key) == current_labels_info.properties.end()) {
@@ -374,7 +398,7 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
 void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
 
-  std::unordered_map<RelKey, LabelOrRelTypeInfo, RelKeyHash> rel_types_properties;
+  std::unordered_map<RelKey, LabelOrRelTypeInfo, RelKeyHash, RelKeyEqual> rel_types_properties;
   const auto record_factory = mgp::RecordFactory(result);
   try {
     auto arguments = mgp::List(args);
@@ -426,16 +450,17 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
           target_labels.emplace(label);
         }
 
-        // source_labels is reused across this node's edges, so it must be copied (not moved).
-        RelKey key{.rel_type = std::string(rel_type_view),
-                   .source_labels = source_labels,
-                   .target_labels = std::move(target_labels)};
-        auto &rel_info = rel_types_properties[std::move(key)];
-        rel_info.number_of_occurrences++;
-
-        if (rel.Properties().empty()) {
-          continue;
+        const RelKeyView probe{rel_type_view, source_labels, target_labels};
+        auto it = rel_types_properties.find(probe);
+        if (it == rel_types_properties.end()) {
+          // source_labels is reused across this node's edges, so it must be copied (not moved).
+          RelKey key{.rel_type = std::string(rel_type_view),
+                     .source_labels = source_labels,
+                     .target_labels = std::move(target_labels)};
+          it = rel_types_properties.emplace(std::move(key), LabelOrRelTypeInfo{}).first;
         }
+        auto &rel_info = it->second;
+        rel_info.number_of_occurrences++;
 
         for (auto &[prop_name, prop] : rel.Properties()) {
           auto prop_type = TypeOf(prop.Type());
