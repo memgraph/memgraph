@@ -27,7 +27,12 @@
 
 namespace memgraph::license {
 
-enum class LicenseType : uint8_t { ENTERPRISE, OEM, AI_PLATFORM };
+enum class LicenseType : uint8_t {
+  ENTERPRISE = 0,
+  OEM_COMMUNITY = 1,
+  AI_PLATFORM = 2,
+  OEM = 3,
+};
 
 std::string LicenseTypeToString(LicenseType license_type);
 
