@@ -566,6 +566,9 @@ echo -e "${YELLOW} Creating secret with license details"
 kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=${ENTERPRISE_LICENSE} --from-literal=MEMGRAPH_ORGANIZATION_NAME=${ORGANIZATION_NAME}
 
 # --- Helm chart prep ---
+helm repo add memgraph https://memgraph.github.io/helm-charts >/dev/null 2>&1 || true
+helm repo update memgraph
+
 MEMGRAPH_NAMESPACE="${MEMGRAPH_NAMESPACE:-default}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 MONITORING_AUTH_SECRET_NAME="${MONITORING_AUTH_SECRET_NAME:-monitoring-basic-auth}"
@@ -585,7 +588,7 @@ fi
 
 helm_install_args=(
   install "$RELEASE"
-  memgraph/memgraph-high-availability 
+  memgraph/memgraph-high-availability
   --version 1.0.1
   -f old_values.yaml
   --timeout 120s
