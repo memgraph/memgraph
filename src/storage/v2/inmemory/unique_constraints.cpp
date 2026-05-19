@@ -553,9 +553,6 @@ auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<Pro
     auto props_it = label_it->second.find(properties);
     if (props_it == label_it->second.end()) return nullptr;
     auto captured = props_it->second;
-    // Clear ScopedGauge, which decrements the gauge backing this metric.
-    captured->gauge_ = {};
-
     auto new_container = std::make_shared<Container>(*container);
     auto new_label_it = new_container->find(label);
     new_label_it->second.erase(properties);

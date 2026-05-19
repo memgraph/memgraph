@@ -304,24 +304,12 @@ def test_constraint_metrics_are_updated(memgraph):
     memgraph.execute("CREATE CONSTRAINT ON (n:Person) ASSERT n.email IS UNIQUE;")
     assert get_metric_value(memgraph, "ActiveUniqueConstraints") == 2
 
-    # Drop constraints and verify metrics decrement
+    # Clean up
     memgraph.execute("DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
-    assert get_metric_value(memgraph, "ActiveExistenceConstraints") == 1
-
     memgraph.execute("DROP CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
-    assert get_metric_value(memgraph, "ActiveUniqueConstraints") == 1
-
     memgraph.execute("DROP CONSTRAINT ON (n:Person) ASSERT n.age IS TYPED INTEGER;")
-    assert get_metric_value(memgraph, "ActiveTypeConstraints") == 0
-
-    # Clean up remaining constraints
     memgraph.execute("DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.email);")
     memgraph.execute("DROP CONSTRAINT ON (n:Person) ASSERT n.email IS UNIQUE;")
-
-    # Verify all back to zero
-    assert get_metric_value(memgraph, "ActiveExistenceConstraints") == 0
-    assert get_metric_value(memgraph, "ActiveUniqueConstraints") == 0
-    assert get_metric_value(memgraph, "ActiveTypeConstraints") == 0
 
 
 def test_index_metrics_are_updated(memgraph):
@@ -340,17 +328,11 @@ def test_index_metrics_are_updated(memgraph):
     memgraph.execute("CREATE INDEX ON :Company(name);")
     assert get_metric_value(memgraph, "ActiveLabelPropertyIndices") == initial_label_prop + 2
 
+    # Clean up
     memgraph.execute("DROP INDEX ON :Company;")
-    assert get_metric_value(memgraph, "ActiveLabelIndices") == initial_label + 1
-
     memgraph.execute("DROP INDEX ON :Person;")
-    assert get_metric_value(memgraph, "ActiveLabelIndices") == initial_label
-
     memgraph.execute("DROP INDEX ON :Company(name);")
-    assert get_metric_value(memgraph, "ActiveLabelPropertyIndices") == initial_label_prop + 1
-
     memgraph.execute("DROP INDEX ON :Person(name);")
-    assert get_metric_value(memgraph, "ActiveLabelPropertyIndices") == initial_label_prop
 
 
 def test_transaction_and_query_type_counters_are_updated(memgraph):

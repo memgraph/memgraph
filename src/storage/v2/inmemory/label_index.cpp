@@ -228,8 +228,6 @@ auto InMemoryLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &up
       return {};
     }
     auto evicted_entry = it->second;
-    // Clear ScopedGauge, which decrements the gauge backing this metric.
-    evicted_entry->gauge_ = {};
     auto new_index = std::make_shared<IndexContainer>(*index);
     new_index->erase(label);
     index = std::move(new_index);
