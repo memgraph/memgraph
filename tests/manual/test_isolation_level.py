@@ -700,7 +700,7 @@ if __name__ == "__main__":
     info_cursor = info_conn.cursor()
     res = execute_and_fetch_all(info_cursor, "show storage info")
     res = {r[0]: r[1] for r in res}
-    global_isolation_level = res["isolation_level"]
+    global_isolation_level = res["storage_isolation_level"]
     print(f"Database started with global isolation level set to: {global_isolation_level}")
     info_conn.close()
 

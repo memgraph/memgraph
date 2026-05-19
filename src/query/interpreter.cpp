@@ -50,7 +50,10 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
+#include "flags/general.hpp"
+#include "flags/isolation_level.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "flags/storage_mode.hpp"
 #include "frontend/ast/query/tenant_profile.hpp"
 #include "frontend/ast/query/user_profile.hpp"
 #include "frontend/semantic/rw_checker.hpp"
@@ -114,6 +117,9 @@
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
 #include "utils/compile_time.hpp"
+#include "utils/event_counter.hpp"
+#include "utils/event_gauge.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/functional.hpp"
 #include "utils/likely.hpp"
@@ -143,11 +149,32 @@ import memgraph.utils.aws;
 namespace r = ranges;
 namespace rv = ranges::views;
 
+namespace memgraph::metrics {
+extern const Event PeakMemoryRes;
+}  // namespace memgraph::metrics
+
 namespace {
 
 using memgraph::query::Expression;
 using memgraph::query::ExpressionVisitor;
 using memgraph::query::TypedValue;
+
+struct InstanceStorageInfo {
+  uint64_t memory_res;
+  uint64_t peak_memory_res;
+  uint64_t disk_usage;
+  int64_t vm_max_map_count;
+};
+
+InstanceStorageInfo GetInstanceStorageInfo() {
+  const auto memory_res = memgraph::utils::GetMemoryRES();
+  memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
+  const auto peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
+  const int64_t vm_max_map_count =
+      memgraph::utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
+  const auto disk_usage = memgraph::utils::GetDirDiskUsage(FLAGS_data_directory);
+  return {memory_res, peak_memory_res, disk_usage, vm_max_map_count};
+}
 
 auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
                     ExpressionVisitor<TypedValue> &evaluator)
@@ -7164,19 +7191,25 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       } else {
         MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
         handler = [storage = current_db.db_acc_->get()->storage(),
+                   db = current_db.db_acc_->get(),
+                   interpreter_context,
                    interpreter_isolation_level,
                    next_transaction_isolation_level] {
-          auto info = storage->GetBaseInfo();
-          const int64_t vm_max_map_count_storage_info =
-              utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
-          const auto disk_usage = utils::GetDirDiskUsage(storage->config_.durability.root_data_directory);
-
+          const auto instance_info = GetInstanceStorageInfo();
+          int64_t global_query_memory = 0;
+          if (interpreter_context->dbms_handler) {
+            global_query_memory = 0;
+            interpreter_context->dbms_handler->ForEach(
+                [&global_query_memory](auto db_acc) { global_query_memory += db_acc->DbQueryMemoryUsage(); });
+          }
           const std::vector<std::vector<TypedValue>> results{
-              {TypedValue("vm_max_map_count"), TypedValue(vm_max_map_count_storage_info)},
-              {TypedValue("memory_res"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_res)))},
+              {TypedValue("vm_max_map_count"), TypedValue(instance_info.vm_max_map_count)},
+              {TypedValue("memory_res"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.memory_res)))},
               {TypedValue("peak_memory_res"),
-               TypedValue(utils::GetReadableSize(static_cast<double>(info.peak_memory_res)))},
-              {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(disk_usage)))},
+               TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.peak_memory_res)))},
+              {TypedValue("disk_usage"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.disk_usage)))},
               {TypedValue("memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
               {TypedValue("runtime_allocation_limit"),
@@ -7186,11 +7219,17 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                  const int64_t limit = info->has_value() ? (*info)->license.memory_limit : 0;
                  return limit > 0 ? utils::GetReadableSize(static_cast<double>(limit)) : std::string("unlimited");
                }))},
-              {TypedValue("isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+              {TypedValue("graph_memory_tracked"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
+              {TypedValue("vector_index_memory_tracked"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(utils::vector_index_memory_tracker.Amount())))},
+              {TypedValue("query_memory_tracked"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(global_query_memory)))},
+              {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(flags::ParseIsolationLevel()))},
               {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
               {TypedValue("next_session_isolation_level"),
                TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
-              {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))}};
+              {TypedValue("storage_mode"), TypedValue(StorageModeToString(flags::ParseStorageMode()))}};
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
       }

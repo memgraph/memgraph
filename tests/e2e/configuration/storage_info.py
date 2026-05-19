@@ -23,7 +23,10 @@ default_storage_info_dict = {
     "memory_tracked": "",  # machine dependent
     "runtime_allocation_limit": "",  # machine dependent
     "license_allocation_limit": "",  # license dependent
-    "isolation_level": "SNAPSHOT_ISOLATION",
+    "graph_memory_tracked": "",  # machine dependent
+    "vector_index_memory_tracked": "",  # machine dependent
+    "query_memory_tracked": "",  # machine dependent
+    "storage_isolation_level": "SNAPSHOT_ISOLATION",
     "session_isolation_level": "",
     "next_session_isolation_level": "",
     "storage_mode": "IN_MEMORY_TRANSACTIONAL",
@@ -60,6 +63,9 @@ def test_does_default_config_match():
         "runtime_allocation_limit",
         "license_allocation_limit",
         "vm_max_map_count",
+        "graph_memory_tracked",
+        "vector_index_memory_tracked",
+        "query_memory_tracked",
     ]
     # Number of different data-points returned by SHOW STORAGE INFO
     assert len(config) == len(default_storage_info_dict)
@@ -97,7 +103,7 @@ def test_info_change():
     ]
 
     expected_values = {
-        "isolation_level": "READ_UNCOMMITTED",
+        "storage_isolation_level": "READ_UNCOMMITTED",
         "session_isolation_level": "READ_COMMITTED",
         "next_session_isolation_level": "READ_COMMITTED",
     }
