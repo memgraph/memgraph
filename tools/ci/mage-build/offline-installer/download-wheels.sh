@@ -2,21 +2,37 @@
 set -euo pipefail
 # Run me inside a clean ubuntu:24.04 container as root.
 # Downloads every Python wheel needed by MAGE + the memgraph auth module into
-# /output/wheels/. amd64 / CPU-only.
+# /output/wheels/. Mirrors the wheel-selection logic in
+# mage/install_python_requirements.sh.
 #
-# Inputs (bind-mounted into the container):
-#   /input/requirements.txt           — mage/python/requirements.txt
+# Inputs (env vars):
+#   ARCH         amd64 or arm64 (default amd64)
+#   CUDA         true|false (default false; CUDA only valid for amd64)
+#   CUDA_VERSION CUDA version for the S3 wheel path (default 13.0)
+#
+# Inputs (bind-mounted):
+#   /input/requirements.txt              — mage's requirements file
+#                                          (gpu file when CUDA=true, else cpu)
 #   /input/auth-module-requirements.txt — src/auth/reference_modules/requirements.txt
-#   /input/wheels-prebuilt/           — wheels already produced on the host
-#                                       (gssapi etc., copied through verbatim)
+#   /input/wheels-prebuilt/             — wheels already produced on the host
+#                                         (gssapi etc., copied through verbatim)
 # Output:
 #   /output/wheels/*.whl
-#
-# Mirrors the CPU/amd64 branch of mage/install_python_requirements.sh — same
-# torch / torch_geometric / dgl wheels from S3, same auth-module requirements.
 
 OUTPUT_DIR=${OUTPUT_DIR:-/output/wheels}
 INPUT_DIR=${INPUT_DIR:-/input}
+ARCH=${ARCH:-amd64}
+CUDA=${CUDA:-false}
+CUDA_VERSION=${CUDA_VERSION:-13.0}
+
+case "$ARCH" in
+  amd64|arm64) ;;
+  *) echo "Error: ARCH must be amd64 or arm64 (got $ARCH)" >&2; exit 1 ;;
+esac
+if [[ "$CUDA" == "true" && "$ARCH" != "amd64" ]]; then
+  echo "Error: CUDA wheels are only published for amd64 (got ARCH=$ARCH)" >&2
+  exit 1
+fi
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -27,9 +43,8 @@ apt-get install -y --no-install-recommends \
 
 export PIP_BREAK_SYSTEM_PACKAGES=1
 
-# Copy any prebuilt wheels supplied by the host (gssapi is built by the
-# build-gssapi mgbuild subcommand and lives in mage/wheels/). They must land
-# in $OUTPUT_DIR *before* pip download runs — pip checks the dest dir for an
+# Copy prebuilt host wheels first (gssapi etc.). They must land in
+# $OUTPUT_DIR before `pip download` runs — pip checks the dest dir for an
 # existing wheel that satisfies the requirement and skips fetching it, which
 # is how we avoid pip trying to build gssapi from its sdist (it has no PyPI
 # wheel and the build needs krb5-config + libkrb5-dev).
@@ -41,23 +56,37 @@ if [[ -d "$INPUT_DIR/wheels-prebuilt" ]]; then
   shopt -u nullglob
 fi
 
-# Special wheels hosted in our S3 bucket (PyG ecosystem + DGL).
-# install_python_requirements.sh fetches these as a fallback layer after the
-# requirements.txt pass. We pull them down *before* `pip download` runs so
-# subsequent download passes can resolve their transitive deps too — e.g.
-# torch-geometric needs pyparsing, which is otherwise never pulled into the
-# wheel cache and bites at install time on the target.
-BASE_URL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels/amd64"
+# S3 wheel paths and filename suffixes mirror mage/install_python_requirements.sh:
+#   arm64                 -> wheels/arm64/                   + linux_aarch64 tag
+#   amd64 + CUDA=false    -> wheels/amd64/                   + linux_x86_64 tag
+#   amd64 + CUDA=true     -> wheels/cuda-${CUDA_VERSION}/    + linux_x86_64 tag
+BASE_URL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels"
+if [[ "$ARCH" == "arm64" ]]; then
+  BASE_URL="${BASE_URL}/arm64"
+  TORCH_TAG="linux_aarch64"
+  DGL_TAG="linux_aarch64"
+elif [[ "$CUDA" == "true" ]]; then
+  BASE_URL="${BASE_URL}/cuda-${CUDA_VERSION}"
+  TORCH_TAG="linux_x86_64"
+  DGL_TAG="linux_x86_64"
+else
+  BASE_URL="${BASE_URL}/amd64"
+  TORCH_TAG="linux_x86_64"
+  DGL_TAG="linux_x86_64"
+fi
+
+# Pull S3 wheels down first so subsequent `pip download` passes can resolve
+# their transitive deps too (e.g. torch-geometric needs pyparsing).
 S3_WHEELS=(
-  "torch_cluster-1.6.3-cp312-cp312-linux_x86_64.whl"
+  "torch_cluster-1.6.3-cp312-cp312-${TORCH_TAG}.whl"
   "torch_geometric-2.8.0-py3-none-any.whl"
-  "torch_scatter-2.1.2-cp312-cp312-linux_x86_64.whl"
-  "torch_sparse-0.6.18-cp312-cp312-linux_x86_64.whl"
-  "torch_spline_conv-1.2.2-cp312-cp312-linux_x86_64.whl"
-  "dgl-2.5-cp312-cp312-linux_x86_64.whl"
+  "torch_scatter-2.1.2-cp312-cp312-${TORCH_TAG}.whl"
+  "torch_sparse-0.6.18-cp312-cp312-${TORCH_TAG}.whl"
+  "torch_spline_conv-1.2.2-cp312-cp312-${TORCH_TAG}.whl"
+  "dgl-2.5-cp312-cp312-${DGL_TAG}.whl"
 )
 for wheel in "${S3_WHEELS[@]}"; do
-  echo "Fetching $wheel"
+  echo "Fetching $BASE_URL/$wheel"
   curl -fsSL -o "$OUTPUT_DIR/$wheel" "$BASE_URL/$wheel"
 done
 

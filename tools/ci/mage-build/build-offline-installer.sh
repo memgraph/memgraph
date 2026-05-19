@@ -5,7 +5,8 @@ set -euo pipefail
 # The output is a single executable file containing:
 #   - memgraph .deb + memgraph-mage .deb
 #   - every apt dependency .deb needed on a vanilla Ubuntu 24.04 host
-#   - every Python wheel needed by mage and the auth modules
+#   - every Python wheel needed by mage and the auth modules (CPU or CUDA
+#     variant, depending on --cuda)
 #   - install.sh (offline installer logic)
 #
 # Build steps:
@@ -18,8 +19,9 @@ set -euo pipefail
 #      install.sh script into the staging tree.
 #   4. tar the staging tree and prepend a tiny self-extracting shell preamble.
 #
-# Currently amd64 / CPU-only; --arch and --cuda are wired through for the
-# future but not yet validated.
+# Variant flags (--build-type/--malloc/--cuda/--cugraph) feed into the output
+# filename and, for --cuda/--cugraph, also select GPU-flavoured Python wheels
+# so the cache matches what the memgraph-mage .deb's postinst expects.
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/../../.."
@@ -28,7 +30,11 @@ OFFLINE_DIR="$SCRIPT_DIR/offline-installer"
 MEMGRAPH_DEB=""
 MAGE_DEB=""
 ARCH="amd64"
+BUILD_TYPE="Release"
 CUDA="false"
+CUDA_VERSION="13.0"
+MALLOC="false"
+CUGRAPH="false"
 OUTPUT=""
 WHEELS_PREBUILT_DIR="$PROJECT_ROOT/mage/wheels"
 
@@ -37,15 +43,19 @@ usage() {
 Usage: $0 --memgraph-deb PATH --mage-deb PATH [options]
 
 Required:
-  --memgraph-deb PATH     Path to memgraph_*.deb
-  --mage-deb PATH         Path to memgraph-mage_*.deb
+  --memgraph-deb PATH       Path to memgraph_*.deb
+  --mage-deb PATH           Path to memgraph-mage_*.deb
 
 Options:
-  --arch amd64            Target architecture (only amd64 supported today)
-  --cuda true|false       Bundle GPU wheels (not supported yet; must be false)
-  --output PATH           Output .run file (default: memgraph-mage-offline-<version>-<arch>.run)
-  --wheels-dir PATH       Directory of pre-built host wheels to include
-                          (default: $PROJECT_ROOT/mage/wheels)
+  --arch amd64|arm64        Target dpkg arch (default amd64)
+  --build-type STR          Release|RelWithDebInfo (default Release)
+  --cuda true|false         Bundle CUDA wheels (requires --arch amd64)
+  --cuda-version X.Y        CUDA version for S3 wheel path (default 13.0)
+  --malloc true|false       Variant flag — for output filename only
+  --cugraph true|false      Variant flag — implies --cuda true
+  --output PATH             Output .run file
+                            (default: memgraph-mage-offline-<version>-<arch><suffix>.run)
+  --wheels-dir PATH         Pre-built host wheels to bundle (default: \$PROJECT_ROOT/mage/wheels)
 EOF
 }
 
@@ -54,13 +64,22 @@ while [[ $# -gt 0 ]]; do
     --memgraph-deb) MEMGRAPH_DEB="$2"; shift 2 ;;
     --mage-deb)     MAGE_DEB="$2";     shift 2 ;;
     --arch)         ARCH="$2";         shift 2 ;;
+    --build-type)   BUILD_TYPE="$2";   shift 2 ;;
     --cuda)         CUDA="$2";         shift 2 ;;
+    --cuda-version) CUDA_VERSION="$2"; shift 2 ;;
+    --malloc)       MALLOC="$2";       shift 2 ;;
+    --cugraph)      CUGRAPH="$2";      shift 2 ;;
     --output)       OUTPUT="$2";       shift 2 ;;
     --wheels-dir)   WHEELS_PREBUILT_DIR="$2"; shift 2 ;;
     -h|--help)      usage; exit 0 ;;
     *)              echo "Unknown option: $1" >&2; usage; exit 1 ;;
   esac
 done
+
+# cugraph implies cuda — mirrors release/package/mgbuild.sh::package_mage_deb.
+if [[ "$CUGRAPH" == "true" ]]; then
+  CUDA="true"
+fi
 
 if [[ -z "$MEMGRAPH_DEB" || -z "$MAGE_DEB" ]]; then
   echo "Error: --memgraph-deb and --mage-deb are required." >&2
@@ -75,22 +94,37 @@ if [[ ! -f "$MAGE_DEB" ]]; then
   echo "Error: mage deb not found at $MAGE_DEB" >&2
   exit 1
 fi
-if [[ "$ARCH" != "amd64" ]]; then
-  echo "Error: only amd64 is supported in this version of the offline installer." >&2
-  exit 1
-fi
-if [[ "$CUDA" != "false" ]]; then
-  echo "Error: CUDA bundles are not supported yet (got --cuda $CUDA)." >&2
+case "$ARCH" in
+  amd64|arm64) ;;
+  *) echo "Error: --arch must be amd64 or arm64 (got $ARCH)" >&2; exit 1 ;;
+esac
+case "$BUILD_TYPE" in
+  Release|RelWithDebInfo) ;;
+  *) echo "Error: --build-type must be Release or RelWithDebInfo (got $BUILD_TYPE)" >&2; exit 1 ;;
+esac
+if [[ "$CUDA" == "true" && "$ARCH" != "amd64" ]]; then
+  echo "Error: --cuda true requires --arch amd64 (no CUDA wheels published for arm64)" >&2
   exit 1
 fi
 
-# Derive a default output filename from the memgraph deb version.
+# Build the variant suffix. Must match matrix.image_ext in
+# .github/workflows/promote_rc_release.yml so the promote step can find the
+# .run file by predictable name.
+SUFFIX=""
+[[ "$BUILD_TYPE" == "RelWithDebInfo" ]] && SUFFIX="${SUFFIX}-relwithdebinfo"
+[[ "$MALLOC" == "true" ]]                && SUFFIX="${SUFFIX}-malloc"
+[[ "$CUDA" == "true" && "$CUGRAPH" != "true" ]] && SUFFIX="${SUFFIX}-cuda"
+[[ "$CUGRAPH" == "true" ]]               && SUFFIX="${SUFFIX}-cugraph"
+
 if [[ -z "$OUTPUT" ]]; then
   base=$(basename "$MEMGRAPH_DEB")
   # memgraph_<version>_<arch>.deb -> <version>
   version=$(echo "$base" | sed -E 's/^memgraph_(.+)_[a-z0-9]+\.deb$/\1/')
-  OUTPUT="$PWD/memgraph-mage-offline-${version}-${ARCH}.run"
+  OUTPUT="$PWD/memgraph-mage-offline-${version}-${ARCH}${SUFFIX}.run"
 fi
+
+echo "==> Build config: arch=$ARCH build_type=$BUILD_TYPE cuda=$CUDA malloc=$MALLOC cugraph=$CUGRAPH"
+echo "==> Output: $OUTPUT"
 
 STAGING=$(mktemp -d -t mg-offline-build-XXXXXX)
 trap 'rm -rf "$STAGING"' EXIT
@@ -102,18 +136,26 @@ mkdir -p "$STAGING/bundle/debs" "$STAGING/bundle/wheels" "$STAGING/bundle/requir
 cp -v "$MEMGRAPH_DEB" "$STAGING/bundle/debs/"
 cp -v "$MAGE_DEB" "$STAGING/bundle/debs/"
 
-# Bundle the requirements files install.sh will pass to `pip install -r`.
-# These are the same files we feed to `pip download` in the wheels pass.
-cp -v "$PROJECT_ROOT/mage/python/requirements.txt" \
-  "$STAGING/bundle/requirements/mage-requirements.txt"
+# The mage .deb's postinst will run install_python_requirements.sh, which
+# reads /usr/lib/memgraph/mage-requirements.txt (packaged inside the deb based
+# on the deb's own --cuda flag at deb-build time). Our install.sh's step 3
+# pip-installs from the .run's bundled requirements file. To keep the version
+# pins consistent, we mirror the deb's choice here: CUDA build → -gpu file.
+if [[ "$CUDA" == "true" ]]; then
+  MAGE_REQ_SRC="$PROJECT_ROOT/mage/python/requirements-gpu.txt"
+else
+  MAGE_REQ_SRC="$PROJECT_ROOT/mage/python/requirements.txt"
+fi
+
+cp -v "$MAGE_REQ_SRC" "$STAGING/bundle/requirements/mage-requirements.txt"
 cp -v "$PROJECT_ROOT/src/auth/reference_modules/requirements.txt" \
   "$STAGING/bundle/requirements/auth-module-requirements.txt"
 
-# Stage the input for the wheels container: requirements files + any prebuilt
-# wheels the caller wants us to include.
+# Stage inputs for the wheels container.
 mkdir -p "$STAGING/wheels-input/wheels-prebuilt"
-cp -v "$PROJECT_ROOT/mage/python/requirements.txt" "$STAGING/wheels-input/requirements.txt"
-cp -v "$PROJECT_ROOT/src/auth/reference_modules/requirements.txt" "$STAGING/wheels-input/auth-module-requirements.txt"
+cp -v "$MAGE_REQ_SRC" "$STAGING/wheels-input/requirements.txt"
+cp -v "$PROJECT_ROOT/src/auth/reference_modules/requirements.txt" \
+  "$STAGING/wheels-input/auth-module-requirements.txt"
 if [[ -d "$WHEELS_PREBUILT_DIR" ]]; then
   shopt -s nullglob
   for whl in "$WHEELS_PREBUILT_DIR"/*.whl; do
@@ -139,6 +181,9 @@ docker run --rm \
 echo "==> Downloading Python wheels (fresh ubuntu:24.04 container)"
 docker run --rm \
   --platform "linux/$ARCH" \
+  -e ARCH="$ARCH" \
+  -e CUDA="$CUDA" \
+  -e CUDA_VERSION="$CUDA_VERSION" \
   -v "$OFFLINE_DIR/download-wheels.sh:/usr/local/bin/download-wheels.sh:ro" \
   -v "$STAGING/wheels-input:/input:ro" \
   -v "$STAGING/bundle/wheels:/output/wheels" \
@@ -154,12 +199,8 @@ chmod +x "$STAGING/bundle/install.sh"
 # ---------------------------------------------------------------------------
 echo "==> Packing bundle into $OUTPUT"
 
-# Tar the bundle.
 tar -C "$STAGING/bundle" -czf "$STAGING/payload.tar.gz" .
 
-# Shell preamble. tail finds the line immediately after __PAYLOAD_BELOW__ and
-# pipes the rest of the file into tar. We exec install.sh from the extract dir
-# and exit before bash would parse the appended binary.
 PREAMBLE="$STAGING/preamble.sh"
 cat > "$PREAMBLE" <<'PREAMBLE_EOF'
 #!/bin/bash

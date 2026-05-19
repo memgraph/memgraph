@@ -194,8 +194,12 @@ print_help () {
   echo -e "\npackage-mage-offline-installer options:"
   echo -e "  --memgraph-deb PATH           Path to the memgraph .deb (required)"
   echo -e "  --mage-deb PATH               Path to the memgraph-mage .deb (required)"
-  echo -e "  --output PATH                 Output path for the .run file (default: ./memgraph-mage-offline-<version>-<arch>.run)"
+  echo -e "  --output PATH                 Output path for the .run file (default: ./memgraph-mage-offline-<version>-<arch><variant>.run)"
   echo -e "  --wheels-dir PATH             Directory of pre-built host wheels to bundle (default: \"\$PROJECT_ROOT/mage/wheels\")"
+  echo -e "  --malloc                      Variant flag — affects the output filename only"
+  echo -e "  --cuda                        Bundle CUDA-flavoured Python wheels (requires --arch amd)"
+  echo -e "  --cuda-version X.Y            CUDA version for the S3 wheel path (default \"13.0\")"
+  echo -e "                                Build-type and cugraph come from the global --build-type / --cugraph flags."
 
   echo -e "\nToolchain v4 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V4[*]}\""
@@ -1829,6 +1833,9 @@ package_mage_offline_installer() {
   local mage_deb=""
   local output=""
   local wheels_dir="$PROJECT_ROOT/mage/wheels"
+  local malloc=false
+  local cuda=false
+  local cuda_version="13.0"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --memgraph-deb)
@@ -1847,6 +1854,18 @@ package_mage_offline_installer() {
         wheels_dir=$2
         shift 2
       ;;
+      --malloc)
+        malloc=true
+        shift 1
+      ;;
+      --cuda)
+        cuda=true
+        shift 1
+      ;;
+      --cuda-version)
+        cuda_version=$2
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -1860,6 +1879,12 @@ package_mage_offline_installer() {
     exit 1
   fi
 
+  # cugraph is a global mgbuild flag (parallel with package_mage_deb / docker);
+  # it implies cuda for wheel selection.
+  if [[ "$cugraph" = true ]]; then
+    cuda=true
+  fi
+
   # The mgbuild --arch values are amd/arm; the offline installer script speaks
   # debian/dpkg arch (amd64/arm64).
   local dpkg_arch="${arch}64"
@@ -1868,6 +1893,11 @@ package_mage_offline_installer() {
     --memgraph-deb "$memgraph_deb"
     --mage-deb "$mage_deb"
     --arch "$dpkg_arch"
+    --build-type "$build_type"
+    --cuda "$cuda"
+    --cuda-version "$cuda_version"
+    --malloc "$malloc"
+    --cugraph "$cugraph"
     --wheels-dir "$wheels_dir"
   )
   if [[ -n "$output" ]]; then
