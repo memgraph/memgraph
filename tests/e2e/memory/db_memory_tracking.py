@@ -197,6 +197,16 @@ def assert_metric_returns_near_baseline(cursor, key, baseline, tolerance_bytes, 
     )
 
 
+def assert_global_metric_returns_near_baseline(cursor, key, baseline, tolerance_bytes, timeout=20.0, message=None):
+    if message is None:
+        message = f"global {key} did not return near baseline"
+    wait_until(
+        lambda: parse_size_bytes(get_global_storage_info(cursor).get(key, "0B")) <= baseline + tolerance_bytes,
+        timeout=timeout,
+        message=message,
+    )
+
+
 def release_query_memory_hold(cursor, signal_id):
     debug_log(f"release proc start signal_id={signal_id}")
     rows = fetch_all(
@@ -1027,7 +1037,7 @@ def test_drop_database_releases_global_memory():
     drop_database(admin_cursor, db_name)
     execute(memgraph_cursor, "FREE MEMORY")
     execute(memgraph_cursor, "FREE MEMORY")
-    assert_metric_returns_near_baseline(
+    assert_global_metric_returns_near_baseline(
         memgraph_cursor,
         "memory_tracked",
         baseline_global,
