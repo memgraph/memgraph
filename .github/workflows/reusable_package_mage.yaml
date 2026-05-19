@@ -398,9 +398,21 @@ jobs:
       - name: Build offline installer (.run) for Ubuntu 24.04
         # CPU-only amd64 today; the build script rejects other arch/cuda combos.
         # Drops the .run into output/ so the existing S3 sync picks it up.
+        # The filename encodes the variant suffix (-relwithdebinfo/-malloc/
+        # -cuda/-cugraph) so future per-variant .run builds don't collide in
+        # S3 and the promote workflow can probe each matrix variant.
         if: ${{ inputs.build_offline_installer && env.PACKAGE_DEB == 'true' }}
         run: |
-          OFFLINE_RUN="output/memgraph-mage-offline-${MEMGRAPH_VERSION}-amd64.run"
+          SUFFIX=""
+          [[ "$BUILD_TYPE" == "RelWithDebInfo" ]] && SUFFIX="${SUFFIX}-relwithdebinfo"
+          [[ "$MALLOC" == "true" ]]               && SUFFIX="${SUFFIX}-malloc"
+          [[ "$CUDA" == "true" ]]                 && SUFFIX="${SUFFIX}-cuda"
+          [[ "$CUGRAPH" == "true" ]]              && SUFFIX="${SUFFIX}-cugraph"
+          # ARCH is "amd"/"arm" → dpkg arch "amd64"/"arm64"; the build script
+          # currently rejects non-amd64, but using $ARCH64 here means once arm
+          # support lands the filename automatically picks up arm64 and the
+          # promote workflow doesn't need a second pass of changes.
+          OFFLINE_RUN="output/memgraph-mage-offline-${MEMGRAPH_VERSION}-${ARCH}64${SUFFIX}.run"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
