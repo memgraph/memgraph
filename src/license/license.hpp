@@ -29,9 +29,9 @@ namespace memgraph::license {
 
 enum class LicenseType : uint8_t {
   ENTERPRISE = 0,
-  OEM_COMMUNITY = 1,
+  OEM = 1,
   AI_PLATFORM = 2,
-  OEM = 3,
+  OEM_COMMUNITY = 3,
 };
 
 constexpr bool IsEnterpriseTier(LicenseType type) noexcept {

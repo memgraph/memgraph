@@ -569,15 +569,15 @@ TEST_F(LicenseTest, Oem_MemoryLimitTreatedAsTotal) {
 }
 
 // ===========================================================================
-// Wire-format compat for existing OEM Community license keys
+// Wire-format compat for existing OEM license keys
 // ===========================================================================
 
-TEST_F(LicenseTest, BackwardCompat_WireValue1RoundTripsAsOemCommunity) {
+TEST_F(LicenseTest, BackwardCompat_WireValue1RoundTripsAsOem) {
   const auto fixture = memgraph::license::License{"FixtureOrg", 0, 0, static_cast<memgraph::license::LicenseType>(1)};
   const auto encoded = memgraph::license::Encode(fixture);
   const auto decoded = memgraph::license::Decode(encoded);
   ASSERT_TRUE(decoded.has_value());
-  EXPECT_EQ(decoded->type, memgraph::license::LicenseType::OEM_COMMUNITY);
+  EXPECT_EQ(decoded->type, memgraph::license::LicenseType::OEM);
   EXPECT_EQ(static_cast<uint8_t>(decoded->type), 1);
   EXPECT_EQ(decoded->organization_name, "FixtureOrg");
 }
