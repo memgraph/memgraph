@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -730,7 +731,8 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool force = false);
+  std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(
+      bool force = false, std::string_view trigger = "periodic");
 
   std::expected<void, InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,

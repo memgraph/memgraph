@@ -310,9 +310,8 @@ void InMemoryReplicationHandlers::Register(
 auto InMemoryReplicationHandlers::TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool {
   if (snapshot_guard.try_lock()) return true;
 
-  spdlog::trace(
-      "Couldn't obtain the snapshot lock because there is an ongoing snapshot creation. Trying to abort snapshot "
-      "creation.");
+  spdlog::info(
+      "[snapshot] couldn't obtain the snapshot lock because there is an ongoing snapshot creation, trying to abort");
 
   // abort_snapshot_ will be reset to false in CreateSnapshot in storage.cpp at the end of its execution with
   // OnScopeExit block

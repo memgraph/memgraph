@@ -12087,14 +12087,12 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
 }
 
-std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
-                                                    const std::filesystem::path &snapshot_directory,
-                                                    const std::filesystem::path &wal_directory,
-                                                    utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                                    utils::UUID const &uuid, std::string_view const epoch_id,
-                                                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
-                                                    utils::FileRetainer *file_retainer,
-                                                    std::atomic_bool *abort_snapshot, SnapshotProgress *progress) {
+std::optional<std::filesystem::path> CreateSnapshot(
+    Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
+    const std::filesystem::path &wal_directory, utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+    utils::UUID const &uuid, std::string_view const epoch_id,
+    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
+    std::atomic_bool *abort_snapshot, SnapshotProgress *progress, std::string_view trigger) {
   utils::Timer timer;
 
   // Ensure that the storage directory exists.
@@ -12112,10 +12110,11 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       return false;
     }
     file_retainer->DeleteFile(path);
+    spdlog::info("[snapshot] aborted");
     return true;
   };
 
-  spdlog::info("Starting snapshot creation to {}", path);
+  spdlog::info("[snapshot] starting {} snapshot creation to {}", trigger, path);
   SnapshotEncoder snapshot;
   if (!snapshot.Initialize(path, kSnapshotMagic, kVersion)) {
     spdlog::warn(
@@ -12408,6 +12407,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   std::vector<BatchInfo> vertex_batch_infos;
 
   if (storage->config_.durability.allow_parallel_snapshot_creation) {
+    spdlog::info("[snapshot] writing edges and vertices");
     auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
     if (!MultiThreadedWorkflow(edge_ptr,
                                vertices,
@@ -12436,6 +12436,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     }
   } else {
     if (storage->config_.salient.items.properties_on_edges) {
+      spdlog::info("[snapshot] writing edges");
       if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
       offset_edges = snapshot.GetPosition();  // Global edge offset
       // Handle edges
@@ -12447,6 +12448,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     if (snapshot_aborted()) {
       return std::nullopt;
     }
+    spdlog::info("[snapshot] writing vertices");
     if (progress) progress->SetPhase(SnapshotProgress::Phase::VERTICES, vertices->size());
     {
       offset_vertices = snapshot.GetPosition();  // Global vertex offset
@@ -12469,6 +12471,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write label indices.
     {
+      spdlog::info("[snapshot] writing label indices");
       auto label = transaction->active_indices_->label_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(label.size());
       for (const auto &item : label) {
@@ -12570,6 +12573,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     auto asc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
     auto desc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
 
+    spdlog::info("[snapshot] writing label-property indices");
     // Write ASC label+properties indices.
     {
       write_label_property_indices(asc_indices);
@@ -12592,6 +12596,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     offset_edge_indices = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_EDGE_INDICES);
     {
+      spdlog::info("[snapshot] writing edge-type indices");
       auto edge_type = transaction->active_indices_->edge_type_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
@@ -12604,6 +12609,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write edge-type + property indices.
     {
+      spdlog::info("[snapshot] writing edge-type-property indices");
       auto edge_type = transaction->active_indices_->edge_type_properties_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
@@ -12617,6 +12623,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write global edge property indices.
     {
+      spdlog::info("[snapshot] writing edge-property indices");
       auto indices = transaction->active_indices_->edge_property_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(indices.size());
       for (const auto &property : indices) {
@@ -12626,6 +12633,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write point indices.
     {
+      spdlog::info("[snapshot] writing point indices");
       auto point_keys = storage->indices_.point_index_.ListIndices();
       snapshot.WriteUint(point_keys.size());
       for (const auto &[label, property] : point_keys) {
@@ -12639,6 +12647,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write vector indices
     {
+      spdlog::info("[snapshot] writing vector indices");
       storage->indices_.vector_index_.SerializeAllVectorIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {
         return std::nullopt;
@@ -12647,6 +12656,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write vector edge indices
     {
+      spdlog::info("[snapshot] writing vector edge indices");
       storage->indices_.vector_edge_index_.SerializeAllVectorEdgeIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {
         return std::nullopt;
@@ -12657,6 +12667,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     {
       // Text indices on nodes
       {
+        spdlog::info("[snapshot] writing text node indices");
         const auto text_indices = storage->indices_.text_index_.ListIndices();
         snapshot.WriteUint(text_indices.size());
         for (const auto &[index_name, label, properties] : text_indices) {
@@ -12673,6 +12684,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
       // Text indices on edges
       {
+        spdlog::info("[snapshot] writing text edge indices");
         const auto text_edge_indices = storage->indices_.text_edge_index_.ListIndices();
         snapshot.WriteUint(text_edge_indices.size());
         for (const auto &[index_name, edge_type, properties] : text_edge_indices) {
@@ -12691,6 +12703,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   }
 
   // Write constraints.
+  spdlog::info("[snapshot] writing constraints");
   if (progress) progress->SetPhase(SnapshotProgress::Phase::CONSTRAINTS, 0);
   {
     offset_constraints = snapshot.GetPosition();
@@ -12740,6 +12753,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   }
 
   // Write mapper data, enums, metadata, batch info, TTL.
+  spdlog::info("[snapshot] finalizing");
   if (progress) progress->SetPhase(SnapshotProgress::Phase::FINALIZING, 0);
   {
     offset_mapper = snapshot.GetPosition();
@@ -12952,10 +12966,8 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     return std::nullopt;
   }
 
-  // Finalize snapshot file.
-  spdlog::trace("Finalizing snapshot file!");
   snapshot.Finalize();
-  spdlog::info("Snapshot creation successful!");
+  spdlog::info("[snapshot] creation successful");
 
   auto const old_snapshot_files =
       EnsureRetentionCountSnapshotsExist(snapshot_directory, uuid_str, path, file_retainer, storage);
