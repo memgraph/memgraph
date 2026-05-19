@@ -2880,6 +2880,11 @@ struct AuthQueryChecker {
     return *this;
   }
 
+  AuthQueryChecker &WithPropertyPrivileges(std::vector<std::string> property_privileges) {
+    property_privileges_ = std::move(property_privileges);
+    return *this;
+  }
+
   void Check() const {
     auto *q = dynamic_cast<AuthQuery *>(ast_generator_->ParseQuery(input_));
     ASSERT_TRUE(q);
@@ -2898,6 +2903,7 @@ struct AuthQueryChecker {
     if (role_databases_) {
       EXPECT_EQ(q->role_databases_, *role_databases_);
     }
+    EXPECT_EQ(q->property_privileges_, property_privileges_);
   }
 
  private:
@@ -2913,6 +2919,7 @@ struct AuthQueryChecker {
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges_;
   std::vector<AuthQuery::LabelMatchingMode> label_matching_modes_;
   std::optional<std::unordered_set<std::string>> role_databases_;
+  std::vector<std::string> property_privileges_;
 };
 
 TEST_P(CypherMainVisitorTest, UserOrRoleName) {
@@ -4486,6 +4493,114 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
 
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE *, READ ON NODES CONTAINING LABELS :Label1 FROM user"),
                SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
+  auto &ast_generator = *GetParam();
+
+  // GRANT READ with single property on nodes
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {ssn} ON NODES CONTAINING LABELS :Employee TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE)
+      .WithUserOrRole("user")
+      .WithLabelPrivileges({{{AuthQuery::FineGrainedPrivilege::READ, {"Employee"}}}})
+      .WithLabelMatchingModes({AuthQuery::LabelMatchingMode::ANY})
+      .WithPropertyPrivileges({"ssn"})
+      .Check();
+
+  // GRANT READ with multiple properties on nodes
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {ssn, salary, dob} ON NODES CONTAINING LABELS :Employee TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE)
+      .WithUserOrRole("user")
+      .WithLabelPrivileges({{{AuthQuery::FineGrainedPrivilege::READ, {"Employee"}}}})
+      .WithLabelMatchingModes({AuthQuery::LabelMatchingMode::ANY})
+      .WithPropertyPrivileges({"ssn", "salary", "dob"})
+      .Check();
+
+  // GRANT READ with wildcard properties on nodes
+  AuthQueryChecker(
+      &ast_generator, "GRANT READ {*} ON NODES CONTAINING LABELS :Employee TO user", AuthQuery::Action::GRANT_PRIVILEGE)
+      .WithUserOrRole("user")
+      .WithLabelPrivileges({{{AuthQuery::FineGrainedPrivilege::READ, {"Employee"}}}})
+      .WithLabelMatchingModes({AuthQuery::LabelMatchingMode::ANY})
+      .WithPropertyPrivileges({"*"})
+      .Check();
+
+  // GRANT READ with properties on edges
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {amount, currency} ON EDGES OF TYPE :PAID TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE)
+      .WithUserOrRole("user")
+      .WithEdgeTypePrivileges({{{AuthQuery::FineGrainedPrivilege::READ, {"PAID"}}}})
+      .WithPropertyPrivileges({"amount", "currency"})
+      .Check();
+
+  // GRANT READ without property list still works (existing label-level FGA)
+  AuthQueryChecker(
+      &ast_generator, "GRANT READ ON NODES CONTAINING LABELS :Employee TO user", AuthQuery::Action::GRANT_PRIVILEGE)
+      .WithUserOrRole("user")
+      .WithLabelPrivileges({{{AuthQuery::FineGrainedPrivilege::READ, {"Employee"}}}})
+      .WithLabelMatchingModes({AuthQuery::LabelMatchingMode::ANY})
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, DenyPropertyReadPrivilege) {
+  auto &ast_generator = *GetParam();
+
+  AuthQueryChecker(
+      &ast_generator, "DENY READ {ssn} ON NODES CONTAINING LABELS :Employee TO user", AuthQuery::Action::DENY_PRIVILEGE)
+      .WithUserOrRole("user")
+      .WithLabelPrivileges({{{AuthQuery::FineGrainedPrivilege::READ, {"Employee"}}}})
+      .WithLabelMatchingModes({AuthQuery::LabelMatchingMode::ANY})
+      .WithPropertyPrivileges({"ssn"})
+      .Check();
+
+  AuthQueryChecker(
+      &ast_generator, "DENY READ {amount} ON EDGES OF TYPE :PAID TO user", AuthQuery::Action::DENY_PRIVILEGE)
+      .WithUserOrRole("user")
+      .WithEdgeTypePrivileges({{{AuthQuery::FineGrainedPrivilege::READ, {"PAID"}}}})
+      .WithPropertyPrivileges({"amount"})
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, RevokePropertyReadPrivilege) {
+  auto &ast_generator = *GetParam();
+
+  AuthQueryChecker(&ast_generator,
+                   "REVOKE READ {ssn} ON NODES CONTAINING LABELS :Employee FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE)
+      .WithUserOrRole("user")
+      .WithLabelPrivileges({{{AuthQuery::FineGrainedPrivilege::READ, {"Employee"}}}})
+      .WithLabelMatchingModes({AuthQuery::LabelMatchingMode::ANY})
+      .WithPropertyPrivileges({"ssn"})
+      .Check();
+
+  AuthQueryChecker(
+      &ast_generator, "REVOKE READ {amount} ON EDGES OF TYPE :PAID FROM user", AuthQuery::Action::REVOKE_PRIVILEGE)
+      .WithUserOrRole("user")
+      .WithEdgeTypePrivileges({{{AuthQuery::FineGrainedPrivilege::READ, {"PAID"}}}})
+      .WithPropertyPrivileges({"amount"})
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, PropertyReadPrivilegeSyntaxErrors) {
+  auto &ast_generator = *GetParam();
+
+  // Empty braces
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {} ON NODES CONTAINING LABELS :Employee TO user"), SyntaxException);
+
+  // Trailing comma in property list
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn,} ON NODES CONTAINING LABELS :Employee TO user"),
+               SyntaxException);
+
+  // Missing closing brace
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn ON NODES CONTAINING LABELS :Employee TO user"),
+               SyntaxException);
+
+  // Missing opening brace
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ssn} ON NODES CONTAINING LABELS :Employee TO user"),
+               SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
