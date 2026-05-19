@@ -173,7 +173,10 @@ InstanceStorageInfo GetInstanceStorageInfo() {
   const int64_t vm_max_map_count =
       memgraph::utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
   const auto disk_usage = memgraph::utils::GetDirDiskUsage(FLAGS_data_directory);
-  return {memory_res, peak_memory_res, disk_usage, vm_max_map_count};
+  return {.memory_res = memory_res,
+          .peak_memory_res = peak_memory_res,
+          .disk_usage = disk_usage,
+          .vm_max_map_count = vm_max_map_count};
 }
 
 auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
