@@ -17,19 +17,6 @@ storage:
     logStorageAccessMode: "ReadWriteOnce"
     logStorageClassName: csi-hostpath-delayed
     ## Create a Persistant Volume Claim for core dumps.
-    coreDumpsStorageClassName:
-    coreDumpsStorageSize: 10Gi
-    coreDumpsMountPath: /var/core/memgraph
-  coordinators:
-    libPVCSize: "1Gi"
-    libStorageAccessMode: "ReadWriteOnce"
-    # By default the name of the storage class isn't set which means that the default storage class will be used.
-    # If you set any name, such storage class must exist.
-    libStorageClassName: csi-hostpath-delayed
-    logPVCSize: "1Gi"
-    logStorageAccessMode: "ReadWriteOnce"
-    logStorageClassName: csi-hostpath-delayed
-    ## Create a Persistant Volume Claim for core dumps.
     createCoreDumpsClaim: false
     coreDumpsStorageClassName:
     coreDumpsStorageSize: 10Gi
@@ -401,6 +388,7 @@ data:
       - "--telemetry-enabled=false"
       - "--monitoring-port=7444"
       - "--monitoring-address=0.0.0.0"
+
 coordinators:
   - id: "1"
     restoreDataFromSnapshot: false
