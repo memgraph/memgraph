@@ -516,16 +516,21 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleMainLoadingForEdgeImportCache(&transaction_);
 
-    return VerticesIterable(
-        AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(), storage_, &transaction_, view));
+    return VerticesIterable(AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(),
+                                                storage_,
+                                                &transaction_,
+                                                view,
+                                                kIteratorNoGidUpperBound));
   }
   if (transaction_.scanned_all_vertices_) {
-    return VerticesIterable(AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view));
+    return VerticesIterable(
+        AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
   }
 
   disk_storage->LoadVerticesToMainMemoryCache(&transaction_);
   transaction_.scanned_all_vertices_ = true;
-  return VerticesIterable(AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
@@ -546,7 +551,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
       &transaction_, label, view, index_deltas, indexed_vertices.get());
   disk_storage->LoadVerticesFromDiskLabelIndex(&transaction_, label, gids, index_deltas, indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
@@ -582,7 +588,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   disk_storage->LoadVerticesFromDiskLabelPropertyIndex(
       &transaction_, label, property, gids, index_deltas, indexed_vertices.get(), disk_label_property_filter);
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
@@ -617,7 +624,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   disk_storage->LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
       &transaction_, label, property, gids, value, index_deltas, indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
@@ -658,7 +666,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   disk_storage->LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
       &transaction_, label, property, gids, lower_bound, upper_bound, index_deltas, indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 /// TODO: (andi) This should probably go into some other class not the storage. All utils methods
@@ -1478,9 +1487,9 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
                               CreateDeleteDeserializedObjectDelta(transaction, key, std::move(ts)));
 }
 
-VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils::SkipListDb<Vertex>::Accessor &accessor,
-                                                 storage::Gid gid, VertexKey label_ids, PropertyStore properties,
-                                                 Delta *delta) {
+VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction,
+                                                 utils::SkipListDb<Vertex>::Accessor &accessor, storage::Gid gid,
+                                                 VertexKey label_ids, PropertyStore properties, Delta *delta) {
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");

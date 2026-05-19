@@ -2458,8 +2458,9 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(View view, size_t num_chunks) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  const auto max_gid = Gid::FromUint(mem_storage->vertex_id_.load(std::memory_order_acquire));
   return VerticesChunkedIterable(
-      AllVerticesChunkedIterable(mem_storage->vertices_.access(), num_chunks, storage_, &transaction_, view));
+      AllVerticesChunkedIterable(mem_storage->vertices_.access(), num_chunks, storage_, &transaction_, view, max_gid));
 }
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(LabelId label, View view,

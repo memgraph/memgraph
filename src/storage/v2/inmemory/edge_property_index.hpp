@@ -88,7 +88,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
              utils::SkipListDb<Edge>::ConstAccessor edge_accessor, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-             Transaction *transaction);
+             Transaction *transaction, Gid max_gid);
 
     class Iterator {
      public:
@@ -127,21 +127,21 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
+    Gid max_gid_;
   };
 
   class ChunkedIterable {
    public:
     ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
                     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                    utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-                    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, PropertyId property,
+                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                    Transaction *transaction, size_t num_chunks);
+                    Transaction *transaction, size_t num_chunks, Gid max_gid);
 
     class Iterator {
      public:
-      Iterator(ChunkedIterable *self,
-               utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
+      Iterator(ChunkedIterable *self, utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
           : self_(self),
             index_iterator_(index_iterator),
             current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId{}, nullptr, nullptr, self_->storage_,
@@ -200,6 +200,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     Storage *storage_;
     Transaction *transaction_;
     utils::SkipListDb<Entry>::ChunkCollection chunks_;
+    Gid max_gid_;
   };
 
   struct ActiveIndices : EdgePropertyIndex::ActiveIndices {
@@ -222,15 +223,13 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
 
     std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const override;
 
-    Iterable Edges(PropertyId property,
-                   utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    Iterable Edges(PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
                    utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                    Transaction *transaction);
 
-    ChunkedIterable ChunkedEdges(PropertyId property,
-                                 utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    ChunkedIterable ChunkedEdges(PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
                                  utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
@@ -246,8 +245,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   InMemoryEdgePropertyIndex() = default;
 
   /// @throw std::bad_alloc
-  bool CreateIndexOnePass(PropertyId property,
-                          utils::SkipListDb<Vertex>::Accessor vertices,
+  bool CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
