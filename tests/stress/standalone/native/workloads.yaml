@@ -11,3 +11,6 @@ workloads:
 
   - config: workloads/analytical_memory/workload.yaml
     enabled: true
+
+  - config: workloads/ring/workload.yaml
+    enabled: true

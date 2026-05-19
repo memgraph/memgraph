@@ -1,0 +1,43 @@
+# Ring Rotation Stress Workload
+#
+# Builds a small ring (:Node)-[:FRIEND]->(:Node), then has many parallel
+# writers atomically swap pairs of triplets. After every commit, each
+# worker re-asserts the ring is intact. A final verification walks the
+# ring from every node and asserts it closes in exactly N hops.
+#
+# Memgraph port (without the Antithesis SDK) of antithesishq/dgraph
+# ring_test.
+
+memgraph:
+  deployment:
+    externally_managed: false
+  args:
+    - "--memory-limit=2048"
+    - "--storage-access-timeout-sec=30"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: ring-rotation-stress
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/ring/workload.py
+      script_args:
+        - "--endpoint"
+        - "127.0.0.1:7687"
+        - "--parallelism"
+        - "8"
+        - "--min-swaps"
+        - "200"
+        - "--max-swaps"
+        - "400"
+      timeout_min: 15
