@@ -17,6 +17,7 @@
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "disk_test_utils.hpp"
+#include "memory/db_arena.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
@@ -95,9 +96,11 @@ class InfoTest : public testing::Test {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
               "Wrong storage mode!");
     db_acc_ = std::move(db_acc);
+    db_arena_scope_.emplace(&db_acc_->get()->Arena());
   }
 
   void TearDown() {
+    db_arena_scope_.reset();
     db_acc_.reset();
     dbms_handler_.reset();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -123,6 +126,7 @@ class InfoTest : public testing::Test {
   };
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler_;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
+  std::optional<memgraph::memory::DbArenaScope> db_arena_scope_;
 };
 
 using TestTypes = ::testing::Types<std::pair<memgraph::storage::InMemoryStorage, DefaultConfig>,

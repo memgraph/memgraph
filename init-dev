@@ -45,6 +45,6 @@ if [[ "$ci" == "false" ]]; then
   echo "Installing pre-commit hooks"
   export PIP_BREAK_SYSTEM_PACKAGES=1
   python3 -m pip install --upgrade pip
-  pip install pre-commit black==23.1.* isort==5.12.*
+  pip install pre-commit black==26.5.0 isort==5.12.*
   python3 -m pre_commit install
 fi

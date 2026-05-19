@@ -18,7 +18,7 @@ CLUSTER_CONFIG_FILE="${SCRIPT_DIR}/cluster.yaml"
 # Helm configuration
 HELM_RELEASE_NAME="${HELM_RELEASE_NAME:-mem-ha-test}"
 HELM_CHART_PATH="${HELM_CHART_PATH:-memgraph/memgraph-high-availability}"
-HELM_CHART_VERSION="${HELM_CHART_VERSION:-0.2.19}"
+HELM_CHART_VERSION="${HELM_CHART_VERSION:-1.0.1}"
 HELM_REPO_NAME="memgraph"
 HELM_REPO_URL="https://memgraph.github.io/helm-charts"
 
@@ -328,18 +328,6 @@ install_memgraph_ha() {
         log_info "Using image tag: $MEMGRAPH_IMAGE_TAG"
     fi
 
-    # Override license if MEMGRAPH_ENTERPRISE_LICENSE is set
-    if [[ -n "${MEMGRAPH_ENTERPRISE_LICENSE:-}" ]]; then
-        helm_cmd+=" --set env.MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE"
-        log_info "Enterprise license configured"
-    fi
-
-    # Override organization name if MEMGRAPH_ORGANIZATION_NAME is set
-    if [[ -n "${MEMGRAPH_ORGANIZATION_NAME:-}" ]]; then
-        helm_cmd+=" --set env.MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME"
-        log_info "Organization name configured"
-    fi
-
     log_info "Running: helm install $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE [+ overrides]"
     eval "$helm_cmd"
 
@@ -519,6 +507,14 @@ start_cluster() {
 
 start_memgraph() {
     log_info "Installing Memgraph HA on EKS cluster..."
+
+    : "${MEMGRAPH_ENTERPRISE_LICENSE:?MEMGRAPH_ENTERPRISE_LICENSE must be set}"
+    : "${MEMGRAPH_ORGANIZATION_NAME:?MEMGRAPH_ORGANIZATION_NAME must be set}"
+
+    kubectl create secret generic memgraph-secrets \
+        --from-literal=MEMGRAPH_ENTERPRISE_LICENSE="${MEMGRAPH_ENTERPRISE_LICENSE}" \
+        --from-literal=MEMGRAPH_ORGANIZATION_NAME="${MEMGRAPH_ORGANIZATION_NAME}" \
+        --dry-run=client -o yaml | kubectl apply -f -
 
     install_memgraph_ha
     wait_for_pods
@@ -717,16 +713,6 @@ upgrade_memgraph() {
         helm_cmd+=" --set image.repository=$img_repo --set image.tag=$img_tag"
     elif [[ -n "${MEMGRAPH_IMAGE_TAG:-}" ]]; then
         helm_cmd+=" --set image.tag=$MEMGRAPH_IMAGE_TAG"
-    fi
-
-    # Override license if MEMGRAPH_ENTERPRISE_LICENSE is set
-    if [[ -n "${MEMGRAPH_ENTERPRISE_LICENSE:-}" ]]; then
-        helm_cmd+=" --set env.MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE"
-    fi
-
-    # Override organization name if MEMGRAPH_ORGANIZATION_NAME is set
-    if [[ -n "${MEMGRAPH_ORGANIZATION_NAME:-}" ]]; then
-        helm_cmd+=" --set env.MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME"
     fi
 
     # Pass any additional arguments
@@ -1130,14 +1116,14 @@ print_usage() {
     echo "  CLUSTER_REGION                - AWS region (default: eu-west-1)"
     echo "  HELM_RELEASE_NAME             - Helm release name (default: mem-ha-test)"
     echo "  HELM_CHART_PATH               - Path to Helm chart (default: memgraph/memgraph-high-availability)"
-    echo "  HELM_CHART_VERSION            - Pin Helm chart version (default: 0.2.18)"
+    echo "  HELM_CHART_VERSION            - Pin Helm chart version (default: 1.0.1)"
     echo "  POD_READY_TIMEOUT             - Timeout for pods to be ready in seconds (default: 600)"
     echo "  ENABLE_MONITORING             - Install kube-prometheus-stack (default: true)"
     echo ""
     echo "  MEMGRAPH_IMAGE                - Override image repo:tag"
     echo "  MEMGRAPH_IMAGE_TAG            - Override image.tag in values.yaml"
-    echo "  MEMGRAPH_ENTERPRISE_LICENSE   - Override env.MEMGRAPH_ENTERPRISE_LICENSE in values.yaml"
-    echo "  MEMGRAPH_ORGANIZATION_NAME    - Override env.MEMGRAPH_ORGANIZATION_NAME in values.yaml"
+    echo "  MEMGRAPH_ENTERPRISE_LICENSE   - Used in k8s secret"
+    echo "  MEMGRAPH_ORGANIZATION_NAME    - Used in k8s secret"
     echo ""
     echo "Examples:"
     echo "  $0 start-all                       # Create cluster + deploy Memgraph"

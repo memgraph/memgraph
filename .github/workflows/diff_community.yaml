@@ -112,3 +112,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/docker_cleanup.sh
+
+      - name: Cancel run on merge_group failure
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        uses: ./.github/actions/cancel-on-failure-in-merge-queue

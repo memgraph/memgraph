@@ -210,14 +210,10 @@ ENTERPRISE_LICENSE=${MEMGRAPH_ENTERPRISE_LICENSE:-""}
 ORGANIZATION_NAME=${MEMGRAPH_ORGANIZATION_NAME:-""}
 
 sed -e "s/{{VERSION_TAG}}/${LAST_TAG}/g" \
-    -e "s/{{ENTERPRISE_LICENSE}}/${ENTERPRISE_LICENSE}/g" \
-    -e "s/{{ORGANIZATION_NAME}}/${ORGANIZATION_NAME}/g" \
     values_template.yaml > old_values.yaml
 echo -e "${GREEN}Generated old_values.yaml with tag: ${LAST_TAG}${NC}"
 
 sed -e "s/{{VERSION_TAG}}/${NEXT_TAG}/g" \
-    -e "s/{{ENTERPRISE_LICENSE}}/${ENTERPRISE_LICENSE}/g" \
-    -e "s/{{ORGANIZATION_NAME}}/${ORGANIZATION_NAME}/g" \
     values_template.yaml > new_values.yaml
 echo -e "${GREEN}Generated new_values.yaml with tag: ${NEXT_TAG}${NC}"
 
@@ -566,14 +562,15 @@ for i in "${!nodes[@]}"; do
   fi
 done
 
+echo -e "${YELLOW} Creating secret with license details"
+kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=${ENTERPRISE_LICENSE} --from-literal=MEMGRAPH_ORGANIZATION_NAME=${ORGANIZATION_NAME}
 
 # --- Helm chart prep ---
 helm repo add memgraph https://memgraph.github.io/helm-charts
 
-
 # --- Helm install ---
 echo -e "${GREEN}Installing Helm chart...${NC}"
-helm install "$RELEASE" memgraph/memgraph-high-availability -f old_values.yaml --timeout 120s --wait --debug | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
+helm install "$RELEASE" memgraph/memgraph-high-availability --version 1.0.1 -f old_values.yaml --timeout 120s --wait --debug | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
 
 # --- Wait & verify resources ---
 echo -e "${GREEN}Waiting for resources to be created...${NC}"
@@ -700,7 +697,7 @@ kubectl exec memgraph-data-0-0 -- bash -c "mgconsole < /var/lib/memgraph/pre_upg
 echo "Run test queries on old version"
 
 # --- Upgrade chart values ---
-helm upgrade "$RELEASE" memgraph/memgraph-high-availability -f new_values.yaml
+helm upgrade "$RELEASE" memgraph/memgraph-high-availability --version 1.0.1 -f new_values.yaml
 echo "Updated versions"
 
 

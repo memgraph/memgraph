@@ -1651,8 +1651,12 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
     QUERY_TO_CHECK = "SHOW INDEX INFO;"
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 1
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica1"].query(QUERY_TO_CHECK)
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+    mg_sleep_and_assert(
+        res_from_main, lambda: interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica1"].query(QUERY_TO_CHECK)
+    )
+    mg_sleep_and_assert(
+        res_from_main, lambda: interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica1"].query(QUERY_TO_CHECK)
+    )
 
     # 3/
     interactive_mg_runner.kill(CONFIGURATION, "async_replica1")
@@ -1681,7 +1685,9 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
     # 6/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+    mg_sleep_and_assert(
+        res_from_main, lambda: interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+    )
 
 
 def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection, test_name):

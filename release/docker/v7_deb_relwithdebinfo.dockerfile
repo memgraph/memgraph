@@ -89,4 +89,4 @@ USER memgraph
 WORKDIR /usr/lib/memgraph
 
 ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
-CMD [""]
+CMD []

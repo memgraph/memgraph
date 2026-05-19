@@ -98,7 +98,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                  // After-commit triggers run on a dedicated DB worker.
                                  // Keep a DB arena scope alive for the full worker lifetime.
                                  [this]() -> utils::ThreadPool::TaskSignature {
-                                   auto db_arena_scope = std::make_unique<memory::DbArenaScope>(db_arena_.get());
+                                   auto db_arena_scope = std::make_unique<memory::DbArenaScope>(this);
                                    return [db_arena_scope = std::move(db_arena_scope)]() mutable {
                                      db_arena_scope.reset();
                                    };
@@ -107,7 +107,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
           std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams", db_arena_.get())),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
-  const memory::DbArenaScope db_arena_scope{this, memory::DbArenaScope::Type::FORCE};
+  const memory::DbArenaScope db_arena_scope{this};
 
   // Postpone creation after the scope has been created
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
@@ -172,6 +172,5 @@ void Database::SwitchToOnDisk() {
 // DbArenaScope constructor implementation (Database* variant) - defined here
 // to avoid circular include between db_arena.cpp and database.hpp
 namespace memgraph::memory {
-DbArenaScope::DbArenaScope(const memgraph::dbms::Database *db, DbArenaScope::Type type)
-    : DbArenaScope(db != nullptr ? &db->Arena() : nullptr, type) {}
+DbArenaScope::DbArenaScope(const memgraph::dbms::Database *db) : DbArenaScope(db != nullptr ? &db->Arena() : nullptr) {}
 }  // namespace memgraph::memory

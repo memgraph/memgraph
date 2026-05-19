@@ -17,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <tuple>
 #include <vector>
 
 #include "communication/result_stream_faker.hpp"
@@ -61,13 +62,13 @@ struct DatabaseState {
   struct Vertex {
     int64_t id;
     std::set<std::string, std::less<>> labels;
-    memgraph::storage::PropertyValue::map_t props;
+    memgraph::storage::ExternalPropertyValue::map_t props;
   };
 
   struct Edge {
     int64_t from, to;
     std::string edge_type;
-    memgraph::storage::PropertyValue::map_t props;
+    memgraph::storage::ExternalPropertyValue::map_t props;
   };
 
   struct LabelItem {
@@ -125,16 +126,12 @@ struct DatabaseState {
 };
 
 bool operator<(const DatabaseState::Vertex &first, const DatabaseState::Vertex &second) {
-  if (first.id != second.id) return first.id < second.id;
-  if (first.labels != second.labels) return first.labels < second.labels;
-  return first.props < second.props;
+  return std::tie(first.id, first.labels, first.props) < std::tie(second.id, second.labels, second.props);
 }
 
 bool operator<(const DatabaseState::Edge &first, const DatabaseState::Edge &second) {
-  if (first.from != second.from) return first.from < second.from;
-  if (first.to != second.to) return first.to < second.to;
-  if (first.edge_type != second.edge_type) return first.edge_type < second.edge_type;
-  return first.props < second.props;
+  return std::tie(first.from, first.to, first.edge_type, first.props) <
+         std::tie(second.from, second.to, second.edge_type, second.props);
 }
 
 bool operator<(const DatabaseState::LabelItem &first, const DatabaseState::LabelItem &second) {
@@ -143,37 +140,33 @@ bool operator<(const DatabaseState::LabelItem &first, const DatabaseState::Label
 
 bool operator<(const DatabaseState::OrderedLabelPropertiesItem &first,
                const DatabaseState::OrderedLabelPropertiesItem &second) {
-  if (first.label != second.label) return first.label < second.label;
-  return first.properties < second.properties;
+  return std::tie(first.label, first.properties) < std::tie(second.label, second.properties);
 }
 
 bool operator<(const DatabaseState::LabelPropertyItem &first, const DatabaseState::LabelPropertyItem &second) {
-  if (first.label != second.label) return first.label < second.label;
-  return first.property < second.property;
+  return std::tie(first.label, first.property) < std::tie(second.label, second.property);
 }
 
 bool operator<(const DatabaseState::TextNodeItem &first, const DatabaseState::TextNodeItem &second) {
-  return first.index_name < second.index_name;
+  return std::tie(first.index_name, first.label, first.properties) <
+         std::tie(second.index_name, second.label, second.properties);
 }
 
 bool operator<(const DatabaseState::TextEdgeItem &first, const DatabaseState::TextEdgeItem &second) {
-  return first.index_name < second.index_name;
+  return std::tie(first.index_name, first.edge_type, first.properties) <
+         std::tie(second.index_name, second.edge_type, second.properties);
 }
 
 bool operator<(const DatabaseState::PointItem &first, const DatabaseState::PointItem &second) {
-  if (first.label != second.label) return first.label < second.label;
-  return first.property < second.property;
+  return std::tie(first.label, first.property) < std::tie(second.label, second.property);
 }
 
 bool operator<(const DatabaseState::LabelPropertiesItem &first, const DatabaseState::LabelPropertiesItem &second) {
-  if (first.label != second.label) return first.label < second.label;
-  return first.properties < second.properties;
+  return std::tie(first.label, first.properties) < std::tie(second.label, second.properties);
 }
 
 bool operator<(const DatabaseState::LabelPropertyType &first, const DatabaseState::LabelPropertyType &second) {
-  if (first.label != second.label) return first.label < second.label;
-  if (first.property != second.property) return first.property < second.property;
-  return first.type < second.type;
+  return std::tie(first.label, first.property, first.type) < std::tie(second.label, second.property, second.type);
 }
 
 bool operator==(const DatabaseState::Vertex &first, const DatabaseState::Vertex &second) {
@@ -199,11 +192,12 @@ bool operator==(const DatabaseState::LabelPropertyItem &first, const DatabaseSta
 }
 
 bool operator==(const DatabaseState::TextNodeItem &first, const DatabaseState::TextNodeItem &second) {
-  return first.index_name == second.index_name;
+  return first.index_name == second.index_name && first.label == second.label && first.properties == second.properties;
 }
 
 bool operator==(const DatabaseState::TextEdgeItem &first, const DatabaseState::TextEdgeItem &second) {
-  return first.index_name == second.index_name;
+  return first.index_name == second.index_name && first.edge_type == second.edge_type &&
+         first.properties == second.properties;
 }
 
 bool operator==(const DatabaseState::PointItem &first, const DatabaseState::PointItem &second) {
@@ -221,7 +215,8 @@ bool operator==(const DatabaseState::LabelPropertyType &first, const DatabaseSta
 bool operator==(const DatabaseState &first, const DatabaseState &second) {
   return first.vertices == second.vertices && first.edges == second.edges &&
          first.label_indices == second.label_indices && first.label_property_indices == second.label_property_indices &&
-         first.existence_constraints == second.existence_constraints &&
+         first.text_indices == second.text_indices && first.edge_text_indices == second.edge_text_indices &&
+         first.point_indices == second.point_indices && first.existence_constraints == second.existence_constraints &&
          first.unique_constraints == second.unique_constraints && first.type_constraints == second.type_constraints;
 }
 
@@ -230,7 +225,8 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   std::map<memgraph::storage::Gid, int64_t> gid_mapping;
   std::set<DatabaseState::Vertex> vertices;
   auto dba = db->Access(memgraph::storage::WRITE);
-  auto property_id = dba->NameToProperty(kPropertyId);
+  auto *mapper = dba->GetNameIdMapper();
+  const auto property_id = dba->NameToProperty(kPropertyId);
   for (const auto &vertex : dba->Vertices(memgraph::storage::View::NEW)) {
     std::set<std::string, std::less<>> labels;
     auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
@@ -238,16 +234,17 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     for (const auto &label : *maybe_labels) {
       labels.insert(dba->LabelToName(label));
     }
-    memgraph::storage::PropertyValue::map_t props;
+    memgraph::storage::ExternalPropertyValue::map_t props;
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
     MG_ASSERT(maybe_properties.has_value());
+    std::optional<int64_t> id;
     for (const auto &kv : *maybe_properties) {
-      props.emplace(kv.first, kv.second);
+      if (kv.first == property_id) id = kv.second.ValueInt();
+      props.emplace(dba->PropertyToName(kv.first), memgraph::storage::ToExternalPropertyValue(kv.second, mapper));
     }
-    MG_ASSERT(props.count(property_id) == 1);
-    const auto id = props[property_id].ValueInt();
-    gid_mapping[vertex.Gid()] = id;
-    vertices.insert({id, labels, props});
+    MG_ASSERT(id.has_value());
+    gid_mapping[vertex.Gid()] = *id;
+    vertices.insert({*id, std::move(labels), std::move(props)});
   }
 
   // Capture all edges
@@ -257,15 +254,15 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     MG_ASSERT(maybe_edges.has_value());
     for (const auto &edge : maybe_edges->edges) {
       const auto &edge_type_name = dba->EdgeTypeToName(edge.EdgeType());
-      memgraph::storage::PropertyValue::map_t props;
+      memgraph::storage::ExternalPropertyValue::map_t props;
       auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
       MG_ASSERT(maybe_properties.has_value());
       for (const auto &kv : *maybe_properties) {
-        props.emplace(kv.first, kv.second);
+        props.emplace(dba->PropertyToName(kv.first), memgraph::storage::ToExternalPropertyValue(kv.second, mapper));
       }
       const auto from = gid_mapping[edge.FromVertex().Gid()];
       const auto to = gid_mapping[edge.ToVertex().Gid()];
-      edges.insert({from, to, edge_type_name, props});
+      edges.insert({from, to, edge_type_name, std::move(props)});
     }
   }
 
@@ -1487,7 +1484,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   // At the moment, text index on edges isn't supported for on-disk storage
-  if constexpr (std::is_same_v<StorageTypes, memgraph::storage::InMemoryStorage>) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
     {
       auto unique_acc = this->db->UniqueAccess();
       ASSERT_FALSE(
@@ -1569,7 +1566,9 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
       Execute(&interpreter_context, db_acc, item[0].ValueString());
     }
   }
-  ASSERT_EQ(GetState(this->db->storage()), db_initial_state);
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    ASSERT_EQ(GetState(db_acc->storage()), db_initial_state);
+  }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

@@ -135,9 +135,13 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
 void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, EdgeAccessor &current_accessor,
                         Storage *storage, Transaction *transaction, View view, PropertyId property,
                         const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                        const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
+                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, Gid max_gid) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->edge == current_edge.ptr) {
+      continue;
+    }
+
+    if (index_iterator->edge->gid >= max_gid) {
       continue;
     }
 
@@ -431,7 +435,7 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
     PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction)
+    Transaction *transaction, Gid max_gid)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
@@ -441,7 +445,8 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(
       bounds_valid_(ValidateBounds(lower_bound_, upper_bound_)),
       view_(view),
       storage_(storage),
-      transaction_(transaction) {}
+      transaction_(transaction),
+      max_gid_(max_gid) {}
 
 InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Iterator index_iterator)
@@ -468,7 +473,8 @@ void InMemoryEdgePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->view_,
                      self_->property_,
                      self_->lower_bound_,
-                     self_->upper_bound_);
+                     self_->upper_bound_,
+                     self_->max_gid_);
 }
 
 void InMemoryEdgePropertyIndex::RunGC() {
@@ -489,24 +495,7 @@ InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Ed
     Transaction *transaction) {
   auto it = index_container_->indices_.find(property);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
-  return {it->second->skip_list_.access(),
-          std::move(vertex_accessor),
-          std::move(edge_accessor),
-          property,
-          lower_bound,
-          upper_bound,
-          view,
-          storage,
-          transaction};
-}
-
-InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndices::ChunkedEdges(
-    PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction, size_t num_chunks) {
-  auto it = index_container_->indices_.find(property);
-  MG_ASSERT(it != index_container_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
+  const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
   return {it->second->skip_list_.access(),
           std::move(vertex_accessor),
           std::move(edge_accessor),
@@ -516,7 +505,28 @@ InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndi
           view,
           storage,
           transaction,
-          num_chunks};
+          max_gid};
+}
+
+InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndices::ChunkedEdges(
+    PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks) {
+  auto it = index_container_->indices_.find(property);
+  MG_ASSERT(it != index_container_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
+  const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
+  return {it->second->skip_list_.access(),
+          std::move(vertex_accessor),
+          std::move(edge_accessor),
+          property,
+          lower_bound,
+          upper_bound,
+          view,
+          storage,
+          transaction,
+          num_chunks,
+          max_gid};
 }
 
 EdgePropertyIndex::AbortProcessor InMemoryEdgePropertyIndex::ActiveIndices::GetAbortProcessor() const {
@@ -566,7 +576,7 @@ InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
     PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction, size_t num_chunks)
+    Transaction *transaction, size_t num_chunks, Gid max_gid)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
@@ -576,7 +586,8 @@ InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
       bounds_valid_(ValidateBounds(lower_bound_, upper_bound_)),
       view_(view),
       storage_(storage),
-      transaction_(transaction) {
+      transaction_(transaction),
+      max_gid_(max_gid) {
   if (!bounds_valid_) return;
 
   const auto lower_bound_pv = lower_bound_ ? std::optional<PropertyValue>{lower_bound_->value()} : std::nullopt;
@@ -600,7 +611,8 @@ void InMemoryEdgePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
                      self_->view_,
                      self_->property_,
                      self_->lower_bound_,
-                     self_->upper_bound_);
+                     self_->upper_bound_,
+                     self_->max_gid_);
 }
 
 }  // namespace memgraph::storage

@@ -53,7 +53,9 @@ def generate_self_signed_cert():
         cert_path = os.path.join(tmpdir, "cert.pem")
         key_path = os.path.join(tmpdir, "key.pem")
 
-        # Generate self-signed certificate
+        # Generate self-signed certificate. The subjectAltName extension is
+        # required: urllib3 2.x no longer falls back to CommonName for
+        # hostname verification, so a cert with only CN=localhost is rejected.
         subprocess.run(
             [
                 "openssl",
@@ -70,6 +72,8 @@ def generate_self_signed_cert():
                 "-nodes",
                 "-subj",
                 "/CN=localhost",
+                "-addext",
+                "subjectAltName=DNS:localhost,IP:127.0.0.1",
             ],
             check=True,
             capture_output=True,

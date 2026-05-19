@@ -128,4 +128,4 @@ COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/me
 EXPOSE 7687
 
 ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
-CMD [""]
+CMD []

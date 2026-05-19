@@ -205,7 +205,9 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(View view) override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return VerticesIterable(AllVerticesIterable(mem_storage->vertices_.access(), storage_, &transaction_, view));
+      const auto max_gid = Gid::FromUint(mem_storage->vertex_id_.load(std::memory_order_acquire));
+      return VerticesIterable(
+          AllVerticesIterable(mem_storage->vertices_.access(), storage_, &transaction_, view, max_gid));
     }
 
     VerticesIterable Vertices(LabelId label, View view) override;
@@ -743,7 +745,8 @@ class InMemoryStorage final : public Storage {
     return {.phase = snapshot_progress_.phase.load(std::memory_order_acquire),
             .items_done = snapshot_progress_.items_done.load(std::memory_order_acquire),
             .items_total = snapshot_progress_.items_total.load(std::memory_order_acquire),
-            .start_time_us = snapshot_progress_.start_time_us.load(std::memory_order_acquire)};
+            .start_time_us = snapshot_progress_.start_time_us.load(std::memory_order_acquire),
+            .start_steady_ms = snapshot_progress_.start_steady_ms.load(std::memory_order_acquire)};
   }
 
   void CreateSnapshotHandler(std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb);

@@ -1,0 +1,11 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.float_col AS float_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.float_col) AS float_col_type, row.float_col AS float_col
+
+output:
+  - float_col_type: 'FLOAT'
+    float_col: 3.14159

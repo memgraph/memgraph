@@ -1,0 +1,11 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.string_col AS string_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.string_col) AS string_col_type, row.string_col AS string_col
+
+output:
+  - string_col_type: 'STRING'
+    string_col: 'Hello Memgraph'

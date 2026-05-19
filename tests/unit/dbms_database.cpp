@@ -16,6 +16,7 @@
 
 #include "dbms/database_handler.hpp"
 #include "dbms/global.hpp"
+#include "memory/db_arena.hpp"
 
 #include "license/license.hpp"
 #include "query_plan_common.hpp"
@@ -167,6 +168,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
 
     // Add data to graphs
     {
+      const memgraph::memory::DbArenaScope arena_scope{&db1.value()->Arena()};
       auto storage_dba = db1.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       memgraph::query::VertexAccessor v1{dba.InsertVertex()};
@@ -176,6 +178,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
       ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
+      const memgraph::memory::DbArenaScope arena_scope{&db3.value()->Arena()};
       auto storage_dba = db3.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       memgraph::query::VertexAccessor v1{dba.InsertVertex()};
@@ -211,18 +214,21 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
     // Check content
     {
       // Empty
+      const memgraph::memory::DbArenaScope arena_scope{&db1.value()->Arena()};
       auto storage_dba = db1.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       ASSERT_EQ(dba.VerticesCount(), 0);
     }
     {
       // Empty
+      const memgraph::memory::DbArenaScope arena_scope{&db2.value()->Arena()};
       auto storage_dba = db2.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       ASSERT_EQ(dba.VerticesCount(), 0);
     }
     {
       // Full
+      const memgraph::memory::DbArenaScope arena_scope{&db3.value()->Arena()};
       auto storage_dba = db3.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       ASSERT_EQ(dba.VerticesCount(), 3);

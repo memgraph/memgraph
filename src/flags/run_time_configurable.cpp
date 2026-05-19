@@ -461,47 +461,46 @@ void Initialize(utils::Settings &settings) {
    * Register periodic snapshot setting. In the case both flags are defined, --storage-snapshot-interval flag will be
    * used. Ideally, we rely on just a single flag but --storage-snapshot-interval-sec is for community,
    * --storage-snapshot-interval for enterprise.
+   *
+   * Coordinators don't support snapshots, so the setting is not registered on them. This also avoids validating
+   * a non-empty default value that the coordinator-side validator would otherwise reject.
    */
-  if (FLAGS_storage_snapshot_interval_sec != 0) {
-    if (FLAGS_storage_snapshot_interval.empty()) {
-      FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);
-    } else {
-      spdlog::warn(
-          "Periodic snapshot schedule defined via both --storage-snapshot-interval-sec and "
-          "--storage-snapshot-interval. Memgraph will use the configuration flag from --storage-snapshot-interval!");
+  if (!memgraph::flags::CoordinationSetupInstance().IsCoordinator()) {
+    if (FLAGS_storage_snapshot_interval_sec != 0) {
+      if (FLAGS_storage_snapshot_interval.empty()) {
+        FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);
+      } else {
+        spdlog::warn(
+            "Periodic snapshot schedule defined via both --storage-snapshot-interval-sec and "
+            "--storage-snapshot-interval. Memgraph will use the configuration flag from --storage-snapshot-interval!");
+      }
     }
+
+    // FATAL validation at startup; can't be part of the flag defintion, since we need to check for license
+    ValidPeriodicSnapshot<true>(FLAGS_storage_snapshot_interval);
+    register_flag(
+        kSnapshotPeriodicGFlagsKey,
+        kSnapshotPeriodicSettingKey,
+        !kRestore,
+        [](std::string_view val) {
+          try {
+            const auto period = ValidPeriod(val);
+            snapshot_periodic_.Modify(std::chrono::seconds{period});
+          } catch (const std::invalid_argument & /* unused */) {
+            // String is not a period; pass in as a cron expression
+            // Expression is guaranteed to be valid
+            snapshot_periodic_.Modify(std::string{val});
+          }
+        },
+        [](auto in) -> utils::Settings::ValidatorResult {
+          if (!ValidPeriodicSnapshot<false>(in)) {
+            return std::unexpected{
+                "Snapshot interval can be defined as an integer period in seconds or as a 6-field cron expression. "
+                "Please note that a valid license is needed in order to use cron expressions."};
+          }
+          return {};
+        });
   }
-
-  // FATAL validation at startup; can't be part of the flag defintion, since we need to check for license
-  ValidPeriodicSnapshot<true>(FLAGS_storage_snapshot_interval);
-  register_flag(
-      kSnapshotPeriodicGFlagsKey,
-      kSnapshotPeriodicSettingKey,
-      !kRestore,
-      [](std::string_view val) {
-        try {
-          const auto period = ValidPeriod(val);
-          snapshot_periodic_.Modify(std::chrono::seconds{period});
-        } catch (const std::invalid_argument & /* unused */) {
-          // String is not a period; pass in as a cron expression
-          // Expression is guaranteed to be valid
-          snapshot_periodic_.Modify(std::string{val});
-        }
-      },
-      [](auto in) -> utils::Settings::ValidatorResult {
-        auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
-        if (coordination_setup.IsCoordinator()) {
-          return std::unexpected{
-              "Snapshot interval cannot be set on coordinators. Coordinators don't support snapshots."};
-        }
-
-        if (!ValidPeriodicSnapshot<false>(in)) {
-          return std::unexpected{
-              "Snapshot interval can be defined as an integer period in seconds or as a 6-field cron expression. "
-              "Please note that a valid license is needed in order to use cron expressions."};
-        }
-        return {};
-      });
 
   // AWS Section
   register_flag(kAwsRegionGFlagsKey, kAwsRegionSettingKey, kRestore);

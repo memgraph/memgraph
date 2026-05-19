@@ -5,55 +5,61 @@ import sys
 
 PR_BUILDS = ["amd", "arm", "cuda", "cugraph"]
 
+# Matrix values are emitted as JSON and consumed by package_mage.yaml via
+# `${{ matrix.X == 'true' }}` comparisons. GitHub Actions coerces operands to
+# numbers when comparing across types, so a Python bool `True` round-tripped
+# through json.dumps as JSON `true` does NOT equal the string `'true'`. Keep
+# every boolean-flavoured field as a string here so the workflow comparisons
+# resolve correctly.
 MATRIX_BUILDS = [
     {
         "arch": "amd",
         "build_type": "Release",
-        "cuda": False,
-        "cugraph": False,
-        "malloc": False,
+        "cuda": "false",
+        "cugraph": "false",
+        "malloc": "false",
     },
     {
         "arch": "arm",
         "build_type": "Release",
-        "cuda": False,
-        "cugraph": False,
-        "malloc": False,
+        "cuda": "false",
+        "cugraph": "false",
+        "malloc": "false",
     },
     {
         "arch": "amd",
         "build_type": "RelWithDebInfo",
-        "cuda": False,
-        "cugraph": False,
-        "malloc": False,
+        "cuda": "false",
+        "cugraph": "false",
+        "malloc": "false",
     },
     {
         "arch": "arm",
         "build_type": "RelWithDebInfo",
-        "cuda": False,
-        "cugraph": False,
-        "malloc": False,
+        "cuda": "false",
+        "cugraph": "false",
+        "malloc": "false",
     },
     {
         "arch": "amd",
         "build_type": "RelWithDebInfo",
-        "cuda": True,
-        "cugraph": False,
-        "malloc": False,
+        "cuda": "true",
+        "cugraph": "false",
+        "malloc": "false",
     },
     {
         "arch": "amd",
         "build_type": "Release",
-        "cuda": False,
-        "cugraph": False,
-        "malloc": True,
+        "cuda": "false",
+        "cugraph": "false",
+        "malloc": "true",
     },
     {
         "arch": "amd",
         "build_type": "Release",
-        "cuda": False,
-        "cugraph": True,
-        "malloc": False,
+        "cuda": "false",
+        "cugraph": "true",
+        "malloc": "false",
     },
 ]
 
@@ -94,14 +100,14 @@ class PackageMageSetup:
 
     def _check_pr_label(self, package: str, pr_labels: list) -> bool:
         default_args = {
-            "malloc": False,
+            "malloc": "false",
             "memgraph_download_link": "",
-            "push_to_s3": False,
+            "push_to_s3": "false",
             "s3_dest_dir": "mage-unofficial",
-            "run_smoke_tests": False,
-            "run_tests": True,
+            "run_smoke_tests": "true",
+            "run_tests": "true",
             "package_deb": "default",
-            "generate_sbom": False,
+            "generate_sbom": "false",
             "ref": "",
         }
         if f"CI -package=mage-{package}" in pr_labels:
@@ -109,8 +115,8 @@ class PackageMageSetup:
             out = {
                 "build_type": "Release",
                 "arch": "arm" if package == "arm" else "amd",
-                "cuda": package == "cuda",
-                "cugraph": package == "cugraph",
+                "cuda": "true" if package == "cuda" else "false",
+                "cugraph": "true" if package == "cugraph" else "false",
             }
             out.update(default_args)
             return out
@@ -131,20 +137,23 @@ class PackageMageSetup:
     def _check_workflow_input(self) -> bool:
         if self.workflow_inputs.get(f"matrix_build") == "true":
             return MATRIX_BUILDS
+        # GitHub passes workflow_dispatch/workflow_call inputs as strings
+        # ("true"/"false"); keep the fallbacks as strings too so the matrix
+        # always serialises booleans consistently — see MATRIX_BUILDS comment.
         return [
             {
                 "build_type": self.workflow_inputs.get("build_type", "Release"),
                 "arch": self.workflow_inputs.get("build_arch", "amd"),
-                "cuda": self.workflow_inputs.get("cuda", False),
-                "cugraph": self.workflow_inputs.get("cugraph", False),
-                "malloc": self.workflow_inputs.get("malloc", False),
+                "cuda": self.workflow_inputs.get("cuda", "false"),
+                "cugraph": self.workflow_inputs.get("cugraph", "false"),
+                "malloc": self.workflow_inputs.get("malloc", "false"),
                 "memgraph_download_link": self.workflow_inputs.get("memgraph_download_link", ""),
-                "push_to_s3": self.workflow_inputs.get("push_to_s3", False),
+                "push_to_s3": self.workflow_inputs.get("push_to_s3", "false"),
                 "s3_dest_dir": self.workflow_inputs.get("s3_dest_dir", "mage-unofficial"),
-                "run_smoke_tests": self.workflow_inputs.get("run_smoke_tests", False),
-                "run_tests": self.workflow_inputs.get("run_tests", False),
+                "run_smoke_tests": self.workflow_inputs.get("run_smoke_tests", "false"),
+                "run_tests": self.workflow_inputs.get("run_tests", "false"),
                 "package_deb": self.workflow_inputs.get("package_deb", "default"),
-                "generate_sbom": self.workflow_inputs.get("generate_sbom", False),
+                "generate_sbom": self.workflow_inputs.get("generate_sbom", "false"),
                 "ref": self.workflow_inputs.get("ref", ""),
             }
         ]

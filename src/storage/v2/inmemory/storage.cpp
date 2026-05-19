@@ -2458,8 +2458,9 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(View view, size_t num_chunks) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  const auto max_gid = Gid::FromUint(mem_storage->vertex_id_.load(std::memory_order_acquire));
   return VerticesChunkedIterable(
-      AllVerticesChunkedIterable(mem_storage->vertices_.access(), num_chunks, storage_, &transaction_, view));
+      AllVerticesChunkedIterable(mem_storage->vertices_.access(), num_chunks, storage_, &transaction_, view, max_gid));
 }
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(LabelId label, View view,
@@ -2867,9 +2868,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   //
   // This waiting room holds committed transactions with non-sequential deltas until all
   // their "contributors" (other transactions sharing the same delta chains) have finished.
-  waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-    auto it = waiting_list.begin();
-    while (it != waiting_list.end()) {
+  auto local_waiting = std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>{};
+  waiting_gc_deltas_.WithLock([&](auto &waiting_list) { local_waiting.swap(waiting_list); });
+
+  {
+    auto it = local_waiting.begin();
+    while (it != local_waiting.end()) {
       bool all_contributors_committed = true;
       auto const our_commit_ts = it->commit_info_->timestamp.load(std::memory_order_acquire);
 
@@ -2909,12 +2913,17 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         it->unlinkable_timestamp_ = highest_commit_ts;
         committed_transactions_.WithLock(
             [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(*it)); });
-        it = waiting_list.erase(it);
+        it = local_waiting.erase(it);
       } else {
         ++it;
       }
     }
-  });
+  }
+
+  if (!local_waiting.empty()) {
+    waiting_gc_deltas_.WithLock(
+        [&](auto &waiting_list) { waiting_list.splice(waiting_list.begin(), std::move(local_waiting)); });
+  }
 
   {
     auto guard = std::unique_lock{engine_lock_};
@@ -3065,17 +3074,24 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
 
             if (prev.delta->commit_info->timestamp.load() < oldest_active_start_timestamp) {
-              // For a committed non-sequential predecessor, readers skip delta
-              // via next, so we must clear delta->next before freeing
-              // downstream delta to stop traversal into freed deltas.
-              if (!IsDeltaNonSequential(*prev.delta)) {
-                break;
+              if (IsDeltaNonSequential(*prev.delta)) {
+                // Non-sequential predecessor: readers follow next, so we must
+                // null it to stop traversal into freed memory. We can skip the
+                // lock because we know we are the only potential modifiers,
+                // since:
+                // - the predecessor delta is inactive
+                // - prepends only happen at the chain head
+                // - the GC is serialized via gc_lock_.
+                // Safe for concurrent readers: all deltas beyond this point are
+                // also inactive (guaranteed by waiting_gc_deltas_), so no
+                // active transaction needs to read past here.
+                prev.delta->next.store(nullptr, std::memory_order_release);
               }
+              break;
             }
 
-            // Previous is either active (committed or uncommitted), or inactive
-            // non-sequential. We need to find the parent object in order to be
-            // able to use its lock.
+            // Previous is active (committed or uncommitted). We need to find
+            // the parent object in order to be able to use its lock.
             auto parent = prev;
             while (parent.type == PreviousPtr::Type::DELTA) {
               parent = parent.delta->prev.Get();

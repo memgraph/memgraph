@@ -28,12 +28,14 @@ TEST(SnapshotProgressTest, InitialStateIsIdle) {
   EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 0);
   EXPECT_EQ(progress.items_total.load(std::memory_order_acquire), 0);
   EXPECT_EQ(progress.start_time_us.load(std::memory_order_acquire), 0);
+  EXPECT_EQ(progress.start_steady_ms.load(std::memory_order_acquire), 0);
 }
 
 TEST(SnapshotProgressTest, StartSetsTimestamp) {
   SnapshotProgress progress;
   progress.Start();
   EXPECT_GT(progress.start_time_us.load(std::memory_order_acquire), 0);
+  EXPECT_GT(progress.start_steady_ms.load(std::memory_order_acquire), 0);
 }
 
 TEST(SnapshotProgressTest, SetPhaseUpdatesAllFields) {
@@ -73,6 +75,7 @@ TEST(SnapshotProgressTest, ResetClearsAllFields) {
   EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 0);
   EXPECT_EQ(progress.items_total.load(std::memory_order_acquire), 0);
   EXPECT_EQ(progress.start_time_us.load(std::memory_order_acquire), 0);
+  EXPECT_EQ(progress.start_steady_ms.load(std::memory_order_acquire), 0);
 }
 
 TEST(SnapshotProgressTest, PhaseToStringAllValues) {

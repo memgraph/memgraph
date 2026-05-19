@@ -177,6 +177,10 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
+      - name: Cancel run on merge_group failure
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        uses: ./.github/actions/cancel-on-failure-in-merge-queue
+
   clang-tidy-community:
     if: ${{ inputs.run_clang_tidy == 'true' }}
     name: "Clang tidy community"
@@ -265,6 +269,10 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
+      - name: Cancel run on merge_group failure
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        uses: ./.github/actions/cancel-on-failure-in-merge-queue
+
   clang-tidy-enterprise:
     if: ${{ inputs.run_clang_tidy == 'true' }}
     name: "Clang tidy enterprise"
@@ -352,3 +360,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/docker_cleanup.sh
+
+      - name: Cancel run on merge_group failure
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        uses: ./.github/actions/cancel-on-failure-in-merge-queue

@@ -514,6 +514,8 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    CreateEdgeTypePropertyIndicesPullChunk(),
                    // Dump all global edge property indices
                    CreateEdgePropertyIndicesPullChunk(),
+                   // Dump all text edge indices
+                   CreateTextEdgeIndicesPullChunk(),
 
                    // Dump all TTL configuration
                    CreateTTLConfigPullChunk(),
