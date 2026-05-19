@@ -531,6 +531,69 @@ jobs:
           aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" --recursive --exclude "*" --include "memgraph-mage_${RELEASE_VERSION}-1_*.deb"
           echo "Copied Ubuntu 24.04 MAGE packages to s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
 
+      - name: Setup offline installer paths
+        run: |
+          offline_run_amd="memgraph-mage-offline-${RELEASE_VERSION}-amd64${{ matrix.image_ext }}.run"
+          offline_run_arm="memgraph-mage-offline-${RELEASE_VERSION}-arm64${{ matrix.image_ext }}.run"
+          echo "offline_run_amd=${offline_run_amd}" >> $GITHUB_ENV
+          echo "offline_run_arm=${offline_run_arm}" >> $GITHUB_ENV
+          echo "s3_input_offline_amd=s3://${rc_bucket}/${mage_rc_dir}/${offline_run_amd}" >> $GITHUB_ENV
+          echo "s3_input_offline_arm=s3://${rc_bucket}/${mage_rc_dir}/${offline_run_arm}" >> $GITHUB_ENV
+          if [[ "${{ github.event.inputs.test }}" == "true" ]]; then
+            offline_dest_root="offline-installer-test"
+          else
+            offline_dest_root="offline-installer"
+          fi
+          echo "s3_output_offline_amd=s3://${rc_bucket}/${offline_dest_root}/v${RELEASE_VERSION}/${offline_run_amd}" >> $GITHUB_ENV
+          echo "s3_output_offline_arm=s3://${rc_bucket}/${offline_dest_root}/v${RELEASE_VERSION}/${offline_run_arm}" >> $GITHUB_ENV
+
+      - name: Check if RC offline installers for this build exist
+        run: |
+          if aws s3 ls "${s3_input_offline_amd}" &> /dev/null; then
+            echo "has_rc_offline_amd=true" >> $GITHUB_ENV
+            echo "Found amd64 RC offline installer at ${s3_input_offline_amd}"
+          else
+            echo "has_rc_offline_amd=false" >> $GITHUB_ENV
+            echo "No amd64 RC offline installer at ${s3_input_offline_amd}"
+          fi
+          if aws s3 ls "${s3_input_offline_arm}" &> /dev/null; then
+            echo "has_rc_offline_arm=true" >> $GITHUB_ENV
+            echo "Found arm64 RC offline installer at ${s3_input_offline_arm}"
+          else
+            echo "has_rc_offline_arm=false" >> $GITHUB_ENV
+            echo "No arm64 RC offline installer at ${s3_input_offline_arm}"
+          fi
+
+      - name: Check if release offline installers for this build already exist
+        run: |
+          if [[ "${has_rc_offline_amd}" == "true" ]] && aws s3 ls "${s3_output_offline_amd}" &> /dev/null; then
+            echo "Release amd64 offline installer already exists at ${s3_output_offline_amd}"
+            if [[ "$FORCE_PROMOTE" != "true" ]]; then
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            echo "Forcing promotion of existing amd64 offline installer ..."
+          fi
+          if [[ "${has_rc_offline_arm}" == "true" ]] && aws s3 ls "${s3_output_offline_arm}" &> /dev/null; then
+            echo "Release arm64 offline installer already exists at ${s3_output_offline_arm}"
+            if [[ "$FORCE_PROMOTE" != "true" ]]; then
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            echo "Forcing promotion of existing arm64 offline installer ..."
+          fi
+
+      - name: Promote offline installers to release bucket
+        run: |
+          if [[ "${has_rc_offline_amd}" == "true" ]]; then
+            aws s3 cp "${s3_input_offline_amd}" "${s3_output_offline_amd}"
+            echo "Copied amd64 offline installer to ${s3_output_offline_amd}"
+          fi
+          if [[ "${has_rc_offline_arm}" == "true" ]]; then
+            aws s3 cp "${s3_input_offline_arm}" "${s3_output_offline_arm}"
+            echo "Copied arm64 offline installer to ${s3_output_offline_arm}"
+          fi
+
       - name: Log in to Docker Hub
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
         with:
