@@ -112,6 +112,7 @@ memgraphCypherKeyword : cypherKeyword
                       | INSTANCE
                       | INSTANCES
                       | INTEGER
+                      | INTRA_CLUSTER
                       | INVOKER
                       | ISOLATION
                       | JSONL
@@ -910,7 +911,7 @@ ttlQuery: stopTtlQuery
         | startTtlQuery
         ;
 
-reloadSSLQuery: RELOAD BOLT_SERVER TLS ;
+reloadSSLQuery: RELOAD ( BOLT_SERVER | INTRA_CLUSTER ) TLS ;
 
 typeConstraintType : BOOLEAN
              | STRING

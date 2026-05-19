@@ -114,6 +114,7 @@ INDEXES                 : I N D E X E S ;
 INSTANCE                : I N S T A N C E ;
 INSTANCES               : I N S T A N C E S ;
 INTEGER                 : I N T E G E R ;
+INTRA_CLUSTER           : I N T R A UNDERSCORE C L U S T E R ;
 INVOKER                 : I N V O K E R ;
 ISOLATION               : I S O L A T I O N ;
 JSONL                   : J S O N L ;

@@ -4327,9 +4327,15 @@ class ReloadSSLQuery : public memgraph::query::Query {
 
   ReloadSSLQuery() = default;
 
+  enum class Type : uint8_t { BOLT_SERVER, INTRA_CLUSTER } type_;
+
   DEFVISITABLE(QueryVisitor<void>);
 
-  ReloadSSLQuery *Clone(AstStorage *storage) const override { return storage->Create<ReloadSSLQuery>(); }
+  ReloadSSLQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ReloadSSLQuery>();
+    object->type_ = type_;
+    return object;
+  }
 
  private:
   friend class AstStorage;

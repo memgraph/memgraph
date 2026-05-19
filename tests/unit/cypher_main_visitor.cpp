@@ -8012,12 +8012,28 @@ TEST_P(CypherMainVisitorTest, ReloadSSLQuery) {
   {
     const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("RELOAD BOLT_SERVER TLS;"));
     ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, ReloadSSLQuery::Type::BOLT_SERVER);
   }
 
   // Case insensitivity
   {
     const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("reload bolt_server tls;"));
     ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, ReloadSSLQuery::Type::BOLT_SERVER);
+  }
+
+  // Valid: RELOAD INTRA_CLUSTER TLS
+  {
+    const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("RELOAD INTRA_CLUSTER TLS;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, ReloadSSLQuery::Type::INTRA_CLUSTER);
+  }
+
+  // Case insensitivity
+  {
+    const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("reload intra_cluster tls;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, ReloadSSLQuery::Type::INTRA_CLUSTER);
   }
 
   // Invalid: missing TLS keyword

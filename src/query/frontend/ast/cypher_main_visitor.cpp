@@ -4427,8 +4427,13 @@ antlrcpp::Any CypherMainVisitor::visitShowSchemaInfoQuery(MemgraphCypher::ShowSc
   return show_schema_info_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitReloadSSLQuery(MemgraphCypher::ReloadSSLQueryContext * /*ctx*/) {
+antlrcpp::Any CypherMainVisitor::visitReloadSSLQuery(MemgraphCypher::ReloadSSLQueryContext *ctx) {
   auto *reload_ssl_query = storage_->Create<ReloadSSLQuery>();
+  if (ctx->INTRA_CLUSTER()) {
+    reload_ssl_query->type_ = ReloadSSLQuery::Type::INTRA_CLUSTER;
+  } else {
+    reload_ssl_query->type_ = ReloadSSLQuery::Type::BOLT_SERVER;
+  }
   query_ = reload_ssl_query;
   return reload_ssl_query;
 }
