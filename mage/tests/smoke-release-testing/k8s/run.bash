@@ -18,6 +18,7 @@ export PATH="$(go env GOPATH)/bin:$PATH"
 #   `--dry-run`.
 BOLT_SERVER="localhost:10000" # Just tmp value -> each coordinator should have a different value.
 # E.g. if kubectl port-foward is used, the configured host values should be passed as `bolt_server`.
+CHART_VERSION="1.0.1"
 
 setup_coordinator() {
   local i=$1
@@ -73,6 +74,7 @@ test_k8s_single() {
   kind load docker-image $MEMGRAPH_NEXT_DOCKERHUB_IMAGE -n smoke-release-testing
   MEMGRAPH_NEXT_DOCKERHUB_TAG="${MEMGRAPH_NEXT_DOCKERHUB_IMAGE##*:}"
   helm install memgraph-single-smoke memgraph/memgraph \
+    --version $CHART_VERSION \
     -f "$SCRIPT_DIR/values-single.yaml" \
     --set "image.tag=$MEMGRAPH_NEXT_DOCKERHUB_TAG"
   kubectl wait --for=condition=Ready pod/memgraph-single-smoke-0 --timeout=120s
@@ -87,8 +89,16 @@ test_k8s_single() {
 helm_install_myhadb() {
   chart_path="$1"
   image_tag="$2"
+  kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE --from-literal=MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME
+
+  # Pin chart version when installing from the helm repo; --version is rejected for local chart paths.
+  local version_arg=""
+  if [ ! -d "$chart_path" ]; then
+    version_arg="--version $CHART_VERSION"
+  fi
+
   helm install myhadb $chart_path \
-    --set env.MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE,env.MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
+    $version_arg \
     -f "$SCRIPT_DIR/values-ha.yaml" \
     --set "image.tag=$image_tag"
 }
