@@ -2,7 +2,7 @@ image:
   repository: docker.io/memgraph/memgraph-mage
   # It is a bad practice to set the image tag name to 'latest' as it can trigger automatic upgrade of the charts
   # With some of the pullPolicy values. Please consider fixing the tag to a specific Memgraph version
-  tag: latest
+  tag: 3.10.1
   pullPolicy: IfNotPresent
 
 storage:
@@ -23,7 +23,7 @@ storage:
     coreDumpsMountPath: /var/core/memgraph
     coreDumpsImage:
       repository: docker.io/library/busybox
-      tag: latest
+      tag: 1.37.0
       pullPolicy: IfNotPresent
     # Supports Helm templating (e.g. {{ .Release.Name }})
     extraVolumes: []
@@ -60,7 +60,7 @@ storage:
     coreDumpsMountPath: /var/core/memgraph
     coreDumpsImage:
       repository: docker.io/library/busybox
-      tag: latest
+      tag: 1.37.0
       pullPolicy: IfNotPresent
     # Supports Helm templating (e.g. {{ .Release.Name }})
     extraVolumes: []
@@ -141,7 +141,7 @@ sysctlInitContainer:
   maxMapCount: 524288
   image:
     repository: docker.io/library/busybox
-    tag: latest
+    tag: 1.37.0
     pullPolicy: IfNotPresent
 
 # This is fine because under both
@@ -421,7 +421,7 @@ userContainers:
   # Example:
   # coordinators:
   #  - name: my-debugger
-  #    image: docker.io/library/busybox:latest
+  #    image: docker.io/library/busybox:1.37.0
   #    command: ["sh", "-c", "echo hi; sleep 10000"]
 
 coreDumpUploader:

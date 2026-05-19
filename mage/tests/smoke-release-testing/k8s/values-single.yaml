@@ -3,7 +3,7 @@ image:
   # Overrides the image tag whose default is v{{ .Chart.AppVersion }}
   # It is a bad practice to set the image tag name to latest as it can trigger automatic upgrade of the charts
   # With some of the pullPolicy values. Please consider fixing the tag to a specific Memgraph version
-  tag:
+  tag: 3.10.1
   pullPolicy: IfNotPresent
 
 ## Override the default imagePullSecrets
@@ -126,7 +126,7 @@ persistentVolumeClaim:
   userStorageAccessMode: "ReadWriteOnce"
   userMountPath:
 
-  ## Create a Persistant Volume Claim for ore dumps.
+  ## Create a Persistant Volume Claim for Core Dumps.
   createCoreDumpsClaim: true
   coreDumpsStorageClassName:
   coreDumpsStorageSize: 10Gi
@@ -291,7 +291,7 @@ sysctlInitContainer:
   maxMapCount: 524288
   image:
     repository: docker.io/library/busybox
-    tag: latest
+    tag: 1.37.0
     pullPolicy: IfNotPresent
 
 ## @param initContainers Add additional init containers to the Memgraph pod(s)
