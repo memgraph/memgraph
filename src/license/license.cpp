@@ -317,9 +317,7 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
           "SET DATABASE SETTING \"enterprise.license\" TO \"your-license-key\"",
           feature);
     case LicenseCheckError::NOT_ENTERPRISE_LICENSE:
-      return fmt::format(
-          "Your license has an invalid type. To use {} you need to have an enterprise, ai_platform, or oem license.\n",
-          feature);
+      return fmt::format("Access to {} requires an enterprise, ai_platform, or oem license.", feature);
   }
 }
 
