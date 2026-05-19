@@ -1119,13 +1119,7 @@ def test_rel_type_properties_unlabeled_endpoints():
         "propertyObservations, totalObservations;",
     )
     assert len(result) == 1
-    row = list(result[0])
-    assert row[0] == ":`KNOWS`"
-    assert row[1] == []
-    assert row[2] == []
-    assert row[3] == ""
-    assert row[4] == 0
-    assert row[5] == 1
+    assert list(result[0]) == [":`KNOWS`", [], [], "", 0, 1]
 
 
 def test_rel_type_properties_multi_label_endpoints():
@@ -1138,10 +1132,8 @@ def test_rel_type_properties_multi_label_endpoints():
         "RETURN relType, sourceNodeLabels, targetNodeLabels;",
     )
     assert len(result) == 1
-    row = list(result[0])
-    assert row[0] == ":`OWNS`"
-    assert set(row[1]) == {"Dog", "Pet"}
-    assert set(row[2]) == {"Object", "Toy"}
+    rel_type, source_labels, target_labels = result[0]
+    assert (rel_type, sorted(source_labels), sorted(target_labels)) == (":`OWNS`", ["Dog", "Pet"], ["Object", "Toy"])
 
 
 def test_node_type_properties_empty_properties_row():
@@ -1162,10 +1154,7 @@ def test_node_type_properties_empty_properties_row():
         "RETURN nodeType, propertyName, propertyObservations, totalObservations;",
     )
     assert len(result) == 1
-    row = list(result[0])
-    assert row[1] == ""
-    assert row[2] == 0
-    assert row[3] == 3
+    assert list(result[0]) == [":`Empty`", "", 0, 3]
 
 
 if __name__ == "__main__":
