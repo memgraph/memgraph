@@ -581,3 +581,9 @@ TEST_F(LicenseTest, BackwardCompat_WireValue1RoundTripsAsOemCommunity) {
   EXPECT_EQ(static_cast<uint8_t>(decoded->type), 1);
   EXPECT_EQ(decoded->organization_name, "FixtureOrg");
 }
+
+TEST_F(LicenseTest, Decode_RejectsUnknownLicenseTypeByte) {
+  const auto crafted = memgraph::license::License{"Memgraph", 0, 0, static_cast<memgraph::license::LicenseType>(0xFF)};
+  const auto encoded = memgraph::license::Encode(crafted);
+  EXPECT_FALSE(memgraph::license::Decode(encoded).has_value());
+}

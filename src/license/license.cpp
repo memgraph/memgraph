@@ -102,6 +102,7 @@ std::string LicenseTypeToString(const LicenseType license_type) {
       return "oem";
     }
   }
+  std::unreachable();
 }
 
 void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings) {
@@ -509,6 +510,15 @@ std::optional<License> Decode(std::string_view license_key) {
     slk::Load(&memory_limit, &reader);
     std::underlying_type_t<LicenseType> license_type{0};
     slk::Load(&license_type, &reader);
+    switch (license_type) {
+      case std::to_underlying(LicenseType::ENTERPRISE):
+      case std::to_underlying(LicenseType::OEM_COMMUNITY):
+      case std::to_underlying(LicenseType::AI_PLATFORM):
+      case std::to_underlying(LicenseType::OEM):
+        break;
+      default:
+        return std::nullopt;
+    }
     return {License{organization_name, valid_until, memory_limit, LicenseType(license_type)}};
   } catch (const slk::SlkReaderException &e) {
     return std::nullopt;
