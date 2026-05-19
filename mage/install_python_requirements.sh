@@ -113,9 +113,7 @@ if [ "$ARCH" = "arm64" ]; then
     } || {
       python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
     }
-    curl -o dgl-2.5-cp312-cp312-linux_aarch64.whl https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels/arm64/dgl-2.5-cp312-cp312-linux_aarch64.whl
-    python3 -m pip install --no-cache-dir $DGL
-    rm dgl-2.5-cp312-cp312-linux_aarch64.whl
+    python3 -m pip install --no-cache-dir "$DGL"
   fi
 else
   if [ "$CACHE_PRESENT" = "true" ]; then
@@ -132,9 +130,7 @@ else
         python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
       fi
     }
-    curl -o dgl-2.5-cp312-cp312-linux_x86_64.whl https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels/amd64/dgl-2.5-cp312-cp312-linux_x86_64.whl
-    python3 -m pip install --no-cache-dir $DGL
-    rm dgl-2.5-cp312-cp312-linux_x86_64.whl
+    python3 -m pip install --no-cache-dir "$DGL"
   fi
 fi
 rm -fr /home/memgraph/.cache/pip
