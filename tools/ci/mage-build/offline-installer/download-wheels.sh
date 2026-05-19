@@ -75,15 +75,26 @@ else
   DGL_TAG="linux_x86_64"
 fi
 
+# Pinned PyG/DGL versions — shared between the S3 fetch and the `pip download`
+# pass below so we never end up with two versions of the same package in the
+# cache (e.g. pip preferring a newer PyPI wheel and `pip install` later
+# picking that over the S3 one we tested with).
+TORCH_CLUSTER_VERSION="1.6.3"
+TORCH_GEOMETRIC_VERSION="2.8.0"
+TORCH_SCATTER_VERSION="2.1.2"
+TORCH_SPARSE_VERSION="0.6.18"
+TORCH_SPLINE_CONV_VERSION="1.2.2"
+DGL_VERSION="2.5"
+
 # Pull S3 wheels down first so subsequent `pip download` passes can resolve
 # their transitive deps too (e.g. torch-geometric needs pyparsing).
 S3_WHEELS=(
-  "torch_cluster-1.6.3-cp312-cp312-${TORCH_TAG}.whl"
-  "torch_geometric-2.8.0-py3-none-any.whl"
-  "torch_scatter-2.1.2-cp312-cp312-${TORCH_TAG}.whl"
-  "torch_sparse-0.6.18-cp312-cp312-${TORCH_TAG}.whl"
-  "torch_spline_conv-1.2.2-cp312-cp312-${TORCH_TAG}.whl"
-  "dgl-2.5-cp312-cp312-${DGL_TAG}.whl"
+  "torch_cluster-${TORCH_CLUSTER_VERSION}-cp312-cp312-${TORCH_TAG}.whl"
+  "torch_geometric-${TORCH_GEOMETRIC_VERSION}-py3-none-any.whl"
+  "torch_scatter-${TORCH_SCATTER_VERSION}-cp312-cp312-${TORCH_TAG}.whl"
+  "torch_sparse-${TORCH_SPARSE_VERSION}-cp312-cp312-${TORCH_TAG}.whl"
+  "torch_spline_conv-${TORCH_SPLINE_CONV_VERSION}-cp312-cp312-${TORCH_TAG}.whl"
+  "dgl-${DGL_VERSION}-cp312-cp312-${DGL_TAG}.whl"
 )
 for wheel in "${S3_WHEELS[@]}"; do
   echo "Fetching $BASE_URL/$wheel"
@@ -113,11 +124,17 @@ python3 -m pip download \
   --requirement "$INPUT_DIR/auth-module-requirements.txt"
 
 # Explicitly resolve the PyG/DGL extras now so their transitive deps land in
-# the cache. They're already in $OUTPUT_DIR from the curl loop above, so pip
-# picks those wheels via --find-links and only downloads anything missing
-# (pyparsing for torch-geometric, etc.).
+# the cache. They're already in $OUTPUT_DIR from the curl loop above; the
+# version pins here guarantee pip picks our exact S3 wheel rather than
+# downloading a newer PyPI wheel, which would leave two versions in the
+# cache and let `pip install` later choose the wrong one.
 python3 -m pip download \
   "${PIP_FLAGS[@]}" \
-  torch-cluster torch-geometric torch-scatter torch-sparse torch-spline-conv dgl
+  "torch-cluster==${TORCH_CLUSTER_VERSION}" \
+  "torch-geometric==${TORCH_GEOMETRIC_VERSION}" \
+  "torch-scatter==${TORCH_SCATTER_VERSION}" \
+  "torch-sparse==${TORCH_SPARSE_VERSION}" \
+  "torch-spline-conv==${TORCH_SPLINE_CONV_VERSION}" \
+  "dgl==${DGL_VERSION}"
 
 echo "Downloaded $(ls "$OUTPUT_DIR" | wc -l) wheels to $OUTPUT_DIR"
