@@ -160,8 +160,24 @@ struct LabelOrRelTypeInfo {
   int64_t number_of_occurrences = 0;
 };
 
-std::unordered_set<std::string> ExtractStringSetFromConfig(const mgp::Map &config, const std::string_view key) {
-  std::unordered_set<std::string> result;
+struct StringHash {
+  using is_transparent = void;
+
+  std::size_t operator()(std::string_view s) const noexcept { return std::hash<std::string_view>{}(s); }
+
+  std::size_t operator()(const std::string &s) const noexcept { return std::hash<std::string_view>{}(s); }
+};
+
+struct StringEqual {
+  using is_transparent = void;
+
+  bool operator()(std::string_view a, std::string_view b) const noexcept { return a == b; }
+};
+
+using StringSet = std::unordered_set<std::string, StringHash, StringEqual>;
+
+StringSet ExtractStringSetFromConfig(const mgp::Map &config, const std::string_view key) {
+  StringSet result;
   if (!config.KeyExists(key)) {
     return result;
   }
@@ -177,8 +193,8 @@ std::unordered_set<std::string> ExtractStringSetFromConfig(const mgp::Map &confi
   return result;
 }
 
-bool ShouldIncludeLabels(const std::set<std::string> &labels, const std::unordered_set<std::string> &include_labels,
-                         const std::unordered_set<std::string> &exclude_labels) {
+bool ShouldIncludeLabels(const std::set<std::string> &labels, const StringSet &include_labels,
+                         const StringSet &exclude_labels) {
   if (!include_labels.empty()) {
     if (!std::ranges::any_of(labels, [&](const auto &label) { return include_labels.contains(label); })) return false;
   }
@@ -199,8 +215,7 @@ int64_t ExtractIntFromConfig(const mgp::Map &config, const std::string_view key,
   return val.ValueInt();
 }
 
-bool ShouldIncludeRelType(const std::string &rel_type, const std::unordered_set<std::string> &include_rels,
-                          const std::unordered_set<std::string> &exclude_rels) {
+bool ShouldIncludeRelType(std::string_view rel_type, const StringSet &include_rels, const StringSet &exclude_rels) {
   if (!include_rels.empty() && !include_rels.contains(rel_type)) {
     return false;
   }
@@ -210,12 +225,9 @@ bool ShouldIncludeRelType(const std::string &rel_type, const std::unordered_set<
   return true;
 }
 
+namespace {
 struct LabelsHash {
   std::size_t operator()(const std::set<std::string> &s) const { return boost::hash_range(s.begin(), s.end()); }
-};
-
-struct LabelsComparator {
-  bool operator()(const std::set<std::string> &lhs, const std::set<std::string> &rhs) const { return lhs == rhs; }
 };
 
 struct RelKey {
@@ -234,7 +246,6 @@ struct RelKeyHash {
   }
 };
 
-namespace {
 mgp::List LabelsToList(const std::set<std::string> &labels) {
   auto list = mgp::List();
   list.Reserve(labels.size());
@@ -270,7 +281,7 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
     }
     auto max_rels = ExtractIntFromConfig(config, kConfigMaxRels, kDefaultMaxRels);
 
-    std::unordered_map<std::set<std::string>, LabelOrRelTypeInfo, LabelsHash, LabelsComparator> node_types_properties;
+    std::unordered_map<std::set<std::string>, LabelOrRelTypeInfo, LabelsHash> node_types_properties;
 
     for (const auto node : mgp::Graph(memgraph_graph).Nodes()) {
       std::set<std::string> labels_set = {};
@@ -403,9 +414,8 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
           break;
         }
 
-        std::string rel_type{rel.Type()};
-
-        if (!ShouldIncludeRelType(rel_type, include_rels, exclude_rels)) {
+        const std::string_view rel_type_view = rel.Type();
+        if (!ShouldIncludeRelType(rel_type_view, include_rels, exclude_rels)) {
           continue;
         }
 
@@ -416,7 +426,10 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
           target_labels.emplace(label);
         }
 
-        RelKey key{std::move(rel_type), source_labels, std::move(target_labels)};
+        // source_labels is reused across this node's edges, so it must be copied (not moved).
+        RelKey key{.rel_type = std::string(rel_type_view),
+                   .source_labels = source_labels,
+                   .target_labels = std::move(target_labels)};
         auto &rel_info = rel_types_properties[std::move(key)];
         rel_info.number_of_occurrences++;
 

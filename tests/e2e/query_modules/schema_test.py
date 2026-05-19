@@ -1107,5 +1107,66 @@ def test_rel_type_properties_partitions_by_endpoint_labels():
     assert rows[("Dog", "Activity", "duration")] == (False, 1, 2)
 
 
+def test_rel_type_properties_unlabeled_endpoints():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE ()-[:KNOWS]->()")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties() "
+        "YIELD relType, sourceNodeLabels, targetNodeLabels, propertyName, "
+        "propertyObservations, totalObservations "
+        "RETURN relType, sourceNodeLabels, targetNodeLabels, propertyName, "
+        "propertyObservations, totalObservations;",
+    )
+    assert len(result) == 1
+    row = list(result[0])
+    assert row[0] == ":`KNOWS`"
+    assert row[1] == []
+    assert row[2] == []
+    assert row[3] == ""
+    assert row[4] == 0
+    assert row[5] == 1
+
+
+def test_rel_type_properties_multi_label_endpoints():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE (:Dog:Pet {name: 'Rex'})-[:OWNS]->(:Toy:Object {name: 'Ball'})")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties() "
+        "YIELD relType, sourceNodeLabels, targetNodeLabels "
+        "RETURN relType, sourceNodeLabels, targetNodeLabels;",
+    )
+    assert len(result) == 1
+    row = list(result[0])
+    assert row[0] == ":`OWNS`"
+    assert set(row[1]) == {"Dog", "Pet"}
+    assert set(row[2]) == {"Object", "Toy"}
+
+
+def test_node_type_properties_empty_properties_row():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (:Empty)
+        CREATE (:Empty)
+        CREATE (:Empty)
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() "
+        "YIELD nodeType, propertyName, propertyObservations, totalObservations "
+        "WHERE nodeType = ':`Empty`' "
+        "RETURN nodeType, propertyName, propertyObservations, totalObservations;",
+    )
+    assert len(result) == 1
+    row = list(result[0])
+    assert row[1] == ""
+    assert row[2] == 0
+    assert row[3] == 3
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
