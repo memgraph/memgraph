@@ -79,6 +79,12 @@ fi
 # pass below so we never end up with two versions of the same package in the
 # cache (e.g. pip preferring a newer PyPI wheel and `pip install` later
 # picking that over the S3 one we tested with).
+#
+# IMPORTANT: keep these in sync with the URLs in
+# mage/install_python_requirements.sh. The custom PyG/DGL wheels are hosted in
+# our S3 bucket (not on PyPI), so both scripts have to agree on which version
+# to fetch — there's no upstream registry to derive a single answer from. Any
+# version bump here must be mirrored there and vice versa.
 TORCH_CLUSTER_VERSION="1.6.3"
 TORCH_GEOMETRIC_VERSION="2.8.0"
 TORCH_SCATTER_VERSION="2.1.2"

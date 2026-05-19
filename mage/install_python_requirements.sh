@@ -79,6 +79,14 @@ else
 fi
 
 # custom package links TODO(matt): use official binaries when available
+#
+# IMPORTANT: the PyG/DGL versions baked into the URLs below must stay in sync
+# with the *_VERSION variables in
+# tools/ci/mage-build/offline-installer/download-wheels.sh. These wheels are
+# custom-built and hosted in our S3 bucket (not on PyPI), so both scripts have
+# to agree on which version to fetch — there's no upstream registry to derive
+# a single answer from. Any version bump here must be mirrored there and vice
+# versa.
 BASE_URL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels"
 if [[ "$ARCH" == "arm64" ]]; then
   BASE_URL="${BASE_URL}/arm64"
