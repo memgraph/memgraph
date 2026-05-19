@@ -37,6 +37,8 @@
 
 namespace {
 constexpr auto kFirstShotAfter = std::chrono::seconds{60};
+constexpr auto kEventStartup = "startup";
+constexpr auto kEventShutdown = "shutdown";
 }  // namespace
 
 namespace memgraph::telemetry {
@@ -52,7 +54,7 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
       ssl_(ssl),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
-  StoreData("startup", utils::GetSystemInfo());
+  StoreData(kEventStartup, utils::GetSystemInfo());
   AddCollector("resources", [&, root_directory = std::move(root_directory)]() -> nlohmann::json {
     return GetResourceUsage(root_directory);
   });
@@ -101,7 +103,7 @@ Telemetry::~Telemetry() noexcept {
     // data (with the 10s timeout). Without this, the in-flight curl transfer
     // would be aborted immediately because the flag is still set.
     abort_.store(false, std::memory_order_relaxed);
-    CollectData("shutdown");
+    CollectData(kEventShutdown);
   } catch (...) {
   }
 }
@@ -168,9 +170,9 @@ void Telemetry::CollectData(const std::string &event) {
   } else {
     StoreData(event, data);
   }
-  if (num_ % send_every_n_ == 0 || event == "shutdown") {
+  if (num_ % send_every_n_ == 0 || event == kEventShutdown) {
     // Use shorter timeout for shutdown event
-    int const timeout = (event == "shutdown") ? 10 : (2 * 60);
+    int const timeout = (event == kEventShutdown) ? 10 : (2 * 60);
     SendData(timeout);
   }
 }
