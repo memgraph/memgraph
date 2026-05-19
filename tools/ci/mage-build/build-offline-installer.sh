@@ -117,9 +117,19 @@ SUFFIX=""
 [[ "$CUGRAPH" == "true" ]]               && SUFFIX="${SUFFIX}-cugraph"
 
 if [[ -z "$OUTPUT" ]]; then
-  base=$(basename "$MEMGRAPH_DEB")
-  # memgraph_<version>_<arch>.deb -> <version>
-  version=$(echo "$base" | sed -E 's/^memgraph_(.+)_[a-z0-9]+\.deb$/\1/')
+  if ! command -v dpkg-deb >/dev/null 2>&1; then
+    echo "Error: dpkg-deb not found on PATH; pass --output explicitly." >&2
+    exit 1
+  fi
+  version=$(dpkg-deb -f "$MEMGRAPH_DEB" Version)
+  if [[ -z "$version" ]]; then
+    echo "Error: could not read Version from $MEMGRAPH_DEB; pass --output explicitly." >&2
+    exit 1
+  fi
+  # The control file's Version is `<upstream>-<debian-revision>` (e.g.
+  # 3.10.2-1). Strip the trailing `-<revision>` to match the CI naming
+  # convention which uses just the upstream version.
+  version="${version%-*}"
   OUTPUT="$PWD/memgraph-mage-offline-${version}-${ARCH}${SUFFIX}.run"
 fi
 
