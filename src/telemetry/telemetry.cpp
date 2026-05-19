@@ -94,13 +94,16 @@ void Telemetry::Stop() {
   scheduler_.Stop();
 }
 
-Telemetry::~Telemetry() {
-  Stop();
-  // Clear the abort flag so the final shutdown collection can actually send
-  // data (with the 10s timeout). Without this, the in-flight curl transfer
-  // would be aborted immediately because the flag is still set.
-  abort_.store(false, std::memory_order_relaxed);
-  CollectData("shutdown");
+Telemetry::~Telemetry() noexcept {
+  try {
+    Stop();
+    // Clear the abort flag so the final shutdown collection can actually send
+    // data (with the 10s timeout). Without this, the in-flight curl transfer
+    // would be aborted immediately because the flag is still set.
+    abort_.store(false, std::memory_order_relaxed);
+    CollectData("shutdown");
+  } catch (...) {
+  }
 }
 
 void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &data) {
@@ -167,7 +170,7 @@ void Telemetry::CollectData(const std::string &event) {
   }
   if (num_ % send_every_n_ == 0 || event == "shutdown") {
     // Use shorter timeout for shutdown event
-    int timeout = (event == "shutdown") ? 10 : (2 * 60);
+    int const timeout = (event == "shutdown") ? 10 : (2 * 60);
     SendData(timeout);
   }
 }

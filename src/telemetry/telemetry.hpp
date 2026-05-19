@@ -64,7 +64,7 @@ class Telemetry final {
   void AddExceptionCollector();
   void AddReplicationCollector(utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> const &repl_state);
 
-  ~Telemetry();
+  ~Telemetry() noexcept;
 
   Telemetry(const Telemetry &) = delete;
   Telemetry(Telemetry &&) = delete;
