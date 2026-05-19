@@ -2414,11 +2414,11 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
   if (ctx->systemPrivileges) {
     auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
   } else if (ctx->entityPrivileges) {
-    const auto [label_privileges, label_matching_modes, edge_type_privileges] =
+    const auto [label_privileges, label_matching_modes, edge_type_privileges, property_privileges] =
         std::any_cast<std::tuple<std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
                                  std::vector<AuthQuery::LabelMatchingMode>,
-                                 std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
-            ctx->entityPrivileges->accept(this));
+                                 std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                                 std::vector<std::string>>>(ctx->entityPrivileges->accept(this));
     DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
                "parser invariant: label_privileges and label_matching_modes are populated in lockstep");
     for (auto const &[privilege_and_labels, mode] : std::views::zip(label_privileges, label_matching_modes)) {
@@ -2431,6 +2431,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
       auth->edge_type_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, edge_types}});
     }
+    auth->property_privileges_ = property_privileges;
   } else {
     /* grant all privileges */
     auth->privileges_ = kPrivilegesAll;
@@ -2449,11 +2450,11 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   if (ctx->systemPrivileges) {
     auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
   } else if (ctx->entityPrivileges) {
-    const auto [label_privileges, label_matching_modes, edge_type_privileges] =
+    const auto [label_privileges, label_matching_modes, edge_type_privileges, property_privileges] =
         std::any_cast<std::tuple<std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
                                  std::vector<AuthQuery::LabelMatchingMode>,
-                                 std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
-            ctx->entityPrivileges->accept(this));
+                                 std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                                 std::vector<std::string>>>(ctx->entityPrivileges->accept(this));
     DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
                "parser invariant: label_privileges and label_matching_modes are populated in lockstep");
     for (auto const &[privilege_and_labels, mode] : std::views::zip(label_privileges, label_matching_modes)) {
@@ -2466,6 +2467,7 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
       auth->edge_type_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, edge_types}});
     }
+    auth->property_privileges_ = property_privileges;
   } else {
     /* deny all privileges */
     auth->privileges_ = kPrivilegesAll;
@@ -2496,11 +2498,11 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   if (ctx->systemPrivileges) {
     auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
   } else if (ctx->entityPrivileges) {
-    const auto [label_privileges, label_matching_modes, edge_type_privileges] =
+    const auto [label_privileges, label_matching_modes, edge_type_privileges, property_privileges] =
         std::any_cast<std::tuple<std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
                                  std::vector<AuthQuery::LabelMatchingMode>,
-                                 std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
-            ctx->entityPrivileges->accept(this));
+                                 std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                                 std::vector<std::string>>>(ctx->entityPrivileges->accept(this));
     DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
                "parser invariant: label_privileges and label_matching_modes are populated in lockstep");
     for (auto const &[privilege_and_labels, mode] : std::views::zip(label_privileges, label_matching_modes)) {
@@ -2513,6 +2515,7 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
       auth->edge_type_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, edge_types}});
     }
+    auth->property_privileges_ = property_privileges;
   } else {
     /* revoke all privileges */
     auth->privileges_ = kPrivilegesAll;
@@ -2522,17 +2525,27 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
 
 /**
  * @return std::tuple<std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
-                      std::vector<AuthQuery::LabelMatchingMode>,
-                      std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>
+ *                    std::vector<AuthQuery::LabelMatchingMode>,
+ *                    std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+ *                    std::vector<std::string>>
  */
 antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::EntityPrivilegeListContext *ctx) {
   std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges;
   std::vector<AuthQuery::LabelMatchingMode> label_matching_modes;
   std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges;
+  std::vector<std::string> property_privileges;
 
   for (auto *it : ctx->entityPrivilege()) {
     const auto keys =
         std::any_cast<std::vector<AuthQuery::FineGrainedPrivilege>>(it->granularPrivilegeList()->accept(this));
+
+    if (auto *prop_list = it->propertyPrivilegeList()) {
+      if (prop_list->ASTERISK()) {
+        property_privileges = {"*"};
+      } else if (prop_list->listOfSymbolicNames()) {
+        property_privileges = std::any_cast<std::vector<std::string>>(prop_list->listOfSymbolicNames()->accept(this));
+      }
+    }
 
     auto *typeSpec = it->entityTypeSpec();
 
@@ -2588,7 +2601,7 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
       }
     }
   }
-  return std::make_tuple(label_privileges, label_matching_modes, edge_type_privileges);
+  return std::make_tuple(label_privileges, label_matching_modes, edge_type_privileges, property_privileges);
 }
 
 antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) {
