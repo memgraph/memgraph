@@ -1732,5 +1732,10 @@ auto CoordinatorInstance::FindClientConnector(int32_t leader_id) const -> Coordi
   return leader;
 }
 
+auto CoordinatorInstance::ReloadTls() -> std::expected<void, utils::SSL_CTX_Error> {
+  return coordinator_management_server_.ReloadTls();
+  // TODO: (andi) Reload coordinator server
+}
+
 }  // namespace memgraph::coordination
 #endif

@@ -80,20 +80,6 @@ class ClientContext final {
   SSL_CTX *ctx_;
 };
 
-enum class SSL_CTX_ERR_TYPE : uint8_t {
-  FAIL_CERT_FILE,
-  FAIL_KEY_FILE,
-  FAIL_SET_OPTIONS,
-  FAIL_LOAD_CA,
-  FAIL_SET_SSL_VERIFICATION_MODE,
-  FLAGS_NOT_CONFIGURED
-};
-
-struct SSL_CTX_Error {
-  SSL_CTX_ERR_TYPE err_type;
-  std::string msg;
-};
-
 /**
  * This class represents a context that should be used with network servers. One
  * context can be reused between multiple servers (note: this mainly depends on
@@ -128,7 +114,7 @@ class ServerContext final {
 
   bool use_ssl() const;
 
-  [[nodiscard]] auto reload() -> std::expected<void, SSL_CTX_Error>;
+  [[nodiscard]] auto reload() -> std::expected<void, utils::SSL_CTX_Error>;
 
  private:
   std::string key_file_;

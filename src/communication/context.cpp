@@ -118,11 +118,11 @@ boost::asio::ssl::context &ServerContext::context_clone() {
 
 bool ServerContext::use_ssl() const { return ctx_.load(std::memory_order_acquire) != nullptr; }
 
-auto ServerContext::reload() -> std::expected<void, SSL_CTX_Error> {
+auto ServerContext::reload() -> std::expected<void, utils::SSL_CTX_Error> {
   if (key_file_.empty() || cert_file_.empty()) {
     return std::unexpected{
-        SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FLAGS_NOT_CONFIGURED,
-                      .msg = "Unable to reload SSL configuration because key or certificate file aren't set."}};
+        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FLAGS_NOT_CONFIGURED,
+                             .msg = "Unable to reload SSL configuration because key or certificate file aren't set."}};
   }
 
   namespace ssl = boost::asio::ssl;
@@ -149,21 +149,24 @@ auto ServerContext::reload() -> std::expected<void, SSL_CTX_Error> {
   if (ec) {
     auto err_msg = fmt::format("Couldn't load server certificate from file {}. Error: {}", cert_file_, ec.message());
     spdlog::error(err_msg);
-    return std::unexpected{SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_CERT_FILE, .msg = std::move(err_msg)}};
+    return std::unexpected{
+        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_CERT_FILE, .msg = std::move(err_msg)}};
   }
   // NOLINTNEXTLINE(bugprone-unused-return-value)
   new_ctx->use_private_key_file(key_file_, ssl::context::pem, ec);
   if (ec) {
     auto err_msg = fmt::format("Couldn't load server private key from file {}. Error: {}", key_file_, ec.message());
     spdlog::error(err_msg);
-    return std::unexpected{SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_KEY_FILE, .msg = std::move(err_msg)}};
+    return std::unexpected{
+        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_KEY_FILE, .msg = std::move(err_msg)}};
   }
   // NOLINTNEXTLINE(bugprone-unused-return-value)
   new_ctx->set_options(SSL_OP_NO_SSLv3, ec);
   if (ec) {
     auto err_msg = fmt::format("Setting options to SSL context failed! Error: {}", ec.message());
     spdlog::error(err_msg);
-    return std::unexpected{SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_SET_OPTIONS, .msg = std::move(err_msg)}};
+    return std::unexpected{
+        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_SET_OPTIONS, .msg = std::move(err_msg)}};
   }
 
   if (!ca_file_.empty()) {
@@ -174,7 +177,8 @@ auto ServerContext::reload() -> std::expected<void, SSL_CTX_Error> {
     if (ec) {
       auto err_msg = fmt::format("Couldn't load certificate authority from file {}. Error: {}", ca_file_, ec.message());
       spdlog::error(err_msg);
-      return std::unexpected{SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_LOAD_CA, .msg = std::move(err_msg)}};
+      return std::unexpected{
+          utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_LOAD_CA, .msg = std::move(err_msg)}};
     }
 
     if (verify_peer_) {
@@ -184,8 +188,8 @@ auto ServerContext::reload() -> std::expected<void, SSL_CTX_Error> {
       if (ec) {
         auto err_msg = fmt::format("Setting SSL verification mode failed! Error: {}", ec.message());
         spdlog::error(err_msg);
-        return std::unexpected{
-            SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_SET_SSL_VERIFICATION_MODE, .msg = std::move(err_msg)}};
+        return std::unexpected{utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_SET_SSL_VERIFICATION_MODE,
+                                                    .msg = std::move(err_msg)}};
       }
     }
   }

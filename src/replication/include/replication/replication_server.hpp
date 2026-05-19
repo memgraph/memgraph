@@ -13,6 +13,7 @@
 
 #include "replication/config.hpp"
 #include "rpc/server.hpp"
+#include "utils/tls.hpp"
 
 namespace memgraph::replication {
 
@@ -30,6 +31,8 @@ class ReplicationServer {
   // const because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires constness
   // of functions being invoked
   bool Shutdown() const;
+
+  auto ReloadTls() -> std::expected<void, utils::SSL_CTX_Error>;
 
  protected:
   communication::ServerContext rpc_server_context_;

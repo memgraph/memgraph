@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "rpc/server.hpp"
+#include "utils/tls.hpp"
 
 namespace memgraph::coordination {
 
@@ -37,6 +38,8 @@ class DataInstanceManagementServer {
   void Register(F &&callback) {
     rpc_server_.Register<TRequestResponse>(std::forward<F>(callback));
   }
+
+  auto ReloadTls() -> std::expected<void, utils::SSL_CTX_Error>;
 
  private:
   communication::ServerContext rpc_server_context_;

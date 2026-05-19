@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace memgraph::utils {
@@ -21,6 +22,20 @@ struct TlsConfig {
   std::string ca_file;
 
   friend bool operator==(TlsConfig const &, TlsConfig const &) = default;
+};
+
+enum class SSL_CTX_ERR_TYPE : uint8_t {
+  FAIL_CERT_FILE,
+  FAIL_KEY_FILE,
+  FAIL_SET_OPTIONS,
+  FAIL_LOAD_CA,
+  FAIL_SET_SSL_VERIFICATION_MODE,
+  FLAGS_NOT_CONFIGURED
+};
+
+struct SSL_CTX_Error {
+  SSL_CTX_ERR_TYPE err_type;
+  std::string msg;
 };
 
 }  // namespace memgraph::utils

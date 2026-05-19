@@ -5036,14 +5036,44 @@ PreparedQuery PrepareReloadSSLQuery(ParsedQuery parsed_query, bool in_explicit_t
   if (in_explicit_transaction) {
     throw ReloadSSLMulticommandTxException();
   }
+
+  auto *reload_query = utils::Downcast<ReloadSSLQuery>(parsed_query.query);
+
   return PreparedQuery{
       .header = {},
       .privileges = std::move(parsed_query.required_privileges),
       .query_handler =
-          [interpreter_context, notifications](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
-            if (auto const res = interpreter_context->bolt_server_context_->reload(); !res.has_value()) {
-              throw QueryRuntimeException(res.error().msg);
+          [interpreter_context, notifications, action_type = reload_query->type_](
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+            if (action_type == ReloadSSLQuery::Type::BOLT_SERVER) {
+              if (auto const res = interpreter_context->bolt_server_context_->reload(); !res.has_value()) {
+                throw QueryRuntimeException(res.error().msg);
+              }
             }
+#ifdef MG_ENTERPRISE
+            else {
+              if (!license::global_license_checker.IsEnterpriseValidFast()) {
+                throw QueryRuntimeException(license::LicenseCheckErrorToString(
+                    license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "RELOAD TLS"));
+              }
+
+              if (interpreter_context->coordinator_state_) {
+                // TODO: (andi) Handle errors
+                if (auto const res = interpreter_context->coordinator_state_->ReloadTls(); !res.has_value()) {
+                  throw QueryRuntimeException(res.error().msg);
+                }
+                if (interpreter_context->coordinator_state_->IsDataInstance()) {
+                  // Handle separately replication server
+                  auto locked_ptr = interpreter_context->repl_state->ReadLock();
+                  if (locked_ptr->IsReplica()) {
+                    if (auto const res = locked_ptr->GetReplicaRole().server->ReloadTls(); !res.has_value()) {
+                      throw QueryRuntimeException(res.error().msg);
+                    }
+                  }
+                }
+              }
+            }
+#endif
             notifications->emplace_back(
                 SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloading SSL for Bolt server");
             return QueryHandlerResult::COMMIT;
