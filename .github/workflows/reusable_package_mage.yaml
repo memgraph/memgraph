@@ -396,12 +396,6 @@ jobs:
           echo "DEB_PACKAGE=${DEB_PACKAGE}" >> $GITHUB_ENV
 
       - name: Build offline installer (.run) for Ubuntu 24.04
-        # Drops the .run into output/ so the existing S3 sync picks it up.
-        # The filename encodes the variant suffix (-relwithdebinfo/-malloc/
-        # -cuda or -cugraph) — must match matrix.image_ext in
-        # promote_rc_release.yml so the promote step finds it. -cuda and
-        # -cugraph are mutually exclusive (cugraph implies cuda but only the
-        # "cugraph" tag shows in image_ext).
         if: ${{ inputs.build_offline_installer && env.PACKAGE_DEB == 'true' }}
         run: |
           SUFFIX=""

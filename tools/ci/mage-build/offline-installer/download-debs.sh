@@ -31,13 +31,6 @@ RUNTIME_PACKAGES=(
   libseccomp2
   libxmlsec1
   ca-certificates
-  # libdw1t64 (the t64 transition rename of libdw1) is what memgraph-mage
-  # actually needs at runtime — the symbol lookup happens against
-  # /lib/.../libdw.so.1. The previous libdw-dev choice pulled the whole
-  # build toolchain (libc6-dev, zlib1g-dev, linux-libc-dev, libelf-dev,
-  # rpcsvc-proto, ...), and several of those have strict-version Depends on
-  # libc6/gcc-14-base, which caused offline installs to fail on hosts whose
-  # base image was slightly behind the build container.
   libdw1t64
 )
 
