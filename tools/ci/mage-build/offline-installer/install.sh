@@ -47,6 +47,10 @@ export ACCEPT_EULA=Y
 # -> memgraph.deb in reusable_package_mage.yaml so the Dockerfile build
 # context can find it at a stable path). memgraph-mage keeps its versioned
 # filename. Exclude both forms here — they install in step 4.
+# nullglob makes the loop body skip entirely when the glob doesn't match
+# (instead of bash's default of iterating once with the literal pattern,
+# which would feed dpkg a bogus path).
+shopt -s nullglob
 APT_DEBS=()
 for deb in "$DEBS_DIR"/*.deb; do
   case "$(basename "$deb")" in
@@ -54,6 +58,12 @@ for deb in "$DEBS_DIR"/*.deb; do
     *) APT_DEBS+=("$deb") ;;
   esac
 done
+shopt -u nullglob
+
+if [[ ${#APT_DEBS[@]} -eq 0 ]]; then
+  echo "Error: no apt-dep .debs found in $DEBS_DIR — bundle is incomplete." >&2
+  exit 1
+fi
 
 for attempt in 1 2 3; do
   if dpkg -i "${APT_DEBS[@]}"; then
