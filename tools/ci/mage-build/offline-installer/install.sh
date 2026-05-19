@@ -155,6 +155,14 @@ if [[ -z "$MAGE_DEB" ]]; then
   exit 1
 fi
 
+# MEMGRAPH_OFFLINE_INSTALL=1 propagates into the postinst environment and
+# tells it to tolerate install_python_requirements.sh failing (it tries to
+# curl/pip-install from the internet, which doesn't work offline — but the
+# wheels are already installed by step 3). Without this env var the postinst
+# treats the failure as hard so normal online apt/dpkg installs don't
+# silently leave MAGE broken.
+export MEMGRAPH_OFFLINE_INSTALL=1
+
 # All Depends: from these debs (openssl, python3, libcurl4, etc.) were
 # already installed and configured in step 1. memgraph-mage Depends: memgraph
 # so install order matters; loop with --configure -a between passes in case
