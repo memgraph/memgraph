@@ -21,11 +21,9 @@ default_storage_info_dict = {
     "peak_memory_res": "",  # machine dependent
     "disk_usage": "",  # machine dependent
     "memory_tracked": "",  # machine dependent
-    "runtime_allocation_limit": "",  # machine dependent
-    "license_allocation_limit": "",  # license dependent
-    "graph_memory_tracked": "",  # machine dependent
+    "memory_limit": "",  # machine dependent
+    "license_memory_limit": "",  # license dependent
     "vector_index_memory_tracked": "",  # machine dependent
-    "query_memory_tracked": "",  # machine dependent
     "storage_isolation_level": "SNAPSHOT_ISOLATION",
     "session_isolation_level": "",
     "next_session_isolation_level": "",
@@ -60,12 +58,10 @@ def test_does_default_config_match():
         "peak_memory_res",
         "disk_usage",
         "memory_tracked",
-        "runtime_allocation_limit",
-        "license_allocation_limit",
+        "memory_limit",
+        "license_memory_limit",
         "vm_max_map_count",
-        "graph_memory_tracked",
         "vector_index_memory_tracked",
-        "query_memory_tracked",
     ]
     # Number of different data-points returned by SHOW STORAGE INFO
     assert len(config) == len(default_storage_info_dict)

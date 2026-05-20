@@ -626,12 +626,12 @@ TYPED_TEST(InterpreterTest, ShowStorageInfoIncludesQueryTrackingFields) {
   }
 
   EXPECT_TRUE(values.contains("memory_tracked"));
-  EXPECT_TRUE(values.contains("runtime_allocation_limit"));
-  EXPECT_TRUE(values.contains("license_allocation_limit"));
+  EXPECT_TRUE(values.contains("memory_limit"));
+  EXPECT_TRUE(values.contains("license_memory_limit"));
   EXPECT_TRUE(values.contains("disk_usage"));
 
   EXPECT_TRUE(values.at("memory_tracked").IsString());
-  EXPECT_TRUE(values.at("license_allocation_limit").IsString());
+  EXPECT_TRUE(values.at("license_memory_limit").IsString());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
