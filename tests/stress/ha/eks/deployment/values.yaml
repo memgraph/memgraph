@@ -28,12 +28,22 @@ storage:
     # Supports Helm templating (e.g. {{ .Release.Name }})
     # migrate.duckdb writes its extension cache to $HOME/.duckdb; chart 1.0.1
     # mounts the container root read-only, so we need a writable mount here.
-    extraVolumes:
-      - name: duckdb-home
-        emptyDir: {}
-    extraVolumeMounts:
-      - name: duckdb-home
-        mountPath: /home/memgraph/.duckdb
+    extraVolumes: []
+    # extraVolumes:
+    #   - name: bolt-certs
+    #     secret:
+    #       secretName: bolt-ssl-certificates-tls
+    #       items:
+    #         - key: tls.crt
+    #           path: tls.crt
+    #         - key: tls.key
+    #           path: tls.key
+    extraVolumeMounts: []
+    # Example:
+    # extraVolumeMounts:
+    #   - name: bolt-certs
+    #     mountPath: /etc/memgraph/ssl
+    #     readOnly: true
 
   coordinators:
     libPVCSize: "5Gi"
