@@ -7248,8 +7248,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       header = {"license info", "value"};
       handler = [] {
         const auto license_info = license::global_license_checker.GetDetailedLicenseInfo();
-        std::string memory_limit_policy = "Memory usage is not limited.";
         std::string memory_limit = "UNLIMITED";
+        std::string memory_limit_policy = "Memory usage is not limited.";
         if (license_info.memory_limit != 0) {
           memory_limit = utils::GetReadableSize(static_cast<double>(license_info.memory_limit));
           memory_limit_policy = license_info.license_type == license::kLicenseTypeAiPlatform
@@ -7263,9 +7263,9 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("is_valid"), TypedValue(license_info.is_valid)},
             {TypedValue("license_type"), TypedValue(license_info.license_type)},
             {TypedValue("valid_until"), TypedValue(license_info.valid_until)},
-            {TypedValue("memory_limit"), TypedValue(std::move(memory_limit))},
+            {TypedValue("memory_limit"), TypedValue(memory_limit)},
             {TypedValue("status"), TypedValue(license_info.status)},
-            {TypedValue("memory_limit_policy"), TypedValue(std::move(memory_limit_policy))},
+            {TypedValue("memory_limit_policy"), TypedValue(memory_limit_policy)},
         };
 
         return std::pair{results, QueryHandlerResult::NOTHING};
