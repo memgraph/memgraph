@@ -129,3 +129,33 @@ EXPOSE 7687
 
 ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
 CMD []
+
+
+# Interactive-debug variant for cugraph. Mirrors the relwithdebinfo stage in
+# Dockerfile.release: same memgraph binary as prod (already gdb-installed
+# above when BUILD_TYPE=RelWithDebInfo), with the memgraph-debuginfo deb
+# layered on top so gdb finds .debug sidecars via .gnu_debuglink offline.
+# Build-id matches the standalone memgraph deb and the non-cugraph MAGE
+# images, so a single debuginfod upload from the memgraph build resolves
+# crashes from all three.
+FROM prod AS relwithdebinfo
+
+USER root
+
+# Install the memgraph-debuginfo package. Absolute path because the prod
+# stage doesn't set WORKDIR but we follow the same explicit pattern used in
+# release/docker/v7_deb.dockerfile.
+RUN --mount=type=bind,source="./memgraph-debuginfo.deb",target=/memgraph-debuginfo.deb,ro \
+  dpkg -i /memgraph-debuginfo.deb
+
+# Source tree so gdb can list local frames; wrapper script for an alternate
+# entrypoint that boots memgraph under gdb. Heaptrack matches the layout
+# Dockerfile.release uses and is staged into mage/heaptrack by the Copy
+# heaptrack step in reusable_package_mage.yaml when package_flavour=debug.
+COPY --chown=memgraph:memgraph ./ /mage/
+RUN --mount=type=bind,source="./heaptrack",target=/heaptrack,ro \
+  cp -vr /heaptrack/* /usr/
+COPY run_with_gdb.sh /usr/lib/memgraph/run_with_gdb.sh
+
+USER memgraph
+# WORKDIR / EXPOSE / ENTRYPOINT / CMD inherited from prod.

@@ -1991,10 +1991,6 @@ package_mage_docker() {
         echo -e "${RED_BOLD}Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')${RESET}" >&2
         exit 1
       fi
-      if [[ "$cugraph" = "true" ]]; then
-        echo -e "${RED_BOLD}Error: --package-flavour debug is not supported with --cugraph (no debug target in Dockerfile.cugraph)${RESET}" >&2
-        exit 1
-      fi
       docker_target="relwithdebinfo"
     ;;
     *)
