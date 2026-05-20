@@ -2593,11 +2593,15 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
 
 namespace {
 AuthQuery *BuildPropertyPermissionQuery(AstStorage *storage, AuthQuery::Action action,
+                                        MemgraphCypher::PropertyPermissionTypeContext *perm_type,
                                         MemgraphCypher::PropertyPermissionListContext *props,
                                         MemgraphCypher::PropertyScopeContext *scope,
                                         MemgraphCypher::UserOrRoleContext *target, CypherMainVisitor *visitor) {
   auto *auth = storage->Create<AuthQuery>();
   auth->action_ = action;
+
+  auth->property_permission_type_ =
+      perm_type->READ() ? AuthQuery::PropertyPermissionType::READ : AuthQuery::PropertyPermissionType::WRITE;
 
   if (props->ASTERISK()) {
     auth->property_permissions_ = {"*"};
@@ -2619,18 +2623,33 @@ AuthQuery *BuildPropertyPermissionQuery(AstStorage *storage, AuthQuery::Action a
 }  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitGrantPropertyPermission(MemgraphCypher::GrantPropertyPermissionContext *ctx) {
-  return BuildPropertyPermissionQuery(
-      storage_, AuthQuery::Action::GRANT_PROPERTY_PERMISSION, ctx->propList, ctx->propertyScope(), ctx->target, this);
+  return BuildPropertyPermissionQuery(storage_,
+                                      AuthQuery::Action::GRANT_PROPERTY_PERMISSION,
+                                      ctx->permType,
+                                      ctx->propList,
+                                      ctx->propertyScope(),
+                                      ctx->target,
+                                      this);
 }
 
 antlrcpp::Any CypherMainVisitor::visitDenyPropertyPermission(MemgraphCypher::DenyPropertyPermissionContext *ctx) {
-  return BuildPropertyPermissionQuery(
-      storage_, AuthQuery::Action::DENY_PROPERTY_PERMISSION, ctx->propList, ctx->propertyScope(), ctx->target, this);
+  return BuildPropertyPermissionQuery(storage_,
+                                      AuthQuery::Action::DENY_PROPERTY_PERMISSION,
+                                      ctx->permType,
+                                      ctx->propList,
+                                      ctx->propertyScope(),
+                                      ctx->target,
+                                      this);
 }
 
 antlrcpp::Any CypherMainVisitor::visitRevokePropertyPermission(MemgraphCypher::RevokePropertyPermissionContext *ctx) {
-  return BuildPropertyPermissionQuery(
-      storage_, AuthQuery::Action::REVOKE_PROPERTY_PERMISSION, ctx->propList, ctx->propertyScope(), ctx->target, this);
+  return BuildPropertyPermissionQuery(storage_,
+                                      AuthQuery::Action::REVOKE_PROPERTY_PERMISSION,
+                                      ctx->permType,
+                                      ctx->propList,
+                                      ctx->propertyScope(),
+                                      ctx->target,
+                                      this);
 }
 
 antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) {

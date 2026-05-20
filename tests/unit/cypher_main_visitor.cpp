@@ -2895,6 +2895,11 @@ struct AuthQueryChecker {
     return *this;
   }
 
+  AuthQueryChecker &WithPropertyPermissionType(AuthQuery::PropertyPermissionType type) {
+    property_permission_type_ = type;
+    return *this;
+  }
+
   void Check() const {
     auto *q = dynamic_cast<AuthQuery *>(ast_generator_->ParseQuery(input_));
     ASSERT_TRUE(q);
@@ -2916,6 +2921,7 @@ struct AuthQueryChecker {
     EXPECT_EQ(q->property_permissions_, property_permissions_);
     EXPECT_EQ(q->property_entity_name_, property_entity_name_);
     EXPECT_EQ(q->property_entity_type_, property_entity_type_);
+    EXPECT_EQ(q->property_permission_type_, property_permission_type_);
   }
 
  private:
@@ -2934,6 +2940,7 @@ struct AuthQueryChecker {
   std::vector<std::string> property_permissions_;
   std::string property_entity_name_;
   AuthQuery::PropertyEntityType property_entity_type_{AuthQuery::PropertyEntityType::NODE};
+  AuthQuery::PropertyPermissionType property_permission_type_{AuthQuery::PropertyPermissionType::READ};
 };
 
 TEST_P(CypherMainVisitorTest, UserOrRoleName) {
@@ -4616,6 +4623,58 @@ TEST_P(CypherMainVisitorTest, PropertyReadPrivilegeSyntaxErrors) {
 
   // Missing opening brace
   ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ssn} ON NODES Employee TO user"), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, GrantSetPropertyPermission) {
+  auto &ast_generator = *GetParam();
+
+  AuthQueryChecker(&ast_generator,
+                   "GRANT SET PROPERTY {department, title} ON NODES Employee TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"department", "title"})
+      .WithPropertyEntityName("Employee")
+      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyPermissionType(AuthQuery::PropertyPermissionType::WRITE)
+      .Check();
+
+  AuthQueryChecker(&ast_generator,
+                   "GRANT SET PROPERTY {*} ON RELATIONSHIPS PAID TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"*"})
+      .WithPropertyEntityName("PAID")
+      .WithPropertyEntityType(AuthQuery::PropertyEntityType::RELATIONSHIP)
+      .WithPropertyPermissionType(AuthQuery::PropertyPermissionType::WRITE)
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, DenySetPropertyPermission) {
+  auto &ast_generator = *GetParam();
+
+  AuthQueryChecker(&ast_generator,
+                   "DENY SET PROPERTY {salary, ssn} ON NODES Employee TO user",
+                   AuthQuery::Action::DENY_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"salary", "ssn"})
+      .WithPropertyEntityName("Employee")
+      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyPermissionType(AuthQuery::PropertyPermissionType::WRITE)
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, RevokeSetPropertyPermission) {
+  auto &ast_generator = *GetParam();
+
+  AuthQueryChecker(&ast_generator,
+                   "REVOKE SET PROPERTY {salary} ON NODES Employee FROM user",
+                   AuthQuery::Action::REVOKE_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"salary"})
+      .WithPropertyEntityName("Employee")
+      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyPermissionType(AuthQuery::PropertyPermissionType::WRITE)
+      .Check();
 }
 
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {

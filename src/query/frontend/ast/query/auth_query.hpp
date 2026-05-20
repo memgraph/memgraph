@@ -59,6 +59,7 @@ class AuthQuery : public memgraph::query::Query {
   };
 
   enum class PropertyEntityType : uint8_t { NODE, RELATIONSHIP };
+  enum class PropertyPermissionType : uint8_t { READ, WRITE };
 
   enum class Privilege {
     CREATE,
@@ -148,6 +149,7 @@ class AuthQuery : public memgraph::query::Query {
   std::vector<std::string> property_permissions_;
   std::string property_entity_name_;
   PropertyEntityType property_entity_type_{PropertyEntityType::NODE};
+  PropertyPermissionType property_permission_type_{PropertyPermissionType::READ};
 
   // Database specification for SHOW PRIVILEGES query
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
@@ -173,6 +175,7 @@ class AuthQuery : public memgraph::query::Query {
     object->property_permissions_ = property_permissions_;
     object->property_entity_name_ = property_entity_name_;
     object->property_entity_type_ = property_entity_type_;
+    object->property_permission_type_ = property_permission_type_;
     object->database_specification_ = database_specification_;
     object->entity_type_ = entity_type_;
     return object;

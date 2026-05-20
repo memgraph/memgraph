@@ -534,6 +534,8 @@ denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames 
 
 propertyPermissionList : '{' ( ASTERISK | listOfSymbolicNames ) '}' ;
 
+propertyPermissionType : READ | SET PROPERTY ;
+
 propertyEntityTarget
     : NODES entity=symbolicName
     | RELATIONSHIPS entity=symbolicName
@@ -544,11 +546,11 @@ propertyScope
     | ON propertyEntityTarget
     ;
 
-grantPropertyPermission : GRANT READ propList=propertyPermissionList propertyScope TO target=userOrRole ;
+grantPropertyPermission : GRANT permType=propertyPermissionType propList=propertyPermissionList propertyScope TO target=userOrRole ;
 
-denyPropertyPermission : DENY READ propList=propertyPermissionList propertyScope TO target=userOrRole ;
+denyPropertyPermission : DENY permType=propertyPermissionType propList=propertyPermissionList propertyScope TO target=userOrRole ;
 
-revokePropertyPermission : REVOKE READ propList=propertyPermissionList propertyScope FROM target=userOrRole ;
+revokePropertyPermission : REVOKE permType=propertyPermissionType propList=propertyPermissionList propertyScope FROM target=userOrRole ;
 
 grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO target=userOrRole ;
 
