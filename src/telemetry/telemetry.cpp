@@ -104,7 +104,8 @@ Telemetry::~Telemetry() noexcept {
     // would be aborted immediately because the flag is still set.
     abort_.store(false, std::memory_order_relaxed);
     CollectData(kEventShutdown);
-  } catch (...) {
+  } catch (const std::exception &e) {
+    spdlog::warn("Telemetry shutdown failure: {}", e.what());
   }
 }
 
