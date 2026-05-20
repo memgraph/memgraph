@@ -67,6 +67,7 @@ constexpr auto full_json_str = R"({
   },
   "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
   "permissions":{"denies":0,"grants":134217727},
+  "property_access_permissions":{"edge_type_property_permissions":{},"label_property_permissions":{}},
   "user_imp":{
     "user_imp_denied":[
       {"user_imp_id":[90,135,181,89,151,124,74,168,175,106,33,91,219,3,104,168],"user_imp_name":"b"}
@@ -105,6 +106,7 @@ constexpr auto community_saved_with_license_json_str = R"({
           },
           "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
           "permissions":{"denies":0,"grants":134217727},
+          "property_access_permissions":{"edge_type_property_permissions":{},"label_property_permissions":{}},
           "user_imp":null,
           "username":"a",
           "uuid":[4,91,245,109,241,58,74,21,180,161,26,87,18,208,220,226]
@@ -987,6 +989,7 @@ TEST(AuthModule, UserSerialization) {
           },
           "password_hash":null,
           "permissions":{"denies":0,"grants":0},
+          "property_access_permissions":{"edge_type_property_permissions":{},"label_property_permissions":{}},
           "user_imp":null,
           "username":"",
           "uuid":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
@@ -1177,6 +1180,7 @@ TEST(AuthModule, RoleSerialization) {
             "label_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]}
           },
           "permissions":{"denies":0,"grants":0},
+          "property_access_permissions":{"edge_type_property_permissions":{},"label_property_permissions":{}},
           "rolename":"",
           "user_imp":null,
           "builtin":false
