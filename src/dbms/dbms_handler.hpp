@@ -40,6 +40,7 @@
 #endif
 #include "dbms/database_protector.hpp"
 #include "global.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/interpreter_context.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
@@ -407,6 +408,13 @@ class DbmsHandler {
     }
     return res;
   }
+
+  /***
+   * @brief Live vertex/edge/disk/memory stats for metrics.
+   *
+   * @param uuid
+   */
+  std::optional<metrics::StorageSnapshot> TryGetStorageSnapshotForMetrics(utils::UUID const &uuid);
 
   /**
    * @brief Restore triggers for all currently defined databases.

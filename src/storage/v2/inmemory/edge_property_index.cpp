@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
@@ -263,20 +264,16 @@ auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipLi
 bool InMemoryEdgePropertyIndex::PublishIndex(PropertyId property, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(property);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  index->Publish(commit_timestamp, gauge_);
   return true;
 }
 
-void InMemoryEdgePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryEdgePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status_.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgePropertyIndices);
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
-InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() {
-  if (status_.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgePropertyIndices);
-  }
-}
+InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() = default;
 
 auto InMemoryEdgePropertyIndex::DropIndex(PropertyId property, ActiveIndicesUpdater const &updater)
     -> std::shared_ptr<IndividualIndex> {

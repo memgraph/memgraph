@@ -24,7 +24,6 @@
 #include "query/stream.hpp"
 #include "query/trigger_context.hpp"
 #include "system/transaction.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/memory.hpp"
 #include "utils/priorities.hpp"
@@ -35,15 +34,9 @@
 #include "coordination/instance_status.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "coordination/utils.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "utils/resource_monitoring.hpp"
 #endif
-
-namespace memgraph::metrics {
-extern const Event FailedQuery;
-extern const Event FailedPrepare;
-extern const Event FailedPull;
-extern const Event SuccessfulQuery;
-}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
@@ -265,6 +258,7 @@ struct CurrentDB {
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_db_{false};
+  metrics::ScopedGauge transaction_gauge_;
 };
 
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;
@@ -684,8 +678,13 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   } catch (const utils::BasicException &e) {
     LogQueryMessage(e.what());
     metrics::FirstFailedQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPull);
+    if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
+      mh->failed_query.Increment();
+      mh->failed_pull.Increment();
+    } else {
+      metrics::Metrics().global.failed_query->Increment();
+      metrics::Metrics().global.failed_pull->Increment();
+    }
     // PeriodicCommitException means the storage layer already aborted the transaction internally.
     // Null the accessor first so AbortCommand does not call Abort() a second time.
     if (dynamic_cast<const PeriodicCommitException *>(&e)) {
@@ -698,7 +697,11 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   if (maybe_summary) {
     // Toggle first successfully completed query
     metrics::FirstSuccessfulQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::SuccessfulQuery);
+    if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
+      mh->successful_query.Increment();
+    } else {
+      metrics::Metrics().global.successful_query->Increment();
+    }
     // return the execution summary
     maybe_summary->insert_or_assign("has_more", false);
     return std::move(*maybe_summary);

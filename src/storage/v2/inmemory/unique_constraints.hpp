@@ -15,6 +15,8 @@
 #include <optional>
 #include <variant>
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
@@ -32,6 +34,8 @@ struct Transaction;
 
 class InMemoryUniqueConstraints : public UniqueConstraints {
  public:
+  explicit InMemoryUniqueConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
   struct Entry {
     std::vector<PropertyValue> values;
     const Vertex *vertex;
@@ -69,10 +73,11 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     explicit IndividualConstraint() : skiplist{} {}
 
     ~IndividualConstraint();
-    void Publish(uint64_t commit_timestamp);
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
 
     utils::SkipListDb<Entry> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
+    metrics::ScopedGauge gauge_{};
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
@@ -112,8 +117,6 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
    private:
     ContainerPtr container_;
   };
-
-  InMemoryUniqueConstraints() = default;
 
   /// Creates an ActiveConstraints snapshot for transaction use.
   auto GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> override;
@@ -180,6 +183,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   auto InstallConstraint_(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr ptr)
       -> IndividualConstraintPtr;
 
+  metrics::GaugeHandle gauge_{};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

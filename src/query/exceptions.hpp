@@ -11,15 +11,10 @@
 
 #pragma once
 
-#include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 
 #include <fmt/core.h>
 #include <fmt/format.h>
-
-namespace memgraph::metrics {
-extern const Event WriteWriteConflicts;
-}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
@@ -286,9 +281,7 @@ class TransactionSerializationException : public RetryBasicException {
  public:
   TransactionSerializationException()
       : RetryBasicException(MessageWithDocsLink("Cannot resolve conflicting transactions. Retry this transaction when "
-                                                "the conflicting transaction is finished.")) {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::WriteWriteConflicts);
-  }
+                                                "the conflicting transaction is finished.")) {}
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionSerializationException)
 };
 

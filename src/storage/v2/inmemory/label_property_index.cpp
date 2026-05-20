@@ -14,6 +14,7 @@
 #include <optional>
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
@@ -542,7 +543,7 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
                                               uint64_t commit_timestamp, IndexOrder order) {
   auto publish = [&](auto const &index) {
     if (!index) return false;
-    index->Publish(commit_timestamp);
+    index->Publish(commit_timestamp, gauge_);
     return true;
   };
   return (order == IndexOrder::ASC) ? publish(GetIndividualIndex<Entry>(label, properties))
@@ -550,16 +551,10 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
 }
 
 template <typename EntryT>
-void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(uint64_t commit_timestamp) {
+void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(uint64_t commit_timestamp,
+                                                                  metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
-}
-
-template <typename EntryT>
-InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::~IndividualIndex() {
-  if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
-  }
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 template <typename EntryT>
@@ -599,7 +594,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
     auto const it = indices_map.find(added_label);
     if (it == indices_map.cend()) return;
     for (auto &[props, index] : it->second | rv::filter(relevant_index)) {
-      auto &[permutations_helper, skiplist, status] = *index;
+      auto &[permutations_helper, skiplist, status, _] = *index;
       auto values = permutations_helper.Extract(vertex_after_update->properties);
       if (AnyNonNull(values)) {
         auto acc = skiplist.access();
