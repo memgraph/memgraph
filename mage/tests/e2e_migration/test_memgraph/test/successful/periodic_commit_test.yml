@@ -6,5 +6,7 @@ query: |
   )
   YIELD row
   MERGE (v:PCTestNode {n: row.n})
+  RETURN count(row) AS cnt
 
-output: []
+output:
+  - cnt: 200
