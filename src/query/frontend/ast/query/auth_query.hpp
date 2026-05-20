@@ -53,6 +53,9 @@ class AuthQuery : public memgraph::query::Query {
     SET_MAIN_DATABASE,
     GRANT_IMPERSONATE_USER,
     DENY_IMPERSONATE_USER,
+    GRANT_PROPERTY_PRIVILEGE,
+    DENY_PROPERTY_PRIVILEGE,
+    REVOKE_PROPERTY_PRIVILEGE,
   };
 
   enum class Privilege {
@@ -141,6 +144,8 @@ class AuthQuery : public memgraph::query::Query {
       edge_type_privileges_;
   std::vector<std::string> impersonation_targets_;
   std::vector<std::string> property_privileges_;
+  std::string property_entity_name_;
+  bool property_entity_is_node_{true};
 
   // Database specification for SHOW PRIVILEGES query
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
@@ -164,6 +169,8 @@ class AuthQuery : public memgraph::query::Query {
     object->edge_type_privileges_ = edge_type_privileges_;
     object->impersonation_targets_ = impersonation_targets_;
     object->property_privileges_ = property_privileges_;
+    object->property_entity_name_ = property_entity_name_;
+    object->property_entity_is_node_ = property_entity_is_node_;
     object->database_specification_ = database_specification_;
     object->entity_type_ = entity_type_;
     return object;

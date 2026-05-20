@@ -1812,6 +1812,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
+    case AuthQuery::Action::GRANT_PROPERTY_PRIVILEGE:
+    case AuthQuery::Action::DENY_PROPERTY_PRIVILEGE:
+    case AuthQuery::Action::REVOKE_PROPERTY_PRIVILEGE:
+      throw utils::NotYetImplemented("Property-level access control");
     default:
       break;
   }
