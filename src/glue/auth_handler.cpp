@@ -342,6 +342,40 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
 
+std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
+    memgraph::auth::PropertyAccessHandler const &handler, std::string_view user_or_role_str) {
+  std::vector<std::vector<memgraph::query::TypedValue>> result;
+
+  auto emit = [&](memgraph::auth::PropertyAccessPermissions const &perms, std::string_view entity_kind) {
+    for (auto const &[entity, prop_map] : perms.GetRules()) {
+      std::vector<std::string> granted;
+      std::vector<std::string> denied;
+      for (auto const &[prop, perm] : prop_map) {
+        (perm == memgraph::auth::PropertyPermission::GRANT ? granted : denied).push_back(prop);
+      }
+      std::ranges::sort(granted);
+      std::ranges::sort(denied);
+
+      auto emit_row = [&](std::vector<std::string> const &props, std::string_view level, std::string_view verb) {
+        auto prop_list = memgraph::utils::Join(props, ", ");
+        auto privilege = fmt::format("READ {{{}}} ON {} :{}", prop_list, entity_kind, entity);
+        auto description = fmt::format("PROPERTY PERMISSION {} TO {}", verb, user_or_role_str);
+        result.push_back({memgraph::query::TypedValue(std::move(privilege)),
+                          memgraph::query::TypedValue(std::string(level)),
+                          memgraph::query::TypedValue(std::move(description))});
+      };
+
+      if (!granted.empty()) emit_row(granted, "GRANT", "GRANTED");
+      if (!denied.empty()) emit_row(denied, "DENY", "DENIED");
+    }
+  };
+
+  emit(handler.label_properties(), "NODES");
+  emit(handler.edge_type_properties(), "RELATIONSHIPS");
+
+  return result;
+}
+
 // Converting values from query to user profile framework
 memgraph::auth::UserProfiles::Limits name_to_limit(const auto &name) {
   auto it = std::find(memgraph::auth::UserProfiles::kLimits.begin(), memgraph::auth::UserProfiles::kLimits.end(), name);
@@ -931,6 +965,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);
+        auto prop_grants = ShowPropertyPermissions(user->property_access_handler(), "USER");
+        fine_grained_grants.insert(fine_grained_grants.end(), prop_grants.begin(), prop_grants.end());
       }
 #endif
     } else if (role) {
@@ -938,6 +974,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedRolePrivileges(role, db_name);
+        auto prop_grants = ShowPropertyPermissions(role->property_access_handler(), "ROLE");
+        fine_grained_grants.insert(fine_grained_grants.end(), prop_grants.begin(), prop_grants.end());
       }
 #endif
     } else {

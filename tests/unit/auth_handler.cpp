@@ -3243,3 +3243,101 @@ TEST_F(AuthQueryHandlerFixture, PropertyPermissionOnNonexistentUserThrows) {
                                                     nullptr),
                memgraph::query::QueryRuntimeException);
 }
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"ssn", "salary"},
+                                       "Employee",
+                                       memgraph::query::AuthQuery::PropertyEntityType::NODE,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       nullptr);
+  auth_handler.DenyPropertyPermission(user_name,
+                                      {"dob"},
+                                      "Employee",
+                                      memgraph::query::AuthQuery::PropertyEntityType::NODE,
+                                      memgraph::auth::UserOrRoleType::USER,
+                                      nullptr);
+
+  auto privileges =
+      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+
+  // Find property permission rows
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 2);
+
+  // Sort by effective column for deterministic checking (DENY before GRANT)
+  std::sort(prop_rows.begin(), prop_rows.end(), [](auto const &a, auto const &b) {
+    return a[1].ValueString() < b[1].ValueString();
+  });
+
+  // denied row
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {dob} ON NODES :Employee");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "DENY");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION DENIED TO USER");
+
+  // granted row (collapsed)
+  EXPECT_EQ(prop_rows[1][0].ValueString(), "READ {salary, ssn} ON NODES :Employee");
+  EXPECT_EQ(prop_rows[1][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[1][2].ValueString(), "PROPERTY PERMISSION GRANTED TO USER");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForRole) {
+  auth_handler.CreateRole("analyst", nullptr);
+
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"amount"},
+                                       "PAID",
+                                       memgraph::query::AuthQuery::PropertyEntityType::RELATIONSHIP,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       nullptr);
+
+  auto privileges = auth_handler.GetPrivileges("analyst",
+                                               std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}},
+                                               memgraph::auth::UserOrRoleType::ROLE);
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {amount} ON RELATIONSHIPS :PAID");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO ROLE");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesWildcardPropertyPermission) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"*"},
+                                       "Employee",
+                                       memgraph::query::AuthQuery::PropertyEntityType::NODE,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       nullptr);
+
+  auto privileges =
+      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {*} ON NODES :Employee");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO USER");
+}
