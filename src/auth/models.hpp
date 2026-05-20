@@ -411,6 +411,53 @@ bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 #endif
 
 #ifdef MG_ENTERPRISE
+enum class PropertyPermission : uint8_t { GRANT, DENY };
+
+class PropertyAccessPermissions final {
+ public:
+  PropertyAccessPermissions() = default;
+
+  void Grant(std::string const &entity, std::string const &property);
+  void Deny(std::string const &entity, std::string const &property);
+  void Revoke(std::string const &entity, std::string const &property);
+
+  PermissionLevel Has(std::string const &entity, std::string const &property) const;
+
+  nlohmann::json Serialize() const;
+  static PropertyAccessPermissions Deserialize(nlohmann::json const &data);
+
+  bool operator==(PropertyAccessPermissions const &other) const = default;
+
+  auto const &GetRules() const { return rules_; }
+
+ private:
+  // entity -> (property -> permission). "*" as property key means wildcard.
+  std::unordered_map<std::string, std::unordered_map<std::string, PropertyPermission>> rules_;
+};
+
+class PropertyAccessHandler final {
+ public:
+  PropertyAccessHandler() = default;
+
+  PropertyAccessPermissions const &label_properties() const;
+  PropertyAccessPermissions &label_properties();
+
+  PropertyAccessPermissions const &edge_type_properties() const;
+  PropertyAccessPermissions &edge_type_properties();
+
+  nlohmann::json Serialize() const;
+  static PropertyAccessHandler Deserialize(nlohmann::json const &data);
+
+  bool operator==(PropertyAccessHandler const &other) const = default;
+
+ private:
+  PropertyAccessPermissions label_properties_;
+  PropertyAccessPermissions edge_type_properties_;
+};
+
+#endif
+
+#ifdef MG_ENTERPRISE
 class Databases final {
  public:
   Databases() : grants_dbs_{std::string{dbms::kDefaultDB}}, allow_all_(false), main_db_(dbms::kDefaultDB) {}
@@ -542,6 +589,8 @@ class Role {
       std::optional<std::string_view> db_name = std::nullopt) const;
   const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
+  PropertyAccessHandler const &property_access_handler() const;
+  PropertyAccessHandler &property_access_handler();
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -621,6 +670,7 @@ class Role {
   bool is_builtin_{false};
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
+  PropertyAccessHandler property_access_handler_;
   Databases db_access_;
   std::optional<UserImpersonation> user_impersonation_;
   // Profile data moved to UserProfiles class
@@ -858,6 +908,8 @@ class User final {
       std::optional<std::string_view> db_name = std::nullopt) const;
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
+  PropertyAccessHandler const &property_access_handler() const;
+  PropertyAccessHandler &property_access_handler();
 #endif
   const std::string &username() const;
 
@@ -984,6 +1036,7 @@ class User final {
   Permissions permissions_;
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
+  PropertyAccessHandler property_access_handler_;
   Databases database_access_{};
   std::optional<UserImpersonation> user_impersonation_{};
   std::unordered_map<std::string, std::unordered_set<std::string>> db_role_map_{};  // Map of database name to role name

@@ -54,6 +54,9 @@ constexpr auto kSymbols = "symbols";
 constexpr auto kGranted = "granted";
 constexpr auto kDenied = "denied";
 constexpr auto kMatching = "matching";
+constexpr auto kPropertyAccessPermissions = "property_access_permissions";
+constexpr auto kLabelPropertyPermissions = "label_property_permissions";
+constexpr auto kEdgeTypePropertyPermissions = "edge_type_property_permissions";
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -660,6 +663,106 @@ bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 bool operator!=(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second) {
   return !(first == second);
 }
+
+// --- PropertyAccessPermissions ---
+
+void PropertyAccessPermissions::Grant(std::string const &entity, std::string const &property) {
+  rules_[entity][property] = PropertyPermission::GRANT;
+}
+
+void PropertyAccessPermissions::Deny(std::string const &entity, std::string const &property) {
+  rules_[entity][property] = PropertyPermission::DENY;
+}
+
+void PropertyAccessPermissions::Revoke(std::string const &entity, std::string const &property) {
+  auto entity_it = rules_.find(entity);
+  if (entity_it == rules_.end()) return;
+  entity_it->second.erase(property);
+  if (entity_it->second.empty()) {
+    rules_.erase(entity_it);
+  }
+}
+
+PermissionLevel PropertyAccessPermissions::Has(std::string const &entity, std::string const &property) const {
+  auto entity_it = rules_.find(entity);
+  if (entity_it == rules_.end()) return PermissionLevel::NEUTRAL;
+
+  auto const &props = entity_it->second;
+
+  // Check explicit property rule first
+  auto prop_it = props.find(property);
+  if (prop_it != props.end()) {
+    return prop_it->second == PropertyPermission::DENY ? PermissionLevel::DENY : PermissionLevel::GRANT;
+  }
+
+  // Check wildcard
+  auto wildcard_it = props.find("*");
+  if (wildcard_it != props.end()) {
+    return wildcard_it->second == PropertyPermission::DENY ? PermissionLevel::DENY : PermissionLevel::GRANT;
+  }
+
+  return PermissionLevel::NEUTRAL;
+}
+
+nlohmann::json PropertyAccessPermissions::Serialize() const {
+  nlohmann::json data = nlohmann::json::object();
+  for (auto const &[entity, props] : rules_) {
+    nlohmann::json props_json = nlohmann::json::object();
+    for (auto const &[prop, perm] : props) {
+      props_json[prop] = perm == PropertyPermission::GRANT ? "GRANT" : "DENY";
+    }
+    data[entity] = props_json;
+  }
+  return data;
+}
+
+PropertyAccessPermissions PropertyAccessPermissions::Deserialize(nlohmann::json const &data) {
+  PropertyAccessPermissions result;
+  if (!data.is_object()) return result;
+  for (auto const &[entity, props_json] : data.items()) {
+    if (!props_json.is_object()) continue;
+    for (auto const &[prop, perm_json] : props_json.items()) {
+      if (!perm_json.is_string()) continue;
+      auto const perm_str = perm_json.get<std::string>();
+      if (perm_str == "GRANT") {
+        result.Grant(entity, prop);
+      } else if (perm_str == "DENY") {
+        result.Deny(entity, prop);
+      }
+    }
+  }
+  return result;
+}
+
+// --- PropertyAccessHandler ---
+
+PropertyAccessPermissions const &PropertyAccessHandler::label_properties() const { return label_properties_; }
+
+PropertyAccessPermissions &PropertyAccessHandler::label_properties() { return label_properties_; }
+
+PropertyAccessPermissions const &PropertyAccessHandler::edge_type_properties() const { return edge_type_properties_; }
+
+PropertyAccessPermissions &PropertyAccessHandler::edge_type_properties() { return edge_type_properties_; }
+
+nlohmann::json PropertyAccessHandler::Serialize() const {
+  nlohmann::json data = nlohmann::json::object();
+  data[kLabelPropertyPermissions] = label_properties_.Serialize();
+  data[kEdgeTypePropertyPermissions] = edge_type_properties_.Serialize();
+  return data;
+}
+
+PropertyAccessHandler PropertyAccessHandler::Deserialize(nlohmann::json const &data) {
+  PropertyAccessHandler handler;
+  if (!data.is_object()) return handler;
+  if (data.contains(kLabelPropertyPermissions) && data[kLabelPropertyPermissions].is_object()) {
+    handler.label_properties_ = PropertyAccessPermissions::Deserialize(data[kLabelPropertyPermissions]);
+  }
+  if (data.contains(kEdgeTypePropertyPermissions) && data[kEdgeTypePropertyPermissions].is_object()) {
+    handler.edge_type_properties_ = PropertyAccessPermissions::Deserialize(data[kEdgeTypePropertyPermissions]);
+  }
+  return handler;
+}
+
 #endif
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
@@ -686,6 +789,10 @@ Permissions &Role::permissions() { return permissions_; }
 const FineGrainedAccessHandler &Role::fine_grained_access_handler() const { return fine_grained_access_handler_; }
 
 FineGrainedAccessHandler &Role::fine_grained_access_handler() { return fine_grained_access_handler_; }
+
+PropertyAccessHandler const &Role::property_access_handler() const { return property_access_handler_; }
+
+PropertyAccessHandler &Role::property_access_handler() { return property_access_handler_; }
 
 const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
     std::optional<std::string_view> db_name) const {
@@ -723,6 +830,7 @@ nlohmann::json Role::Serialize() const {
   data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
+  data[kPropertyAccessPermissions] = property_access_handler_.Serialize();
   data[kDatabases] = db_access_.Serialize();
   data[kUserImp] = user_impersonation_;
 #endif
@@ -773,8 +881,14 @@ Role Role::Deserialize(const nlohmann::json &data) {
   } else {
     spdlog::warn("Role without impersonation information; defaulting to no impersonation ability.");
   }
+  PropertyAccessHandler property_access_handler{};
+  if (auto it = data.find(kPropertyAccessPermissions); it != data.end() && it->is_object()) {
+    property_access_handler = PropertyAccessHandler::Deserialize(*it);
+  }
+
   auto role = Role{
       *role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access), std::move(usr_imp)};
+  role.property_access_handler_ = std::move(property_access_handler);
 #else
   auto role = Role{*role_name_it, permissions};
 #endif
@@ -786,7 +900,8 @@ bool operator==(const Role &first, const Role &second) {
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_ &&
-           first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
+           first.fine_grained_access_handler_ == second.fine_grained_access_handler_ &&
+           first.property_access_handler_ == second.property_access_handler_;
   }
 #endif
   return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_;
@@ -1121,6 +1236,10 @@ Permissions &User::permissions() { return permissions_; }
 const FineGrainedAccessHandler &User::fine_grained_access_handler() const { return fine_grained_access_handler_; }
 
 FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grained_access_handler_; }
+
+PropertyAccessHandler const &User::property_access_handler() const { return property_access_handler_; }
+
+PropertyAccessHandler &User::property_access_handler() { return property_access_handler_; }
 #endif
 
 nlohmann::json User::Serialize() const {
@@ -1136,6 +1255,7 @@ nlohmann::json User::Serialize() const {
   data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
+  data[kPropertyAccessPermissions] = property_access_handler_.Serialize();
   data[kDatabases] = database_access_.Serialize();
   data[kUserImp] = user_impersonation_;
 #endif
@@ -1200,13 +1320,20 @@ User User::Deserialize(const nlohmann::json &data) {
     spdlog::warn("User without impersonation information; defaulting to no impersonation ability.");
   }
 
-  return {*username_it,
-          std::move(password_hash),
-          permissions,
-          std::move(fine_grained_access_handler),
-          std::move(db_access),
-          uuid,
-          std::move(usr_imp)};
+  PropertyAccessHandler property_access_handler{};
+  if (auto it = data.find(kPropertyAccessPermissions); it != data.end() && it->is_object()) {
+    property_access_handler = PropertyAccessHandler::Deserialize(*it);
+  }
+
+  auto user = User{*username_it,
+                   std::move(password_hash),
+                   permissions,
+                   std::move(fine_grained_access_handler),
+                   std::move(db_access),
+                   uuid,
+                   std::move(usr_imp)};
+  user.property_access_handler_ = std::move(property_access_handler);
+  return user;
 #else
   return {*username_it, std::move(password_hash), permissions, uuid};
 #endif
@@ -1217,7 +1344,8 @@ bool operator==(const User &first, const User &second) {
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
            first.permissions_ == second.permissions_ && first.roles_ == second.roles_ &&
-           first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
+           first.fine_grained_access_handler_ == second.fine_grained_access_handler_ &&
+           first.property_access_handler_ == second.property_access_handler_;
   }
 #endif
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&

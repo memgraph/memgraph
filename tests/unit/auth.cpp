@@ -1418,6 +1418,139 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
   }
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissions) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  using memgraph::auth::PropertyPermission;
+
+  // Default: no rules → NEUTRAL (no opinion)
+  {
+    PropertyAccessPermissions perms;
+    EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(perms.Has("Employee", "name"), PermissionLevel::NEUTRAL);
+  }
+
+  // Explicit grant
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "ssn");
+    EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "name"), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(perms.Has("Other", "ssn"), PermissionLevel::NEUTRAL);
+  }
+
+  // Explicit deny
+  {
+    PropertyAccessPermissions perms;
+    perms.Deny("Employee", "ssn");
+    EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has("Employee", "name"), PermissionLevel::NEUTRAL);
+  }
+
+  // Wildcard grant, specific deny
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "*");
+    perms.Deny("Employee", "ssn");
+    EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has("Employee", "name"), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "salary"), PermissionLevel::GRANT);
+  }
+
+  // Wildcard deny, specific grant
+  {
+    PropertyAccessPermissions perms;
+    perms.Deny("Employee", "*");
+    perms.Grant("Employee", "name");
+    EXPECT_EQ(perms.Has("Employee", "name"), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::DENY);
+  }
+
+  // Revoke removes the rule, falls back to wildcard
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "*");
+    perms.Deny("Employee", "ssn");
+    perms.Revoke("Employee", "ssn");
+    EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::GRANT);
+  }
+
+  // Revoke on nonexistent entity/property is a no-op
+  {
+    PropertyAccessPermissions perms;
+    perms.Revoke("Employee", "ssn");
+    EXPECT_TRUE(perms.GetRules().empty());
+  }
+
+  // Revoke last property removes entity entry
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "ssn");
+    perms.Revoke("Employee", "ssn");
+    EXPECT_TRUE(perms.GetRules().empty());
+  }
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsSerializeRoundtrip) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+
+  PropertyAccessPermissions perms;
+  perms.Grant("Employee", "*");
+  perms.Deny("Employee", "ssn");
+  perms.Grant("PAID", "amount");
+
+  auto json = perms.Serialize();
+  auto deserialized = PropertyAccessPermissions::Deserialize(json);
+
+  EXPECT_EQ(deserialized.Has("Employee", "ssn"), PermissionLevel::DENY);
+  EXPECT_EQ(deserialized.Has("Employee", "name"), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.Has("PAID", "amount"), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.Has("PAID", "other"), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms, deserialized);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsDeserializeEmpty) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+
+  // Empty object → no rules
+  auto perms = PropertyAccessPermissions::Deserialize(nlohmann::json::object());
+  EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::NEUTRAL);
+
+  // Non-object → no rules
+  auto perms2 = PropertyAccessPermissions::Deserialize(nlohmann::json(42));
+  EXPECT_EQ(perms2.Has("Employee", "ssn"), PermissionLevel::NEUTRAL);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessHandlerSerializeRoundtrip) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessHandler;
+
+  PropertyAccessHandler handler;
+  handler.label_properties().Grant("Employee", "*");
+  handler.label_properties().Deny("Employee", "ssn");
+  handler.edge_type_properties().Grant("PAID", "amount");
+
+  auto json = handler.Serialize();
+  auto deserialized = PropertyAccessHandler::Deserialize(json);
+
+  EXPECT_EQ(deserialized.label_properties().Has("Employee", "ssn"), PermissionLevel::DENY);
+  EXPECT_EQ(deserialized.label_properties().Has("Employee", "name"), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.edge_type_properties().Has("PAID", "amount"), PermissionLevel::GRANT);
+  EXPECT_EQ(handler, deserialized);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessHandlerDeserializeMissingKey) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessHandler;
+
+  // Old format with no property access key → default empty handler
+  auto handler = PropertyAccessHandler::Deserialize(nlohmann::json::object());
+  EXPECT_EQ(handler.label_properties().Has("Employee", "ssn"), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(handler.edge_type_properties().Has("PAID", "amount"), PermissionLevel::NEUTRAL);
+}
+
 TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
   const std::string any_label = "AnyString";
   const std::string check_label = "Label";
