@@ -122,6 +122,12 @@ set(CPACK_DEBIAN_DEBUGINFO_DESCRIPTION
 
 # --- RPM component config ---
 set(CPACK_RPM_COMPONENT_INSTALL ON)
+# Without this the main-component RPM is named ${CPACK_PACKAGE_NAME}-memgraph
+# i.e. "memgraph-memgraph", which trips rpmlint's incoherent-logrotate-file
+# error (/etc/logrotate.d/memgraph doesn't match the package name) and
+# non-coherent-filename warning. Set it explicitly to keep parity with
+# CPACK_DEBIAN_MEMGRAPH_PACKAGE_NAME above and with the rpm filename pattern.
+set(CPACK_RPM_MEMGRAPH_PACKAGE_NAME "memgraph")
 set(CPACK_RPM_DEBUGINFO_PACKAGE_NAME "memgraph-debuginfo")
 set(CPACK_RPM_DEBUGINFO_FILE_NAME
     "memgraph-debuginfo-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
