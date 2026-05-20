@@ -508,7 +508,7 @@ InMemoryStorage::~InMemoryStorage() {
   // will figure out that there are no changes.
   if (!config_.durability.snapshot_on_exit) {
     if (snapshot_running_.load(std::memory_order_acquire)) {
-      spdlog::info("[snapshot] aborting: storage is shutting down");
+      spdlog::info("snapshot aborting: storage is shutting down");
     }
     abort_snapshot_.store(true, std::memory_order_release);
   }
@@ -4428,15 +4428,15 @@ void InMemoryStorage::CreateSnapshotHandler(
     if (auto maybe_error = cb(); !maybe_error.has_value()) {
       switch (maybe_error.error()) {
         case CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. {}. Please contact support.",
+          spdlog::warn("snapshot failed: {}. Please contact support.",
                        CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AbortSnapshot:
-          spdlog::warn("Failed to create snapshot. {}.", CreateSnapshotErrorToString(maybe_error.error()));
+          spdlog::warn("snapshot failed: {}", CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AlreadyRunning:
         case CreateSnapshotError::NothingNewToWrite:
-          spdlog::info("Skipping snapshot creation. {}.", CreateSnapshotErrorToString(maybe_error.error()));
+          spdlog::info("snapshot skipped: {}", CreateSnapshotErrorToString(maybe_error.error()));
           break;
       }
     }
