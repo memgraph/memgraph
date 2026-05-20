@@ -2780,7 +2780,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &file_retainer_,
                                                             &abort_snapshot_,
                                                             &snapshot_progress_,
-                                                            "storage mode change");
+                                                            "storage_mode_change");
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
