@@ -28,6 +28,21 @@ on:
         required: false
         default: ''
         type: string
+      # When provided, MAGE skips the from-source memgraph build inside its
+      # mgbuild container and wgets the pre-built deb instead. This keeps the
+      # ELF build-id consistent across the standalone memgraph package and
+      # the memgraph binary embedded in the MAGE image, so debuginfod uploads
+      # from the upstream memgraph build serve crashes from MAGE too. CUDA
+      # tests reuse the amd link (cuda doesn't change the memgraph binary —
+      # only the MAGE modules layered on top).
+      memgraph_download_link_amd:
+        type: string
+        description: "S3/HTTPS URL of a pre-built amd memgraph .deb. Empty -> MAGE builds memgraph from source."
+        default: ''
+      memgraph_download_link_arm:
+        type: string
+        description: "S3/HTTPS URL of a pre-built arm memgraph .deb. Empty -> MAGE builds memgraph from source."
+        default: ''
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -97,6 +112,7 @@ jobs:
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
       run_tests: true
       print_output_url: ${{ github.event_name == 'merge_group' }}
+      memgraph_download_link: ${{ inputs.memgraph_download_link_amd }}
     secrets: inherit
 
   arm_mage_tests:
@@ -114,6 +130,7 @@ jobs:
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
       run_tests: true
       print_output_url: ${{ github.event_name == 'merge_group' }}
+      memgraph_download_link: ${{ inputs.memgraph_download_link_arm }}
     secrets: inherit
 
   cuda_mage_tests:
@@ -130,4 +147,6 @@ jobs:
       push_to_s3: false
       run_tests: true
       cuda: true
+      # cuda variant reuses the amd memgraph build — only MAGE modules differ.
+      memgraph_download_link: ${{ inputs.memgraph_download_link_amd }}
     secrets: inherit
