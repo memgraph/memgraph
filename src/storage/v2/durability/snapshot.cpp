@@ -12032,7 +12032,9 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
   // handles the edge case when that one file is the current WAL file that
   if (it != wal_files.begin()) {
     auto const num_to_delete = static_cast<size_t>(std::distance(wal_files.begin(), std::prev(it)));
-    spdlog::info("snapshot retention: deleting {} old WAL file(s), keeping from ts {}", num_to_delete, old_durable_ts);
+    spdlog::info("snapshot retention: deleting {} pre-snapshot WAL file(s) (oldest retained snapshot ts={})",
+                 num_to_delete,
+                 old_durable_ts);
     std::for_each(wal_files.begin(), std::prev(it), [file_retainer](auto const &wal_info) {
       file_retainer->DeleteFile(wal_info.path);
     });
