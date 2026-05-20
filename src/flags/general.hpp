@@ -17,6 +17,8 @@
 
 #include "gflags/gflags.h"
 
+#include "utils/tls.hpp"
+
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(h);
@@ -158,4 +160,7 @@ auto IsIntraClusterTLSEnabled() -> bool;
 // intra-cluster TLS is fully configured. Should be called once at startup,
 // after the logger is initialized.
 void ValidateIntraClusterTLSFlags();
+
+auto TlsConfigFromClusterFlags() -> std::optional<utils::TlsConfig>;
+
 }  // namespace memgraph::flags

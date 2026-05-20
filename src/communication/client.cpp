@@ -119,13 +119,19 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
       return false;
     }
 
-    // This is safe to do because we only ever modify blocking and non-blocking mode. Be careful if you mess with
-    // O_APPEND, O_ASYNC, O_DIRECT or O_NOATIME
-    if (fcntl(fd, F_SETFL, 0) < 0) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) {
+      spdlog::error("Failed to read flags when restoring socket to non-blocking mode");
+      socket_.Close();
+      return false;
+    }
+    flags &= ~O_NONBLOCK;
+    if (fcntl(fd, F_SETFL, flags) < 0) {
       spdlog::error("Failed to restore socket to blocking mode after SSL handshake");
       socket_.Close();
       return false;
     }
+    return true;
   }
 
   // Enable TCP keep alive for all connections.

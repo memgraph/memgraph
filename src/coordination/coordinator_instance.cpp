@@ -1111,8 +1111,6 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     return SetCoordinatorSettingStatus::RAFT_LOG_ERROR;
   }
 
-  {
-  }
   // Kinda like post-commit hooks/callbacks
   if (setting_name == kInstanceDownTimeoutSec) {
     auto guard = std::lock_guard{coord_instance_lock_};

@@ -706,10 +706,8 @@ int main(int argc, char **argv) {
           "started only with management port.");
     }
 
-    std::optional<memgraph::utils::TlsConfig> maybe_ssl;
-    if (memgraph::flags::IsIntraClusterTLSEnabled()) {
-      maybe_ssl.emplace(FLAGS_cluster_key_file, FLAGS_cluster_cert_file, FLAGS_cluster_ca_file);
-    } else {
+    auto maybe_ssl = memgraph::flags::TlsConfigFromClusterFlags();
+    if (!maybe_ssl.has_value()) {
       spdlog::warn(memgraph::utils::MessageWithLink(
           "Running HA without intra-cluster TLS. Replication, coordinator, and management traffic is unencrypted.",
           "https://memgr.ph/cluster-tls"));

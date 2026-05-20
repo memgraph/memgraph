@@ -107,7 +107,7 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
                                {kCheckFrequency, p.config.replica_check_frequency.count()}};
 
   common[kReplicaServer] = p.config.repl_server_endpoint;  // non-resolved
-                                                           // Serialize always to nullptr for backward compatiblity
+                                                           // Serialize always to nullptr for backward compatibility
   common[kSSLKeyFile] = nullptr;
   common[kSSLCertFile] = nullptr;
 

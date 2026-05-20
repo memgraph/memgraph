@@ -280,3 +280,11 @@ void memgraph::flags::ValidateIntraClusterTLSFlags() {
     spdlog::info("Intra-cluster TLS enabled (mTLS).");
   }
 }
+
+auto memgraph::flags::TlsConfigFromClusterFlags() -> std::optional<utils::TlsConfig> {
+  if (IsIntraClusterTLSEnabled()) {
+    return utils::TlsConfig{
+        .key_file = FLAGS_cluster_key_file, .cert_file = FLAGS_cluster_cert_file, .ca_file = FLAGS_cluster_ca_file};
+  }
+  return std::nullopt;
+}
