@@ -25,18 +25,22 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
     memgraph::memory::ArenaPool *db_arena = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr) {
   // Use default safe factory from Storage constructor for basic usage
-  auto storage = std::make_unique<storage::InMemoryStorage>(
-      std::move(config), std::nullopt, std::move(invalidator), std::move(metric_handles),
-      std::move(database_protector_factory), db_arena, db_embedding_memory_tracker);
+  auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config),
+                                                            std::nullopt,
+                                                            std::move(invalidator),
+                                                            std::move(metric_handles),
+                                                            std::move(database_protector_factory),
+                                                            db_arena,
+                                                            db_embedding_memory_tracker);
 
-  storage->CreateSnapshotHandler(
-      [storage = storage.get()]() -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
-        auto result = storage->CreateSnapshot();
-        if (!result) {
-          return std::unexpected(result.error());
-        }
-        return {};
-      });
+  storage->CreateSnapshotHandler([storage = storage.get()](std::string_view trigger)
+                                     -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
+    auto result = storage->CreateSnapshot(false, trigger);
+    if (!result) {
+      return std::unexpected(result.error());
+    }
+    return {};
+  });
   return storage;
 }
 

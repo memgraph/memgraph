@@ -515,7 +515,7 @@ InMemoryStorage::~InMemoryStorage() {
 
   snapshot_runner_.Stop();
   if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
-    create_snapshot_handler();
+    create_snapshot_handler("exit");
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
@@ -4423,9 +4423,9 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
 }
 
 void InMemoryStorage::CreateSnapshotHandler(
-    std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb) {
-  create_snapshot_handler = [cb = std::move(cb)] {
-    if (auto maybe_error = cb(); !maybe_error.has_value()) {
+    std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb) {
+  create_snapshot_handler = [cb = std::move(cb)](std::string_view trigger) {
+    if (auto maybe_error = cb(trigger); !maybe_error.has_value()) {
       switch (maybe_error.error()) {
         case CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("snapshot failed: {}. Please contact support.",
@@ -4450,7 +4450,7 @@ void InMemoryStorage::CreateSnapshotHandler(
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
     const memory::DbArenaScope db_arena_scope{db_arena_};
     if (!token.stop_requested()) {
-      this->create_snapshot_handler();
+      this->create_snapshot_handler("periodic");
     }
   });
 }
