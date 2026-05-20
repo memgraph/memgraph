@@ -142,6 +142,7 @@ run_memgraph_tests() {
     echo "Cleaning up Memgraph test data..."
     docker exec -i "$MAGE_CONTAINER" mgconsole <<< "MATCH (n:DummyNode) DETACH DELETE n;"
     docker exec -i "$MAGE_CONTAINER" mgconsole <<< "MATCH (n:DummyNode2) DETACH DELETE n;"
+    docker exec -i "$MAGE_CONTAINER" mgconsole <<< "MATCH (n:PCTestNode) DETACH DELETE n;"
 }
 
 # Main execution
