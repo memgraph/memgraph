@@ -283,9 +283,14 @@ jobs:
       os: "ubuntu-24.04"
       arch: "amd"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
-      additional_build_args: "--for-docker ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}"
+      # Deb is always built as prod (stripped + sidecar) when producing docker
+      # images. The image's debug-vs-prod flavour is chosen by
+      # build_docker_image; debug images install the memgraph-debuginfo deb
+      # on top of the prod deb.
+      split_debug: true
+      package_flavour: prod
+      build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
+      additional_build_args: "${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}"
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
@@ -304,9 +309,10 @@ jobs:
       os: "ubuntu-24.04"
       arch: "arm"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
-      additional_build_args: "--for-docker ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}"
+      split_debug: true
+      package_flavour: prod
+      build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
+      additional_build_args: "${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}"
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io

@@ -141,7 +141,6 @@ print_help () {
   echo -e "  --cmake-only                  Only run cmake configure command"
   echo -e "  --community                   Build community version"
   echo -e "  --coverage                    Build with code coverage"
-  echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
   echo -e "  --init-only                   Only run init script"
   echo -e "  --no-copy                     Don't copy the memgraph repo from host."
   echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
@@ -472,7 +471,6 @@ build_memgraph () {
     arm_flag="-DMG_ARCH="ARM64""
   fi
   local build_type_flag="-DCMAKE_BUILD_TYPE=$build_type"
-  local telemetry_id_override_flag=""
   local community_flag=""
   local coverage_flag=""
   local asan_flag=""
@@ -481,7 +479,6 @@ build_memgraph () {
   local disable_testing_flag=""
   local init_only=false
   local cmake_only=false
-  local for_docker=false
   local copy_from_host=true
   local conan_remote=""
   local conan_username=""
@@ -501,11 +498,6 @@ build_memgraph () {
       ;;
       --cmake-only)
         cmake_only=true
-        shift 1
-      ;;
-      --for-docker)
-        for_docker=true
-        telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER "
         shift 1
       ;;
       --coverage)
@@ -718,7 +710,7 @@ build_memgraph () {
 
   # Add additional CMake options if any are specified
   local additional_options=""
-  local flags=("$arm_flag" "$community_flag" "$telemetry_id_override_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag")
+  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag")
 
   for flag in "${flags[@]}"; do
     if [[ -n "$flag" ]]; then

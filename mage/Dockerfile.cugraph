@@ -125,6 +125,11 @@ COPY make-dev-container.sh /make-dev-container.sh
 USER memgraph
 COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
 
+# Stable telemetry ID for containers — see release/docker/v7_deb.dockerfile
+# for the why. Resolved at runtime by GetMachineId() in
+# src/utils/system_info.cpp so the same memgraph build serves deb and image.
+ENV MEMGRAPH_TELEMETRY_ID=DOCKER
+
 EXPOSE 7687
 
 ENTRYPOINT ["/usr/lib/memgraph/memgraph"]

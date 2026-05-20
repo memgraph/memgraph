@@ -94,20 +94,23 @@ jobs:
     secrets: inherit
 
   DailyPackageArtifact:
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_package)  }}
+    # Runs if either the deb production or the docker production is wanted.
+    # ubuntu-24.04 matrix entries can produce deb + docker from the same
+    # build (shared ELF build-id between standalone deb and image installs);
+    # !skip_docker_artifact toggles the docker production within those entries.
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (!inputs.skip_package || !inputs.skip_docker_artifact)) }}
     needs: [CurrentDateJob]
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04, ubuntu-24.04]
+        # Non-ubuntu-24.04 OSes build deb/rpm only — docker images are
+        # ubuntu-24.04-based and live in the explicit ubuntu-24.04 includes
+        # below.
+        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04]
         arch: [amd]
-        # package_flavour names the shipping intent:
-        #   prod  = stripped binary, symbols archived to symbol store (default for customers)
-        #   debug = symbols embedded in binary (interactive-debug variant)
-        # Both compile as RelWithDebInfo; flavour drives strip vs no-strip + filename suffix.
         package_flavour: [prod]
         additional_build_args: ['']
-        include: # arm builds and the symbols-embedded debug variant
+        include:
           - os: debian-12
             package_flavour: prod
             arch: arm
@@ -120,17 +123,24 @@ jobs:
             package_flavour: prod
             arch: arm
             additional_build_args: ''
+          # ubuntu-24.04 entries — amd/arm without --disable-jemalloc produce
+          # both docker images (prod + debug shipping path). The
+          # --disable-jemalloc variants stay deb-only here (daily doesn't
+          # ship a malloc docker image today).
+          - os: ubuntu-24.04
+            package_flavour: prod
+            arch: amd
+            additional_build_args: ''
+            build_docker_image: both
           - os: ubuntu-24.04
             package_flavour: prod
             arch: arm
             additional_build_args: ''
+            build_docker_image: both
           - os: ubuntu-24.04
             package_flavour: prod
             arch: amd
             additional_build_args: '--disable-jemalloc'
-          # Built so the debug arm+malloc MAGE matrix entry below can reuse
-          # the same memgraph binary instead of compiling from source — keeps
-          # the ELF build-id consistent across all MAGE images.
           - os: ubuntu-24.04
             package_flavour: prod
             arch: arm
@@ -142,44 +152,23 @@ jobs:
       build_type: RelWithDebInfo
       split_debug: ${{ matrix.package_flavour == 'prod' }}
       package_flavour: ${{ matrix.package_flavour }}
+      # !skip_docker_artifact is the master toggle for docker production; the
+      # matrix entry's build_docker_image (when set) chooses prod/debug/both.
+      # On schedule the input is undefined (treated as false -> !false = true).
+      build_docker_image: ${{ !inputs.skip_docker_artifact && (matrix.build_docker_image || 'none') || 'none' }}
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       additional_build_args: ${{ matrix.additional_build_args }}
-      run_smoke_tests: false
-    secrets: inherit
-
-  DailyDockerArtifact:
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_docker_artifact)  }}
-    needs: [CurrentDateJob]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04]
-        arch: [amd, arm]
-        package_flavour: [both]
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: ${{ matrix.os }}
-      arch: ${{ matrix.arch }}
-      build_type: RelWithDebInfo
-      split_debug: ${{ matrix.package_flavour == 'prod' }}
-      package_flavour: ${{ matrix.package_flavour }}
-      additional_build_args: '--for-docker'
-      push_to_github: 'false'
-      push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
-      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.package_flavour == 'prod' && matrix.arch == 'amd') && true || false }}
-      run_smoke_tests: ${{ !inputs.skip_smoke_tests }}
+      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.arch == 'amd' && matrix.additional_build_args == '' && matrix.build_docker_image == 'both') && true || false }}
+      run_smoke_tests: ${{ matrix.build_docker_image != null && matrix.build_docker_image != 'none' && !inputs.skip_smoke_tests }}
     secrets: inherit
 
   AggregateBuildTests:
     if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests && !inputs.mock)) && always() }}
-    needs: [CurrentDateJob,TestBuild,DailyPackageArtifact,DailyDockerArtifact]
+    needs: [CurrentDateJob,TestBuild,DailyPackageArtifact]
     runs-on: [self-hosted]
     steps:
       - name: Set up repository
@@ -352,7 +341,7 @@ jobs:
 
   SetupDailyBuildImageOutputs:
     name: Setup Daily Build Image Outputs
-    needs: [CurrentDateJob, DailyDockerArtifact, BuildAndTestMAGE]
+    needs: [CurrentDateJob, DailyPackageArtifact, BuildAndTestMAGE]
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests || !inputs.skip_stress_tests) }}
     runs-on: ubuntu-24.04
     outputs:
@@ -420,7 +409,7 @@ jobs:
 
   TriggerCVEScan:
     name: Trigger CVE Scan
-    needs: [CurrentDateJob, DailyDockerArtifact, BuildAndTestMAGE]
+    needs: [CurrentDateJob, DailyPackageArtifact, BuildAndTestMAGE]
     if: ${{ (needs.CurrentDateJob.outputs.is_sunday == 'true' && github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && inputs.run_cve_scan) }}
     uses: ./.github/workflows/cve_scan.yml
     with:

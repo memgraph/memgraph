@@ -246,13 +246,13 @@ jobs:
 
       - name: "Set artifact name and dir"
         run: |
+          # MAGE builds memgraph + MAGE modules and bakes them into its own
+          # docker image (Dockerfile.release / Dockerfile.cugraph via the
+          # package-mage-docker subcommand). The memgraph build inside this
+          # workflow is just to produce the deb that gets installed into the
+          # MAGE image; --for-docker is not relevant here.
           artifact_name="$OS"
           artifact_dir='build/output'
-          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--for-docker"* ]]; then
-            artifact_name='docker'
-            echo "FOR_DOCKER=true" >> $GITHUB_ENV
-            echo "DOCKER_ARTIFACT_DIR=${artifact_dir}/docker" >> $GITHUB_ENV
-          fi
           if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
             artifact_name="${artifact_name}-malloc"
           fi

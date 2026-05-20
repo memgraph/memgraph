@@ -94,6 +94,12 @@ VOLUME /var/lib/memgraph
 # Configuration volume
 VOLUME /etc/memgraph
 
+# Stable telemetry ID for containers — /etc/machine-id is regenerated on each
+# container start and would over-count unique installs. Picked up at runtime
+# by GetMachineId() in src/utils/system_info.cpp. This is what lets a single
+# memgraph build serve both the standalone deb and the docker image.
+ENV MEMGRAPH_TELEMETRY_ID=DOCKER
+
 COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
 
 USER memgraph

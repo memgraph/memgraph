@@ -151,21 +151,26 @@ jobs:
     secrets: inherit
 
   PackageArtifact:
-    if: ${{ inputs.package_memgraph }}
+    # Runs if either the deb production or the docker production is wanted.
+    # Each ubuntu-24.04 matrix entry produces deb + docker from the same
+    # build so the ELF build-id is shared; inputs.build_docker toggles the
+    # docker production within those entries.
+    if: ${{ inputs.package_memgraph || inputs.build_docker }}
     name: Package Artifact
     needs: PrepareReleaseBranch
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04, ubuntu-24.04]
+        # Non-ubuntu-24.04 OSes build deb/rpm only — docker images are
+        # ubuntu-24.04-based and live in the explicit ubuntu-24.04 includes
+        # below. package_flavour=prod for every entry (the deb shipped on
+        # download.memgraph.com), with split-debug producing the
+        # memgraph-debuginfo companion that the debug docker image installs.
+        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04]
         arch: [amd]
-        # package_flavour names the shipping intent:
-        #   prod  = stripped binary, symbols archived to symbol store (default for customers)
-        #   debug = symbols embedded in binary (interactive-debug variant)
-        # Both compile as RelWithDebInfo; flavour drives strip vs no-strip + filename suffix.
         package_flavour: [prod]
         additional_build_args: ['']
-        include: # arm builds and the symbols-embedded debug variant
+        include:
           - os: debian-12
             package_flavour: prod
             arch: arm
@@ -178,21 +183,31 @@ jobs:
             package_flavour: prod
             arch: arm
             additional_build_args: ''
+          # ubuntu-24.04 entries explicitly listed so each can set
+          # build_docker_image. amd/arm without --disable-jemalloc produce
+          # both docker images (prod + debug, shipping path); the --disable-jemalloc
+          # variants ship only the debug docker image (heaptrack/malloc
+          # debugging use case).
+          - os: ubuntu-24.04
+            package_flavour: prod
+            arch: amd
+            additional_build_args: ''
+            build_docker_image: both
           - os: ubuntu-24.04
             package_flavour: prod
             arch: arm
             additional_build_args: ''
+            build_docker_image: both
           - os: ubuntu-24.04
             package_flavour: prod
             arch: amd
             additional_build_args: '--disable-jemalloc'
-          # Built so the debug arm+malloc MAGE matrix entry below can reuse
-          # the same memgraph binary instead of compiling from source — keeps
-          # the ELF build-id consistent across all MAGE images.
+            build_docker_image: debug
           - os: ubuntu-24.04
             package_flavour: prod
             arch: arm
             additional_build_args: '--disable-jemalloc'
+            build_docker_image: debug
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
@@ -200,6 +215,10 @@ jobs:
       build_type: RelWithDebInfo
       split_debug: ${{ matrix.package_flavour == 'prod' }}
       package_flavour: ${{ matrix.package_flavour }}
+      # inputs.build_docker is the master toggle for docker production; the
+      # matrix entry's build_docker_image (when set) chooses prod/debug/both.
+      # No-match (non-ubuntu-24.04, or build_docker=false) -> 'none'.
+      build_docker_image: ${{ inputs.build_docker && (matrix.build_docker_image || 'none') || 'none' }}
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
@@ -207,45 +226,8 @@ jobs:
       s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
-      run_smoke_tests: false
-    secrets: inherit
-
-  DockerArtifact:
-    if: ${{ inputs.build_docker }}
-    name: Docker Artifact
-    needs: PrepareReleaseBranch
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04]
-        arch: [amd, arm]
-        package_flavour: [both]
-        malloc: [false]
-        include:
-          - os: ubuntu-24.04
-            package_flavour: debug
-            arch: amd
-            malloc: true
-          - os: ubuntu-24.04
-            package_flavour: debug
-            arch: arm
-            malloc: true
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: ${{ matrix.os }}
-      arch: ${{ matrix.arch }}
-      build_type: RelWithDebInfo
-      split_debug: ${{ matrix.package_flavour == 'prod' }}
-      package_flavour: ${{ matrix.package_flavour }}
-      additional_build_args: "--for-docker${{ matrix.malloc == true && ' --disable-jemalloc' || '' }}"
-      push_to_github: 'false'
-      push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
-      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
-      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.package_flavour == 'prod' && matrix.arch == 'amd') && true || false }}
-      run_smoke_tests: true
+      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.arch == 'amd' && matrix.additional_build_args == '' && matrix.build_docker_image == 'both') && true || false }}
+      run_smoke_tests: ${{ matrix.build_docker_image != null && matrix.build_docker_image != 'none' }}
     secrets: inherit
 
   BuildAndTestMAGE:
@@ -328,7 +310,10 @@ jobs:
   SetupISSUImageOutputs:
     if: ${{ inputs.run_issu_test }}
     name: Setup ISSU Image Outputs
-    needs: [PrepareReleaseBranch, DockerArtifact]
+    # The docker images that ISSU tests previously consumed from DockerArtifact
+    # are now produced by the consolidated PackageArtifact (ubuntu-24.04
+    # entries with build_docker_image=both). S3 path is unchanged.
+    needs: [PrepareReleaseBranch, PackageArtifact]
     runs-on: ubuntu-24.04
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
