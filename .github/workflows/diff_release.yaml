@@ -517,6 +517,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph e2e
 
       - name: Ensure localstack is down
