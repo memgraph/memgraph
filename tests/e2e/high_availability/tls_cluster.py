@@ -338,6 +338,7 @@ def test_reload_intra_cluster_tls(test_name, tmp_path):
       * each data instance's management server (10011-10013),
       * each data instance's replication server (10001-10002 for replicas),
       * each coordinator's management server (10121-10123),
+      * each coordinator's NuRaft server (10111-10113),
     without a process restart.
 
     Strategy:
@@ -351,10 +352,6 @@ def test_reload_intra_cluster_tls(test_name, tmp_path):
       6. Re-probe and assert each served serial now matches the rotated source
          (proves the reload actually picked up the new file) and differs from
          the initial serial (catches a no-op reload).
-
-    NuRaft coordinator-server (port 10111-10113) reload is intentionally out
-    of scope here; it will be added once the NuRaft `ssl_context_provider_*`
-    hot-swap is implemented.
     """
     tls_dir = str(tmp_path / "tls_certs")
     _stage_tls_certs(tls_dir)
@@ -383,6 +380,9 @@ def test_reload_intra_cluster_tls(test_name, tmp_path):
         "coord1_mgmt": _probe_cert_serial("127.0.0.1", 10121, probe_client_cert, probe_client_key, ca_file),
         "coord2_mgmt": _probe_cert_serial("127.0.0.1", 10122, probe_client_cert, probe_client_key, ca_file),
         "coord3_mgmt": _probe_cert_serial("127.0.0.1", 10123, probe_client_cert, probe_client_key, ca_file),
+        "coord1_raft": _probe_cert_serial("127.0.0.1", 10111, probe_client_cert, probe_client_key, ca_file),
+        "coord2_raft": _probe_cert_serial("127.0.0.1", 10112, probe_client_cert, probe_client_key, ca_file),
+        "coord3_raft": _probe_cert_serial("127.0.0.1", 10113, probe_client_cert, probe_client_key, ca_file),
     }
 
     # Sanity: every port serves its own cert pre-reload.
@@ -399,6 +399,9 @@ def test_reload_intra_cluster_tls(test_name, tmp_path):
     assert initial["coord1_mgmt"] == coord_serials[1]
     assert initial["coord2_mgmt"] == coord_serials[2]
     assert initial["coord3_mgmt"] == coord_serials[3]
+    assert initial["coord1_raft"] == coord_serials[1]
+    assert initial["coord2_raft"] == coord_serials[2]
+    assert initial["coord3_raft"] == coord_serials[3]
 
     # 2) Rotate certs+keys on disk cyclically. After this:
     #    tls_dir/instanceN.{crt,key} contains the content of instance((N % 3)+1)
@@ -437,6 +440,9 @@ def test_reload_intra_cluster_tls(test_name, tmp_path):
         "coord1_mgmt": _probe_cert_serial("127.0.0.1", 10121, probe_client_cert, probe_client_key, ca_file),
         "coord2_mgmt": _probe_cert_serial("127.0.0.1", 10122, probe_client_cert, probe_client_key, ca_file),
         "coord3_mgmt": _probe_cert_serial("127.0.0.1", 10123, probe_client_cert, probe_client_key, ca_file),
+        "coord1_raft": _probe_cert_serial("127.0.0.1", 10111, probe_client_cert, probe_client_key, ca_file),
+        "coord2_raft": _probe_cert_serial("127.0.0.1", 10112, probe_client_cert, probe_client_key, ca_file),
+        "coord3_raft": _probe_cert_serial("127.0.0.1", 10113, probe_client_cert, probe_client_key, ca_file),
     }
 
     # Data-instance management server reload (DataInstanceManagementServer::ReloadTls).
@@ -471,6 +477,19 @@ def test_reload_intra_cluster_tls(test_name, tmp_path):
     assert after["coord1_mgmt"] != initial["coord1_mgmt"]
     assert after["coord2_mgmt"] != initial["coord2_mgmt"]
     assert after["coord3_mgmt"] != initial["coord3_mgmt"]
+
+    # Coordinator NuRaft server reload (the asio_service SSL contexts driving the
+    # Raft listener on --coordinator-port). Same --cluster-cert-file as the mgmt
+    # server, so the expected serial after rotation is the rotated coord cert.
+    assert after["coord1_raft"] == expected_after["coord1"], (
+        f"coordinator_1 NuRaft server did not pick up rotated cert. "
+        f"before={initial['coord1_raft']} after={after['coord1_raft']} expected={expected_after['coord1']}"
+    )
+    assert after["coord2_raft"] == expected_after["coord2"]
+    assert after["coord3_raft"] == expected_after["coord3"]
+    assert after["coord1_raft"] != initial["coord1_raft"]
+    assert after["coord2_raft"] != initial["coord2_raft"]
+    assert after["coord3_raft"] != initial["coord3_raft"]
 
 
 if __name__ == "__main__":
