@@ -175,55 +175,8 @@ jobs:
       run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
     secrets: inherit
 
-  # Build the memgraph deb once per arch so the MAGE jobs below can wget it
-  # instead of rebuilding from source. This keeps the ELF build-id of the
-  # memgraph binary identical between the standalone memgraph package and the
-  # binary embedded in the MAGE image, so a single debuginfod upload from the
-  # memgraph build serves crashes from both. The cuda mage variant reuses the
-  # amd memgraph deb — cuda only changes MAGE modules, not memgraph itself.
-  # S3 prefix is run-scoped (github.run_id) so an age-based cleaner can reap
-  # these temp debs without parsing PR numbers.
-  MemgraphPackageAmd:
-    needs: DiffSetup
-    if: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' || needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: 'ubuntu-24.04'
-      arch: amd
-      build_type: RelWithDebInfo
-      split_debug: true
-      package_flavour: prod
-      push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: "ci-build/memgraph/run-${{ github.run_id }}"
-      ref: ${{ inputs.ref || github.ref }}
-    secrets: inherit
-
-  MemgraphPackageArm:
-    needs: DiffSetup
-    if: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: 'ubuntu-24.04'
-      arch: arm
-      build_type: RelWithDebInfo
-      split_debug: true
-      package_flavour: prod
-      push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: "ci-build/memgraph/run-${{ github.run_id }}"
-      ref: ${{ inputs.ref || github.ref }}
-    secrets: inherit
-
   Mage:
-    # MemgraphPackage{Amd,Arm} are skipped when their flavour isn't requested,
-    # so use !cancelled() to let Mage run when only one arm/amd variant was
-    # built. Per-arch jobs inside diff_mage.yml gate on inputs.run_amd/arm/cuda
-    # and receive the matching URL — an empty URL falls back to from-source.
-    needs: [DiffSetup, MemgraphPackageAmd, MemgraphPackageArm]
-    if: ${{ !cancelled() && (needs.DiffSetup.outputs.run_mage_amd == 'true' || needs.DiffSetup.outputs.run_mage_arm == 'true' || needs.DiffSetup.outputs.run_mage_cuda == 'true') }}
+    needs: DiffSetup
     uses: ./.github/workflows/diff_mage.yml
     with:
       ref: ${{ inputs.ref || github.ref }}
@@ -231,8 +184,6 @@ jobs:
       run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
       run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
       run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
-      memgraph_download_link_amd: ${{ needs.MemgraphPackageAmd.outputs.package_s3_url }}
-      memgraph_download_link_arm: ${{ needs.MemgraphPackageArm.outputs.package_s3_url }}
     secrets: inherit
 
   MGCXX:
