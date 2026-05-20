@@ -150,6 +150,16 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) override;
   std::optional<std::string> GetProfileForRole(const std::string &user_or_role) override;
   std::vector<std::string> GetRolenamesForProfile(const std::string &profile_name) override;
+
+  void GrantPropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
+                               const std::string &entity_name, query::AuthQuery::PropertyEntityType entity_type,
+                               auth::UserOrRoleType type, system::Transaction *system_tx) override;
+  void DenyPropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
+                              const std::string &entity_name, query::AuthQuery::PropertyEntityType entity_type,
+                              auth::UserOrRoleType type, system::Transaction *system_tx) override;
+  void RevokePropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
+                                const std::string &entity_name, query::AuthQuery::PropertyEntityType entity_type,
+                                auth::UserOrRoleType type, system::Transaction *system_tx) override;
 #endif
 
  private:

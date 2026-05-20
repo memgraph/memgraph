@@ -1294,6 +1294,30 @@ void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, cons
   }
 }
 
+void AuthQueryHandler::GrantPropertyPermission(const std::string &user_or_role,
+                                               const std::vector<std::string> &properties,
+                                               const std::string &entity_name,
+                                               query::AuthQuery::PropertyEntityType entity_type,
+                                               auth::UserOrRoleType type, system::Transaction *system_tx) {
+  throw query::QueryRuntimeException("Property-level access control not yet implemented");
+}
+
+void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
+                                              const std::vector<std::string> &properties,
+                                              const std::string &entity_name,
+                                              query::AuthQuery::PropertyEntityType entity_type,
+                                              auth::UserOrRoleType type, system::Transaction *system_tx) {
+  throw query::QueryRuntimeException("Property-level access control not yet implemented");
+}
+
+void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
+                                                const std::vector<std::string> &properties,
+                                                const std::string &entity_name,
+                                                query::AuthQuery::PropertyEntityType entity_type,
+                                                auth::UserOrRoleType type, system::Transaction *system_tx) {
+  throw query::QueryRuntimeException("Property-level access control not yet implemented");
+}
+
 void AuthQueryHandler::CreateProfile(const std::string &profile_name,
                                      const query::UserProfileQuery::limits_t &defined_limits,
                                      const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) {

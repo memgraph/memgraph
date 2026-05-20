@@ -3119,3 +3119,127 @@ TEST_F(AuthQueryHandlerFixture, DropRoleFailsIfAssignedToUserOnDatabase) {
   ASSERT_THROW(auth_handler.DropRole("role1", nullptr), memgraph::query::QueryRuntimeException);
 }
 #endif
+
+// --- Property Permission Tests ---
+
+TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"ssn", "salary"},
+                                       "Employee",
+                                       memgraph::query::AuthQuery::PropertyEntityType::NODE,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       nullptr);
+
+  auto user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  auto const &props = user->property_access_handler().label_properties();
+  EXPECT_EQ(props.Has("Employee", "ssn"), memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has("Employee", "salary"), memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has("Employee", "name"), memgraph::auth::PermissionLevel::NEUTRAL);
+}
+
+TEST_F(AuthQueryHandlerFixture, DenyPropertyPermissionOnUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.DenyPropertyPermission(user_name,
+                                      {"ssn"},
+                                      "Employee",
+                                      memgraph::query::AuthQuery::PropertyEntityType::NODE,
+                                      memgraph::auth::UserOrRoleType::USER,
+                                      nullptr);
+
+  auto user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  auto const &props = user->property_access_handler().label_properties();
+  EXPECT_EQ(props.Has("Employee", "ssn"), memgraph::auth::PermissionLevel::DENY);
+}
+
+TEST_F(AuthQueryHandlerFixture, RevokePropertyPermissionOnUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"ssn"},
+                                       "Employee",
+                                       memgraph::query::AuthQuery::PropertyEntityType::NODE,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       nullptr);
+  auth_handler.RevokePropertyPermission(user_name,
+                                        {"ssn"},
+                                        "Employee",
+                                        memgraph::query::AuthQuery::PropertyEntityType::NODE,
+                                        memgraph::auth::UserOrRoleType::USER,
+                                        nullptr);
+
+  auto user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  EXPECT_EQ(user->property_access_handler().label_properties().Has("Employee", "ssn"),
+            memgraph::auth::PermissionLevel::NEUTRAL);
+}
+
+TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnRole) {
+  auth_handler.CreateRole("analyst", nullptr);
+
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"amount"},
+                                       "PAID",
+                                       memgraph::query::AuthQuery::PropertyEntityType::RELATIONSHIP,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       nullptr);
+
+  auto role = auth->ReadLock()->GetRole("analyst");
+  ASSERT_TRUE(role.has_value());
+  auto const &props = role->property_access_handler().edge_type_properties();
+  EXPECT_EQ(props.Has("PAID", "amount"), memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has("PAID", "currency"), memgraph::auth::PermissionLevel::NEUTRAL);
+}
+
+TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionWildcard) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"*"},
+                                       "Employee",
+                                       memgraph::query::AuthQuery::PropertyEntityType::NODE,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       nullptr);
+
+  auto user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  auto const &props = user->property_access_handler().label_properties();
+  EXPECT_EQ(props.Has("Employee", "anything"), memgraph::auth::PermissionLevel::GRANT);
+}
+
+TEST_F(AuthQueryHandlerFixture, DenyOverridesGrantPropertyPermission) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"*"},
+                                       "Employee",
+                                       memgraph::query::AuthQuery::PropertyEntityType::NODE,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       nullptr);
+  auth_handler.DenyPropertyPermission(user_name,
+                                      {"ssn"},
+                                      "Employee",
+                                      memgraph::query::AuthQuery::PropertyEntityType::NODE,
+                                      memgraph::auth::UserOrRoleType::USER,
+                                      nullptr);
+
+  auto user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  auto const &props = user->property_access_handler().label_properties();
+  EXPECT_EQ(props.Has("Employee", "ssn"), memgraph::auth::PermissionLevel::DENY);
+  EXPECT_EQ(props.Has("Employee", "name"), memgraph::auth::PermissionLevel::GRANT);
+}
+
+TEST_F(AuthQueryHandlerFixture, PropertyPermissionOnNonexistentUserThrows) {
+  EXPECT_THROW(auth_handler.GrantPropertyPermission("nobody",
+                                                    {"ssn"},
+                                                    "Employee",
+                                                    memgraph::query::AuthQuery::PropertyEntityType::NODE,
+                                                    memgraph::auth::UserOrRoleType::USER,
+                                                    nullptr),
+               memgraph::query::QueryRuntimeException);
+}
