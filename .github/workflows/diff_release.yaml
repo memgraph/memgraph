@@ -510,7 +510,6 @@ jobs:
 
       - name: Run e2e tests
         run: |
-          # TODO (matt): Add monitoring to end to end tests when we switch to opentelemetry
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
