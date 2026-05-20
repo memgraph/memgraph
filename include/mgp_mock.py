@@ -1203,22 +1203,23 @@ class Graph:
         return not self._graph.is_immutable()
 
     @property
-    def transaction_id(self) -> int:
+    def start_timestamp(self) -> int:
         """
-        Get the transaction ID associated with the current graph access.
+        Get a stable identifier for the current logical query, preserved across
+        `USING PERIODIC COMMIT` boundaries.
 
         Returns:
-            An `int` representing the transaction ID.
+            An `int` that is stable for the duration of one logical query.
 
         Raises:
             InvalidContextError: If the graph is not in a valid context.
 
         Examples:
-            ```graph.transaction_id```
+            ```graph.start_timestamp```
         """
         if not self.is_valid():
             raise InvalidContextError()
-        return self._graph.transaction_id
+        return self._graph.start_timestamp
 
     def create_vertex(self) -> Vertex:
         """

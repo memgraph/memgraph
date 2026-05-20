@@ -379,13 +379,13 @@ PyObject *PyGraphIsMutable(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
 }
 
 namespace {
-PyObject *PyGraphGetTransactionId(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyGraphGetStartTimestamp(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(PyGraphIsValidImpl(*self));
-  int64_t tx_id{0};
-  if (RaiseExceptionFromErrorCode(mgp_graph_get_transaction_id(self->graph, &tx_id))) {
+  int64_t start_ts{0};
+  if (RaiseExceptionFromErrorCode(mgp_graph_get_start_timestamp(self->graph, &start_ts))) {
     return nullptr;
   }
-  return PyLong_FromLongLong(tx_id);
+  return PyLong_FromLongLong(start_ts);
 }
 }  // namespace
 
@@ -469,10 +469,10 @@ static PyMethodDef PyGraphMethods[] = {
      reinterpret_cast<PyCFunction>(PyGraphIsMutable),
      METH_NOARGS,
      "Return True if Graph is mutable and can be used to modify vertices and edges."},
-    {"get_transaction_id",
-     reinterpret_cast<PyCFunction>(PyGraphGetTransactionId),
+    {"get_start_timestamp",
+     reinterpret_cast<PyCFunction>(PyGraphGetStartTimestamp),
      METH_NOARGS,
-     "Return the transaction ID associated with the current graph access."},
+     "Return a stable per-query identifier (the start_timestamp of the original transaction)."},
     {"get_vertex_by_id",
      reinterpret_cast<PyCFunction>(PyGraphGetVertexById),
      METH_VARARGS,
