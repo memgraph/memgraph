@@ -117,9 +117,6 @@
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
 #include "utils/compile_time.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/event_gauge.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/functional.hpp"
 #include "utils/likely.hpp"
@@ -149,10 +146,6 @@ import memgraph.utils.aws;
 namespace r = ranges;
 namespace rv = ranges::views;
 
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-}  // namespace memgraph::metrics
-
 namespace {
 
 using memgraph::query::Expression;
@@ -168,8 +161,10 @@ struct InstanceStorageInfo {
 
 InstanceStorageInfo GetInstanceStorageInfo() {
   const auto memory_res = memgraph::utils::GetMemoryRES();
-  memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
-  const auto peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
+  memgraph::metrics::Metrics().global.peak_memory_res_bytes->Set(
+      std::max(static_cast<double>(memory_res), memgraph::metrics::Metrics().global.peak_memory_res_bytes->Value()));
+  const auto peak_memory_res =
+      static_cast<uint64_t>(memgraph::metrics::Metrics().global.peak_memory_res_bytes->Value());
   const int64_t vm_max_map_count =
       memgraph::utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
   const auto disk_usage = memgraph::utils::GetDirDiskUsage(FLAGS_data_directory);
@@ -7119,81 +7114,70 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         throw QueryRuntimeException("Coordinators don't have storage!");
       }
 #endif
-      // Helper lambda to build database-specific results (used by ON DATABASE and ON CURRENT DATABASE)
-      auto build_db_results = [](auto *storage, auto *db) {
-        auto info = storage->GetBaseInfo();
-        const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
-        const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
-        const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
-        const auto db_total_memory = static_cast<double>(db->DbMemoryUsage());
-        const auto db_peak_memory = static_cast<double>(db->DbPeakMemoryUsage());
-        const auto tenant_limit = db->TenantMemoryLimit();
-
-        const std::vector<std::vector<TypedValue>> results{
-            {TypedValue("name"), TypedValue(storage->name())},
-            {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
-            {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))},
-            {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
-            {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
-            {TypedValue("average_degree"), TypedValue(info.average_degree)},
-            {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
-            {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
-            {TypedValue("graph_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory))},
-            {TypedValue("query_memory_tracked"), TypedValue(utils::GetReadableSize(db_query_memory))},
-            {TypedValue("vector_index_memory_tracked"), TypedValue(utils::GetReadableSize(db_embedding_memory))},
-            {TypedValue("tenant_memory_tracked"), TypedValue(utils::GetReadableSize(db_total_memory))},
-            {TypedValue("tenant_peak_memory_tracked"), TypedValue(utils::GetReadableSize(db_peak_memory))},
-            {TypedValue("tenant_memory_limit"),
-             TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
-                                         : std::string("unlimited"))},
-            {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
-        };
-        return std::pair{results, QueryHandlerResult::NOTHING};
-      };
+      auto *dbms_handler = interpreter_context->dbms_handler;
+      std::optional<dbms::DatabaseAccess> database{};
 
       if (info_query->database_) {
+        const auto &db_name = *info_query->database_;
+        if (!license::global_license_checker.IsEnterpriseValidFast() && db_name != dbms::kDefaultDB) {
+          throw QueryRuntimeException(
+              license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
+        }
 #ifdef MG_ENTERPRISE
-        if (interpreter_context->dbms_handler) {
-          handler = [db_name = *info_query->database_,
-                     db_handler = interpreter_context->dbms_handler,
-                     build_db_results] -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
-            if (!db_handler) {
-              throw QueryRuntimeException("Database handler is not available");
-            }
-            memgraph::metrics::IncrementCounter(memgraph::metrics::ShowStorageInfoOnDatabase);
-            auto db_acc = db_handler->Get(db_name);
-            auto *db = db_acc.get();
-            if (!db) throw QueryRuntimeException("Database '{}' was dropped during query execution.", db_name);
-            if (auto *mh = db->metric_handles()) mh->show_storage_info.Increment();
-            return build_db_results(db->storage(), db);
-          };
-        } else
+        database = dbms_handler->Get(*info_query->database_);
+#else
+        database = dbms_handler->Get();
 #endif
-        {
-          // Community path or when dbms_handler is null
-          MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
-          if (current_db.name() == *info_query->database_) {
-            handler = [storage = current_db.db_acc_->get()->storage(),
-                       db = current_db.db_acc_->get(),
-                       build_db_results] -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
-              memgraph::metrics::IncrementCounter(memgraph::metrics::ShowStorageInfoOnDatabase);
-              return build_db_results(storage, db);
-            };
-          } else {
-            throw QueryRuntimeException("SHOW STORAGE INFO ON DATABASE is only available in the enterprise edition.");
-          }
+        if (!database) {
+          throw QueryRuntimeException("Database '{}' was not found.", *info_query->database_);
         }
       } else if (info_query->is_current_database_) {
-        MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
-        handler = [storage = current_db.db_acc_->get()->storage(),
-                   db = current_db.db_acc_->get(),
-                   build_db_results] -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
-          memgraph::metrics::IncrementCounter(memgraph::metrics::ShowStorageInfoOnDatabase);
-          return build_db_results(storage, db);
+        if (!current_db.db_acc_) {
+          throw QueryRuntimeException("No current database for the session.");
+        }
+        database = current_db.db_acc_;
+      }
+
+      if (database) {
+        handler = [db_acc = std::move(
+                       *database)] mutable -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
+          auto *db = db_acc.get();
+          if (!db) throw QueryRuntimeException("Database '{}' was dropped during query execution.", db->name());
+          if (auto *mh = db->metric_handles()) mh->show_storage_info.Increment();
+          auto *storage = db->storage();
+          auto info = storage->GetBaseInfo();
+          const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
+          const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
+          const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
+          const auto db_total_memory = static_cast<double>(db->DbMemoryUsage());
+          const auto db_peak_memory = static_cast<double>(db->DbPeakMemoryUsage());
+          const auto tenant_limit = db->TenantMemoryLimit();
+
+          const std::vector<std::vector<TypedValue>> results{
+              {TypedValue("name"), TypedValue(storage->name())},
+              {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
+              {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))},
+              {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
+              {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
+              {TypedValue("average_degree"), TypedValue(info.average_degree)},
+              {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
+              {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
+              {TypedValue("graph_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory))},
+              {TypedValue("query_memory_tracked"), TypedValue(utils::GetReadableSize(db_query_memory))},
+              {TypedValue("vector_index_memory_tracked"), TypedValue(utils::GetReadableSize(db_embedding_memory))},
+              {TypedValue("tenant_memory_tracked"), TypedValue(utils::GetReadableSize(db_total_memory))},
+              {TypedValue("tenant_peak_memory_tracked"), TypedValue(utils::GetReadableSize(db_peak_memory))},
+              {TypedValue("tenant_memory_limit"),
+               TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
+                                           : std::string("unlimited"))},
+              {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+          };
+          return std::pair{results, QueryHandlerResult::NOTHING};
         };
       } else {
         MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
-        handler = [interpreter_context, interpreter_isolation_level, next_transaction_isolation_level] {
+        handler = [interpreter_isolation_level, next_transaction_isolation_level] {
+          metrics::Metrics().global.show_storage_info->Increment();
           const auto instance_info = GetInstanceStorageInfo();
           const std::vector<std::vector<TypedValue>> results{
               {TypedValue("vm_max_map_count"), TypedValue(instance_info.vm_max_map_count)},
@@ -7212,7 +7196,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                  const int64_t limit = info->has_value() ? (*info)->license.memory_limit : 0;
                  return limit > 0 ? utils::GetReadableSize(static_cast<double>(limit)) : std::string("unlimited");
                }))},
-              {TypedValue("query_graph_memory_tracked"),
+              {TypedValue("query+graph_memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
               {TypedValue("vector_index_memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::vector_index_memory_tracker.Amount())))},

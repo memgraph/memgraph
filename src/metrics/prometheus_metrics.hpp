@@ -240,7 +240,7 @@ struct DatabaseMetricHandles {
   // SchemaInfo
   CounterHandle show_schema;
 
-  // StorageInfo
+  // StorageInfo database specific
   CounterHandle show_storage_info;
 
   // Histograms
@@ -332,6 +332,9 @@ struct GlobalMetricHandles {
   prometheus::Histogram *system_recovery_rpc_seconds;
   prometheus::Histogram *update_data_instance_config_rpc_seconds;
   prometheus::Histogram *get_histories_seconds;
+
+  // StorageInfo global/system level
+  prometheus::Counter *show_storage_info;
 };
 
 class PrometheusMetrics {
