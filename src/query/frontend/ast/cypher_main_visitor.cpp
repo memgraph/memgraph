@@ -2606,7 +2606,8 @@ AuthQuery *BuildPropertyPrivilegeQuery(AstStorage *storage, AuthQuery::Action ac
   }
 
   auto *entity_target = scope->propertyEntityTarget();
-  auth->property_entity_is_node_ = entity_target->NODES() != nullptr;
+  auth->property_entity_type_ =
+      entity_target->NODES() ? AuthQuery::PropertyEntityType::NODE : AuthQuery::PropertyEntityType::RELATIONSHIP;
   auth->property_entity_name_ = std::any_cast<std::string>(entity_target->entity->accept(visitor));
 
   std::tie(auth->user_or_role_, auth->entity_type_) =
