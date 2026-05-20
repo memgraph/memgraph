@@ -3689,11 +3689,11 @@ mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
   return mgp_error::MGP_ERROR_NO_ERROR;
 };
 
-mgp_error mgp_graph_get_transaction_id(mgp_graph *graph, int64_t *result) {
+mgp_error mgp_graph_get_start_timestamp(mgp_graph *graph, int64_t *result) {
   return WrapExceptions([graph, result] {
-    auto maybe_tx_id = graph->getImpl()->GetTransactionId();
-    DMG_ASSERT(maybe_tx_id, "Procedure must be called within an active transaction");
-    *result = static_cast<int64_t>(*maybe_tx_id);
+    auto maybe_ts = graph->getImpl()->GetStartTimestamp();
+    DMG_ASSERT(maybe_ts, "Procedure must be called within an active transaction");
+    *result = static_cast<int64_t>(*maybe_ts);
   });
 }
 

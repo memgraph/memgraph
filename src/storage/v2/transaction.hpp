@@ -137,6 +137,7 @@ struct Transaction {
               metrics::GaugeHandle unreleased_delta_gauge = {})
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
+        original_start_timestamp(start_timestamp),
         command_id(0),
         deltas(unreleased_delta_gauge),
         md_deltas(utils::NewDeleteResource()),
@@ -220,7 +221,8 @@ struct Transaction {
 
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
-  std::optional<uint64_t> original_start_timestamp{};
+  // Set at construction; never reassigned. Stable across PeriodicCommit.
+  uint64_t original_start_timestamp{};
   // The `Transaction` object is stack allocated, but the `commit_info`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into

@@ -1273,15 +1273,14 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   FinalizeTransaction();
 
-  auto original_start_timestamp = transaction_.original_start_timestamp.value_or(transaction_.start_timestamp);
-
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
   transaction_.commit_info.reset();
-  transaction_.original_start_timestamp = original_start_timestamp;
+  // Do NOT touch `original_start_timestamp` — it must remain stable per-query
+  // (procedures use it as a cache key across PERIODIC COMMIT).
 
   is_transaction_active_ = true;
 

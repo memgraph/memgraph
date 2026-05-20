@@ -667,7 +667,8 @@ class Accessor {
 
   virtual void FinalizeTransaction() = 0;
 
-  std::optional<uint64_t> GetTransactionId() const;
+  // Stable per-query id; preserved across PERIODIC COMMIT.
+  std::optional<uint64_t> GetStartTimestamp() const;
 
   utils::QueryMemoryTracker &GetTransactionMemoryTracker();
 

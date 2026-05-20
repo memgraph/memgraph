@@ -412,7 +412,7 @@ inline void CreateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSKiplistI
 inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view) {
   // Not enough information, need to rely on MVCC to fully check entry
   if (transaction->command_id != 0) return true;
-  auto const original_start_timestamp = transaction->original_start_timestamp.value_or(transaction->start_timestamp);
+  auto const original_start_timestamp = transaction->original_start_timestamp;
   if (view == View::OLD) {
     return insertion_timestamp < original_start_timestamp;
   }

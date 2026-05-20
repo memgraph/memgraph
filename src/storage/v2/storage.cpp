@@ -206,9 +206,9 @@ std::vector<LabelId> Storage::ListAllPossiblyPresentVertexLabels() const { retur
 
 StorageMode Storage::Accessor::GetCreationStorageMode() const noexcept { return creation_storage_mode_; }
 
-std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
+std::optional<uint64_t> Storage::Accessor::GetStartTimestamp() const {
   if (is_transaction_active_) {
-    return transaction_.transaction_id;
+    return transaction_.original_start_timestamp;
   }
   return {};
 }

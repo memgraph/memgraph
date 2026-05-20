@@ -704,11 +704,13 @@ TYPED_TEST(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
   EXPECT_EQ(mgp_edge_set_property(edge.get(), "property", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 }
 
-TYPED_TEST(MgpGraphTest, GetTransactionId) {
+TYPED_TEST(MgpGraphTest, GetStartTimestamp) {
   mgp_graph graph = this->CreateGraph();
-  int64_t tx_id{0};
-  EXPECT_SUCCESS(mgp_graph_get_transaction_id(&graph, &tx_id));
-  // The first transaction on a fresh storage starts at kTransactionInitialId
-  // (1ULL << 63, used to disambiguate transaction IDs from commit timestamps).
-  EXPECT_EQ(tx_id, static_cast<int64_t>(memgraph::storage::kTransactionInitialId));
+  int64_t start_ts{0};
+  EXPECT_SUCCESS(mgp_graph_get_start_timestamp(&graph, &start_ts));
+  // Repeated calls must return the same value — the per-query identifier is
+  // stable for the lifetime of the accessor.
+  int64_t start_ts_again{0};
+  EXPECT_SUCCESS(mgp_graph_get_start_timestamp(&graph, &start_ts_again));
+  EXPECT_EQ(start_ts, start_ts_again);
 }
