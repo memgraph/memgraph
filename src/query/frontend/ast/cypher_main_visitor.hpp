@@ -762,9 +762,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitEntityPrivilegeList(MemgraphCypher::EntityPrivilegeListContext *ctx) override;
 
-  antlrcpp::Any visitGrantPropertyPrivilege(MemgraphCypher::GrantPropertyPrivilegeContext *ctx) override;
-  antlrcpp::Any visitDenyPropertyPrivilege(MemgraphCypher::DenyPropertyPrivilegeContext *ctx) override;
-  antlrcpp::Any visitRevokePropertyPrivilege(MemgraphCypher::RevokePropertyPrivilegeContext *ctx) override;
+  antlrcpp::Any visitGrantPropertyPermission(MemgraphCypher::GrantPropertyPermissionContext *ctx) override;
+  antlrcpp::Any visitDenyPropertyPermission(MemgraphCypher::DenyPropertyPermissionContext *ctx) override;
+  antlrcpp::Any visitRevokePropertyPermission(MemgraphCypher::RevokePropertyPermissionContext *ctx) override;
 
   /**
    * @return AuthQuery*

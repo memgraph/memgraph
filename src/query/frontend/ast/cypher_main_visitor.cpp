@@ -2592,17 +2592,18 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
 }
 
 namespace {
-AuthQuery *BuildPropertyPrivilegeQuery(AstStorage *storage, AuthQuery::Action action,
-                                       MemgraphCypher::PropertyPrivilegeListContext *props,
-                                       MemgraphCypher::PropertyScopeContext *scope,
-                                       MemgraphCypher::UserOrRoleContext *target, CypherMainVisitor *visitor) {
+AuthQuery *BuildPropertyPermissionQuery(AstStorage *storage, AuthQuery::Action action,
+                                        MemgraphCypher::PropertyPermissionListContext *props,
+                                        MemgraphCypher::PropertyScopeContext *scope,
+                                        MemgraphCypher::UserOrRoleContext *target, CypherMainVisitor *visitor) {
   auto *auth = storage->Create<AuthQuery>();
   auth->action_ = action;
 
   if (props->ASTERISK()) {
-    auth->property_privileges_ = {"*"};
+    auth->property_permissions_ = {"*"};
   } else {
-    auth->property_privileges_ = std::any_cast<std::vector<std::string>>(props->listOfSymbolicNames()->accept(visitor));
+    auth->property_permissions_ =
+        std::any_cast<std::vector<std::string>>(props->listOfSymbolicNames()->accept(visitor));
   }
 
   auto *entity_target = scope->propertyEntityTarget();
@@ -2617,19 +2618,19 @@ AuthQuery *BuildPropertyPrivilegeQuery(AstStorage *storage, AuthQuery::Action ac
 }
 }  // namespace
 
-antlrcpp::Any CypherMainVisitor::visitGrantPropertyPrivilege(MemgraphCypher::GrantPropertyPrivilegeContext *ctx) {
-  return BuildPropertyPrivilegeQuery(
-      storage_, AuthQuery::Action::GRANT_PROPERTY_PRIVILEGE, ctx->propList, ctx->propertyScope(), ctx->target, this);
+antlrcpp::Any CypherMainVisitor::visitGrantPropertyPermission(MemgraphCypher::GrantPropertyPermissionContext *ctx) {
+  return BuildPropertyPermissionQuery(
+      storage_, AuthQuery::Action::GRANT_PROPERTY_PERMISSION, ctx->propList, ctx->propertyScope(), ctx->target, this);
 }
 
-antlrcpp::Any CypherMainVisitor::visitDenyPropertyPrivilege(MemgraphCypher::DenyPropertyPrivilegeContext *ctx) {
-  return BuildPropertyPrivilegeQuery(
-      storage_, AuthQuery::Action::DENY_PROPERTY_PRIVILEGE, ctx->propList, ctx->propertyScope(), ctx->target, this);
+antlrcpp::Any CypherMainVisitor::visitDenyPropertyPermission(MemgraphCypher::DenyPropertyPermissionContext *ctx) {
+  return BuildPropertyPermissionQuery(
+      storage_, AuthQuery::Action::DENY_PROPERTY_PERMISSION, ctx->propList, ctx->propertyScope(), ctx->target, this);
 }
 
-antlrcpp::Any CypherMainVisitor::visitRevokePropertyPrivilege(MemgraphCypher::RevokePropertyPrivilegeContext *ctx) {
-  return BuildPropertyPrivilegeQuery(
-      storage_, AuthQuery::Action::REVOKE_PROPERTY_PRIVILEGE, ctx->propList, ctx->propertyScope(), ctx->target, this);
+antlrcpp::Any CypherMainVisitor::visitRevokePropertyPermission(MemgraphCypher::RevokePropertyPermissionContext *ctx) {
+  return BuildPropertyPermissionQuery(
+      storage_, AuthQuery::Action::REVOKE_PROPERTY_PERMISSION, ctx->propList, ctx->propertyScope(), ctx->target, this);
 }
 
 antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) {

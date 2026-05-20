@@ -53,9 +53,9 @@ class AuthQuery : public memgraph::query::Query {
     SET_MAIN_DATABASE,
     GRANT_IMPERSONATE_USER,
     DENY_IMPERSONATE_USER,
-    GRANT_PROPERTY_PRIVILEGE,
-    DENY_PROPERTY_PRIVILEGE,
-    REVOKE_PROPERTY_PRIVILEGE,
+    GRANT_PROPERTY_PERMISSION,
+    DENY_PROPERTY_PERMISSION,
+    REVOKE_PROPERTY_PERMISSION,
   };
 
   enum class PropertyEntityType : uint8_t { NODE, RELATIONSHIP };
@@ -145,7 +145,7 @@ class AuthQuery : public memgraph::query::Query {
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       edge_type_privileges_;
   std::vector<std::string> impersonation_targets_;
-  std::vector<std::string> property_privileges_;
+  std::vector<std::string> property_permissions_;
   std::string property_entity_name_;
   PropertyEntityType property_entity_type_{PropertyEntityType::NODE};
 
@@ -170,7 +170,7 @@ class AuthQuery : public memgraph::query::Query {
     object->label_matching_modes_ = label_matching_modes_;
     object->edge_type_privileges_ = edge_type_privileges_;
     object->impersonation_targets_ = impersonation_targets_;
-    object->property_privileges_ = property_privileges_;
+    object->property_permissions_ = property_permissions_;
     object->property_entity_name_ = property_entity_name_;
     object->property_entity_type_ = property_entity_type_;
     object->database_specification_ = database_specification_;
