@@ -189,6 +189,13 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       auth::UserOrRoleType type, system::Transaction *system_tx);
 
 #ifdef MG_ENTERPRISE
+  template <typename EditFn>
+  void EditPropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
+                              const std::string &entity_name, query::AuthQuery::PropertyEntityType entity_type,
+                              auth::UserOrRoleType type, system::Transaction *system_tx, EditFn const &edit_fn);
+#endif
+
+#ifdef MG_ENTERPRISE
   void GrantImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
                             auth::UserOrRoleType type, system::Transaction *system_tx) override;
   void DenyImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,

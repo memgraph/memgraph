@@ -1002,6 +1002,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   auto label_matching_modes = auth_query->label_matching_modes_;
   auto edge_type_privileges = auth_query->edge_type_privileges_;
   auto impersonation_targets = auth_query->impersonation_targets_;
+  auto property_permissions = auth_query->property_permissions_;
+  auto property_entity_name = auth_query->property_entity_name_;
+  auto property_entity_type = auth_query->property_entity_type_;
 #endif
   auto password = EvaluateOptionalExpression(auth_query->password_, evaluator);
 
@@ -1815,7 +1818,46 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     case AuthQuery::Action::GRANT_PROPERTY_PERMISSION:
     case AuthQuery::Action::DENY_PROPERTY_PERMISSION:
     case AuthQuery::Action::REVOKE_PROPERTY_PERMISSION:
-      throw utils::NotYetImplemented("Property-level access control");
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryRuntimeException(license::LicenseCheckErrorToString(
+            license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "property permissions"));
+      }
+      forbid_on_replica();
+#ifdef MG_ENTERPRISE
+      callback.fn = [auth,
+                     action = auth_query->action_,
+                     user_or_role = std::move(user_or_role),
+                     properties = std::move(property_permissions),
+                     entity_name = std::move(property_entity_name),
+                     property_entity_type,
+                     entity_type,
+                     interpreter = &interpreter] {
+        if (!interpreter->system_transaction_) {
+          throw QueryException("Expected to be in a system transaction");
+        }
+        auto *system_tx = &*interpreter->system_transaction_;
+        switch (action) {
+          case AuthQuery::Action::GRANT_PROPERTY_PERMISSION:
+            auth->GrantPropertyPermission(
+                user_or_role, properties, entity_name, property_entity_type, entity_type, system_tx);
+            break;
+          case AuthQuery::Action::DENY_PROPERTY_PERMISSION:
+            auth->DenyPropertyPermission(
+                user_or_role, properties, entity_name, property_entity_type, entity_type, system_tx);
+            break;
+          case AuthQuery::Action::REVOKE_PROPERTY_PERMISSION:
+            auth->RevokePropertyPermission(
+                user_or_role, properties, entity_name, property_entity_type, entity_type, system_tx);
+            break;
+          default:
+            LOG_FATAL("Unexpected property permission action");
+        }
+        return std::vector<std::vector<TypedValue>>();
+      };
+#else
+      callback.fn = [] { return std::vector<std::vector<TypedValue>>(); };
+#endif
+      return callback;
     default:
       break;
   }

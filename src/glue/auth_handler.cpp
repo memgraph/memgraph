@@ -1294,12 +1294,62 @@ void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, cons
   }
 }
 
+namespace {
+auto &SelectPropertyPermissions(auth::PropertyAccessHandler &handler,
+                                query::AuthQuery::PropertyEntityType entity_type) {
+  return entity_type == query::AuthQuery::PropertyEntityType::NODE ? handler.label_properties()
+                                                                   : handler.edge_type_properties();
+}
+}  // namespace
+
+template <typename EditFn>
+void AuthQueryHandler::EditPropertyPermission(const std::string &user_or_role,
+                                              const std::vector<std::string> &properties,
+                                              const std::string &entity_name,
+                                              query::AuthQuery::PropertyEntityType entity_type,
+                                              auth::UserOrRoleType type, system::Transaction *system_tx,
+                                              EditFn const &edit_fn) {
+  try {
+    auto locked_auth = auth_->Lock();
+
+    auto user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user_or_role) : std::nullopt;
+    auto role = (type != auth::UserOrRoleType::USER) ? locked_auth->GetRole(user_or_role) : std::nullopt;
+    if (user && role)
+      throw query::QueryRuntimeException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.",
+                                         user_or_role);
+
+    if (user) {
+      auto &perms = SelectPropertyPermissions(user->property_access_handler(), entity_type);
+      for (auto const &prop : properties) {
+        edit_fn(perms, entity_name, prop);
+      }
+      locked_auth->SaveUser(*user, system_tx);
+    } else if (role) {
+      auto &perms = SelectPropertyPermissions(role->property_access_handler(), entity_type);
+      for (auto const &prop : properties) {
+        edit_fn(perms, entity_name, prop);
+      }
+      locked_auth->SaveRole(*role, system_tx);
+    } else {
+      throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+    }
+  } catch (const auth::AuthException &e) {
+    throw query::QueryRuntimeException(e.what());
+  }
+}
+
 void AuthQueryHandler::GrantPropertyPermission(const std::string &user_or_role,
                                                const std::vector<std::string> &properties,
                                                const std::string &entity_name,
                                                query::AuthQuery::PropertyEntityType entity_type,
                                                auth::UserOrRoleType type, system::Transaction *system_tx) {
-  throw query::QueryRuntimeException("Property-level access control not yet implemented");
+  EditPropertyPermission(user_or_role,
+                         properties,
+                         entity_name,
+                         entity_type,
+                         type,
+                         system_tx,
+                         [](auto &perms, auto const &entity, auto const &prop) { perms.Grant(entity, prop); });
 }
 
 void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
@@ -1307,7 +1357,13 @@ void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
                                               const std::string &entity_name,
                                               query::AuthQuery::PropertyEntityType entity_type,
                                               auth::UserOrRoleType type, system::Transaction *system_tx) {
-  throw query::QueryRuntimeException("Property-level access control not yet implemented");
+  EditPropertyPermission(user_or_role,
+                         properties,
+                         entity_name,
+                         entity_type,
+                         type,
+                         system_tx,
+                         [](auto &perms, auto const &entity, auto const &prop) { perms.Deny(entity, prop); });
 }
 
 void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
@@ -1315,7 +1371,13 @@ void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
                                                 const std::string &entity_name,
                                                 query::AuthQuery::PropertyEntityType entity_type,
                                                 auth::UserOrRoleType type, system::Transaction *system_tx) {
-  throw query::QueryRuntimeException("Property-level access control not yet implemented");
+  EditPropertyPermission(user_or_role,
+                         properties,
+                         entity_name,
+                         entity_type,
+                         type,
+                         system_tx,
+                         [](auto &perms, auto const &entity, auto const &prop) { perms.Revoke(entity, prop); });
 }
 
 void AuthQueryHandler::CreateProfile(const std::string &profile_name,
