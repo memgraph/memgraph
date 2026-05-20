@@ -149,6 +149,17 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
   fi
 
+# Install the memgraph-debuginfo package so gdb auto-finds .debug sidecars
+# beside the installed memgraph binaries via .gnu_debuglink. This is the
+# offline-debuggable counterpart to debuginfod (which the network-attached
+# prod image relies on) and keeps the in-image memgraph build-id consistent
+# with the standalone memgraph package — the same .debug sidecars uploaded
+# from the memgraph package job also resolve crashes from this MAGE image.
+# Absolute path: no WORKDIR is set in this stage but we follow the same
+# pattern as the v7 deb dockerfile to be explicit.
+RUN --mount=type=bind,source="./memgraph-debuginfo.deb",target=/memgraph-debuginfo.deb,ro \
+  dpkg -i /memgraph-debuginfo.deb
+
 # Copy entire mage repo
 COPY --chown=memgraph:memgraph ./ /mage/
 

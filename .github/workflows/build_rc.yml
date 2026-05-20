@@ -186,6 +186,13 @@ jobs:
             package_flavour: prod
             arch: amd
             additional_build_args: '--disable-jemalloc'
+          # Built so the debug arm+malloc MAGE matrix entry below can reuse
+          # the same memgraph binary instead of compiling from source — keeps
+          # the ELF build-id consistent across all MAGE images.
+          - os: ubuntu-24.04
+            package_flavour: prod
+            arch: arm
+            additional_build_args: '--disable-jemalloc'
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
@@ -244,7 +251,12 @@ jobs:
   BuildAndTestMAGE:
     if: ${{ inputs.build_mage }}
     name: Build and Test MAGE
-    needs: [PrepareReleaseBranch]
+    # Depends on PackageArtifact so the memgraph debs we wget into the MAGE
+    # build context have been produced and uploaded to S3. This is what gives
+    # us a single ELF build-id across the standalone memgraph package and the
+    # memgraph binary embedded in each MAGE image — debuginfod uploads from
+    # PackageArtifact also serve crashes from MAGE.
+    needs: [PrepareReleaseBranch, PackageArtifact]
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       fail-fast: false
@@ -283,8 +295,22 @@ jobs:
     with:
       arch: ${{ matrix.build_arch }}
       build_type: RelWithDebInfo
-      split_debug: ${{ matrix.package_flavour == 'prod' }}
+      # Force split-debug on: PackageArtifact entries all build with
+      # split-debug for prod, and the from-source fallback path (kept as a
+      # safety net) also needs memgraph-debuginfo.deb produced for the debug
+      # Dockerfile target. CPack only emits the debuginfo component package
+      # when MG_SPLIT_DEBUG is on.
+      split_debug: true
       package_flavour: ${{ matrix.package_flavour }}
+      # PackageArtifact now builds ubuntu-24.04 for every (arch, malloc)
+      # combination the MAGE matrix below references, so every entry reuses
+      # the customer-facing memgraph deb. Same ELF build-id across the
+      # standalone deb and the binary embedded in each MAGE image.
+      memgraph_download_link: ${{ format('https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb', inputs.mock && '-mock-rc' || '', needs.PrepareReleaseBranch.outputs.tag_name, matrix.malloc && '-malloc' || '', matrix.build_arch == 'arm' && '-aarch64' || '', inputs.version, matrix.build_arch == 'arm' && 'arm64' || 'amd64') }}
+      # Debug-flavour images install memgraph-debuginfo on top of the main
+      # deb so gdb resolves symbols from the .debug sidecars offline (the
+      # network-attached prod equivalent is debuginfod).
+      memgraph_debuginfo_download_link: ${{ matrix.package_flavour == 'debug' && format('https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph-debuginfo_{4}-1_{5}.deb', inputs.mock && '-mock-rc' || '', needs.PrepareReleaseBranch.outputs.tag_name, matrix.malloc && '-malloc' || '', matrix.build_arch == 'arm' && '-aarch64' || '', inputs.version, matrix.build_arch == 'arm' && 'arm64' || 'amd64') || '' }}
       s3_dest_dir: "mage${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       cuda: ${{ matrix.cuda }}
       cugraph: ${{ matrix.cugraph }}

@@ -128,6 +128,13 @@ jobs:
             package_flavour: prod
             arch: amd
             additional_build_args: '--disable-jemalloc'
+          # Built so the debug arm+malloc MAGE matrix entry below can reuse
+          # the same memgraph binary instead of compiling from source — keeps
+          # the ELF build-id consistent across all MAGE images.
+          - os: ubuntu-24.04
+            package_flavour: prod
+            arch: arm
+            additional_build_args: '--disable-jemalloc'
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
@@ -209,10 +216,35 @@ jobs:
             https://api.github.com/repos/memgraph/daily-builds/dispatches \
             -d "$payload"
 
+  # Resolve the memgraph version string once so BuildAndTestMAGE can construct
+  # URLs to the debs DailyPackageArtifact uploaded. get_version.py output for
+  # a daily build looks like "3.10.0+39~dbbe0121e734" (last tag + commit count
+  # + short sha) and that string appears verbatim in the CPack deb filename.
+  MemgraphVersionSetup:
+    name: Resolve memgraph version for MAGE deb URLs
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
+    runs-on: ubuntu-latest
+    outputs:
+      memgraph_version: ${{ steps.version.outputs.memgraph_version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Resolve memgraph version
+        id: version
+        run: |
+          version="$(release/get_version.py --memgraph-root-dir "$(pwd)" '' '' --variant binary)"
+          echo "Resolved memgraph version: $version"
+          echo "memgraph_version=$version" >> $GITHUB_OUTPUT
+
   BuildAndTestMAGE:
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
     name: Build and Test MAGE
-    needs: [CurrentDateJob]
+    # Depends on DailyPackageArtifact so the memgraph debs we wget into the
+    # MAGE build context have been produced and uploaded. Shared memgraph
+    # build-id between the standalone daily deb and the binary in each MAGE
+    # image; same .debug sidecars from the memgraph job resolve crashes in MAGE.
+    needs: [CurrentDateJob, DailyPackageArtifact, MemgraphVersionSetup]
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       fail-fast: false
@@ -251,8 +283,22 @@ jobs:
     with:
       arch: ${{ matrix.build_arch }}
       build_type: RelWithDebInfo
-      split_debug: ${{ matrix.package_flavour == 'prod' }}
+      # Force split-debug on: DailyPackageArtifact builds with split-debug
+      # for prod, and the from-source fallback path (kept as a safety net)
+      # also needs memgraph-debuginfo.deb for the debug Dockerfile target.
+      # CPack only emits the debuginfo component package when MG_SPLIT_DEBUG
+      # is on.
+      split_debug: true
       package_flavour: ${{ matrix.package_flavour }}
+      # DailyPackageArtifact now builds ubuntu-24.04 for every (arch, malloc)
+      # combination the MAGE matrix references, so every entry reuses the
+      # daily memgraph deb. Same ELF build-id across the standalone daily
+      # deb and the binary embedded in each MAGE image.
+      memgraph_download_link: ${{ format('https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb', inputs.mock && '_mock' || '', needs.CurrentDateJob.outputs.current_date, matrix.malloc && '-malloc' || '', matrix.build_arch == 'arm' && '-aarch64' || '', needs.MemgraphVersionSetup.outputs.memgraph_version, matrix.build_arch == 'arm' && 'arm64' || 'amd64') }}
+      # Debug-flavour images install memgraph-debuginfo on top of the main
+      # deb (offline gdb sidecars; the network-attached prod equivalent is
+      # debuginfod).
+      memgraph_debuginfo_download_link: ${{ matrix.package_flavour == 'debug' && format('https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph-debuginfo_{4}-1_{5}.deb', inputs.mock && '_mock' || '', needs.CurrentDateJob.outputs.current_date, matrix.malloc && '-malloc' || '', matrix.build_arch == 'arm' && '-aarch64' || '', needs.MemgraphVersionSetup.outputs.memgraph_version, matrix.build_arch == 'arm' && 'arm64' || 'amd64') || '' }}
       s3_dest_dir: "daily-build/mage${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       cuda: ${{ matrix.cuda }}
       cugraph: ${{ matrix.cugraph }}
