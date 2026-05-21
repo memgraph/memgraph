@@ -22,6 +22,7 @@
 namespace memgraph::query {
 
 class DbAccessor;
+class FineGrainedAuthChecker;
 class TypedValue;
 struct QueryUserOrRole;
 
@@ -42,6 +43,7 @@ struct FunctionContext {
   int64_t hops_counter{0};
   const QueryUserOrRole *user_or_role{nullptr};
   const QueryUserOrRole *triggering_user{nullptr};
+  FineGrainedAuthChecker const *auth_checker{nullptr};
 };
 
 using func_impl =

@@ -26,6 +26,7 @@
 #include <utility>
 #include <variant>
 
+#include "query/auth_checker.hpp"
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
@@ -814,7 +815,7 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
 TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
   auto *dba = ctx.db_accessor;
-  auto get_keys = [&](const auto &record_accessor) {
+  auto get_keys = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector keys(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (!maybe_props) {
@@ -830,19 +831,31 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
       }
     }
     for (const auto &property : *maybe_props) {
-      keys.emplace_back(dba->PropertyToName(property.first));
+      if (is_allowed(property.first)) keys.emplace_back(dba->PropertyToName(property.first));
     }
     return TypedValue(std::move(keys));
   };
+  auto const *checker = ctx.auth_checker;
+  auto allow_all = [](storage::PropertyId) { return true; };
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
   if (value.IsVertex()) {
-    return get_keys(value.ValueVertex());
+    auto const &vertex = value.ValueVertex();
+    if (!checker) return get_keys(vertex, allow_all);
+    auto maybe_labels = vertex.Labels(ctx.view);
+    if (!maybe_labels) throw QueryRuntimeException("Unexpected error when getting labels.");
+    return get_keys(vertex, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (value.IsEdge()) {
-    return get_keys(value.ValueEdge());
+    auto const &edge = value.ValueEdge();
+    if (!checker) return get_keys(edge, allow_all);
+    return get_keys(edge, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (value.IsVirtualNode() || value.IsVirtualEdge()) {
     const auto &props = VirtualProperties(value);
@@ -865,7 +878,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
 
-  auto get_values = [&](const auto &record_accessor) {
+  auto get_values = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector values(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (!maybe_props) {
@@ -881,21 +894,36 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
       }
     }
     for (const auto &[key, value] : *maybe_props) {
-      auto typed_value = TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-      values.emplace_back(std::move(typed_value));
+      if (is_allowed(key)) {
+        values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+      } else {
+        values.emplace_back(TypedValue(ctx.memory));
+      }
     }
     return TypedValue(std::move(values));
   };
 
+  auto const *checker = ctx.auth_checker;
+  auto allow_all = [](storage::PropertyId) { return true; };
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
   if (value.IsVertex()) {
-    return get_values(value.ValueVertex());
+    auto const &vertex = value.ValueVertex();
+    if (!checker) return get_values(vertex, allow_all);
+    auto maybe_labels = vertex.Labels(ctx.view);
+    if (!maybe_labels) throw QueryRuntimeException("Unexpected error when getting labels.");
+    return get_values(vertex, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (value.IsEdge()) {
-    return get_values(value.ValueEdge());
+    auto const &edge = value.ValueEdge();
+    if (!checker) return get_values(edge, allow_all);
+    return get_values(edge, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (value.IsVirtualNode() || value.IsVirtualEdge()) {
     const auto &props = VirtualProperties(value);
