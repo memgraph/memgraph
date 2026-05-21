@@ -147,18 +147,21 @@ TEST(PrometheusMetrics, UpdateGaugesReturnsZeroAfterDefaultDbUuidChange) {
 
   memgraph::metrics::StorageSnapshot const snapshot{.vertex_count = 42, .edge_count = 10, .disk_usage = 2048};
 
-  // Resolver only knows uuid_b — simulates storage having been re-keyed.
+  // Snapshot resolver will simulate return returning "stale" settings if
+  // requesting any database with a uuid other than the HA cluster's default
+  // db uuid.
   pm.SetStorageSnapshotResolver(
       [&](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
         if (uuid == uuid_b) return snapshot;
         return std::nullopt;
       });
 
-  // Metrics registered with original uuid_a (as happens at startup).
+  // Metrics registered with original uuid_a, as happens at startup
   pm.AddDatabase(uuid_a, "memgraph");
 
-  // Simulate HA UUID realignment: storage now answers to uuid_b.
-  pm.RebindDatabaseUUID(uuid_a, uuid_b);
+  // Simulate HA UUID realignment on joining cluster: storage now answers to
+  // uuid_b
+  pm.RebindDefaultDatabaseUUID(uuid_b);
 
   pm.UpdateGauges();
 

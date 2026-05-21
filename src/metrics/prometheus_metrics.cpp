@@ -1112,14 +1112,14 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   databases_.entries.erase(it);
 }
 
-void PrometheusMetrics::RebindDatabaseUUID(utils::UUID const &old_uuid, utils::UUID const &new_uuid) {
+void PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID const &new_uuid) {
   std::lock_guard const lock{databases_.mutex};
+  MG_ASSERT(default_db_uuid_, "RebindDefaultDatabaseUUID: no default database registered");
+  auto const &old_uuid = *default_db_uuid_;
   auto it = r::find_if(databases_.entries, [&old_uuid](auto const &e) { return e.uuid == old_uuid; });
-  if (it == databases_.entries.end()) return;
+  MG_ASSERT(it != databases_.entries.end(), "RebindDefaultDatabaseUUID: default UUID not found in metrics registry");
   it->uuid = new_uuid;
-  if (default_db_uuid_ && *default_db_uuid_ == old_uuid) {
-    default_db_uuid_ = new_uuid;
-  }
+  default_db_uuid_ = new_uuid;
 }
 
 void PrometheusMetrics::UpdateGauges() {
