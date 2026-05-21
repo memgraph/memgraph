@@ -346,6 +346,7 @@ class PrometheusMetrics {
 
   DatabaseMetricHandles AddDatabase(utils::UUID const &uuid, std::string_view name);
   void RemoveDatabase(utils::UUID const &uuid);
+  void RebindDatabaseUUID(utils::UUID const &old_uuid, utils::UUID const &new_uuid);
   void UpdateGauges();
 
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);

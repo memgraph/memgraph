@@ -207,7 +207,9 @@ class DbmsHandler {
       }
       spdlog::debug("Updated default db's UUID");
       // Default db cannot be deleted and remade, have to just update the UUID
+      auto const old_uuid = storage->config_.salient.uuid;
       storage->config_.salient.uuid = config.uuid;
+      metrics::Metrics().RebindDatabaseUUID(old_uuid, config.uuid);
       UpdateDurability(storage->config_, ".");
       return db;
     }
