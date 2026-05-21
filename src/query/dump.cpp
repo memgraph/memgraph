@@ -10,7 +10,9 @@
 // licenses/APL.txt.
 
 #include "query/dump.hpp"
+
 #include <range/v3/all.hpp>
+#include "query/auth_checker.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -259,7 +261,8 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   *os << "}";
 }
 
-void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAccessor &vertex) {
+void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAccessor &vertex,
+                FineGrainedAuthChecker const *auth_checker) {
   *os << "CREATE (";
   *os << ":" << kInternalVertexLabel;
   auto maybe_labels = vertex.Labels(storage::View::OLD);
@@ -301,11 +304,18 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
     prop_value.ValueVectorIndexList() = std::move(vector);
   }
 
+  if (auth_checker) {
+    std::erase_if(*maybe_props, [&](auto const &kv) {
+      return !auth_checker->HasPropertyPermission(*maybe_labels, kv.first, AuthQuery::PropertyPermissionType::READ);
+    });
+  }
+
   DumpProperties(os, dba, *maybe_props, vertex.CypherId());
   *os << ");";
 }
 
-void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccessor &edge) {
+void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccessor &edge,
+              FineGrainedAuthChecker const *auth_checker) {
   *os << "MATCH ";
   *os << "(u:" << kInternalVertexLabel << "), ";
   *os << "(v:" << kInternalVertexLabel << ")";
@@ -327,6 +337,11 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
       case storage::Error::PROPERTIES_DISABLED:
         throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
+  }
+  if (auth_checker) {
+    std::erase_if(*maybe_props, [&](auto const &kv) {
+      return !auth_checker->HasPropertyPermission(edge.EdgeType(), kv.first, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (!maybe_props->empty()) {
     *os << " ";
@@ -460,8 +475,9 @@ const char *triggerPhaseToString(TriggerPhase phase) {
 
 }  // namespace
 
-PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
+PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc, FineGrainedAuthChecker const *auth_checker)
     : dba_(dba),
+      auth_checker_(auth_checker),
       db_acc_(db_acc),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
       pull_chunks_{/*
@@ -993,7 +1009,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateVertexPullChunk() {
     size_t local_counter = 0;
     while (current_iter != vertices_iterable_.end() && (!n || local_counter < *n)) {
       std::ostringstream os;
-      DumpVertex(&os, dba_, *current_iter);
+      DumpVertex(&os, dba_, *current_iter, auth_checker_);
       stream->Result({TypedValue(os.str())});
       ++local_counter;
       ++current_iter;
@@ -1036,7 +1052,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
       auto current_edge_iter = maybe_current_edge_iter ? *maybe_current_edge_iter : maybe_edges->edges.begin();
       for (; current_edge_iter != maybe_edges->edges.end() && (!n || local_counter < *n); ++current_edge_iter) {
         std::ostringstream os;
-        DumpEdge(&os, dba_, *current_edge_iter);
+        DumpEdge(&os, dba_, *current_edge_iter, auth_checker_);
         stream->Result({TypedValue(os.str())});
 
         ++local_counter;
@@ -1193,8 +1209,9 @@ PullPlanDump::PullChunk PullPlanDump::CreateDescriptionsPullChunk() {
   };
 }
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc) {
-  PullPlanDump(dba, db_acc).Pull(stream, {});
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc,
+                                 FineGrainedAuthChecker const *auth_checker) {
+  PullPlanDump(dba, db_acc, auth_checker).Pull(stream, {});
 }
 
 }  // namespace memgraph::query
