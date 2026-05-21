@@ -129,6 +129,16 @@ set(CPACK_RPM_COMPONENT_INSTALL ON)
 # CPACK_DEBIAN_MEMGRAPH_PACKAGE_NAME above and with the rpm filename pattern.
 set(CPACK_RPM_MEMGRAPH_PACKAGE_NAME "memgraph")
 set(CPACK_RPM_DEBUGINFO_PACKAGE_NAME "memgraph-debuginfo")
+
+# Disable rpmbuild's post-install stripping for the debuginfo component.
+# Without this override, brp-strip recognises our .debug sidecars as ELF
+# and strips their DWARF sections — leaving each file at ~10% of its
+# DEB counterpart and effectively useless for gdb/debuginfod. The .debug
+# files were already produced by `objcopy --only-keep-debug` (see
+# cmake/SplitDebug.cmake); we want them in the RPM verbatim.
+set(CPACK_RPM_DEBUGINFO_SPEC_MORE_DEFINE [[%define __strip /bin/true
+%global __os_install_post %{nil}
+%global _build_id_links none]])
 set(CPACK_RPM_DEBUGINFO_FILE_NAME
     "memgraph-debuginfo-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
 set(CPACK_RPM_DEBUGINFO_PACKAGE_REQUIRES

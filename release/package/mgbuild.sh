@@ -1323,8 +1323,12 @@ copy_debug_symbols() {
   mkdir -p "$host_dir"
   local container_tarball="/tmp/debug-symbols-$$.tar.gz"
   echo "Archiving .debug sidecars from $build_container..."
+  # Exclude _CPack_Packages — CPack stages an install copy of every .debug
+  # there during package generation, which would double every upload (same
+  # build-id, same destination). Each unique sidecar lives at its build
+  # location once.
   docker exec -u mg "$build_container" bash -c \
-    "cd $MGBUILD_BUILD_DIR && find . -name '*.debug' -type f -print0 | tar --null -czf $container_tarball -T -"
+    "cd $MGBUILD_BUILD_DIR && find . -path './_CPack_Packages' -prune -o -name '*.debug' -type f -print0 | tar --null -czf $container_tarball -T -"
   docker cp "$build_container:$container_tarball" "$host_dir/debug-symbols.tar.gz"
   docker exec -u mg "$build_container" rm -f "$container_tarball"
   # Extract for easy per-file access (e.g. readelf + upload step).

@@ -207,6 +207,13 @@ install(FILES
 install(TARGETS mg-module-support
     LIBRARY DESTINATION lib/memgraph)
 
+# Sidecar .debug for mg-module-support (mirrors the memgraph install above).
+# OPTIONAL because Release/non-split-debug builds don't produce a sidecar.
+install(FILES $<TARGET_FILE:mg-module-support>.debug
+    DESTINATION lib/memgraph
+    COMPONENT debuginfo
+    OPTIONAL)
+
 # Install Python source for supporting our embedded Python.
 install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.py
         DESTINATION lib/memgraph/python_support)
