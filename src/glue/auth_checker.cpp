@@ -14,6 +14,7 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "flags/auth.hpp"
 #include "glue/auth.hpp"
 #include "glue/query_user.hpp"
 #include "license/license.hpp"
@@ -343,6 +344,7 @@ auth::PropertyAccessPermissions const &FineGrainedAuthChecker::GetCachedProperty
 bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId const> labels,
                                                    storage::PropertyId property,
                                                    query::AuthQuery::PropertyPermissionType type) const {
+  if (!FLAGS_property_fga_enabled) return true;
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
@@ -365,6 +367,7 @@ bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId co
 
 bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &edge_type, storage::PropertyId property,
                                                    query::AuthQuery::PropertyPermissionType type) const {
+  if (!FLAGS_property_fga_enabled) return true;
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }

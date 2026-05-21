@@ -66,6 +66,10 @@ DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRege
 
 DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
 
+DEFINE_bool(property_fga_enabled, false,
+            "Set to true to enable property-level fine-grained access control. "
+            "When disabled, property permissions are not enforced.");
+
 DEFINE_string(
     auth_password_strength_regex, memgraph::glue::kDefaultPasswordRegex.data(),
     "The regular expression that should be used to match the entire entered password to ensure its strength.");
