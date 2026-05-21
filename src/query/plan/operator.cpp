@@ -611,7 +611,12 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
                                 nullptr,
                                 &context.number_of_hops,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
 
   if (input_cursor_->Pull(frame, context)) {
     // we have to resolve the labels before we can check for permissions
@@ -758,7 +763,12 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
                                 nullptr,
                                 &context.number_of_hops,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
   auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
   auto edge_type = EvaluateEdgeType(self_.edge_info_.edge_type, evaluator, context.db_accessor);
 
@@ -1240,7 +1250,12 @@ std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expressi
                                 nullptr,
                                 &context.number_of_hops,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
   auto value = expression->Accept(evaluator);
   if (value.IsNull()) {
     return std::nullopt;
@@ -1373,7 +1388,12 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     if (!maybe_lower && !maybe_upper) return std::nullopt;
@@ -1533,7 +1553,12 @@ UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *me
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     if (!maybe_lower && !maybe_upper) return std::nullopt;
@@ -1602,7 +1627,12 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
 
     auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
     if (!maybe_prop_value_ranges) {
@@ -1696,7 +1726,12 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem,
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
     auto value = expression_->Accept(evaluator);
     auto id = ExtractIdValue(value, expects_string_id_);
     if (!id) return std::nullopt;
@@ -1745,7 +1780,12 @@ UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem,
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
     auto value = expression_->Accept(evaluator);
     auto id = ExtractIdValue(value, expects_string_id_);
     if (!id) return std::nullopt;
@@ -2248,7 +2288,12 @@ class ExpandVariableCursor : public Cursor {
                                     nullptr,
                                     &context.number_of_hops,
                                     context.user_or_role,
-                                    context.triggering_user);
+                                    context.triggering_user
+#ifdef MG_ENTERPRISE
+                                    ,
+                                    context.auth_checker.get()
+#endif
+      );
       auto calc_bound = [&evaluator](auto &bound) {
         auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
         if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
@@ -2319,7 +2364,12 @@ class ExpandVariableCursor : public Cursor {
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
     // Some expansions might not be valid due to edge uniqueness and
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
@@ -2448,7 +2498,12 @@ class STShortestPathCursor : public query::plan::Cursor {
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
     while (input_cursor_->Pull(frame, context)) {
       if (context.hops_limit.IsLimitReached()) return false;
 
@@ -2725,7 +2780,12 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     // for the given (edge, vertex) pair checks if they satisfy the
@@ -3000,7 +3060,12 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -3318,7 +3383,12 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
 
     auto *memory = context.evaluation_context.memory;
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
@@ -3735,7 +3805,12 @@ class KShortestPathsCursor : public Cursor {
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
 
     limit_ = self_.limit_ ? EvaluateInt(evaluator, self_.limit_, "Limit in KSHORTEST path expansion")
                           : std::numeric_limits<int64_t>::max();
@@ -4615,7 +4690,12 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
                                 context.frame_change_collector,
                                 &context.number_of_hops,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
   while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
@@ -4734,7 +4814,12 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
                                   context.frame_change_collector,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
     for (auto *named_expr : self_.named_expressions_) {
       named_expr->Accept(evaluator);
     }
@@ -4788,7 +4873,12 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
                                 nullptr,
                                 &context.number_of_hops,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
 
   auto *pull_memory = context.evaluation_context.memory;
   // collect expressions results so edges can get deleted before vertices
@@ -4887,7 +4977,12 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
     buffer_size_ = *EvaluateDeleteBufferSize(evaluator, self_.buffer_size_);
   }
 
@@ -4993,7 +5088,12 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
                                 nullptr,
                                 &context.number_of_hops,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
@@ -5113,7 +5213,12 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
                                 nullptr,
                                 nullptr,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
@@ -5438,7 +5543,12 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
                                 nullptr,
                                 &context.number_of_hops,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   TypedValue rhs = self_.rhs_->Accept(evaluator);
@@ -5533,7 +5643,12 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
                                 nullptr,
                                 &context.number_of_hops,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -5637,7 +5752,12 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
                                 nullptr,
                                 &context.number_of_hops,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   auto remove_prop = [property = self_.property_, &context](auto *record) {
@@ -5748,7 +5868,12 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
                                 nullptr,
                                 &context.number_of_hops,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   auto remove_nested_property = [this, &context, &evaluator](auto *record) {
@@ -5883,7 +6008,12 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
                                 nullptr,
                                 &context.number_of_hops,
                                 context.user_or_role,
-                                context.triggering_user);
+                                context.triggering_user
+#ifdef MG_ENTERPRISE
+                                ,
+                                context.auth_checker.get()
+#endif
+  );
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -6442,7 +6572,13 @@ class AggregateCursor : public Cursor {
                                   storage::View::NEW,
                                   nullptr,
                                   &context->number_of_hops,
-                                  context->user_or_role);
+                                  context->user_or_role,
+                                  {}
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context->auth_checker.get()
+#endif
+    );
 
     bool pulled = false;
     while (input_cursor_->Pull(*frame, *context)) {
@@ -6950,7 +7086,12 @@ class OrderByCursor : public Cursor {
                                     nullptr,
                                     &context.number_of_hops,
                                     context.user_or_role,
-                                    context.triggering_user);
+                                    context.triggering_user
+#ifdef MG_ENTERPRISE
+                                    ,
+                                    context.auth_checker.get()
+#endif
+      );
       // auto *pull_mem = context.evaluation_context.memory;
       auto *query_mem = cache_.get_allocator().resource();
 
@@ -7293,7 +7434,12 @@ class UnwindCursor : public Cursor {
                                       nullptr,
                                       nullptr,
                                       context.user_or_role,
-                                      context.triggering_user);
+                                      context.triggering_user
+#ifdef MG_ENTERPRISE
+                                      ,
+                                      context.auth_checker.get()
+#endif
+        );
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
         if (input_value.type() != TypedValue::Type::List)
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
@@ -8149,7 +8295,12 @@ class CallProcedureCursor : public Cursor {
                                     nullptr,
                                     &context.number_of_hops,
                                     context.user_or_role,
-                                    context.triggering_user);
+                                    context.triggering_user
+#ifdef MG_ENTERPRISE
+                                    ,
+                                    context.auth_checker.get()
+#endif
+      );
       result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
@@ -8722,7 +8873,12 @@ class ForeachCursor : public Cursor {
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
     TypedValue expr_result = expression->Accept(evaluator);
 
     if (expr_result.IsNull()) {
@@ -9019,7 +9175,12 @@ class HashJoinCursor : public Cursor {
                                       nullptr,
                                       &context.number_of_hops,
                                       context.user_or_role,
-                                      context.triggering_user);
+                                      context.triggering_user
+#ifdef MG_ENTERPRISE
+                                      ,
+                                      context.auth_checker.get()
+#endif
+        );
         auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
         if (hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
@@ -9074,7 +9235,12 @@ class HashJoinCursor : public Cursor {
                                     nullptr,
                                     &context.number_of_hops,
                                     context.user_or_role,
-                                    context.triggering_user);
+                                    context.triggering_user
+#ifdef MG_ENTERPRISE
+                                    ,
+                                    context.auth_checker.get()
+#endif
+      );
       auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
       if (left_value.type() != TypedValue::Type::Null) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
@@ -9259,7 +9425,12 @@ class PeriodicCommitCursor : public Cursor {
                                     nullptr,
                                     &context.number_of_hops,
                                     context.user_or_role,
-                                    context.triggering_user);
+                                    context.triggering_user
+#ifdef MG_ENTERPRISE
+                                    ,
+                                    context.auth_checker.get()
+#endif
+      );
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
     }
 
@@ -9365,7 +9536,12 @@ class PeriodicSubqueryCursor : public Cursor {
                                     nullptr,
                                     &context.number_of_hops,
                                     context.user_or_role,
-                                    context.triggering_user);
+                                    context.triggering_user
+#ifdef MG_ENTERPRISE
+                                    ,
+                                    context.auth_checker.get()
+#endif
+      );
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
     }
 
@@ -9477,7 +9653,12 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem,
                                          nullptr,
                                          &context.number_of_hops,
                                          context.user_or_role,
-                                         context.triggering_user);
+                                         context.triggering_user
+#ifdef MG_ENTERPRISE
+                                         ,
+                                         context.auth_checker.get()
+#endif
+    );
     auto value = cmp_value_->Accept(evaluator);
 
     auto crs = GetCRS(value);
@@ -9543,7 +9724,12 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem,
                                          nullptr,
                                          &context.number_of_hops,
                                          context.user_or_role,
-                                         context.triggering_user);
+                                         context.triggering_user
+#ifdef MG_ENTERPRISE
+                                         ,
+                                         context.auth_checker.get()
+#endif
+    );
     auto bottom_left_value = bottom_left_->Accept(evaluator);
     auto top_right_value = top_right_->Accept(evaluator);
 
@@ -9954,7 +10140,12 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
 
     auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
     // Return empty chunks if bounds are null - need to handle this case
@@ -10071,7 +10262,12 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
@@ -10215,7 +10411,12 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
@@ -11344,7 +11545,12 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
                                     nullptr,
                                     &context.number_of_hops,
                                     context.user_or_role,
-                                    context.triggering_user);
+                                    context.triggering_user
+#ifdef MG_ENTERPRISE
+                                    ,
+                                    context.auth_checker.get()
+#endif
+      );
       TypedValue to_skip = self_.expression_->Accept(evaluator);
       if (to_skip.type() != TypedValue::Type::Int)
         throw QueryRuntimeException("Number of elements to skip must be an integer.");
@@ -11436,7 +11642,12 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
                                   nullptr,
                                   &context.number_of_hops,
                                   context.user_or_role,
-                                  context.triggering_user);
+                                  context.triggering_user
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  context.auth_checker.get()
+#endif
+    );
     TypedValue limit = self_.expression_->Accept(evaluator);
     if (limit.type() != TypedValue::Type::Int)
       throw QueryRuntimeException("Limit on number of returned elements must be an integer.");

@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "query/auth_checker.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -240,9 +241,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
                       storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
-                      const int64_t *hops_counter = nullptr,
-		      const std::shared_ptr<QueryUserOrRole> &user_or_role = {},
-                      const std::shared_ptr<QueryUserOrRole> &triggering_user = {})
+                      const int64_t *hops_counter = nullptr, const std::shared_ptr<QueryUserOrRole> &user_or_role = {},
+                      const std::shared_ptr<QueryUserOrRole> &triggering_user = {}
+#ifdef MG_ENTERPRISE
+                      ,
+                      FineGrainedAuthChecker *auth_checker = nullptr
+#endif
+                      )
       : frame_(frame),
         symbol_table_(&symbol_table),
         ctx_(&ctx),
@@ -251,7 +256,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         frame_change_collector_(frame_change_collector),
         hops_counter_(hops_counter),
         user_or_role_(user_or_role.get()),
-        triggering_user_(triggering_user.get()) {}
+        triggering_user_(triggering_user.get())
+#ifdef MG_ENTERPRISE
+        ,
+        auth_checker_(auth_checker)
+#endif
+  {
+  }
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -1054,8 +1065,25 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(*maybe_enum, ctx_->memory);
   }
 
+#ifdef MG_ENTERPRISE
+  bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
+    if (!auth_checker_) return true;
+    auto maybe_labels = accessor.Labels(view_);
+    if (!maybe_labels) return true;
+    return auth_checker_->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+  }
+
+  bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
+    if (!auth_checker_) return true;
+    return auth_checker_->HasPropertyPermission(accessor.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+  }
+#endif
+
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
+#ifdef MG_ENTERPRISE
+    if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
+#endif
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
@@ -1083,7 +1111,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
-    auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+    auto prop_id = dba_->NameToProperty(name);
+#ifdef MG_ENTERPRISE
+    if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
+#endif
+    auto maybe_prop = record_accessor.GetProperty(view_, prop_id);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1091,7 +1123,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+      maybe_prop = record_accessor.GetProperty(view_, prop_id);
     }
     if (!maybe_prop) {
       switch (maybe_prop.error()) {
@@ -1133,6 +1165,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           throw QueryRuntimeException("Unexpected error when getting properties.");
       }
     }
+#ifdef MG_ENTERPRISE
+    auto &props = *maybe_props;
+    for (auto &[prop_id, value] : props) {
+      if (!IsPropertyAllowed(record_accessor, prop_id)) {
+        value = storage::PropertyValue{};
+      }
+    }
+#endif
     return *std::move(maybe_props);
   }
 
@@ -1154,6 +1194,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   const int64_t *hops_counter_;
   const QueryUserOrRole *user_or_role_;
   const QueryUserOrRole *triggering_user_;
+#ifdef MG_ENTERPRISE
+  FineGrainedAuthChecker *auth_checker_{nullptr};
+#endif
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.
