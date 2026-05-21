@@ -58,25 +58,24 @@ target_link_libraries(memgraph PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>"
         libstdc++_custom)
 target_link_options(memgraph PRIVATE -nostdlib++)
 
-# Export all globally-visible symbols to .dynsym so in-process backtraces
-# (utils/stacktrace.hpp via backtrace_symbols(), used by the terminate handler
-# and exception classes) resolve internal function names in logged crash
-# traces. Without this, logs show only raw addresses and require offline
-# symbolication via gdb + the .debug sidecar to read.
-#
-# Note: --strip-all (our post-link step) does NOT strip .dynsym, so the
-# symbols promoted by -rdynamic remain in the shipping binary. Expected size
-# impact ~10-20 MB. Supersedes --dynamic-list below — every globally-visible
-# symbol is now exported, not only those listed in mg_procedure.syms.
-target_link_options(memgraph PRIVATE -rdynamic)
-
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link the
 # symbols in custom procedure module libraries.
 # The better approach might be to use visibility to define what to export. This is a simple way to have targeted
 # exporting of symbols without having to deal with all the libraries and their visibility.
-# (Largely redundant while -rdynamic above is set; kept for documentation of
-# the public module API surface and for the day visibility is tightened.)
+#
+# Do NOT add `-rdynamic` here. We tried it briefly (to surface readable
+# function names in in-process `backtrace_symbols()` traces) but it
+# promotes every globally-visible libstdc++_custom symbol into .dynsym.
+# Python C extensions loaded by the embedded interpreter (pyarrow's
+# _compute.so in particular) then bind their C++ runtime references
+# against memgraph's libstdc++ instead of their own bundled libstdc++,
+# which silently breaks their static initialisers — `pyarrow.compute`
+# ends up missing kernel functions like `.equal`, which cascades into
+# pandas → neo4j → gqlalchemy import failures and takes down every
+# MAGE Python query module that touches gqlalchemy. Offline
+# symbolication via debuginfod + the .debug sidecar is the supported
+# path for readable traces.
 target_link_options(memgraph PRIVATE "LINKER:--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
 # Set RPATH for custom libstdc++
 set_target_properties(memgraph PROPERTIES
