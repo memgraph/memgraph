@@ -548,7 +548,14 @@ jobs:
             $TEST_ARGS
 
       - name: Generate SBOM
-        if: ${{ inputs.generate_sbom == true && inputs.memgraph_download_link == '' }}
+        # Runs even when memgraph is downloaded as a prebuilt deb (i.e.
+        # memgraph_download_link != ''). tools/ci/sbom/build-sbom.sh has a
+        # fallback path that runs `conan install` against $CONAN_REMOTE to
+        # produce the build SBOM without needing a local memgraph build
+        # tree, so this still works in the prebuilt-deb flow — and is
+        # required for `generate-mage-image-sbom` below, which expects
+        # sbom/memgraph-build-sbom.json to exist.
+        if: ${{ inputs.generate_sbom == true }}
         env:
           CONAN_REMOTE: "${{ secrets.CONAN_REMOTE }}"
         run: |
