@@ -132,7 +132,15 @@ auto ServerContext::reload() -> std::expected<void, SSL_CTX_Error> {
   // NOLINTNEXTLINE(hicpp-signed-bitwise)
   new_ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
                        ssl::context::single_dh_use);
-  new_ctx->set_default_verify_paths();
+
+  // We deliberately do NOT call `set_default_verify_paths()` here. The trust
+  // store is consulted only when `verify_peer_` is true (i.e. on the
+  // intra-cluster mTLS path), and there the operator-supplied `ca_file_` must
+  // be the SOLE trust anchor — unioning it with the OS root store would let
+  // any publicly-issued cert authenticate against the cluster, which defeats
+  // the purpose of the private CA. For Bolt's server-only TLS (verify_peer
+  // is false) this changes nothing because the trust store is never consulted.
+
   // TODO: add support for encrypted private keys
   // TODO: add certificate revocation list (CRL)
   boost::system::error_code ec;

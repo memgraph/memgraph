@@ -21,7 +21,6 @@
 #include <unistd.h>
 #include <cerrno>
 #include <chrono>
-#include <compare>
 #include <cstring>
 #include <string>
 
@@ -275,17 +274,17 @@ void Socket::SetNonBlocking() {
   MG_ASSERT(fcntl(socket_, F_SETFL, flags | o_nonblock) != -1, "Can't set socket nonblocking");
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 auto Socket::SetBlocking() -> bool {
   int flags = fcntl(socket_, F_GETFL, 0);
   if (flags < 0) {
     spdlog::error("Failed to read flags when setting socket to blocking mode");
-    Close();
     return false;
   }
   flags &= ~O_NONBLOCK;
   if (fcntl(socket_, F_SETFL, flags) < 0) {
     spdlog::error("Failed to restore socket to blocking mode after SSL handshake");
-    Close();
     return false;
   }
   return true;
