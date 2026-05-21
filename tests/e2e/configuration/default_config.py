@@ -200,6 +200,12 @@ startup_config_dict = {
         "Max bits for floating-point property storage (16, 32, or 64). Smaller values save space but reduce precision (32=float, 16=half).",
     ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
+    "property_fga_enabled": (
+        "false",
+        "false",
+        "Set to true to enable property-level fine-grained access control. "
+        "When disabled, property permissions are not enforced.",
+    ),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
         "600",
