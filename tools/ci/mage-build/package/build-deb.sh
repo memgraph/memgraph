@@ -52,13 +52,33 @@ cp ../../../../mage/install_python_requirements.sh $SCRIPT_DIR/build/usr/lib/mem
 
 tar -xvzf $PACKAGE_DIR -C $SCRIPT_DIR/build/usr/lib/memgraph/
 
-# For the prod flavour, strip any .debug sidecars that were bundled into the
-# tarball by mage/setup. They're only relevant to the debug flavour (symbols
-# embedded alongside the .so) or to the external symbol archive. Match both
-# shapes: `<name>.so.debug` (no SOVERSION) and `<name>.so.<N>.debug` (with
-# SOVERSION — what mage's add_query_module produces).
-if [[ "$PACKAGE_FLAVOUR" == "prod" ]]; then
-    find $SCRIPT_DIR/build/usr/lib/memgraph -name '*.so*.debug' -print -delete
+# Split the .debug sidecars out of the main package and into a sibling
+# staging tree that the memgraph-mage-debuginfo deb's .install file picks up.
+# Match both `<name>.so.debug` (no SOVERSION) and `<name>.so.<N>.debug` (with
+# SOVERSION — what mage's add_query_module produces). After the move,
+# build/ holds the stripped .so files for the main package; build-debuginfo/
+# holds the corresponding .debug sidecars for the debuginfo package.
+#
+# For the debug flavour (no split-debug build), no sidecars exist —
+# symbols are embedded in the .so files directly. In that case the
+# debuginfo deb would be empty, so drop its stanza from control before
+# dpkg-buildpackage and skip the move.
+DEBUGINFO_STAGE="$SCRIPT_DIR/build-debuginfo/usr/lib/memgraph/query_modules"
+mkdir -pv "$DEBUGINFO_STAGE"
+HAS_DEBUGINFO=false
+if find "$SCRIPT_DIR/build/usr/lib/memgraph/query_modules" -maxdepth 1 -name '*.so*.debug' -print -quit | grep -q .; then
+    HAS_DEBUGINFO=true
+    (cd "$SCRIPT_DIR/build/usr/lib/memgraph/query_modules" && \
+        find . -name '*.so*.debug' -print | while read -r f; do
+            mkdir -p "$DEBUGINFO_STAGE/$(dirname "$f")"
+            mv -v "$f" "$DEBUGINFO_STAGE/$f"
+        done)
+fi
+if [[ "$HAS_DEBUGINFO" != "true" ]]; then
+    echo "No .debug sidecars present — dropping memgraph-mage-debuginfo package from control."
+    # Delete from the "Package: memgraph-mage-debuginfo" line through EOF
+    # so dpkg-buildpackage only emits the main package on this run.
+    sed -i '/^Package: memgraph-mage-debuginfo$/,$d' "$SCRIPT_DIR/debian/control"
 fi
 
 # Replace template variables in Debian control files
@@ -71,5 +91,14 @@ sed -i "s/@ARCH@/$ARCH/g" $SCRIPT_DIR/debian/postinst
 
 dpkg-buildpackage -us -uc -b
 
-old_name="$(ls ../memgraph-mage*.deb)"
-mv $old_name $PACKAGE_NAME
+# Rename the main package to the suffix-aware $PACKAGE_NAME, then the
+# debuginfo companion (when present) to a parallel name. Globs are
+# tightened so the main package's mv doesn't accidentally match the
+# debuginfo one.
+old_name="$(ls ../memgraph-mage_*.deb | grep -v -- '-debuginfo' | head -n 1)"
+mv "$old_name" "$PACKAGE_NAME"
+if [[ "$HAS_DEBUGINFO" == "true" ]]; then
+    debuginfo_old="$(ls ../memgraph-mage-debuginfo_*.deb | head -n 1)"
+    debuginfo_new="memgraph-mage-debuginfo_${PACKAGE_NAME#memgraph-mage_}"
+    mv "$debuginfo_old" "$debuginfo_new"
+fi

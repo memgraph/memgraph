@@ -108,6 +108,13 @@ ENV PY_VERSION=${PY_VERSION_DEFAULT}
 ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR
 
+# mage.tar.gz (extracted in the base stage) bundles every .so.<N>.debug
+# sidecar so the relwithdebinfo stage below has them on hand. The prod
+# image must stay lean: drop the sidecars here. mage's debuginfo lives
+# in the separate memgraph-mage-debuginfo deb on the package side, and
+# memgraph already warns on unknown .debug files in query_modules.
+RUN find /usr/lib/memgraph/query_modules -name '*.so*.debug' -delete
+
 COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
 
 # Stable telemetry ID for containers — see release/docker/v7_deb.dockerfile

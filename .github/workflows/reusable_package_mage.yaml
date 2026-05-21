@@ -20,8 +20,12 @@ on:
         default: false
       package_flavour:
         type: string
-        description: "Package flavour: 'prod' (stripped binary, symbols archived separately) or 'debug' (symbols embedded, '-relwithdebinfo' suffix). Debug requires build_type=RelWithDebInfo."
+        description: "DEB shape: 'prod' (stripped main deb + memgraph-mage-debuginfo deb) or 'debug' (single deb with embedded symbols, '-relwithdebinfo' suffix). Docker image production is controlled separately via build_docker_image."
         default: prod
+      build_docker_image:
+        type: string
+        description: "Docker image(s) to produce in this job: 'none', 'prod', 'debug', or 'both'. When unset, defaults to mirror package_flavour for backwards-compat (prod -> 'prod', debug -> 'debug'). Set to 'both' to produce prod + debug docker images from a single build — the debug image installs the memgraph-mage-debuginfo deb on top of the prod deb, matching memgraph's split-debug pattern."
+        default: ''
       push_to_github:
         type: boolean
         description: "Push the image, DEB and tar.gz to GitHub?"
@@ -97,6 +101,8 @@ env:
   BUILD_TYPE: "${{ inputs.build_type }}"
   SPLIT_DEBUG: "${{ inputs.split_debug }}"
   PACKAGE_FLAVOUR: "${{ inputs.package_flavour }}"
+  # Effective docker variant: caller's explicit value, else mirror the deb flavour.
+  BUILD_DOCKER_IMAGE: "${{ inputs.build_docker_image != '' && inputs.build_docker_image || inputs.package_flavour }}"
   MALLOC: "${{ inputs.malloc }}"
   CUDA: "${{ inputs.cuda }}"
   CUGRAPH: "${{ inputs.cugraph }}"  # This image cannot be tested in CI, needs an Nvidia GPU
@@ -217,8 +223,24 @@ jobs:
 
       - name: Set image tag and artifact name
         run: |
-          echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA, CUGRAPH=$CUGRAPH, PACKAGE_FLAVOUR=$PACKAGE_FLAVOUR"
-          read IMAGE_TAG ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA" "$CUGRAPH" "$PACKAGE_FLAVOUR")
+          echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA, CUGRAPH=$CUGRAPH, PACKAGE_FLAVOUR=$PACKAGE_FLAVOUR, BUILD_DOCKER_IMAGE=$BUILD_DOCKER_IMAGE"
+          # Compute both candidate tags up front so the Build image (prod)
+          # and Build image (debug) steps each have the right tag to target.
+          # IMAGE_TAG / ARTIFACT_NAME are kept as the "primary" — used by
+          # smoke tests, SBOM, save, upload steps that operate on a single
+          # image — and resolve to the prod variant for build_docker_image
+          # in (prod, both) and the debug variant otherwise.
+          read PROD_IMAGE_TAG PROD_ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA" "$CUGRAPH" "prod")
+          read DEBUG_IMAGE_TAG DEBUG_ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA" "$CUGRAPH" "debug")
+          echo "PROD_IMAGE_TAG=${PROD_IMAGE_TAG}" >> $GITHUB_ENV
+          echo "PROD_ARTIFACT_NAME=${PROD_ARTIFACT_NAME}" >> $GITHUB_ENV
+          echo "DEBUG_IMAGE_TAG=${DEBUG_IMAGE_TAG}" >> $GITHUB_ENV
+          echo "DEBUG_ARTIFACT_NAME=${DEBUG_ARTIFACT_NAME}" >> $GITHUB_ENV
+          case "$BUILD_DOCKER_IMAGE" in
+            prod|both|none) IMAGE_TAG="$PROD_IMAGE_TAG"; ARTIFACT_NAME="$PROD_ARTIFACT_NAME" ;;
+            debug)          IMAGE_TAG="$DEBUG_IMAGE_TAG"; ARTIFACT_NAME="$DEBUG_ARTIFACT_NAME" ;;
+            *)              IMAGE_TAG="$PROD_IMAGE_TAG"; ARTIFACT_NAME="$PROD_ARTIFACT_NAME" ;;
+          esac
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
 
@@ -234,13 +256,14 @@ jobs:
           wget -O mage/memgraph.deb "$MEMGRAPH_DOWNLOAD_LINK"
           echo "Memgraph package downloaded"
           # The relwithdebinfo Dockerfile stage installs memgraph-debuginfo on
-          # top of the main deb (gives gdb the .debug sidecars offline). Debug
-          # flavour callers must therefore supply both URLs.
+          # top of the main deb (gives gdb the .debug sidecars offline).
+          # Callers that produce a debug or both image must supply this URL
+          # whenever they use a pre-built memgraph_download_link.
           if [[ -n "$MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK" ]]; then
             wget -O mage/memgraph-debuginfo.deb "$MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK"
             echo "Memgraph debuginfo package downloaded"
-          elif [[ "$PACKAGE_FLAVOUR" == "debug" ]]; then
-            echo "Error: package_flavour=debug with a pre-built memgraph_download_link requires memgraph_debuginfo_download_link too (the relwithdebinfo Dockerfile target needs memgraph-debuginfo.deb)." >&2
+          elif [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            echo "Error: build_docker_image='$BUILD_DOCKER_IMAGE' with a pre-built memgraph_download_link requires memgraph_debuginfo_download_link too (the relwithdebinfo Dockerfile target needs memgraph-debuginfo.deb)." >&2
             exit 1
           fi
 
@@ -358,7 +381,11 @@ jobs:
           --sbom
 
       - name: "Build heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.package_flavour == 'debug' }}
+        # Heaptrack ships only in the debug docker image, so build it
+        # whenever a debug image is produced (build_docker_image=debug
+        # or =both). Uses env.BUILD_DOCKER_IMAGE to respect the
+        # explicit input or the package_flavour-mirroring default.
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -368,7 +395,7 @@ jobs:
           build-heaptrack
 
       - name: "Copy heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && inputs.package_flavour == 'debug' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
           mkdir -p release/docker
           ./release/package/mgbuild.sh \
@@ -476,8 +503,15 @@ jobs:
             --package-flavour "$PACKAGE_FLAVOUR" \
             $PACKAGE_ARGS
 
-          DEB_PACKAGE="$(ls output/memgraph-mage*.deb)"
+          # memgraph-mage_*.deb (underscore) matches the main package only.
+          # The companion memgraph-mage-debuginfo_*.deb (hyphen-d-e-b-u-g-i-n-f-o)
+          # is produced alongside for prod-flavour split-debug builds; it's
+          # uploaded via the same artifact dir but consumers downstream (the
+          # offline installer, the docker layering step) want the main deb.
+          DEB_PACKAGE="$(ls output/memgraph-mage_*.deb | head -n 1)"
           echo "DEB_PACKAGE=${DEB_PACKAGE}" >> $GITHUB_ENV
+          DEB_DEBUGINFO_PACKAGE="$(ls output/memgraph-mage-debuginfo_*.deb 2>/dev/null | head -n 1 || true)"
+          echo "DEB_DEBUGINFO_PACKAGE=${DEB_DEBUGINFO_PACKAGE}" >> $GITHUB_ENV
 
       - name: Build offline installer (.run) for Ubuntu 24.04
         if: ${{ inputs.build_offline_installer && env.PACKAGE_DEB == 'true' }}
@@ -577,7 +611,13 @@ jobs:
           --cugraph $CUGRAPH \
           stop --remove
 
-      - name: Build image
+      # Docker image creation is split into per-flavour steps so a single
+      # job can produce prod + debug images from one build (matches
+      # reusable_package.yaml's pattern). package-mage-docker is called
+      # with the appropriate --package-flavour each time, producing the
+      # corresponding Dockerfile target (prod / relwithdebinfo).
+      - name: "Build image (prod)"
+        if: ${{ env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both' }}
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -587,12 +627,30 @@ jobs:
             --cugraph $CUGRAPH \
             package-mage-docker \
             --docker-repository-name $DOCKER_REPOSITORY_NAME \
-            --image-tag $IMAGE_TAG \
+            --image-tag $PROD_IMAGE_TAG \
             --memgraph-ref $MEMGRAPH_REF \
             --cache-present $CACHE_PRESENT \
             --custom-mirror true \
             --cuda $CUDA \
-            --package-flavour "$PACKAGE_FLAVOUR"
+            --package-flavour prod
+
+      - name: "Build image (debug)"
+        if: ${{ env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both' }}
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
+            package-mage-docker \
+            --docker-repository-name $DOCKER_REPOSITORY_NAME \
+            --image-tag $DEBUG_IMAGE_TAG \
+            --memgraph-ref $MEMGRAPH_REF \
+            --cache-present $CACHE_PRESENT \
+            --custom-mirror true \
+            --cuda $CUDA \
+            --package-flavour debug
 
       - name: "Bolt smoke test (no-arg startup)"
         # cugraph/cuda images need an Nvidia GPU and can't start on CI runners.
@@ -723,12 +781,21 @@ jobs:
         run: |
           docker stop $MAGE_CONTAINER || true
 
-      - name: Save docker image
-        if: ${{ inputs.push_to_github || inputs.push_to_s3 }}
+      - name: Save docker image(s)
+        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.BUILD_DOCKER_IMAGE != 'none' }}
         run: |
           mkdir -p output
-          docker save ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG | gzip > output/${ARTIFACT_NAME}.tar.gz
-          du -h output/${ARTIFACT_NAME}.tar.gz
+          # Save every image this job produced. For build_docker_image=both
+          # that's two tar.gz files (prod + relwithdebinfo) keyed by their
+          # respective ARTIFACT_NAMEs; for prod/debug-only it's one.
+          if [[ "$BUILD_DOCKER_IMAGE" == "prod" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            docker save ${DOCKER_REPOSITORY_NAME}:$PROD_IMAGE_TAG | gzip > output/${PROD_ARTIFACT_NAME}.tar.gz
+            du -h output/${PROD_ARTIFACT_NAME}.tar.gz
+          fi
+          if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            docker save ${DOCKER_REPOSITORY_NAME}:$DEBUG_IMAGE_TAG | gzip > output/${DEBUG_ARTIFACT_NAME}.tar.gz
+            du -h output/${DEBUG_ARTIFACT_NAME}.tar.gz
+          fi
 
       - name: Run Docker smoke tests
         if: ${{ inputs.run_smoke_tests == true }}
@@ -770,14 +837,20 @@ jobs:
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.ARTIFACT_NAME }}-deb"
-          path: "${{ env.DEB_PACKAGE }}"
+          # Glob both memgraph-mage_*.deb and any sibling
+          # memgraph-mage-debuginfo_*.deb produced for prod-flavour builds.
+          path: "output/memgraph-mage*.deb"
 
       - name: Push docker image to GitHub
-        if: ${{ inputs.push_to_github }}
+        if: ${{ inputs.push_to_github && env.BUILD_DOCKER_IMAGE != 'none' }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.IMAGE_TAG }}-docker"
-          path: "output/${{ env.ARTIFACT_NAME }}.tar.gz"
+          # Glob picks up the prod (mage-X.tar.gz) and debug
+          # (mage-X-relwithdebinfo.tar.gz) variants produced by the Save
+          # docker image(s) step. For build_docker_image=prod|debug
+          # only one matches; for 'both' both upload under a single artifact.
+          path: "output/mage-*.tar.gz"
 
       - name: Push to S3 with retry
         if: ${{ inputs.push_to_s3 }}

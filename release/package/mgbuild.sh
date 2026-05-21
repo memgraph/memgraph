@@ -1925,10 +1925,15 @@ package_mage_deb() {
 
   docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && PACKAGE_FLAVOUR=$package_flavour ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda $cugraph"
 
-  package_name="$(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb")"
   mkdir -pv output
-  docker cp $build_container:$package_name output/
-  echo "Package: $package_name"
+  # Copy every produced deb out. For prod-flavour split-debug builds this
+  # is both the main memgraph-mage_*.deb and its memgraph-mage-debuginfo_*.deb
+  # companion (split off by build-deb.sh). For debug-flavour or no-split
+  # builds only the main deb is produced.
+  for path in $(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb"); do
+    docker cp $build_container:$path output/
+    echo "Package: $path"
+  done
 }
 
 
