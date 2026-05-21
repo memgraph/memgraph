@@ -1551,6 +1551,63 @@ TEST(AuthWithoutStorage, PropertyAccessHandlerDeserializeMissingKey) {
   EXPECT_EQ(handler.edge_type_properties().Has("PAID", "amount"), PermissionLevel::NEUTRAL);
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissionsMerge) {
+  using memgraph::auth::Merge;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+
+  // DENY in second overrides GRANT in first
+  {
+    PropertyAccessPermissions first;
+    first.Grant("Employee", "ssn");
+    PropertyAccessPermissions second;
+    second.Deny("Employee", "ssn");
+    auto merged = Merge(first, second);
+    EXPECT_EQ(merged.Has("Employee", "ssn"), PermissionLevel::DENY);
+  }
+
+  // GRANT in second does NOT override DENY in first
+  {
+    PropertyAccessPermissions first;
+    first.Deny("Employee", "ssn");
+    PropertyAccessPermissions second;
+    second.Grant("Employee", "ssn");
+    auto merged = Merge(first, second);
+    EXPECT_EQ(merged.Has("Employee", "ssn"), PermissionLevel::DENY);
+  }
+
+  // GRANT in second fills NEUTRAL in first
+  {
+    PropertyAccessPermissions first;
+    PropertyAccessPermissions second;
+    second.Grant("Employee", "ssn");
+    auto merged = Merge(first, second);
+    EXPECT_EQ(merged.Has("Employee", "ssn"), PermissionLevel::GRANT);
+  }
+
+  // Merge with empty is identity
+  {
+    PropertyAccessPermissions first;
+    first.Grant("Employee", "name");
+    first.Deny("Employee", "ssn");
+    PropertyAccessPermissions second;
+    auto merged = Merge(first, second);
+    EXPECT_EQ(merged.Has("Employee", "name"), PermissionLevel::GRANT);
+    EXPECT_EQ(merged.Has("Employee", "ssn"), PermissionLevel::DENY);
+  }
+
+  // Wildcard in first, specific DENY in second
+  {
+    PropertyAccessPermissions first;
+    first.Grant("Employee", "*");
+    PropertyAccessPermissions second;
+    second.Deny("Employee", "ssn");
+    auto merged = Merge(first, second);
+    EXPECT_EQ(merged.Has("Employee", "ssn"), PermissionLevel::DENY);
+    EXPECT_EQ(merged.Has("Employee", "name"), PermissionLevel::GRANT);
+  }
+}
+
 TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
   const std::string any_label = "AnyString";
   const std::string check_label = "Label";
