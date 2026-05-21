@@ -2449,9 +2449,26 @@ build_gssapi() {
 
 generate_memgraph_build_sbom() {
   local conan_remote=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --conan-remote)
+        conan_remote=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1' for generate-memgraph-build-sbom" >&2
+        exit 1
+      ;;
+    esac
+  done
 
+  # build-sbom.sh prefers an existing build/generators/sbom/memgraph-sbom.cdx.json
+  # (produced by a local memgraph build) and falls back to a fresh `conan install`
+  # against $CONAN_REMOTE when that file is missing. The MAGE workflow no longer
+  # builds memgraph locally (it downloads the prebuilt deb), so the fallback path
+  # is the one that runs in CI now — which needs $CONAN_REMOTE non-empty.
   if [[ -z "$conan_remote" ]]; then
-    echo -e "${YELLOW_BOLD}CONAN_REMOTE not set${RESET}"
+    echo -e "${YELLOW_BOLD}Warning: --conan-remote not provided; build-sbom.sh will fail if no local build is present${RESET}"
   fi
 
   if [[ -d sbom ]]; then
