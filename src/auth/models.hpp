@@ -682,6 +682,8 @@ bool operator==(const Role &first, const Role &second);
 #ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second);
+
+PropertyAccessPermissions Merge(PropertyAccessPermissions const &first, PropertyAccessPermissions const &second);
 #endif
 
 }  // namespace memgraph::auth
@@ -776,6 +778,10 @@ class Roles {
       std::optional<std::string_view> db_name = std::nullopt) const;
 
   FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+
+  PropertyAccessPermissions GetPropertyLabelPermissions(std::optional<std::string_view> db_name = std::nullopt) const;
+  PropertyAccessPermissions GetPropertyEdgeTypePermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
 
   // No way to define a higher priority database, so we return the first one
@@ -910,6 +916,10 @@ class User final {
   FineGrainedAccessHandler &fine_grained_access_handler();
   PropertyAccessHandler const &property_access_handler() const;
   PropertyAccessHandler &property_access_handler();
+
+  PropertyAccessPermissions GetPropertyLabelPermissions(std::optional<std::string_view> db_name = std::nullopt) const;
+  PropertyAccessPermissions GetPropertyEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
 #endif
   const std::string &username() const;
 

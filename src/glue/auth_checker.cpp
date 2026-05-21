@@ -320,6 +320,61 @@ bool FineGrainedAuthChecker::HasUnrestrictedAccessToEdges() const {
   return HasAllGlobalPrivilegesOnEdges() && permissions.GetRules().empty();
 }
 
+auth::PropertyAccessPermissions const &FineGrainedAuthChecker::GetCachedPropertyLabelPermissions() const {
+  if (!cached_property_label_permissions_) {
+    cached_property_label_permissions_ = std::visit(memgraph::utils::Overloaded{[this](auto const &user_or_role) {
+                                                      return user_or_role.GetPropertyLabelPermissions(db_name_);
+                                                    }},
+                                                    user_or_role_);
+  }
+  return *cached_property_label_permissions_;
+}
+
+auth::PropertyAccessPermissions const &FineGrainedAuthChecker::GetCachedPropertyEdgeTypePermissions() const {
+  if (!cached_property_edge_type_permissions_) {
+    cached_property_edge_type_permissions_ = std::visit(memgraph::utils::Overloaded{[this](auto const &user_or_role) {
+                                                          return user_or_role.GetPropertyEdgeTypePermissions(db_name_);
+                                                        }},
+                                                        user_or_role_);
+  }
+  return *cached_property_edge_type_permissions_;
+}
+
+bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId const> labels,
+                                                   storage::PropertyId property,
+                                                   query::AuthQuery::PropertyPermissionType type) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return true;
+  }
+  auto const &permissions = GetCachedPropertyLabelPermissions();
+  auto const &rules = permissions.GetRules();
+  auto const &prop_name = dba_->PropertyToName(property);
+  bool any_grant = false;
+  bool any_rules = false;
+  for (auto label : labels) {
+    auto const &label_name = dba_->LabelToName(label);
+    if (rules.find(label_name) == rules.end()) continue;
+    any_rules = true;
+    auto level = permissions.Has(label_name, prop_name);
+    if (level == auth::PermissionLevel::DENY) return false;
+    if (level == auth::PermissionLevel::GRANT) any_grant = true;
+  }
+  if (!any_rules) return true;
+  return any_grant;
+}
+
+bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &edge_type, storage::PropertyId property,
+                                                   query::AuthQuery::PropertyPermissionType type) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return true;
+  }
+  auto const &permissions = GetCachedPropertyEdgeTypePermissions();
+  auto const &edge_type_name = dba_->EdgeTypeToName(edge_type);
+  if (permissions.GetRules().find(edge_type_name) == permissions.GetRules().end()) return true;
+  auto const &prop_name = dba_->PropertyToName(property);
+  return permissions.Has(edge_type_name, prop_name) == auth::PermissionLevel::GRANT;
+}
+
 void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
 
 bool FineGrainedAuthChecker::IsThreadSafe() const { return IsCachedPermissionsPopulated(); }
@@ -327,10 +382,13 @@ bool FineGrainedAuthChecker::IsThreadSafe() const { return IsCachedPermissionsPo
 void FineGrainedAuthChecker::PopulateCachedPermissions() const {
   GetCachedLabelPermissions();
   GetCachedEdgePermissions();
+  GetCachedPropertyLabelPermissions();
+  GetCachedPropertyEdgeTypePermissions();
 }
 
 bool FineGrainedAuthChecker::IsCachedPermissionsPopulated() const {
-  return cached_label_permissions_.has_value() && cached_edge_permissions_.has_value();
+  return cached_label_permissions_.has_value() && cached_edge_permissions_.has_value() &&
+         cached_property_label_permissions_.has_value() && cached_property_edge_type_permissions_.has_value();
 }
 #endif
 }  // namespace memgraph::glue

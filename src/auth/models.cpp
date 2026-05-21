@@ -763,6 +763,21 @@ PropertyAccessHandler PropertyAccessHandler::Deserialize(nlohmann::json const &d
   return handler;
 }
 
+PropertyAccessPermissions Merge(PropertyAccessPermissions const &first, PropertyAccessPermissions const &second) {
+  PropertyAccessPermissions result = first;
+  for (auto const &[entity, props] : second.GetRules()) {
+    for (auto const &[prop, perm] : props) {
+      auto current = result.Has(entity, prop);
+      if (perm == PropertyPermission::DENY) {
+        result.Deny(entity, prop);
+      } else if (current == PermissionLevel::NEUTRAL) {
+        result.Grant(entity, prop);
+      }
+    }
+  }
+  return result;
+}
+
 #endif
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
@@ -1225,6 +1240,36 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(
   }
   return combined_permissions;
 }
+
+PropertyAccessPermissions User::GetPropertyLabelPermissions(std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return PropertyAccessPermissions{};
+  }
+  if (db_name && !HasAccess(*db_name)) return PropertyAccessPermissions{};
+
+  auto result = property_access_handler_.label_properties();
+  for (auto const &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      result = Merge(result, role.property_access_handler().label_properties());
+    }
+  }
+  return result;
+}
+
+PropertyAccessPermissions User::GetPropertyEdgeTypePermissions(std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return PropertyAccessPermissions{};
+  }
+  if (db_name && !HasAccess(*db_name)) return PropertyAccessPermissions{};
+
+  auto result = property_access_handler_.edge_type_properties();
+  for (auto const &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      result = Merge(result, role.property_access_handler().edge_type_properties());
+    }
+  }
+  return result;
+}
 #endif
 
 const std::string &User::username() const { return username_; }
@@ -1558,6 +1603,26 @@ FineGrainedAccessPermissions Roles::GetFineGrainedAccessEdgeTypePermissions(
     }
   }
   return combined_permissions;
+}
+
+PropertyAccessPermissions Roles::GetPropertyLabelPermissions(std::optional<std::string_view> db_name) const {
+  PropertyAccessPermissions combined;
+  for (auto const &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      combined = Merge(combined, role.property_access_handler().label_properties());
+    }
+  }
+  return combined;
+}
+
+PropertyAccessPermissions Roles::GetPropertyEdgeTypePermissions(std::optional<std::string_view> db_name) const {
+  PropertyAccessPermissions combined;
+  for (auto const &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      combined = Merge(combined, role.property_access_handler().edge_type_properties());
+    }
+  }
+  return combined;
 }
 #endif  // MG_ENTERPRISE
 

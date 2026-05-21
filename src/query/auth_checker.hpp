@@ -81,6 +81,14 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool HasUnrestrictedAccessToEdges() const = 0;
 
+  [[nodiscard]] virtual bool HasPropertyPermission(std::span<memgraph::storage::LabelId const> labels,
+                                                   memgraph::storage::PropertyId property,
+                                                   AuthQuery::PropertyPermissionType type) const = 0;
+
+  [[nodiscard]] virtual bool HasPropertyPermission(memgraph::storage::EdgeTypeId const &edge_type,
+                                                   memgraph::storage::PropertyId property,
+                                                   AuthQuery::PropertyPermissionType type) const = 0;
+
   // Used to make the auth checker thread safe
   // throw if not possible
   virtual void MakeThreadSafe() const = 0;
@@ -131,6 +139,18 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
   bool HasUnrestrictedAccessToVertices() const override { return true; }
 
   bool HasUnrestrictedAccessToEdges() const override { return true; }
+
+  bool HasPropertyPermission(std::span<memgraph::storage::LabelId const> /*labels*/,
+                             memgraph::storage::PropertyId /*property*/,
+                             AuthQuery::PropertyPermissionType /*type*/) const override {
+    return true;
+  }
+
+  bool HasPropertyPermission(memgraph::storage::EdgeTypeId const & /*edge_type*/,
+                             memgraph::storage::PropertyId /*property*/,
+                             AuthQuery::PropertyPermissionType /*type*/) const override {
+    return true;
+  }
 
   void MakeThreadSafe() const override {
     // No-op

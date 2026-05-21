@@ -89,6 +89,12 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
 
   bool HasUnrestrictedAccessToEdges() const override;
 
+  bool HasPropertyPermission(std::span<storage::LabelId const> labels, storage::PropertyId property,
+                             query::AuthQuery::PropertyPermissionType type) const override;
+
+  bool HasPropertyPermission(storage::EdgeTypeId const &edge_type, storage::PropertyId property,
+                             query::AuthQuery::PropertyPermissionType type) const override;
+
   void MakeThreadSafe() const override;
   bool IsThreadSafe() const override;
 
@@ -100,12 +106,16 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
  private:
   auth::FineGrainedAccessPermissions const &GetCachedLabelPermissions() const;
   auth::FineGrainedAccessPermissions const &GetCachedEdgePermissions() const;
+  auth::PropertyAccessPermissions const &GetCachedPropertyLabelPermissions() const;
+  auth::PropertyAccessPermissions const &GetCachedPropertyEdgeTypePermissions() const;
 
   auth::UserOrRole user_or_role_;
   const query::DbAccessor *dba_;
   std::string db_name_;
   mutable std::optional<auth::FineGrainedAccessPermissions> cached_label_permissions_;
   mutable std::optional<auth::FineGrainedAccessPermissions> cached_edge_permissions_;
+  mutable std::optional<auth::PropertyAccessPermissions> cached_property_label_permissions_;
+  mutable std::optional<auth::PropertyAccessPermissions> cached_property_edge_type_permissions_;
 };
 #endif
 }  // namespace memgraph::glue
