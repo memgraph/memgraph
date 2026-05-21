@@ -11,6 +11,8 @@
 
 #include <gtest/gtest.h>
 #include <chrono>
+#include <future>
+#include <memory>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -178,4 +180,43 @@ TEST_F(StorageModeMultiTxTest, ErrorChangeIsolationLevel) {
 
   ASSERT_THROW(running_interpreter.Interpret("SET GLOBAL TRANSACTION ISOLATION LEVEL READ COMMITTED;"),
                memgraph::query::IsolationLevelModificationInAnalyticsException);
+}
+
+// Regression: SetStorageMode(ANALYTICAL) used to take main_lock_ UNIQUE first
+// and *then* call CompleteRemaining(), which waits on AsyncIndexer::mutex_ —
+// held by the indexer worker, whose ReadOnlyAccess in turn times out forever
+// on the UNIQUE state. Real trigger: ENABLE TTL queues a label+property index
+// task (src/storage/v2/ttl.cpp:219) right before a STORAGE MODE change.
+//
+// We trigger it deterministically by holding UNIQUE ourselves and releasing
+// it during the worker's catch-handler sleep_for window (not its
+// ReadOnlyAccess cv.wait_for), so SetStorageMode reliably wins the UNIQUE
+// race — the exact ordering that produced the deadlock.
+TEST(StorageModeAsyncIndexerDeadlock, EnableTtlStyleEnqueueThenAnalytical) {
+  using namespace memgraph::storage;
+  using namespace std::chrono_literals;
+
+  auto storage = std::make_unique<InMemoryStorage>(Config{});
+  auto label = storage->NameToLabel("TTL");
+  auto prop = storage->NameToProperty("ttl");
+
+  storage->GetAsyncIndexer().Enqueue(label, std::vector{PropertyPath{prop}});
+  auto unique_holder = storage->UniqueAccess();
+
+  std::promise<void> done;
+  auto done_fut = done.get_future();
+  std::thread([&, p = std::move(done)]() mutable {
+    storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+    p.set_value();
+  }).detach();
+
+  // Worker cycle while UNIQUE is held: ~1 s ReadOnlyAccess timeout, then
+  // ~100 ms sleep_for backoff (×1.5 each iter). Land in the 2nd sleep window
+  // [2100, 2250] ms so SetStorageMode is the sole main_lock_ waiter at release.
+  std::this_thread::sleep_for(2175ms);
+  unique_holder.reset();
+
+  ASSERT_EQ(done_fut.wait_for(3s), std::future_status::ready)
+      << "SetStorageMode hung — AsyncIndexer / main_lock_ deadlock is back";
+  EXPECT_EQ(storage->GetStorageMode(), StorageMode::IN_MEMORY_ANALYTICAL);
 }
