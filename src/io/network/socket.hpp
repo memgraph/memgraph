@@ -113,6 +113,11 @@ class Socket {
   void SetNonBlocking();
 
   /**
+  Sets the socket to the blocking mode.
+  */
+  auto SetBlocking() -> bool;
+
+  /**
    * Enables TCP keep-alive on the socket.
    */
   void SetKeepAlive();

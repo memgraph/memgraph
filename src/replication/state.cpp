@@ -176,14 +176,14 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                 auto json_data = nlohmann::json::parse(replica_data, nullptr, false);
                 if (json_data.is_discarded()) return std::unexpected{FetchReplicationError::PARSE_ERROR};
                 try {
-                  durability::ReplicationReplicaEntry const local_data =
-                      json_data.get<durability::ReplicationReplicaEntry>();
+                  durability::ReplicationReplicaEntry local_data = json_data.get<durability::ReplicationReplicaEntry>();
 
                   auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
                   if (key_name != local_data.config.name) {
                     return std::unexpected{FetchReplicationError::PARSE_ERROR};
                   }
                   // Instance clients
+                  local_data.config.tls_config = memgraph::flags::TlsConfigFromClusterFlags();
                   res.registered_replicas_.emplace_back(local_data.config);
                   // Bump for each replica uuid
                   res.registered_replicas_.back().try_set_uuid = !r.main_uuid.has_value();

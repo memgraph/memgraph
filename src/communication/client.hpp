@@ -141,6 +141,8 @@ class Client final {
 
  private:
   void ReleaseSslObjects();
+  auto SetupSslObjects() -> std::expected<void, std::string>;
+  auto DriveSslHandshake() -> std::expected<void, std::string>;
 
   io::network::Socket socket_;
   Buffer buffer_;
