@@ -161,3 +161,32 @@ def ST_Buffer(geom_wkt: str, distance: mgp.Number) -> str:
 def ST_Centroid(geom_wkt: str) -> str:
     """Return WKT for the geometric centroid of the geometry."""
     return shapely_wkt.dumps(_parse_wkt(geom_wkt).centroid)
+
+
+@mgp.function
+def ST_Envelope(geom_wkt: str) -> str:
+    """Return WKT for the axis-aligned bounding rectangle of the geometry."""
+    return shapely_wkt.dumps(_parse_wkt(geom_wkt).envelope)
+
+
+@mgp.function
+def ST_ConvexHull(geom_wkt: str) -> str:
+    """Return WKT for the convex hull of the geometry."""
+    return shapely_wkt.dumps(_parse_wkt(geom_wkt).convex_hull)
+
+
+# ---------------------------------------------------------------------------
+# Set operations
+# ---------------------------------------------------------------------------
+
+
+@mgp.function
+def ST_Intersection(a_wkt: str, b_wkt: str) -> str:
+    """Return WKT for the geometric intersection of A and B (may be empty)."""
+    return shapely_wkt.dumps(_parse_wkt(a_wkt).intersection(_parse_wkt(b_wkt)))
+
+
+@mgp.function
+def ST_Difference(a_wkt: str, b_wkt: str) -> str:
+    """Return WKT for the part of A that does not lie in B."""
+    return shapely_wkt.dumps(_parse_wkt(a_wkt).difference(_parse_wkt(b_wkt)))
