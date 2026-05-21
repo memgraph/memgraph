@@ -11,6 +11,8 @@
 
 #include "glue/communication.hpp"
 
+#include "query/auth_checker.hpp"
+
 #include <map>
 #include <string>
 #include <vector>
@@ -269,7 +271,8 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
 }
 
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexAccessor &vertex,
-                                                          const storage::Storage &db, storage::View view) {
+                                                          const storage::Storage &db, storage::View view,
+                                                          query::FineGrainedAuthChecker const *auth_checker) {
   auto id = communication::bolt::Id::FromUint(vertex.Gid().AsUint());
   auto maybe_labels = vertex.Labels(view);
   if (!maybe_labels) return std::unexpected{maybe_labels.error()};
@@ -282,7 +285,11 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   if (!maybe_properties) return std::unexpected{maybe_properties.error()};
   bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
-    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
+    if (auth_checker &&
+        !auth_checker->HasPropertyPermission(*maybe_labels, prop.first, query::AuthQuery::PropertyPermissionType::READ))
+      properties[db.PropertyToName(prop.first)] = communication::bolt::Value{};
+    else
+      properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)
   auto element_id = std::to_string(id.AsInt());
@@ -291,7 +298,8 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
 }
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,
-                                                      storage::View view) {
+                                                      storage::View view,
+                                                      query::FineGrainedAuthChecker const *auth_checker) {
   auto id = communication::bolt::Id::FromUint(edge.Gid().AsUint());
   auto from = communication::bolt::Id::FromUint(edge.FromVertex().Gid().AsUint());
   auto to = communication::bolt::Id::FromUint(edge.ToVertex().Gid().AsUint());
@@ -300,7 +308,11 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
   if (!maybe_properties) return std::unexpected{maybe_properties.error()};
   bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
-    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
+    if (auth_checker && !auth_checker->HasPropertyPermission(
+                            edge.EdgeType(), prop.first, query::AuthQuery::PropertyPermissionType::READ))
+      properties[db.PropertyToName(prop.first)] = communication::bolt::Value{};
+    else
+      properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)
   const auto element_id = std::to_string(id.AsInt());

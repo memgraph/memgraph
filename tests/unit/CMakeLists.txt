@@ -101,6 +101,11 @@ add_unit_test(query_cost_estimator
     LINK_TARGETS mg-query
 )
 
+add_unit_test(glue_communication
+    SOURCES glue_communication.cpp
+    LINK_TARGETS mg-query mg-glue disk_test_utils
+)
+
 add_unit_test(query_dump
     SOURCES query_dump.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
     LINK_TARGETS mg-communication mg-query disk_test_utils
