@@ -20,24 +20,13 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# check if python environment exists
-create_env=false
+# Ensure the conan venv exists, but never remove it on exit — downstream
+# steps (upload_conan_cache in release/package/mgbuild.sh, sbom tooling)
+# re-activate the same env/ to talk to the conan remote. Pre-refactor the
+# memgraph build always created env/ before this script ran; now that MAGE
+# can skip the memgraph build entirely, openssl is sometimes the first to
+# need it. Leaving the venv in place is what callers expect.
 if [ ! -f "env/bin/activate" ]; then
-    create_env=true
-fi
-
-function exit_cleanup() {
-    status=$?
-    deactivate
-    if [ "$create_env" = true ]; then
-        rm -rf env
-    fi
-    exit $status
-}
-
-trap exit_cleanup EXIT ERR
-
-if [ "$create_env" = true ]; then
   echo "Creating python environment"
   python3 -m venv env
 fi

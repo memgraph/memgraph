@@ -31,7 +31,12 @@ install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/saml.py
 # Consider changing to: DESTINATION lib/memgraph/auth_module
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.example.yaml
         DESTINATION /etc/memgraph/auth_module)
-install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/requirements.txt
+# requirements.txt is a pip dependency list, not an executable. Installing
+# it with PROGRAMS (mode 0755) trips rpmlint's script-without-shebang check
+# on Fedora/CentOS/Rocky because the file is then flagged as an executable
+# script with no #!. FILES (mode 0644) matches its data-file nature and
+# sidesteps the check.
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/requirements.txt
         DESTINATION lib/memgraph/auth_module)
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/oidc.py
         DESTINATION lib/memgraph/auth_module)
