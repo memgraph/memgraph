@@ -109,13 +109,15 @@ query::TypedValue ToTypedValue(const Value &value, storage::Storage const *stora
 }
 
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
-                                                          const storage::Storage &db, storage::View view) {
-  return ToBoltVertex(vertex.impl_, db, view);
+                                                          const storage::Storage &db, storage::View view,
+                                                          query::FineGrainedAuthChecker const *auth_checker) {
+  return ToBoltVertex(vertex.impl_, db, view, auth_checker);
 }
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
-                                                      storage::View view) {
-  return ToBoltEdge(edge.impl_, db, view);
+                                                      storage::View view,
+                                                      query::FineGrainedAuthChecker const *auth_checker) {
+  return ToBoltEdge(edge.impl_, db, view, auth_checker);
 }
 
 namespace {
@@ -155,7 +157,8 @@ communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const s
 }
 }  // namespace
 
-storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
+storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view,
+                                   query::FineGrainedAuthChecker const *auth_checker) {
   auto check_db = [db]() {
     if (db == nullptr) [[unlikely]]
       throw communication::bolt::ValueException("Database needed for TypedValue conversion.");
@@ -188,7 +191,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     case query::TypedValue::Type::Map: {
       bolt_map_t map;
       for (const auto &kv : value.ValueMap()) {
-        auto maybe_value = ToBoltValue(kv.second, db, view);
+        auto maybe_value = ToBoltValue(kv.second, db, view, auth_checker);
         if (!maybe_value) return std::unexpected{maybe_value.error()};
         map.emplace(kv.first, std::move(*maybe_value));
       }
@@ -200,7 +203,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       std::vector<Value> values;
       values.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) {
-        auto maybe_value = ToBoltValue(v, db, view);
+        auto maybe_value = ToBoltValue(v, db, view, auth_checker);
         if (!maybe_value) return std::unexpected{maybe_value.error()};
         values.emplace_back(std::move(*maybe_value));
       }
@@ -208,25 +211,25 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     }
     case query::TypedValue::Type::Vertex: {
       check_db();
-      auto maybe_vertex = ToBoltVertex(value.ValueVertex(), *db, view);
+      auto maybe_vertex = ToBoltVertex(value.ValueVertex(), *db, view, auth_checker);
       if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
       return storage::Result<Value>{std::in_place, std::move(*maybe_vertex)};
     }
     case query::TypedValue::Type::Edge: {
       check_db();
-      auto maybe_edge = ToBoltEdge(value.ValueEdge(), *db, view);
+      auto maybe_edge = ToBoltEdge(value.ValueEdge(), *db, view, auth_checker);
       if (!maybe_edge) return std::unexpected{maybe_edge.error()};
       return storage::Result<Value>{std::in_place, std::move(*maybe_edge)};
     }
     case query::TypedValue::Type::Path: {
       check_db();
-      auto maybe_path = ToBoltPath(value.ValuePath(), *db, view);
+      auto maybe_path = ToBoltPath(value.ValuePath(), *db, view, auth_checker);
       if (!maybe_path) return std::unexpected{maybe_path.error()};
       return storage::Result<Value>{std::in_place, std::move(*maybe_path)};
     }
     case query::TypedValue::Type::Graph: {
       check_db();
-      auto maybe_graph = ToBoltGraph(value.ValueGraph(), *db, view);
+      auto maybe_graph = ToBoltGraph(value.ValueGraph(), *db, view, auth_checker);
       if (!maybe_graph) return std::unexpected{maybe_graph.error()};
       return storage::Result<Value>{std::in_place, std::move(*maybe_graph)};
     }
@@ -323,30 +326,32 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
 }
 
 storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,
-                                                      storage::View view) {
+                                                      storage::View view,
+                                                      query::FineGrainedAuthChecker const *auth_checker) {
   std::vector<communication::bolt::Vertex> vertices;
   vertices.reserve(path.vertices().size());
   for (const auto &v : path.vertices()) {
-    auto maybe_vertex = ToBoltVertex(v, db, view);
+    auto maybe_vertex = ToBoltVertex(v, db, view, auth_checker);
     if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
     vertices.emplace_back(std::move(*maybe_vertex));
   }
   std::vector<communication::bolt::Edge> edges;
   edges.reserve(path.edges().size());
   for (const auto &e : path.edges()) {
-    auto maybe_edge = ToBoltEdge(e, db, view);
+    auto maybe_edge = ToBoltEdge(e, db, view, auth_checker);
     if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     edges.emplace_back(std::move(*maybe_edge));
   }
   return communication::bolt::Path(vertices, edges);
 }
 
-storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db, storage::View view) {
+storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db, storage::View view,
+                                        query::FineGrainedAuthChecker const *auth_checker) {
   bolt_map_t map;
   std::vector<Value> vertices;
   vertices.reserve(graph.vertices().size());
   for (const auto &v : graph.vertices()) {
-    auto maybe_vertex = ToBoltVertex(v, db, view);
+    auto maybe_vertex = ToBoltVertex(v, db, view, auth_checker);
     if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
     vertices.emplace_back(std::move(*maybe_vertex));
   }
@@ -355,7 +360,7 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
   std::vector<Value> edges;
   edges.reserve(graph.edges().size());
   for (const auto &e : graph.edges()) {
-    auto maybe_edge = ToBoltEdge(e, db, view);
+    auto maybe_edge = ToBoltEdge(e, db, view, auth_checker);
     if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     edges.emplace_back(std::move(*maybe_edge));
   }

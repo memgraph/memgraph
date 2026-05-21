@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "query/db_accessor.hpp"
@@ -27,6 +29,8 @@ void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms
 struct PullPlanDump {
   explicit PullPlanDump(query::DbAccessor *dba, dbms::DatabaseAccess db_acc,
                         FineGrainedAuthChecker const *auth_checker = nullptr);
+  explicit PullPlanDump(query::DbAccessor *dba, dbms::DatabaseAccess db_acc,
+                        std::unique_ptr<FineGrainedAuthChecker> auth_checker);
 
   /// Pull the dump results lazily
   /// @return true if all results were returned, false otherwise
@@ -34,6 +38,7 @@ struct PullPlanDump {
 
  private:
   query::DbAccessor *dba_ = nullptr;
+  std::unique_ptr<FineGrainedAuthChecker> owned_auth_checker_;
   FineGrainedAuthChecker const *auth_checker_ = nullptr;
   dbms::DatabaseAccess db_acc_;
 

@@ -3873,10 +3873,21 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                        .rw_type = rw_type};
 }
 
-PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
+                               [[maybe_unused]] InterpreterContext *interpreter_context,
+                               [[maybe_unused]] std::shared_ptr<QueryUserOrRole> user_or_role) {
   MG_ASSERT(current_db.execution_db_accessor_, "Dump query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
-  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_);
+
+  std::unique_ptr<FineGrainedAuthChecker> auth_checker;
+#ifdef MG_ENTERPRISE
+  if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context->auth_checker && user_or_role &&
+      *user_or_role) {
+    auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
+  }
+#endif
+
+  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_, std::move(auth_checker));
   return PreparedQuery{
       .header = {"QUERY"},
       .privileges = std::move(parsed_query.required_privileges),
@@ -9754,7 +9765,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
       );
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
-      prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_);
+      prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_, interpreter_context_, user_or_role_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query),
                                          in_explicit_transaction_,

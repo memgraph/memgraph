@@ -86,14 +86,15 @@ auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query
 template <typename TEncoder>
 class TypedValueResultStream {
  public:
-  TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage)
-      : storage_{storage}, encoder_(encoder) {}
+  TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage,
+                         memgraph::query::FineGrainedAuthChecker const *auth_checker = nullptr)
+      : storage_{storage}, auth_checker_{auth_checker}, encoder_(encoder) {}
 
   void Result(const std::vector<memgraph::query::TypedValue> &values) {
     // Splitting the MessageRecord allows us to skip vector insertion and just directly encode the value
     encoder_->MessageRecordHeader(values.size());
     for (const auto &v : values) {
-      auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW);
+      auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW, auth_checker_);
       if (!maybe_value) {
         switch (maybe_value.error()) {
           case memgraph::storage::Error::DELETED_OBJECT:
@@ -116,6 +117,7 @@ class TypedValueResultStream {
  private:
   // NOTE: Needed only for ToBoltValue conversions
   memgraph::storage::Storage *storage_;
+  memgraph::query::FineGrainedAuthChecker const *auth_checker_;
   TEncoder *encoder_;
 };
 
@@ -373,7 +375,17 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
-    TypedValueResultStream<TEncoder> stream(&encoder_, storage);
+
+    std::unique_ptr<memgraph::query::FineGrainedAuthChecker> auth_checker;
+#ifdef MG_ENTERPRISE
+    if (storage && interpreter_context_->auth_checker && interpreter_.user_or_role_ && *interpreter_.user_or_role_ &&
+        interpreter_.current_db_.execution_db_accessor_) {
+      auto *dba = &*interpreter_.current_db_.execution_db_accessor_;
+      auth_checker = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*interpreter_.user_or_role_, dba);
+    }
+#endif
+
+    TypedValueResultStream<TEncoder> stream(&encoder_, storage, auth_checker.get());
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
