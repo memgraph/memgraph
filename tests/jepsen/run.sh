@@ -207,6 +207,12 @@ COPY_FILES() {
    fi
 
 
+   # kernel.core_pattern is a single global kernel variable shared across all
+   # containers and the host. Writing it from any privileged node container
+   # updates the value seen by every process on the host, so do it once.
+   docker exec jepsen-n1 bash -c "sysctl -w kernel.core_pattern='/tmp/core.%e.%p.%t'"
+   INFO "kernel.core_pattern set host-wide to /tmp/core.%e.%p.%t"
+
    for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
        jepsen_node_name="jepsen-n$iter"
        docker_exec="docker exec $jepsen_node_name bash -c"
@@ -216,6 +222,10 @@ COPY_FILES() {
          _binary_name="$binary_name"
        fi
        $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph/src/query"
+       # Persist unlimited core ulimit so the SSH-launched memgraph daemon
+       # inherits it. PAM applies limits.conf on SSH login; .bashrc is fallback.
+       $docker_exec "grep -q 'core unlimited' /etc/security/limits.conf || printf '* soft core unlimited\n* hard core unlimited\n' >> /etc/security/limits.conf"
+       $docker_exec "grep -q 'ulimit -c unlimited' /root/.bashrc || echo 'ulimit -c unlimited' >> /root/.bashrc"
        docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
 
        # Copy all shared libraries to the appropriate location
@@ -313,8 +323,23 @@ PROCESS_RESULTS() {
         INFO "$workload_dir does not exist."
       fi
     done
+    INFO "Collecting core dumps from data nodes..."
+    docker exec jepsen-control bash -c "mkdir -p /jepsen/memgraph/cores"
+    for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
+        jepsen_node_name="jepsen-n$iter"
+        cores=$(docker exec "$jepsen_node_name" bash -c 'ls /tmp/core.* 2>/dev/null || true')
+        for core_path in $cores; do
+            base=$(basename "$core_path")
+            renamed="core.${jepsen_node_name}.${base#core.}"
+            host_tmp="/tmp/${renamed}"
+            docker cp "${jepsen_node_name}:${core_path}" "$host_tmp"
+            docker cp "$host_tmp" "jepsen-control:/jepsen/memgraph/cores/${renamed}"
+            rm -f "$host_tmp"
+            INFO "Collected core from ${jepsen_node_name}: ${renamed}"
+        done
+    done
     INFO "Packing results..."
-    docker exec jepsen-control bash -c "tar --ignore-failed-read -czvf /jepsen/memgraph/Jepsen.tar.gz -h $all_workload_run_folders"
+    docker exec jepsen-control bash -c "tar --ignore-failed-read -czvf /jepsen/memgraph/Jepsen.tar.gz -h $all_workload_run_folders /jepsen/memgraph/cores"
     docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
     INFO "Result processing (printing and packing) DONE."
 }
