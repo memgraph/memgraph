@@ -130,13 +130,20 @@ set(CPACK_RPM_COMPONENT_INSTALL ON)
 set(CPACK_RPM_MEMGRAPH_PACKAGE_NAME "memgraph")
 set(CPACK_RPM_DEBUGINFO_PACKAGE_NAME "memgraph-debuginfo")
 
-# Disable rpmbuild's post-install stripping for the debuginfo component.
-# Without this override, brp-strip recognises our .debug sidecars as ELF
-# and strips their DWARF sections — leaving each file at ~10% of its
-# DEB counterpart and effectively useless for gdb/debuginfod. The .debug
-# files were already produced by `objcopy --only-keep-debug` (see
-# cmake/SplitDebug.cmake); we want them in the RPM verbatim.
-set(CPACK_RPM_DEBUGINFO_SPEC_MORE_DEFINE [[%define __strip /bin/true
+# Disable rpmbuild's post-install stripping for the auto-generated
+# debuginfo component spec. Without this override, brp-strip recognises
+# our .debug sidecars as ELF and strips their DWARF sections — leaving
+# each file at ~10% of its DEB counterpart and effectively useless for
+# gdb/debuginfod. The .debug files are already produced by
+# `objcopy --only-keep-debug` (see cmake/SplitDebug.cmake); we want them
+# in the RPM verbatim.
+#
+# Note: CPack RPM has no CPACK_RPM_<COMPONENT>_SPEC_MORE_DEFINE — only the
+# global form — but the substitution only fires for auto-generated specs.
+# The main `memgraph` component is built from our custom memgraph.spec.in
+# (CPACK_RPM_MEMGRAPH_USER_BINARY_SPECFILE above), which bypasses this
+# template entirely, so the defines here scope cleanly to debuginfo.
+set(CPACK_RPM_SPEC_MORE_DEFINE [[%define __strip /bin/true
 %global __os_install_post %{nil}
 %global _build_id_links none]])
 set(CPACK_RPM_DEBUGINFO_FILE_NAME
