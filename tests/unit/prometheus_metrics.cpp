@@ -137,6 +137,40 @@ TEST(DatabaseMetrics, SwitchToOnDiskUpdatesSnapshotCallback) {
   disk_test_utils::RemoveRocksDbDirs("SwitchToOnDiskMetrics");
 }
 
+TEST(PrometheusMetrics, UpdateGaugesReturnsZeroAfterDefaultDbUuidChange) {
+  FLAGS_metrics_format = "OpenMetrics";
+  memgraph::metrics::PrometheusMetrics pm;
+
+  memgraph::utils::UUID const uuid_a{};
+  memgraph::utils::UUID const uuid_b{};
+  ASSERT_NE(uuid_a, uuid_b);
+
+  memgraph::metrics::StorageSnapshot const snapshot{.vertex_count = 42, .edge_count = 10, .disk_usage = 2048};
+
+  // Snapshot resolver will simulate return returning "stale" settings if
+  // requesting any database with a uuid other than the HA cluster's default
+  // db uuid.
+  pm.SetStorageSnapshotResolver(
+      [&](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        if (uuid == uuid_b) return snapshot;
+        return std::nullopt;
+      });
+
+  // Metrics registered with original uuid_a, as happens at startup
+  pm.AddDatabase(uuid_a, "memgraph");
+
+  // Simulate HA UUID realignment on joining cluster: storage now answers to
+  // uuid_b
+  pm.RebindDefaultDatabaseUUID(uuid_b);
+
+  pm.UpdateGauges();
+
+  auto const families = pm.registry().Collect();
+  EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "memgraph"), 42.0);
+  EXPECT_EQ(FindSample(families, "memgraph_edge_count", "memgraph"), 10.0);
+  EXPECT_EQ(FindSample(families, "memgraph_disk_usage_bytes", "memgraph"), 2048.0);
+}
+
 TEST(MetricHandles, GaugeHandleNullSafety) {
   memgraph::metrics::GaugeHandle h{};
   EXPECT_NO_FATAL_FAILURE(h.Increment());
