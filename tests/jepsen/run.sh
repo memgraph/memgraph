@@ -215,6 +215,7 @@ COPY_FILES() {
          _binary_name="$binary_name"
        fi
        $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph/src/query"
+        docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
 
        # Copy all shared libraries to the appropriate location
        for lib in "${shared_libs[@]}"; do
