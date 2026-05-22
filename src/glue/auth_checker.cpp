@@ -347,7 +347,7 @@ bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId co
   bool any_rules = false;
   for (auto label : labels) {
     auto const &label_name = dba_->LabelToName(label);
-    if (rules.find(label_name) == rules.end()) continue;
+    if (!rules.contains(label_name)) continue;
     any_rules = true;
     auto level = permissions.Has(label_name, prop_name);
     if (level == auth::PermissionLevel::DENY) return false;
@@ -365,7 +365,7 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
   }
   auto const &permissions = GetCachedPropertyEdgeTypePermissions();
   auto const &edge_type_name = dba_->EdgeTypeToName(edge_type);
-  if (permissions.GetRules().find(edge_type_name) == permissions.GetRules().end()) return true;
+  if (!permissions.GetRules().contains(edge_type_name)) return true;
   auto const &prop_name = dba_->PropertyToName(property);
   return permissions.Has(edge_type_name, prop_name) == auth::PermissionLevel::GRANT;
 }
