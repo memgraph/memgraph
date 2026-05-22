@@ -996,14 +996,38 @@ jobs:
         env:
           DEST_DIR: "${{ inputs.s3_dest_dir }}"
         run: |
-          filename="${ARTIFACT_NAME}.tar.gz"
-          output_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/$DEST_DIR/$filename"
-          echo "s3_url=$output_url" >> $GITHUB_OUTPUT
+          # Emit one URL per docker image the job produced. s3_url (the
+          # primary) keeps backward-compat with single-variant callers and
+          # always points at the variant chosen by IMAGE_TAG/ARTIFACT_NAME
+          # (prod for build_docker_image in prod/both/none, debug for
+          # build_docker_image=debug). s3_url_prod / s3_url_debug are
+          # populated independently so callers can pick a specific variant.
+          base="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/$DEST_DIR"
+          prod_url=""
+          debug_url=""
+          if [[ "$BUILD_DOCKER_IMAGE" == "prod" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            prod_url="$base/${PROD_ARTIFACT_NAME}.tar.gz"
+          fi
+          if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            debug_url="$base/${DEBUG_ARTIFACT_NAME}.tar.gz"
+          fi
+          primary_url="$base/${ARTIFACT_NAME}.tar.gz"
+          echo "s3_url=$primary_url" >> $GITHUB_OUTPUT
+          echo "s3_url_prod=$prod_url" >> $GITHUB_OUTPUT
+          echo "s3_url_debug=$debug_url" >> $GITHUB_OUTPUT
 
       - name: Print Output URL
         if: ${{ inputs.print_output_url && inputs.push_to_s3 }}
         run: |
-          echo "::notice::Output URL: ${{ steps.output-url.outputs.s3_url }}"
+          # ::notice:: lines surface in the GA UI summary. Print each
+          # variant that actually exists so callers and humans can grab
+          # the link without re-deriving it from the matrix dims.
+          if [[ -n "${{ steps.output-url.outputs.s3_url_prod }}" ]]; then
+            echo "::notice::Prod image URL: ${{ steps.output-url.outputs.s3_url_prod }}"
+          fi
+          if [[ -n "${{ steps.output-url.outputs.s3_url_debug }}" ]]; then
+            echo "::notice::Debug image URL: ${{ steps.output-url.outputs.s3_url_debug }}"
+          fi
 
       - name: Memgraph Docker Cleanup
         if: always()
