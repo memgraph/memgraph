@@ -25,6 +25,13 @@ PREFIX="debug-symbols"
 ENDPOINT_URL=""
 REGION=""
 DRY_RUN=false
+# When set, after uploading each .debug we write the build-id list out to a
+# local temp file and `aws s3 cp` it to this URL. Promotion (rc -> release)
+# reads these manifests to know which build-ids to copy from the staging
+# bucket (deps.memgraph.io) into the production debuginfod bucket
+# (memgraph-debugsym), so daily / PR runs (which don't pass this flag) leave
+# no trace in the release symbol server.
+MANIFEST_S3_URL=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -32,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --prefix) PREFIX=$2; shift 2 ;;
     --endpoint-url) ENDPOINT_URL=$2; shift 2 ;;
     --region) REGION=$2; shift 2 ;;
+    --manifest-s3-url) MANIFEST_S3_URL=$2; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
     -h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# //; s/^#//'
@@ -74,6 +82,12 @@ if ! command -v readelf >/dev/null; then
   exit 1
 fi
 
+manifest_tmp=""
+if [[ -n "$MANIFEST_S3_URL" ]]; then
+  manifest_tmp=$(mktemp)
+  trap 'rm -f "$manifest_tmp"' EXIT
+fi
+
 uploaded=0
 skipped=0
 while IFS= read -r -d '' f; do
@@ -91,6 +105,9 @@ while IFS= read -r -d '' f; do
     echo "Uploading $(basename "$f") (build-id ${build_id:0:12}...) -> $target"
     aws s3 cp "${aws_extra_args[@]}" --only-show-errors "$f" "$target"
   fi
+  if [[ -n "$manifest_tmp" ]]; then
+    echo "$build_id" >> "$manifest_tmp"
+  fi
   uploaded=$((uploaded + 1))
 done < <(find "$SRC_DIR" -name '*.debug' -type f -print0)
 
@@ -98,4 +115,16 @@ echo "Done. Uploaded: $uploaded, skipped: $skipped."
 if [[ "$uploaded" -eq 0 ]]; then
   echo "Error: no .debug files found under $SRC_DIR" >&2
   exit 1
+fi
+
+if [[ -n "$MANIFEST_S3_URL" ]]; then
+  # One build-id per line, sorted+unique so retries don't bloat the file.
+  sort -u "$manifest_tmp" -o "$manifest_tmp"
+  if [[ "$DRY_RUN" == "true" ]]; then
+    echo "[dry-run] manifest -> $MANIFEST_S3_URL"
+    cat "$manifest_tmp"
+  else
+    echo "Uploading manifest ($(wc -l < "$manifest_tmp") build-ids) -> $MANIFEST_S3_URL"
+    aws s3 cp "${aws_extra_args[@]}" --only-show-errors "$manifest_tmp" "$MANIFEST_S3_URL"
+  fi
 fi

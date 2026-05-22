@@ -53,6 +53,7 @@ env:
   docker_repo_release: memgraph/memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
   docker_repo_rc_mage: memgraph/memgraph-mage
   docker_repo_release_mage: memgraph/memgraph-mage${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
+  debugsym_bucket: memgraph-debugsym${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
 
 jobs:
   PromotePackage:
@@ -184,6 +185,41 @@ jobs:
         run: |
           aws s3 cp s3://${rc_bucket}/${rc_dir}/${package_path} s3://${release_bucket}/${release_dir}/${package_path}
           echo "Successfully promoted RC package for ${os} to s3://${release_bucket}/${release_dir}/${package_path}!"
+
+      - name: Promote debuginfo companion (deb/rpm)
+        # Split-debug prod-flavour OS jobs emit a memgraph-debuginfo_*.deb /
+        # memgraph-debuginfo-*.rpm next to the main package. Docker entries
+        # have no separate companion (the relwithdebinfo docker image already
+        # bundles symbols). RelWithDebInfo OS entries are the legacy embedded-
+        # symbol flavour with no companion either.
+        if: ${{ matrix.os != 'docker' && matrix.build_type != 'RelWithDebInfo' }}
+        run: |
+          package_basename=$(basename "$package_path")
+          case "$package_basename" in
+            memgraph_*.deb)
+              debuginfo_basename="${package_basename/memgraph_/memgraph-debuginfo_}"
+              ;;
+            memgraph-*.rpm)
+              debuginfo_basename="${package_basename/memgraph-/memgraph-debuginfo-}"
+              ;;
+            *)
+              echo "Unrecognised package basename '$package_basename'; skipping debuginfo promotion."
+              exit 0
+              ;;
+          esac
+          debuginfo_path="$(dirname "$package_path")/${debuginfo_basename}"
+          src="s3://${rc_bucket}/${rc_dir}/${debuginfo_path}"
+          dst="s3://${release_bucket}/${release_dir}/${debuginfo_path}"
+          if ! aws s3 ls "$src" &> /dev/null; then
+            echo "No debuginfo companion at $src — skipping (older RCs without split-debug may not have one)."
+            exit 0
+          fi
+          if aws s3 ls "$dst" &> /dev/null && [[ "$FORCE_PROMOTE" != "true" ]]; then
+            echo "Debuginfo companion already exists at $dst — set force_promote to override."
+            exit 1
+          fi
+          aws s3 cp "$src" "$dst"
+          echo "Promoted debuginfo companion to $dst"
 
   PromoteDocker:
     runs-on: ubuntu-latest
@@ -515,7 +551,9 @@ jobs:
       - name: Check if MAGE ubuntu packages already exist
         if: ${{ matrix.image_ext == '' }}
         run: |
-          release_deb_check=$(aws s3 ls "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" | awk '/memgraph-mage_.*\.deb/ {print}')
+          # Match both memgraph-mage_*.deb (main) and
+          # memgraph-mage-debuginfo_*.deb (split-debug companion).
+          release_deb_check=$(aws s3 ls "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" | awk '/memgraph-mage.*\.deb/ {print}')
           if [[ -n "${release_deb_check}" ]]; then
             echo "MAGE ubuntu packages already exist under s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
             if [[ "$FORCE_PROMOTE" != "true" ]]; then
@@ -528,8 +566,12 @@ jobs:
       - name: Promote MAGE ubuntu packages to release bucket
         if: ${{ matrix.image_ext == '' }}
         run: |
-          aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" --recursive --exclude "*" --include "memgraph-mage_${RELEASE_VERSION}-1_*.deb"
-          echo "Copied Ubuntu 24.04 MAGE packages to s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
+          # `memgraph-mage*_...` matches both memgraph-mage_X.deb (main) and
+          # memgraph-mage-debuginfo_X.deb (companion); the `*` between
+          # `mage` and `_${RELEASE_VERSION}` is empty for the main and
+          # `-debuginfo` for the companion, so one cp picks up both.
+          aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" --recursive --exclude "*" --include "memgraph-mage*_${RELEASE_VERSION}-1_*.deb"
+          echo "Copied Ubuntu 24.04 MAGE packages (main + debuginfo) to s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
 
       - name: Setup offline installer paths
         run: |
@@ -683,6 +725,85 @@ jobs:
             curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${image_tag_arm}/
           else
             echo "Skipping deletion for arm64: image not promoted."
+          fi
+
+  PromoteDebugSymbols:
+    name: Promote debug symbols to memgraph-debugsym
+    # Reads the per-job debug-symbols-manifest*.txt files written next to
+    # each RC package (memgraph + MAGE) by upload-debug-symbols.sh and
+    # copies the listed build-ids from the RC staging bucket
+    # (deps.memgraph.io/debug-symbols/) into the release debuginfod bucket.
+    # Runs after package promotion so we only ship symbols for build-ids
+    # that actually landed in the release.
+    needs: [PromotePackage, PromoteDocker, PromoteDockerMAGE]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate “use_test_rc” only with test
+        if: inputs.use_test_rc && ! inputs.test
+        run: |
+          echo "Must not run 'use_test_rc=true' without setting 'test=true'"
+          exit 1
+
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_AK_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SAK }}
+          aws-region: ${{ env.s3_region }}
+
+      - name: Collect debug-symbol manifests
+        id: collect
+        run: |
+          # Walk both the memgraph and MAGE RC subtrees and pull every
+          # debug-symbols-manifest*.txt. memgraph emits one per package
+          # subdir (PKG_ARTIFACT_NAME); MAGE emits one per artifact (flat
+          # dest_dir, so the ARTIFACT_NAME suffix prevents collisions).
+          mkdir -p manifests
+          for src in "s3://${rc_bucket}/${rc_dir}/" "s3://${rc_bucket}/${mage_rc_dir}/"; do
+            echo "Pulling manifests from $src ..."
+            aws s3 cp "$src" manifests/ --recursive \
+              --exclude '*' --include 'debug-symbols-manifest*.txt' || true
+          done
+          # Aggregate + dedupe — overlap is expected (e.g. memgraph and
+          # MAGE jobs share the memgraph binary's build-id) and harmless.
+          find manifests -name 'debug-symbols-manifest*.txt' -print0 \
+            | xargs -0 cat 2>/dev/null \
+            | grep -E '^[0-9a-fA-F]{4,}$' \
+            | sort -u > build_ids.txt
+          count=$(wc -l < build_ids.txt | tr -d ' ')
+          echo "Collected $count unique build-ids"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Promote .debug sidecars to release bucket
+        if: steps.collect.outputs.count != '0'
+        run: |
+          # Layout matches what gdb / lldb / debuginfod expect:
+          # <bucket>/<aa>/<rest>.debug where aa is the first two hex chars
+          # of the build-id and rest is everything else.
+          missing=0
+          copied=0
+          skipped_existing=0
+          while IFS= read -r build_id; do
+            [[ -z "$build_id" ]] && continue
+            key="debug-symbols/${build_id:0:2}/${build_id:2}.debug"
+            dst_key="${build_id:0:2}/${build_id:2}.debug"
+            src="s3://${rc_bucket}/${key}"
+            dst="s3://${debugsym_bucket}/${dst_key}"
+            if ! aws s3 ls "$src" &> /dev/null; then
+              echo "Warning: $src missing — manifest references a sidecar that isn't in the staging bucket"
+              missing=$((missing + 1))
+              continue
+            fi
+            if aws s3 ls "$dst" &> /dev/null && [[ "$FORCE_PROMOTE" != "true" ]]; then
+              skipped_existing=$((skipped_existing + 1))
+              continue
+            fi
+            aws s3 cp --only-show-errors "$src" "$dst"
+            copied=$((copied + 1))
+          done < build_ids.txt
+          echo "Copied: $copied, missing in staging: $missing, skipped (already in release): $skipped_existing"
+          if [[ "$missing" -gt 0 && "$FORCE_PROMOTE" != "true" ]]; then
+            echo "::warning::Some build-ids listed in the manifests had no sidecar in the staging bucket."
           fi
 
   TriggerBSLUpdate:

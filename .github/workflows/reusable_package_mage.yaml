@@ -450,7 +450,9 @@ jobs:
           #      a different build-id than the standalone memgraph package job.
           #      Skip when an external memgraph package was downloaded — those
           #      symbols are uploaded by the job that produced that package.
-          #   2. MAGE's own modules, bundled into mage.tar.gz by mage/setup.
+          #   2. MAGE's own modules — sidecars live in mage-debug.tar.gz
+          #      after the compress-query-modules.sh split (mage.tar.gz is
+          #      modules only, no .debug files).
           DBG_DIR=build/debug-symbols
           mkdir -p "$DBG_DIR"
 
@@ -464,9 +466,13 @@ jobs:
             --dest-dir "$DBG_DIR"
           fi
 
-          tar -xzf mage/mage.tar.gz -C "$DBG_DIR"
+          if [[ -f mage/mage-debug.tar.gz ]]; then
+            tar -xzf mage/mage-debug.tar.gz -C "$DBG_DIR"
+          fi
 
-          bash tools/ci/upload-debug-symbols.sh "$DBG_DIR"
+          manifest_url="s3://deps.memgraph.io/${{ inputs.s3_dest_dir }}/debug-symbols-manifest-${ARTIFACT_NAME}.txt"
+          bash tools/ci/upload-debug-symbols.sh "$DBG_DIR" \
+            --manifest-s3-url "$manifest_url"
           rm -rf "$DBG_DIR"
 
       - name: Build DEB package in MGBUILD container
