@@ -652,11 +652,18 @@ jobs:
             --cuda $CUDA \
             --package-flavour debug
 
-      - name: "Bolt smoke test (no-arg startup)"
-        # cugraph/cuda images need an Nvidia GPU and can't start on CI runners.
-        if: ${{ !inputs.cugraph && !inputs.cuda }}
+      # Bolt no-arg startup smoke test, per docker variant. cugraph/cuda
+      # images need an Nvidia GPU at runtime so they can't be exercised on
+      # CI runners — the !cugraph && !cuda gate is unchanged from before.
+      - name: "Bolt smoke test (prod)"
+        if: ${{ !inputs.cugraph && !inputs.cuda && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
-          ./tools/ci/smoke_test_docker_image.sh "${DOCKER_REPOSITORY_NAME}:${IMAGE_TAG}"
+          ./tools/ci/smoke_test_docker_image.sh "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}"
+
+      - name: "Bolt smoke test (debug)"
+        if: ${{ !inputs.cugraph && !inputs.cuda && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        run: |
+          ./tools/ci/smoke_test_docker_image.sh "${DOCKER_REPOSITORY_NAME}:${DEBUG_IMAGE_TAG}"
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
@@ -686,8 +693,23 @@ jobs:
         run: |
           aws s3 sync sbom/ "s3://$AWS_S3_BUCKET/$S3_DEST_DIR"
 
-      - name: Start container for e2e tests
+      # E2E + correctness + migration tests are duplicated per docker
+      # variant. The `mage` container name is reused across runs: we start
+      # it with the prod image, exercise everything, stop it, then repeat
+      # with the debug image. Sequential rather than parallel because the
+      # test infrastructure expects a single MAGE_CONTAINER on a fixed
+      # port. "Wait for e2e Docker images" only needs to fire once — it
+      # blocks on the external test fixture images (neo4j, mysql, etc.)
+      # being available, not on our MAGE image.
+
+      - name: "Wait for e2e Docker images to be available"
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
+        run: |
+          ./tools/ci/wait-for-docker-images.sh
+
+      # --- prod variant tests ---
+      - name: "Start container for e2e tests (prod)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
           docker network create $MEMGRAPH_NETWORK || true
 
@@ -701,12 +723,12 @@ jobs:
             -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
             -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
             -e OPENAI_API_KEY=$OPENAI_API_KEY \
-            ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG \
+            ${DOCKER_REPOSITORY_NAME}:$PROD_IMAGE_TAG \
             --telemetry-enabled=False \
             --log-level=INFO
 
-      - name: Run end-to-end tests
-        if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
+      - name: Run end-to-end tests (prod)
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         env:
           TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
           MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
@@ -724,13 +746,8 @@ jobs:
             --cluster-env $CLUSTER_ENV \
             test-mage e2e
 
-      - name: Wait for e2e Docker images to be available
-        if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
-        run: |
-          ./tools/ci/wait-for-docker-images.sh
-
-      - name: Run End-to-end correctness tests
-        if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
+      - name: "Run End-to-end correctness tests (prod)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         env:
           PYTHONPATH: "$PWD/tests/e2e"
           TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
@@ -753,8 +770,8 @@ jobs:
             --mage-container $MAGE_CONTAINER \
             --memgraph-network $MEMGRAPH_NETWORK
 
-      - name: Run End-to-end migration tests
-        if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
+      - name: "Run End-to-end migration tests (prod)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         env:
           PYTHONPATH: "$PWD/e2e"
           TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
@@ -776,8 +793,74 @@ jobs:
             --postgresql-container $POSTGRESQL_CONTAINER \
             --clean-env
 
-      - name: Stop container for e2e tests
-        if: ${{ inputs.run_tests == true && inputs.cugraph == false && always() }}
+      - name: "Stop container for e2e tests (prod)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') && always() }}
+        run: |
+          docker stop $MAGE_CONTAINER || true
+
+      # --- debug variant tests (run after prod block so MAGE_CONTAINER is free) ---
+      - name: "Start container for e2e tests (debug)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        run: |
+          docker network create $MEMGRAPH_NETWORK || true
+
+          docker run -d \
+            --rm \
+            --network $MEMGRAPH_NETWORK \
+            --name $MAGE_CONTAINER \
+            -p $MEMGRAPH_PORT:$MEMGRAPH_PORT \
+            -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
+            -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
+            -e OPENAI_API_KEY=$OPENAI_API_KEY \
+            ${DOCKER_REPOSITORY_NAME}:$DEBUG_IMAGE_TAG \
+            --telemetry-enabled=False --log-level=DEBUG --also-log-to-stderr
+
+      - name: "Run end-to-end tests (debug)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
+            test-mage e2e
+
+      - name: "Run End-to-end correctness tests (debug)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        env:
+          PYTHONPATH: "$PWD/tests/e2e"
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            test-mage e2e-correctness \
+            --memgraph-port $MEMGRAPH_PORT \
+            --neo4j-port $NEO4J_PORT \
+            --neo4j-container $NEO4J_CONTAINER \
+            --mage-container $MAGE_CONTAINER \
+            --memgraph-network $MEMGRAPH_NETWORK
+
+      - name: "Run End-to-end migration tests (debug)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        env:
+          PYTHONPATH: "$PWD/e2e"
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            test-mage e2e-migration \
+            --mage-container $MAGE_CONTAINER \
+            --mysql-container $MYSQL_CONTAINER \
+            --postgresql-container $POSTGRESQL_CONTAINER \
+            --clean-env
+
+      - name: "Stop container for e2e tests (debug)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') && always() }}
         run: |
           docker stop $MAGE_CONTAINER || true
 
@@ -797,33 +880,50 @@ jobs:
             du -h output/${DEBUG_ARTIFACT_NAME}.tar.gz
           fi
 
-      - name: Run Docker smoke tests
+      # Resolve the previous-release tag(s) once. The prod variant compares
+      # against the bare tag; the debug variant against the same tag with
+      # the -relwithdebinfo suffix. Malloc/cuda variants are orthogonal and
+      # apply to both variants when set.
+      - name: "Resolve previous release tag(s)"
         if: ${{ inputs.run_smoke_tests == true }}
         run: |
           last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
           last_version="${last_version#v}"
-          if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$PACKAGE_FLAVOUR" == "debug" ]]; then
-            last_version="${last_version}-relwithdebinfo"
-          fi
+          suffix=""
           if [[ "$MALLOC" == "true" ]]; then
-            last_version="${last_version}-malloc"
+            suffix="${suffix}-malloc"
           fi
           if [[ "$CUDA" == "true" ]]; then
-            last_version="${last_version}-cuda"
+            suffix="${suffix}-cuda"
           fi
-          echo "Resolved LAST_VERSION=$last_version"
-          docker pull "${DOCKER_REPOSITORY_NAME}:${last_version}"
+          echo "LAST_PROD_VERSION=${last_version}${suffix}" >> $GITHUB_ENV
+          echo "LAST_DEBUG_VERSION=${last_version}-relwithdebinfo${suffix}" >> $GITHUB_ENV
+          echo "Resolved LAST_PROD_VERSION=${last_version}${suffix}"
+          echo "Resolved LAST_DEBUG_VERSION=${last_version}-relwithdebinfo${suffix}"
 
-          export MEMGRAPH_NEXT_DOCKERHUB_IMAGE="${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG"
-          export MEMGRAPH_LAST_DOCKERHUB_IMAGE="${DOCKER_REPOSITORY_NAME}:${last_version}"
-
+      - name: "Run Docker smoke tests (prod)"
+        if: ${{ inputs.run_smoke_tests == true && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        run: |
+          docker pull "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os $OS \
             --arch $ARCH \
             test-mage smoke \
-            --next-image $MEMGRAPH_NEXT_DOCKERHUB_IMAGE \
-            --last-image $MEMGRAPH_LAST_DOCKERHUB_IMAGE
+            --next-image "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}" \
+            --last-image "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
+
+      - name: "Run Docker smoke tests (debug)"
+        if: ${{ inputs.run_smoke_tests == true && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        run: |
+          docker pull "${DOCKER_REPOSITORY_NAME}:${LAST_DEBUG_VERSION}"
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            test-mage smoke \
+            --next-image "${DOCKER_REPOSITORY_NAME}:${DEBUG_IMAGE_TAG}" \
+            --last-image "${DOCKER_REPOSITORY_NAME}:${LAST_DEBUG_VERSION}"
 
       - name: Push query module archive to GitHub
         if: ${{ inputs.push_to_github }}
