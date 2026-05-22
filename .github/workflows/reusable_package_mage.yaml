@@ -473,7 +473,7 @@ jobs:
           DBG_DIR=build/debug-symbols
           mkdir -p "$DBG_DIR"
 
-          if [[ -z "${{ inputs.memgraph_download_link }}" ]]; then
+          if [[ -z "${{ env.MEMGRAPH_DOWNLOAD_LINK }}" ]]; then
             ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \

@@ -19,11 +19,7 @@ on:
         default: false
       skip_package:
         type: boolean
-        description: "Skip packaging"
-        default: false
-      skip_docker_artifact:
-        type: boolean
-        description: "Skip Docker artifact"
+        description: "Skip packaging (deb/rpm and docker images). Docker production within the job is determined per-matrix-entry via build_docker_image."
         default: false
       skip_issu_tests:
         type: boolean
@@ -94,18 +90,11 @@ jobs:
     secrets: inherit
 
   DailyPackageArtifact:
-    # Runs if either the deb production or the docker production is wanted.
-    # ubuntu-24.04 matrix entries can produce deb + docker from the same
-    # build (shared ELF build-id between standalone deb and image installs);
-    # !skip_docker_artifact toggles the docker production within those entries.
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (!inputs.skip_package || !inputs.skip_docker_artifact)) }}
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_package) }}
     needs: [CurrentDateJob]
     strategy:
       fail-fast: false
       matrix:
-        # Non-ubuntu-24.04 OSes build deb/rpm only — docker images are
-        # ubuntu-24.04-based and live in the explicit ubuntu-24.04 includes
-        # below.
         os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04]
         arch: [amd]
         package_flavour: [prod]
@@ -123,10 +112,6 @@ jobs:
             package_flavour: prod
             arch: arm
             additional_build_args: ''
-          # ubuntu-24.04 entries — amd/arm without --disable-jemalloc produce
-          # both docker images (prod + debug shipping path). The
-          # --disable-jemalloc variants stay deb-only here (daily doesn't
-          # ship a malloc docker image today).
           - os: ubuntu-24.04
             package_flavour: prod
             arch: amd
@@ -152,10 +137,7 @@ jobs:
       build_type: RelWithDebInfo
       split_debug: ${{ matrix.package_flavour == 'prod' }}
       package_flavour: ${{ matrix.package_flavour }}
-      # !skip_docker_artifact is the master toggle for docker production; the
-      # matrix entry's build_docker_image (when set) chooses prod/debug/both.
-      # On schedule the input is undefined (treated as false -> !false = true).
-      build_docker_image: ${{ !inputs.skip_docker_artifact && (matrix.build_docker_image || 'none') || 'none' }}
+      build_docker_image: ${{ matrix.build_docker_image || 'none' }}
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
@@ -205,10 +187,6 @@ jobs:
             https://api.github.com/repos/memgraph/daily-builds/dispatches \
             -d "$payload"
 
-  # Resolve the memgraph version string once so BuildAndTestMAGE can construct
-  # URLs to the debs DailyPackageArtifact uploaded. get_version.py output for
-  # a daily build looks like "3.10.0+39~dbbe0121e734" (last tag + commit count
-  # + short sha) and that string appears verbatim in the CPack deb filename.
   MemgraphVersionSetup:
     name: Resolve memgraph version for MAGE deb URLs
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
@@ -238,20 +216,11 @@ jobs:
   BuildAndTestMAGE:
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
     name: Build and Test MAGE
-    # Depends on DailyPackageArtifact so the memgraph debs we wget into the
-    # MAGE build context have been produced and uploaded. Shared memgraph
-    # build-id between the standalone daily deb and the binary in each MAGE
-    # image; same .debug sidecars from the memgraph job resolve crashes in MAGE.
     needs: [CurrentDateJob, DailyPackageArtifact, MemgraphVersionSetup]
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       fail-fast: false
       matrix:
-        # Matrix is fully explicit so each entry sets its own
-        # build_docker_image. Standard Dockerfile.release combos collapse
-        # (prod, X) + (debug, X) pairs into a single 'both' job. cuda /
-        # cugraph and arm+malloc stay debug-only because there's no
-        # matching prod entry in the current matrix.
         include:
           - build_arch: "amd"
             package_flavour: "prod"
@@ -292,22 +261,10 @@ jobs:
     with:
       arch: ${{ matrix.build_arch }}
       build_type: RelWithDebInfo
-      # Force split-debug on: 'both' / 'debug' Dockerfile targets need
-      # memgraph-debuginfo.deb, which CPack only emits with
-      # MG_SPLIT_DEBUG=ON.
       split_debug: true
       package_flavour: ${{ matrix.package_flavour }}
       build_docker_image: ${{ matrix.build_docker_image }}
-      # DailyPackageArtifact now builds ubuntu-24.04 for every (arch, malloc)
-      # combination the MAGE matrix references, so every entry reuses the
-      # daily memgraph deb. Same ELF build-id across the standalone daily
-      # deb and the binary embedded in each MAGE image.
       memgraph_download_link: ${{ format('https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb', inputs.mock && '_mock' || '', needs.CurrentDateJob.outputs.current_date, matrix.malloc && '-malloc' || '', matrix.build_arch == 'arm' && '-aarch64' || '', needs.MemgraphVersionSetup.outputs.memgraph_version_url, matrix.build_arch == 'arm' && 'arm64' || 'amd64') }}
-      # Debug-image variants install memgraph-debuginfo on top of the main
-      # memgraph deb (offline gdb sidecars; the network-attached prod
-      # equivalent is debuginfod). URL is provided whenever the
-      # relwithdebinfo Dockerfile target is built —
-      # build_docker_image in ('debug', 'both').
       memgraph_debuginfo_download_link: ${{ (matrix.build_docker_image == 'debug' || matrix.build_docker_image == 'both') && format('https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph-debuginfo_{4}-1_{5}.deb', inputs.mock && '_mock' || '', needs.CurrentDateJob.outputs.current_date, matrix.malloc && '-malloc' || '', matrix.build_arch == 'arm' && '-aarch64' || '', needs.MemgraphVersionSetup.outputs.memgraph_version_url, matrix.build_arch == 'arm' && 'arm64' || 'amd64') || '' }}
       s3_dest_dir: "daily-build/mage${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       cuda: ${{ matrix.cuda }}
