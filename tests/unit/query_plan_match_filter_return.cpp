@@ -31,7 +31,6 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
-#include "flags/auth.hpp"
 #include "glue/auth_checker.hpp"
 #include "license/license.hpp"
 #include "query/context.hpp"
@@ -4374,8 +4373,6 @@ TYPED_TEST(SubqueriesFeature, SubqueriesWithForeach) {
 
 #ifdef MG_ENTERPRISE
 TYPED_TEST(MatchReturnFixture, PropertyFGARedactsDeniedProperty) {
-  FLAGS_property_fga_enabled = true;
-
   auto v = this->dba.InsertVertex();
   auto label = this->dba.NameToLabel("Employee");
   ASSERT_TRUE(v.AddLabel(label).has_value());
@@ -4394,19 +4391,15 @@ TYPED_TEST(MatchReturnFixture, PropertyFGARedactsDeniedProperty) {
   auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
   auto produce = MakeProduce(scan_all.op_, output);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
   auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
   auto results = CollectProduce(*produce, &context);
 
   ASSERT_EQ(results.size(), 1);
   EXPECT_TRUE(results[0][0].IsNull());
-
-  FLAGS_property_fga_enabled = false;
 }
 
 TYPED_TEST(MatchReturnFixture, PropertyFGAAllowsGrantedProperty) {
-  FLAGS_property_fga_enabled = true;
-
   auto v = this->dba.InsertVertex();
   auto label = this->dba.NameToLabel("Employee");
   ASSERT_TRUE(v.AddLabel(label).has_value());
@@ -4422,19 +4415,15 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAAllowsGrantedProperty) {
   auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
   auto produce = MakeProduce(scan_all.op_, output);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
   auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
   auto results = CollectProduce(*produce, &context);
 
   ASSERT_EQ(results.size(), 1);
   EXPECT_EQ(results[0][0].ValueString(), "Alice");
-
-  FLAGS_property_fga_enabled = false;
 }
 
 TYPED_TEST(MatchReturnFixture, PropertyFGANoRulesMeansUnrestricted) {
-  FLAGS_property_fga_enabled = true;
-
   auto v = this->dba.InsertVertex();
   auto label = this->dba.NameToLabel("Employee");
   ASSERT_TRUE(v.AddLabel(label).has_value());
@@ -4449,19 +4438,15 @@ TYPED_TEST(MatchReturnFixture, PropertyFGANoRulesMeansUnrestricted) {
   auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
   auto produce = MakeProduce(scan_all.op_, output);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
   auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
   auto results = CollectProduce(*produce, &context);
 
   ASSERT_EQ(results.size(), 1);
   EXPECT_EQ(results[0][0].ValueString(), "Alice");
-
-  FLAGS_property_fga_enabled = false;
 }
 
 TYPED_TEST(MatchReturnFixture, PropertyFGADenyOnAnyLabelDenies) {
-  FLAGS_property_fga_enabled = true;
-
   auto v = this->dba.InsertVertex();
   ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("Employee")).has_value());
   ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("Manager")).has_value());
@@ -4478,19 +4463,15 @@ TYPED_TEST(MatchReturnFixture, PropertyFGADenyOnAnyLabelDenies) {
   auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
   auto produce = MakeProduce(scan_all.op_, output);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
   auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
   auto results = CollectProduce(*produce, &context);
 
   ASSERT_EQ(results.size(), 1);
   EXPECT_TRUE(results[0][0].IsNull());
-
-  FLAGS_property_fga_enabled = false;
 }
 
 TYPED_TEST(MatchReturnFixture, PropertyFGAFlagDisabledMeansNoRestriction) {
-  FLAGS_property_fga_enabled = false;
-
   auto v = this->dba.InsertVertex();
   ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("Employee")).has_value());
   ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("ssn"), memgraph::storage::PropertyValue("123")).has_value());
@@ -4514,8 +4495,6 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAFlagDisabledMeansNoRestriction) {
 }
 
 TYPED_TEST(MatchReturnFixture, PropertyFGAEdgeRedaction) {
-  FLAGS_property_fga_enabled = true;
-
   auto v1 = this->dba.InsertVertex();
   auto v2 = this->dba.InsertVertex();
   ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("Node")).has_value());
@@ -4548,19 +4527,15 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAEdgeRedaction) {
   auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
   auto produce = MakeProduce(r_m.op_, output);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
   auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
   auto results = CollectProduce(*produce, &context);
 
   ASSERT_EQ(results.size(), 1);
   EXPECT_TRUE(results[0][0].IsNull());
-
-  FLAGS_property_fga_enabled = false;
 }
 
 TYPED_TEST(MatchReturnFixture, PropertyFGAKeysOmitsDeniedKey) {
-  FLAGS_property_fga_enabled = true;
-
   auto v = this->dba.InsertVertex();
   auto label = this->dba.NameToLabel("Employee");
   ASSERT_TRUE(v.AddLabel(label).has_value());
@@ -4579,7 +4554,7 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAKeysOmitsDeniedKey) {
   auto output = NEXPR("result", fn_keys)->MapTo(this->symbol_table.CreateSymbol("result", true));
   auto produce = MakeProduce(scan_all.op_, output);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
   auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
   auto results = CollectProduce(*produce, &context);
 
@@ -4588,13 +4563,9 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAKeysOmitsDeniedKey) {
   auto const &keys = results[0][0].ValueList();
   ASSERT_EQ(keys.size(), 1);
   EXPECT_EQ(keys[0].ValueString(), "name");
-
-  FLAGS_property_fga_enabled = false;
 }
 
 TYPED_TEST(MatchReturnFixture, PropertyFGAValuesOmitsDeniedKey) {
-  FLAGS_property_fga_enabled = true;
-
   auto v = this->dba.InsertVertex();
   auto label = this->dba.NameToLabel("Employee");
   ASSERT_TRUE(v.AddLabel(label).has_value());
@@ -4613,7 +4584,7 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAValuesOmitsDeniedKey) {
   auto output = NEXPR("result", fn_values)->MapTo(this->symbol_table.CreateSymbol("result", true));
   auto produce = MakeProduce(scan_all.op_, output);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
   auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
   auto results = CollectProduce(*produce, &context);
 
@@ -4622,7 +4593,5 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAValuesOmitsDeniedKey) {
   auto const &vals = results[0][0].ValueList();
   ASSERT_EQ(vals.size(), 1) << "`values()` list must match `keys()` cardinality when FGA hides properties";
   EXPECT_EQ(vals[0].ValueString(), "Alice");
-
-  FLAGS_property_fga_enabled = false;
 }
 #endif

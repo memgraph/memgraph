@@ -15,7 +15,6 @@
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "disk_test_utils.hpp"
-#include "flags/auth.hpp"
 #include "glue/auth_checker.hpp"
 
 #include "license/license.hpp"
@@ -455,8 +454,6 @@ TEST(AuthChecker, Generate) {
 }
 
 TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAMultiLabelDenyWins) {
-  FLAGS_property_fga_enabled = true;
-
   // v1 has label "l1"; add "l2" so it has two labels
   ASSERT_TRUE(this->v1.AddLabel(this->dba.NameToLabel("l2")).has_value());
   this->dba.AdvanceCommand();
@@ -466,7 +463,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAMultiLabelDenyWins) {
   user.property_access_handler().label_properties().Grant("l1", "*");
   user.property_access_handler().label_properties().Deny("l2", "ssn");
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
 
   auto ssn_id = this->dba.NameToProperty("ssn");
   auto name_id = this->dba.NameToProperty("name");
@@ -481,16 +478,12 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAMultiLabelDenyWins) {
   // name allowed (l1 grants *, l2 has no rule for name so neutral → l1's grant applies)
   EXPECT_TRUE(
       auth_checker.HasPropertyPermission(label_ids, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
-
-  FLAGS_property_fga_enabled = false;
 }
 
 TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGANoRulesAllowed) {
-  FLAGS_property_fga_enabled = true;
-
   memgraph::auth::User user{"test"};
   // No property rules at all → backwards compat, everything allowed
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
 
   auto ssn_id = this->dba.NameToProperty("ssn");
   auto labels = this->v1.Labels(memgraph::storage::View::NEW);
@@ -499,18 +492,14 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGANoRulesAllowed) {
 
   EXPECT_TRUE(
       auth_checker.HasPropertyPermission(label_ids, ssn_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
-
-  FLAGS_property_fga_enabled = false;
 }
 
 TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGARulesExistButNoGrant) {
-  FLAGS_property_fga_enabled = true;
-
   memgraph::auth::User user{"test"};
   // Rules exist for l1 (grant "name" only), so "ssn" has no grant → denied
   user.property_access_handler().label_properties().Grant("l1", "name");
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
 
   auto ssn_id = this->dba.NameToProperty("ssn");
   auto name_id = this->dba.NameToProperty("name");
@@ -522,19 +511,15 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGARulesExistButNoGrant) {
       auth_checker.HasPropertyPermission(label_ids, ssn_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
   EXPECT_TRUE(
       auth_checker.HasPropertyPermission(label_ids, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
-
-  FLAGS_property_fga_enabled = false;
 }
 
 TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAEdgeTypeDenyOverridesGrant) {
-  FLAGS_property_fga_enabled = true;
-
   memgraph::auth::User user{"test"};
   // Grant all edge properties, deny "secret_code" on edge_type_1
   user.property_access_handler().edge_type_properties().Grant("edge_type_1", "*");
   user.property_access_handler().edge_type_properties().Deny("edge_type_1", "secret_code");
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
 
   auto secret_id = this->dba.NameToProperty("secret_code");
   auto amount_id = this->dba.NameToProperty("amount");
@@ -543,7 +528,5 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAEdgeTypeDenyOverridesGrant)
       this->edge_type_one, secret_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
   EXPECT_TRUE(auth_checker.HasPropertyPermission(
       this->edge_type_one, amount_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
-
-  FLAGS_property_fga_enabled = false;
 }
 #endif

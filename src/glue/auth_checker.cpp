@@ -135,11 +135,11 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
     auto glue_user = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
     DMG_ASSERT(dba, "DbAccessor must be non-null for fine-grained auth checking");
     if (glue_user.user_) {
-      return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba);
+      return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba, FLAGS_property_fga_enabled);
     }
     if (glue_user.roles_) {
       return std::make_unique<glue::FineGrainedAuthChecker>(
-          auth::RoleWUsername{glue_user.username().value(), glue_user.roles_.value()}, dba);
+          auth::RoleWUsername{glue_user.username().value(), glue_user.roles_.value()}, dba, FLAGS_property_fga_enabled);
     }
     DMG_ASSERT(false, "Glue user has neither user not role");
   } catch (std::bad_cast &) {
@@ -209,8 +209,12 @@ bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgr
 #endif
 
 #ifdef MG_ENTERPRISE
-FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba)
-    : user_or_role_{std::move(user_or_role)}, dba_(dba), db_name_{dba_->DatabaseName()} {};
+FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba,
+                                               bool property_fga_enabled)
+    : user_or_role_{std::move(user_or_role)},
+      dba_(dba),
+      property_fga_enabled_{property_fga_enabled},
+      db_name_{dba_->DatabaseName()} {};
 
 auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedLabelPermissions() const {
   if (!cached_label_permissions_) {
@@ -336,7 +340,7 @@ auth::PropertyAccessPermissions const &FineGrainedAuthChecker::GetCachedProperty
 bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId const> labels,
                                                    storage::PropertyId property,
                                                    query::AuthQuery::PropertyPermissionType type) const {
-  if (!FLAGS_property_fga_enabled) return true;
+  if (!property_fga_enabled_) return true;
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
@@ -359,7 +363,7 @@ bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId co
 
 bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &edge_type, storage::PropertyId property,
                                                    query::AuthQuery::PropertyPermissionType type) const {
-  if (!FLAGS_property_fga_enabled) return true;
+  if (!property_fga_enabled_) return true;
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
