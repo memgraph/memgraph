@@ -143,7 +143,7 @@ jobs:
       s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.arch == 'amd' && matrix.additional_build_args == '' && matrix.build_docker_image == 'both') && true || false }}
-      run_smoke_tests: ${{ matrix.build_docker_image != null && matrix.build_docker_image != 'none' && !inputs.skip_smoke_tests }}
+      run_smoke_tests: true
     secrets: inherit
 
   AggregateBuildTests:

@@ -463,7 +463,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ inputs.s3_region }}
+          AWS_REGION: ${{ env.S3_REGION }}
 
       - name: "Resolve previous release tag"
         if: ${{ inputs.run_smoke_tests }}
@@ -599,7 +599,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ inputs.s3_region }}
+          AWS_REGION: ${{ env.S3_REGION }}
           SOURCE_DIR: ${{ env.PACKAGE_ARTIFACT_DIR }}
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.PKG_ARTIFACT_NAME }}/"
 
@@ -617,7 +617,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ inputs.s3_region }}
+          AWS_REGION: ${{ env.S3_REGION }}
           SOURCE_DIR: ${{ env.DOCKER_PROD_ARTIFACT_DIR }}
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.DOCKER_PROD_ARTIFACT_NAME }}/"
 
@@ -635,7 +635,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ inputs.s3_region }}
+          AWS_REGION: ${{ env.S3_REGION }}
           SOURCE_DIR: ${{ env.DOCKER_DEBUG_ARTIFACT_DIR }}
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.DOCKER_DEBUG_ARTIFACT_NAME }}/"
 

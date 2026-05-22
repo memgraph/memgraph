@@ -204,7 +204,7 @@ jobs:
       additional_build_args: ${{ matrix.additional_build_args }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
       generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.arch == 'amd' && matrix.additional_build_args == '' && matrix.build_docker_image == 'both') && true || false }}
-      run_smoke_tests: ${{ matrix.build_docker_image != null && matrix.build_docker_image != 'none' }}
+      run_smoke_tests: true
       upload_debug_symbols: true
     secrets: inherit
 
