@@ -90,7 +90,6 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 
 ENV LD_LIBRARY_PATH=/usr/lib/memgraph/query_modules
 
-# Copy modules
 RUN mkdir -p /usr/lib/memgraph/query_modules/
 RUN --mount=type=bind,source="./mage.tar.gz",target=/mage.tar.gz,ro \
   tar -xzvf /mage.tar.gz -C /usr/lib/memgraph/
@@ -107,13 +106,6 @@ ENV BUILD_TYPE=${BUILD_TYPE}
 ENV PY_VERSION=${PY_VERSION_DEFAULT}
 ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR
-
-# mage.tar.gz (extracted in the base stage) bundles every .so.<N>.debug
-# sidecar so the relwithdebinfo stage below has them on hand. The prod
-# image must stay lean: drop the sidecars here. mage's debuginfo lives
-# in the separate memgraph-mage-debuginfo deb on the package side, and
-# memgraph already warns on unknown .debug files in query_modules.
-RUN find /usr/lib/memgraph/query_modules -name '*.so*.debug' -delete
 
 COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
 
@@ -161,16 +153,14 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
   fi
 
-# Install the memgraph-debuginfo package so gdb auto-finds .debug sidecars
-# beside the installed memgraph binaries via .gnu_debuglink. This is the
-# offline-debuggable counterpart to debuginfod (which the network-attached
-# prod image relies on) and keeps the in-image memgraph build-id consistent
-# with the standalone memgraph package — the same .debug sidecars uploaded
-# from the memgraph package job also resolve crashes from this MAGE image.
-# Absolute path: no WORKDIR is set in this stage but we follow the same
-# pattern as the v7 deb dockerfile to be explicit.
 RUN --mount=type=bind,source="./memgraph-debuginfo.deb",target=/memgraph-debuginfo.deb,ro \
   dpkg -i /memgraph-debuginfo.deb
+
+# Extract the MAGE .debug sidecars next to their .so files.
+RUN --mount=type=bind,source="./mage-debug.tar.gz",target=/mage-debug.tar.gz,ro,required=false \
+  if [ -f /mage-debug.tar.gz ]; then \
+    tar -xzvf /mage-debug.tar.gz -C /usr/lib/memgraph/; \
+  fi
 
 # Copy entire mage repo
 COPY --chown=memgraph:memgraph ./ /mage/

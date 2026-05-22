@@ -119,6 +119,7 @@ mkdir -p mage/wheels
 rm -rf mage/openssl
 rm -rf mage/memgraph.deb
 rm -rf mage/mage.tar.gz
+rm -rf mage/mage-debug.tar.gz
 
 GREEN_BOLD='\033[1;32m'
 RED_BOLD='\033[1;31m'

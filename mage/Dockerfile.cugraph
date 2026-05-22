@@ -143,6 +143,11 @@ USER root
 RUN --mount=type=bind,source="./memgraph-debuginfo.deb",target=/memgraph-debuginfo.deb,ro \
   dpkg -i /memgraph-debuginfo.deb
 
+RUN --mount=type=bind,source="./mage-debug.tar.gz",target=/mage-debug.tar.gz,ro,required=false \
+  if [ -f /mage-debug.tar.gz ]; then \
+    tar -xzvf /mage-debug.tar.gz -C /usr/lib/memgraph/; \
+  fi
+
 COPY --chown=memgraph:memgraph ./ /mage/
 RUN --mount=type=bind,source="./heaptrack",target=/heaptrack,ro \
   cp -vr /heaptrack/* /usr/

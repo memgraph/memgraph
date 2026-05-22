@@ -1868,6 +1868,14 @@ build_mage() {
 
   echo -e "${GREEN_BOLD}Copying compressed query modules to host${RESET}"
   docker cp $build_container:/home/mg/mage.tar.gz ./mage/mage.tar.gz
+  # mage-debug.tar.gz is only emitted for split-debug builds (the
+  # relwithdebinfo image needs it). Copy it across opportunistically so
+  # the docker build context picks it up via required=false bind mount.
+  if docker exec -i $build_container test -f /home/mg/mage-debug.tar.gz; then
+    docker cp $build_container:/home/mg/mage-debug.tar.gz ./mage/mage-debug.tar.gz
+  else
+    rm -f ./mage/mage-debug.tar.gz
+  fi
 }
 
 package_mage_deb() {
