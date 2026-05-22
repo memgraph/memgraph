@@ -46,6 +46,10 @@ on:
         type: boolean
         description: "Run smoke tests on images after building (tests against previous tagged image)"
         default: false
+      upload_debug_symbols:
+        type: boolean
+        description: "Upload .debug sidecars to the debuginfod-layout S3 bucket."
+        default: false
       ref:
         type: string
         description: "MAGE branch or tag to build"
@@ -433,7 +437,7 @@ jobs:
           build-mage $SPLIT_DEBUG_ARG
 
       - name: Upload debug symbols
-        if: ${{ inputs.split_debug }}
+        if: ${{ inputs.upload_debug_symbols && inputs.split_debug }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}

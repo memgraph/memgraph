@@ -205,6 +205,7 @@ jobs:
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
       generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.arch == 'amd' && matrix.additional_build_args == '' && matrix.build_docker_image == 'both') && true || false }}
       run_smoke_tests: ${{ matrix.build_docker_image != null && matrix.build_docker_image != 'none' }}
+      upload_debug_symbols: true
     secrets: inherit
 
   BuildAndTestMAGE:
@@ -286,6 +287,7 @@ jobs:
       push_to_s3: true
       malloc: ${{ matrix.malloc }}
       run_smoke_tests: ${{ !matrix.cugraph }}
+      upload_debug_symbols: true
       run_tests: true
       package_deb: "default"
       generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.package_flavour == 'prod' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}

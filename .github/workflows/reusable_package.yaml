@@ -55,6 +55,10 @@ on:
         type: boolean
         description: "Run smoke tests on images after building (tests against previous tagged image)"
         default: false
+      upload_debug_symbols:
+        type: boolean
+        description: "Upload .debug sidecars to the debuginfod-layout S3 bucket."
+        default: false
     outputs:
       package_s3_url:
         description: "The URL of the package in the S3 bucket."
@@ -227,7 +231,7 @@ jobs:
           --dest-dir $PACKAGE_ARTIFACT_DIR
 
       - name: "Upload debug symbols"
-        if: ${{ env.SPLIT_DEBUG == 'true' }}
+        if: ${{ inputs.upload_debug_symbols && env.SPLIT_DEBUG == 'true' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
