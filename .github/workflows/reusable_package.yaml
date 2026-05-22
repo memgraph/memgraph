@@ -227,8 +227,6 @@ jobs:
           --dest-dir $PACKAGE_ARTIFACT_DIR
 
       - name: "Upload debug symbols"
-        # Use $SPLIT_DEBUG (env) rather than inputs.split_debug so the override
-        # from the Validate step (e.g. for package_flavour=both) is honoured.
         if: ${{ env.SPLIT_DEBUG == 'true' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
@@ -254,10 +252,6 @@ jobs:
           --sbom
 
       - name: "Build gssapi wheel for smoke image"
-        # Built whenever smoke tests will run — even when shipping docker
-        # images are produced we still smoke-test the deb in a barebones
-        # smoke image (to exercise the deb install path separately from the
-        # full-featured docker images).
         if: ${{ inputs.run_smoke_tests }}
         run: |
           # gssapi has no prebuilt linux wheels on PyPI, so build one inside
@@ -289,8 +283,6 @@ jobs:
           echo "Resolved SMOKE_IMAGE_TAG=$image_tag"
 
       - name: "Build heaptrack"
-        # Heaptrack ships in the debug docker image only, so build when we
-        # are producing a debug image (build_docker_image=debug or both).
         if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
         run: |
           ./release/package/mgbuild.sh \
@@ -351,10 +343,6 @@ jobs:
           --arch $ARCH \
           stop --remove
 
-      # The docker image creation is split into two steps — one per flavour —
-      # so build_docker_image=both can produce prod + debug images sequentially
-      # from a single build. Both images share the same memgraph_*.deb; the
-      # debug image additionally installs memgraph-debuginfo_*.deb on top.
       - name: "Create docker image (prod)"
         if: ${{ inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both' }}
         run: |
@@ -380,9 +368,7 @@ jobs:
           --custom-mirror $USE_CUSTOM_MIRROR \
           --package-flavour prod \
           --keep-image-loaded ${{ inputs.run_smoke_tests }}
-          # When build_docker_image=both the debug step (below) writes its
-          # archive to DOCKER_DEBUG_ARTIFACT_DIR (a sibling, not this one),
-          # so we just take the only memgraph*-docker.tar.gz that exists here.
+
           image_archive="$(ls -1t "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
           if [[ -z "$image_archive" ]]; then
             echo "Error: Could not find prod docker image archive in '$DOCKER_PROD_ARTIFACT_DIR'."
@@ -430,10 +416,6 @@ jobs:
           echo "DEBUG_IMAGE_TAG=$image_tag" >> $GITHUB_ENV
           echo "Resolved DEBUG_IMAGE_TAG=$image_tag"
 
-      # Bolt no-arg startup smoke test: runs against the prod and debug
-      # docker images independently. Skipped for the package smoke image
-      # (the deb install path doesn't need a no-arg startup probe — the
-      # full `Run smoke tests` step below exercises it).
       - name: "Bolt smoke test (prod docker)"
         if: ${{ inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both' }}
         run: |
@@ -477,11 +459,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ inputs.s3_region }}
 
-      # Resolve the previous-release tag once and reuse it for all three
-      # smoke runs. The comparison baseline is always the previous prod
-      # release — there's no need to match the exact -relwithdebinfo tag
-      # for the debug-docker smoke run (the test exercises behaviour, not
-      # binary identity).
       - name: "Resolve previous release tag"
         if: ${{ inputs.run_smoke_tests }}
         run: |
@@ -524,9 +501,6 @@ jobs:
             --last-image "memgraph/memgraph:${LAST_VERSION}"
 
       - name: "Run smoke tests (package smoke image)"
-        # Always runs when smoke tests are requested — exercises the deb
-        # install path on its own, distinct from the full prod/debug docker
-        # images that layer python venv, openssl, gdb, heaptrack, etc. on top.
         if: ${{ inputs.run_smoke_tests }}
         env:
           MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -595,10 +569,6 @@ jobs:
       - name: Output Package S3 URL
         id: output_package_s3_url
         run: |
-          # Emit the deb/rpm URL. Workflows that need the docker image URL
-          # construct it themselves from the matching DOCKER_PROD/DOCKER_DEBUG
-          # subdir name and the known filename pattern (see build_rc.yml /
-          # daily_build.yml).
           if [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
             filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph_*.deb 2>/dev/null | head -n 1)"
           else
@@ -609,12 +579,6 @@ jobs:
           S3_URL="https://s3.eu-west-1.amazonaws.com/${S3_BUCKET}/${S3_DEST_DIR}/${PKG_ARTIFACT_NAME}/${encoded_filename}"
           echo "package_s3_url=$S3_URL" >> $GITHUB_OUTPUT
 
-      # Upload the deb/rpm (always produced). Docker images (when produced)
-      # are uploaded by the separate prod/debug docker upload steps below
-      # so each flavour lands under its own S3 subdir (docker[-aarch64] for
-      # prod, docker[-aarch64]-relwithdebinfo for debug), preserving the
-      # existing convention where ".../<os>/" holds packages and ".../docker*/"
-      # holds image tarballs.
       - name: "Upload package to Github"
         if: ${{ inputs.push_to_github == 'true' }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0

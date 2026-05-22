@@ -224,12 +224,6 @@ jobs:
       - name: Set image tag and artifact name
         run: |
           echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA, CUGRAPH=$CUGRAPH, PACKAGE_FLAVOUR=$PACKAGE_FLAVOUR, BUILD_DOCKER_IMAGE=$BUILD_DOCKER_IMAGE"
-          # Compute both candidate tags up front so the Build image (prod)
-          # and Build image (debug) steps each have the right tag to target.
-          # IMAGE_TAG / ARTIFACT_NAME are kept as the "primary" — used by
-          # smoke tests, SBOM, save, upload steps that operate on a single
-          # image — and resolve to the prod variant for build_docker_image
-          # in (prod, both) and the debug variant otherwise.
           read PROD_IMAGE_TAG PROD_ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA" "$CUGRAPH" "prod")
           read DEBUG_IMAGE_TAG DEBUG_ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA" "$CUGRAPH" "debug")
           echo "PROD_IMAGE_TAG=${PROD_IMAGE_TAG}" >> $GITHUB_ENV
@@ -255,10 +249,6 @@ jobs:
         run: |
           wget -O mage/memgraph.deb "$MEMGRAPH_DOWNLOAD_LINK"
           echo "Memgraph package downloaded"
-          # The relwithdebinfo Dockerfile stage installs memgraph-debuginfo on
-          # top of the main deb (gives gdb the .debug sidecars offline).
-          # Callers that produce a debug or both image must supply this URL
-          # whenever they use a pre-built memgraph_download_link.
           if [[ -n "$MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK" ]]; then
             wget -O mage/memgraph-debuginfo.deb "$MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK"
             echo "Memgraph debuginfo package downloaded"
@@ -269,11 +259,6 @@ jobs:
 
       - name: "Set artifact name and dir"
         run: |
-          # MAGE builds memgraph + MAGE modules and bakes them into its own
-          # docker image (Dockerfile.release / Dockerfile.cugraph via the
-          # package-mage-docker subcommand). The memgraph build inside this
-          # workflow is just to produce the deb that gets installed into the
-          # MAGE image; --for-docker is not relevant here.
           artifact_name="$OS"
           artifact_dir='build/output'
           if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
@@ -354,10 +339,6 @@ jobs:
           --package \
           --dest-dir $MG_PACKAGE_ARTIFACT_DIR
 
-          # Underscore vs hyphen distinguishes the main deb (memgraph_*.deb)
-          # from the companion (memgraph-debuginfo_*.deb). A bare memgraph*.deb
-          # glob matches both and breaks `mv` to a single target when split-debug
-          # is on. Stage each into the predictable filename the Dockerfile mounts.
           mv -v "$MG_PACKAGE_ARTIFACT_DIR"/memgraph_*.deb mage/memgraph.deb
           if [[ "$PACKAGE_FLAVOUR" == "debug" ]]; then
             debuginfo_deb=$(ls -1 "$MG_PACKAGE_ARTIFACT_DIR"/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)
@@ -381,10 +362,6 @@ jobs:
           --sbom
 
       - name: "Build heaptrack"
-        # Heaptrack ships only in the debug docker image, so build it
-        # whenever a debug image is produced (build_docker_image=debug
-        # or =both). Uses env.BUILD_DOCKER_IMAGE to respect the
-        # explicit input or the package_flavour-mirroring default.
         if: ${{ inputs.build_type == 'RelWithDebInfo' && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
           ./release/package/mgbuild.sh \
@@ -503,11 +480,6 @@ jobs:
             --package-flavour "$PACKAGE_FLAVOUR" \
             $PACKAGE_ARGS
 
-          # memgraph-mage_*.deb (underscore) matches the main package only.
-          # The companion memgraph-mage-debuginfo_*.deb (hyphen-d-e-b-u-g-i-n-f-o)
-          # is produced alongside for prod-flavour split-debug builds; it's
-          # uploaded via the same artifact dir but consumers downstream (the
-          # offline installer, the docker layering step) want the main deb.
           DEB_PACKAGE="$(ls output/memgraph-mage_*.deb | head -n 1)"
           echo "DEB_PACKAGE=${DEB_PACKAGE}" >> $GITHUB_ENV
           DEB_DEBUGINFO_PACKAGE="$(ls output/memgraph-mage-debuginfo_*.deb 2>/dev/null | head -n 1 || true)"
@@ -582,13 +554,6 @@ jobs:
             $TEST_ARGS
 
       - name: Generate SBOM
-        # Runs even when memgraph is downloaded as a prebuilt deb (i.e.
-        # memgraph_download_link != ''). tools/ci/sbom/build-sbom.sh has a
-        # fallback path that runs `conan install` against $CONAN_REMOTE to
-        # produce the build SBOM without needing a local memgraph build
-        # tree, so this still works in the prebuilt-deb flow — and is
-        # required for `generate-mage-image-sbom` below, which expects
-        # sbom/memgraph-build-sbom.json to exist.
         if: ${{ inputs.generate_sbom == true }}
         env:
           CONAN_REMOTE: "${{ secrets.CONAN_REMOTE }}"
@@ -611,11 +576,6 @@ jobs:
           --cugraph $CUGRAPH \
           stop --remove
 
-      # Docker image creation is split into per-flavour steps so a single
-      # job can produce prod + debug images from one build (matches
-      # reusable_package.yaml's pattern). package-mage-docker is called
-      # with the appropriate --package-flavour each time, producing the
-      # corresponding Dockerfile target (prod / relwithdebinfo).
       - name: "Build image (prod)"
         if: ${{ env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both' }}
         run: |
@@ -652,9 +612,6 @@ jobs:
             --cuda $CUDA \
             --package-flavour debug
 
-      # Bolt no-arg startup smoke test, per docker variant. cugraph/cuda
-      # images need an Nvidia GPU at runtime so they can't be exercised on
-      # CI runners — the !cugraph && !cuda gate is unchanged from before.
       - name: "Bolt smoke test (prod)"
         if: ${{ !inputs.cugraph && !inputs.cuda && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
@@ -692,15 +649,6 @@ jobs:
           S3_DEST_DIR: "${{ inputs.s3_dest_dir }}/sbom/"
         run: |
           aws s3 sync sbom/ "s3://$AWS_S3_BUCKET/$S3_DEST_DIR"
-
-      # E2E + correctness + migration tests are duplicated per docker
-      # variant. The `mage` container name is reused across runs: we start
-      # it with the prod image, exercise everything, stop it, then repeat
-      # with the debug image. Sequential rather than parallel because the
-      # test infrastructure expects a single MAGE_CONTAINER on a fixed
-      # port. "Wait for e2e Docker images" only needs to fire once — it
-      # blocks on the external test fixture images (neo4j, mysql, etc.)
-      # being available, not on our MAGE image.
 
       - name: "Wait for e2e Docker images to be available"
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
@@ -895,10 +843,6 @@ jobs:
             du -h output/${DEBUG_ARTIFACT_NAME}.tar.gz
           fi
 
-      # Resolve the previous-release tag(s) once. The prod variant compares
-      # against the bare tag; the debug variant against the same tag with
-      # the -relwithdebinfo suffix. Malloc/cuda variants are orthogonal and
-      # apply to both variants when set.
       - name: "Resolve previous release tag(s)"
         if: ${{ inputs.run_smoke_tests == true }}
         run: |
@@ -952,8 +896,6 @@ jobs:
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.ARTIFACT_NAME }}-deb"
-          # Glob both memgraph-mage_*.deb and any sibling
-          # memgraph-mage-debuginfo_*.deb produced for prod-flavour builds.
           path: "output/memgraph-mage*.deb"
 
       - name: Push docker image to GitHub
@@ -961,10 +903,6 @@ jobs:
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.IMAGE_TAG }}-docker"
-          # Glob picks up the prod (mage-X.tar.gz) and debug
-          # (mage-X-relwithdebinfo.tar.gz) variants produced by the Save
-          # docker image(s) step. For build_docker_image=prod|debug
-          # only one matches; for 'both' both upload under a single artifact.
           path: "output/mage-*.tar.gz"
 
       - name: Push to S3 with retry
@@ -996,12 +934,6 @@ jobs:
         env:
           DEST_DIR: "${{ inputs.s3_dest_dir }}"
         run: |
-          # Emit one URL per docker image the job produced. s3_url (the
-          # primary) keeps backward-compat with single-variant callers and
-          # always points at the variant chosen by IMAGE_TAG/ARTIFACT_NAME
-          # (prod for build_docker_image in prod/both/none, debug for
-          # build_docker_image=debug). s3_url_prod / s3_url_debug are
-          # populated independently so callers can pick a specific variant.
           base="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/$DEST_DIR"
           prod_url=""
           debug_url=""
