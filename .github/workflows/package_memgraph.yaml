@@ -283,10 +283,6 @@ jobs:
       os: "ubuntu-24.04"
       arch: "amd"
       build_type: RelWithDebInfo
-      # Deb is always built as prod (stripped + sidecar) when producing docker
-      # images. The image's debug-vs-prod flavour is chosen by
-      # build_docker_image; debug images install the memgraph-debuginfo deb
-      # on top of the prod deb.
       split_debug: true
       package_flavour: prod
       build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
