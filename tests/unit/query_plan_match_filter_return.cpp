@@ -4592,7 +4592,7 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAKeysOmitsDeniedKey) {
   FLAGS_property_fga_enabled = false;
 }
 
-TYPED_TEST(MatchReturnFixture, PropertyFGAValuesNullsDeniedValue) {
+TYPED_TEST(MatchReturnFixture, PropertyFGAValuesOmitsDeniedKey) {
   FLAGS_property_fga_enabled = true;
 
   auto v = this->dba.InsertVertex();
@@ -4620,16 +4620,8 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAValuesNullsDeniedValue) {
   ASSERT_EQ(results.size(), 1);
   ASSERT_TRUE(results[0][0].IsList());
   auto const &vals = results[0][0].ValueList();
-  ASSERT_EQ(vals.size(), 2);
-  // One should be "Alice", the other null — but order depends on PropertyId ordering
-  bool found_alice = false;
-  bool found_null = false;
-  for (auto const &val : vals) {
-    if (val.IsString() && val.ValueString() == "Alice") found_alice = true;
-    if (val.IsNull()) found_null = true;
-  }
-  EXPECT_TRUE(found_alice);
-  EXPECT_TRUE(found_null);
+  ASSERT_EQ(vals.size(), 1) << "`values()` list must match `keys()` cardinality when FGA hides properties";
+  EXPECT_EQ(vals[0].ValueString(), "Alice");
 
   FLAGS_property_fga_enabled = false;
 }

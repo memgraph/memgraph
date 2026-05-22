@@ -899,8 +899,6 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     for (const auto &[key, value] : *maybe_props) {
       if (is_allowed(key)) {
         values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
-      } else {
-        values.emplace_back(TypedValue(ctx.memory));
       }
     }
     return TypedValue(std::move(values));

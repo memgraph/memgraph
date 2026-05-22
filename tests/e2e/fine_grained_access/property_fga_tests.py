@@ -58,6 +58,18 @@ def test_keys_omits_denied_key():
     assert "ssn" not in keys
 
 
+def test_values_omits_denied_key():
+    result = common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) RETURN keys(n) AS k, values(n) AS v;")
+    assert len(result) == 1
+    keys = result[0][0]
+    vals = result[0][1]
+    assert len(keys) == len(vals)
+    assert "name" in keys
+    assert "ssn" not in keys
+    assert "Alice" in vals
+    assert None not in vals
+
+
 def test_return_whole_node_redacts_denied_property():
     result = common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) RETURN n;")
     assert len(result) == 1
@@ -128,14 +140,6 @@ def test_path_filter_on_denied_property_returns_no_rows():
         "MATCH p = (:Person)-[*]->(n:Employee) WHERE n.ssn = '123-45-6789' RETURN p;",
     )
     assert len(result) == 0
-
-
-def test_values_nulls_denied_property():
-    result = common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) RETURN values(n) AS v;")
-    assert len(result) == 1
-    vals = result[0][0]
-    assert None in vals
-    assert "Alice" in vals
 
 
 def test_admin_sees_all_properties():
