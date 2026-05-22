@@ -827,10 +827,6 @@ package_memgraph() {
 
   # check for mgconsole inside package
   if [[ "$os" =~ ^"ubuntu".* || "$os" =~ ^"debian".* ]]; then
-    # memgraph_*.deb (underscore) matches the main package only — excludes
-    # memgraph-debuginfo_*.deb (hyphen) which is also produced under
-    # component packaging. Without this tightening, ls returns both files
-    # and the newline-separated value breaks the downstream dpkg -c call.
     package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph_*.deb")"
     check_output="$(docker exec -u mg $build_container bash -c "dpkg -c $package_name")"
   else
@@ -937,10 +933,7 @@ package_docker() {
       exit 1
     ;;
   esac
-  # Pick the main memgraph package only. With component-aware cpack the dir
-  # also contains memgraph-debuginfo_*.deb / memgraph-debuginfo-*.rpm, and
-  # the downstream release/docker/package_docker helper derives the companion
-  # path from the main one — so we must pass it the main package.
+
   # shellcheck disable=SC2012
   local last_package_name=$(cd $package_dir && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1)
   if [[ -z "$last_package_name" ]]; then
@@ -1173,10 +1166,6 @@ copy_memgraph() {
         artifact="package"
         local container_package_dir="$MGBUILD_BUILD_DIR/output"
         host_dir="$PROJECT_BUILD_DIR/output/$os"
-        # Identify the main package via the underscore/version pattern (memgraph_*.deb
-        # or memgraph-<digits>*.rpm). With component packaging in play the output dir
-        # may also contain memgraph-debuginfo_*.deb / memgraph-debuginfo-*.rpm, which
-        # are handled below by the artifact-copy fan-out.
         artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1")
         container_artifact_path="$container_package_dir/$artifact_name"
         shift 1
@@ -1285,10 +1274,6 @@ copy_memgraph() {
     docker exec -u mg "$build_container" bash -c "rm -rf $temp_log_dir"
     echo -e "Log files copied to $host_dir!"
   elif [[ "$artifact" == "package" ]]; then
-    # Copy every memgraph package CPack produced: the main one and (when
-    # component packaging is in use) the sibling memgraph-debuginfo package.
-    # The downstream workflow looks for the main package by its underscore
-    # pattern, and aws s3 sync handles arbitrary additional files in the dir.
     for pkg_name in $(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls memgraph_*.deb memgraph-debuginfo_*.deb memgraph-[0-9]*.rpm memgraph-debuginfo-*.rpm 2>/dev/null"); do
       docker cp "$build_container:$container_package_dir/$pkg_name" "$host_dir/$pkg_name"
       echo -e "Copied $pkg_name to $host_dir/"
@@ -1868,9 +1853,7 @@ build_mage() {
 
   echo -e "${GREEN_BOLD}Copying compressed query modules to host${RESET}"
   docker cp $build_container:/home/mg/mage.tar.gz ./mage/mage.tar.gz
-  # mage-debug.tar.gz is only emitted for split-debug builds (the
-  # relwithdebinfo image needs it). Copy it across opportunistically so
-  # the docker build context picks it up via required=false bind mount.
+
   if docker exec -i $build_container test -f /home/mg/mage-debug.tar.gz; then
     docker cp $build_container:/home/mg/mage-debug.tar.gz ./mage/mage-debug.tar.gz
   else
@@ -1934,10 +1917,6 @@ package_mage_deb() {
   docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && PACKAGE_FLAVOUR=$package_flavour ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda $cugraph"
 
   mkdir -pv output
-  # Copy every produced deb out. For prod-flavour split-debug builds this
-  # is both the main memgraph-mage_*.deb and its memgraph-mage-debuginfo_*.deb
-  # companion (split off by build-deb.sh). For debug-flavour or no-split
-  # builds only the main deb is produced.
   for path in $(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb"); do
     docker cp $build_container:$path output/
     echo "Package: $path"
@@ -2475,11 +2454,6 @@ generate_memgraph_build_sbom() {
     esac
   done
 
-  # build-sbom.sh prefers an existing build/generators/sbom/memgraph-sbom.cdx.json
-  # (produced by a local memgraph build) and falls back to a fresh `conan install`
-  # against $CONAN_REMOTE when that file is missing. The MAGE workflow no longer
-  # builds memgraph locally (it downloads the prebuilt deb), so the fallback path
-  # is the one that runs in CI now — which needs $CONAN_REMOTE non-empty.
   if [[ -z "$conan_remote" ]]; then
     echo -e "${YELLOW_BOLD}Warning: --conan-remote not provided; build-sbom.sh will fail if no local build is present${RESET}"
   fi
