@@ -260,8 +260,28 @@ jobs:
       split_debug: true
       package_flavour: ${{ matrix.package_flavour }}
       build_docker_image: ${{ matrix.build_docker_image }}
-      memgraph_download_link: ${{ format('https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb', inputs.mock && '-mock-rc' || '', needs.PrepareReleaseBranch.outputs.tag_name, matrix.malloc && '-malloc' || '', matrix.build_arch == 'arm' && '-aarch64' || '', inputs.version, matrix.build_arch == 'arm' && 'arm64' || 'amd64') }}
-      memgraph_debuginfo_download_link: ${{ (matrix.build_docker_image == 'debug' || matrix.build_docker_image == 'both') && format('https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph-debuginfo_{4}-1_{5}.deb', inputs.mock && '-mock-rc' || '', needs.PrepareReleaseBranch.outputs.tag_name, matrix.malloc && '-malloc' || '', matrix.build_arch == 'arm' && '-aarch64' || '', inputs.version, matrix.build_arch == 'arm' && 'arm64' || 'amd64') || '' }}
+      memgraph_download_link: >-
+        ${{ format(
+          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb',
+          inputs.mock && '-mock-rc' || '',
+          needs.PrepareReleaseBranch.outputs.tag_name,
+          matrix.malloc && '-malloc' || '',
+          matrix.build_arch == 'arm' && '-aarch64' || '',
+          inputs.version, matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+        ) }}
+      memgraph_debuginfo_download_link: >-
+        ${{
+          (matrix.build_docker_image == 'debug' || matrix.build_docker_image == 'both') &&
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph-debuginfo_{4}-1_{5}.deb',
+            inputs.mock && '-mock-rc' || '',
+            needs.PrepareReleaseBranch.outputs.tag_name,
+            matrix.malloc && '-malloc' || '',
+            matrix.build_arch == 'arm' && '-aarch64' || '',
+            inputs.version,
+            matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+          ) || ''
+        }}
       s3_dest_dir: "mage${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       cuda: ${{ matrix.cuda }}
       cugraph: ${{ matrix.cugraph }}
