@@ -19,6 +19,7 @@
 #include "glue/query_user.hpp"
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
+#include "query/common.hpp"
 #include "query/constants.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -235,16 +236,7 @@ bool FineGrainedAuthChecker::Has(const memgraph::query::VertexAccessor &vertex, 
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
   auto maybe_labels = vertex.Labels(view);
   if (!maybe_labels) {
-    switch (maybe_labels.error()) {
-      case memgraph::storage::Error::DELETED_OBJECT:
-        throw memgraph::query::QueryRuntimeException("Trying to get labels from a deleted node.");
-      case memgraph::storage::Error::NONEXISTENT_OBJECT:
-        throw memgraph::query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case memgraph::storage::Error::SERIALIZATION_ERROR:
-      case memgraph::storage::Error::VERTEX_HAS_EDGES:
-      case memgraph::storage::Error::PROPERTIES_DISABLED:
-        throw memgraph::query::QueryRuntimeException("Unexpected error when getting labels.");
-    }
+    memgraph::query::ThrowVertexLabelsReadFailure(maybe_labels.error());
   }
 
   return IsAuthorizedLabels(GetCachedLabelPermissions(), dba_, *maybe_labels, fine_grained_privilege);

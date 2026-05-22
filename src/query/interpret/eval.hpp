@@ -1076,7 +1076,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
     if (!auth_checker_) return true;
     auto maybe_labels = accessor.Labels(view_);
-    if (!maybe_labels) return true;
+    if (!maybe_labels) [[unlikely]] {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
     return auth_checker_->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
   }
 

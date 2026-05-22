@@ -27,6 +27,7 @@
 #include <variant>
 
 #include "query/auth_checker.hpp"
+#include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
@@ -845,7 +846,9 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_keys(vertex, allow_all);
     auto maybe_labels = vertex.Labels(ctx.view);
-    if (!maybe_labels) throw QueryRuntimeException("Unexpected error when getting labels.");
+    if (!maybe_labels) {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
     return get_keys(vertex, [&](storage::PropertyId prop) {
       return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
     });
@@ -913,7 +916,9 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_values(vertex, allow_all);
     auto maybe_labels = vertex.Labels(ctx.view);
-    if (!maybe_labels) throw QueryRuntimeException("Unexpected error when getting labels.");
+    if (!maybe_labels) {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
     return get_values(vertex, [&](storage::PropertyId prop) {
       return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
     });
@@ -960,16 +965,7 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
   TypedValue::TVector labels(ctx.memory);
   auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
   if (!maybe_labels) {
-    switch (maybe_labels.error()) {
-      case storage::Error::DELETED_OBJECT:
-        throw QueryRuntimeException("Trying to get labels from a deleted node.");
-      case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
-        throw QueryRuntimeException("Unexpected error when getting labels.");
-    }
+    ThrowVertexLabelsReadFailure(maybe_labels.error());
   }
   for (const auto &label : *maybe_labels) {
     labels.emplace_back(dba->LabelToName(label));

@@ -13,6 +13,7 @@
 
 #include <range/v3/all.hpp>
 #include "query/auth_checker.hpp"
+#include "query/common.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -266,18 +267,7 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
   *os << "CREATE (";
   *os << ":" << kInternalVertexLabel;
   auto maybe_labels = vertex.Labels(storage::View::OLD);
-  if (!maybe_labels) {
-    switch (maybe_labels.error()) {
-      case storage::Error::DELETED_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a deleted node.");
-      case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
-        throw query::QueryRuntimeException("Unexpected error when getting labels.");
-    }
-  }
+  if (!maybe_labels) ThrowVertexLabelsReadFailure(maybe_labels.error());
   for (const auto &label : *maybe_labels) {
     *os << ":" << EscapeName(dba->LabelToName(label));
   }
