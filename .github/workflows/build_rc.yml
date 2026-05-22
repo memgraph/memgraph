@@ -200,8 +200,6 @@ jobs:
       build_docker_image: ${{ matrix.build_docker_image || 'none' }}
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}

@@ -39,14 +39,6 @@ on:
         type: string
         description: "Should the final package be pushed to an S3 bucket. Default value is false."
         default: false
-      s3_bucket:
-        type: string
-        description: "Name of the target S3 bucket."
-        default: ''
-      s3_region:
-        type: string
-        description: "Region for the target S3 bucket."
-        default: eu-west-1
       s3_dest_dir:
         type: string
         description: "Target dir path in S3 bucket."
@@ -80,8 +72,8 @@ env:
   ADDITIONAL_BUILD_ARGS: ${{ inputs.additional_build_args }}
   PUSH_TO_GITHUB: ${{ inputs.push_to_github }}
   PUSH_TO_S3: ${{ inputs.push_to_s3 }}
-  S3_BUCKET: ${{ inputs.s3_bucket }}
-  S3_REGION: ${{ inputs.s3_region }}
+  S3_BUCKET: deps.memgraph.io
+  S3_REGION: eu-west-1
   S3_DEST_DIR: ${{ inputs.s3_dest_dir }}
   REF: ${{ inputs.ref }}
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
@@ -95,27 +87,6 @@ jobs:
     outputs:
       package_s3_url: ${{ steps.output_package_s3_url.outputs.package_s3_url }}
     steps:
-      - name: "Validate S3 dest dir for official package"
-        if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}
-        run: |
-          # Only the prod flavour (stripped binary, symbols archived externally)
-          # belongs on the customer download site. Debug-flavour debs and any
-          # docker image (including the debug docker image) go to the internal
-          # deps bucket instead.
-          if [[ "$PACKAGE_FLAVOUR" == 'debug' ]]; then
-            echo -e "Error: You are pushing a debug-flavour deb to 'download.memgraph.com'."
-            exit 1
-          fi
-          if [[ "$BUILD_DOCKER_IMAGE" != 'none' ]]; then
-            echo -e "Error: Docker images do not belong on 'download.memgraph.com'; push them to the internal deps bucket."
-            exit 1
-          fi
-          if ! [[ "$S3_DEST_DIR" =~ memgraph/v[0-9]\.[0-9]+\.[0-9]+$ ]]; then
-            echo -e "Error: $S3_DEST_DIR is not a valid official format. When pushing to 'download.memgraph.com' the dest dir has to match format 'memgraph/vX.Y.Z'!"
-            exit 1
-          fi
-          echo -e "Passed: Dest dir $S3_DEST_DIR has a valid official format."
-
       - name: "Set up repository"
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -222,8 +193,6 @@ jobs:
 
       - name: "Build Memgraph binaries"
         run: |
-          # $SPLIT_DEBUG may have been forced on in the Validate step (e.g. for
-          # package_flavour=both, which needs the debuginfo deb).
           SPLIT_DEBUG_ARG=""
           if [[ "$SPLIT_DEBUG" == "true" ]]; then
             SPLIT_DEBUG_ARG="--split-debug"

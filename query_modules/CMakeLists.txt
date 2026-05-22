@@ -9,10 +9,7 @@ disallow_in_source_build()
 find_package(fmt REQUIRED)
 find_package(Boost REQUIRED CONFIG)
 
-# Query modules ship inside the main memgraph package (CPACK_COMPONENTS_ALL =
-# "memgraph debuginfo"). A separate "query_modules" component would be filtered
-# out by component-aware cpack. The .so.debug sidecars below explicitly opt
-# into the "debuginfo" component for the companion package.
+# Install query modules with Memgraph
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
