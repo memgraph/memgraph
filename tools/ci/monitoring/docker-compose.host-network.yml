@@ -1,6 +1,6 @@
 services:
   mg-exporter:
-    image: memgraph/prometheus-exporter:0.2.1
+    image: memgraph/prometheus-exporter:0.2.3
     container_name: ${COMPOSE_PROJECT_NAME}-mg-exporter
     restart: unless-stopped
     network_mode: host
