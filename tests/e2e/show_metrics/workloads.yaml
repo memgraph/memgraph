@@ -17,7 +17,7 @@ show_metrics_json_cluster: &show_metrics_json_cluster
 show_metrics_snapshot_cluster: &show_metrics_snapshot_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-snapshot-interval-sec=1"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-snapshot-interval-sec=0", "--storage-wal-enabled=false"]
       log_file: "show_metrics_snapshot.log"
       setup_queries: []
       validation_queries: []
