@@ -120,6 +120,66 @@ namespace memgraph::query::plan {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
+namespace {
+
+[[nodiscard]] inline ExpressionEvaluator MakePlanExpressionEvaluator(Frame &frame, ExecutionContext const &context,
+                                                                     storage::View view,
+                                                                     FrameChangeCollector *frame_change_collector,
+                                                                     const int64_t *hops_counter) {
+  return ExpressionEvaluator{&frame,
+                             context.symbol_table,
+                             context.evaluation_context,
+                             context.db_accessor,
+                             view,
+                             frame_change_collector,
+                             hops_counter,
+                             context.user_or_role,
+                             context.triggering_user
+#ifdef MG_ENTERPRISE
+                             ,
+                             context.auth_checker.get()
+#endif
+  };
+}
+
+[[nodiscard]] inline ExpressionEvaluator MakePlanExpressionEvaluatorForNestedSet(Frame &frame,
+                                                                                 ExecutionContext const &context) {
+  return ExpressionEvaluator{&frame,
+                             context.symbol_table,
+                             context.evaluation_context,
+                             context.db_accessor,
+                             storage::View::NEW,
+                             nullptr,
+                             nullptr,
+                             context.user_or_role,
+                             context.triggering_user
+#ifdef MG_ENTERPRISE
+                             ,
+                             context.auth_checker.get()
+#endif
+  };
+}
+
+[[nodiscard]] inline ExpressionEvaluator MakePlanExpressionEvaluatorForAggregation(Frame *frame,
+                                                                                   ExecutionContext const *context) {
+  return ExpressionEvaluator{frame,
+                             context->symbol_table,
+                             context->evaluation_context,
+                             context->db_accessor,
+                             storage::View::NEW,
+                             nullptr,
+                             &context->number_of_hops,
+                             context->user_or_role,
+                             {}
+#ifdef MG_ENTERPRISE
+                             ,
+                             context->auth_checker.get()
+#endif
+  };
+}
+
+}  // namespace
+
 ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &storage)
     : type_{other.type_},
       lower_{other.lower_
@@ -603,20 +663,8 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 
   AbortCheck(context);
 
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::NEW,
-                                nullptr,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator =
+      MakePlanExpressionEvaluator(frame, context, storage::View::NEW, nullptr, &context.number_of_hops);
 
   if (input_cursor_->Pull(frame, context)) {
     // we have to resolve the labels before we can check for permissions
@@ -755,20 +803,9 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   AbortCheck(context);
 
   if (!input_cursor_->Pull(frame, context)) return false;
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::NEW,
-                                nullptr,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator =
+      MakePlanExpressionEvaluator(frame, context, storage::View::NEW, nullptr, &context.number_of_hops);
+
   auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
   auto edge_type = EvaluateEdgeType(self_.edge_info_.edge_type, evaluator, context.db_accessor);
 
@@ -1242,20 +1279,8 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
 // Helper function to evaluate an expression and convert it to a property value.
 std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expression *expression, Frame &frame,
                                                                         ExecutionContext &context, storage::View view) {
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                view,
-                                nullptr,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator = MakePlanExpressionEvaluator(frame, context, view, nullptr, &context.number_of_hops);
+
   auto value = expression->Accept(evaluator);
   if (value.IsNull()) {
     return std::nullopt;
@@ -1380,20 +1405,8 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
       -> std::optional<decltype(context.db_accessor->Edges(
           view_, common_.edge_types[0], property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  view_,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, view_, nullptr, &context.number_of_hops);
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     if (!maybe_lower && !maybe_upper) return std::nullopt;
@@ -1545,20 +1558,8 @@ UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *me
       -> std::optional<decltype(context.db_accessor->Edges(
           view_, common_.edge_types[0], property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  view_,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, view_, nullptr, &context.number_of_hops);
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     if (!maybe_lower && !maybe_upper) return std::nullopt;
@@ -1619,20 +1620,8 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
       -> std::optional<decltype(context.db_accessor->Vertices(
           view_, label_, properties_, std::span<storage::PropertyValueRange>{}))> {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  view_,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, view_, nullptr, &context.number_of_hops);
 
     auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
     if (!maybe_prop_value_ranges) {
@@ -1718,20 +1707,9 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem,
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  view_,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, view_, nullptr, &context.number_of_hops);
+
     auto value = expression_->Accept(evaluator);
     auto id = ExtractIdValue(value, expects_string_id_);
     if (!id) return std::nullopt;
@@ -1772,20 +1750,9 @@ UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem,
 
   auto edges = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<EdgeAccessor>> {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  view_,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, view_, nullptr, &context.number_of_hops);
+
     auto value = expression_->Accept(evaluator);
     auto id = ExtractIdValue(value, expects_string_id_);
     if (!id) return std::nullopt;
@@ -2280,20 +2247,9 @@ class ExpandVariableCursor : public Cursor {
       auto &vertex = vertex_value.ValueVertex();
 
       // Evaluate the upper and lower bounds.
-      ExpressionEvaluator evaluator(&frame,
-                                    context.symbol_table,
-                                    context.evaluation_context,
-                                    context.db_accessor,
-                                    storage::View::OLD,
-                                    nullptr,
-                                    &context.number_of_hops,
-                                    context.user_or_role,
-                                    context.triggering_user
-#ifdef MG_ENTERPRISE
-                                    ,
-                                    context.auth_checker.get()
-#endif
-      );
+      ExpressionEvaluator evaluator =
+          MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
       auto calc_bound = [&evaluator](auto &bound) {
         auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
         if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
@@ -2356,20 +2312,9 @@ class ExpandVariableCursor : public Cursor {
    * vertex and another Pull from the input cursor should be performed.
    */
   bool Expand(Frame &frame, ExecutionContext &context) {
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::OLD,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
     // Some expansions might not be valid due to edge uniqueness and
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
@@ -2490,20 +2435,9 @@ class STShortestPathCursor : public query::plan::Cursor {
 
     AbortCheck(context);
 
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::OLD,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
     while (input_cursor_->Pull(frame, context)) {
       if (context.hops_limit.IsLimitReached()) return false;
 
@@ -2772,20 +2706,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("SingleSourceShortestPath");
 
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::OLD,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     // for the given (edge, vertex) pair checks if they satisfy the
@@ -3052,20 +2975,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
 
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::OLD,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -3375,20 +3286,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
 
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::OLD,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
 
     auto *memory = context.evaluation_context.memory;
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
@@ -3797,20 +3696,8 @@ class KShortestPathsCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("KShortestPaths");
 
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::OLD,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
 
     limit_ = self_.limit_ ? EvaluateInt(evaluator, self_.limit_, "Limit in KSHORTEST path expansion")
                           : std::numeric_limits<int64_t>::max();
@@ -4682,20 +4569,9 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::OLD,
-                                context.frame_change_collector,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator = MakePlanExpressionEvaluator(
+      frame, context, storage::View::OLD, context.frame_change_collector, &context.number_of_hops);
+
   while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
@@ -4806,20 +4682,9 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::NEW,
-                                  context.frame_change_collector,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator = MakePlanExpressionEvaluator(
+        frame, context, storage::View::NEW, context.frame_change_collector, &context.number_of_hops);
+
     for (auto *named_expr : self_.named_expressions_) {
       named_expr->Accept(evaluator);
     }
@@ -4865,20 +4730,8 @@ Delete::DeleteCursor::DeleteCursor(const Delete &self, utils::MemoryResource *me
 void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &context) {
   // Delete should get the latest information, this way it is also possible
   // to delete newly added nodes and edges.
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::NEW,
-                                nullptr,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator =
+      MakePlanExpressionEvaluator(frame, context, storage::View::NEW, nullptr, &context.number_of_hops);
 
   auto *pull_memory = context.evaluation_context.memory;
   // collect expressions results so edges can get deleted before vertices
@@ -4969,20 +4822,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   AbortCheck(context);
 
   if (self_.buffer_size_ != nullptr && !buffer_size_.has_value()) [[unlikely]] {
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::OLD,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
     buffer_size_ = *EvaluateDeleteBufferSize(evaluator, self_.buffer_size_);
   }
 
@@ -5080,20 +4922,9 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Set, just like Create needs to see the latest changes.
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::NEW,
-                                nullptr,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator =
+      MakePlanExpressionEvaluator(frame, context, storage::View::NEW, nullptr, &context.number_of_hops);
+
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
@@ -5205,20 +5036,8 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
 
   if (!input_cursor_->Pull(frame, context)) return false;
   // Set, just like Create needs to see the latest changes.
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::NEW,
-                                nullptr,
-                                nullptr,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator = MakePlanExpressionEvaluatorForNestedSet(frame, context);
+
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
@@ -5535,20 +5354,9 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
   TypedValue const &lhs = frame[self_.input_symbol_];
 
   // Set, just like Create needs to see the latest changes.
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::NEW,
-                                nullptr,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator =
+      MakePlanExpressionEvaluator(frame, context, storage::View::NEW, nullptr, &context.number_of_hops);
+
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   TypedValue rhs = self_.rhs_->Accept(evaluator);
@@ -5635,20 +5443,9 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   AbortCheck(context);
 
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::NEW,
-                                nullptr,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator =
+      MakePlanExpressionEvaluator(frame, context, storage::View::NEW, nullptr, &context.number_of_hops);
+
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -5744,20 +5541,9 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Remove, just like Delete needs to see the latest changes.
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::NEW,
-                                nullptr,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator =
+      MakePlanExpressionEvaluator(frame, context, storage::View::NEW, nullptr, &context.number_of_hops);
+
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   auto remove_prop = [property = self_.property_, &context](auto *record) {
@@ -5860,20 +5646,9 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::NEW,
-                                nullptr,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator =
+      MakePlanExpressionEvaluator(frame, context, storage::View::NEW, nullptr, &context.number_of_hops);
+
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   auto remove_nested_property = [this, &context, &evaluator](auto *record) {
@@ -6000,20 +5775,9 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 
   AbortCheck(context);
 
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::NEW,
-                                nullptr,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user
-#ifdef MG_ENTERPRISE
-                                ,
-                                context.auth_checker.get()
-#endif
-  );
+  ExpressionEvaluator evaluator =
+      MakePlanExpressionEvaluator(frame, context, storage::View::NEW, nullptr, &context.number_of_hops);
+
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -6565,20 +6329,7 @@ class AggregateCursor : public Cursor {
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
     db_accessor_ = context->db_accessor;
     MG_ASSERT(db_accessor_, "Aggregation expects a current DB transaction");
-    ExpressionEvaluator evaluator(frame,
-                                  context->symbol_table,
-                                  context->evaluation_context,
-                                  context->db_accessor,
-                                  storage::View::NEW,
-                                  nullptr,
-                                  &context->number_of_hops,
-                                  context->user_or_role,
-                                  {}
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context->auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator = MakePlanExpressionEvaluatorForAggregation(frame, context);
 
     bool pulled = false;
     while (input_cursor_->Pull(*frame, *context)) {
@@ -7078,20 +6829,9 @@ class OrderByCursor : public Cursor {
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!did_pull_all_) [[unlikely]] {
-      ExpressionEvaluator evaluator(&frame,
-                                    context.symbol_table,
-                                    context.evaluation_context,
-                                    context.db_accessor,
-                                    storage::View::OLD,
-                                    nullptr,
-                                    &context.number_of_hops,
-                                    context.user_or_role,
-                                    context.triggering_user
-#ifdef MG_ENTERPRISE
-                                    ,
-                                    context.auth_checker.get()
-#endif
-      );
+      ExpressionEvaluator evaluator =
+          MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
       // auto *pull_mem = context.evaluation_context.memory;
       auto *query_mem = cache_.get_allocator().resource();
 
@@ -7426,20 +7166,9 @@ class UnwindCursor : public Cursor {
         if (!input_cursor_->Pull(frame, context)) return false;
 
         // successful pull from input, initialize value and iterator
-        ExpressionEvaluator evaluator(&frame,
-                                      context.symbol_table,
-                                      context.evaluation_context,
-                                      context.db_accessor,
-                                      storage::View::OLD,
-                                      nullptr,
-                                      nullptr,
-                                      context.user_or_role,
-                                      context.triggering_user
-#ifdef MG_ENTERPRISE
-                                      ,
-                                      context.auth_checker.get()
-#endif
-        );
+        ExpressionEvaluator evaluator =
+            MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, nullptr);
+
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
         if (input_value.type() != TypedValue::Type::List)
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
@@ -8287,20 +8016,9 @@ class CallProcedureCursor : public Cursor {
       result_.rows.clear();
 
       const auto graph_view = proc_->info.is_write ? storage::View::NEW : storage::View::OLD;
-      ExpressionEvaluator evaluator(&frame,
-                                    context.symbol_table,
-                                    context.evaluation_context,
-                                    context.db_accessor,
-                                    graph_view,
-                                    nullptr,
-                                    &context.number_of_hops,
-                                    context.user_or_role,
-                                    context.triggering_user
-#ifdef MG_ENTERPRISE
-                                    ,
-                                    context.auth_checker.get()
-#endif
-      );
+      ExpressionEvaluator evaluator =
+          MakePlanExpressionEvaluator(frame, context, graph_view, nullptr, &context.number_of_hops);
+
       result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
@@ -8865,20 +8583,9 @@ class ForeachCursor : public Cursor {
       return false;
     }
 
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::NEW,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, storage::View::NEW, nullptr, &context.number_of_hops);
+
     TypedValue expr_result = expression->Accept(evaluator);
 
     if (expr_result.IsNull()) {
@@ -9167,20 +8874,9 @@ class HashJoinCursor : public Cursor {
         if (!pulled) return false;
 
         // Check if the join value from the pulled frame is shared with any left frames
-        ExpressionEvaluator evaluator(&frame,
-                                      context.symbol_table,
-                                      context.evaluation_context,
-                                      context.db_accessor,
-                                      storage::View::OLD,
-                                      nullptr,
-                                      &context.number_of_hops,
-                                      context.user_or_role,
-                                      context.triggering_user
-#ifdef MG_ENTERPRISE
-                                      ,
-                                      context.auth_checker.get()
-#endif
-        );
+        ExpressionEvaluator evaluator =
+            MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
         auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
         if (hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
@@ -9227,20 +8923,9 @@ class HashJoinCursor : public Cursor {
   void InitializeHashJoin(Frame &frame, ExecutionContext &context) {
     // Pull all left_op_ frames
     while (left_op_cursor_->Pull(frame, context)) {
-      ExpressionEvaluator evaluator(&frame,
-                                    context.symbol_table,
-                                    context.evaluation_context,
-                                    context.db_accessor,
-                                    storage::View::OLD,
-                                    nullptr,
-                                    &context.number_of_hops,
-                                    context.user_or_role,
-                                    context.triggering_user
-#ifdef MG_ENTERPRISE
-                                    ,
-                                    context.auth_checker.get()
-#endif
-      );
+      ExpressionEvaluator evaluator =
+          MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
       auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
       if (left_value.type() != TypedValue::Type::Null) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
@@ -9417,20 +9102,9 @@ class PeriodicCommitCursor : public Cursor {
     AbortCheck(context);
 
     if (!commit_frequency_) [[unlikely]] {
-      ExpressionEvaluator evaluator(&frame,
-                                    context.symbol_table,
-                                    context.evaluation_context,
-                                    context.db_accessor,
-                                    storage::View::OLD,
-                                    nullptr,
-                                    &context.number_of_hops,
-                                    context.user_or_role,
-                                    context.triggering_user
-#ifdef MG_ENTERPRISE
-                                    ,
-                                    context.auth_checker.get()
-#endif
-      );
+      ExpressionEvaluator evaluator =
+          MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
     }
 
@@ -9528,20 +9202,9 @@ class PeriodicSubqueryCursor : public Cursor {
     AbortCheck(context);
 
     if (!commit_frequency_) [[unlikely]] {
-      ExpressionEvaluator evaluator(&frame,
-                                    context.symbol_table,
-                                    context.evaluation_context,
-                                    context.db_accessor,
-                                    storage::View::OLD,
-                                    nullptr,
-                                    &context.number_of_hops,
-                                    context.user_or_role,
-                                    context.triggering_user
-#ifdef MG_ENTERPRISE
-                                    ,
-                                    context.auth_checker.get()
-#endif
-      );
+      ExpressionEvaluator evaluator =
+          MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
     }
 
@@ -9645,20 +9308,8 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem,
   metric_handles.scan_all_by_point_distance_operator.Increment();
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
-    auto evaluator = ExpressionEvaluator(&frame,
-                                         context.symbol_table,
-                                         context.evaluation_context,
-                                         context.db_accessor,
-                                         view_,
-                                         nullptr,
-                                         &context.number_of_hops,
-                                         context.user_or_role,
-                                         context.triggering_user
-#ifdef MG_ENTERPRISE
-                                         ,
-                                         context.auth_checker.get()
-#endif
-    );
+    auto evaluator = MakePlanExpressionEvaluator(frame, context, view_, nullptr, &context.number_of_hops);
+
     auto value = cmp_value_->Accept(evaluator);
 
     auto crs = GetCRS(value);
@@ -9716,20 +9367,8 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem,
   metric_handles.scan_all_by_point_withinbbox_operator.Increment();
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
-    auto evaluator = ExpressionEvaluator(&frame,
-                                         context.symbol_table,
-                                         context.evaluation_context,
-                                         context.db_accessor,
-                                         view_,
-                                         nullptr,
-                                         &context.number_of_hops,
-                                         context.user_or_role,
-                                         context.triggering_user
-#ifdef MG_ENTERPRISE
-                                         ,
-                                         context.auth_checker.get()
-#endif
-    );
+    auto evaluator = MakePlanExpressionEvaluator(frame, context, view_, nullptr, &context.number_of_hops);
+
     auto bottom_left_value = bottom_left_->Accept(evaluator);
     auto top_right_value = top_right_->Accept(evaluator);
 
@@ -10132,20 +9771,8 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  view_,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, view_, nullptr, &context.number_of_hops);
 
     auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
     // Return empty chunks if bounds are null - need to handle this case
@@ -10254,20 +9881,8 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  view_,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, view_, nullptr, &context.number_of_hops);
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
@@ -10403,20 +10018,8 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  view_,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, view_, nullptr, &context.number_of_hops);
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
@@ -11537,20 +11140,9 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
       // First successful pull from the input, evaluate the skip expression.
       // The skip expression doesn't contain identifiers so graph view
       // parameter is not important.
-      ExpressionEvaluator evaluator(&frame,
-                                    context.symbol_table,
-                                    context.evaluation_context,
-                                    context.db_accessor,
-                                    storage::View::OLD,
-                                    nullptr,
-                                    &context.number_of_hops,
-                                    context.user_or_role,
-                                    context.triggering_user
-#ifdef MG_ENTERPRISE
-                                    ,
-                                    context.auth_checker.get()
-#endif
-      );
+      ExpressionEvaluator evaluator =
+          MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
       TypedValue to_skip = self_.expression_->Accept(evaluator);
       if (to_skip.type() != TypedValue::Type::Int)
         throw QueryRuntimeException("Number of elements to skip must be an integer.");
@@ -11634,20 +11226,9 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (limit_ == -1) {
     // Limit expression doesn't contain identifiers so graph view is not
     // important.
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::OLD,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user
-#ifdef MG_ENTERPRISE
-                                  ,
-                                  context.auth_checker.get()
-#endif
-    );
+    ExpressionEvaluator evaluator =
+        MakePlanExpressionEvaluator(frame, context, storage::View::OLD, nullptr, &context.number_of_hops);
+
     TypedValue limit = self_.expression_->Accept(evaluator);
     if (limit.type() != TypedValue::Type::Int)
       throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
