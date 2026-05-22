@@ -809,11 +809,14 @@ jobs:
             --network $MEMGRAPH_NETWORK \
             --name $MAGE_CONTAINER \
             -p $MEMGRAPH_PORT:$MEMGRAPH_PORT \
+            -p 7444:7444 \
+            -p 9091:9091 \
             -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
             -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
             -e OPENAI_API_KEY=$OPENAI_API_KEY \
             ${DOCKER_REPOSITORY_NAME}:$DEBUG_IMAGE_TAG \
-            --telemetry-enabled=False --log-level=DEBUG --also-log-to-stderr
+            --telemetry-enabled=False \
+            --log-level=INFO
 
       - name: "Run end-to-end tests (debug)"
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
@@ -824,6 +827,10 @@ jobs:
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             --cugraph $CUGRAPH \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e
 
       - name: "Run End-to-end correctness tests (debug)"
@@ -836,6 +843,10 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e-correctness \
             --memgraph-port $MEMGRAPH_PORT \
             --neo4j-port $NEO4J_PORT \
@@ -853,6 +864,10 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e-migration \
             --mage-container $MAGE_CONTAINER \
             --mysql-container $MYSQL_CONTAINER \
