@@ -994,7 +994,12 @@ package_smoke_image() {
   fi
 
   local package_name
-  package_name=$(cd "$package_dir" && ls -t memgraph* 2>/dev/null | head -1)
+  # memgraph_*.deb matches the main deb (debuginfo deb is memgraph-debuginfo_*
+  # with a hyphen); memgraph-[0-9]*.rpm matches memgraph-<version>.rpm and
+  # excludes memgraph-debuginfo-*.rpm (no digit immediately after "memgraph-").
+  # Bare `memgraph*` would non-deterministically pick the debuginfo companion,
+  # which can't install standalone (it Requires: memgraph = <version>).
+  package_name=$(cd "$package_dir" && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1)
   if [[ -z "$package_name" ]]; then
     echo "Error: No memgraph package found in $package_dir" >&2
     exit 1
