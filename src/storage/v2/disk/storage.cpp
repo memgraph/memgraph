@@ -942,9 +942,7 @@ StorageInfo DiskStorage::GetBaseInfo() {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_res = utils::GetMemoryRES();
-  metrics::Metrics().global.peak_memory_res_bytes->Set(
-      std::max(static_cast<double>(info.memory_res), metrics::Metrics().global.peak_memory_res_bytes->Value()));
-  info.peak_memory_res = static_cast<uint64_t>(metrics::Metrics().global.peak_memory_res_bytes->Value());
+  info.peak_memory_res = metrics::Metrics().UpdateAndGetPeakMemoryRes(info.memory_res);
   info.unreleased_delta_objects = static_cast<uint64_t>(metric_handles_.unreleased_delta_objects.Value());
 
   info.disk_usage = GetDiskSpaceUsage();

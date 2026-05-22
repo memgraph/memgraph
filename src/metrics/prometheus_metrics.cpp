@@ -1211,6 +1211,15 @@ void PrometheusMetrics::UpdateGauges() {
 #endif
 }
 
+uint64_t PrometheusMetrics::UpdateAndGetPeakMemoryRes(uint64_t const current) const {
+  static std::mutex mtx;
+  std::lock_guard const lock{mtx};
+  auto const peak = static_cast<uint64_t>(global.peak_memory_res_bytes->Value());
+  auto const new_peak = std::max(current, peak);
+  global.peak_memory_res_bytes->Set(static_cast<double>(new_peak));
+  return new_peak;
+}
+
 namespace {
 
 // Compute percentile from a prometheus histogram's cumulative bucket data.

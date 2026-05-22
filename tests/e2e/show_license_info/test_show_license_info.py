@@ -21,10 +21,12 @@ def get_license_info_by_key(results, key):
 
 def test_empty_show_active_users_info(memgraph):
     results = list(memgraph.execute_and_fetch("SHOW LICENSE INFO"))
-    assert len(results) == 8
+    assert len(results) == 9
     assert get_license_info_by_key(results, "organization_name") == "Memgraph"
     assert get_license_info_by_key(results, "is_valid") is True
     assert get_license_info_by_key(results, "status") == "You are running a valid Memgraph Enterprise License."
+    # Enterprise license (non-AI-Platform) should report the standard policy
+    assert get_license_info_by_key(results, "memory_limit_policy") == "All memory usage is limited."
 
 
 if __name__ == "__main__":

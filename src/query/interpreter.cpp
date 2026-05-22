@@ -161,10 +161,7 @@ struct InstanceStorageInfo {
 
 InstanceStorageInfo GetInstanceStorageInfo() {
   const auto memory_res = memgraph::utils::GetMemoryRES();
-  memgraph::metrics::Metrics().global.peak_memory_res_bytes->Set(
-      std::max(static_cast<double>(memory_res), memgraph::metrics::Metrics().global.peak_memory_res_bytes->Value()));
-  const auto peak_memory_res =
-      static_cast<uint64_t>(memgraph::metrics::Metrics().global.peak_memory_res_bytes->Value());
+  const auto peak_memory_res = memgraph::metrics::Metrics().UpdateAndGetPeakMemoryRes(memory_res);
   const int64_t vm_max_map_count =
       memgraph::utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
   const auto disk_usage = memgraph::utils::GetDirDiskUsage(FLAGS_data_directory);
@@ -7142,7 +7139,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         handler = [db_acc = std::move(
                        *database)] mutable -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
           auto *db = db_acc.get();
-          if (!db) throw QueryRuntimeException("Database '{}' was dropped during query execution.", db->name());
+          if (!db) throw QueryRuntimeException("Database was dropped during query execution.");
           if (auto *mh = db->metric_handles()) mh->show_storage_info.Increment();
           auto *storage = db->storage();
           auto info = storage->GetBaseInfo();
@@ -7175,7 +7172,6 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
       } else {
-        MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
         handler = [interpreter_isolation_level, next_transaction_isolation_level] {
           metrics::Metrics().global.show_storage_info->Increment();
           const auto instance_info = GetInstanceStorageInfo();
@@ -7191,11 +7187,11 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
               {TypedValue("memory_limit"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.MaximumHardLimit())))},
-              {TypedValue("license_memory_limit"), TypedValue(std::invoke([] {
+              {TypedValue("license_memory_limit"), TypedValue([] {
                  auto info = license::global_license_checker.GetLicenseInfo().Lock();
                  const int64_t limit = info->has_value() ? (*info)->license.memory_limit : 0;
                  return limit > 0 ? utils::GetReadableSize(static_cast<double>(limit)) : std::string("unlimited");
-               }))},
+               }())},
               {TypedValue("query+graph_memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
               {TypedValue("vector_index_memory_tracked"),
