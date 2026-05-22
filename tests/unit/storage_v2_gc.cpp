@@ -1462,8 +1462,6 @@ TEST(StorageV2Gc, ClearDrainsWaitingGcDeltas) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
-<<<<<<< Updated upstream
-=======
 
 // ---------------------------------------------------------------------------
 // Light-edge GC tests: same scenarios as above but with storage_light_edge=true.
@@ -1769,4 +1767,3 @@ TEST(LightEdgesGraveyard, ConcurrentDeleteAndGC) {
   }
   EXPECT_EQ(total_deleted.load(), kEdges);
 }
->>>>>>> Stashed changes

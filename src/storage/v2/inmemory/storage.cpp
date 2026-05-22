@@ -165,6 +165,81 @@ DeltaChainState ComputeDeltaChainState(bool has_blocker, WriteResult result) {
   return DeltaChainState::SEQUENTIAL;
 }
 
+// Flattens a vertex skip-list accessor into a range of Edge references
+// by walking every vertex'''s out_edges.  Only safe while the vertex
+// accessor (and therefore all vertices) remain alive.
+class LightEdgeIterable {
+ public:
+  using VertexIterator = utils::SkipListDb<Vertex>::Accessor::iterator;
+
+  class Iterator {
+   public:
+    using value_type = Edge;
+    using reference = Edge &;
+    using pointer = Edge *;
+    using difference_type = std::ptrdiff_t;
+    using iterator_category = std::forward_iterator_tag;
+
+    Iterator() = default;
+
+    Iterator(VertexIterator vertex_it, VertexIterator vertex_end)
+        : vertex_it_(std::move(vertex_it)), vertex_end_(std::move(vertex_end)) {
+      AdvanceToNextEdge();
+    }
+
+    reference operator*() const { return *std::get<2>(*edge_it_).ptr; }
+
+    pointer operator->() const { return std::get<2>(*edge_it_).ptr; }
+
+    Iterator &operator++() {
+      ++edge_it_;
+      if (edge_it_ == edge_end_) {
+        ++vertex_it_;
+        AdvanceToNextEdge();
+      }
+      return *this;
+    }
+
+    Iterator operator++(int) {
+      Iterator old = *this;
+      ++(*this);
+      return old;
+    }
+
+    friend bool operator==(Iterator const &lhs, Iterator const &rhs) {
+      return lhs.vertex_it_ == rhs.vertex_it_ && (lhs.vertex_it_ == lhs.vertex_end_ || lhs.edge_it_ == rhs.edge_it_);
+    }
+
+   private:
+    void AdvanceToNextEdge() {
+      for (; vertex_it_ != vertex_end_; ++vertex_it_) {
+        auto &out_edges = vertex_it_->out_edges;
+        if (!out_edges.empty()) {
+          edge_it_ = out_edges.begin();
+          edge_end_ = out_edges.end();
+          return;
+        }
+      }
+    }
+
+    VertexIterator vertex_it_{};
+    VertexIterator vertex_end_{};
+    Edges::iterator edge_it_{};
+    Edges::iterator edge_end_{};
+  };
+
+  explicit LightEdgeIterable(utils::SkipListDb<Vertex>::Accessor &vertex_acc)
+      : begin_(vertex_acc.begin(), vertex_acc.end()), end_(vertex_acc.end(), vertex_acc.end()) {}
+
+  Iterator begin() const { return begin_; }
+
+  Iterator end() const { return end_; }
+
+ private:
+  Iterator begin_;
+  Iterator end_;
+};
+
 class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::utils::SchedulerInterval> {
  public:
   explicit PeriodicSnapshotObserver(memgraph::utils::Scheduler &scheduler) : scheduler_{&scheduler} {}
@@ -668,21 +743,6 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       // Triggers RemoveObsoleteEdgeEntries in the next GC run (needed for both light and normal edges).
       mem_storage->gc_full_scan_edges_delete_.store(true, std::memory_order_release);
-      // LIGHT EDGES: light edges are not in edges_ (skip list), so the normal full scan
-      // won't find them to free. Push them into the graveyard so they are freed only after all
-      // concurrent read-only transactions and index readers that may hold an Edge* have finished.
-      // GC ordering guarantees RemoveObsoleteEdgeEntries runs before graveyard drain in the same
-      // GC cycle, so the Edge* remains valid during index cleanup.
-      if (config_.storage_light_edge) {
-        std::vector<Edge *, memory::DbAwareAllocator<Edge *>> deleted_light_edges;
-        deleted_light_edges.reserve(deleted_edges.size());
-        for (auto const &ea : deleted_edges) {
-          deleted_light_edges.push_back(ea.edge_.ptr);
-        }
-        auto guard_epoch = mem_storage->light_edge_iterable_tracker_.CurrentEpoch();
-        mem_storage->light_edge_graveyard_.WithLock(
-            [&](auto &graveyard) { graveyard.push_back({guard_epoch, std::move(deleted_light_edges)}); });
-      }
     }
   }};
 
@@ -3298,10 +3358,25 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
     // Remove edges from vector edge index BEFORE vertex skip-list removal.
     if (!indices_.vector_edge_index_.Empty()) {
-      auto edge_acc = edges_.access();
-      auto const analytical_deleted_edges =
-          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
-          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
+      std::vector<Edge *> analytical_deleted_edges;
+
+      {
+        auto edge_acc = edges_.access();
+        for (auto &e : edge_acc) {
+          if (e.delta() == nullptr && e.deleted()) {
+            analytical_deleted_edges.push_back(&e);
+          }
+        }
+      }
+
+      if (config_.salient.items.storage_light_edge) {
+        auto vertex_acc = vertices_.access();
+        for (auto &e : LightEdgeIterable{vertex_acc}) {
+          if (e.delta() == nullptr && e.deleted()) {
+            analytical_deleted_edges.push_back(&e);
+          }
+        }
+      }
 
       if (!analytical_deleted_edges.empty()) {
         indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
@@ -3320,9 +3395,22 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto edge_acc = edges_.access();
 
     if (!need_full_scan_vertices && !indices_.vector_edge_index_.Empty()) {
-      auto const analytical_deleted_edges =
-          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
-          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
+      std::vector<Edge *> analytical_deleted_edges;
+
+      for (auto &e : edge_acc) {
+        if (e.delta() == nullptr && e.deleted()) {
+          analytical_deleted_edges.push_back(&e);
+        }
+      }
+
+      if (config_.salient.items.storage_light_edge) {
+        auto vertex_acc = vertices_.access();
+        for (auto &e : LightEdgeIterable{vertex_acc}) {
+          if (e.delta() == nullptr && e.deleted()) {
+            analytical_deleted_edges.push_back(&e);
+          }
+        }
+      }
 
       if (!analytical_deleted_edges.empty()) {
         indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
@@ -3336,10 +3424,23 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         edge_metadata_acc.remove(edge.gid);
       }
     }
-  }
 
-  // Light-edge graveyard drain moved to DrainLightEdgeGraveyard(), called
-  // from FreeMemory after edges_.run_gc() — analogous to skiplist GC.
+    if (config_.salient.items.storage_light_edge) {
+      auto vertex_acc = vertices_.access();
+      std::vector<Edge *, memory::DbAwareAllocator<Edge *>> analytical_deleted_light_edges;
+      for (auto &e : LightEdgeIterable{vertex_acc}) {
+        if (e.delta() == nullptr && e.deleted()) {
+          analytical_deleted_light_edges.push_back(&e);
+          edge_metadata_acc.remove(e.gid);
+        }
+      }
+      if (!analytical_deleted_light_edges.empty()) {
+        auto guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
+        light_edge_graveyard_.WithLock(
+            [&](auto &graveyard) { graveyard.push_back({guard_epoch, std::move(analytical_deleted_light_edges)}); });
+      }
+    }
+  }
 }
 
 void InMemoryStorage::DrainLightEdgeGraveyard() {
@@ -3352,12 +3453,6 @@ void InMemoryStorage::DrainLightEdgeGraveyard() {
   light_edge_graveyard_.WithLock([&](auto &graveyard) { local_graveyard.swap(graveyard); });
 
   for (auto it = local_graveyard.begin(); it != local_graveyard.end();) {
-    // Re-snap guard_epoch to CurrentEpoch() before checking IsSafeToFree.
-    // Entries may have been pushed from fast-discard or abort with a guard_epoch
-    // snapped before post-commit/abort readers acquired their epoch.  Re-snapping
-    // here (after all index cleanup — RemoveObsoleteEdgeEntries + vector) ensures
-    // IsSafeToFree waits for any pre-drain reader that may hold a stale Edge*.
-    it->guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
     if (light_edge_iterable_tracker_.IsSafeToFree(it->guard_epoch)) {
       for (auto *edge : it->edges) {
         if (edge_metadata_acc) edge_metadata_acc->remove(edge->gid);

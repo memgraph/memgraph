@@ -54,7 +54,7 @@ class EpochTracker {
     uint64_t const first_id;  // immutable after construction; safe to read without lock
     std::atomic<uint64_t> field[kBlockFields];
 
-    explicit Block(uint64_t id) : first_id{id} { std::memset(field, 0, sizeof(field)); }
+    explicit Block(uint64_t id) : first_id{id}, field{} {}
   };
 
   Block *AllocateBlock(Block *expected_head) {

@@ -16,6 +16,7 @@
 #include <sys/sendfile.h>
 #include <algorithm>
 #include <atomic>
+#include <exception>
 #include <filesystem>
 #include <future>
 #include <limits>
@@ -12328,6 +12329,10 @@ void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::S
 
   // 2. Create and enqueue collection tasks
   SafeTaskQueue tasks;
+  std::atomic<bool> worker_failed{false};
+  std::exception_ptr worker_exception;
+  std::mutex exception_mutex;
+
   for (size_t id = 0; id < n_batches; ++id) {
     tasks.AddTask([&worker_results,
                    id,
@@ -12336,25 +12341,37 @@ void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::S
                    &vertices,
                    storage,
                    transaction,
-                   &snapshot_aborted] {
-      auto &result = worker_results[id];
-      auto vacc_local = vertices->access();
-      auto it = vacc_local.find_equal_or_greater(Gid::FromInt(start_gid));
-      for (; it != vacc_local.end() && it->gid.AsInt() < end_gid; ++it) {
-        if (snapshot_aborted()) return;
-        auto va = VertexAccessor::Create(&*it, storage, transaction, View::OLD);
-        if (!va) continue;
-        auto maybe_out = va->OutEdges(View::OLD);
-        if (!maybe_out.has_value()) continue;
-        for (auto &ea : maybe_out->edges) {
-          auto gid = ea.Gid().AsUint();
-          auto maybe_props = ea.Properties(View::OLD);
-          MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
-          result.edges.push_back({gid, std::move(*maybe_props)});
+                   &snapshot_aborted,
+                   &worker_failed,
+                   &worker_exception,
+                   &exception_mutex] {
+      if (worker_failed.load(std::memory_order_relaxed)) return;
+      try {
+        auto &result = worker_results[id];
+        auto vacc_local = vertices->access();
+        auto it = vacc_local.find_equal_or_greater(Gid::FromInt(start_gid));
+        for (; it != vacc_local.end() && it->gid.AsInt() < end_gid; ++it) {
+          if (worker_failed.load(std::memory_order_relaxed) || snapshot_aborted()) return;
+          auto va = VertexAccessor::Create(&*it, storage, transaction, View::OLD);
+          if (!va) continue;
+          auto maybe_out = va->OutEdges(View::OLD);
+          if (!maybe_out.has_value()) continue;
+          for (auto &ea : maybe_out->edges) {
+            auto gid = ea.Gid().AsUint();
+            auto maybe_props = ea.Properties(View::OLD);
+            MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
+            result.edges.push_back({gid, std::move(*maybe_props)});
+          }
+        }
+        // Sort edges by GID for deterministic merge
+        std::ranges::sort(result.edges, [](auto &a, auto &b) { return a.gid < b.gid; });
+      } catch (...) {
+        worker_failed.store(true, std::memory_order_relaxed);
+        std::lock_guard lock(exception_mutex);
+        if (!worker_exception) {
+          worker_exception = std::current_exception();
         }
       }
-      // Sort edges by GID for deterministic merge
-      std::ranges::sort(result.edges, [](auto &a, auto &b) { return a.gid < b.gid; });
     });
   }
 
@@ -12364,6 +12381,10 @@ void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::S
   // Wait for all workers to finish
   for (auto &w : workers) {
     w.join();
+  }
+
+  if (worker_exception) {
+    std::rethrow_exception(worker_exception);
   }
 
   // 4. k-way merge: write edges in strictly increasing GID order
@@ -12791,7 +12812,14 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       return std::nullopt;
     }
   } else {
-    if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
+    if (progress) {
+      if (light_edges) {
+        // TODO Use a better source (like schema info or edges metadata)
+        progress->SetPhase(SnapshotProgress::Phase::EDGES, vertices->size());
+      } else {
+        progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
+      }
+    }
     if (light_edges) {
       WriteLightEdgesSection(storage,
                              transaction,
