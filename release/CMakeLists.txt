@@ -30,8 +30,6 @@ set(CPACK_DEBIAN_PACKAGE_MAINTAINER "tech@memgraph.com (Memgraph Ltd.)")
 set(CPACK_DEBIAN_PACKAGE_SECTION non-free/database)
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
 set(CPACK_DEBIAN_PACKAGE_VERSION "${MEMGRAPH_VERSION_DEB}")
-# Maintainer scripts (user creation, systemd unit handling, etc.) only apply
-# to the main package; *_MEMGRAPH_* variables scope them to that component.
 set(CPACK_DEBIAN_MEMGRAPH_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/copyright;"
@@ -68,9 +66,6 @@ set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
     /var /var/lib /var/log /etc/logrotate.d
     /lib /lib/systemd /lib/systemd/system /lib/systemd/system/memgraph.service)
 set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES_PRE "shadow-utils")
-# Custom spec is main-component-only: %prep moves the systemd unit etc.,
-# which only applies to the main package. The debuginfo component falls back
-# to CPack's auto-generated spec — fine for sidecar-file payloads.
 set(CPACK_RPM_MEMGRAPH_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph.spec.in")
 set(CPACK_RPM_PACKAGE_LICENSE "Memgraph License")
 # CPACK deduces dependency to libstdc++ which:
@@ -122,11 +117,6 @@ set(CPACK_DEBIAN_DEBUGINFO_DESCRIPTION
 
 # --- RPM component config ---
 set(CPACK_RPM_COMPONENT_INSTALL ON)
-# Without this the main-component RPM is named ${CPACK_PACKAGE_NAME}-memgraph
-# i.e. "memgraph-memgraph", which trips rpmlint's incoherent-logrotate-file
-# error (/etc/logrotate.d/memgraph doesn't match the package name) and
-# non-coherent-filename warning. Set it explicitly to keep parity with
-# CPACK_DEBIAN_MEMGRAPH_PACKAGE_NAME above and with the rpm filename pattern.
 set(CPACK_RPM_MEMGRAPH_PACKAGE_NAME "memgraph")
 set(CPACK_RPM_DEBUGINFO_PACKAGE_NAME "memgraph-debuginfo")
 

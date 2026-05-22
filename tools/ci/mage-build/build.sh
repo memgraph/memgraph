@@ -37,11 +37,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Build the cpp-build-flags list in ONE go. mage/setup parses
-# --cpp-build-flags with argparse nargs="+", so passing the option more
-# than once silently keeps only the last occurrence (i.e. earlier flags
-# would be dropped) — collect every cmake -D<flag>=<value> here first,
-# then emit a single --cpp-build-flags entry below.
 cpp_build_flags=("CMAKE_BUILD_TYPE=${BUILD_TYPE}")
 if [[ "$SPLIT_DEBUG" = true ]]; then
     cpp_build_flags+=("MG_SPLIT_DEBUG=ON")
@@ -61,8 +56,6 @@ if [[ "$config_only" = true ]]; then
     build_args+=("--config-only")
 fi
 if [[ "$CUGRAPH" = true ]]; then
-    # --gpu is a flag on mage/setup itself, not part of --cpp-build-flags,
-    # so it's safe to append after the cpp-build-flags list.
     build_args+=("--gpu")
 fi
 

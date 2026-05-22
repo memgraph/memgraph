@@ -56,9 +56,6 @@ if [[ -z "$MEMGRAPH_URL" ]]; then
   echo "Warning using latest Memgraph release"
   VERSION=$(./tools/ci/get_latest_tag.sh)
   OS_PATH="$OS"
-  # The -relwithdebinfo URL path holds the symbols-embedded package variant.
-  # Prod flavour always fetches the stripped package (no suffix), even when
-  # the underlying build was RelWithDebInfo+split-debug.
   if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$PACKAGE_FLAVOUR" == "debug" ]]; then
     OS_PATH="${OS_PATH}-relwithdebinfo"
   fi
@@ -90,8 +87,6 @@ fi
   ${MGBUILD_ARGS[*]} \
   build-gssapi
 
-# Heaptrack ships only with the symbols-embedded debug variant. Prod-flavour
-# RWD builds are stripped and don't need heaptrack tooling in the image.
 if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$PACKAGE_FLAVOUR" == "debug" ]]; then
   ./release/package/mgbuild.sh \
     ${MGBUILD_ARGS[*]} \

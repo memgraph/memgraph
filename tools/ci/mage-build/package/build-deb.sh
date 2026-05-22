@@ -91,10 +91,6 @@ sed -i "s/@ARCH@/$ARCH/g" $SCRIPT_DIR/debian/postinst
 
 dpkg-buildpackage -us -uc -b
 
-# Rename the main package to the suffix-aware $PACKAGE_NAME, then the
-# debuginfo companion (when present) to a parallel name. Globs are
-# tightened so the main package's mv doesn't accidentally match the
-# debuginfo one.
 old_name="$(ls ../memgraph-mage_*.deb | grep -v -- '-debuginfo' | head -n 1)"
 mv "$old_name" "$PACKAGE_NAME"
 if [[ "$HAS_DEBUGINFO" == "true" ]]; then

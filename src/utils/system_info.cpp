@@ -28,14 +28,7 @@
 namespace memgraph::utils {
 
 std::string GetMachineId() {
-  // Runtime override for environments where /etc/machine-id isn't a stable
-  // identifier — most notably container images, where the file is
-  // regenerated on each container start and would otherwise over-count
-  // unique installs in telemetry. Set MEMGRAPH_TELEMETRY_ID=DOCKER in the
-  // container ENTRYPOINT so every container from the same image reports the
-  // same telemetry identifier. (Replaces the old MG_TELEMETRY_ID_OVERRIDE
-  // compile-time define, which forced two separate memgraph builds for the
-  // deb vs docker shipping paths.)
+  // Set MEMGRAPH_TELEMETRY_ID=DOCKER in the Dockerfile.
   if (const char *override_id = std::getenv("MEMGRAPH_TELEMETRY_ID");
       override_id != nullptr && override_id[0] != '\0') {
     return override_id;

@@ -138,9 +138,6 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     python3-pip python3.12-venv \
     gdb procps linux-tools-common linux-tools-generic libc6-dbg \
     --no-install-recommends && \
-  # Absolute path: this stage inherits WORKDIR /usr/lib/memgraph from prod
-  # (set at the end of the prod stage). The deb is bind-mounted at /, so a
-  # bare basename here would dpkg-look in /usr/lib/memgraph and fail.
   dpkg -i "/${DEBUGINFO_BINARY_NAME}${TARGETARCH}.deb" && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
@@ -155,4 +152,3 @@ COPY "${SOURCE_CODE}" /home/mg/memgraph/src
 COPY run_with_gdb.sh /usr/lib/memgraph/run_with_gdb.sh
 
 USER memgraph
-# WORKDIR, ENTRYPOINT, CMD inherited from prod — no need to restate.

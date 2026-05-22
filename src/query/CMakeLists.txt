@@ -22,10 +22,6 @@ set_target_properties(mg-module-support  PROPERTIES
     OUTPUT_NAME "memgraph_module_support"
 )
 
-# Ships in the memgraph deb/rpm at /usr/lib/memgraph/libmemgraph_module_support.so
-# (see install(TARGETS mg-module-support …) in src/CMakeLists.txt) and is
-# dlopen'd indirectly by query modules. Crashes inside it benefit from the
-# same .debug sidecar treatment as the query modules themselves.
 mg_split_debug(mg-module-support)
 
 find_package(antlr4-runtime REQUIRED)
