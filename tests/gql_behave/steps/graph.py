@@ -22,10 +22,6 @@ def clear_graph(context):
     storage_mode = next(record["value"] for record in result if record["storage info"] == "storage_mode")
     if storage_mode == "ON_DISK_TRANSACTIONAL":
         database.query("MATCH (n) DETACH DELETE n", context)
-    elif storage_mode == "IN_MEMORY_TRANSACTIONAL":
-        database.query("STORAGE MODE IN_MEMORY_ANALYTICAL", context)
-        database.query("DROP GRAPH", context)
-        database.query("STORAGE MODE IN_MEMORY_TRANSACTIONAL", context)
     else:
         database.query("DROP GRAPH", context)
     database.query("DELETE ALL PARAMETERS", context)
