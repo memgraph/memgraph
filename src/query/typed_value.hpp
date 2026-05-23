@@ -43,6 +43,28 @@ concept TypedValueValidPrimativeType =
     std::is_same_v<T, utils::Duration> || std::is_same_v<T, utils::Duration> || std::is_same_v<T, std::string>;
 }
 
+// =============================================================================
+// TypedValue comparison trichotomy (openCypher 9, CIP "Define comparability and
+// equality as well as orderability and equivalence").
+//
+// Three relations exist between TypedValues. Picking the wrong one is a
+// correctness bug — they disagree on null and NaN.
+//
+//   Relation     | Returns          | null / NaN | Used by
+//   -------------+------------------+------------+--------------------------
+//   Equality     | TypedValue (3VL) | propagate  | `=`, `<>`, IN (uncached)
+//   Equivalence  | bool             | reflexive  | DISTINCT, GROUP BY, hash
+//   Orderability | partial_ordering | total      | ORDER BY, MIN, MAX
+//
+//   Equality      → operator==(TypedValue, TypedValue)
+//   Equivalence   → TypedValue::Equivalent  (paired with TypedValue::Hash)
+//   Orderability  → query::OrderCompare    (declared after TypedValue)
+//
+// Hash invariant: Equivalent(a, b) ⇒ Hash(a) == Hash(b).
+// Order invariant: OrderCompare never returns `unordered` (NaN sorts last,
+// two NaNs are equivalent).
+// =============================================================================
+
 // TODO: Neo4j does overflow checking. Should we also implement it?
 /**
  * Stores a query runtime value and its type.
@@ -57,13 +79,15 @@ concept TypedValueValidPrimativeType =
  */
 class TypedValue {
  public:
-  /** Custom TypedValue equality function that returns a bool
-   * (as opposed to returning TypedValue as the default equality does).
-   * This implementation treats two nulls as being equal and null
-   * not being equal to everything else.
+  /** Equivalence relation (openCypher 9 §3, "equivalence" — distinct from
+   * equality). Returns a bool (not a 3VL TypedValue). Compared to `operator==`,
+   * equivalence is reflexive: any two nulls are equivalent (recursively into
+   * containers), and NaN is equivalent to NaN. This is the relation used by
+   * DISTINCT, GROUP BY, IN-list caching, and any hash-based set/map keyed on
+   * TypedValue. Pairs with `Hash`: `Equivalent(a,b) ⇒ Hash(a) == Hash(b)`.
    */
-  struct BoolEqual {
-    bool operator()(const TypedValue &left, const TypedValue &right) const;
+  struct Equivalent {
+    bool operator()(const TypedValue &lhs, const TypedValue &rhs) const;
   };
 
   /** Hash operator for TypedValue.
@@ -575,72 +599,41 @@ class TypedValue {
   // comparison operators
 
   /**
-   * Compare TypedValues and return true, false or Null.
+   * Cypher equality (`=`). Returns true, false, or Null.
    *
-   * Null is returned if either of the two values is Null.
-   * Since each TypedValue may have a different MemoryResource for allocations,
-   * the results is allocated using MemoryResource obtained from the left hand
-   * side.
+   * Per openCypher 9: Null is returned if either operand is Null, if the two
+   * operands are of incomparable type categories (e.g. Int vs String), or if
+   * any nested element comparison is Null with no definite mismatch elsewhere.
+   * NaN is never equal to NaN. This is distinct from `Equivalent`, which is
+   * the relation used by hash-based set membership / DISTINCT / GROUP BY.
    */
   friend TypedValue operator==(const TypedValue &a, const TypedValue &b);
 
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * Since each TypedValue may have a different MemoryResource for allocations,
-   * the results is allocated using MemoryResource obtained from the left hand
-   * side.
-   */
+  /** Cypher inequality (`<>`). The logical negation of `=`; null propagates. */
   friend TypedValue operator!=(const TypedValue &a, const TypedValue &b) { return !(a == b); }
 
   /**
-   * Compare TypedValues and return true, false or Null.
+   * Cypher less-than (`<`). Returns true, false, or Null.
    *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
+   * Per openCypher 9 comparability: Null is returned whenever either operand
+   * is Null, NaN, of incomparable type categories, or of an inherently
+   * incomparable type for `<` (e.g. Duration). Does NOT throw — the previous
+   * "incompatible types" exception is replaced with null propagation through
+   * three-valued logic. For total-order semantics needed by ORDER BY / MIN /
+   * MAX, use `OrderCompare`, which never returns null.
    */
   friend TypedValue operator<(const TypedValue &a, const TypedValue &b);
 
   /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
+   * Ordering operators (`<=`, `>`, `>=`). Same null-propagation contract as
+   * `operator<`: derived from a single `<` call so null flows through
+   * `operator!` per three-valued logic and containers are walked at most once.
+   * `>=` is `!(a<b)` (negation of strict less-than is `≥`); `<=` is `!(b<a)`.
    */
-  // TODO: why not `!(b < a)` or C++20 auto generated
-  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return a < b || a == b; }
+  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return !(b < a); }
 
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
-   */
-  friend TypedValue operator>(const TypedValue &a, const TypedValue &b) { return !(a <= b); }
+  friend TypedValue operator>(const TypedValue &a, const TypedValue &b) { return b < a; }
 
-  /**
-   * Compare TypedValues and return true, false or Null.
-   *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
-   */
   friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return !(a < b); }
 
   // arithmetic operators
@@ -787,6 +780,68 @@ class TypedValueException : public utils::BasicException {
   using utils::BasicException::BasicException;
   SPECIALIZE_GET_EXCEPTION_NAME(TypedValueException)
 };
+
+/// Returns the orderability rank for a TypedValue type, per openCypher 9
+/// orderability §3.2.10. Lower rank sorts earlier in ASC order.
+///
+/// Hierarchy (least to greatest):
+///   MAP < NODE < RELATIONSHIP < LIST < PATH < (Memgraph: GRAPH, FUNCTION) <
+///   POINT < DATE < LOCAL TIME < LOCAL DATETIME < ZONED DATETIME < DURATION <
+///   STRING < ENUM < BOOLEAN < NUMBER < NULL
+///
+/// Int and Double share a rank; numeric values are compared by value.
+constexpr int TypeOrderRank(TypedValue::Type type) {
+  switch (type) {
+    case TypedValue::Type::Map:
+      return 0;
+    case TypedValue::Type::Vertex:
+      return 1;
+    case TypedValue::Type::Edge:
+      return 2;
+    case TypedValue::Type::List:
+      return 3;
+    case TypedValue::Type::Path:
+      return 4;
+    case TypedValue::Type::Graph:
+      return 5;
+    case TypedValue::Type::Function:
+      return 6;
+    case TypedValue::Type::Point2d:
+    case TypedValue::Type::Point3d:
+      return 7;
+    case TypedValue::Type::Date:
+      return 8;
+    case TypedValue::Type::LocalTime:
+      return 9;
+    case TypedValue::Type::LocalDateTime:
+      return 10;
+    case TypedValue::Type::ZonedDateTime:
+      return 11;
+    case TypedValue::Type::Duration:
+      return 12;
+    case TypedValue::Type::String:
+      return 13;
+    case TypedValue::Type::Enum:
+      return 14;
+    case TypedValue::Type::Bool:
+      return 15;
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+      return 16;
+    case TypedValue::Type::Null:
+      return 17;
+  }
+  std::unreachable();
+}
+
+/// Orderability comparator (openCypher 9). Defines a total order across
+/// every TypedValue::Type — never returns `unordered`. NaN is treated as
+/// the largest number so ORDER BY/min/max are deterministic on NaN inputs.
+///
+/// This is distinct from `operator<` (Cypher comparability `<`, which
+/// propagates null on NaN/cross-type) and from `Equivalent` (used by
+/// hash-based set membership). Use this for ORDER BY, MIN, MAX.
+std::partial_ordering OrderCompare(TypedValue const &a, TypedValue const &b);
 
 constexpr bool is_canonical(TypedValue::Type type) {
   switch (type) {

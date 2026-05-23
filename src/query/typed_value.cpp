@@ -22,6 +22,7 @@
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
+#include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
@@ -1438,103 +1439,255 @@ double ToDouble(const TypedValue &value) {
 }
 
 namespace {
-bool IsTemporalType(const TypedValue::Type type) {
-  static constexpr std::array temporal_types{TypedValue::Type::Date,
-                                             TypedValue::Type::LocalTime,
-                                             TypedValue::Type::LocalDateTime,
-                                             TypedValue::Type::ZonedDateTime,
-                                             TypedValue::Type::Duration};
-  return std::ranges::any_of(temporal_types, [type](const auto temporal_type) { return temporal_type == type; });
-};
+
+// Place NaN as the largest finite/infinite double so that ordering is total.
+// Two NaNs compare equivalent; NaN > any non-NaN; non-NaN < NaN.
+std::partial_ordering CompareDoubles(double a, double b) {
+  const bool a_nan = std::isnan(a);
+  const bool b_nan = std::isnan(b);
+  if (a_nan && b_nan) return std::partial_ordering::equivalent;
+  if (a_nan) return std::partial_ordering::greater;
+  if (b_nan) return std::partial_ordering::less;
+  return a <=> b;
+}
+
+// Lexicographic Gid-walk shared between the orderability comparator
+// (OrderCompare) and the Cypher `<` operator. Paths contain only
+// VertexAccessor/EdgeAccessor handles, so the walk is pure strong_ordering.
+std::strong_ordering ComparePaths(const Path &path_a, const Path &path_b) {
+  const auto &verts_a = path_a.vertices();
+  const auto &verts_b = path_b.vertices();
+  const auto &edges_a = path_a.edges();
+  const auto &edges_b = path_b.edges();
+  const auto min_edges = std::min(edges_a.size(), edges_b.size());
+  for (size_t i = 0; i < min_edges; ++i) {
+    if (auto v = verts_a[i].Gid() <=> verts_b[i].Gid(); v != 0) return v;
+    if (auto e = edges_a[i].Gid() <=> edges_b[i].Gid(); e != 0) return e;
+  }
+  if (min_edges < verts_a.size() && min_edges < verts_b.size()) {
+    if (auto v = verts_a[min_edges].Gid() <=> verts_b[min_edges].Gid(); v != 0) return v;
+  }
+  return edges_a.size() <=> edges_b.size();
+}
+
+// Helper for the Cypher `<` operator on lists. Walks element-wise via
+// `==`/`<`, propagating null per equality semantics. This DIFFERS from
+// orderability (OrderCompare's List branch) which never returns null —
+// they cannot share an implementation: the element relation differs.
+TypedValue ListLess(const TypedValue::TVector &list_a, const TypedValue::TVector &list_b,
+                    utils::MemoryResource *alloc) {
+  const auto min_size = std::min(list_a.size(), list_b.size());
+  for (size_t i = 0; i < min_size; ++i) {
+    TypedValue eq = list_a[i] == list_b[i];
+    if (!eq.IsBool() || !eq.ValueBool()) return list_a[i] < list_b[i];
+  }
+  return TypedValue(list_a.size() < list_b.size(), alloc);
+}
+
+// Helper for the Cypher `<` operator on maps; null-propagating, see ListLess.
+TypedValue MapLess(const TypedValue::TMap &map_a, const TypedValue::TMap &map_b, utils::MemoryResource *alloc) {
+  auto it_a = map_a.begin();
+  auto it_b = map_b.begin();
+  const auto min_size = std::min(map_a.size(), map_b.size());
+  for (size_t i = 0; i < min_size; ++i) {
+    auto key_cmp = it_a->first <=> it_b->first;
+    if (key_cmp < 0) return TypedValue(true, alloc);
+    if (key_cmp > 0) return TypedValue(false, alloc);
+    TypedValue eq = it_a->second == it_b->second;
+    if (!eq.IsBool() || !eq.ValueBool()) return it_a->second < it_b->second;
+    ++it_a;
+    ++it_b;
+  }
+  return TypedValue(map_a.size() < map_b.size(), alloc);
+}
 
 }  // namespace
 
-// TODO: make it faster
-TypedValue operator<(const TypedValue &a, const TypedValue &b) {
-  auto is_legal = [](TypedValue::Type type) {
-    switch (type) {
-      case TypedValue::Type::Null:
-      case TypedValue::Type::Int:
-      case TypedValue::Type::Double:
-      case TypedValue::Type::String:
-      case TypedValue::Type::Date:
-      case TypedValue::Type::LocalTime:
-      case TypedValue::Type::LocalDateTime:
-      case TypedValue::Type::ZonedDateTime:
-      case TypedValue::Type::Duration:
-        return true;
+std::partial_ordering OrderCompare(TypedValue const &a, TypedValue const &b) {
+  const auto type_a = a.type();
+  const auto type_b = b.type();
 
+  if (type_a == type_b) [[likely]] {
+    switch (type_a) {
+      case TypedValue::Type::Null:
+        return std::partial_ordering::equivalent;
       case TypedValue::Type::Bool:
+        return a.UnsafeValueBool() <=> b.UnsafeValueBool();
+      case TypedValue::Type::Int:
+        return a.UnsafeValueInt() <=> b.UnsafeValueInt();
+      case TypedValue::Type::Double:
+        return CompareDoubles(a.UnsafeValueDouble(), b.UnsafeValueDouble());
+      case TypedValue::Type::String:
+        return a.UnsafeValueString() <=> b.UnsafeValueString();
+      case TypedValue::Type::Date:
+        return a.UnsafeValueDate() <=> b.UnsafeValueDate();
+      case TypedValue::Type::LocalTime:
+        return a.UnsafeValueLocalTime() <=> b.UnsafeValueLocalTime();
+      case TypedValue::Type::LocalDateTime:
+        return a.UnsafeValueLocalDateTime() <=> b.UnsafeValueLocalDateTime();
+      case TypedValue::Type::ZonedDateTime:
+        return a.UnsafeValueZonedDateTime() <=> b.UnsafeValueZonedDateTime();
+      case TypedValue::Type::Duration:
+        return a.UnsafeValueDuration() <=> b.UnsafeValueDuration();
+      case TypedValue::Type::Enum:
+        return a.UnsafeValueEnum() <=> b.UnsafeValueEnum();
+      case TypedValue::Type::Point2d:
+        return a.UnsafeValuePoint2d() <=> b.UnsafeValuePoint2d();
+      case TypedValue::Type::Point3d:
+        return a.UnsafeValuePoint3d() <=> b.UnsafeValuePoint3d();
       case TypedValue::Type::List:
-      case TypedValue::Type::Map:
+        return std::lexicographical_compare_three_way(a.UnsafeValueList().begin(),
+                                                      a.UnsafeValueList().end(),
+                                                      b.UnsafeValueList().begin(),
+                                                      b.UnsafeValueList().end(),
+                                                      OrderCompare);
+      case TypedValue::Type::Map: {
+        // Maps ordering: 1) by size, 2) by keys alphabetically, 3) by values
+        const auto &map_a = a.UnsafeValueMap();
+        const auto &map_b = b.UnsafeValueMap();
+        if (map_a.size() != map_b.size()) {
+          return map_a.size() <=> map_b.size();
+        }
+        auto it_a = map_a.begin();
+        auto it_b = map_b.begin();
+        while (it_a != map_a.end()) {
+          if (auto key_cmp = it_a->first <=> it_b->first; key_cmp != std::strong_ordering::equal) {
+            return key_cmp;
+          }
+          ++it_a;
+          ++it_b;
+        }
+        it_a = map_a.begin();
+        it_b = map_b.begin();
+        while (it_a != map_a.end()) {
+          if (auto val_cmp = OrderCompare(it_a->second, it_b->second); val_cmp != std::partial_ordering::equivalent) {
+            return val_cmp;
+          }
+          ++it_a;
+          ++it_b;
+        }
+        return std::partial_ordering::equivalent;
+      }
       case TypedValue::Type::Vertex:
+        return a.UnsafeValueVertex().Gid() <=> b.UnsafeValueVertex().Gid();
       case TypedValue::Type::Edge:
+        return a.UnsafeValueEdge().Gid() <=> b.UnsafeValueEdge().Gid();
       case TypedValue::Type::Path:
+        return ComparePaths(a.ValuePath(), b.ValuePath());
       case TypedValue::Type::Graph:
       case TypedValue::Type::Function:
-      case TypedValue::Type::Enum:
-      case TypedValue::Type::Point2d:
-      case TypedValue::Type::Point3d:
-        return false;
+        return std::partial_ordering::equivalent;
     }
-  };
-  if (!is_legal(a.type()) || !is_legal(b.type())) {
-    if ((is_canonical(a.type()) || is_canonical(b.type())) && (a.type() != b.type())) return {};
-    throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
   }
 
+  // Different types: handle common cases before computing ranks.
+  if (type_a == TypedValue::Type::Int && type_b == TypedValue::Type::Double) {
+    return CompareDoubles(static_cast<double>(a.UnsafeValueInt()), b.UnsafeValueDouble());
+  }
+  if (type_a == TypedValue::Type::Double && type_b == TypedValue::Type::Int) {
+    return CompareDoubles(a.UnsafeValueDouble(), static_cast<double>(b.UnsafeValueInt()));
+  }
+
+  // Point2d vs Point3d (same rank, compare by SRID)
+  if (type_a == TypedValue::Type::Point2d && type_b == TypedValue::Type::Point3d) {
+    return storage::CrsToSrid(a.UnsafeValuePoint2d().crs()) <=> storage::CrsToSrid(b.UnsafeValuePoint3d().crs());
+  }
+  if (type_a == TypedValue::Type::Point3d && type_b == TypedValue::Type::Point2d) {
+    return storage::CrsToSrid(a.UnsafeValuePoint3d().crs()) <=> storage::CrsToSrid(b.UnsafeValuePoint2d().crs());
+  }
+
+  return TypeOrderRank(type_a) <=> TypeOrderRank(type_b);
+}
+
+TypedValue operator<(const TypedValue &a, const TypedValue &b) {
+  // null is incomparable with any value (including other nulls)
   if (a.IsNull() || b.IsNull()) {
     return TypedValue(a.alloc_);
   }
 
-  if (a.IsString() || b.IsString()) {
-    if (a.type() != b.type()) {
-      return {};
-    } else {
-      return TypedValue(a.ValueString() < b.ValueString(), a.alloc_);
-    }
-  }
+  const auto type_a = a.type();
+  const auto type_b = b.type();
 
-  if (IsTemporalType(a.type()) || IsTemporalType(b.type())) {
-    if (a.type() != b.type()) {
-      return {};
+  // Numbers can be compared across Int/Double
+  if (a.IsNumeric() && b.IsNumeric()) {
+    if (a.IsDouble() || b.IsDouble()) {
+      double da = a.IsDouble() ? a.ValueDouble() : static_cast<double>(a.ValueInt());
+      double db = b.IsDouble() ? b.ValueDouble() : static_cast<double>(b.ValueInt());
+      // NaN is incomparable
+      if (std::isnan(da) || std::isnan(db)) {
+        return TypedValue(a.alloc_);
+      }
+      return TypedValue(da < db, a.alloc_);
     }
-
-    switch (a.type()) {
-      case TypedValue::Type::Date:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueDate() < b.ValueDate(), a.alloc_);
-      case TypedValue::Type::LocalTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueLocalTime() < b.ValueLocalTime(), a.alloc_);
-      case TypedValue::Type::LocalDateTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueLocalDateTime() < b.ValueLocalDateTime(), a.alloc_);
-      case TypedValue::Type::ZonedDateTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueZonedDateTime() < b.ValueZonedDateTime(), a.alloc_);
-      case TypedValue::Type::Duration:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueDuration() < b.ValueDuration(), a.alloc_);
-      default:
-        LOG_FATAL("Invalid temporal type");
-    }
-  }
-
-  // at this point we only have int and double
-  if (a.IsDouble() || b.IsDouble()) {
-    return TypedValue(ToDouble(a) < ToDouble(b), a.alloc_);
-  } else {
     return TypedValue(a.ValueInt() < b.ValueInt(), a.alloc_);
+  }
+
+  // All other types are only comparable within their own type
+  if (type_a != type_b) {
+    return TypedValue(a.alloc_);  // Incomparable - different types
+  }
+
+  switch (type_a) {
+    case TypedValue::Type::Bool:
+      // false < true
+      return TypedValue(!a.ValueBool() && b.ValueBool(), a.alloc_);
+
+    case TypedValue::Type::String:
+      return TypedValue(a.ValueString() < b.ValueString(), a.alloc_);
+
+    case TypedValue::Type::List:
+      return ListLess(a.ValueList(), b.ValueList(), a.alloc_.resource());
+
+    case TypedValue::Type::Map:
+      return MapLess(a.ValueMap(), b.ValueMap(), a.alloc_.resource());
+
+    case TypedValue::Type::Vertex:
+      return TypedValue(a.ValueVertex().Gid() < b.ValueVertex().Gid(), a.alloc_);
+
+    case TypedValue::Type::Edge:
+      return TypedValue(a.ValueEdge().Gid() < b.ValueEdge().Gid(), a.alloc_);
+
+    case TypedValue::Type::Path:
+      return TypedValue(ComparePaths(a.ValuePath(), b.ValuePath()) < 0, a.alloc_);
+
+    case TypedValue::Type::Date:
+      return TypedValue(a.ValueDate() < b.ValueDate(), a.alloc_);
+
+    case TypedValue::Type::LocalTime:
+      return TypedValue(a.ValueLocalTime() < b.ValueLocalTime(), a.alloc_);
+
+    case TypedValue::Type::LocalDateTime:
+      return TypedValue(a.ValueLocalDateTime() < b.ValueLocalDateTime(), a.alloc_);
+
+    case TypedValue::Type::ZonedDateTime:
+      return TypedValue(a.ValueZonedDateTime() < b.ValueZonedDateTime(), a.alloc_);
+
+    case TypedValue::Type::Duration:
+      // Duration comparison is incomparable per spec (returns null)
+      return TypedValue(a.alloc_);
+
+    case TypedValue::Type::Enum:
+      return TypedValue(a.ValueEnum() < b.ValueEnum(), a.alloc_);
+
+    case TypedValue::Type::Point2d:
+    case TypedValue::Type::Point3d:
+    case TypedValue::Type::Graph:
+    case TypedValue::Type::Function:
+    case TypedValue::Type::Null:
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+      // These cases are handled above or should not reach here
+      return TypedValue(a.alloc_);
   }
 }
 
 TypedValue operator==(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
 
-  // check we have values that can be compared
-  // this means that either they're the same type, or (int, double) combo
-  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric()))) return TypedValue(false, a.alloc_);
+  // Different types are incomparable (return null), except numbers
+  if (a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())) {
+    return TypedValue(a.alloc_);  // Incomparable - different types
+  }
 
   switch (a.type()) {
     case TypedValue::Type::Bool:
@@ -1553,34 +1706,43 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Edge:
       return TypedValue(a.ValueEdge() == b.ValueEdge(), a.alloc_);
     case TypedValue::Type::List: {
-      // We are not compatible with neo4j at this point. In neo4j 2 = [2]
-      // compares
-      // to true. That is not the end of unselfishness of developers at neo4j so
-      // they allow us to use as many braces as we want to get to the truth in
-      // list comparison, so [[2]] = [[[[[[2]]]]]] compares to true in neo4j as
-      // well. Because, why not?
-      // At memgraph we prefer sanity so [1,2] = [1,2] compares to true and
-      // 2 = [2] compares to false.
       const auto &list_a = a.ValueList();
       const auto &list_b = b.ValueList();
       if (list_a.size() != list_b.size()) return TypedValue(false, a.alloc_);
-      // two arrays are considered equal (by neo) if all their
-      // elements are bool-equal. this means that:
-      //    [1] == [null] -> false
-      //    [null] == [null] -> true
-      // in that sense array-comparison never results in Null
-      return TypedValue(std::equal(list_a.begin(), list_a.end(), list_b.begin(), TypedValue::BoolEqual{}), a.alloc_);
+      // Per openCypher 9: list equality is the conjunction of element-wise `=`.
+      // In three-valued logic `false ∧ null = false`, so a definite mismatch
+      // dominates over null; only return null when no element compared false.
+      bool seen_null = false;
+      for (size_t i = 0; i < list_a.size(); ++i) {
+        TypedValue eq = list_a[i] == list_b[i];
+        if (eq.IsNull()) {
+          seen_null = true;
+          continue;
+        }
+        if (!eq.ValueBool()) return TypedValue(false, a.alloc_);
+      }
+      if (seen_null) return TypedValue(a.alloc_);
+      return TypedValue(true, a.alloc_);
     }
     case TypedValue::Type::Map: {
       const auto &map_a = a.ValueMap();
       const auto &map_b = b.ValueMap();
       if (map_a.size() != map_b.size()) return TypedValue(false, a.alloc_);
+      // Per openCypher 9: map equality is the conjunction of `m1.k = m2.k` for every key.
+      // Since `null = null` is null, propagate null when any nested comparison is null
+      // (matching the List branch above).
+      bool seen_null = false;
       for (const auto &kv_a : map_a) {
         auto found_b_it = map_b.find(kv_a.first);
         if (found_b_it == map_b.end()) return TypedValue(false, a.alloc_);
-        TypedValue comparison = kv_a.second == found_b_it->second;
-        if (comparison.IsNull() || !comparison.ValueBool()) return TypedValue(false, a.alloc_);
+        TypedValue eq = kv_a.second == found_b_it->second;
+        if (eq.IsNull()) {
+          seen_null = true;
+          continue;
+        }
+        if (!eq.ValueBool()) return TypedValue(false, a.alloc_);
       }
+      if (seen_null) return TypedValue(a.alloc_);
       return TypedValue(true, a.alloc_);
     }
     case TypedValue::Type::Path:
@@ -1880,12 +2042,102 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
     return TypedValue(static_cast<bool>(a.ValueBool() ^ b.ValueBool()), a.alloc_);
 }
 
-bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
-  if (lhs.IsNull() && rhs.IsNull()) return true;
-  TypedValue equality_result = lhs == rhs;
-  DMG_ASSERT(equality_result.type() == TypedValue::Type::Bool || equality_result.type() == TypedValue::Type::Null,
-             "Equality between two TypedValues must result in either Null or Bool");
-  return equality_result.type() == TypedValue::Type::Bool && equality_result.ValueBool();
+bool TypedValue::Equivalent::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
+  // Equivalence per openCypher 9 CIP "Define comparability and equality as well as
+  // orderability and equivalence": identical to equality except that the relation
+  // is reflexive — any two nulls are equivalent (recursively into containers),
+  // and NaN is equivalent to NaN even though IEEE-754 says NaN == NaN is false.
+  // Used by DISTINCT, GROUP BY and hash-based set membership where null and NaN
+  // grouping keys must collapse together. Hot path — compare leaf values directly
+  // instead of round-tripping through `TypedValue operator==` (which builds an
+  // allocator-aware TypedValue per call).
+  using Type = TypedValue::Type;
+  const auto type_a = lhs.type();
+  const auto type_b = rhs.type();
+
+  // Null reflexivity (recursive into containers via the List/Map branches below).
+  if (type_a == Type::Null || type_b == Type::Null) return type_a == type_b;
+
+  // Int/Int fast path — the common DISTINCT/GROUP BY key case. Skips double
+  // conversion since Int can never be NaN.
+  if (type_a == Type::Int && type_b == Type::Int) {
+    return lhs.UnsafeValueInt() == rhs.UnsafeValueInt();
+  }
+
+  // Numeric coercion (Int <-> Double) with NaN reflexivity. NaN check only kicks
+  // in when at least one side is Double; required to keep Hash and Equivalent
+  // consistent so DISTINCT collapses NaN keys that hash to the same bucket.
+  const bool a_double = type_a == Type::Double;
+  const bool b_double = type_b == Type::Double;
+  if ((a_double || type_a == Type::Int) && (b_double || type_b == Type::Int)) {
+    const double da = a_double ? lhs.UnsafeValueDouble() : static_cast<double>(lhs.UnsafeValueInt());
+    const double db = b_double ? rhs.UnsafeValueDouble() : static_cast<double>(rhs.UnsafeValueInt());
+    if (da == db) return true;
+    return std::isnan(da) && std::isnan(db);
+  }
+
+  if (type_a != type_b) return false;
+
+  switch (type_a) {
+    case Type::Bool:
+      return lhs.UnsafeValueBool() == rhs.UnsafeValueBool();
+    case Type::String:
+      return lhs.UnsafeValueString() == rhs.UnsafeValueString();
+    case Type::Vertex:
+      return lhs.UnsafeValueVertex() == rhs.UnsafeValueVertex();
+    case Type::Edge:
+      return lhs.UnsafeValueEdge() == rhs.UnsafeValueEdge();
+    case Type::Path:
+      return lhs.UnsafeValuePath() == rhs.UnsafeValuePath();
+    case Type::Date:
+      return lhs.UnsafeValueDate() == rhs.UnsafeValueDate();
+    case Type::LocalTime:
+      return lhs.UnsafeValueLocalTime() == rhs.UnsafeValueLocalTime();
+    case Type::LocalDateTime:
+      return lhs.UnsafeValueLocalDateTime() == rhs.UnsafeValueLocalDateTime();
+    case Type::ZonedDateTime:
+      return lhs.UnsafeValueZonedDateTime() == rhs.UnsafeValueZonedDateTime();
+    case Type::Duration:
+      return lhs.UnsafeValueDuration() == rhs.UnsafeValueDuration();
+    case Type::Enum:
+      return lhs.UnsafeValueEnum() == rhs.UnsafeValueEnum();
+    case Type::Point2d:
+      return lhs.UnsafeValuePoint2d() == rhs.UnsafeValuePoint2d();
+    case Type::Point3d:
+      return lhs.UnsafeValuePoint3d() == rhs.UnsafeValuePoint3d();
+    case Type::List: {
+      const auto &la = lhs.UnsafeValueList();
+      const auto &lb = rhs.UnsafeValueList();
+      if (la.size() != lb.size()) return false;
+      for (size_t i = 0; i < la.size(); ++i) {
+        if (!(*this)(la[i], lb[i])) return false;
+      }
+      return true;
+    }
+    case Type::Map: {
+      const auto &ma = lhs.UnsafeValueMap();
+      const auto &mb = rhs.UnsafeValueMap();
+      if (ma.size() != mb.size()) return false;
+      for (const auto &kv : ma) {
+        auto it = mb.find(kv.first);
+        if (it == mb.end()) return false;
+        if (!(*this)(kv.second, it->second)) return false;
+      }
+      return true;
+    }
+    case Type::Int:
+    case Type::Double:
+    case Type::Null:
+      // Int/Double handled by the numeric branch above; Null handled at entry.
+      std::unreachable();
+    case Type::Graph:
+    case Type::Function:
+      // Preserve the original diagnostics for these unreachable-in-practice types.
+      TypedValue eq = lhs == rhs;
+      DMG_ASSERT(eq.IsBool() || eq.IsNull(), "Equality between two TypedValues must result in either Null or Bool");
+      return eq.IsBool() && eq.ValueBool();
+  }
+  std::unreachable();
 }
 
 size_t TypedValue::Hash::operator()(const TypedValue &value) const {
@@ -1897,9 +2149,14 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Int:
       return std::hash<int64_t>{}(value.ValueInt());
     case TypedValue::Type::Double: {
+      // NaN reflexivity (see Equivalent): every NaN must hash to the same bucket
+      // so DISTINCT/GROUP BY can collapse them. std::hash<double> is unspecified
+      // for NaN and may differ between bit patterns.
+      const double v = value.ValueDouble();
+      if (std::isnan(v)) return 0x7ff8000000000000ULL;  // sentinel for NaN equivalence class
       // Store whole number doubles as int hashes to be consistent with
       // TypedValue equality in which (2.0 == 2) returns true
-      const double double_value = std::trunc(value.ValueDouble());
+      const double double_value = std::trunc(v);
       double whole_value = 0.0;
       if (std::modf(double_value, &whole_value) == 0.0) {
         return std::hash<int64_t>{}(static_cast<int64_t>(whole_value));

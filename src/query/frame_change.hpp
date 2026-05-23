@@ -28,7 +28,7 @@ struct CachedSet {
   using alloc_traits = std::allocator_traits<allocator_type>;
 
   // Cached value, this can be probably templateized
-  absl::flat_hash_set<TypedValue, absl::DefaultHashContainerHash<TypedValue>, TypedValue::BoolEqual, allocator_type>
+  absl::flat_hash_set<TypedValue, absl::DefaultHashContainerHash<TypedValue>, TypedValue::Equivalent, allocator_type>
       cache_;
 
   explicit CachedSet(allocator_type alloc) : cache_{alloc} {}

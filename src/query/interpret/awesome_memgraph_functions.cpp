@@ -934,9 +934,13 @@ TypedValue ToSet(const TypedValue *args, int64_t nargs, const FunctionContext &c
     return TypedValue(ctx.memory);
   }
   const auto &elements = value.ValueList();
-  using unique_collection = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
-  auto unique_elements = unique_collection(
-      elements.cbegin(), elements.cend(), elements.size() * 2, TypedValue::Hash{}, TypedValue::BoolEqual{}, ctx.memory);
+  using unique_collection = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::Equivalent>;
+  auto unique_elements = unique_collection(elements.cbegin(),
+                                           elements.cend(),
+                                           elements.size() * 2,
+                                           TypedValue::Hash{},
+                                           TypedValue::Equivalent{},
+                                           ctx.memory);
   return TypedValue{TypedValue::TVector(
       std::make_move_iterator(unique_elements.begin()), std::make_move_iterator(unique_elements.end()), ctx.memory)};
 }

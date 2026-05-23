@@ -59,7 +59,7 @@ void AssertRows(const std::vector<std::vector<TypedValue>> &datum, std::vector<s
     if (row1.size() != row2.size()) {
       return false;
     }
-    TypedValue::BoolEqual value_eq;
+    TypedValue::Equivalent value_eq;
     auto row1_it = row1.begin();
     for (auto row2_it = row2.begin(); row2_it != row2.end(); ++row1_it, ++row2_it) {
       if (!value_eq(*row1_it, *row2_it)) {
@@ -378,7 +378,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchKShortest) {
     ASSERT_EQ(results.size(), 2);
     ASSERT_EQ(results[0].size(), 1);
     ASSERT_EQ(results[0][0].ValueList().size(), 1);
-    ASSERT_TRUE(TypedValue::BoolEqual()(results[0][0].ValueList()[0], result[0].ValueList()[0]));
+    ASSERT_TRUE(TypedValue::Equivalent()(results[0][0].ValueList()[0], result[0].ValueList()[0]));
     ASSERT_EQ(results[1].size(), 1);
     ASSERT_EQ(results[1][0].ValueList().size(), 2);
     auto result_list = results[1][0].ValueList();
@@ -387,7 +387,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchKShortest) {
                                     result_list.end(),
                                     expected_result_list.begin(),
                                     expected_result_list.end(),
-                                    TypedValue::BoolEqual()));
+                                    TypedValue::Equivalent()));
   });
 }
 

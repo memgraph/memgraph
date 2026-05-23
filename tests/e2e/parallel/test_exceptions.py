@@ -158,45 +158,11 @@ class TestExceptionOnSingleElement:
 class TestExceptionParameterized:
     """Consolidated parameterized tests covering all combinations of size and origin."""
 
-    @pytest.mark.parametrize("element_count", [2, 4, 8, 16, 100, 1000])
-    @pytest.mark.parametrize(
-        "origin",
-        [ExceptionOrigin.FIRST, ExceptionOrigin.LAST, ExceptionOrigin.MIDDLE, ExceptionOrigin.EVERY_OTHER],
-    )
-    def test_exception_matrix(self, memgraph, element_count, origin):
-        """Test exception handling across different sizes and origins."""
-        setup_with_type_error(memgraph, element_count, origin)
-
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            run_aggregation_query(memgraph)
-
     def test_no_exception_all_valid(self, memgraph, num_workers):
         """Baseline check: all valid integers should aggregate without exception."""
         setup_thread_count_db(memgraph, num_workers)
         result = memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p) AS result"))
         assert result[0]["result"] == 1
-
-
-class TestExceptionMessageConsistency:
-    """Test that exception messages are consistent regardless of origin."""
-
-    def test_exception_message_same_for_different_origins(self, memgraph):
-        """Exception message should be consistent regardless of which branch triggers it."""
-        element_count = 10
-        exception_messages = []
-
-        for origin in [ExceptionOrigin.FIRST, ExceptionOrigin.MIDDLE, ExceptionOrigin.LAST]:
-            setup_with_type_error(memgraph, element_count, origin)
-
-            try:
-                run_aggregation_query(memgraph)
-                pytest.fail(f"Expected exception for origin {origin}")
-            except (DatabaseError, ClientError) as e:
-                exception_messages.append(str(e))
-
-        # All exception messages should indicate type error
-        for msg in exception_messages:
-            assert "unable to get min" in msg.lower(), f"Exception message doesn't match: {msg}"
 
 
 class TestNoExceptionCases:
@@ -243,16 +209,6 @@ class TestDifferentAggregationFunctions:
         """Set up database with mixed types for each test."""
         setup_with_type_error(memgraph, 10, ExceptionOrigin.FIRST)
 
-    def test_min_exception(self, memgraph):
-        """MIN should raise on mixed types."""
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p)"))
-
-    def test_max_exception(self, memgraph):
-        """MAX should raise on mixed types."""
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            memgraph.fetch_all(pq("MATCH (n:A) RETURN max(n.p)"))
-
     def test_sum_exception(self, memgraph):
         """SUM should raise on string types."""
         with pytest.raises((DatabaseError, ClientError, TransientError)):
@@ -286,31 +242,6 @@ class TestArithmeticExceptions:
             memgraph.fetch_all(pq("MATCH (n:A) RETURN n.p / (n.p - 5) AS result"))
 
         assert "invalid types" in str(excinfo.value).lower()
-
-
-class TestOrderByExceptions:
-    """Test exceptions during ORDER BY in parallel execution."""
-
-    @pytest.mark.parametrize(
-        "origin",
-        [ExceptionOrigin.FIRST, ExceptionOrigin.LAST, ExceptionOrigin.MIDDLE, ExceptionOrigin.EVERY_OTHER],
-    )
-    def test_order_by_mixed_types_exception(self, memgraph, origin):
-        """Ordering mixed types should raise exception if not handled gracefully."""
-        setup_with_type_error(memgraph, 10, origin)
-
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            memgraph.fetch_all(pq("MATCH (n:A) RETURN n.p AS p ORDER BY p"))
-
-    def test_order_by_all_strings_no_exception(self, memgraph):
-        """Ordering all strings should work without exception."""
-        setup_with_type_error(memgraph, 10, ExceptionOrigin.ALL)
-
-        result = memgraph.fetch_all(pq("MATCH (n:A) RETURN n.p AS p ORDER BY p"))
-        assert len(result) == 10
-        # Lexicographical order: "invalid_string_1", "invalid_string_10", "invalid_string_2", ...
-        p_values = [r["p"] for r in result]
-        assert p_values == sorted(p_values)
 
 
 if __name__ == "__main__":

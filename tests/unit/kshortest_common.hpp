@@ -385,8 +385,8 @@ class Database {
       auto source = results[j][0];
       auto sink = results[j][1];
 
-      while (j < results.size() && memgraph::query::TypedValue::BoolEqual{}(results[j][0], source) &&
-             memgraph::query::TypedValue::BoolEqual{}(results[j][1], sink)) {
+      while (j < results.size() && memgraph::query::TypedValue::Equivalent{}(results[j][0], source) &&
+             memgraph::query::TypedValue::Equivalent{}(results[j][1], sink)) {
         ++j;
       }
 
