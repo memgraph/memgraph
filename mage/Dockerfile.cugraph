@@ -143,10 +143,14 @@ USER root
 RUN --mount=type=bind,source="./memgraph-debuginfo.deb",target=/memgraph-debuginfo.deb,ro \
   dpkg -i /memgraph-debuginfo.deb
 
-RUN --mount=type=bind,source="./mage-debug.tar.gz",target=/mage-debug.tar.gz,ro,required=false \
-  if [ -f /mage-debug.tar.gz ]; then \
-    tar -xzvf /mage-debug.tar.gz -C /usr/lib/memgraph/; \
-  fi
+# Extract MAGE .debug sidecars next to their .so files. mage-debug.tar.gz
+# is always produced by compress-query-modules.sh — a near-empty tarball
+# (just the query_modules dir entry) when there are no sidecars, so this
+# extract is a no-op in that case. (type=bind requires the file to exist;
+# type=secret would support required=false but bind is the right kind for
+# build-context artefacts.)
+RUN --mount=type=bind,source="./mage-debug.tar.gz",target=/mage-debug.tar.gz,ro \
+  tar -xzvf /mage-debug.tar.gz -C /usr/lib/memgraph/
 
 COPY --chown=memgraph:memgraph ./ /mage/
 RUN --mount=type=bind,source="./heaptrack",target=/heaptrack,ro \
