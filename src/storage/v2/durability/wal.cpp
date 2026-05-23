@@ -15,6 +15,8 @@
 #include <type_traits>
 #include <unordered_map>
 
+#include <fmt/format.h>
+
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/delta.hpp"
@@ -45,9 +47,6 @@
 
 namespace r = ranges;
 namespace rv = r::views;
-
-static constexpr std::string_view kInvalidWalErrorMessage =
-    "Invalid WAL data! Your durability WAL files somehow got corrupted. Please contact the Memgraph team for support.";
 
 namespace memgraph::storage::durability {
 
@@ -103,6 +102,21 @@ namespace memgraph::storage::durability {
 // in `version.hpp`.
 
 namespace {
+
+inline std::string MakeInvalidWalError(const BaseDecoder &decoder, std::string_view context) {
+  auto pos = decoder.GetPosition();
+  if (pos) {
+    return fmt::format(
+        "Invalid WAL data while {} at byte position {}! Your durability WAL files somehow got corrupted. Please "
+        "contact the Memgraph team for support.",
+        context,
+        *pos);
+  }
+  return fmt::format(
+      "Invalid WAL data while {}! Your durability WAL files somehow got corrupted. Please contact the Memgraph team "
+      "for support.",
+      context);
+}
 
 constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -171,7 +185,7 @@ constexpr Marker DeltaActionToMarker(Delta::Action action) {
     case Delta::Action::REMOVE_OUT_EDGE:
       return Marker::DELTA_EDGE_CREATE;
     default:
-      throw RecoveryFailure(kInvalidWalErrorMessage);
+      throw RecoveryFailure("Invalid delta action!");
   }
 }
 
@@ -266,7 +280,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case SECTION_DESCRIPTIONS:
     case VALUE_FALSE:
     case VALUE_TRUE:
-      throw RecoveryFailure(kInvalidWalErrorMessage);
+      throw RecoveryFailure("Invalid marker in IsMarkerImplicitTransactionEndVersion15!");
   }
 }
 
@@ -283,7 +297,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, bool, void> {
   const auto flag = decoder->ReadBool();
-  if (!flag) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!flag) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading a bool"));
   if constexpr (is_read) {
     return *flag;
   }
@@ -293,7 +307,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, Gid, void> {
   const auto gid = decoder->ReadUint();
-  if (!gid) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!gid) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading a Gid"));
   if constexpr (is_read) {
     return Gid::FromUint(*gid);
   }
@@ -304,10 +318,10 @@ auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const
     -> std::conditional_t<is_read, std::string, void> {
   if constexpr (is_read) {
     auto str = decoder->ReadString();
-    if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!str) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading a string"));
     return *std::move(str);
   } else {
-    if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!decoder->SkipString()) throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping a string"));
   }
 }
 
@@ -316,19 +330,19 @@ auto Decode(utils::tag_type<std::optional<std::string>> /*unused*/, BaseDecoder 
     -> std::conditional_t<is_read, std::optional<std::string>, void> {
   if constexpr (is_read) {
     auto has_value = decoder->ReadBool();
-    if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!has_value) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading optional string has_value"));
     if (*has_value) {
       auto str = decoder->ReadString();
-      if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!str) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading an optional string"));
       return std::make_optional(*std::move(str));
     }
     return std::nullopt;
 
   } else {
     auto has_value = decoder->ReadBool();
-    if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!has_value) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading optional string has_value"));
     if (*has_value) {
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!decoder->SkipString()) throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping an optional string"));
     }
   }
 }
@@ -338,10 +352,11 @@ auto Decode(utils::tag_type<ExternalPropertyValue> /*unused*/, BaseDecoder *deco
     -> std::conditional_t<is_read, ExternalPropertyValue, void> {
   if constexpr (is_read) {
     auto str = decoder->ReadExternalPropertyValue();
-    if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!str) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading an ExternalPropertyValue"));
     return *std::move(str);
   } else {
-    if (!decoder->SkipExternalPropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!decoder->SkipExternalPropertyValue())
+      throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping an ExternalPropertyValue"));
   }
 }
 
@@ -351,18 +366,18 @@ auto Decode(utils::tag_type<std::set<std::string, std::less<>>> /*unused*/, Base
   if constexpr (is_read) {
     std::set<std::string, std::less<>> strings;
     const auto count = decoder->ReadUint();
-    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading set of strings count"));
     for (uint64_t i = 0; i < *count; ++i) {
       auto str = decoder->ReadString();
-      if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!str) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading a string in set"));
       strings.emplace(*std::move(str));
     }
     return strings;
   } else {
     const auto count = decoder->ReadUint();
-    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading set of strings count to skip"));
     for (uint64_t i = 0; i < *count; ++i) {
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!decoder->SkipString()) throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping a string in set"));
     }
   }
 }
@@ -372,7 +387,7 @@ auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder, co
     -> std::conditional_t<is_read, std::vector<T>, void> {
   if constexpr (is_read) {
     const auto count = decoder->ReadUint();
-    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading vector count"));
     std::vector<T> values;
     values.reserve(*count);
     for (uint64_t i = 0; i < *count; ++i) {
@@ -382,7 +397,7 @@ auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder, co
     return values;
   } else {
     const auto count = decoder->ReadUint();
-    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading vector count to skip"));
     for (uint64_t i = 0; i < *count; ++i) {
       Decode<false>(utils::tag_t<T>, decoder, 0);
     }
@@ -394,10 +409,10 @@ auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder
     -> std::conditional_t<is_read, TypeConstraintKind, void> {
   if constexpr (is_read) {
     auto kind = decoder->ReadUint();
-    if (!kind) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!kind) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading a TypeConstraintKind"));
     return static_cast<TypeConstraintKind>(*kind);
   } else {
-    if (!decoder->ReadUint()) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!decoder->ReadUint()) throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping a TypeConstraintKind"));
   }
 }
 
@@ -405,7 +420,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, uint16_t, void> {
   const auto uint16 = decoder->ReadUint();
-  if (!uint16) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!uint16) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading a uint16_t"));
   if constexpr (is_read) {
     return static_cast<uint16_t>(*uint16);
   }
@@ -415,7 +430,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, uint8_t, void> {
   const auto uint8 = decoder->ReadUint();
-  if (!uint8) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!uint8) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading a uint8_t"));
 
   if constexpr (is_read) {
     return static_cast<uint8_t>(*uint8);
@@ -426,7 +441,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<TtlOperationType> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, TtlOperationType, void> {
   const auto uint8 = decoder->ReadUint();
-  if (!uint8) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!uint8) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading a TtlOperationType"));
 
   if constexpr (is_read) {
     return static_cast<TtlOperationType>(*uint8);
@@ -437,7 +452,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, std::size_t, void> {
   const auto size = decoder->ReadUint();
-  if (!size) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!size) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading a size_t"));
   if constexpr (is_read) {
     return static_cast<std::size_t>(*size);
   }
@@ -460,7 +475,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<std::chrono::microseconds> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, std::chrono::microseconds, void> {
   const auto count = decoder->ReadUint();
-  if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading a microseconds count"));
   if constexpr (is_read) {
     return std::chrono::microseconds(*count);
   }
@@ -470,7 +485,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<std::chrono::system_clock::time_point> /*unused*/, BaseDecoder *decoder,
             const uint64_t /*version*/) -> std::conditional_t<is_read, std::chrono::system_clock::time_point, void> {
   const auto count = decoder->ReadUint();
-  if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading a time_point"));
   if constexpr (is_read) {
     return std::chrono::system_clock::time_point(std::chrono::microseconds(*count));
   }
@@ -480,7 +495,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<std::optional<std::chrono::microseconds>> /*unused*/, BaseDecoder *decoder,
             const uint64_t version) -> std::conditional_t<is_read, std::optional<std::chrono::microseconds>, void> {
   const auto has_value = decoder->ReadBool();
-  if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!has_value) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading optional microseconds has_value"));
   if constexpr (is_read) {
     if (*has_value) {
       return Decode<true>(utils::tag_t<std::chrono::microseconds>, decoder, version);
@@ -499,7 +514,7 @@ auto Decode(utils::tag_type<std::optional<std::chrono::system_clock::time_point>
             const uint64_t version)
     -> std::conditional_t<is_read, std::optional<std::chrono::system_clock::time_point>, void> {
   const auto has_value = decoder->ReadBool();
-  if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!has_value) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading optional time_point has_value"));
   if constexpr (is_read) {
     if (*has_value) {
       return Decode<true>(utils::tag_t<std::chrono::system_clock::time_point>, decoder, version);
@@ -512,6 +527,8 @@ auto Decode(utils::tag_type<std::optional<std::chrono::system_clock::time_point>
     }
   }
 }
+
+// ========== concrete type decoders end here ==========
 
 // ========== concrete type decoders end here ==========
 
@@ -607,7 +624,7 @@ auto ReadDescriptionFields(BaseDecoder *decoder) {
   };
 
   auto kind_val = decoder->ReadUint();
-  if (!kind_val) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!kind_val) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description fields kind"));
   auto kind = static_cast<DescriptionTargetKind>(*kind_val);
 
   Fields fields{.kind = kind};
@@ -616,80 +633,86 @@ auto ReadDescriptionFields(BaseDecoder *decoder) {
       break;
     case DescriptionTargetKind::LABEL: {
       auto count = decoder->ReadUint();
-      if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description label count"));
       fields.labels.reserve(*count);
       for (uint64_t i = 0; i < *count; ++i) {
         auto string = decoder->ReadString();
-        if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
+        if (!string) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description label string"));
         fields.labels.emplace_back(*std::move(string));
       }
       break;
     }
     case DescriptionTargetKind::EDGE_TYPE: {
       auto string = decoder->ReadString();
-      if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!string) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description edge_type string"));
       fields.edge_type = *std::move(string);
       break;
     }
     case DescriptionTargetKind::LABEL_PROPERTY: {
       auto count = decoder->ReadUint();
-      if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description label_property count"));
       fields.labels.reserve(*count);
       for (uint64_t i = 0; i < *count; ++i) {
         auto string = decoder->ReadString();
-        if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
+        if (!string)
+          throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description label_property label string"));
         fields.labels.emplace_back(*std::move(string));
       }
       auto prop = decoder->ReadString();
-      if (!prop) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!prop)
+        throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description label_property property string"));
       fields.property = *std::move(prop);
       break;
     }
     case DescriptionTargetKind::EDGE_TYPE_PROPERTY: {
       auto edge_type = decoder->ReadString();
-      if (!edge_type) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!edge_type)
+        throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description edge_type_property edge_type string"));
       fields.edge_type = *std::move(edge_type);
       auto prop = decoder->ReadString();
-      if (!prop) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!prop)
+        throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description edge_type_property property string"));
       fields.property = *std::move(prop);
       break;
     }
     case DescriptionTargetKind::PROPERTY: {
       auto prop = decoder->ReadString();
-      if (!prop) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!prop) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description property string"));
       fields.property = *std::move(prop);
       break;
     }
     case DescriptionTargetKind::EDGE_TYPE_PATTERN:
     case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
       auto from_count = decoder->ReadUint();
-      if (!from_count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!from_count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description pattern from_count"));
       fields.from_labels.reserve(*from_count);
       for (uint64_t i = 0; i < *from_count; ++i) {
         auto string = decoder->ReadString();
-        if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
+        if (!string)
+          throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description pattern from_label string"));
         fields.from_labels.emplace_back(*std::move(string));
       }
       auto et = decoder->ReadString();
-      if (!et) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!et) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description pattern edge_type string"));
       fields.edge_type = *std::move(et);
       auto to_count = decoder->ReadUint();
-      if (!to_count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!to_count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description pattern to_count"));
       fields.to_labels.reserve(*to_count);
       for (uint64_t i = 0; i < *to_count; ++i) {
         auto string = decoder->ReadString();
-        if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
+        if (!string)
+          throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description pattern to_label string"));
         fields.to_labels.emplace_back(*std::move(string));
       }
       if (kind == DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY) {
         auto prop = decoder->ReadString();
-        if (!prop) throw RecoveryFailure(kInvalidWalErrorMessage);
+        if (!prop) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description pattern property string"));
         fields.property = *std::move(prop);
       }
       break;
     }
     default:
-      throw RecoveryFailure(kInvalidWalErrorMessage);
+      throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description fields (unknown kind)"));
   }
   return fields;
 }
@@ -697,7 +720,7 @@ auto ReadDescriptionFields(BaseDecoder *decoder) {
 auto ReadDescriptionSet(BaseDecoder *decoder) -> WalDescriptionSet {
   auto fields = ReadDescriptionFields(decoder);
   auto desc = decoder->ReadString();
-  if (!desc) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!desc) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading description set string"));
   return {.kind = fields.kind,
           .labels = std::move(fields.labels),
           .edge_type = std::move(fields.edge_type),
@@ -719,7 +742,7 @@ auto ReadDescriptionDelete(BaseDecoder *decoder) -> WalDescriptionDelete {
 
 void SkipDescriptionFields(BaseDecoder *decoder) {
   auto kind_val = decoder->ReadUint();
-  if (!kind_val) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!kind_val) throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description fields kind"));
   auto kind = static_cast<DescriptionTargetKind>(*kind_val);
 
   switch (kind) {
@@ -727,58 +750,70 @@ void SkipDescriptionFields(BaseDecoder *decoder) {
       break;
     case DescriptionTargetKind::LABEL: {
       auto count = decoder->ReadUint();
-      if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description label count"));
       for (uint64_t i = 0; i < *count; ++i) {
-        if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+        if (!decoder->SkipString())
+          throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description label string"));
       }
       break;
     }
     case DescriptionTargetKind::EDGE_TYPE:
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!decoder->SkipString())
+        throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description edge_type string"));
       break;
     case DescriptionTargetKind::LABEL_PROPERTY: {
       auto count = decoder->ReadUint();
-      if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description label_property count"));
       for (uint64_t i = 0; i < *count; ++i) {
-        if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+        if (!decoder->SkipString())
+          throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description label_property label string"));
       }
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!decoder->SkipString())
+        throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description label_property property string"));
       break;
     }
     case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!decoder->SkipString())
+        throw RecoveryFailure(
+            MakeInvalidWalError(*decoder, "skipping description edge_type_property edge_type string"));
+      if (!decoder->SkipString())
+        throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description edge_type_property property string"));
       break;
     case DescriptionTargetKind::PROPERTY:
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!decoder->SkipString())
+        throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description property string"));
       break;
     case DescriptionTargetKind::EDGE_TYPE_PATTERN:
     case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
       auto from_count = decoder->ReadUint();
-      if (!from_count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!from_count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description pattern from_count"));
       for (uint64_t i = 0; i < *from_count; ++i) {
-        if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+        if (!decoder->SkipString())
+          throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description pattern from_label string"));
       }
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!decoder->SkipString())
+        throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description pattern edge_type string"));
       auto to_count = decoder->ReadUint();
-      if (!to_count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!to_count) throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description pattern to_count"));
       for (uint64_t i = 0; i < *to_count; ++i) {
-        if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+        if (!decoder->SkipString())
+          throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description pattern to_label string"));
       }
       if (kind == DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY) {
-        if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+        if (!decoder->SkipString())
+          throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description pattern property string"));
       }
       break;
     }
     default:
-      throw RecoveryFailure(kInvalidWalErrorMessage);
+      throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description fields (unknown kind)"));
   }
 }
 
 void SkipDescription(BaseDecoder *decoder, bool is_set) {
   SkipDescriptionFields(decoder);
   if (is_set) {
-    if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!decoder->SkipString()) throw RecoveryFailure(MakeInvalidWalError(*decoder, "skipping description string"));
   }
 }
 
@@ -792,7 +827,7 @@ template <bool read_data>
 auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     -> std::conditional_t<read_data, WalDeltaData, bool> {
   auto action = decoder->ReadMarker();
-  if (!action) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!action) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading WAL delta action marker"));
 
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define read_skip(enum_val, decode_to)                     \
@@ -895,7 +930,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case Marker::SECTION_DESCRIPTIONS:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
-      throw RecoveryFailure(kInvalidWalErrorMessage);
+      throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading/skipping WAL delta data"));
   }
 #undef read_skip
 }
@@ -916,10 +951,11 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   // Read offsets.
   {
     auto marker = wal.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_OFFSETS) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!marker || *marker != Marker::SECTION_OFFSETS)
+      throw RecoveryFailure(MakeInvalidWalError(wal, "reading WAL info section offsets marker"));
 
     auto wal_size = wal.GetSize();
-    if (!wal_size) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!wal_size) throw RecoveryFailure(MakeInvalidWalError(wal, "reading WAL info size"));
 
     auto read_offset = [&wal, wal_size] {
       auto maybe_offset = wal.ReadUint();
@@ -938,18 +974,19 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     wal.SetPosition(info.offset_metadata);
 
     auto marker = wal.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_METADATA) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!marker || *marker != Marker::SECTION_METADATA)
+      throw RecoveryFailure(MakeInvalidWalError(wal, "reading WAL info section metadata marker"));
 
     auto maybe_uuid = wal.ReadString();
-    if (!maybe_uuid) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!maybe_uuid) throw RecoveryFailure(MakeInvalidWalError(wal, "reading WAL info UUID"));
     info.uuid = std::move(*maybe_uuid);
 
     auto maybe_epoch_id = wal.ReadString();
-    if (!maybe_epoch_id) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!maybe_epoch_id) throw RecoveryFailure(MakeInvalidWalError(wal, "reading WAL info epoch id"));
     info.epoch_id = std::move(*maybe_epoch_id);
 
     auto maybe_seq_num = wal.ReadUint();
-    if (!maybe_seq_num) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!maybe_seq_num) throw RecoveryFailure(MakeInvalidWalError(wal, "reading WAL info sequence number"));
     info.seq_num = *maybe_seq_num;
   }
 
@@ -988,7 +1025,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     }
   }
 
-  if (info.num_deltas == 0) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (info.num_deltas == 0) throw RecoveryFailure(MakeInvalidWalError(wal, "reading WAL info (no deltas found)"));
 
   return info;
 }
@@ -997,10 +1034,11 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
 // timestamp.
 uint64_t ReadWalDeltaHeader(BaseDecoder *decoder) {
   auto marker = decoder->ReadMarker();
-  if (!marker || *marker != Marker::SECTION_DELTA) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!marker || *marker != Marker::SECTION_DELTA)
+    throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading WAL delta header marker"));
 
   auto timestamp = decoder->ReadUint();
-  if (!timestamp) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!timestamp) throw RecoveryFailure(MakeInvalidWalError(*decoder, "reading WAL delta header timestamp"));
   return *timestamp;
 }
 
@@ -1283,27 +1321,39 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalVertexCreate const &data) {
         auto [vertex, inserted] = vertex_acc.insert(Vertex{data.gid, nullptr});
         if (!inserted)
-          throw RecoveryFailure("The vertex must be inserted here! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex with gid {} must be inserted here! Current ldt is: {}",
+                                data.gid.AsUint(),
+                                ret->last_durable_timestamp);
         ret->next_vertex_id = std::max(ret->next_vertex_id, data.gid.AsUint() + 1);
         if (schema_info) schema_info->AddVertex(&*vertex);
       },
       [&](WalVertexDelete const &data) {
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end())
-          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex with gid {} doesn't exist! Current ldt is: {}",
+                                data.gid.AsUint(),
+                                ret->last_durable_timestamp);
         if (!vertex->in_edges.empty() || !vertex->out_edges.empty())
-          throw RecoveryFailure("The vertex can't be deleted because it still has edges!");
+          throw RecoveryFailure("The vertex with gid {} can't be deleted because it still has edges!",
+                                data.gid.AsUint());
         if (!vertex_acc.remove(data.gid))
-          throw RecoveryFailure("The vertex must be removed here! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex with gid {} must be removed here! Current ldt is: {}",
+                                data.gid.AsUint(),
+                                ret->last_durable_timestamp);
         if (schema_info) schema_info->DeleteVertex(&*vertex);
       },
       [&](WalVertexAddLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end())
-          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex with gid {} doesn't exist! Current ldt is: {}",
+                                data.gid.AsUint(),
+                                ret->last_durable_timestamp);
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         if (r::contains(vertex->labels, label_id))
-          throw RecoveryFailure("The vertex already has the label! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex with gid {} already has the label '{}'! Current ldt is: {}",
+                                data.gid.AsUint(),
+                                data.label,
+                                ret->last_durable_timestamp);
         std::optional<VertexKey> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
@@ -1314,11 +1364,16 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalVertexRemoveLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end())
-          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex with gid {} doesn't exist! Current ldt is: {}",
+                                data.gid.AsUint(),
+                                ret->last_durable_timestamp);
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto it = r::find(vertex->labels, label_id);
         if (it == vertex->labels.end())
-          throw RecoveryFailure("The vertex doesn't have the label! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex with gid {} doesn't have the label '{}'! Current ldt is: {}",
+                                data.gid.AsUint(),
+                                data.label,
+                                ret->last_durable_timestamp);
         std::optional<VertexKey> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         std::swap(*it, vertex->labels.back());
@@ -1330,7 +1385,9 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalVertexSetProperty const &data) {
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end())
-          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex with gid {} doesn't exist for SetProperty! Current ldt is: {}",
+                                data.gid.AsUint(),
+                                ret->last_durable_timestamp);
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         auto property_value = ToPropertyValue(data.value, name_id_mapper);
         if (schema_info) {
@@ -1344,29 +1401,44 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalEdgeCreate const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);
         if (from_vertex == vertex_acc.end())
-          throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure("The from vertex with gid {} doesn't exist for EdgeCreate! Current ldt is: {}",
+                                data.from_vertex.AsUint(),
+                                ret->last_durable_timestamp);
         const auto to_vertex = vertex_acc.find(data.to_vertex);
         if (to_vertex == vertex_acc.end())
-          throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure("The to vertex with gid {} doesn't exist for EdgeCreate! Current ldt is: {}",
+                                data.to_vertex.AsUint(),
+                                ret->last_durable_timestamp);
 
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
             auto [edge, inserted] = edge_acc.insert(Edge{(data.gid), nullptr});
             if (!inserted)
-              throw RecoveryFailure("The edge must be inserted here! Current ldt is: {}", ret->last_durable_timestamp);
+              throw RecoveryFailure("The edge with gid {} must be inserted here! Current ldt is: {}",
+                                    data.gid.AsUint(),
+                                    ret->last_durable_timestamp);
             return EdgeRef{&*edge};
           }
           return EdgeRef{data.gid};
         });
         auto out_link = std::tuple{edge_type_id, &*to_vertex, edge_ref};
         if (r::contains(from_vertex->out_edges, out_link))
-          throw RecoveryFailure("The from vertex already has this edge! Current ldt is: {}",
-                                ret->last_durable_timestamp);
+          throw RecoveryFailure(
+              "The from vertex with gid {} already has edge with gid {} (type '{}')! Current ldt is: {}",
+              data.from_vertex.AsUint(),
+              data.gid.AsUint(),
+              data.edge_type,
+              ret->last_durable_timestamp);
         from_vertex->out_edges.push_back(out_link);
         auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
         if (r::contains(to_vertex->in_edges, in_link))
-          throw RecoveryFailure("The to vertex already has this edge! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure(
+              "The to vertex with gid {} already has edge with gid {} (type '{}')! Current ldt is: {}",
+              data.to_vertex.AsUint(),
+              data.gid.AsUint(),
+              data.edge_type,
+              ret->last_durable_timestamp);
         to_vertex->in_edges.push_back(in_link);
 
         ret->next_edge_id = std::max(ret->next_edge_id, data.gid.AsUint() + 1);
@@ -1386,17 +1458,27 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalEdgeDelete const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);
         if (from_vertex == vertex_acc.end())
-          throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure(
+              "The from vertex with gid {} doesn't exist for EdgeDelete (edge gid {})! Current ldt is: {}",
+              data.from_vertex.AsUint(),
+              data.gid.AsUint(),
+              ret->last_durable_timestamp);
         const auto to_vertex = vertex_acc.find(data.to_vertex);
         if (to_vertex == vertex_acc.end())
-          throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+          throw RecoveryFailure(
+              "The to vertex with gid {} doesn't exist for EdgeDelete (edge gid {})! Current ldt is: {}",
+              data.to_vertex.AsUint(),
+              data.gid.AsUint(),
+              ret->last_durable_timestamp);
 
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
             auto edge = edge_acc.find(data.gid);
             if (edge == edge_acc.end())
-              throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+              throw RecoveryFailure("The edge with gid {} doesn't exist for EdgeDelete! Current ldt is: {}",
+                                    data.gid.AsUint(),
+                                    ret->last_durable_timestamp);
             return EdgeRef{&*edge};
           }
           return EdgeRef{data.gid};
@@ -1406,8 +1488,11 @@ std::optional<RecoveryInfo> LoadWal(
           auto out_link = std::tuple{edge_type_id, &*to_vertex, edge_ref};
           auto it = r::find(from_vertex->out_edges, out_link);
           if (it == from_vertex->out_edges.end())
-            throw RecoveryFailure("The from vertex doesn't have this edge! Current ldt is: {}",
-                                  ret->last_durable_timestamp);
+            throw RecoveryFailure(
+                "The from vertex with gid {} doesn't have edge with gid {} for EdgeDelete! Current ldt is: {}",
+                data.from_vertex.AsUint(),
+                data.gid.AsUint(),
+                ret->last_durable_timestamp);
           std::swap(*it, from_vertex->out_edges.back());
           from_vertex->out_edges.pop_back();
         }
@@ -1415,14 +1500,20 @@ std::optional<RecoveryInfo> LoadWal(
           auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
           auto it = r::find(to_vertex->in_edges, in_link);
           if (it == to_vertex->in_edges.end())
-            throw RecoveryFailure("The to vertex doesn't have this edge! Current ldt is: {}",
-                                  ret->last_durable_timestamp);
+            throw RecoveryFailure(
+                "The to vertex with gid {} doesn't have edge with gid {} for EdgeDelete! Current ldt is: {}",
+                data.to_vertex.AsUint(),
+                data.gid.AsUint(),
+                ret->last_durable_timestamp);
           std::swap(*it, to_vertex->in_edges.back());
           to_vertex->in_edges.pop_back();
         }
         if (items.properties_on_edges) {
-          if (!edge_acc.remove(data.gid))
-            throw RecoveryFailure("The edge must be removed here! Current ldt is: {}", ret->last_durable_timestamp);
+          if (!edge_acc.remove(data.gid)) {
+            throw RecoveryFailure("The edge with gid {} must be removed here for EdgeDelete! Current ldt is: {}",
+                                  data.gid.AsUint(),
+                                  ret->last_durable_timestamp);
+          }
         }
 
         // Decrement edge count.
@@ -1705,30 +1796,41 @@ std::optional<RecoveryInfo> LoadWal(
             &indices_constraints->constraints.type, {label, property, data.kind}, "The type constraint doesn't exist!");
       },
       [&](WalEnumCreate &data) {
+        auto const enum_name = data.etype;
         auto res = enum_store->RegisterEnum(std::move(data.etype), std::move(data.evalues));
         if (!res) {
           switch (res.error()) {
             case EnumStorageError::EnumExists:
-              throw RecoveryFailure("The enum already exist!");
+              throw RecoveryFailure(
+                  "The enum '{}' already exists! Current ldt is: {}", enum_name, ret->last_durable_timestamp);
             case EnumStorageError::InvalidValue:
-              throw RecoveryFailure("The enum has invalid values!");
+              throw RecoveryFailure(
+                  "The enum '{}' has invalid values! Current ldt is: {}", enum_name, ret->last_durable_timestamp);
             default:
               // Should not happen
-              throw RecoveryFailure("The enum could not be registered!");
+              throw RecoveryFailure(
+                  "The enum '{}' could not be registered! Current ldt is: {}", enum_name, ret->last_durable_timestamp);
           }
         }
       },
       [&](WalEnumAlterAdd &data) {
+        auto const enum_name = data.etype;
+        auto const enum_value = data.evalue;
         auto res = enum_store->AddValue(std::move(data.etype), std::move(data.evalue));
         if (!res) {
           switch (res.error()) {
             case EnumStorageError::InvalidValue:
-              throw RecoveryFailure("Enum value already exists.");
+              throw RecoveryFailure("Enum value '{}'::'{}' already exists. Current ldt is: {}",
+                                    enum_name,
+                                    enum_value,
+                                    ret->last_durable_timestamp);
             case EnumStorageError::UnknownEnumType:
-              throw RecoveryFailure("Unknown Enum type.");
+              throw RecoveryFailure(
+                  "Unknown Enum type '{}'. Current ldt is: {}", enum_name, ret->last_durable_timestamp);
             default:
               // Should not happen
-              throw RecoveryFailure("Enum could not be altered.");
+              throw RecoveryFailure(
+                  "Enum '{}' could not be altered. Current ldt is: {}", enum_name, ret->last_durable_timestamp);
           }
         }
       },
@@ -1745,7 +1847,8 @@ std::optional<RecoveryInfo> LoadWal(
               throw RecoveryFailure("Unknown Enum value {}::{}.", enum_name, enum_value_old);
             default:
               // Should not happen
-              throw RecoveryFailure("Enum could not be altered.");
+              throw RecoveryFailure(
+                  "Enum '{}' could not be altered. Current ldt is: {}", enum_name, ret->last_durable_timestamp);
           }
         }
       },
@@ -1855,7 +1958,7 @@ std::optional<RecoveryInfo> LoadWal(
                 data.description);
             break;
           default:
-            throw RecoveryFailure(kInvalidWalErrorMessage);
+            throw RecoveryFailure("Unknown description kind {} in WalDescriptionSet!", static_cast<int>(data.kind));
         }
       },
       [&](WalDescriptionDelete const &data) {
@@ -1899,7 +2002,7 @@ std::optional<RecoveryInfo> LoadWal(
                 PropertyId::FromUint(name_id_mapper->NameToId(data.property)));
             break;
           default:
-            throw RecoveryFailure(kInvalidWalErrorMessage);
+            throw RecoveryFailure("Unknown description kind {} in WalDescriptionDelete!", static_cast<int>(data.kind));
         }
       },
   };
@@ -2293,7 +2396,8 @@ void EncodeDescriptionKindFields(BaseEncoder &encoder, NameIdMapper &name_id_map
       encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
       break;
     default:
-      throw RecoveryFailure(kInvalidWalErrorMessage);
+      throw RecoveryFailure("Unknown description target kind {} in EncodeDescriptionKindFields!",
+                            static_cast<int>(kind));
   }
 }
 }  // namespace
