@@ -127,6 +127,8 @@ struct Config {
 
   bool track_label_counts{false};
 
+  bool register_metrics{true};
+
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };
 

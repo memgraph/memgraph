@@ -16,6 +16,8 @@
 #include <utility>
 
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -56,6 +58,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   };
 
  public:
+  explicit InMemoryEdgeTypePropertyIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
   class Iterable {
    public:
     Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
@@ -182,10 +186,11 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     explicit IndividualIndex() : skiplist{} {}
 
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
 
     utils::SkipListDb<Entry> skiplist;
     IndexStatus status{};
+    metrics::ScopedGauge gauge_{};
   };
 
   // TODO: change to map of maps as in label property index
@@ -241,8 +246,6 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     std::shared_ptr<IndexContainer const> index_container_;
   };
 
-  InMemoryEdgeTypePropertyIndex() = default;
-
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                           ActiveIndicesUpdater const &updater,
@@ -281,6 +284,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   bool InstallIndividualIndex_(EdgeTypeId edge_type, PropertyId property, std::shared_ptr<IndividualIndex> entry,
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
 
+  metrics::GaugeHandle gauge_{};
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};
   utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{

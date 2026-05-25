@@ -300,6 +300,7 @@ jobs:
       run_tests: true
       package_deb: "default"
       generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      build_offline_installer: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'RelWithDebInfo' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
       version: ${{ inputs.version }}
     secrets: inherit

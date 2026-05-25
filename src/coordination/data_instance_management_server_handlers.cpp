@@ -14,6 +14,7 @@
 
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/include/coordination/data_instance_management_server.hpp"
+#include "flags/general.hpp"
 #include "replication/state.hpp"
 
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
@@ -193,7 +194,8 @@ auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::Replic
   auto const converter = [&config](const auto &repl_info_config) {
     return replication::ReplicationClientConfig{.name = repl_info_config.instance_name,
                                                 .mode = repl_info_config.replication_mode,
-                                                .repl_server_endpoint = config.replication_server};
+                                                .repl_server_endpoint = config.replication_server,
+                                                .tls_config = flags::TlsConfigFromClusterFlags()};
   };
 
   if (auto instance_client = replication_handler.RegisterReplica(converter(config)); !instance_client.has_value()) {
@@ -273,10 +275,10 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
     slk::Builder *res_builder) {
   coordination::DemoteMainToReplicaReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-
   // Use localhost as ip for creating ReplicationServer
   const replication::ReplicationServerConfig clients_config{
-      .repl_server = io::network::Endpoint("0.0.0.0", req.replication_client_info_.replication_server.GetPort())};
+      .repl_server = io::network::Endpoint("0.0.0.0", req.replication_client_info_.replication_server.GetPort()),
+      .tls_config = flags::TlsConfigFromClusterFlags()};
 
   if (!replication_handler.SetReplicationRoleReplica(clients_config, req.main_uuid_)) {
     spdlog::error("Demoting main to replica failed.");

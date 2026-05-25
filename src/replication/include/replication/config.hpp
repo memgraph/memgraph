@@ -18,6 +18,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
+#include "utils/tls.hpp"
 
 namespace memgraph::replication {
 
@@ -33,31 +34,15 @@ struct ReplicationClientConfig {
   // that seems like a reasonable timeframe in which main should notice a
   // replica is down.
   std::chrono::seconds replica_check_frequency{1};
-
-  struct SSL {
-    std::string key_file;
-    std::string cert_file;
-
-    friend bool operator==(const SSL &, const SSL &) = default;
-  };
-
-  std::optional<SSL> ssl{};
+  std::optional<utils::TlsConfig> tls_config{};
 
   friend bool operator==(ReplicationClientConfig const &, ReplicationClientConfig const &) = default;
 };
 
 struct ReplicationServerConfig {
   io::network::Endpoint repl_server;  // could be IP or domain name
-
-  struct SSL {
-    std::string key_file;
-    std::string cert_file;
-    std::string ca_file;
-    bool verify_peer{};
-    friend bool operator==(SSL const &, SSL const &) = default;
-  };
-
-  std::optional<SSL> ssl{};
+  std::optional<utils::TlsConfig>
+      tls_config;  // not persisted. Previously was persisted but always as nullptr and never actually read
 
   friend bool operator==(ReplicationServerConfig const &, ReplicationServerConfig const &) = default;
 };

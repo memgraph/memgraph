@@ -390,11 +390,6 @@ add_unit_test(utils_exceptions
     LINK_TARGETS mg-utils
 )
 
-add_unit_test(utils_histogram
-    SOURCES utils_histogram.cpp
-    LINK_TARGETS mg-utils mg-events
-)
-
 add_unit_test(utils_file
     SOURCES utils_file.cpp
     LINK_TARGETS mg-utils
@@ -759,6 +754,29 @@ add_unit_test(storage_v2_schema_info
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(replication_server
+    SOURCES replication_server.cpp
+    LINK_TARGETS mg::storage Boost::filesystem
+)
+
+add_custom_target(memgraph__unit__tls_certs_dir ALL
+     COMMAND ${CMAKE_COMMAND} -E copy_directory
+     ${CMAKE_CURRENT_SOURCE_DIR}/tls_certs
+     ${CMAKE_CURRENT_BINARY_DIR}/tls_certs
+     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tls_certs)
+ add_dependencies(memgraph__unit memgraph__unit__tls_certs_dir)
+ add_dependencies(${test_unit_prefix}replication_server memgraph__unit__tls_certs_dir)
+
+if (MG_ENTERPRISE)
+    add_unit_test(management_servers
+        SOURCES management_servers.cpp
+        LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc Boost::filesystem
+    )
+    add_dependencies(${test_unit_prefix}management_servers memgraph__unit__tls_certs_dir)
+endif ()
+
+
+
 add_unit_test(replication_persistence_helper
     SOURCES replication_persistence_helper.cpp
     LINK_TARGETS mg::storage mg-repl_coord_glue
@@ -936,6 +954,11 @@ add_unit_test(query_hint_provider
 add_unit_test(counter
     SOURCES counter.cpp
     LINK_TARGETS mg-utils
+)
+
+add_unit_test(prometheus_metrics
+    SOURCES prometheus_metrics.cpp
+    LINK_TARGETS mg-metrics mg-dbms disk_test_utils
 )
 
 # Test coordination

@@ -59,6 +59,10 @@ on:
         description: "Build deb package (true|false|default)"
         # default is build only for Release/RelWithDebInfo + amd64/arm64 (other combinations are not actually different)
         default: default
+      build_offline_installer:
+        type: boolean
+        description: "Build offline installer (.run) for Ubuntu 24.04"
+        default: false
       generate_sbom:
         type: boolean
         description: "Generate SBOM"
@@ -102,12 +106,17 @@ env:
   MEMGRAPH_DOWNLOAD_LINK: ${{ inputs.memgraph_download_link }}
   VERSION: "${{ inputs.version }}"
   CI_BRANCH: "${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}"
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-mage-${{ inputs.arch }}"
 
 jobs:
   BuildAndPush:
     name: "Build and Test MAGE"
     runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
-    timeout-minutes: ${{ (inputs.cugraph || inputs.cuda) && 45 || 35 }}
+    timeout-minutes: 45
     outputs:
       s3_package_url: ${{ steps.output-url.outputs.s3_url }}
     steps:
@@ -391,6 +400,60 @@ jobs:
           DEB_PACKAGE="$(ls output/memgraph-mage*.deb)"
           echo "DEB_PACKAGE=${DEB_PACKAGE}" >> $GITHUB_ENV
 
+      - name: Build offline installer (.run) for Ubuntu 24.04
+        if: ${{ inputs.build_offline_installer && env.PACKAGE_DEB == 'true' }}
+        run: |
+          SUFFIX=""
+          [[ "$BUILD_TYPE" == "RelWithDebInfo" ]] && SUFFIX="${SUFFIX}-relwithdebinfo"
+          [[ "$MALLOC" == "true" ]]               && SUFFIX="${SUFFIX}-malloc"
+          if [[ "$CUGRAPH" == "true" ]]; then
+            SUFFIX="${SUFFIX}-cugraph"
+          elif [[ "$CUDA" == "true" ]]; then
+            SUFFIX="${SUFFIX}-cuda"
+          fi
+          # ARCH is "amd"/"arm" → dpkg arch "amd64"/"arm64".
+          OFFLINE_RUN="output/memgraph-mage-offline-${MEMGRAPH_VERSION}-${ARCH}64${SUFFIX}.run"
+          PACKAGE_ARGS=()
+          [[ "$MALLOC" == "true" ]] && PACKAGE_ARGS+=(--malloc)
+          [[ "$CUDA" == "true" ]]   && PACKAGE_ARGS+=(--cuda)
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
+            package-mage-offline-installer \
+            --memgraph-deb mage/memgraph.deb \
+            --mage-deb "$DEB_PACKAGE" \
+            --output "$OFFLINE_RUN" \
+            "${PACKAGE_ARGS[@]}"
+          echo "OFFLINE_INSTALLER=${OFFLINE_RUN}" >> $GITHUB_ENV
+
+      - name: Smoke test offline installer
+        # Runs the built .run inside a fresh ubuntu:24.04 container with no
+        # network access, then verifies memgraph reaches Bolt readiness using
+        # tools/ci/wait_for_memgraph_bolt.sh (mgconsole is part of the
+        # memgraph .deb that the installer lays down, so it's on $PATH after
+        # the installer finishes). Skipped only for the cugraph variant —
+        # cugraph needs an Nvidia GPU at startup, which CI runners don't
+        # have. CUDA-built memgraph starts fine without a GPU.
+        if: ${{ inputs.run_smoke_tests && env.OFFLINE_INSTALLER != '' && !inputs.cugraph }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --network none \
+            -v "$PWD/${OFFLINE_INSTALLER}:/installer.run:ro" \
+            -v "$PWD/tools/ci/wait_for_memgraph_bolt.sh:/wait_for_memgraph_bolt.sh:ro" \
+            ubuntu:24.04 \
+            bash -euxo pipefail -c '
+              /installer.run
+              su - memgraph -c "/usr/lib/memgraph/memgraph --also-log-to-stderr" \
+                > /tmp/memgraph.log 2>&1 &
+              MG_PID=$!
+              trap "kill $MG_PID 2>/dev/null || true; wait $MG_PID 2>/dev/null || true" EXIT
+              bash /wait_for_memgraph_bolt.sh 127.0.0.1 7687 60 1
+            '
+
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
         run: |
@@ -488,14 +551,21 @@ jobs:
             --network $MEMGRAPH_NETWORK \
             --name $MAGE_CONTAINER \
             -p $MEMGRAPH_PORT:$MEMGRAPH_PORT \
+            -p 7444:7444 \
+            -p 9091:9091 \
             -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
             -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
             -e OPENAI_API_KEY=$OPENAI_API_KEY \
             ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG \
-            --telemetry-enabled=False
+            --telemetry-enabled=False \
+            --log-level=INFO
 
       - name: Run end-to-end tests
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
+        env:
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -503,6 +573,10 @@ jobs:
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             --cugraph $CUGRAPH \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e
 
       - name: Wait for e2e Docker images to be available
@@ -514,12 +588,19 @@ jobs:
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         env:
           PYTHONPATH: "$PWD/tests/e2e"
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e-correctness \
             --memgraph-port $MEMGRAPH_PORT \
             --neo4j-port $NEO4J_PORT \
@@ -531,12 +612,19 @@ jobs:
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         env:
           PYTHONPATH: "$PWD/e2e"
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e-migration \
             --mage-container $MAGE_CONTAINER \
             --mysql-container $MYSQL_CONTAINER \

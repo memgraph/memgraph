@@ -1119,10 +1119,9 @@ enum mgp_error mgp_graph_is_mutable(struct mgp_graph *graph, int *result);
 /// Current implementation always returns without errors.
 enum mgp_error mgp_graph_is_transactional(struct mgp_graph *graph, int *result);
 
-/// Get the transaction ID associated with the current graph access.
-/// The result is set to the transaction ID associated with the active transaction.
-/// Current implementation always returns without errors.
-enum mgp_error mgp_graph_get_transaction_id(struct mgp_graph *graph, int64_t *result);
+/// Stable per-query id; preserved across `USING PERIODIC COMMIT`.
+/// Use as a cache key in batched procedures.
+enum mgp_error mgp_graph_get_start_timestamp(struct mgp_graph *graph, int64_t *result);
 
 /// Add a new vertex to the graph.
 /// Resulting vertex must be freed using mgp_vertex_destroy.

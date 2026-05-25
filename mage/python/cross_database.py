@@ -53,19 +53,8 @@ class Constants:
 # ---------------------------------------------------------------------------
 
 
-def _get_cache_key(tx_id: int, query: str, config: mgp.Map, params: mgp.Nullable[mgp.Any] = None) -> str:
-    """
-    Create a cache key from the transaction ID, query, config, and params.
-
-    The transaction ID isolates concurrent transactions so they don't interfere
-    with each other's connections or cursors. The query/config/params hash
-    distinguishes multiple cross-database calls within the same transaction.
-
-    :param tx_id: Memgraph transaction ID (unique per transaction)
-    :param query: The query string (or table name, endpoint, file path, etc.)
-    :param config: Configuration map
-    :param params: Optional query parameters
-    """
+def _get_cache_key(start_ts: int, query: str, config: mgp.Map, params: mgp.Nullable[mgp.Any] = None) -> str:
+    """Cache key from per-query start_timestamp (stable across PERIODIC COMMIT) + query/config/params hash."""
     config_dict = dict(config)
     config_str = json.dumps(config_dict, sort_keys=True, default=str)
 
@@ -78,7 +67,7 @@ def _get_cache_key(tx_id: int, query: str, config: mgp.Map, params: mgp.Nullable
         else:
             params_str = str(params)
 
-    hash_input = f"{tx_id}|{query}|{config_str}|{params_str}"
+    hash_input = f"{start_ts}|{query}|{config_str}|{params_str}"
     return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
 
 
@@ -251,7 +240,7 @@ def _build_uri(config: mgp.Map) -> str:
 
 def _bolt_init_state(
     state_dict: dict,
-    tx_id: int,
+    start_ts: int,
     label_or_rel_or_query: str,
     config: mgp.Map,
     config_path: str,
@@ -263,7 +252,7 @@ def _bolt_init_state(
         config = _combine_config(config=config, config_path=config_path)
 
     query = _formulate_cypher_query(label_or_rel_or_query)
-    cache_key = _get_cache_key(tx_id, query, config, params)
+    cache_key = _get_cache_key(start_ts, query, config, params)
 
     if cache_key in state_dict:
         raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
@@ -292,7 +281,7 @@ def _bolt_init_state(
 
 def _bolt_fetch_batch(
     state_dict: dict,
-    tx_id: int,
+    start_ts: int,
     label_or_rel_or_query: str,
     config: mgp.Map,
     config_path: str,
@@ -302,7 +291,7 @@ def _bolt_fetch_batch(
         config = _combine_config(config=config, config_path=config_path)
 
     query = _formulate_cypher_query(label_or_rel_or_query)
-    cache_key = _get_cache_key(tx_id, query, config, params)
+    cache_key = _get_cache_key(start_ts, query, config, params)
     result = state_dict[cache_key][Constants.RESULT]
 
     batch = []
@@ -342,7 +331,7 @@ def _init_bolt(
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
-    _bolt_init_state(_bolt_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
+    _bolt_init_state(_bolt_state, ctx.graph.start_timestamp, label_or_rel_or_query, config, config_path, params)
 
 
 def bolt(
@@ -361,7 +350,7 @@ def bolt(
     :param params: Optional query parameters
     :return: Stream of rows from the remote database
     """
-    return _bolt_fetch_batch(_bolt_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
+    return _bolt_fetch_batch(_bolt_state, ctx.graph.start_timestamp, label_or_rel_or_query, config, config_path, params)
 
 
 def _cleanup_bolt():
@@ -388,7 +377,7 @@ def _init_neo4j(
 ):
     _bolt_init_state(
         _neo4j_state,
-        ctx.graph.transaction_id,
+        ctx.graph.start_timestamp,
         label_or_rel_or_query,
         config,
         config_path,
@@ -414,7 +403,9 @@ def neo4j(
     :param params: Optional query parameters
     :return: Stream of rows from Neo4j
     """
-    return _bolt_fetch_batch(_neo4j_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
+    return _bolt_fetch_batch(
+        _neo4j_state, ctx.graph.start_timestamp, label_or_rel_or_query, config, config_path, params
+    )
 
 
 def _cleanup_neo4j():
@@ -449,7 +440,7 @@ def init_migrate_mysql(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, table_or_sql, config, params)
 
     if cache_key in mysql_dict:
         raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
@@ -496,7 +487,7 @@ def mysql(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, table_or_sql, config, params)
     cursor = mysql_dict[cache_key][Constants.CURSOR]
     column_names = mysql_dict[cache_key][Constants.COLUMN_NAMES]
 
@@ -557,7 +548,7 @@ def init_migrate_sql_server(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, table_or_sql, config, params)
 
     if cache_key in sql_server_dict:
         raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
@@ -608,7 +599,7 @@ def sql_server(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, table_or_sql, config, params)
     cursor = sql_server_dict[cache_key][Constants.CURSOR]
     column_names = sql_server_dict[cache_key][Constants.COLUMN_NAMES]
     rows = cursor.fetchmany(Constants.BATCH_SIZE)
@@ -671,7 +662,7 @@ def init_migrate_oracle_db(
 
     config["disable_oob"] = True
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, table_or_sql, config, params)
 
     if cache_key in oracle_db_dict:
         raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
@@ -729,7 +720,7 @@ def oracle_db(
         config = {}
     config["disable_oob"] = True
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, table_or_sql, config, params)
     cursor = oracle_db_dict[cache_key][Constants.CURSOR]
     column_names = oracle_db_dict[cache_key][Constants.COLUMN_NAMES]
     rows = cursor.fetchmany(Constants.BATCH_SIZE)
@@ -789,7 +780,7 @@ def init_migrate_postgresql(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, table_or_sql, config, params)
 
     if cache_key in postgres_dict:
         raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
@@ -838,7 +829,7 @@ def postgresql(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, table_or_sql, config, params)
     cursor = postgres_dict[cache_key][Constants.CURSOR]
     column_names = postgres_dict[cache_key][Constants.COLUMN_NAMES]
 
@@ -906,7 +897,7 @@ def init_migrate_s3(
     bucket_name, *key_parts = file_path_no_protocol.split("/")
     s3_key = "/".join(key_parts)
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, file_path, config)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, file_path, config)
 
     if cache_key in s3_dict:
         raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
@@ -950,7 +941,7 @@ def s3(
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, file_path, config)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, file_path, config)
     csv_reader = s3_dict[cache_key][Constants.CURSOR]
     column_names = s3_dict[cache_key][Constants.COLUMN_NAMES]
 
@@ -1001,7 +992,7 @@ def init_migrate_arrow_flight(
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, query, config)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, query, config)
 
     if cache_key in flight_dict:
         raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
@@ -1056,7 +1047,7 @@ def arrow_flight(
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, query, config)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, query, config)
     cursor = flight_dict[cache_key][Constants.CURSOR]
     batch = []
     for _ in range(Constants.BATCH_SIZE):
@@ -1104,7 +1095,7 @@ def init_migrate_duckdb(ctx: mgp.ProcCtx, query: str, setup_queries: mgp.Nullabl
     global duckdb_dict
 
     setup_queries_str = json.dumps(setup_queries, sort_keys=False) if setup_queries else ""
-    cache_key = _get_cache_key(ctx.graph.transaction_id, query, {}, setup_queries_str)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, query, {}, setup_queries_str)
 
     if cache_key in duckdb_dict:
         raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
@@ -1134,7 +1125,7 @@ def duckdb(ctx: mgp.ProcCtx, query: str, setup_queries: mgp.Nullable[List[str]] 
     global duckdb_dict
 
     setup_queries_str = json.dumps(setup_queries, sort_keys=False) if setup_queries else ""
-    cache_key = _get_cache_key(ctx.graph.transaction_id, query, {}, setup_queries_str)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, query, {}, setup_queries_str)
     cursor = duckdb_dict[cache_key][Constants.CURSOR]
     column_names = duckdb_dict[cache_key][Constants.COLUMN_NAMES]
 
@@ -1191,7 +1182,7 @@ def init_migrate_servicenow(
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, endpoint, config, params)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, endpoint, config, params)
 
     if cache_key in servicenow_dict:
         raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
@@ -1231,7 +1222,7 @@ def servicenow(
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
-    cache_key = _get_cache_key(ctx.graph.transaction_id, endpoint, config, params)
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, endpoint, config, params)
     data_iter = servicenow_dict[cache_key][Constants.CURSOR]
 
     batch_rows = []

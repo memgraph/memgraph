@@ -223,7 +223,7 @@ prometheus:
     port: 9115
     pullFrequencySeconds: 5
     repository: docker.io/memgraph/prometheus-exporter
-    tag: 0.2.1
+    tag: 0.2.3
     extraVolumes: []
     extraVolumeMounts: []
     # extraVolumes:

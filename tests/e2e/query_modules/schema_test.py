@@ -1036,5 +1036,126 @@ def test_rel_type_properties_db_schema_mapping():
     assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
 
 
+def test_node_type_properties_observations_counts():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (:Dog {name: 'Rex', owner: 'Carl'})
+        CREATE (:Dog {name: 'Simba'})
+        CREATE (:Dog {name: 'Buddy'})
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() "
+        "YIELD nodeType, propertyName, mandatory, propertyObservations, totalObservations "
+        "RETURN nodeType, propertyName, mandatory, propertyObservations, totalObservations "
+        "ORDER BY propertyName;",
+    )
+    counts = {list(r)[1]: (list(r)[2], list(r)[3], list(r)[4]) for r in result}
+    assert counts["name"] == (True, 3, 3)
+    assert counts["owner"] == (False, 1, 3)
+
+
+def test_rel_type_properties_source_and_target_labels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (:Dog {name: 'Rex'})-[:LOVES {duration: 30}]->(:Activity {name: 'Running'})
+        CREATE (:Cat {name: 'Whiskers'})-[:LOVES {duration: 10}]->(:Activity {name: 'Sleeping'})
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties() "
+        "YIELD relType, sourceNodeLabels, targetNodeLabels, propertyName, propertyTypes, mandatory, "
+        "propertyObservations, totalObservations "
+        "RETURN relType, sourceNodeLabels, targetNodeLabels, propertyName, propertyTypes, mandatory, "
+        "propertyObservations, totalObservations "
+        "ORDER BY sourceNodeLabels[0];",
+    )
+    assert len(result) == 2
+    assert list(result[0]) == [":`LOVES`", ["Cat"], ["Activity"], "duration", ["Int"], True, 1, 1]
+    assert list(result[1]) == [":`LOVES`", ["Dog"], ["Activity"], "duration", ["Int"], True, 1, 1]
+
+
+def test_rel_type_properties_partitions_by_endpoint_labels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (:Dog)-[:LOVES {duration: 30}]->(:Activity)
+        CREATE (:Dog)-[:LOVES]->(:Activity)
+        CREATE (:Cat)-[:LOVES {weather: 'sunny'}]->(:Place)
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties() "
+        "YIELD relType, sourceNodeLabels, targetNodeLabels, propertyName, mandatory, "
+        "propertyObservations, totalObservations "
+        "RETURN relType, sourceNodeLabels, targetNodeLabels, propertyName, mandatory, "
+        "propertyObservations, totalObservations "
+        "ORDER BY sourceNodeLabels[0], propertyName;",
+    )
+    # Dog -> Activity: 2 rels, duration property only on 1 -> not mandatory
+    # Cat -> Place: 1 rel with weather -> mandatory
+    rows = {(list(r)[1][0], list(r)[2][0], list(r)[3]): (list(r)[4], list(r)[5], list(r)[6]) for r in result}
+    assert rows[("Cat", "Place", "weather")] == (True, 1, 1)
+    assert rows[("Dog", "Activity", "duration")] == (False, 1, 2)
+
+
+def test_rel_type_properties_unlabeled_endpoints():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE ()-[:KNOWS]->()")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties() "
+        "YIELD relType, sourceNodeLabels, targetNodeLabels, propertyName, "
+        "propertyObservations, totalObservations "
+        "RETURN relType, sourceNodeLabels, targetNodeLabels, propertyName, "
+        "propertyObservations, totalObservations;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`KNOWS`", [], [], "", 0, 1]
+
+
+def test_rel_type_properties_multi_label_endpoints():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE (:Dog:Pet {name: 'Rex'})-[:OWNS]->(:Toy:Object {name: 'Ball'})")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties() "
+        "YIELD relType, sourceNodeLabels, targetNodeLabels "
+        "RETURN relType, sourceNodeLabels, targetNodeLabels;",
+    )
+    assert len(result) == 1
+    rel_type, source_labels, target_labels = result[0]
+    assert (rel_type, sorted(source_labels), sorted(target_labels)) == (":`OWNS`", ["Dog", "Pet"], ["Object", "Toy"])
+
+
+def test_node_type_properties_empty_properties_row():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (:Empty)
+        CREATE (:Empty)
+        CREATE (:Empty)
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() "
+        "YIELD nodeType, propertyName, propertyObservations, totalObservations "
+        "WHERE nodeType = ':`Empty`' "
+        "RETURN nodeType, propertyName, propertyObservations, totalObservations;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`Empty`", "", 0, 3]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

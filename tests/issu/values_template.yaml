@@ -2,7 +2,7 @@ image:
   repository: docker.io/memgraph/memgraph
   # It is a bad practice to set the image tag name to 'latest' as it can trigger automatic upgrade of the charts
   # With some of the pullPolicy values. Please consider fixing the tag to a specific Memgraph version
-  tag: {{VERSION_TAG}}
+  tag: "{{VERSION_TAG}}"
   pullPolicy: IfNotPresent
 
 storage:
@@ -224,7 +224,7 @@ prometheus:
     port: 9115
     pullFrequencySeconds: 5
     repository: docker.io/memgraph/prometheus-exporter
-    tag: 0.2.1
+    tag: 0.2.3
     extraVolumes: []
     extraVolumeMounts: []
     # extraVolumes:
@@ -376,6 +376,8 @@ data:
     args: # Args specific to this instance
       - "--storage-snapshot-on-exit=false"
       - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
   - id: "1"
     restoreDataFromSnapshot: false
     volumeSnapshotName: data-1-snap
@@ -384,6 +386,8 @@ data:
     args:
       - "--storage-snapshot-on-exit=false"
       - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
 
 coordinators:
   - id: "1"
@@ -393,6 +397,8 @@ coordinators:
     externalAccessAnnotations: {}
     args:
       - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
 
   - id: "2"
     restoreDataFromSnapshot: false
@@ -401,6 +407,8 @@ coordinators:
     externalAccessAnnotations: {}
     args:
       - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
 
   - id: "3"
     restoreDataFromSnapshot: false
@@ -409,6 +417,8 @@ coordinators:
     externalAccessAnnotations: {}
     args:
       - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
 
 userContainers:
   data: []

@@ -429,7 +429,7 @@ class DbAccessor final {
 
   auto &GetTransactionMemoryTracker() { return accessor_->GetTransactionMemoryTracker(); }
 
-  auto GetTransactionId() { return accessor_->GetTransactionId(); }
+  auto GetStartTimestamp() { return accessor_->GetStartTimestamp(); }
 
   bool TransactionHasSerializationError() const { return accessor_->TransactionHasSerializationError(); }
 

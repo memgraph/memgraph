@@ -31,6 +31,10 @@ namespace memgraph::memory {
 class ArenaPool;
 }  // namespace memgraph::memory
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 namespace memgraph::query {
 
 class FineGrainedAuthChecker;
@@ -136,6 +140,7 @@ struct ExecutionContext {
   // acquire from it when work leaves the main query thread, so TLS-scoped
   // allocations still attribute to the parent DB.
   memgraph::memory::ArenaPool *db_arena_pool{nullptr};
+  metrics::DatabaseMetricHandles *metric_handles{nullptr};
 
   auto commit_args() -> storage::CommitArgs;
 };

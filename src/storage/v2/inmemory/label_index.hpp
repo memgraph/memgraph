@@ -14,6 +14,8 @@
 #include <span>
 
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -42,13 +44,16 @@ class InMemoryLabelIndex : public LabelIndex {
   };
 
  public:
+  explicit InMemoryLabelIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
   struct IndividualIndex {
     explicit IndividualIndex() : skiplist{} {}
 
-    ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    ~IndividualIndex() = default;
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
     utils::SkipListDb<Entry> skiplist;
     IndexStatus status{};
+    metrics::ScopedGauge gauge_{};
   };
 
   struct AllIndicesEntry {
@@ -211,8 +216,6 @@ class InMemoryLabelIndex : public LabelIndex {
     std::shared_ptr<IndexContainer const> index_container_;
   };
 
-  InMemoryLabelIndex() = default;
-
   auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;
 
   auto RegisterIndex(LabelId, ActiveIndicesUpdater const &updater) -> bool;
@@ -244,6 +247,8 @@ class InMemoryLabelIndex : public LabelIndex {
   // is taken. Shared by RegisterIndex (true) and RestoreIndex (false).
   bool InstallIndividualIndex_(LabelId label, std::shared_ptr<IndividualIndex> entry,
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
+
+  metrics::GaugeHandle gauge_{};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

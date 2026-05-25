@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <variant>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
@@ -38,6 +39,7 @@
 #include "flags/general.hpp"
 #include "flags/logging.hpp"
 #include "glue/MonitoringServerT.hpp"
+#include "glue/PrometheusServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
@@ -45,6 +47,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -63,8 +66,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
-#include "utils/concurrency_hint.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/readable_size.hpp"
@@ -80,10 +81,6 @@
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
-
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-}  // namespace memgraph::metrics
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -107,8 +104,10 @@ void WarnDeprecatedFlags() {
 /// argv[1..argc-1] entries are unexpected — typically caused by writing `--bool-flag false`
 /// (space-separated) instead of `--bool-flag=false`. gflags bool flags don't consume the
 /// next argument; `--flag false` silently sets the flag to true and orphans "false".
-void CheckSuspiciousPositionalArgs(int argc, char **argv) {
-  if (argc <= 1) return;
+///
+/// @return true if startup should continue, false if `--strict-flag-check` requires aborting.
+[[nodiscard]] bool CheckSuspiciousPositionalArgs(int argc, char **argv) {
+  if (argc <= 1) return true;
 
   auto is_bool_like = [](std::string_view arg) {
     using namespace std::string_view_literals;
@@ -140,7 +139,7 @@ void CheckSuspiciousPositionalArgs(int argc, char **argv) {
     spdlog::log(
         level, "Unexpected positional argument(s): {}. Memgraph does not accept positional arguments.", all_args);
   }
-  if (FLAGS_strict_flag_check) std::exit(EXIT_FAILURE);
+  return !FLAGS_strict_flag_check;
 }
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
@@ -267,7 +266,7 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  CheckSuspiciousPositionalArgs(argc, argv);
+  if (!CheckSuspiciousPositionalArgs(argc, argv)) return EXIT_FAILURE;
   WarnDeprecatedFlags();
 
   // Publish worker count early so allocators can pre-size thread-local structures
@@ -288,6 +287,10 @@ int main(int argc, char **argv) {
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
   // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
+
+  // Fail fast if --cluster-{cert,key,ca}-file are partially configured.
+  // Must run after logger init so the fatal message is delivered.
+  memgraph::flags::ValidateIntraClusterTLSFlags();
 
   // Block SIGTERM/SIGINT as early as possible so that every thread we spawn
   // inherits the blocked mask.  The main thread will consume them
@@ -376,14 +379,14 @@ int main(int argc, char **argv) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
       mem_log_scheduler.SetInterval(std::chrono::seconds(3));
-      mem_log_scheduler.Run("Memory check", [] {
+      mem_log_scheduler.Run("Memory check", [peak_gauge = memgraph::metrics::Metrics().global.peak_memory_res_bytes] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn(memgraph::utils::MessageWithLink(
               "Running out of available RAM, only {} MB left.", *free_ram / 1024, "https://memgr.ph/ram"));
 
         auto memory_res = memgraph::utils::GetMemoryRES();
-        memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
+        peak_gauge->Set(std::max(static_cast<double>(memory_res), peak_gauge->Value()));
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -703,10 +706,18 @@ int main(int argc, char **argv) {
           "started only with management port.");
     }
 
+    auto maybe_ssl = memgraph::flags::TlsConfigFromClusterFlags();
+    if (!maybe_ssl.has_value()) {
+      spdlog::warn(memgraph::utils::MessageWithLink(
+          "Running HA without intra-cluster TLS. Replication, coordinator, and management traffic is unencrypted.",
+          "https://memgr.ph/cluster-tls"));
+    }
+
     if (is_coordinator_instance) {
       constexpr auto kRaftDataDir = "/high_availability/raft_data";
       auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
+
       coordinator_state = std::make_shared<CoordinatorState>(
           CoordinatorInstanceInitConfig{.coordinator_id = coordination_setup.coordinator_id,
                                         .coordinator_port = coordination_setup.coordinator_port,
@@ -714,10 +725,11 @@ int main(int argc, char **argv) {
                                         .management_port = coordination_setup.management_port,
                                         .durability_dir = high_availability_data_dir,
                                         .coordinator_hostname = coordination_setup.coordinator_hostname,
-                                        .nuraft_log_file = coordination_setup.nuraft_log_file});
+                                        .nuraft_log_file = coordination_setup.nuraft_log_file,
+                                        .tls_config = std::move(maybe_ssl)});
     } else {
-      coordinator_state = std::make_shared<CoordinatorState>(
-          ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
+      coordinator_state = std::make_shared<CoordinatorState>(ReplicationInstanceInitConfig{
+          .management_port = coordination_setup.management_port, .tls_config = std::move(maybe_ssl)});
     }
   };
 
@@ -735,6 +747,20 @@ int main(int argc, char **argv) {
   if (!is_coordinator_instance) {
     dbms_handler.emplace(db_config);
   }
+
+  memgraph::metrics::Metrics().SetStorageSnapshotResolver(
+      [&dbms_handler](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        if (!dbms_handler) return std::nullopt;
+        return dbms_handler->TryGetStorageSnapshotForMetrics(uuid);
+      });
+
+#ifdef MG_ENTERPRISE
+  memgraph::metrics::Metrics().SetInstanceStatusResolver(
+      [&coordinator_state]() -> std::vector<memgraph::coordination::InstanceStatus> {
+        if (!coordinator_state || !coordinator_state->IsCoordinator()) return {};
+        return coordinator_state->ShowInstances();
+      });
+#endif
 
   // singleton replication state
   // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
@@ -957,11 +983,19 @@ int main(int argc, char **argv) {
     spdlog::error("Skipping adding logger sync for websocket.");
   }
 
-// TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
-  memgraph::glue::MonitoringServerT metrics_server{{FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)},
-                                                   db_acc.has_value() ? db_acc->get()->storage() : nullptr,
-                                                   &bolt_server_context};
+  auto const metrics_endpoint =
+      memgraph::io::network::Endpoint{FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)};
+  using MetricsServerVariant = std::variant<memgraph::glue::PrometheusServerT, memgraph::glue::MonitoringServerT>;
+  MetricsServerVariant metrics_server =
+      FLAGS_metrics_format == "JSON" ? MetricsServerVariant{std::in_place_type<memgraph::glue::MonitoringServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context}
+                                     : MetricsServerVariant{std::in_place_type<memgraph::glue::PrometheusServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context};
   spdlog::trace("Metrics server created.");
 #endif
 
@@ -1024,7 +1058,7 @@ int main(int argc, char **argv) {
     spdlog::trace("Shutting down websocket server");
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
-    metrics_server.Shutdown();
+    std::visit([](auto &s) { s.Shutdown(); }, metrics_server);
     if (coordinator_state && coordinator_state->IsCoordinator()) {
       // Coordinator instance destruction will handle the complete shutdown
       coordinator_state.reset();
@@ -1042,8 +1076,17 @@ int main(int argc, char **argv) {
   spdlog::trace("Web socket server started.");
 
 #ifdef MG_ENTERPRISE
-  metrics_server.Start();
-  spdlog::trace("Metrics server started");
+  std::visit(
+      [](auto &s) {
+        s.Start();
+        if (s.IsRunning()) {
+          spdlog::trace("Metrics server started");
+        } else {
+          spdlog::warn("Metrics server failed to start on port {}. The port may already be in use.",
+                       FLAGS_metrics_port);
+        }
+      },
+      metrics_server);
 #endif
 
   if (!FLAGS_init_data_file.empty() && dbms_handler.has_value()) {
@@ -1073,7 +1116,7 @@ int main(int argc, char **argv) {
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
-  metrics_server.AwaitShutdown();
+  std::visit([](auto &s) { s.AwaitShutdown(); }, metrics_server);
 #endif
 
   if (!is_coordinator_instance) {

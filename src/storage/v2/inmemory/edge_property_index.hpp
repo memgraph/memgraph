@@ -16,6 +16,8 @@
 #include <utility>
 
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -57,14 +59,17 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   };
 
  public:
+  explicit InMemoryEdgePropertyIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
   struct IndividualIndex {
     explicit IndividualIndex() : skip_list_{} {}
 
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
 
     utils::SkipListDb<Entry> skip_list_;
     IndexStatus status_{};
+    metrics::ScopedGauge gauge_{};
   };
 
   struct IndicesContainer {
@@ -280,6 +285,8 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   bool InstallIndividualIndex_(PropertyId property, std::shared_ptr<IndividualIndex> entry,
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
   void CleanupAllIndicies();
+
+  metrics::GaugeHandle gauge_{};
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer const>()};

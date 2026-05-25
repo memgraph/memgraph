@@ -153,7 +153,6 @@ antlrcpp::Any CypherMainVisitor::visitProfileQuery(MemgraphCypher::ProfileQueryC
 }
 
 antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::DatabaseInfoQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 2, "DatabaseInfoQuery should have exactly two children!");
   auto *info_query = storage_->Create<DatabaseInfoQuery>();
   query_ = info_query;
   if (ctx->indexInfo()) {

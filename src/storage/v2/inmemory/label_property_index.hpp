@@ -14,6 +14,8 @@
 #include <span>
 
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
@@ -60,6 +62,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   using Entry = BasicEntry<false>;
   using DescEntry = BasicEntry<true>;
 
+  explicit InMemoryLabelPropertyIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
   template <typename EntryT = Entry>
   struct IndividualIndex {
     using EntryType = EntryT;
@@ -67,12 +71,13 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     explicit IndividualIndex(PropertiesPermutationHelper permutations_helper)
         : permutations_helper(std::move(permutations_helper)), skiplist{} {}
 
-    ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    ~IndividualIndex() = default;
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
 
     PropertiesPermutationHelper const permutations_helper;
     utils::SkipListDb<EntryT> skiplist{};
     IndexStatus status{};
+    metrics::ScopedGauge gauge_{};
   };
 
   struct Compare {
@@ -423,8 +428,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     std::shared_ptr<IndexContainer const> index_container_;
   };
 
-  InMemoryLabelPropertyIndex() = default;
-
   auto GetActiveIndices() const -> std::shared_ptr<LabelPropertyIndex::ActiveIndices> override;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
@@ -472,6 +475,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   template <typename EntryT>
   auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
       -> std::shared_ptr<IndividualIndex<EntryT>>;
+
+  metrics::GaugeHandle gauge_{};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};
