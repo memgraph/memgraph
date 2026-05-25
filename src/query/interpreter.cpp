@@ -4706,8 +4706,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         auto prop_id = storage->NameToProperty(prop_name);
         auto maybe_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
             .index_name = index_name,
-            .label_filter = storage::VectorLabelFilter{.mode = static_cast<storage::VectorMatchMode>(label_mode),
-                                                       .ids = std::move(label_ids)},
+            .label_filter = storage::VectorLabelFilter{.mode = label_mode, .ids = std::move(label_ids)},
             .property = prop_id,
             .metric_kind = vector_index_config.metric,
             .dimension = vector_index_config.dimension,
@@ -4818,8 +4817,7 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
     auto prop_id = storage->NameToProperty(prop_name);
     auto maybe_error = dba->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
         .index_name = index_name,
-        .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = static_cast<storage::VectorMatchMode>(edge_type_mode),
-                                                          .ids = std::move(edge_type_ids)},
+        .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = edge_type_mode, .ids = std::move(edge_type_ids)},
         .property = prop_id,
         .metric_kind = vector_index_config.metric,
         .dimension = vector_index_config.dimension,

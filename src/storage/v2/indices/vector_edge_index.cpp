@@ -308,7 +308,18 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
       if (!filter->Matches(edge_type)) continue;
       RemoveEdgeFromIndex(edge, idx_id);
     }
+    EraseEndpointsIfUnreferenced(edge);
   }
+}
+
+void VectorEdgeIndex::EraseEndpointsIfUnreferenced(Edge *edge) {
+  const auto still_indexed = std::ranges::any_of(*index_, [&](const auto &kv) {
+    auto guard = utils::SharedResourceLockGuard(kv.second->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+    return kv.second->mg_index.index.contains(edge);
+  });
+  if (still_indexed) return;
+  auto lock = std::unique_lock{edge_endpoints_mutex_};
+  edge_endpoints_.erase(edge);
 }
 
 void VectorEdgeIndex::RemoveEdgeFromIndex(Edge *edge, uint64_t index_id) {
@@ -415,6 +426,7 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
           if (!filter->Matches(info.edge_type)) continue;
           RemoveEdgeFromIndex(edge, idx_id);
         }
+        EraseEndpointsIfUnreferenced(edge);
       }
     }
   }

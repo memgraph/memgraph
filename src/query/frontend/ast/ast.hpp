@@ -36,7 +36,7 @@
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/description_store.hpp"
 #include "storage/v2/indices/index_order.hpp"
-#include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/indices/vector_match_mode.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -2387,20 +2387,6 @@ class CreateTextEdgeIndexQuery : public memgraph::query::Query {
 
 using ConfigMap = std::unordered_map<Expression *, Expression *>;
 
-enum class VectorLabelMode : uint8_t {
-  SINGLE = 0,
-  WILDCARD = 1,
-  ANY_OF = 2,
-  ALL_OF = 3,
-};
-
-static_assert(
-    static_cast<uint8_t>(VectorLabelMode::SINGLE) == static_cast<uint8_t>(storage::VectorMatchMode::SINGLE) &&
-        static_cast<uint8_t>(VectorLabelMode::WILDCARD) == static_cast<uint8_t>(storage::VectorMatchMode::WILDCARD) &&
-        static_cast<uint8_t>(VectorLabelMode::ANY_OF) == static_cast<uint8_t>(storage::VectorMatchMode::ANY_OF) &&
-        static_cast<uint8_t>(VectorLabelMode::ALL_OF) == static_cast<uint8_t>(storage::VectorMatchMode::ALL_OF),
-    "query::VectorLabelMode and storage::VectorMatchMode must have identical values");
-
 class VectorIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -2415,7 +2401,7 @@ class VectorIndexQuery : public memgraph::query::Query {
 
   memgraph::query::VectorIndexQuery::Action action_;
   std::string index_name_;
-  memgraph::query::VectorLabelMode label_mode_{VectorLabelMode::SINGLE};
+  storage::VectorMatchMode label_mode_{storage::VectorMatchMode::SINGLE};
   std::vector<memgraph::query::LabelIx> labels_;
   memgraph::query::PropertyIx property_;
   std::variant<ConfigMap, Expression *> config_;
@@ -2445,8 +2431,8 @@ class VectorIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  VectorIndexQuery(Action action, std::string index_name, VectorLabelMode label_mode, std::vector<LabelIx> labels,
-                   PropertyIx property, std::variant<ConfigMap, Expression *> config)
+  VectorIndexQuery(Action action, std::string index_name, storage::VectorMatchMode label_mode,
+                   std::vector<LabelIx> labels, PropertyIx property, std::variant<ConfigMap, Expression *> config)
       : action_(action),
         index_name_(std::move(index_name)),
         label_mode_(label_mode),
@@ -2469,7 +2455,7 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   std::string index_name_;
-  memgraph::query::VectorLabelMode edge_type_mode_{VectorLabelMode::SINGLE};
+  storage::VectorMatchMode edge_type_mode_{storage::VectorMatchMode::SINGLE};
   std::vector<memgraph::query::EdgeTypeIx> edge_types_;
   memgraph::query::PropertyIx property_;
   std::variant<ConfigMap, Expression *> config_;
@@ -2498,8 +2484,9 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  CreateVectorEdgeIndexQuery(std::string index_name, VectorLabelMode edge_type_mode, std::vector<EdgeTypeIx> edge_types,
-                             PropertyIx property, std::variant<ConfigMap, Expression *> config)
+  CreateVectorEdgeIndexQuery(std::string index_name, storage::VectorMatchMode edge_type_mode,
+                             std::vector<EdgeTypeIx> edge_types, PropertyIx property,
+                             std::variant<ConfigMap, Expression *> config)
       : index_name_(std::move(index_name)),
         edge_type_mode_(edge_type_mode),
         edge_types_(std::move(edge_types)),

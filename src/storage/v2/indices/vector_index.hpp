@@ -22,6 +22,7 @@
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
+#include "storage/v2/indices/vector_match_mode.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
@@ -38,13 +39,6 @@ namespace rv = r::views;
 struct ActiveIndicesUpdater;
 struct Indices;
 class NameIdMapper;
-
-enum class VectorMatchMode : uint8_t {
-  SINGLE = 0,
-  WILDCARD = 1,
-  ANY_OF = 2,
-  ALL_OF = 3,
-};
 
 // Membership filter shared between node (LabelId) and edge (EdgeTypeId) vector indices.
 // SINGLE/ANY_OF/ALL_OF/WILDCARD semantics are id-type-agnostic; the only thing that varies

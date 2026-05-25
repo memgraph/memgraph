@@ -288,6 +288,8 @@ class VectorEdgeIndex {
   /// @brief Removes an edge from a vector index.
   void RemoveEdgeFromIndex(Edge *edge, uint64_t index_id);
 
+  void EraseEndpointsIfUnreferenced(Edge *edge);
+
   utils::MemoryTracker *memory_tracker_{nullptr};
   // Invariant: `index_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
   // InMemoryAccessor::CreateVectorEdgeIndex / DropVectorIndex and in DropGraphClearIndices). Reads
