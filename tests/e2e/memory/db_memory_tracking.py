@@ -90,10 +90,6 @@ def parse_size_bytes(size_str):
     return int(float(match.group(1)) * units[match.group(2)])
 
 
-def storage_metric_bytes(cursor, key):
-    return parse_size_bytes(get_storage_info(cursor)[key])
-
-
 def wait_until(predicate, timeout=15.0, interval=0.2, message="condition not met"):
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -165,6 +161,9 @@ def drop_all_triggers(cursor):
 
 
 def metric_triplet(cursor):
+    # Internal legacy key names (db_*) intentionally retained; they predate the
+    # SHOW STORAGE INFO split. The on-the-wire field names from SHOW STORAGE INFO
+    # ON CURRENT DATABASE are graph/query/vector_index_memory_tracked (+ tenant_*).
     info = get_storage_info(cursor)
     graph = parse_size_bytes(info["graph_memory_tracked"])
     vector = parse_size_bytes(info["vector_index_memory_tracked"])
@@ -306,6 +305,9 @@ def test_show_storage_info_contains_db_split_fields():
         "graph_memory_tracked",
         "vector_index_memory_tracked",
         "query_memory_tracked",
+        "tenant_memory_tracked",
+        "tenant_peak_memory_tracked",
+        "tenant_memory_limit",
     }
     assert required.issubset(set(info.keys())), f"Missing keys: {required - set(info.keys())}"
 
@@ -313,12 +315,17 @@ def test_show_storage_info_contains_db_split_fields():
 def test_db_total_equals_storage_plus_embedding_plus_query():
     conn = connect()
     cursor = conn.cursor()
-    info = metric_triplet(cursor)
+    info = get_storage_info(cursor)
     conn.close()
 
+    graph = parse_size_bytes(info["graph_memory_tracked"])
+    vector = parse_size_bytes(info["vector_index_memory_tracked"])
+    query = parse_size_bytes(info["query_memory_tracked"])
+    tenant_total = parse_size_bytes(info["tenant_memory_tracked"])
+
     assert_metrics_close(
-        info["db_memory_tracked"],
-        info["db_storage_memory_tracked"] + info["db_embedding_memory_tracked"] + info["db_query_memory_tracked"],
+        tenant_total,
+        graph + vector + query,
         64 * 1024,
         "db total should match storage+embedding+query within readable-size rounding tolerance",
     )

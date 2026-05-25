@@ -117,7 +117,7 @@ def main():
         coordinators=COORDINATORS,
         show_replicas=True,
         verify_up=False,
-        storage_info=["memory_res", "runtime_allocation_limit"],
+        storage_info=["memory_res", "memory_limit"],
         interval=10,
     )
 

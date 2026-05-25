@@ -32,19 +32,6 @@ default_storage_info_dict = {
 }
 
 
-def apply_queries_and_check_for_storage_info(cursor, setup_query_list, expected_values):
-    for query in setup_query_list:
-        cursor.execute(query)
-
-    cursor.execute("SHOW STORAGE INFO")
-    config = cursor.fetchall()
-
-    for conf in config:
-        conf_name = conf[0]
-        if conf_name in expected_values:
-            assert expected_values[conf_name] == conf[1]
-
-
 def test_does_default_config_match():
     connection = mgclient.connect(host="localhost", port=7687)
     connection.autocommit = True
@@ -81,39 +68,46 @@ def test_info_change():
 
     cursor = connection.cursor()
 
-    # Check for vertex and edge changes
+    # Check for vertex and edge changes (DB-specific fields)
     setup_query_list = [
         "CREATE(n{id: 1}),(m{id: 2})",
         "MATCH(n),(m) WHERE n.id = 1 AND m.id = 2 CREATE (n)-[r:relation]->(m)",
     ]
-    expected_values = {
-        "vertex_count": 2,
-        "edge_count": 1,
-    }
+    for query in setup_query_list:
+        cursor.execute(query)
 
-    apply_queries_and_check_for_storage_info(cursor, setup_query_list, expected_values)
+    cursor.execute("SHOW STORAGE INFO ON CURRENT DATABASE")
+    config = cursor.fetchall()
+    db_values = {row[0]: row[1] for row in config}
+    assert db_values.get("vertex_count") == 2
+    assert db_values.get("edge_count") == 1
 
-    # Check for isolation level changes
-    setup_query_list = [
+    # Check for isolation level changes (DB-scoped mutations)
+    for query in [
         "SET GLOBAL TRANSACTION ISOLATION LEVEL READ UNCOMMITTED",
         "SET NEXT TRANSACTION ISOLATION LEVEL READ COMMITTED",
         "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED",
-    ]
+    ]:
+        cursor.execute(query)
 
-    expected_values = {
-        "storage_isolation_level": "READ_UNCOMMITTED",
-        "session_isolation_level": "READ_COMMITTED",
-        "next_session_isolation_level": "READ_COMMITTED",
-    }
+    cursor.execute("SHOW STORAGE INFO ON CURRENT DATABASE")
+    config = cursor.fetchall()
+    db_values = {row[0]: row[1] for row in config}
+    assert db_values.get("storage_isolation_level") == "READ_UNCOMMITTED"
 
-    apply_queries_and_check_for_storage_info(cursor, setup_query_list, expected_values)
+    # session and next_session isolation levels are returned by the bare query only,
+    # so fetch them separately.
+    cursor.execute("SHOW STORAGE INFO")
+    global_values = {row[0]: row[1] for row in cursor.fetchall()}
+    assert global_values.get("session_isolation_level") == "READ_COMMITTED"
+    assert global_values.get("next_session_isolation_level") == "READ_COMMITTED"
 
-    # Check for storage mode change
-    setup_query_list = ["STORAGE MODE IN_MEMORY_ANALYTICAL"]
-
-    expected_values = {"storage_mode": "IN_MEMORY_ANALYTICAL"}
-
-    apply_queries_and_check_for_storage_info(cursor, setup_query_list, expected_values)
+    # Check for storage mode change (DB-scoped mutation)
+    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL")
+    cursor.execute("SHOW STORAGE INFO ON CURRENT DATABASE")
+    config = cursor.fetchall()
+    db_values = {row[0]: row[1] for row in config}
+    assert db_values.get("storage_mode") == "IN_MEMORY_ANALYTICAL"
 
 
 def test_show_storage_info_on_database():

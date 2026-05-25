@@ -99,8 +99,9 @@ def setup_index_and_data(cursor):
 
 def test_db_storage_and_embedding_sum_to_db_total():
     """
-    graph_memory_tracked + vector_index_memory_tracked must approximately
-    equal db_memory_tracked (the per-DB total tracker, computed as sum of components).
+    graph_memory_tracked + vector_index_memory_tracked + query_memory_tracked must
+    approximately equal tenant_memory_tracked (the per-DB total tracker, computed
+    as sum of components).
 
     Also checks that the RSS–tracked gap observed at startup does not grow
     significantly after inserting vectors, meaning the tracker stays honest
@@ -125,15 +126,15 @@ def test_db_storage_and_embedding_sum_to_db_total():
     graph = parse_mib(info["graph_memory_tracked"])
     vector = parse_mib(info["vector_index_memory_tracked"])
     query = parse_mib(info["query_memory_tracked"])
-    db_total = graph + vector + query
+    tenant_total = parse_mib(info["tenant_memory_tracked"])
     rss = parse_mib(global_info["memory_res"])
 
     assert vector > 0, "vector_index_memory_tracked should be non-zero after vector insertions"
     assert graph > 0, "graph_memory_tracked should be non-zero"
 
-    assert abs((graph + vector) - db_total) < TOLERANCE_MIB, (
-        f"graph ({graph:.2f} MiB) + vector_index ({vector:.2f} MiB) = {graph + vector:.2f} MiB "
-        f"but db_total = {db_total:.2f} MiB (diff > {TOLERANCE_MIB} MiB)"
+    assert abs((graph + vector + query) - tenant_total) < TOLERANCE_MIB, (
+        f"graph ({graph:.2f} MiB) + vector_index ({vector:.2f} MiB) + query ({query:.2f} MiB) = {graph + vector + query:.2f} MiB "
+        f"but tenant_total = {tenant_total:.2f} MiB (diff > {TOLERANCE_MIB} MiB)"
     )
 
     post_gap = rss - total

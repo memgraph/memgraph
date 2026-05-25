@@ -524,12 +524,12 @@ def test_check_stream_with_batch_limit_with_invalid_batch_limit(kafka_topics, co
 
 def test_db_memory_grows_from_kafka_stream_ingestion(kafka_producer, kafka_topics, connection):
     """
-    Objects created by Kafka consumer ingestion must be attributed to db_memory_tracked.
+    Objects created by Kafka consumer ingestion must be attributed to tenant_memory_tracked.
 
     The Kafka consumer thread is fully pinned to the DB jemalloc arena via je_mallctl
     (kafka/consumer.cpp). Every vertex/edge created by the transformation Cypher query
-    goes through the DB arena extent hooks and is reflected in SHOW STORAGE INFO →
-    db_memory_tracked.
+    goes through the DB arena extent hooks and is reflected in
+    SHOW STORAGE INFO ON CURRENT DATABASE → tenant_memory_tracked.
     """
     assert len(kafka_topics) > 0
     cursor = connection.cursor()
