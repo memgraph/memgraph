@@ -69,6 +69,7 @@ target_sources(mg-utils
     resource_monitoring.hpp
     safe_string.hpp
     shared_quota.hpp
+    tls.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)

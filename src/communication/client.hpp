@@ -45,7 +45,8 @@ namespace memgraph::communication {
  */
 class Client final {
  public:
-  explicit Client(ClientContext *context);
+  explicit Client(ClientContext *context,
+                  std::chrono::milliseconds connect_timeout_ms = std::chrono::milliseconds{5000});
 
   ~Client();
 
@@ -140,6 +141,8 @@ class Client final {
 
  private:
   void ReleaseSslObjects();
+  auto SetupSslObjects() -> std::expected<void, std::string>;
+  auto DriveSslHandshake() -> std::expected<void, std::string>;
 
   io::network::Socket socket_;
   Buffer buffer_;
@@ -147,6 +150,7 @@ class Client final {
   ClientContext *context_;
   SSL *ssl_{nullptr};
   BIO *bio_{nullptr};
+  std::chrono::milliseconds connect_timeout_ms_;
 };
 
 /**

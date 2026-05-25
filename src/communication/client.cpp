@@ -15,16 +15,31 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <spdlog/spdlog.h>
-#include <string>
 
 #include "buffer.hpp"
 #include "communication/helpers.hpp"
 #include "context.hpp"
 #include "io/network/stream_buffer.hpp"
+#include "utils/on_scope_exit.hpp"
+
+namespace {
+
+auto SslWantToPollEvents(int const ssl_err) -> std::optional<short> {
+  if (ssl_err == SSL_ERROR_WANT_READ) {
+    return POLLIN;
+  }
+  if (ssl_err == SSL_ERROR_WANT_WRITE) {
+    return POLLOUT;
+  }
+  return std::nullopt;
+}
+
+}  // namespace
 
 namespace memgraph::communication {
 
-Client::Client(ClientContext *context) : context_(context) {}
+Client::Client(ClientContext *context, std::chrono::milliseconds const connect_timeout_ms)
+    : context_(context), connect_timeout_ms_(connect_timeout_ms) {}
 
 Client::~Client() {
   Close();
@@ -32,9 +47,38 @@ Client::~Client() {
 }
 
 bool Client::Connect(const io::network::Endpoint &endpoint) {
-  // Try to establish a socket connection.
-  if (!socket_.Connect(endpoint)) {
+  // Try to establish a socket connection. If SSL should be used, socket should not restore socket to the blocking mode,
+  // we will do it here.
+  if (!socket_.Connect(endpoint, connect_timeout_ms_, context_->use_ssl())) {
     return false;
+  }
+
+  bool success{false};
+  auto cleanup = utils::OnScopeExit{[&]() {
+    if (!success) {
+      socket_.Close();
+      ReleaseSslObjects();
+    }
+  }};
+
+  if (context_->use_ssl()) {
+    if (auto r = SetupSslObjects(); !r) {
+      spdlog::error("Couldn't set up client SSL objects: {}", r.error());
+      return false;
+    }
+
+    ERR_clear_error();
+    spdlog::trace("Trying to do SSL_connect");
+
+    if (auto r = DriveSslHandshake(); !r) {
+      spdlog::warn("Couldn't complete SSL handshake: {}", r.error());
+      return false;
+    }
+
+    if (!socket_.SetBlocking()) {
+      spdlog::error("Failed to restore socket to blocking mode after SSL handshake");
+      return false;
+    }
   }
 
   // Enable TCP keep alive for all connections.
@@ -47,47 +91,61 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
   socket_.SetNoDelay();
   socket_.SetUserTimeout();
 
-  if (context_->use_ssl()) {
-    // Release leftover SSL objects.
-    ReleaseSslObjects();
+  success = true;
+  return true;
+}
 
-    // Create a new SSL object that will be used for SSL communication.
-    ssl_ = SSL_new(context_->context());
-    if (ssl_ == nullptr) {
-      SPDLOG_ERROR("Couldn't create client SSL object!");
-      socket_.Close();
-      return false;
-    }
+auto Client::SetupSslObjects() -> std::expected<void, std::string> {
+  // Release SSL objects left over from any prior Connect call on this Client.
+  ReleaseSslObjects();
 
-    // Create a new BIO (block I/O) SSL object so that OpenSSL can communicate
-    // using our socket. We specify `BIO_NOCLOSE` to indicate to OpenSSL that
-    // it doesn't need to close the socket when destructing all objects (we
-    // handle that in our socket destructor).
-    bio_ = BIO_new_socket(socket_.fd(), BIO_NOCLOSE);
-    if (bio_ == nullptr) {
-      SPDLOG_ERROR("Couldn't create client BIO object!");
-      socket_.Close();
-      return false;
-    }
-
-    // Connect the BIO object to the SSL object so that OpenSSL knows which
-    // stream it should use for communication. We use the same object for both
-    // the read and write end. This function cannot fail.
-    SSL_set_bio(ssl_, bio_, bio_);
-
-    // Clear all leftover errors.
-    ERR_clear_error();
-
-    // Perform the TLS handshake.
-    auto ret = SSL_connect(ssl_);
-    if (ret != 1) {
-      SPDLOG_WARN("Couldn't connect to SSL server: {}", SslGetLastError());
-      socket_.Close();
-      return false;
-    }
+  // Create a new SSL object that will be used for SSL communication.
+  ssl_ = SSL_new(context_->context());
+  if (ssl_ == nullptr) {
+    return std::unexpected{"SSL_new returned nullptr"};
   }
 
-  return true;
+  // Create a new BIO (block I/O) SSL object so that OpenSSL can communicate
+  // using our socket. We specify `BIO_NOCLOSE` to indicate to OpenSSL that it
+  // doesn't need to close the socket when destructing all objects (we handle
+  // that in our socket destructor).
+  bio_ = BIO_new_socket(socket_.fd(), BIO_NOCLOSE);
+  if (bio_ == nullptr) {
+    return std::unexpected{"BIO_new_socket returned nullptr"};
+  }
+
+  // Bind the BIO to the SSL object (same BIO for read and write). Cannot fail.
+  SSL_set_bio(ssl_, bio_, bio_);
+  return {};
+}
+
+auto Client::DriveSslHandshake() -> std::expected<void, std::string> {
+  auto const fd = socket_.fd();
+  auto const deadline = std::chrono::steady_clock::now() + connect_timeout_ms_;
+
+  while (true) {
+    ERR_clear_error();
+    auto const ret = SSL_connect(ssl_);
+    if (ret == 1) return {};
+
+    auto const events = SslWantToPollEvents(SSL_get_error(ssl_, ret));
+    if (!events.has_value()) {
+      return std::unexpected{SslGetLastError()};
+    }
+
+    auto const now = std::chrono::steady_clock::now();
+    if (now >= deadline) return std::unexpected{"SSL handshake timed out"};
+
+    auto const ms_remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+    pollfd pfd{.fd = fd, .events = *events, .revents = 0};
+
+    auto const rc = poll(&pfd, 1, static_cast<int>(ms_remaining));
+    if (rc == 0) return std::unexpected{"SSL handshake timed out"};
+
+    if (rc < 0 && errno != EINTR) {
+      return std::unexpected{fmt::format("poll() during SSL handshake failed: {}", std::strerror(errno))};
+    }
+  }
 }
 
 bool Client::ErrorStatus() const { return socket_.ErrorStatus(); }

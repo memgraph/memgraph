@@ -20,6 +20,8 @@
 #include <optional>
 #include <string>
 
+#include "utils/tls.hpp"
+
 // Centos 7 OpenSSL includes libkrb5 which has brings in macros TRUE and FALSE. undef to prevent issues.
 #undef TRUE
 #undef FALSE
@@ -48,6 +50,14 @@ class ClientContext final {
    * to the above constructor that uses SSL without certificates.
    */
   ClientContext(const std::string &key_file, const std::string &cert_file);
+
+  /**
+   * This constructor constructs a ClientContext that uses SSL and uses the
+   * specific client private key and certificate combination. If the parameters
+   * `key_file`, `cert_file`, `ca_file` are equal to "" then the constructor falls back
+   * to the above constructor that uses SSL without certificates.
+   */
+  ClientContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file);
 
   // This object can't be copied because the underlying SSL implementation is
   // messy and ownership can't be handled correctly.
@@ -127,5 +137,20 @@ class ServerContext final {
   bool verify_peer_{false};
   std::atomic<std::shared_ptr<boost::asio::ssl::context>> ctx_;
 };
+
+// TODO: (andi) Templatize
+inline auto CreateServerContext(std::optional<utils::TlsConfig> const &tls_config) -> communication::ServerContext {
+  return tls_config.has_value() ? communication::ServerContext{tls_config->key_file,
+                                                               tls_config->cert_file,
+                                                               tls_config->ca_file,
+                                                               /*verify_peer=*/true}
+                                : communication::ServerContext{};
+}
+
+inline auto CreateClientContext(std::optional<utils::TlsConfig> const &tls_config) -> communication::ClientContext {
+  return tls_config.has_value()
+             ? communication::ClientContext{tls_config->key_file, tls_config->cert_file, tls_config->ca_file}
+             : communication::ClientContext{};
+}
 
 }  // namespace memgraph::communication

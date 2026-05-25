@@ -47,6 +47,10 @@ on:
           - KILL
           - TERM
         default: KILL
+      intra-cluster-tls:
+        description: "If true, start each Memgraph instance with intra-cluster mTLS flags."
+        type: boolean
+        default: false
 
 
   schedule:
@@ -116,6 +120,7 @@ jobs:
       concurrency: ""
       storage-backup-dir-enabled: true
       shutdown-signal: ${{ needs.determine-shutdown-signal.outputs.signal }}
+      intra-cluster-tls: false
     secrets: inherit
 
   run-manual-jepsen-tests:
@@ -130,6 +135,7 @@ jobs:
       concurrency: ${{ inputs.concurrency }}
       storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
       shutdown-signal: ${{ inputs.shutdown-signal }}
+      intra-cluster-tls: ${{ inputs.intra-cluster-tls }}
     secrets: inherit
 
   run-manual-jepsen-tests-mt:
@@ -144,4 +150,5 @@ jobs:
       concurrency: ${{ inputs.concurrency }}
       storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
       shutdown-signal: ${{ inputs.shutdown-signal }}
+      intra-cluster-tls: ${{ inputs.intra-cluster-tls }}
     secrets: inherit

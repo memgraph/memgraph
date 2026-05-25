@@ -413,10 +413,10 @@ class ReplQueryHandler {
       }
     } else {
       ValidatePort(port);
-
       auto const config = memgraph::replication::ReplicationServerConfig{
           .repl_server = memgraph::io::network::Endpoint(memgraph::replication::kDefaultReplicationServerIp,
-                                                         static_cast<uint16_t>(*port))};
+                                                         static_cast<uint16_t>(*port)),
+          .tls_config = flags::TlsConfigFromClusterFlags()};
 
       if (!handler_->TrySetReplicationRoleReplica(config)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
@@ -453,7 +453,7 @@ class ReplQueryHandler {
                                              .mode = repl_mode,
                                              .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
                                              .replica_check_frequency = replica_check_frequency,
-                                             .ssl = std::nullopt};
+                                             .tls_config = flags::TlsConfigFromClusterFlags()};
 
     const auto error = handler_->TryRegisterReplica(replication_config);
 

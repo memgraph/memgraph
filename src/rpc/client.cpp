@@ -14,8 +14,12 @@
 namespace memgraph::rpc {
 
 Client::Client(io::network::Endpoint endpoint, communication::ClientContext *context,
-               std::unordered_map<std::string_view, int> const &rpc_timeouts_ms)
-    : endpoint_(std::move(endpoint)), context_(context), rpc_timeouts_ms_(rpc_timeouts_ms) {}
+               std::unordered_map<std::string_view, int> const &rpc_timeouts_ms,
+               std::chrono::milliseconds const connect_timeout_ms)
+    : endpoint_(std::move(endpoint)),
+      context_(context),
+      rpc_timeouts_ms_(rpc_timeouts_ms),
+      connect_timeout_ms_(connect_timeout_ms) {}
 
 void Client::Abort() {
   // Shut down the socket to abort any pending read, write, or connect

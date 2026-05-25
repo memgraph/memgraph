@@ -288,6 +288,10 @@ int main(int argc, char **argv) {
   // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
 
+  // Fail fast if --cluster-{cert,key,ca}-file are partially configured.
+  // Must run after logger init so the fatal message is delivered.
+  memgraph::flags::ValidateIntraClusterTLSFlags();
+
   // Block SIGTERM/SIGINT as early as possible so that every thread we spawn
   // inherits the blocked mask.  The main thread will consume them
   // synchronously via sigwait() later.
@@ -702,10 +706,18 @@ int main(int argc, char **argv) {
           "started only with management port.");
     }
 
+    auto maybe_ssl = memgraph::flags::TlsConfigFromClusterFlags();
+    if (!maybe_ssl.has_value()) {
+      spdlog::warn(memgraph::utils::MessageWithLink(
+          "Running HA without intra-cluster TLS. Replication, coordinator, and management traffic is unencrypted.",
+          "https://memgr.ph/cluster-tls"));
+    }
+
     if (is_coordinator_instance) {
       constexpr auto kRaftDataDir = "/high_availability/raft_data";
       auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
+
       coordinator_state = std::make_shared<CoordinatorState>(
           CoordinatorInstanceInitConfig{.coordinator_id = coordination_setup.coordinator_id,
                                         .coordinator_port = coordination_setup.coordinator_port,
@@ -713,10 +725,11 @@ int main(int argc, char **argv) {
                                         .management_port = coordination_setup.management_port,
                                         .durability_dir = high_availability_data_dir,
                                         .coordinator_hostname = coordination_setup.coordinator_hostname,
-                                        .nuraft_log_file = coordination_setup.nuraft_log_file});
+                                        .nuraft_log_file = coordination_setup.nuraft_log_file,
+                                        .tls_config = std::move(maybe_ssl)});
     } else {
-      coordinator_state = std::make_shared<CoordinatorState>(
-          ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
+      coordinator_state = std::make_shared<CoordinatorState>(ReplicationInstanceInitConfig{
+          .management_port = coordination_setup.management_port, .tls_config = std::move(maybe_ssl)});
     }
   };
 

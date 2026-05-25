@@ -21,7 +21,6 @@
 #include <unistd.h>
 #include <cerrno>
 #include <chrono>
-#include <compare>
 #include <cstring>
 #include <string>
 
@@ -33,10 +32,6 @@
 #include "metrics/scoped_histogram_timer.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
-
-namespace {
-constexpr auto timeout_ms = std::chrono::milliseconds(5000);
-}  // namespace
 
 namespace memgraph::io::network {
 
@@ -78,7 +73,8 @@ void Socket::Close(int const sfd, std::string_view socket_addr) {
   }
 }
 
-bool Socket::Connect(const Endpoint &endpoint) {
+bool Socket::Connect(const Endpoint &endpoint, std::chrono::milliseconds const connect_timeout_ms,
+                     bool const keep_non_blocking) {
   if (socket_ != -1) {
     spdlog::trace("Socket::Connect failed, socket_ not ready!");
     return false;
@@ -122,7 +118,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
         }
 
         auto const start_time = std::chrono::steady_clock::now();
-        auto const deadline = start_time + timeout_ms;
+        auto const deadline = start_time + connect_timeout_ms;
 
         while (true) {
           auto const now = std::chrono::steady_clock::now();
@@ -134,8 +130,8 @@ bool Socket::Connect(const Endpoint &endpoint) {
 
           auto const ms_remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
 
-          pollfd pfds[] = {{.fd = fd, .events = POLLOUT}};
-          int const poll_status = poll(pfds, 1, static_cast<int>(ms_remaining));
+          std::array<pollfd, 1> pfds{{{.fd = fd, .events = POLLOUT}}};
+          int const poll_status = poll(pfds.data(), pfds.size(), static_cast<int>(ms_remaining));
 
           // Socket is ready, likely writeable
           if (poll_status > 0) {
@@ -172,7 +168,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
         continue;
       }
 
-      if (fcntl(sfd, F_SETFL, sockfd_flags_orig) < 0) {
+      if (!keep_non_blocking && fcntl(sfd, F_SETFL, sockfd_flags_orig) < 0) {
         spdlog::error("Failed to set socket to blocking mode during connect");
         Close(sfd, socket_addr);
         continue;
@@ -181,6 +177,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
       // Success
       socket_ = sfd;
       endpoint_ = endpoint;
+
       break;
     }
   } catch (const NetworkError &e) {
@@ -275,6 +272,22 @@ void Socket::SetNonBlocking() {
   constexpr unsigned o_nonblock = O_NONBLOCK;
   MG_ASSERT(flags != -1, "Can't get socket mode");
   MG_ASSERT(fcntl(socket_, F_SETFL, flags | o_nonblock) != -1, "Can't set socket nonblocking");
+}
+
+// Not const because of C-API
+// NOLINTNEXTLINE
+auto Socket::SetBlocking() -> bool {
+  int flags = fcntl(socket_, F_GETFL, 0);
+  if (flags < 0) {
+    spdlog::error("Failed to read flags when setting socket to blocking mode");
+    return false;
+  }
+  flags &= ~O_NONBLOCK;
+  if (fcntl(socket_, F_SETFL, flags) < 0) {
+    spdlog::error("Failed to restore socket to blocking mode after SSL handshake");
+    return false;
+  }
+  return true;
 }
 
 // Not const because of C-API

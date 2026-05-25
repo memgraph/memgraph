@@ -12,6 +12,7 @@
 #pragma once
 
 #include <sys/types.h>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -72,7 +73,8 @@ class Socket {
    *             true if the connect succeeded
    *             false if the connect failed
    */
-  bool Connect(const Endpoint &endpoint);
+  bool Connect(const Endpoint &endpoint, std::chrono::milliseconds connect_timeout_ms = std::chrono::milliseconds{5000},
+               bool keep_non_blocking = false);
 
   /**
    * Binds the socket to the specified endpoint.
@@ -109,6 +111,11 @@ class Socket {
    * Sets the socket to non-blocking.
    */
   void SetNonBlocking();
+
+  /**
+  Sets the socket to the blocking mode.
+  */
+  auto SetBlocking() -> bool;
 
   /**
    * Enables TCP keep-alive on the socket.

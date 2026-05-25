@@ -44,8 +44,17 @@ ClientContext::ClientContext(const std::string &key_file, const std::string &cer
               "Couldn't load client certificate from file: {}",
               cert_file);
     MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx_, key_file.c_str(), SSL_FILETYPE_PEM) == 1,
-              "Couldn't load client private key from file: ",
+              "Couldn't load client private key from file: {}",
               key_file);
+  }
+}
+
+ClientContext::ClientContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file)
+    : ClientContext(key_file, cert_file) {
+  if (!ca_file.empty()) {
+    MG_ASSERT(
+        SSL_CTX_load_verify_locations(ctx_, ca_file.c_str(), nullptr) == 1, "Couldn't load CA from file {}", ca_file);
+    SSL_CTX_set_verify(ctx_, SSL_VERIFY_PEER, nullptr);
   }
 }
 
@@ -123,7 +132,15 @@ auto ServerContext::reload() -> std::expected<void, SSL_CTX_Error> {
   // NOLINTNEXTLINE(hicpp-signed-bitwise)
   new_ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
                        ssl::context::single_dh_use);
-  new_ctx->set_default_verify_paths();
+
+  // We deliberately do NOT call `set_default_verify_paths()` here. The trust
+  // store is consulted only when `verify_peer_` is true (i.e. on the
+  // intra-cluster mTLS path), and there the operator-supplied `ca_file_` must
+  // be the SOLE trust anchor — unioning it with the OS root store would let
+  // any publicly-issued cert authenticate against the cluster, which defeats
+  // the purpose of the private CA. For Bolt's server-only TLS (verify_peer
+  // is false) this changes nothing because the trust store is never consulted.
+
   // TODO: add support for encrypted private keys
   // TODO: add certificate revocation list (CRL)
   boost::system::error_code ec;

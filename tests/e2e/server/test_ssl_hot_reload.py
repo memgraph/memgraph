@@ -21,8 +21,8 @@ import pytest
 from common import connect_ssl, execute_and_fetch_all
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-CERT_FILE = os.path.join(SCRIPT_DIR, "ssl_reload_test.crt")
-KEY_FILE = os.path.join(SCRIPT_DIR, "ssl_reload_test.key")
+CERT_FILE = os.path.join(SCRIPT_DIR, "tls_certs", "ssl_reload_test.crt")
+KEY_FILE = os.path.join(SCRIPT_DIR, "tls_certs", "ssl_reload_test.key")
 
 
 def generate_self_signed_cert(cert_path, key_path, cn="test-cert"):
