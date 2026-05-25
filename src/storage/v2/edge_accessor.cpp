@@ -43,10 +43,9 @@ std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storag
                                                                  PropertyId property, const PropertyValue &value) {
   if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
   if (storage->indices_.vector_edge_index_.Empty()) return std::nullopt;
-  auto index_id = storage->indices_.vector_edge_index_.GetIndexIdForEdgeTypeProperty(edge_type, property);
-  if (!index_id) return std::nullopt;
-  return PropertyValue(
-      PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{*index_id}, .vector = ListToVector(value)});
+  auto index_ids = storage->indices_.vector_edge_index_.GetIndexIdsForEdgeTypeProperty(edge_type, property);
+  if (index_ids.empty()) return std::nullopt;
+  return PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(index_ids), .vector = ListToVector(value)});
 }
 
 void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, const Config &config, Edge *edge,

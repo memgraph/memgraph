@@ -796,12 +796,46 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::Create
   return index_query;
 }
 
+template <typename LabelOrEdgeTypeIx>
+VectorIndexLabelsInfo<LabelOrEdgeTypeIx> CypherMainVisitor::ParseVectorIndexLabels(
+    MemgraphCypher::VectorIndexLabelsContext *ctx) {
+  const auto label_names = ctx->labelName();
+  auto *property_ctx = ctx->propertyKeyName();
+  const auto mode = std::invoke([&] {
+    if (label_names.empty()) return storage::VectorMatchMode::WILDCARD;
+    if (!ctx->AMPERSAND().empty()) return storage::VectorMatchMode::ALL_OF;
+    if (label_names.size() > 1) return storage::VectorMatchMode::ANY_OF;
+    return storage::VectorMatchMode::SINGLE;
+  });
+  VectorIndexLabelsInfo<LabelOrEdgeTypeIx> info{
+      .mode = mode, .ids = {}, .property = std::any_cast<PropertyIx>(property_ctx->accept(this))};
+  if (mode != storage::VectorMatchMode::WILDCARD) {
+    info.ids.reserve(label_names.size());
+    for (auto *label_ctx : label_names) {
+      const auto name = std::any_cast<std::string>(label_ctx->accept(this));
+      if constexpr (std::is_same_v<LabelOrEdgeTypeIx, LabelIx>) {
+        info.ids.push_back(AddLabel(name));
+      } else {
+        info.ids.push_back(AddEdgeType(name));
+      }
+    }
+  }
+  return info;
+}
+
+template VectorIndexLabelsInfo<LabelIx> CypherMainVisitor::ParseVectorIndexLabels<LabelIx>(
+    MemgraphCypher::VectorIndexLabelsContext *);
+template VectorIndexLabelsInfo<EdgeTypeIx> CypherMainVisitor::ParseVectorIndexLabels<EdgeTypeIx>(
+    MemgraphCypher::VectorIndexLabelsContext *);
+
 antlrcpp::Any CypherMainVisitor::visitCreateVectorIndex(MemgraphCypher::CreateVectorIndexContext *ctx) {
   auto *index_query = storage_->Create<VectorIndexQuery>();
   index_query->action_ = VectorIndexQuery::Action::CREATE;
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
-  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  auto labels_info = ParseVectorIndexLabels<LabelIx>(ctx->vectorIndexLabels());
+  index_query->label_mode_ = labels_info.mode;
+  index_query->labels_ = std::move(labels_info.ids);
+  index_query->property_ = labels_info.property;
   auto *config_ctx = ctx->configsMap;
   if (config_ctx->configMap()) {
     index_query->config_ = std::any_cast<ConfigMap>(config_ctx->configMap()->accept(this));
@@ -814,8 +848,14 @@ antlrcpp::Any CypherMainVisitor::visitCreateVectorIndex(MemgraphCypher::CreateVe
 antlrcpp::Any CypherMainVisitor::visitCreateVectorEdgeIndex(MemgraphCypher::CreateVectorEdgeIndexContext *ctx) {
   auto *index_query = storage_->Create<CreateVectorEdgeIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
-  index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  auto labels_info = ParseVectorIndexLabels<EdgeTypeIx>(ctx->vectorIndexLabels());
+  if (labels_info.mode == storage::VectorMatchMode::ALL_OF) {
+    throw SemanticException(
+        "AND ('&') is not supported for vector edge indices: an edge has exactly one type, so :T1&T2 can never match.");
+  }
+  index_query->edge_type_mode_ = labels_info.mode;
+  index_query->edge_types_ = std::move(labels_info.ids);
+  index_query->property_ = labels_info.property;
   auto *config_ctx = ctx->configsMap;
   if (config_ctx->configMap()) {
     index_query->config_ = std::any_cast<ConfigMap>(config_ctx->configMap()->accept(this));

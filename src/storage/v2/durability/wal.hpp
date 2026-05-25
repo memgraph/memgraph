@@ -349,26 +349,43 @@ struct WalEnumAlterUpdate {
   std::string evalue_new;
 };
 
+// Filter on a vector index: mode (SINGLE/WILDCARD/ANY_OF/ALL_OF) + the ids it covers.
+// Pre-v34 WALs wrote a single label/edge_type name; the upgraders below promote that to
+// {mode=SINGLE, ids={label_name}}.
+struct VectorFilterInfo {
+  friend bool operator==(VectorFilterInfo const &, VectorFilterInfo const &) = default;
+  using ctr_types = std::tuple<std::uint8_t, std::vector<std::string>>;
+  std::uint8_t mode;
+  std::vector<std::string> ids;
+};
+
+inline auto UpgradeForVectorMultiLabel(std::string name) -> VectorFilterInfo {
+  return {.mode = static_cast<std::uint8_t>(VectorMatchMode::SINGLE), .ids = {std::move(name)}};
+}
+
+using UpgradableVectorFilter =
+    VersionDependantUpgradable<kVectorIndexMultiLabel, std::string, VectorFilterInfo, UpgradeForVectorMultiLabel>;
+
 struct WalVectorIndexCreate {
   friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
-  using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
-                               std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
+  using ctr_types = std::tuple<std::string, UpgradableVectorFilter, std::string, std::string, std::uint16_t,
+                               std::uint16_t, std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
   std::string index_name;
-  std::string label;
+  VectorFilterInfo label_filter;
   std::string property;
   std::string metric_kind;
   std::uint16_t dimension;
   std::uint16_t resize_coefficient;
   std::size_t capacity;
-  std::optional<std::uint8_t> scalar_kind;  //!< Optional scalar kind, if not set, scalar is not used
+  std::optional<std::uint8_t> scalar_kind;
 };
 
 struct WalVectorEdgeIndexCreate {
   friend bool operator==(const WalVectorEdgeIndexCreate &, const WalVectorEdgeIndexCreate &) = default;
-  using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
-                               std::size_t, uint8_t>;
+  using ctr_types = std::tuple<std::string, UpgradableVectorFilter, std::string, std::string, std::uint16_t,
+                               std::uint16_t, std::size_t, uint8_t>;
   std::string index_name;
-  std::string edge_type;
+  VectorFilterInfo edge_type_filter;
   std::string property;
   std::string metric_kind;
   std::uint16_t dimension;

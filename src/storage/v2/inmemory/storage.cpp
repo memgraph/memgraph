@@ -4750,13 +4750,13 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
 
   // we have to take edges accessor to be sure no edge is deleted while we are searching
   auto acc = mem_storage->edges_.access();
-  auto edge_type_id = mem_storage->indices_.vector_edge_index_.GetEdgeTypeId(index_name);
   const auto search_results = storage_->indices_.vector_edge_index_.SearchEdges(index_name, number_of_results, vector);
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
-    auto &[edge_tuple, distance, score] = item;
-    auto &[from_vertex, to_vertex, edge] = edge_tuple;
+    const auto &[entry, distance, score] = item;
     return std::make_tuple(
-        EdgeAccessor{EdgeRef{edge}, edge_type_id, from_vertex, to_vertex, storage_, &transaction_}, distance, score);
+        EdgeAccessor{EdgeRef{entry.edge}, entry.edge_type, entry.from_vertex, entry.to_vertex, storage_, &transaction_},
+        distance,
+        score);
   });
 
   return result;

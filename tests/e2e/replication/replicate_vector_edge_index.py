@@ -126,14 +126,14 @@ def test_vector_edge_index_replication(connection, test_name):
     )
     wait_for_replication_change(cursor, 2)
 
-    expected_result = [("edge-type+property_vector", "REL", "embedding", 0)]
+    expected_result = [("edge-type+property_vector", ":REL", "embedding", 0)]
     assert get_show_index_info(get_replica_cursor(connection, "replica_1")) == expected_result
     assert get_show_index_info(get_replica_cursor(connection, "replica_2")) == expected_result
 
     execute_and_fetch_all(cursor, "CREATE ()-[:REL {embedding: [0.5, 1.5]}]->();")
     wait_for_replication_change(cursor, 4)
 
-    expected_result = [("edge-type+property_vector", "REL", "embedding", 1)]
+    expected_result = [("edge-type+property_vector", ":REL", "embedding", 1)]
     assert get_show_index_info(get_replica_cursor(connection, "replica_1")) == expected_result
     assert get_show_index_info(get_replica_cursor(connection, "replica_2")) == expected_result
 
@@ -164,7 +164,7 @@ def test_vector_edge_index_replication_property_changes(connection, test_name):
     )
     wait_for_replication_change(cursor, 4)
 
-    expected_result = [("edge-type+property_vector", "REL", "emb", 3)]
+    expected_result = [("edge-type+property_vector", ":REL", "emb", 3)]
     assert get_show_index_info(get_replica_cursor(connection, "replica_1")) == expected_result
     assert get_show_index_info(get_replica_cursor(connection, "replica_2")) == expected_result
 
@@ -174,7 +174,7 @@ def test_vector_edge_index_replication_property_changes(connection, test_name):
     execute_and_fetch_all(cursor, "MATCH ()-[r:REL {emb: [3.0, 4.0]}]->() SET r.emb = [7.0, 8.0];")
     wait_for_replication_change(cursor, 8)
 
-    expected_result = [("edge-type+property_vector", "REL", "emb", 2)]
+    expected_result = [("edge-type+property_vector", ":REL", "emb", 2)]
     assert get_show_index_info(get_replica_cursor(connection, "replica_1")) == expected_result
     assert get_show_index_info(get_replica_cursor(connection, "replica_2")) == expected_result
 

@@ -573,9 +573,9 @@ class Accessor {
 
   virtual std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const = 0;
 
-  virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
+  virtual std::optional<uint64_t> ApproximateVerticesVectorCount(std::string_view index_name) const = 0;
 
-  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const = 0;
 
   virtual std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const = 0;
 
