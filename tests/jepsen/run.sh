@@ -206,7 +206,6 @@ COPY_FILES() {
      INFO "None of datasets will be downloaded"
    fi
 
-
    for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
        jepsen_node_name="jepsen-n$iter"
        docker_exec="docker exec $jepsen_node_name bash -c"
@@ -216,7 +215,7 @@ COPY_FILES() {
          _binary_name="$binary_name"
        fi
        $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph/src/query"
-       docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
+        docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
 
        # Copy all shared libraries to the appropriate location
        for lib in "${shared_libs[@]}"; do
@@ -312,6 +311,21 @@ PROCESS_RESULTS() {
       else
         INFO "$workload_dir does not exist."
       fi
+    done
+    INFO "Collecting core dumps from data nodes to host ($script_dir/cores) ..."
+    host_cores_dir="$script_dir/cores"
+    mkdir -p "$host_cores_dir"
+    for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
+        jepsen_node_name="jepsen-n$iter"
+        cores=$(docker exec "$jepsen_node_name" bash -c 'ls /tmp/mg-cores/core.* 2>/dev/null || true')
+        for core_path in $cores; do
+            base=$(basename "$core_path")
+            epoch="${base##*.}"
+            date_str=$(date -u -d "@${epoch}" +%Y%m%dT%H%M%SZ 2>/dev/null || echo "unknown-date")
+            renamed="${jepsen_node_name}_${date_str}_${base}"
+            docker cp "${jepsen_node_name}:${core_path}" "${host_cores_dir}/${renamed}"
+            INFO "Collected core: ${renamed}"
+        done
     done
     INFO "Packing results..."
     docker exec jepsen-control bash -c "tar --ignore-failed-read -czvf /jepsen/memgraph/Jepsen.tar.gz -h $all_workload_run_folders"
