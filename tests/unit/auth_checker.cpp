@@ -548,6 +548,23 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGARulesExistButNoGrant) {
       auth_checker.HasPropertyPermission(label_ids, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
 }
 
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAEdgeTypeUnmentionedPropertyAllowed) {
+  memgraph::auth::User user{"test"};
+  // Grant only "secret_code" on edge_type_1 — no wildcard, no rule for "amount"
+  user.property_access_handler().edge_type_properties().Grant("edge_type_1", "secret_code");
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, true};
+
+  auto secret_id = this->dba.NameToProperty("secret_code");
+  auto amount_id = this->dba.NameToProperty("amount");
+
+  EXPECT_TRUE(auth_checker.HasPropertyPermission(
+      this->edge_type_one, secret_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+  // "amount" has no rule — should be allowed (NEUTRAL = allowed when no deny exists)
+  EXPECT_TRUE(auth_checker.HasPropertyPermission(
+      this->edge_type_one, amount_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
 TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAEdgeTypeDenyOverridesGrant) {
   memgraph::auth::User user{"test"};
   // Grant all edge properties, deny "secret_code" on edge_type_1

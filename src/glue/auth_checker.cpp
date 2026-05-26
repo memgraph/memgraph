@@ -383,7 +383,7 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
   auto const &edge_type_name = dba_->EdgeTypeToName(edge_type);
   if (!permissions.GetRules().contains(edge_type_name)) return true;
   auto const &prop_name = dba_->PropertyToName(property);
-  return permissions.Has(edge_type_name, prop_name) == auth::PermissionLevel::GRANT;
+  return permissions.Has(edge_type_name, prop_name) != auth::PermissionLevel::DENY;
 }
 
 void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
