@@ -9,6 +9,9 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import json
+import sys
+
 import common
 import pytest
 
@@ -89,10 +92,10 @@ def test_where_is_not_null_on_denied_property_returns_no_rows():
     assert len(result) == 0
 
 
-def test_collect_denied_property_returns_nulls():
+def test_collect_denied_property_returns_empty():
     result = common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) RETURN collect(n.ssn) AS collected;")
     assert len(result) == 1
-    assert result[0][0] == [None]
+    assert result[0][0] == []
 
 
 def test_count_denied_property_returns_zero():
@@ -128,7 +131,7 @@ def test_path_traversal_redacts_denied_property():
     # The path goes Start -> Employee(Alice) -> End
     # Middle node (Employee) should have ssn redacted
     for node in nodes:
-        if "Employee" in [l.name for l in node.labels]:
+        if "Employee" in node.labels:
             assert "ssn" in node.properties
             assert node.properties["ssn"] is None
             assert node.properties["name"] == "Alice"
@@ -142,8 +145,28 @@ def test_path_filter_on_denied_property_returns_no_rows():
     assert len(result) == 0
 
 
+def test_show_schema_info_omits_denied_properties():
+    schema = json.loads(common.execute_and_fetch_all(user_cursor(), "SHOW SCHEMA INFO;")[0][0])
+    employee = next(n for n in schema["nodes"] if "Employee" in n["labels"])
+    prop_keys = [p["key"] for p in employee["properties"]]
+    assert "name" in prop_keys
+    assert "ssn" not in prop_keys
+
+
+def test_show_schema_info_admin_sees_all_properties():
+    schema = json.loads(common.execute_and_fetch_all(admin_cursor(), "SHOW SCHEMA INFO;")[0][0])
+    employee = next(n for n in schema["nodes"] if "Employee" in n["labels"])
+    prop_keys = [p["key"] for p in employee["properties"]]
+    assert "name" in prop_keys
+    assert "ssn" in prop_keys
+
+
 def test_admin_sees_all_properties():
     result = common.execute_and_fetch_all(admin_cursor(), "MATCH (n:Employee) RETURN n.ssn AS ssn, n.name AS name;")
     assert len(result) == 1
     assert result[0][0] == "123-45-6789"
     assert result[0][1] == "Alice"
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-rA"]))

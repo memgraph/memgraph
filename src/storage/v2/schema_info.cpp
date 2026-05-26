@@ -455,6 +455,69 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, 
 }
 
 template <template <class...> class TContainer>
+nlohmann::json SchemaTracking<TContainer>::ToJson(
+    NameIdMapper &name_id_mapper, const EnumStore &enum_store,
+    const std::function<bool(VertexKey const &)> &node_predicate, const std::function<bool(EdgeTypeId)> &edge_predicate,
+    const std::function<bool(VertexKey const &, PropertyId)> &node_property_predicate,
+    const std::function<bool(EdgeTypeId, PropertyId)> &edge_property_predicate) const {
+  auto json = nlohmann::json::object();
+
+  // Handle NODES
+  const auto &[nodes_itr, _] = json.emplace("nodes", nlohmann::json::array());
+  auto &nodes = nodes_itr.value();
+  for (const auto &[labels, info] : vertex_state_) {
+    if (!node_predicate(labels)) continue;
+    auto node = nlohmann::json::object();
+    const auto &[labels_itr, _] = node.emplace("labels", nlohmann::json::array_t{});
+    for (const auto labelId : labels) {
+      labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
+    }
+    std::sort(labels_itr->begin(), labels_itr->end());
+    node.update(info.ToJson(
+        name_id_mapper, enum_store, [&](PropertyId prop) { return node_property_predicate(labels, prop); }));
+    nodes.emplace_back(std::move(node));
+  }
+
+  // Handle EDGES
+  const auto &[edges_itr, dummy] = json.emplace("edges", nlohmann::json::array());
+  auto &edges = edges_itr.value();
+  for (const auto &[edge_type, info] : edge_state_) {
+    if (!edge_predicate(edge_type.type)) continue;
+    if (!node_predicate(edge_type.from)) continue;
+    if (edge_type.from != edge_type.to && !node_predicate(edge_type.to)) continue;
+    auto edge = nlohmann::json::object();
+    edge.emplace("type", name_id_mapper.IdToName(edge_type.type.AsUint()));
+    const auto &[out_labels_itr, _] = edge.emplace("start_node_labels", nlohmann::json::array_t{});
+    for (const auto labelId : edge_type.from) {
+      out_labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
+    }
+    std::sort(out_labels_itr->begin(), out_labels_itr->end());
+    const auto &[in_labels_itr, _b] = edge.emplace("end_node_labels", nlohmann::json::array_t{});
+    for (const auto labelId : edge_type.to) {
+      in_labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
+    }
+    std::sort(in_labels_itr->begin(), in_labels_itr->end());
+    edge.update(info.ToJson(
+        name_id_mapper, enum_store, [&](PropertyId prop) { return edge_property_predicate(edge_type.type, prop); }));
+    edges.emplace_back(std::move(edge));
+  }
+
+  auto stats_cleanup = [&json](const std::string &main_key) {
+    erase_if(json[main_key].get_ref<nlohmann::json::array_t &>(), [](auto &elem) { return elem["count"] <= 0; });
+    for (auto &val : json[main_key].get_ref<nlohmann::json::array_t &>()) {
+      erase_if(val["properties"].get_ref<nlohmann::json::array_t &>(), [](auto &elem) { return elem["count"] <= 0; });
+      for (auto &val : val["properties"].get_ref<nlohmann::json::array_t &>()) {
+        erase_if(val["types"].get_ref<nlohmann::json::array_t &>(), [](auto &elem) { return elem["count"] <= 0; });
+      }
+    }
+  };
+  stats_cleanup("nodes");
+  stats_cleanup("edges");
+
+  return json;
+}
+
+template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::DeleteVertex(Vertex *vertex) {
   auto &info = vertex_state_[vertex->labels];
   --info.n;

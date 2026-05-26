@@ -8450,9 +8450,22 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         return auth_checker && auth_checker->Has(edge_type_id, AuthQuery::FineGrainedPrivilege::READ);
       };
 
+      const auto node_property_predicate = [&auth_checker](auto const &labels, storage::PropertyId prop) {
+        return auth_checker->HasPropertyPermission(std::span<storage::LabelId const>{labels.data(), labels.size()},
+                                                   prop,
+                                                   AuthQuery::PropertyPermissionType::READ);
+      };
+      const auto edge_property_predicate = [&auth_checker](storage::EdgeTypeId edge_type, storage::PropertyId prop) {
+        return auth_checker->HasPropertyPermission(edge_type, prop, AuthQuery::PropertyPermissionType::READ);
+      };
+
       auto json = auth_checker != nullptr
-                      ? storage->schema_info_.ToJson(
-                            *storage->name_id_mapper_, storage->enum_store_, node_predicate, edge_predicate)
+                      ? storage->schema_info_.ToJson(*storage->name_id_mapper_,
+                                                     storage->enum_store_,
+                                                     node_predicate,
+                                                     edge_predicate,
+                                                     node_property_predicate,
+                                                     edge_property_predicate)
                       : storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
 #else
       auto json = storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);

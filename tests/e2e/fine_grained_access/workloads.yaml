@@ -9,6 +9,7 @@ property_fga_args: &property_fga_args
   - "--log-level=TRACE"
   - "--property-fga-enabled=true"
   - "--storage-properties-on-edges=true"
+  - "--schema-info-enabled=true"
 
 base_setup_queries: &base_setup_queries
   # Create a role before the first user so builtin role creation (admin/readwrite/readonly) is suppressed.
@@ -133,8 +134,10 @@ property_fga_setup_queries: &property_fga_setup_queries
   - "CREATE (:Person {name: 'End'});"
   - "MATCH (s:Person {name: 'Start'}), (e:Employee {name: 'Alice'}) CREATE (s)-[:KNOWS]->(e);"
   - "MATCH (e:Employee {name: 'Alice'}), (p:Person {name: 'End'}) CREATE (e)-[:KNOWS]->(p);"
-  # Property FGA: deny ssn on Employee nodes, deny secret_code on WORKS_AT edges
+  # Property FGA: grant all then deny specific properties
+  - "GRANT READ {*} ON NODES Employee TO user;"
   - "DENY READ {ssn} ON NODES Employee TO user;"
+  - "GRANT READ {*} ON RELATIONSHIPS WORKS_AT TO user;"
   - "DENY READ {secret_code} ON RELATIONSHIPS WORKS_AT TO user;"
 
 property_fga_cluster: &property_fga_cluster
