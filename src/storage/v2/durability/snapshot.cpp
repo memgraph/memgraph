@@ -12974,8 +12974,8 @@ std::optional<std::filesystem::path> CreateSnapshot(
     return std::nullopt;
   }
 
-  auto const snapshot_size = snapshot.GetSize();
   snapshot.Finalize();
+  auto const snapshot_size = std::filesystem::file_size(path);
   spdlog::info("snapshot complete: {} ({} vertices, {} edges, {:.1f} MiB, {:.2f}s)",
                path,
                vertices_count,
