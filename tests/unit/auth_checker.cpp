@@ -453,6 +453,41 @@ TEST(AuthChecker, Generate) {
   EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
 }
 
+TYPED_TEST(FineGrainedAuthCheckerFixture, RequiresFgDuringExec_WildcardVertexEdgeUnrestricted_PropertyFGAOn_NoRules) {
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, /*property_fga_enabled*/ true};
+  ASSERT_FALSE(auth_checker.NeedsFineGrainedAuthChecker());
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, RequiresFgDuringExec_PropertyFGAOff_EvenIfPropertyRulesStored) {
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
+  user.property_access_handler().label_properties().Deny("l1", "ssn");
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, /*property_fga_enabled*/ false};
+  ASSERT_FALSE(auth_checker.NeedsFineGrainedAuthChecker());
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture,
+           RequiresFgDuringExec_WildcardVertexEdgeUnrestricted_PropertyFGAOn_PropertyRulesNonEmpty) {
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
+  user.property_access_handler().label_properties().Deny("l1", "ssn");
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, /*property_fga_enabled*/ true};
+  ASSERT_TRUE(auth_checker.NeedsFineGrainedAuthChecker());
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, RequiresFgDuringExec_LabelFgRestricted_AlwaysTrue) {
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, /*property_fga_enabled*/ false};
+  ASSERT_TRUE(auth_checker.NeedsFineGrainedAuthChecker());
+}
+
 TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAMultiLabelDenyWins) {
   // v1 has label "l1"; add "l2" so it has two labels
   ASSERT_TRUE(this->v1.AddLabel(this->dba.NameToLabel("l2")).has_value());

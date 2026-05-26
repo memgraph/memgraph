@@ -81,6 +81,12 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool HasUnrestrictedAccessToEdges() const = 0;
 
+  /// True when a FineGrainedAuthChecker must be attached for correct
+  /// authorization, defined by either per-Label/per-Edge rules, or per-Property
+  /// rules. When false, the checker is redundant as no restrictions to labels,
+  /// edges, or properties are defined for the current user.
+  [[nodiscard]] virtual bool NeedsFineGrainedAuthChecker() const = 0;
+
   [[nodiscard]] virtual bool HasPropertyPermission(std::span<memgraph::storage::LabelId const> labels,
                                                    memgraph::storage::PropertyId property,
                                                    AuthQuery::PropertyPermissionType type) const = 0;
@@ -139,6 +145,8 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
   bool HasUnrestrictedAccessToVertices() const override { return true; }
 
   bool HasUnrestrictedAccessToEdges() const override { return true; }
+
+  bool NeedsFineGrainedAuthChecker() const override { return false; }
 
   bool HasPropertyPermission(std::span<memgraph::storage::LabelId const> /*labels*/,
                              memgraph::storage::PropertyId /*property*/,

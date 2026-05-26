@@ -3193,9 +3193,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
     // Create only if an explicit user is defined
     auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
     DMG_ASSERT(auth_checker, "Auth checker should not be null");
-    // if the user has unrestricted access to all labels and edge types, we don't need to perform authorization
-    // otherwise, we do assign the auth checker to check for label access control
-    if (!auth_checker->HasUnrestrictedAccessToVertices() || !auth_checker->HasUnrestrictedAccessToEdges()) {
+    if (auth_checker->NeedsFineGrainedAuthChecker()) {
       ctx_.auth_checker = std::move(auth_checker);
     }
   }
@@ -3884,6 +3882,10 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
   if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context->auth_checker && user_or_role &&
       *user_or_role) {
     auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
+    DMG_ASSERT(auth_checker, "Auth checker should not be null");
+    if (!auth_checker->NeedsFineGrainedAuthChecker()) {
+      auth_checker = nullptr;
+    }
   }
 #endif
 
@@ -8435,8 +8437,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           interpreter_context->auth_checker && has_user_or_role && db_acc) {
         auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, &*db_acc);
         DMG_ASSERT(auth_checker, "Auth checker should not be null");
-        // if the user has unrestricted access to all labels and edge types, we don't need to perform authorization
-        if (auth_checker->HasUnrestrictedAccessToVertices() && auth_checker->HasUnrestrictedAccessToEdges()) {
+        if (!auth_checker->NeedsFineGrainedAuthChecker()) {
           auth_checker = nullptr;
         }
       }

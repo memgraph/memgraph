@@ -30,6 +30,7 @@
 #include "utils/variant_helpers.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <span>
 
 #ifdef MG_ENTERPRISE
@@ -315,6 +316,17 @@ bool FineGrainedAuthChecker::HasUnrestrictedAccessToVertices() const {
 bool FineGrainedAuthChecker::HasUnrestrictedAccessToEdges() const {
   auto const &permissions = GetCachedEdgePermissions();
   return HasAllGlobalPrivilegesOnEdges() && permissions.GetRules().empty();
+}
+
+bool FineGrainedAuthChecker::NeedsFineGrainedAuthChecker() const {
+  if (!HasUnrestrictedAccessToVertices() || !HasUnrestrictedAccessToEdges()) {
+    return true;
+  }
+  if (!property_fga_enabled_) {
+    return false;
+  }
+  return !GetCachedPropertyLabelPermissions().GetRules().empty() ||
+         !GetCachedPropertyEdgeTypePermissions().GetRules().empty();
 }
 
 auth::PropertyAccessPermissions const &FineGrainedAuthChecker::GetCachedPropertyLabelPermissions() const {

@@ -382,6 +382,10 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
         interpreter_.current_db_.execution_db_accessor_) {
       auto *dba = &*interpreter_.current_db_.execution_db_accessor_;
       auth_checker = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*interpreter_.user_or_role_, dba);
+      DMG_ASSERT(auth_checker, "Auth checker should not be null");
+      if (!auth_checker->NeedsFineGrainedAuthChecker()) {
+        auth_checker = nullptr;
+      }
     }
 #endif
 
