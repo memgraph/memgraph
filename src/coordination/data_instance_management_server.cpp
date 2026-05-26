@@ -47,13 +47,5 @@ bool DataInstanceManagementServer::Shutdown() {
 
 bool DataInstanceManagementServer::Start() { return rpc_server_.Start(); }
 
-auto DataInstanceManagementServer::ReloadTls() -> std::expected<void, utils::SSL_CTX_Error> {
-  auto res = rpc_server_context_.reload();
-  if (!res.has_value()) {
-    res.error().msg = "Failed to reload TLS on DataInstanceManagementServer. " + res.error().msg;
-  }
-  return res;
-}
-
 }  // namespace memgraph::coordination
 #endif

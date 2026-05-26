@@ -17,6 +17,7 @@ target_sources(mg-communication
     bolt/client.cpp
     buffer.cpp
     client.cpp
+    cluster_tls.cpp
     context.cpp
     helpers.cpp
     init.cpp

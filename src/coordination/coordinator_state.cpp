@@ -210,13 +210,5 @@ void CoordinatorState::ShutDownCoordinator() {
   std::get<CoordinatorInstance>(data_).ShuttingDown();
 }
 
-// Replication server is not handled here
-auto CoordinatorState::ReloadTls() -> std::expected<void, utils::SSL_CTX_Error> {
-  if (std::holds_alternative<CoordinatorInstance>(data_)) {
-    return std::get<CoordinatorInstance>(data_).ReloadTls();
-  }
-  return std::get<CoordinatorMainReplicaData>(data_).data_instance_management_server_->ReloadTls();
-}
-
 }  // namespace memgraph::coordination
 #endif

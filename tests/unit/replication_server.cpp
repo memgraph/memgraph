@@ -12,6 +12,7 @@
 #include "boost/dll/runtime_symbol_info.hpp"
 #include "gtest/gtest.h"
 
+#include "communication/cluster_tls.hpp"
 #include "replication/config.hpp"
 #include "replication/replication_server.hpp"
 #include "replication_coordination_glue/messages.hpp"
@@ -47,6 +48,21 @@ using namespace std::string_view_literals;
 constexpr int port{8186};
 
 namespace {
+
+// Initializes the process-wide cluster server SSL singleton from the given
+// TlsConfig and returns whether it succeeded. Cluster-TLS servers built via
+// `CreateServerContext(tls_config)` read through the singleton, so any test
+// that constructs a ReplicationServer with `tls_config` set must call this
+// first; otherwise the singleton stays uninitialized and the server runs in
+// plain mode.
+[[nodiscard]] bool InitClusterServerSslForTest(memgraph::utils::TlsConfig const &cfg) {
+  auto r = memgraph::communication::ClusterServerSsl::Instance().Init(cfg);
+  if (!r.has_value()) {
+    std::cerr << "ClusterServerSsl::Init failed in test setup: " << r.error().msg << std::endl;
+    return false;
+  }
+  return true;
+}
 
 // Hex-encoded uppercase serial number of an X509 cert. We use the serial as
 // the cert discriminator (rather than CN) because OpenSSL guarantees it's
@@ -156,8 +172,9 @@ TEST(ReplicationServer, TlsClientTlsServer) {
   auto const key2_file = (certs_dir / "instance2.key").string();
   auto const cert2_file = (certs_dir / "instance2.crt").string();
   auto const ca_file = (certs_dir / "ca.crt").string();
-  TlsConfig tls_config{.key_file = key2_file, .cert_file = cert2_file, .ca_file = ca_file};
-  ReplicationServerConfig cfg{.repl_server = Endpoint("0.0.0.0", port), .tls_config = std::move(tls_config)};
+  TlsConfig const tls_config{.key_file = key2_file, .cert_file = cert2_file, .ca_file = ca_file};
+  ASSERT_TRUE(InitClusterServerSslForTest(tls_config));
+  ReplicationServerConfig cfg{.repl_server = Endpoint("0.0.0.0", port), .tls_config = tls_config};
   ReplicationServer server(cfg);
   ASSERT_TRUE(server.Start());
 
@@ -172,13 +189,13 @@ TEST(ReplicationServer, TlsClientTlsServer) {
 }
 
 TEST(ReplicationServer, TlsServerNoTlsClient) {
-  // Test that instance1 can connect to instance2
   auto const certs_dir = fs::path{boost::dll::program_location().parent_path().string()} / "tls_certs";
   auto const key2_file = (certs_dir / "instance2.key").string();
   auto const cert2_file = (certs_dir / "instance2.crt").string();
   auto const ca_file = (certs_dir / "ca.crt").string();
-  TlsConfig tls_config{.key_file = key2_file, .cert_file = cert2_file, .ca_file = ca_file};
-  ReplicationServerConfig cfg{.repl_server = Endpoint("0.0.0.0", port), .tls_config = std::move(tls_config)};
+  TlsConfig const tls_config{.key_file = key2_file, .cert_file = cert2_file, .ca_file = ca_file};
+  ASSERT_TRUE(InitClusterServerSslForTest(tls_config));
+  ReplicationServerConfig cfg{.repl_server = Endpoint("0.0.0.0", port), .tls_config = tls_config};
   ReplicationServer server(cfg);
   ASSERT_TRUE(server.Start());
 
@@ -191,12 +208,11 @@ TEST(ReplicationServer, TlsServerNoTlsClient) {
 }
 
 // Server starts with instance2's cert+key copied into a temp path. The peer
-// cert presented to a TLS client is asserted to have CN="instance2". The
+// cert presented to a TLS client is asserted to have instance2's serial. The
 // cert+key files on disk are then overwritten with instance1's content; after
-// server.ReloadTls(), the peer cert presented to a new TLS handshake must
-// have CN="instance1". This asserts the *identity* of the served cert, not
-// just that some valid cert was served (which would pass even if the reload
-// was a no-op, since both certs are signed by the shared CA).
+// driving the cluster-server singleton through Prepare+Commit (the same path
+// the production RELOAD INTRA_CLUSTER TLS handler takes), the peer cert
+// presented to a new TLS handshake must have instance1's serial.
 TEST(ReplicationServer, TlsReload) {
   auto const certs_dir = fs::path{boost::dll::program_location().parent_path().string()} / "tls_certs";
   auto const ca_file = (certs_dir / "ca.crt").string();
@@ -209,8 +225,12 @@ TEST(ReplicationServer, TlsReload) {
   fs::copy_file(certs_dir / "instance2.crt", tmp_crt, fs::copy_options::overwrite_existing);
   fs::copy_file(certs_dir / "instance2.key", tmp_key, fs::copy_options::overwrite_existing);
 
-  TlsConfig tls_config{.key_file = tmp_key, .cert_file = tmp_crt, .ca_file = ca_file};
-  ReplicationServerConfig cfg{.repl_server = Endpoint("0.0.0.0", port), .tls_config = std::move(tls_config)};
+  // Re-initialize the cluster server singleton so this test starts from a
+  // known state regardless of which other tests in the suite ran before it.
+  TlsConfig const tls_config{.key_file = tmp_key, .cert_file = tmp_crt, .ca_file = ca_file};
+  ASSERT_TRUE(InitClusterServerSslForTest(tls_config));
+
+  ReplicationServerConfig cfg{.repl_server = Endpoint("0.0.0.0", port), .tls_config = tls_config};
   ReplicationServer server(cfg);
   ASSERT_TRUE(server.Start());
 
@@ -247,9 +267,10 @@ TEST(ReplicationServer, TlsReload) {
   fs::copy_file(certs_dir / "instance1.crt", tmp_crt, fs::copy_options::overwrite_existing);
   fs::copy_file(certs_dir / "instance1.key", tmp_key, fs::copy_options::overwrite_existing);
 
-  // 3) Reload should pick up the new files. has_value() handles both bool and
-  // `std::expected<void, E>` return shapes.
-  ASSERT_TRUE(server.ReloadTls().has_value());
+  // 3) Drive the production 2PC path: Prepare must succeed, Commit is pure.
+  auto prepared = memgraph::communication::ClusterServerSsl::Instance().Prepare();
+  ASSERT_TRUE(prepared.has_value()) << "Prepare failed: " << prepared.error().msg;
+  memgraph::communication::ClusterServerSsl::Instance().Commit(std::move(*prepared));
 
   // 4) Probe again. The strong assertions:
   //    a) the served cert MUST have changed (catches no-op reloads),

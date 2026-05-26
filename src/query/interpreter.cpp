@@ -41,7 +41,9 @@
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "communication/cluster_tls.hpp"
 #include "coordination/constants.hpp"
+#include "coordination/coordinator_cert_reloader.hpp"
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "db_accessor.hpp"
@@ -5057,21 +5059,45 @@ PreparedQuery PrepareReloadSSLQuery(ParsedQuery parsed_query, bool in_explicit_t
                     license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "RELOAD TLS"));
               }
 
-              if (interpreter_context->coordinator_state_) {
-                // TODO: (andi) Handle errors
-                if (auto const res = interpreter_context->coordinator_state_->ReloadTls(); !res.has_value()) {
-                  throw QueryRuntimeException(res.error().msg);
-                }
-                if (interpreter_context->coordinator_state_->IsDataInstance()) {
-                  // Handle separately replication server
-                  auto locked_ptr = interpreter_context->repl_state->ReadLock();
-                  if (locked_ptr->IsReplica()) {
-                    if (auto const res = locked_ptr->GetReplicaRole().server->ReloadTls(); !res.has_value()) {
-                      throw QueryRuntimeException(res.error().msg);
-                    }
-                  }
-                }
+              // Two-phase commit across the three TLS "kingdoms" on this node:
+              //   1. ClusterServerSsl  — every Memgraph cluster-TLS server context (replication,
+              //      data-instance management, coordinator-instance management) reads through it.
+              //   2. ClusterClientSsl  — every Memgraph cluster-TLS client context (replication,
+              //      peer-coordinator, peer data-instance) reads through it.
+              //   3. CoordinatorCertReloader — NuRaft's server+client SSL_CTXs, whose cert
+              //      hot-swap is done via the SSL_CTX_set_cert_cb path because NuRaft owns the
+              //      contexts itself.
+              //
+              // Each Prepare() builds a candidate from disk into scratch space without touching
+              // live state. We only Commit (atomic-store) after every Prepare succeeds, so an
+              // unparseable cert/key/CA file leaves the cluster on the previous good state.
+              auto srv_prep = communication::ClusterServerSsl::Instance().Prepare();
+              if (!srv_prep.has_value()) {
+                throw QueryRuntimeException("cluster server TLS: " + srv_prep.error().msg);
               }
+
+              auto cli_prep = communication::ClusterClientSsl::Instance().Prepare();
+              if (!cli_prep.has_value()) {
+                throw QueryRuntimeException("cluster client TLS: " + cli_prep.error().msg);
+              }
+
+              auto raft_prep = coordination::CoordinatorCertReloader::Instance().Prepare();
+              if (!raft_prep.has_value()) {
+                throw QueryRuntimeException("NuRaft TLS: " + raft_prep.error().msg);
+              }
+
+              // All prepares succeeded — commit. NuRaft commits FIRST because its Commit is the
+              // only one that can still fail (the in-place `SSL_CTX_load_verify_locations` for
+              // the CA trust store; see CoordinatorCertReloader::Commit docs). If it fails, we
+              // throw BEFORE the Cluster*Ssl atomic-store commits run, leaving the cluster on
+              // the previous good state. After NuRaft commits successfully, the remaining two
+              // commits are pure atomic stores and genuinely cannot fail.
+              if (auto const res = coordination::CoordinatorCertReloader::Instance().Commit(std::move(*raft_prep));
+                  !res.has_value()) {
+                throw QueryRuntimeException("NuRaft TLS commit: " + res.error().msg);
+              }
+              communication::ClusterServerSsl::Instance().Commit(std::move(*srv_prep));
+              communication::ClusterClientSsl::Instance().Commit(std::move(*cli_prep));
             }
 #endif
             notifications->emplace_back(

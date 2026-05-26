@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "coordination/coordination_observer.hpp"
-#include "coordination/coordinator_cert_reloader.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
@@ -1731,14 +1730,6 @@ auto CoordinatorInstance::FindClientConnector(int32_t leader_id) const -> Coordi
     }
   }
   return leader;
-}
-
-auto CoordinatorInstance::ReloadTls() -> std::expected<void, utils::SSL_CTX_Error> {
-  if (auto r = coordinator_management_server_.ReloadTls(); !r.has_value()) return r;
-  // Eagerly refresh the NuRaft cert/key/CA snapshot. New handshakes also pick up
-  // changes lazily via SSL_CTX_set_cert_cb (mtime-checked); this call gives the
-  // RELOAD INTRA_CLUSTER TLS query immediate effect.
-  return CoordinatorCertReloader::Instance().MaybeReload();
 }
 
 }  // namespace memgraph::coordination

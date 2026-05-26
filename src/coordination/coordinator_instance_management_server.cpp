@@ -39,13 +39,5 @@ CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {
 
 bool CoordinatorInstanceManagementServer::Start() { return rpc_server_.Start(); }
 
-auto CoordinatorInstanceManagementServer::ReloadTls() -> std::expected<void, utils::SSL_CTX_Error> {
-  auto res = rpc_server_context_.reload();
-  if (!res.has_value()) {
-    res.error().msg = "Failed to reload TLS on CoordinatorInstanceManagementServer. " + res.error().msg;
-  }
-  return res;
-}
-
 }  // namespace memgraph::coordination
 #endif

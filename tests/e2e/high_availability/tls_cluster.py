@@ -492,5 +492,71 @@ def test_reload_intra_cluster_tls(test_name, tmp_path):
     assert after["coord3_raft"] != initial["coord3_raft"]
 
 
+def test_reload_intra_cluster_tls_rollback_on_bad_key(test_name, tmp_path):
+    """`RELOAD INTRA_CLUSTER TLS` does two-phase commit across three TLS
+    "kingdoms" (cluster servers, cluster clients, NuRaft). If the candidate
+    cert/key/CA fails to parse in any kingdom, no live state is mutated and
+    the cluster keeps serving the previous good cert.
+
+    Verify by corrupting the on-disk key file (truncating to a few bytes so
+    PEM parsing fails), running the query, expecting a Bolt error, and
+    probing every cluster-TLS port to confirm the serial is unchanged.
+    """
+    tls_dir = str(tmp_path / "tls_certs")
+    _stage_tls_certs(tls_dir)
+
+    inner_instances_description = _instances_description_with_tls_dir(test_name, tls_dir)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_sync_cluster():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    ca_file = os.path.join(tls_dir, "ca.crt")
+    probe_client_cert = os.path.join(SCRIPT_TLS_CERTS, "instance1.crt")
+    probe_client_key = os.path.join(SCRIPT_TLS_CERTS, "instance1.key")
+
+    # Capture the baseline for one representative port from each kingdom.
+    sample_ports = {
+        "instance1_mgmt": 10011,
+        "instance1_repl": 10001,
+        "coord1_mgmt": 10121,
+        "coord1_raft": 10111,
+    }
+    baseline = {
+        name: _probe_cert_serial("127.0.0.1", port, probe_client_cert, probe_client_key, ca_file)
+        for name, port in sample_ports.items()
+    }
+
+    # Corrupt instance_1's key file. The cert file is left alone, so the
+    # cluster-server Prepare on instance_1's node will fail mid-build (key
+    # parses fail). Prepare returns std::unexpected; the handler throws
+    # before any kingdom commits.
+    with open(os.path.join(tls_dir, "instance1.key"), "w") as f:
+        f.write("not a PEM key\n")
+
+    cursor_instance_1 = connect(host="localhost", port=7687).cursor()
+    raised = False
+    try:
+        execute_and_fetch_all(cursor_instance_1, "RELOAD INTRA_CLUSTER TLS")
+    except Exception as e:
+        raised = True
+        assert (
+            "cluster" in str(e).lower() or "key" in str(e).lower() or "tls" in str(e).lower()
+        ), f"Expected a TLS-related error message, got: {e!r}"
+    assert raised, "RELOAD INTRA_CLUSTER TLS should have failed because the key file is corrupt"
+
+    # Every port on instance_1 must STILL serve its original cert — no kingdom committed.
+    after = {
+        name: _probe_cert_serial("127.0.0.1", port, probe_client_cert, probe_client_key, ca_file)
+        for name, port in sample_ports.items()
+    }
+    for name, baseline_serial in baseline.items():
+        assert after[name] == baseline_serial, (
+            f"{name} ({sample_ports[name]}) changed despite the reload failing. "
+            f"Baseline={baseline_serial} after={after[name]} — 2PC rollback is broken."
+        )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

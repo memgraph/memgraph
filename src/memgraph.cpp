@@ -24,6 +24,7 @@
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
+#include "communication/cluster_tls.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -291,6 +292,19 @@ int main(int argc, char **argv) {
   // Fail fast if --cluster-{cert,key,ca}-file are partially configured.
   // Must run after logger init so the fatal message is delivered.
   memgraph::flags::ValidateIntraClusterTLSFlags();
+
+  // Initialize the cluster TLS singletons from the cluster flags. Every
+  // ClusterView ServerContext/ClientContext below will atomic-load from
+  // these. A bad cert/key/CA path here surfaces at boot, not at first peer
+  // connection.
+  if (auto const cluster_tls = memgraph::flags::TlsConfigFromClusterFlags()) {
+    if (auto const r = memgraph::communication::ClusterServerSsl::Instance().Init(*cluster_tls); !r.has_value()) {
+      LOG_FATAL("Failed to initialize cluster server TLS: {}", r.error().msg);
+    }
+    if (auto const r = memgraph::communication::ClusterClientSsl::Instance().Init(*cluster_tls); !r.has_value()) {
+      LOG_FATAL("Failed to initialize cluster client TLS: {}", r.error().msg);
+    }
+  }
 
   // Block SIGTERM/SIGINT as early as possible so that every thread we spawn
   // inherits the blocked mask.  The main thread will consume them

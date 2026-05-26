@@ -39,8 +39,6 @@ class DataInstanceManagementServer {
     rpc_server_.Register<TRequestResponse>(std::forward<F>(callback));
   }
 
-  auto ReloadTls() -> std::expected<void, utils::SSL_CTX_Error>;
-
  private:
   communication::ServerContext rpc_server_context_;
   rpc::Server rpc_server_;

@@ -773,6 +773,12 @@ add_custom_target(memgraph__unit__tls_certs_dir ALL
  add_dependencies(memgraph__unit memgraph__unit__tls_certs_dir)
  add_dependencies(${test_unit_prefix}replication_server memgraph__unit__tls_certs_dir)
 
+add_unit_test(cluster_client_ssl
+    SOURCES cluster_client_ssl.cpp
+    LINK_TARGETS mg-communication mg::io mg::utils Boost::filesystem
+)
+add_dependencies(${test_unit_prefix}cluster_client_ssl memgraph__unit__tls_certs_dir)
+
 if (MG_ENTERPRISE)
     add_unit_test(management_servers
         SOURCES management_servers.cpp

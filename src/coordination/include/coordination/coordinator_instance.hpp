@@ -119,8 +119,6 @@ class CoordinatorInstance {
 
   auto GetTelemetryJson() const -> nlohmann::json;
 
-  auto ReloadTls() -> std::expected<void, utils::SSL_CTX_Error>;
-
  private:
   auto ShowReplicationLagAsFollower(int32 leader_id) const
       -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;

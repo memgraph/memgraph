@@ -19,6 +19,7 @@
 #include <boost/system/detail/error_code.hpp>
 #include <utility>
 
+#include "communication/cluster_tls.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::communication {
@@ -58,7 +59,11 @@ ClientContext::ClientContext(const std::string &key_file, const std::string &cer
   }
 }
 
-ClientContext::ClientContext(ClientContext &&other) noexcept : use_ssl_(other.use_ssl_), ctx_(other.ctx_) {
+ClientContext ClientContext::FromClusterSingleton() { return ClientContext{Mode::ClusterView}; }
+
+ClientContext::ClientContext(ClientContext &&other) noexcept
+    : mode_(other.mode_), use_ssl_(other.use_ssl_), ctx_(other.ctx_) {
+  other.mode_ = Mode::Standalone;
   other.use_ssl_ = false;
   other.ctx_ = nullptr;
 }
@@ -66,16 +71,18 @@ ClientContext::ClientContext(ClientContext &&other) noexcept : use_ssl_(other.us
 ClientContext &ClientContext::operator=(ClientContext &&other) noexcept {
   if (this == &other) return *this;
 
-  // destroy my objects
-  if (use_ssl_) {
+  // destroy my objects (Standalone only — ClusterView doesn't own ctx_)
+  if (mode_ == Mode::Standalone && use_ssl_) {
     SSL_CTX_free(ctx_);
   }
 
   // move other objects to self
+  mode_ = other.mode_;
   use_ssl_ = other.use_ssl_;
   ctx_ = other.ctx_;
 
   // reset other objects
+  other.mode_ = Mode::Standalone;
   other.use_ssl_ = false;
   other.ctx_ = nullptr;
 
@@ -83,17 +90,30 @@ ClientContext &ClientContext::operator=(ClientContext &&other) noexcept {
 }
 
 ClientContext::~ClientContext() {
-  if (use_ssl_) {
+  if (mode_ == Mode::Standalone && use_ssl_) {
     SSL_CTX_free(ctx_);
   }
 }
 
-SSL_CTX *ClientContext::context() { return ctx_; }
+SSL_CTX *ClientContext::context() {
+  if (mode_ == Mode::ClusterView) {
+    auto ptr = ClusterClientSsl::Instance().CurrentContext();
+    MG_ASSERT(ptr, "ClusterView ClientContext used before ClusterClientSsl::Init");
+    return ptr->native_handle();
+  }
+  return ctx_;
+}
 
-auto ClientContext::use_ssl() const -> bool { return use_ssl_; }
+auto ClientContext::use_ssl() const -> bool {
+  if (mode_ == Mode::ClusterView) {
+    return ClusterClientSsl::Instance().CurrentContext() != nullptr;
+  }
+  return use_ssl_;
+}
 
 ServerContext::ServerContext(std::string key_file, std::string cert_file, std::string ca_file, bool const verify_peer)
-    : key_file_(std::move(key_file)),
+    : mode_(Mode::Standalone),
+      key_file_(std::move(key_file)),
       cert_file_(std::move(cert_file)),
       ca_file_(std::move(ca_file)),
       verify_peer_(verify_peer) {
@@ -102,23 +122,45 @@ ServerContext::ServerContext(std::string key_file, std::string cert_file, std::s
   }
 }
 
+ServerContext ServerContext::FromClusterSingleton() { return ServerContext{Mode::ClusterView}; }
+
 ServerContext::~ServerContext() = default;
 
 SSL_CTX *ServerContext::context() {
+  if (mode_ == Mode::ClusterView) {
+    auto ptr = ClusterServerSsl::Instance().CurrentContext();
+    MG_ASSERT(ptr, "ClusterView ServerContext used before ClusterServerSsl::Init");
+    return ptr->native_handle();
+  }
   auto ptr = ctx_.load(std::memory_order_acquire);
   MG_ASSERT(ptr, "Trying to use uninitialized SSL context");
   return ptr->native_handle();
 }
 
 boost::asio::ssl::context &ServerContext::context_clone() {
+  if (mode_ == Mode::ClusterView) {
+    auto ptr = ClusterServerSsl::Instance().CurrentContext();
+    MG_ASSERT(ptr, "ClusterView ServerContext used before ClusterServerSsl::Init");
+    return *ptr;
+  }
   auto ptr = ctx_.load(std::memory_order_acquire);
   MG_ASSERT(ptr, "Trying to use uninitialized SSL context");
   return *ptr;
 }
 
-bool ServerContext::use_ssl() const { return ctx_.load(std::memory_order_acquire) != nullptr; }
+bool ServerContext::use_ssl() const {
+  if (mode_ == Mode::ClusterView) {
+    return ClusterServerSsl::Instance().CurrentContext() != nullptr;
+  }
+  return ctx_.load(std::memory_order_acquire) != nullptr;
+}
 
 auto ServerContext::reload() -> std::expected<void, utils::SSL_CTX_Error> {
+  // ClusterView contexts are read-only views of the cluster TLS singleton.
+  // Callers must reload via `ClusterServerSsl::Instance().{Prepare,Commit}`
+  // directly; calling reload() on a view is a programming error.
+  MG_ASSERT(mode_ == Mode::Standalone,
+            "ServerContext::reload() called on a ClusterView context — use ClusterServerSsl directly");
   if (key_file_.empty() || cert_file_.empty()) {
     return std::unexpected{
         utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FLAGS_NOT_CONFIGURED,

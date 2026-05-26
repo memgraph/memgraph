@@ -12,13 +12,11 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_cert_reloader.hpp"
-
 #include "utils/on_scope_exit.hpp"
 
+#include <fmt/format.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
-
-#include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
 #include <system_error>
@@ -60,24 +58,62 @@ auto CoordinatorCertReloader::Register(SSL_CTX *server_ctx, SSL_CTX *client_ctx,
   if (!loaded.has_value()) return std::unexpected{loaded.error()};
   current_.store(*loaded, std::memory_order_release);
 
-  // SSL_CTX_set_cert_cb only fires for server-side handshakes. The client's
-  // identity is loaded once from cfg_.cert_file at NuRaft startup; we rely on
-  // SSL_use_certificate during the server-side cb to swap it per-handshake on
-  // the listener. (For mutual TLS, the client also needs to present a cert
-  // when initiating outbound connections to peer coordinators — NuRaft's
-  // client ctx loads it on init; we don't currently hot-rotate the outbound
-  // identity. The CA file is refreshed on both ctxs by RefreshIfStale.)
+  // Install SSL_CTX_set_cert_cb on BOTH server and client contexts. The cb
+  // fires on every new handshake (inbound on server_ctx_, outbound on
+  // client_ctx_) and applies the current snapshot's leaf + chain + key to
+  // the per-connection SSL object via SSL_use_certificate / SSL_use_PrivateKey.
+  // Without the cb on client_ctx_, outbound NuRaft handshakes would keep
+  // presenting whatever cert NuRaft loaded once at init, leaving outbound
+  // rotation stuck on the old cert.
   SSL_CTX_set_cert_cb(server_ctx_, &CoordinatorCertReloader::CertCb, this);
+  SSL_CTX_set_cert_cb(client_ctx_, &CoordinatorCertReloader::CertCb, this);
 
   spdlog::info(
       "Coordinator cert reloader registered (cert={}, key={}, ca={}).", cfg_.cert_file, cfg_.key_file, cfg_.ca_file);
   return {};
 }
 
-auto CoordinatorCertReloader::MaybeReload() -> std::expected<void, utils::SSL_CTX_Error> {
-  // If Register was never called (no NuRaft / no TLS), nothing to do.
-  if (server_ctx_ == nullptr) return {};
-  return RefreshIfStale();
+auto CoordinatorCertReloader::Prepare() -> std::expected<ReloadPrepared, utils::SSL_CTX_Error> {
+  // Reload not active (Register was never called — no NuRaft / no TLS).
+  // A successful Prepare with a null candidate is the right answer: Commit
+  // will see a null candidate and do nothing.
+  if (server_ctx_ == nullptr) return ReloadPrepared{.next = nullptr};
+
+  auto loaded = LoadFromDisk();
+  if (!loaded.has_value()) return std::unexpected{loaded.error()};
+  return ReloadPrepared{.next = std::move(*loaded)};
+}
+
+auto CoordinatorCertReloader::Commit(ReloadPrepared prepared) noexcept -> std::expected<void, utils::SSL_CTX_Error> {
+  if (!prepared.next) return {};
+  std::lock_guard const guard{reload_mu_};
+
+  // CA refresh on both contexts — this is the only step that can fail (it
+  // mutates the SSL_CTX in place via `SSL_CTX_load_verify_locations`). Run it
+  // BEFORE the atomic snapshot store: on failure no state has changed yet, so
+  // bailing here leaves the cluster on the previous good state.
+  if (auto r = RefreshCa(); !r.has_value()) return std::unexpected{r.error()};
+
+  // CA refresh succeeded; publish the new cert/key/CA snapshot. This is a
+  // pure atomic store and cannot fail.
+  current_.store(std::move(prepared.next), std::memory_order_release);
+  spdlog::info("Coordinator TLS committed (cert={}, key={}, ca={}).", cfg_.cert_file, cfg_.key_file, cfg_.ca_file);
+  return {};
+}
+
+auto CoordinatorCertReloader::RefreshCa() -> std::expected<void, utils::SSL_CTX_Error> {
+  auto refresh = [&](SSL_CTX *ctx) -> std::expected<void, utils::SSL_CTX_Error> {
+    if (ctx == nullptr) return {};
+    if (SSL_CTX_load_verify_locations(ctx, cfg_.ca_file.c_str(), nullptr) != 1) {
+      return std::unexpected{utils::SSL_CTX_Error{
+          .err_type = utils::SSL_CTX_ERR_TYPE::FAIL_LOAD_CA,
+          .msg = fmt::format("SSL_CTX_load_verify_locations('{}') failed: {}", cfg_.ca_file, OpenSslErrorString())}};
+    }
+    return {};
+  };
+  if (auto r = refresh(server_ctx_); !r.has_value()) return r;
+  if (auto r = refresh(client_ctx_); !r.has_value()) return r;
+  return {};
 }
 
 auto CoordinatorCertReloader::LoadFromDisk() -> std::expected<std::shared_ptr<CertData>, utils::SSL_CTX_Error> {
@@ -160,24 +196,13 @@ auto CoordinatorCertReloader::RefreshIfStale() -> std::expected<void, utils::SSL
   auto loaded = LoadFromDisk();
   if (!loaded.has_value()) return std::unexpected{loaded.error()};
 
-  // Refresh CA on both contexts. SSL_CTX_load_verify_locations replaces the
-  // trust store on the SSL_CTX; safe to call on a live ctx — only handshakes
-  // that have not yet started cert verification are affected. The mutex
-  // serializes us with other reloads.
-  auto refresh_ca = [&](SSL_CTX *ctx) -> std::expected<void, utils::SSL_CTX_Error> {
-    if (ctx == nullptr) return {};
-    if (SSL_CTX_load_verify_locations(ctx, cfg_.ca_file.c_str(), nullptr) != 1) {
-      return std::unexpected{utils::SSL_CTX_Error{
-          .err_type = utils::SSL_CTX_ERR_TYPE::FAIL_LOAD_CA,
-          .msg = fmt::format("SSL_CTX_load_verify_locations('{}') failed: {}", cfg_.ca_file, OpenSslErrorString())}};
-    }
-    return {};
-  };
-  if (auto r = refresh_ca(server_ctx_); !r.has_value()) return r;
-  if (auto r = refresh_ca(client_ctx_); !r.has_value()) return r;
+  if (auto r = RefreshCa(); !r.has_value()) return r;
 
   current_.store(*loaded, std::memory_order_release);
-  spdlog::info("Coordinator TLS reloaded (cert={}, key={}, ca={}).", cfg_.cert_file, cfg_.key_file, cfg_.ca_file);
+  spdlog::info("Coordinator TLS reloaded via lazy mtime check (cert={}, key={}, ca={}).",
+               cfg_.cert_file,
+               cfg_.key_file,
+               cfg_.ca_file);
   return {};
 }
 

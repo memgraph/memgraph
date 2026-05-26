@@ -22,7 +22,6 @@
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
-#include "utils/tls.hpp"
 
 #include "nlohmann/json_fwd.hpp"
 
@@ -82,10 +81,6 @@ class CoordinatorState {
   [[nodiscard]] auto IsDataInstance() const -> bool;
 
   void ShutDownCoordinator();
-
-  // If coordinator, reloads management server and NuRaft server
-  // If data instance, reloads management server only. Replication server reload is handled at a different place
-  auto ReloadTls() -> std::expected<void, utils::SSL_CTX_Error>;
 
  private:
   struct CoordinatorMainReplicaData {

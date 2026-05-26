@@ -14,6 +14,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "communication/cluster_tls.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/data_instance_management_server.hpp"
 #include "replication_coordination_glue/messages.hpp"
@@ -166,6 +167,19 @@ template <typename T>
 class ManagementServerTest : public ::testing::Test {
  protected:
   static constexpr int port = ServerPort<T>::value;
+
+  // Cluster-TLS management servers built via `CreateServerContext(tls_config)`
+  // read through the process-wide singleton. Tests that construct a server
+  // with `tls_config` must call this first; otherwise the singleton stays
+  // uninitialized and the server runs in plain mode.
+  [[nodiscard]] static bool InitClusterServerSsl(memgraph::utils::TlsConfig const &cfg) {
+    auto r = memgraph::communication::ClusterServerSsl::Instance().Init(cfg);
+    if (!r.has_value()) {
+      std::cerr << "ClusterServerSsl::Init failed in test setup: " << r.error().msg << std::endl;
+      return false;
+    }
+    return true;
+  }
 };
 
 using ServerTypes = ::testing::Types<DataInstanceManagementServer, CoordinatorInstanceManagementServer>;
@@ -199,8 +213,10 @@ TYPED_TEST(ManagementServerTest, TlsClientToNoTlsServer) {
 
 TYPED_TEST(ManagementServerTest, TlsClientTlsServer) {
   // Server uses instance2, client uses instance1 — both signed by the shared CA.
+  auto const server_tls = MakeTlsConfig("instance2");
+  ASSERT_TRUE(this->InitClusterServerSsl(server_tls));
   ManagementServerConfig cfg{Endpoint("0.0.0.0", this->port)};
-  TypeParam server(cfg, MakeTlsConfig("instance2"));
+  TypeParam server(cfg, server_tls);
   server.template Register<SwapMainUUIDRpc>(MakeSwapHandler());
   ASSERT_TRUE(server.Start());
 
@@ -213,8 +229,12 @@ TYPED_TEST(ManagementServerTest, TlsClientTlsServer) {
 }
 
 TYPED_TEST(ManagementServerTest, TlsServerNoTlsClient) {
+  auto const server_tls = MakeTlsConfig("instance2");
+  // Management server with tls_config now backs onto the cluster server SSL
+  // singleton; initialize it so the server actually serves TLS.
+  ASSERT_TRUE(this->InitClusterServerSsl(server_tls));
   ManagementServerConfig cfg{Endpoint("0.0.0.0", this->port)};
-  TypeParam server(cfg, MakeTlsConfig("instance2"));
+  TypeParam server(cfg, server_tls);
   server.template Register<SwapMainUUIDRpc>(MakeSwapHandler());
   ASSERT_TRUE(server.Start());
 
@@ -226,12 +246,11 @@ TYPED_TEST(ManagementServerTest, TlsServerNoTlsClient) {
 }
 
 // Server starts with instance2's cert+key copied into a temp path. The peer
-// cert presented to a TLS client is asserted to have CN="instance2". The
+// cert presented to a TLS client is asserted to have instance2's serial. The
 // cert+key files on disk are then overwritten with instance1's content; after
-// server.ReloadTls(), the peer cert presented to a new TLS handshake must
-// have CN="instance1". This asserts the *identity* of the served cert, not
-// just that some valid cert was served (which would pass even if the reload
-// was a no-op, since both certs are signed by the shared CA).
+// driving the cluster-server singleton through Prepare+Commit (the same path
+// the production RELOAD INTRA_CLUSTER TLS handler takes), the peer cert
+// presented to a new TLS handshake must have instance1's serial.
 TYPED_TEST(ManagementServerTest, TlsReload) {
   auto const dir = CertsDir();
   auto const ca_file = (dir / "ca.crt").string();
@@ -245,8 +264,13 @@ TYPED_TEST(ManagementServerTest, TlsReload) {
   fs::copy_file(dir / "instance2.crt", tmp_crt, fs::copy_options::overwrite_existing);
   fs::copy_file(dir / "instance2.key", tmp_key, fs::copy_options::overwrite_existing);
 
+  // Re-initialize the cluster server singleton so this test starts from a
+  // known state regardless of which other tests ran before it.
+  TlsConfig const tls_config{.key_file = tmp_key, .cert_file = tmp_crt, .ca_file = ca_file};
+  ASSERT_TRUE(this->InitClusterServerSsl(tls_config));
+
   ManagementServerConfig cfg{Endpoint("0.0.0.0", this->port)};
-  TypeParam server(cfg, TlsConfig{.key_file = tmp_key, .cert_file = tmp_crt, .ca_file = ca_file});
+  TypeParam server(cfg, tls_config);
   server.template Register<SwapMainUUIDRpc>(MakeSwapHandler());
   ASSERT_TRUE(server.Start());
 
@@ -280,8 +304,10 @@ TYPED_TEST(ManagementServerTest, TlsReload) {
   fs::copy_file(dir / "instance1.crt", tmp_crt, fs::copy_options::overwrite_existing);
   fs::copy_file(dir / "instance1.key", tmp_key, fs::copy_options::overwrite_existing);
 
-  // 3) Reload should pick up the new files.
-  ASSERT_TRUE(server.ReloadTls().has_value());
+  // 3) Drive the production 2PC path: Prepare must succeed, Commit is pure.
+  auto prepared = memgraph::communication::ClusterServerSsl::Instance().Prepare();
+  ASSERT_TRUE(prepared.has_value()) << "Prepare failed: " << prepared.error().msg;
+  memgraph::communication::ClusterServerSsl::Instance().Commit(std::move(*prepared));
 
   // 4) Probe again. Strong assertions:
   //    a) the served cert MUST have changed (catches no-op reloads),
