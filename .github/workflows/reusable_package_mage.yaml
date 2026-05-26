@@ -778,6 +778,10 @@ jobs:
 
       - name: "Run end-to-end tests (debug)"
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        env:
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -795,6 +799,9 @@ jobs:
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
         env:
           PYTHONPATH: "$PWD/tests/e2e"
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -816,6 +823,9 @@ jobs:
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
         env:
           PYTHONPATH: "$PWD/e2e"
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
