@@ -450,6 +450,8 @@ const auto &VirtualProperties(const TypedValue &value) {
   return value.IsVirtualNode() ? value.ValueVirtualNode().Properties() : value.ValueVirtualEdge().Properties();
 }
 
+constexpr auto allow_all_properties = [](storage::PropertyId) { return true; };
+
 TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
   auto *dba = ctx.db_accessor;
@@ -481,7 +483,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
     return TypedValue(std::move(properties));
   };
   auto const *checker = ctx.auth_checker;
-  auto allow_all = [](storage::PropertyId) { return true; };
+
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -495,15 +497,15 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   }
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
-    if (!checker) return get_properties(vertex, allow_all);
+    if (!checker) return get_properties(vertex, allow_all_properties);
     auto maybe_labels = vertex.Labels(ctx.view);
-    if (!maybe_labels) return get_properties(vertex, allow_all);
+    if (!maybe_labels) return get_properties(vertex, allow_all_properties);
     return get_properties(vertex, [&](storage::PropertyId prop) {
       return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
     });
   }
   auto const &edge = value.ValueEdge();
-  if (!checker) return get_properties(edge, allow_all);
+  if (!checker) return get_properties(edge, allow_all_properties);
   return get_properties(edge, [&](storage::PropertyId prop) {
     return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
   });
@@ -854,14 +856,14 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
     return TypedValue(std::move(keys));
   };
   auto const *checker = ctx.auth_checker;
-  auto allow_all = [](storage::PropertyId) { return true; };
+
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
-    if (!checker) return get_keys(vertex, allow_all);
+    if (!checker) return get_keys(vertex, allow_all_properties);
     auto maybe_labels = vertex.Labels(ctx.view);
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
@@ -872,7 +874,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   }
   if (value.IsEdge()) {
     auto const &edge = value.ValueEdge();
-    if (!checker) return get_keys(edge, allow_all);
+    if (!checker) return get_keys(edge, allow_all_properties);
     return get_keys(edge, [&](storage::PropertyId prop) {
       return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
     });
@@ -922,14 +924,14 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   };
 
   auto const *checker = ctx.auth_checker;
-  auto allow_all = [](storage::PropertyId) { return true; };
+
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
-    if (!checker) return get_values(vertex, allow_all);
+    if (!checker) return get_values(vertex, allow_all_properties);
     auto maybe_labels = vertex.Labels(ctx.view);
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
@@ -940,7 +942,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   }
   if (value.IsEdge()) {
     auto const &edge = value.ValueEdge();
-    if (!checker) return get_values(edge, allow_all);
+    if (!checker) return get_values(edge, allow_all_properties);
     return get_values(edge, [&](storage::PropertyId prop) {
       return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
     });

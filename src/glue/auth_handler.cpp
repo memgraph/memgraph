@@ -965,8 +965,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);
-        auto prop_grants = ShowPropertyPermissions(user->property_access_handler(), "USER");
-        fine_grained_grants.insert(fine_grained_grants.end(), prop_grants.begin(), prop_grants.end());
+        fine_grained_grants.append_range(ShowPropertyPermissions(user->property_access_handler(), "USER"));
       }
 #endif
     } else if (role) {
@@ -974,8 +973,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedRolePrivileges(role, db_name);
-        auto prop_grants = ShowPropertyPermissions(role->property_access_handler(), "ROLE");
-        fine_grained_grants.insert(fine_grained_grants.end(), prop_grants.begin(), prop_grants.end());
+        fine_grained_grants.append_range(ShowPropertyPermissions(role->property_access_handler(), "ROLE"));
       }
 #endif
     } else {
