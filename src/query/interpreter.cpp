@@ -7112,28 +7112,32 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       }
 #endif
       auto *dbms_handler = interpreter_context->dbms_handler;
-      std::optional<dbms::DatabaseAccess> database{};
-
-      if (info_query->database_) {
-        const auto &db_name = *info_query->database_;
-        if (!license::global_license_checker.IsEnterpriseValidFast() && db_name != dbms::kDefaultDB) {
-          throw QueryRuntimeException(
-              license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
-        }
+      auto resolve_database = [&]() -> std::optional<dbms::DatabaseAccess> {
+        if (info_query->database_) {
+          const auto &db_name = *info_query->database_;
+          if (!license::global_license_checker.IsEnterpriseValidFast() && db_name != dbms::kDefaultDB) {
+            throw QueryRuntimeException(license::LicenseCheckErrorToString(
+                license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
+          }
 #ifdef MG_ENTERPRISE
-        database = dbms_handler->Get(*info_query->database_);
+          auto db = dbms_handler->Get(db_name);
 #else
-        database = dbms_handler->Get();
+          auto db = dbms_handler->Get();
 #endif
-        if (!database) {
-          throw QueryRuntimeException("Database '{}' was not found.", *info_query->database_);
+          if (!db) {
+            throw QueryRuntimeException("Database '{}' was not found.", db_name);
+          }
+          return db;
         }
-      } else if (info_query->is_current_database_) {
-        if (!current_db.db_acc_) {
-          throw QueryRuntimeException("No current database for the session.");
+        if (info_query->is_current_database_) {
+          if (!current_db.db_acc_) {
+            throw QueryRuntimeException("No current database for the session.");
+          }
+          return current_db.db_acc_;
         }
-        database = current_db.db_acc_;
-      }
+        return std::nullopt;
+      };
+      auto database = resolve_database();
 
       if (database) {
         handler = [db_acc = std::move(
@@ -7196,11 +7200,11 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
               {TypedValue("vector_index_memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::vector_index_memory_tracker.Amount())))},
-              {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(flags::ParseIsolationLevel()))},
+              {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(flags::ParseIsolationLevel()))},
               {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
               {TypedValue("next_session_isolation_level"),
                TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
-              {TypedValue("storage_mode"), TypedValue(StorageModeToString(flags::ParseStorageMode()))}};
+              {TypedValue("global_storage_mode"), TypedValue(StorageModeToString(flags::ParseStorageMode()))}};
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
       }

@@ -25,10 +25,10 @@ default_storage_info_dict = {
     "license_memory_limit": "",  # license dependent
     "query+graph_memory_tracked": "",  # machine dependent
     "vector_index_memory_tracked": "",  # machine dependent
-    "storage_isolation_level": "SNAPSHOT_ISOLATION",
+    "global_isolation_level": "SNAPSHOT_ISOLATION",
     "session_isolation_level": "",
     "next_session_isolation_level": "",
-    "storage_mode": "IN_MEMORY_TRANSACTIONAL",
+    "global_storage_mode": "IN_MEMORY_TRANSACTIONAL",
 }
 
 
