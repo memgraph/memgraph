@@ -140,6 +140,20 @@ property_fga_setup_queries: &property_fga_setup_queries
   - "GRANT READ {*} ON RELATIONSHIPS WORKS_AT TO user;"
   - "DENY READ {secret_code} ON RELATIONSHIPS WORKS_AT TO user;"
 
+property_fga_disabled_args: &property_fga_disabled_args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+  - "--storage-properties-on-edges=true"
+
+property_fga_disabled_cluster: &property_fga_disabled_cluster
+  cluster:
+    main:
+      args: *property_fga_disabled_args
+      log_file: "fine_grained_access.log"
+      setup_queries: *property_fga_setup_queries
+      validation_queries: []
+
 property_fga_cluster: &property_fga_cluster
   cluster:
     main:
@@ -199,6 +213,11 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/property_fga_tests.py"]
     <<: *property_fga_cluster
+
+  - name: "Property FGA disabled"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["fine_grained_access/property_fga_disabled_tests.py"]
+    <<: *property_fga_disabled_cluster
 
   - name: "Show databases with users"
     binary: "tests/e2e/pytest_runner.sh"

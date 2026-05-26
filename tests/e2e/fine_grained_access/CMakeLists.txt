@@ -8,5 +8,6 @@ copy_fine_grained_access_e2e_python_files(edge_type_filtering_tests.py)
 copy_fine_grained_access_e2e_python_files(path_filtering_tests.py)
 copy_fine_grained_access_e2e_python_files(show_db.py)
 copy_fine_grained_access_e2e_python_files(property_fga_tests.py)
+copy_fine_grained_access_e2e_python_files(property_fga_disabled_tests.py)
 
 copy_e2e_files(fine_grained_access workloads.yaml)
