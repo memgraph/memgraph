@@ -497,9 +497,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_properties(vertex, allow_all);
     auto maybe_labels = vertex.Labels(ctx.view);
-    if (!maybe_labels) {
-      ThrowVertexLabelsReadFailure(maybe_labels.error());
-    }
+    if (!maybe_labels) return get_properties(vertex, allow_all);
     return get_properties(vertex, [&](storage::PropertyId prop) {
       return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
     });
