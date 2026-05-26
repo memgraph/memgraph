@@ -102,7 +102,10 @@ class Session final {
     // are always sending optimal packets. Even if we don't send optimal
     // packets, there will be no delay between packets and throughput won't
     // suffer.
-    socket_.SetNonBlocking();
+    if (auto const val = socket_.SetNonBlocking(); !val.has_value()) {
+      LOG_FATAL(val.error());
+    }
+
     socket_.SetKeepAlive();
     socket_.SetNoDelay();
 

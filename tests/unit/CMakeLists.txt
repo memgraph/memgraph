@@ -882,6 +882,7 @@ if (MG_ENTERPRISE)
         SOURCES rpc_timeouts.cpp
         LINK_TARGETS mg-rpc mg-coordination mg-replication mg-repl_coord_glue rpc_messages
     )
+    add_dependencies(${test_unit_prefix}rpc_timeouts memgraph__unit__tls_certs_dir)
 endif ()
 
 # Test rpc-in-progress

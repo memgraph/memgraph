@@ -74,11 +74,10 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
       spdlog::warn("Couldn't complete SSL handshake: {}", r.error());
       return false;
     }
-
-    if (!socket_.SetBlocking()) {
-      spdlog::error("Failed to restore socket to blocking mode after SSL handshake");
-      return false;
-    }
+    // Socket intentionally stays non-blocking after the handshake. Read()/Write() poll for readiness
+    // and loop on SSL_ERROR_WANT_READ/WRITE so the supplied timeout actually bounds the operation;
+    // a blocking socket would let SSL_read sit in the kernel past the timeout when a TLS record
+    // arrives but no application data is decryptable yet (e.g., TLS 1.3 post-handshake messages).
   }
 
   // Enable TCP keep alive for all connections.
@@ -176,31 +175,37 @@ auto Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout
       // https://www.arangodb.com/2014/07/started-hate-openssl/
       ERR_clear_error();
 
-      // Read encrypted data from the socket using OpenSSL.
-      auto got = SSL_read(ssl_, buff.data, len - received);
+      // Wait for the underlying socket to have data before SSL_read. With a non-blocking socket,
+      // polling unconditionally (timeout_ms == nullopt -> poll(-1)) avoids a busy loop when
+      // SSL_read returns WANT_READ on the retry path below.
+      if (!socket_.WaitForReadyRead(timeout_ms)) {
+        return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
+      }
+      auto got = SSL_read(ssl_, buff.data, static_cast<int>(len - received));
+
+      if (got == 0) {
+        // The server closed the connection.
+        return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+      }
 
       // Handle errors that might have occurred.
       if (got < 0) {
         auto err = SSL_get_error(ssl_, got);
         if (err == SSL_ERROR_WANT_READ) {
-          // OpenSSL want's to read more data from the socket. We wait for
-          // more data to be ready and retry the call.
-          socket_.WaitForReadyRead();
+          // POLLIN was set but no app data was decryptable (e.g., a TLS 1.3 NewSessionTicket
+          // consumed internally). Loop; the poll at the top of the next iteration enforces the timeout.
           continue;
         } else if (err == SSL_ERROR_WANT_WRITE) {
-          // The OpenSSL library probably wants to perform some kind of
-          // handshake so we wait for the socket to become ready for a write
-          // and call the read again.
-          socket_.WaitForReadyWrite();
+          // OpenSSL needs to write (renegotiation). Wait for write readiness with the same timeout.
+          if (!socket_.WaitForReadyWrite(timeout_ms)) {
+            return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
+          }
           continue;
         } else {
           // This is a fatal error.
           spdlog::error("Received an unexpected SSL error: {}", err);
           return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
         }
-      } else if (got == 0) {
-        // The server closed the connection.
-        return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
       }
 
       // Notify the buffer that it has new data.
@@ -249,18 +254,20 @@ auto Client::Write(const uint8_t *data, size_t len, bool have_more, const std::o
       ERR_clear_error();
 
       // Write data to the socket using OpenSSL.
-      auto written = SSL_write(ssl_, data, len);
+      auto written = SSL_write(ssl_, data, static_cast<int>(len));
       if (written < 0) {
         auto err = SSL_get_error(ssl_, written);
         if (err == SSL_ERROR_WANT_READ) {
-          // OpenSSL wants to perform some kind of handshake, we need to
-          // ensure that there is data available for the next call to
-          // `SSL_write`.
-          socket_.WaitForReadyRead();
+          // OpenSSL wants to read (renegotiation). Wait for read readiness with the supplied timeout;
+          // nullopt -> poll(-1) blocks indefinitely, matching pre-non-blocking behavior.
+          if (!socket_.WaitForReadyRead(timeout_ms)) {
+            return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
+          }
         } else if (err == SSL_ERROR_WANT_WRITE) {
-          // The socket probably returned WOULDBLOCK and we need to wait for
-          // the output buffers to clear and reattempt the send.
-          socket_.WaitForReadyWrite();
+          // The OS send buffer is full on a non-blocking socket; wait for capacity.
+          if (!socket_.WaitForReadyWrite(timeout_ms)) {
+            return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
+          }
         } else {
           // This is a fatal error.
           return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};

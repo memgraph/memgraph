@@ -51,7 +51,7 @@ CoordinatorCertReloader &CoordinatorCertReloader::Instance() {
 
 auto CoordinatorCertReloader::Register(SSL_CTX *server_ctx, SSL_CTX *client_ctx, utils::TlsConfig cfg)
     -> std::expected<void, utils::SSL_CTX_Error> {
-  std::lock_guard guard{reload_mu_};
+  std::lock_guard const guard{reload_mu_};
   server_ctx_ = server_ctx;
   client_ctx_ = client_ctx;
   cfg_ = std::move(cfg);
@@ -149,7 +149,7 @@ auto CoordinatorCertReloader::RefreshIfStale() -> std::expected<void, utils::SSL
                      ca_mtime_now != snapshot->ca_mtime;
   if (!stale) return {};
 
-  std::lock_guard guard{reload_mu_};
+  std::lock_guard const guard{reload_mu_};
   // Double-check under the lock — another thread may have just reloaded.
   snapshot = current_.load(std::memory_order_acquire);
   if (snapshot && cert_mtime_now == snapshot->cert_mtime && key_mtime_now == snapshot->key_mtime &&

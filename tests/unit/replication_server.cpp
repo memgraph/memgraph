@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "boost/dll/runtime_symbol_info.hpp"
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "replication/config.hpp"

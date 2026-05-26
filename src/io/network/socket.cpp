@@ -267,27 +267,31 @@ bool Socket::Bind(const Endpoint &endpoint) {
 
 // Not const because of C-API
 // NOLINTNEXTLINE
-void Socket::SetNonBlocking() {
-  const unsigned flags = fcntl(socket_, F_GETFL);
-  constexpr unsigned o_nonblock = O_NONBLOCK;
-  MG_ASSERT(flags != -1, "Can't get socket mode");
-  MG_ASSERT(fcntl(socket_, F_SETFL, flags | o_nonblock) != -1, "Can't set socket nonblocking");
+auto Socket::SetNonBlocking() -> std::expected<void, std::string> {
+  int flags = fcntl(socket_, F_GETFL);
+  if (flags < 0) {
+    return std::unexpected{"Failed to read flags when setting socket to the non-blocking mode"};
+  }
+  flags |= O_NONBLOCK;
+  if (fcntl(socket_, F_SETFL, flags) < 0) {
+    spdlog::error("Failed to restore socket to the non-blocking mode");
+    return std::unexpected{"Failed to restore socket to the non-blocking mode"};
+  }
+  return {};
 }
 
 // Not const because of C-API
 // NOLINTNEXTLINE
-auto Socket::SetBlocking() -> bool {
+auto Socket::SetBlocking() -> std::expected<void, std::string> {
   int flags = fcntl(socket_, F_GETFL, 0);
   if (flags < 0) {
-    spdlog::error("Failed to read flags when setting socket to blocking mode");
-    return false;
+    return std::unexpected{"Failed to read flags when setting socket to the blocking mode"};
   }
   flags &= ~O_NONBLOCK;
   if (fcntl(socket_, F_SETFL, flags) < 0) {
-    spdlog::error("Failed to restore socket to blocking mode after SSL handshake");
-    return false;
+    return std::unexpected{"Failed to restore socket to the blocking mode"};
   }
-  return true;
+  return {};
 }
 
 // Not const because of C-API
