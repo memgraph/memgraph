@@ -507,12 +507,15 @@ InMemoryStorage::~InMemoryStorage() {
   // If snapshot on exit is set to true then create_snapshot_handler() will just skip snapshot creation because it
   // will figure out that there are no changes.
   if (!config_.durability.snapshot_on_exit) {
+    if (snapshot_running_.load(std::memory_order_acquire)) {
+      spdlog::info("snapshot aborting: storage is shutting down");
+    }
     abort_snapshot_.store(true, std::memory_order_release);
   }
 
   snapshot_runner_.Stop();
   if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
-    create_snapshot_handler();
+    create_snapshot_handler("exit");
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
@@ -2776,7 +2779,8 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             repl_storage_state_.history,
                                                             &file_retainer_,
                                                             &abort_snapshot_,
-                                                            &snapshot_progress_);
+                                                            &snapshot_progress_,
+                                                            "storage_mode_change");
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
@@ -3968,7 +3972,8 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   return replicating_txn.ShipDeltas(durability_commit_timestamp, commit_args);
 }
 
-std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(bool force) {
+std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
+    bool force, std::string_view trigger) {
   auto abort_reset = utils::OnScopeExit([this]() mutable {
     // Abort is a one shot, reset it to false every time
     abort_snapshot_.store(false, std::memory_order_release);
@@ -4034,7 +4039,8 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         epochHistory,
                                                         &file_retainer_,
                                                         &abort_snapshot_,
-                                                        &snapshot_progress_);
+                                                        &snapshot_progress_,
+                                                        trigger);
   if (!snapshot_path) {
     return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
@@ -4417,20 +4423,20 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
 }
 
 void InMemoryStorage::CreateSnapshotHandler(
-    std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb) {
-  create_snapshot_handler = [cb = std::move(cb)] {
-    if (auto maybe_error = cb(); !maybe_error.has_value()) {
+    std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb) {
+  create_snapshot_handler = [cb = std::move(cb)](std::string_view trigger) {
+    if (auto maybe_error = cb(trigger); !maybe_error.has_value()) {
       switch (maybe_error.error()) {
         case CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. {}. Please contact support.",
+          spdlog::warn("snapshot failed: {}. Please contact support.",
                        CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AbortSnapshot:
-          spdlog::warn("Failed to create snapshot. {}.", CreateSnapshotErrorToString(maybe_error.error()));
+          spdlog::warn("snapshot failed: {}", CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AlreadyRunning:
         case CreateSnapshotError::NothingNewToWrite:
-          spdlog::info("Skipping snapshot creation. {}.", CreateSnapshotErrorToString(maybe_error.error()));
+          spdlog::info("snapshot skipped: {}", CreateSnapshotErrorToString(maybe_error.error()));
           break;
       }
     }
@@ -4444,7 +4450,7 @@ void InMemoryStorage::CreateSnapshotHandler(
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
     const memory::DbArenaScope db_arena_scope{db_arena_};
     if (!token.stop_requested()) {
-      this->create_snapshot_handler();
+      this->create_snapshot_handler("periodic");
     }
   });
 }

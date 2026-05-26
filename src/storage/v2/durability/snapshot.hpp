@@ -106,6 +106,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     const std::filesystem::path &wal_directory, utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
     utils::UUID const &uuid, std::string_view epoch_id,
     const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
-    std::atomic_bool *abort_snapshot = nullptr, SnapshotProgress *progress = nullptr);
+    std::atomic_bool *abort_snapshot = nullptr, SnapshotProgress *progress = nullptr,
+    std::string_view trigger = "periodic");
 
 }  // namespace memgraph::storage::durability

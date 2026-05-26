@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -730,7 +731,8 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool force = false);
+  std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(
+      bool force = false, std::string_view trigger = "periodic");
 
   std::expected<void, InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
@@ -750,7 +752,8 @@ class InMemoryStorage final : public Storage {
             .start_steady_ms = snapshot_progress_.start_steady_ms.load(std::memory_order_acquire)};
   }
 
-  void CreateSnapshotHandler(std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb);
+  void CreateSnapshotHandler(
+      std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
@@ -893,7 +896,7 @@ class InMemoryStorage final : public Storage {
   free_mem_fn free_memory_func_;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
-  std::function<void()> create_snapshot_handler{};
+  std::function<void(std::string_view)> create_snapshot_handler{};
 
   // Snapshot digest is the minimal meta info of a snapshot
   // Used to figure out if the current snapshot should be written or not

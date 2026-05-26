@@ -5976,11 +5976,11 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
   callback.fn = [storage]() mutable -> std::vector<std::vector<TypedValue>> {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
     constexpr bool kForce = true;
-    const auto maybe_path = mem_storage->CreateSnapshot(kForce);
+    const auto maybe_path = mem_storage->CreateSnapshot(kForce, "manual");
     if (!maybe_path) {
       switch (maybe_path.error()) {
         case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. {}. Please contact support.",
+          spdlog::warn("snapshot failed: {}. Please contact support.",
                        storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
           break;
         case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
