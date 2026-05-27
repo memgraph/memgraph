@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 
 #include "auth/models.hpp"
 #include "glue/auth_checker.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -34,6 +35,11 @@ using namespace memgraph::query::plan;
 
 using Bound = ScanAllByEdgeTypePropertyRange::Bound;
 
+inline memgraph::metrics::DatabaseMetricHandles &TestMetricHandles() {
+  static memgraph::metrics::DatabaseMetricHandles h;
+  return h;
+}
+
 ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbol_table,
                              memgraph::query::DbAccessor *dba) {
   ExecutionContext context{.db_accessor = dba};
@@ -41,6 +47,7 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
+  context.metric_handles = &TestMetricHandles();
   return context;
 }
 #ifdef MG_ENTERPRISE
@@ -53,7 +60,7 @@ ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, co
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
   context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*auth_checker));
-
+  context.metric_handles = &TestMetricHandles();
   return context;
 }
 #endif
@@ -71,7 +78,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
     symbols.emplace_back(context->symbol_table.at(*named_expression));
 
   // stream out results
-  auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource());
+  auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
   std::vector<std::vector<TypedValue>> results;
   while (cursor->Pull(frame, *context)) {
     std::vector<TypedValue> values;
@@ -84,7 +91,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
 
 int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
-  auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource());
+  auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
   int count = 0;
   while (cursor->Pull(frame, *context)) {
     count++;

@@ -13,11 +13,15 @@
 
 #include <functional>
 #include <memory>
-#include <storage/v2/constraints/type_constraints_kind.hpp>
 #include <utility>
+
 #include "absl/container/flat_hash_map.h"
+
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
@@ -30,6 +34,8 @@ namespace memgraph::storage {
 
 class TypeConstraints {
  public:
+  explicit TypeConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
   struct MultipleThreadsConstraintValidation {
     std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
                                                   const LabelId &label, const PropertyId &property);
@@ -49,6 +55,7 @@ class TypeConstraints {
 
     TypeConstraintKind type;
     ConstraintStatus status{};
+    metrics::ScopedGauge gauge_{};
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
@@ -114,10 +121,9 @@ class TypeConstraints {
   /// Get individual constraint for in-place status modification.
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
 
-  // Installs ptr if absent. restore_l2p=true on RestoreConstraint re-adds the
-  // (property, type) entry to l2p_ (RegisterConstraint defers that to PublishConstraint).
   bool InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr, bool restore_l2p);
 
+  metrics::GaugeHandle gauge_{};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

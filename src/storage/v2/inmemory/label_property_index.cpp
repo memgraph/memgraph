@@ -14,6 +14,7 @@
 #include <optional>
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
@@ -230,10 +231,14 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
 // decrease so UNDER means "stop, past range" and OVER means "skip, will reach range".
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex, auto &current_vertex_accessor,
                         auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
-                        const auto &upper_bound, auto &permutation_helper, bool use_cache = true,
-                        bool reverse_iteration = false) {
+                        const auto &upper_bound, auto &permutation_helper, memgraph::storage::Gid max_gid,
+                        bool use_cache = true, bool reverse_iteration = false) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
+      continue;
+    }
+
+    if (index_iterator->vertex->gid >= max_gid) {
       continue;
     }
 
@@ -538,7 +543,7 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
                                               uint64_t commit_timestamp, IndexOrder order) {
   auto publish = [&](auto const &index) {
     if (!index) return false;
-    index->Publish(commit_timestamp);
+    index->Publish(commit_timestamp, gauge_);
     return true;
   };
   return (order == IndexOrder::ASC) ? publish(GetIndividualIndex<Entry>(label, properties))
@@ -546,16 +551,10 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
 }
 
 template <typename EntryT>
-void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(uint64_t commit_timestamp) {
+void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(uint64_t commit_timestamp,
+                                                                  metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
-}
-
-template <typename EntryT>
-InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::~IndividualIndex() {
-  if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
-  }
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 template <typename EntryT>
@@ -595,7 +594,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
     auto const it = indices_map.find(added_label);
     if (it == indices_map.cend()) return;
     for (auto &[props, index] : it->second | rv::filter(relevant_index)) {
-      auto &[permutations_helper, skiplist, status] = *index;
+      auto &[permutations_helper, skiplist, status, _] = *index;
       auto values = permutations_helper.Extract(vertex_after_update->properties);
       if (AnyNonNull(values)) {
         auto acc = skiplist.access();
@@ -1065,6 +1064,7 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
                      self_->lower_bound_,
                      self_->upper_bound_,
                      self_->permutation_helper_,
+                     self_->max_gid_,
                      /*use_cache=*/true,
                      /*reverse_iteration=*/is_desc);
 }
@@ -1075,7 +1075,7 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
                                                        LabelId label, PropertiesPaths const *properties,
                                                        PropertiesPermutationHelper const *permutation_helper,
                                                        std::span<PropertyValueRange const> ranges, View view,
-                                                       Storage *storage, Transaction *transaction)
+                                                       Storage *storage, Transaction *transaction, Gid max_gid)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -1083,7 +1083,8 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
       permutation_helper_{permutation_helper},
       view_(view),
       storage_(storage),
-      transaction_(transaction) {
+      transaction_(transaction),
+      max_gid_(max_gid) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
 }
 
@@ -1270,23 +1271,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(LabelId label, std::spa
                                                          View view, Storage *storage, Transaction *transaction)
     -> Iterable<EntryT> {
   auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
-  return {it->second->skiplist.access(),
-          std::move(vertices_acc),
-          label,
-          &it->first,
-          &it->second->permutations_helper,
-          range,
-          view,
-          storage,
-          transaction};
-}
-
-template <typename EntryT>
-InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(
-    LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-    utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage, Transaction *transaction,
-    size_t num_chunks) {
-  auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
+  const auto max_gid = Gid::FromUint(storage->vertex_id_.load(std::memory_order_acquire));
   return {it->second->skiplist.access(),
           std::move(vertices_acc),
           label,
@@ -1296,7 +1281,27 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::
           view,
           storage,
           transaction,
-          num_chunks};
+          max_gid};
+}
+
+template <typename EntryT>
+InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(
+    LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
+    utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage, Transaction *transaction,
+    size_t num_chunks) {
+  auto it = FindIndexOrDie(IndicesMap<EntryT>(), label, properties);
+  const auto max_gid = Gid::FromUint(storage->vertex_id_.load(std::memory_order_acquire));
+  return {it->second->skiplist.access(),
+          std::move(vertices_acc),
+          label,
+          &it->first,
+          &it->second->permutations_helper,
+          range,
+          view,
+          storage,
+          transaction,
+          num_chunks,
+          max_gid};
 }
 
 void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
@@ -1388,6 +1393,7 @@ void InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::Iterator::AdvanceUntil
                      self_->lower_bound_,
                      self_->upper_bound_,
                      self_->permutation_helper_,
+                     self_->max_gid_,
                      /*use_cache=*/false,
                      /*reverse_iteration=*/is_desc);
 }
@@ -1397,7 +1403,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
     typename utils::SkipListDb<EntryT>::Accessor index_accessor,
     utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, PropertiesPaths const *properties,
     PropertiesPermutationHelper const *permutation_helper, std::span<PropertyValueRange const> ranges, View view,
-    Storage *storage, Transaction *transaction, size_t num_chunks)
+    Storage *storage, Transaction *transaction, size_t num_chunks, Gid max_gid)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -1405,7 +1411,8 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
       permutation_helper_(permutation_helper),
       view_(view),
       storage_(storage),
-      transaction_(transaction) {
+      transaction_(transaction),
+      max_gid_(max_gid) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
   if (!bounds_valid_) return;
 

@@ -69,6 +69,7 @@ target_sources(mg-utils
     resource_monitoring.hpp
     safe_string.hpp
     shared_quota.hpp
+    tls.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)
@@ -106,9 +107,6 @@ target_link_libraries(mg-settings PUBLIC mg-kvstore mg-utils PRIVATE mg-slk)
 add_library(mg-events STATIC)
 target_sources(mg-events
     PRIVATE
-    event_counter.cpp
-    event_gauge.cpp
-    event_histogram.cpp
     event_trigger.cpp
     event_map.cpp
 )

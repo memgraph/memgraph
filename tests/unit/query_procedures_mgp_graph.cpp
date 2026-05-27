@@ -29,6 +29,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "storage_test_utils.hpp"
@@ -789,4 +790,15 @@ TYPED_TEST(MgpGraphTest, VirtualGraphRejectsMutations) {
 
   mgp_list *list_result = nullptr;
   EXPECT_EQ(mgp_list_all_label_indices(&graph, &this->memory, &list_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+}
+
+TYPED_TEST(MgpGraphTest, GetStartTimestamp) {
+  mgp_graph graph = this->CreateGraph();
+  int64_t start_ts{0};
+  EXPECT_SUCCESS(mgp_graph_get_start_timestamp(&graph, &start_ts));
+  // Repeated calls must return the same value — the per-query identifier is
+  // stable for the lifetime of the accessor.
+  int64_t start_ts_again{0};
+  EXPECT_SUCCESS(mgp_graph_get_start_timestamp(&graph, &start_ts_again));
+  EXPECT_EQ(start_ts, start_ts_again);
 }

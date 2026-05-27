@@ -59,7 +59,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/atomic_utils.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/memory_tracker.hpp"
@@ -74,12 +73,6 @@ import memgraph.utils.aws;
 
 namespace r = ranges;
 namespace rv = r::views;
-
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-extern const Event GCLatency_us;
-extern const Event GCSkiplistCleanupLatency_us;
-}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 namespace {
@@ -313,12 +306,12 @@ class DeltaVertexCache {
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override,
-                                 PlanInvalidatorPtr invalidator,
+                                 PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles metric_handles,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
                                  memgraph::memory::ArenaPool *db_arena,
                                  utils::MemoryTracker *db_embedding_memory_tracker)
-    : Storage(config, config.salient.storage_mode, std::move(invalidator), db_arena, db_embedding_memory_tracker,
-              std::move(database_protector_factory)),
+    : Storage(config, config.salient.storage_mode, std::move(invalidator), metric_handles, db_arena,
+              db_embedding_memory_tracker, std::move(database_protector_factory)),
       db_arena_(db_arena),
       vertices_{},
       edges_{},
@@ -362,6 +355,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Disable ttl until after recovery and role switch / write enabled
     ttl_.SetUserCheck([]() -> bool { return false; });
     // Recover data
+    utils::Timer const recovery_timer;
     auto info = recovery_.RecoverData(
         uuid(),
         repl_storage_state_,
@@ -381,6 +375,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         name(),
         &ttl_,
         &description_store_);
+    metric_handles_.snapshot_recovery_latency_seconds.Observe(
+        std::chrono::duration<double>(recovery_timer.Elapsed()).count());
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -511,12 +507,15 @@ InMemoryStorage::~InMemoryStorage() {
   // If snapshot on exit is set to true then create_snapshot_handler() will just skip snapshot creation because it
   // will figure out that there are no changes.
   if (!config_.durability.snapshot_on_exit) {
+    if (snapshot_running_.load(std::memory_order_acquire)) {
+      spdlog::info("snapshot aborting: storage is shutting down");
+    }
     abort_snapshot_.store(true, std::memory_order_release);
   }
 
   snapshot_runner_.Stop();
   if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
-    create_snapshot_handler();
+    create_snapshot_handler("exit");
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
@@ -1277,15 +1276,14 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   FinalizeTransaction();
 
-  auto original_start_timestamp = transaction_.original_start_timestamp.value_or(transaction_.start_timestamp);
-
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
   transaction_.commit_info.reset();
-  transaction_.original_start_timestamp = original_start_timestamp;
+  // Do NOT touch `original_start_timestamp` — it must remain stable per-query
+  // (procedures use it as a cache key across PERIODIC COMMIT).
 
   is_transaction_active_ = true;
 
@@ -2132,9 +2130,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   // Defer publication to commit time so concurrent readers don't observe a
   // create that gets rolled back. Matches the constraint / vector-index paths.
   auto updater = in_memory->indices_.MakeUpdater();
-  transaction_.commit_callbacks_.Add([&point_index, updater](uint64_t /*commit_ts*/) {
+  auto &metric_handles = in_memory->metric_handles_;
+  transaction_.commit_callbacks_.Add([&point_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
     point_index.PublishActiveIndices(updater);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
+    metric_handles.active_point_indices.Increment();
   });
   transaction_.abort_callbacks_.Add(
       [&point_index, label, property]() { (void)point_index.DropPointIndex(label, property); });
@@ -2153,9 +2152,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   // Defer publication to commit time. See CreatePointIndex above.
   auto updater = in_memory->indices_.MakeUpdater();
-  transaction_.commit_callbacks_.Add([&point_index, updater](uint64_t /*commit_ts*/) {
+  auto &metric_handles = in_memory->metric_handles_;
+  transaction_.commit_callbacks_.Add([&point_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
     point_index.PublishActiveIndices(updater);
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
+    metric_handles.active_point_indices.Decrement();
   });
   transaction_.abort_callbacks_.Add([&point_index, label, property, evicted = std::move(evicted)]() mutable {
     point_index.RestorePointIndex(label, property, std::move(evicted));
@@ -2179,9 +2179,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   // Defer publication to commit time so concurrent readers don't observe a
   // create that gets rolled back. Matches the constraint CREATE/DROP paths below.
   auto updater = in_memory->indices_.MakeUpdater();
-  transaction_.commit_callbacks_.Add([&vector_index, updater](uint64_t /*commit_ts*/) {
+  auto &metric_handles = in_memory->metric_handles_;
+  transaction_.commit_callbacks_.Add([&vector_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
     vector_index.PublishActiveIndices(updater);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
+    metric_handles.active_vector_indices.Increment();
   });
   // DropIndex undoes both the owner install and the eager vertex property
   // rewrite (Vector -> VectorIndexId) CreateIndex did.
@@ -2200,10 +2201,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto updater = in_memory->indices_.MakeUpdater();
+  auto &metric_handles = in_memory->metric_handles_;
   if (auto vec_capture = vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
-    transaction_.commit_callbacks_.Add([&vector_index, updater](uint64_t /*commit_ts*/) {
+    transaction_.commit_callbacks_.Add([&vector_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
       vector_index.PublishActiveIndices(updater);
-      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
+      metric_handles.active_vector_indices.Decrement();
     });
     // RestoreIndex puts the IndexItem back (usearch state survives via the captured
     // shared_ptr) and re-rewrites the touched vertex properties.
@@ -2211,9 +2213,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       vector_index.RestoreIndex(std::move(capture));
     });
   } else if (auto edge_capture = vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
-    transaction_.commit_callbacks_.Add([&vector_edge_index, updater](uint64_t /*commit_ts*/) {
+    transaction_.commit_callbacks_.Add([&vector_edge_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
       vector_edge_index.PublishActiveIndices(updater);
-      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+      metric_handles.active_vector_edge_indices.Decrement();
     });
     transaction_.abort_callbacks_.Add([&vector_edge_index, capture = std::move(*edge_capture)]() mutable {
       vector_edge_index.RestoreIndex(std::move(capture));
@@ -2252,14 +2254,15 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   // Defer publication to commit time. See CreateVectorIndex above.
   auto updater = in_memory->indices_.MakeUpdater();
+  auto &metric_handles = in_memory->metric_handles_;
   auto *name_mapper = in_memory->name_id_mapper_.get();
   auto const edge_index_name = spec.index_name;
   transaction_.abort_callbacks_.Add([&vector_edge_index, name_mapper, edge_index_name]() {
     vector_edge_index.DropIndex(edge_index_name, name_mapper);
   });
-  transaction_.commit_callbacks_.Add([&vector_edge_index, updater](uint64_t /*commit_ts*/) {
+  transaction_.commit_callbacks_.Add([&vector_edge_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
     vector_edge_index.PublishActiveIndices(updater);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+    metric_handles.active_vector_edge_indices.Increment();
   });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
   return {};
@@ -2458,8 +2461,9 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(View view, size_t num_chunks) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  const auto max_gid = Gid::FromUint(mem_storage->vertex_id_.load(std::memory_order_acquire));
   return VerticesChunkedIterable(
-      AllVerticesChunkedIterable(mem_storage->vertices_.access(), num_chunks, storage_, &transaction_, view));
+      AllVerticesChunkedIterable(mem_storage->vertices_.access(), num_chunks, storage_, &transaction_, view, max_gid));
 }
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(LabelId label, View view,
@@ -2732,7 +2736,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           std::move(active_indices),
           std::move(active_constraints),
           std::move(async_index_helper),
-          last_durable_ts};
+          last_durable_ts,
+          metric_handles_.unreleased_delta_objects};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
@@ -2774,7 +2779,8 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             repl_storage_state_.history,
                                                             &file_retainer_,
                                                             &abort_snapshot_,
-                                                            &snapshot_progress_);
+                                                            &snapshot_progress_,
+                                                            "storage_mode_change");
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
@@ -2824,7 +2830,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   spdlog::trace("Storage GC on '{}' started [{}]", name(), periodic ? "periodic" : "forced");
   auto trace_on_exit = utils::OnScopeExit{[&] {
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed());
-    memgraph::metrics::Measure(memgraph::metrics::GCLatency_us, elapsed.count());
+    metric_handles_.gc_latency_seconds.Observe(std::chrono::duration<double>(elapsed).count());
     spdlog::trace("Storage GC on '{}' finished [{}]. Duration: {:.3f}s",
                   name(),
                   periodic ? "periodic" : "forced",
@@ -2867,9 +2873,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   //
   // This waiting room holds committed transactions with non-sequential deltas until all
   // their "contributors" (other transactions sharing the same delta chains) have finished.
-  waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-    auto it = waiting_list.begin();
-    while (it != waiting_list.end()) {
+  auto local_waiting = std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>{};
+  waiting_gc_deltas_.WithLock([&](auto &waiting_list) { local_waiting.swap(waiting_list); });
+
+  {
+    auto it = local_waiting.begin();
+    while (it != local_waiting.end()) {
       bool all_contributors_committed = true;
       auto const our_commit_ts = it->commit_info_->timestamp.load(std::memory_order_acquire);
 
@@ -2909,12 +2918,17 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         it->unlinkable_timestamp_ = highest_commit_ts;
         committed_transactions_.WithLock(
             [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(*it)); });
-        it = waiting_list.erase(it);
+        it = local_waiting.erase(it);
       } else {
         ++it;
       }
     }
-  });
+  }
+
+  if (!local_waiting.empty()) {
+    waiting_gc_deltas_.WithLock(
+        [&](auto &waiting_list) { waiting_list.splice(waiting_list.begin(), std::move(local_waiting)); });
+  }
 
   {
     auto guard = std::unique_lock{engine_lock_};
@@ -3065,17 +3079,24 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
 
             if (prev.delta->commit_info->timestamp.load() < oldest_active_start_timestamp) {
-              // For a committed non-sequential predecessor, readers skip delta
-              // via next, so we must clear delta->next before freeing
-              // downstream delta to stop traversal into freed deltas.
-              if (!IsDeltaNonSequential(*prev.delta)) {
-                break;
+              if (IsDeltaNonSequential(*prev.delta)) {
+                // Non-sequential predecessor: readers follow next, so we must
+                // null it to stop traversal into freed memory. We can skip the
+                // lock because we know we are the only potential modifiers,
+                // since:
+                // - the predecessor delta is inactive
+                // - prepends only happen at the chain head
+                // - the GC is serialized via gc_lock_.
+                // Safe for concurrent readers: all deltas beyond this point are
+                // also inactive (guaranteed by waiting_gc_deltas_), so no
+                // active transaction needs to read past here.
+                prev.delta->next.store(nullptr, std::memory_order_release);
               }
+              break;
             }
 
-            // Previous is either active (committed or uncommitted), or inactive
-            // non-sequential. We need to find the parent object in order to be
-            // able to use its lock.
+            // Previous is active (committed or uncommitted). We need to find
+            // the parent object in order to be able to use its lock.
             auto parent = prev;
             while (parent.type == PreviousPtr::Type::DELTA) {
               parent = parent.delta->prev.Get();
@@ -3158,9 +3179,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
     }
   }
-  memgraph::metrics::Measure(
-      memgraph::metrics::GCSkiplistCleanupLatency_us,
-      std::chrono::duration_cast<std::chrono::microseconds>(skiplist_cleanup_timer.Elapsed()).count());
+  {
+    auto skiplist_elapsed = std::chrono::duration<double>(skiplist_cleanup_timer.Elapsed());
+    metric_handles_.gc_skiplist_cleanup_latency_seconds.Observe(skiplist_elapsed.count());
+  }
 
   {
     auto guard = std::unique_lock{engine_lock_};
@@ -3321,9 +3343,10 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_res = utils::GetMemoryRES();
-  memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
-  info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
-  info.unreleased_delta_objects = memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects);
+  metrics::Metrics().global.peak_memory_res_bytes->Set(
+      std::max(static_cast<double>(info.memory_res), metrics::Metrics().global.peak_memory_res_bytes->Value()));
+  info.peak_memory_res = static_cast<uint64_t>(metrics::Metrics().global.peak_memory_res_bytes->Value());
+  info.unreleased_delta_objects = static_cast<uint64_t>(metric_handles_.unreleased_delta_objects.Value());
 
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
@@ -3949,7 +3972,8 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   return replicating_txn.ShipDeltas(durability_commit_timestamp, commit_args);
 }
 
-std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(bool force) {
+std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
+    bool force, std::string_view trigger) {
   auto abort_reset = utils::OnScopeExit([this]() mutable {
     // Abort is a one shot, reset it to false every time
     abort_snapshot_.store(false, std::memory_order_release);
@@ -4015,7 +4039,8 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         epochHistory,
                                                         &file_retainer_,
                                                         &abort_snapshot_,
-                                                        &snapshot_progress_);
+                                                        &snapshot_progress_,
+                                                        trigger);
   if (!snapshot_path) {
     return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
@@ -4026,8 +4051,10 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
     last_snapshot_digest_ = std::move(current_digest);
   }
 
-  memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
-                             std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  {
+    auto snapshot_elapsed = std::chrono::duration<double>(timer.Elapsed());
+    metric_handles_.snapshot_creation_latency_seconds.Observe(snapshot_elapsed.count());
+  }
 
   return *snapshot_path;
 }
@@ -4396,20 +4423,20 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
 }
 
 void InMemoryStorage::CreateSnapshotHandler(
-    std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb) {
-  create_snapshot_handler = [cb = std::move(cb)] {
-    if (auto maybe_error = cb(); !maybe_error.has_value()) {
+    std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb) {
+  create_snapshot_handler = [cb = std::move(cb)](std::string_view trigger) {
+    if (auto maybe_error = cb(trigger); !maybe_error.has_value()) {
       switch (maybe_error.error()) {
         case CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. {}. Please contact support.",
+          spdlog::warn("snapshot failed: {}. Please contact support.",
                        CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AbortSnapshot:
-          spdlog::warn("Failed to create snapshot. {}.", CreateSnapshotErrorToString(maybe_error.error()));
+          spdlog::warn("snapshot failed: {}", CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AlreadyRunning:
         case CreateSnapshotError::NothingNewToWrite:
-          spdlog::info("Skipping snapshot creation. {}.", CreateSnapshotErrorToString(maybe_error.error()));
+          spdlog::info("snapshot skipped: {}", CreateSnapshotErrorToString(maybe_error.error()));
           break;
       }
     }
@@ -4423,7 +4450,7 @@ void InMemoryStorage::CreateSnapshotHandler(
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
     const memory::DbArenaScope db_arena_scope{db_arena_};
     if (!token.stop_requested()) {
-      this->create_snapshot_handler();
+      this->create_snapshot_handler("periodic");
     }
   });
 }
@@ -4729,13 +4756,13 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
 
   // we have to take edges accessor to be sure no edge is deleted while we are searching
   auto acc = mem_storage->edges_.access();
-  auto edge_type_id = mem_storage->indices_.vector_edge_index_.GetEdgeTypeId(index_name);
   const auto search_results = storage_->indices_.vector_edge_index_.SearchEdges(index_name, number_of_results, vector);
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
-    auto &[edge_tuple, distance, score] = item;
-    auto &[from_vertex, to_vertex, edge] = edge_tuple;
+    const auto &[entry, distance, score] = item;
     return std::make_tuple(
-        EdgeAccessor{EdgeRef{edge}, edge_type_id, from_vertex, to_vertex, storage_, &transaction_}, distance, score);
+        EdgeAccessor{EdgeRef{entry.edge}, entry.edge_type, entry.from_vertex, entry.to_vertex, storage_, &transaction_},
+        distance,
+        score);
   });
 
   return result;

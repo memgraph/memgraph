@@ -3721,6 +3721,14 @@ mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
   return mgp_error::MGP_ERROR_NO_ERROR;
 };
 
+mgp_error mgp_graph_get_start_timestamp(mgp_graph *graph, int64_t *result) {
+  return WrapExceptions([graph, result] {
+    auto maybe_ts = graph->getImpl()->GetStartTimestamp();
+    DMG_ASSERT(maybe_ts, "Procedure must be called within an active transaction");
+    *result = static_cast<int64_t>(*maybe_ts);
+  });
+}
+
 mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [=]() -> mgp_vertex * {
@@ -4331,7 +4339,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
       info,
       memory,
       search_results,
-      [impl](auto label_id) { return impl->LabelToName(label_id); },
+      [impl](const auto &filter) { return filter.Format([&](auto id) { return impl->LabelToName(id); }); },
       impl,
       memgraph::storage::VectorIndexType::ON_NODES);
 
@@ -4339,7 +4347,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
       edge_info,
       memory,
       search_results,
-      [impl](auto edge_type_id) { return impl->EdgeTypeToName(edge_type_id); },
+      [impl](const auto &filter) { return filter.Format([&](auto id) { return impl->EdgeTypeToName(id); }); },
       impl,
       memgraph::storage::VectorIndexType::ON_EDGES);
 

@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -155,6 +156,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
                            PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
+                           metrics::DatabaseMetricHandles metric_handles = {},
                            std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
                            memgraph::memory::ArenaPool *db_arena = nullptr,
                            utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
@@ -205,7 +207,9 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(View view) override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return VerticesIterable(AllVerticesIterable(mem_storage->vertices_.access(), storage_, &transaction_, view));
+      const auto max_gid = Gid::FromUint(mem_storage->vertex_id_.load(std::memory_order_acquire));
+      return VerticesIterable(
+          AllVerticesIterable(mem_storage->vertices_.access(), storage_, &transaction_, view, max_gid));
     }
 
     VerticesIterable Vertices(LabelId label, View view) override;
@@ -334,12 +338,12 @@ class InMemoryStorage final : public Storage {
       return transaction_.active_indices_->point_->ApproximatePointCount(label, property);
     }
 
-    std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {
-      return transaction_.active_indices_->vector_->ApproximateNodesVectorCount(label, property);
+    std::optional<uint64_t> ApproximateVerticesVectorCount(std::string_view index_name) const override {
+      return transaction_.active_indices_->vector_->ApproximateNodesVectorCount(index_name);
     }
 
-    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override {
-      return transaction_.active_indices_->vector_edge_->ApproximateEdgesVectorCount(edge_type, property);
+    std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const override {
+      return transaction_.active_indices_->vector_edge_->ApproximateEdgesVectorCount(index_name);
     }
 
     std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const override {
@@ -727,7 +731,8 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool force = false);
+  std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(
+      bool force = false, std::string_view trigger = "periodic");
 
   std::expected<void, InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
@@ -743,10 +748,12 @@ class InMemoryStorage final : public Storage {
     return {.phase = snapshot_progress_.phase.load(std::memory_order_acquire),
             .items_done = snapshot_progress_.items_done.load(std::memory_order_acquire),
             .items_total = snapshot_progress_.items_total.load(std::memory_order_acquire),
-            .start_time_us = snapshot_progress_.start_time_us.load(std::memory_order_acquire)};
+            .start_time_us = snapshot_progress_.start_time_us.load(std::memory_order_acquire),
+            .start_steady_ms = snapshot_progress_.start_steady_ms.load(std::memory_order_acquire)};
   }
 
-  void CreateSnapshotHandler(std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb);
+  void CreateSnapshotHandler(
+      std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
@@ -889,7 +896,7 @@ class InMemoryStorage final : public Storage {
   free_mem_fn free_memory_func_;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
-  std::function<void()> create_snapshot_handler{};
+  std::function<void(std::string_view)> create_snapshot_handler{};
 
   // Snapshot digest is the minimal meta info of a snapshot
   // Used to figure out if the current snapshot should be written or not

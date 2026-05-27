@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "common_function_signatures.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "mg_procedure.h"
@@ -37,27 +39,11 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_chunked_iterable.hpp"
 #include "storage/v2/vertices_iterable.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 
 namespace memgraph::metrics {
-extern const Event SnapshotCreationLatency_us;
-
-extern const Event ActiveLabelIndices;
-extern const Event ActiveLabelPropertyIndices;
-extern const Event ActiveEdgeTypeIndices;
-extern const Event ActiveEdgeTypePropertyIndices;
-extern const Event ActiveEdgePropertyIndices;
-extern const Event ActivePointIndices;
-extern const Event ActiveTextIndices;
-extern const Event ActiveTextEdgeIndices;
-extern const Event ActiveVectorIndices;
-extern const Event ActiveVectorEdgeIndices;
-
-extern const Event ActiveExistenceConstraints;
-extern const Event ActiveUniqueConstraints;
-extern const Event ActiveTypeConstraints;
+struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
 
 namespace memgraph::utils {
@@ -148,13 +134,6 @@ struct StorageInfo {
   uint64_t schema_edge_count;
 };
 
-struct EventInfo {
-  std::string name;
-  std::string type;
-  std::string event_type;
-  uint64_t value;
-};
-
 static inline nlohmann::json ToJson(const StorageInfo &info) {
   nlohmann::json res;
 
@@ -218,7 +197,9 @@ class Storage {
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
-          memory::ArenaPool *db_arena_pool = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
+          metrics::DatabaseMetricHandles metric_handles = {},
+          memory::ArenaPool *db_arena_pool = nullptr,
+          utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
           std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
 
   Storage(const Storage &) = delete;
@@ -298,8 +279,6 @@ class Storage {
 
   virtual StorageInfo GetBaseInfo() = 0;
 
-  static std::vector<EventInfo> GetMetrics() noexcept;
-
   virtual StorageInfo GetInfo() = 0;
 
   size_t GetDescriptionCount() const { return description_store_.Size(); }
@@ -377,6 +356,8 @@ class Storage {
   StorageMode storage_mode_;
   memory::ArenaPool *db_arena_pool_{nullptr};
 
+  metrics::DatabaseMetricHandles metric_handles_{};
+
   Indices indices_;
   Constraints constraints_;
   PlanInvalidatorPtr invalidator_;
@@ -405,7 +386,7 @@ class Storage {
   // A way to tell async operation to stop
   std::stop_source stop_source;
 
-  ttl::TTL ttl_{this};  // TTL handler
+  ttl::TTL ttl_{this, metric_handles_.deleted_nodes, metric_handles_.deleted_edges};  // TTL handler
 
   // Factory function to create database protectors for async operations
   // Used by async indexer and TTL system to get protectors for committing transactions
@@ -592,9 +573,9 @@ class Accessor {
 
   virtual std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const = 0;
 
-  virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
+  virtual std::optional<uint64_t> ApproximateVerticesVectorCount(std::string_view index_name) const = 0;
 
-  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const = 0;
 
   virtual std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const = 0;
 
@@ -686,7 +667,8 @@ class Accessor {
 
   virtual void FinalizeTransaction() = 0;
 
-  std::optional<uint64_t> GetTransactionId() const;
+  // Stable per-query id; preserved across PERIODIC COMMIT.
+  std::optional<uint64_t> GetStartTimestamp() const;
 
   utils::QueryMemoryTracker &GetTransactionMemoryTracker();
 

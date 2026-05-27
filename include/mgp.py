@@ -1260,6 +1260,27 @@ class Graph:
             raise InvalidContextError()
         return self._graph.is_mutable()
 
+    @property
+    def start_timestamp(self) -> int:
+        """
+        Get a stable identifier for the current logical query, preserved across
+        `USING PERIODIC COMMIT` boundaries. Backed by the start_timestamp of the
+        original transaction at query start. Useful as a cache key in batched
+        procedures whose state must survive periodic commits.
+
+        Returns:
+            An `int` that is stable for the duration of one logical query.
+
+        Raises:
+            InvalidContextError: If context is invalid.
+
+        Examples:
+            ```graph.start_timestamp```
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._graph.get_start_timestamp()
+
     def create_vertex(self) -> Vertex:
         """
         Create an empty vertex.

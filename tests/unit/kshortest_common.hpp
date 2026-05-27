@@ -24,6 +24,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query_common.hpp"
+#include "query_plan_common.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/join_vector.hpp"
@@ -153,8 +154,9 @@ class Yield : public memgraph::query::plan::LogicalOperator {
         modified_symbols_(modified_symbols),
         values_(values) {}
 
-  memgraph::query::plan::UniqueCursorPtr MakeCursor(memgraph::utils::MemoryResource *mem) const override {
-    return memgraph::query::plan::MakeUniqueCursorPtr<YieldCursor>(mem, this, input_->MakeCursor(mem));
+  memgraph::query::plan::UniqueCursorPtr MakeCursor(
+      memgraph::utils::MemoryResource *mem, memgraph::metrics::DatabaseMetricHandles &metric_handles) const override {
+    return memgraph::query::plan::MakeUniqueCursorPtr<YieldCursor>(mem, this, input_->MakeCursor(mem, metric_handles));
   }
 
   std::vector<memgraph::query::Symbol> ModifiedSymbols(const memgraph::query::SymbolTable &) const override {
@@ -214,7 +216,8 @@ class Yield : public memgraph::query::plan::LogicalOperator {
 std::vector<std::vector<memgraph::query::TypedValue>> PullResults(memgraph::query::plan::LogicalOperator *last_op,
                                                                   memgraph::query::ExecutionContext *context,
                                                                   std::vector<memgraph::query::Symbol> output_symbols) {
-  auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
+  memgraph::metrics::DatabaseMetricHandles handles;
+  auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), handles);
   std::vector<std::vector<memgraph::query::TypedValue>> output;
   {
     memgraph::query::Frame frame(context->symbol_table.max_position());
@@ -325,7 +328,7 @@ class Database {
 
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
-    memgraph::query::ExecutionContext context{.db_accessor = &dba};
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
     memgraph::query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
     memgraph::query::Symbol sink_sym = context.symbol_table.CreateSymbol("sink", true);
     memgraph::query::Symbol edges_sym = context.symbol_table.CreateSymbol("edges", true);
@@ -459,7 +462,7 @@ class Database {
                                              FineGrainedTestType fine_grained_test_type) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor db_accessor(storage_dba.get());
-    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor};
+    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = &TestMetricHandles()};
     memgraph::query::Symbol source_symbol = context.symbol_table.CreateSymbol("source", true);
     memgraph::query::Symbol sink_symbol = context.symbol_table.CreateSymbol("sink", true);
     memgraph::query::Symbol edges_symbol = context.symbol_table.CreateSymbol("edges", true);

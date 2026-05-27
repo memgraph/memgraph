@@ -1,0 +1,11 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.list_col AS list_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.list_col) AS list_col_type, row.list_col AS list_col
+
+output:
+  - list_col_type: 'LIST'
+    list_col: [1, 2, 3, 4, 5]

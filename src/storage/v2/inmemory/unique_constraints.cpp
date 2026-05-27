@@ -16,6 +16,7 @@
 #include <ranges>
 #include <tuple>
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -28,6 +29,8 @@
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
+
+InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() = default;
 
 namespace {
 
@@ -309,15 +312,9 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 
 // --- IndividualConstraint implementation ---
 
-InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() {
-  if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveUniqueConstraints);
-  }
-}
-
-void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp) {
+void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 // --- ActiveConstraints implementation ---
@@ -540,7 +537,7 @@ bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
                                                   uint64_t commit_timestamp) {
   auto constraint = GetIndividualConstraint(label, properties);
   if (!constraint) return false;
-  constraint->Publish(commit_timestamp);
+  constraint->Publish(commit_timestamp, gauge_);
   return true;
 }
 
@@ -560,6 +557,7 @@ auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<Pro
     auto new_label_it = new_container->find(label);
     new_label_it->second.erase(properties);
     if (new_label_it->second.empty()) new_container->erase(new_label_it);
+
     container = std::move(new_container);
     return captured;
   });

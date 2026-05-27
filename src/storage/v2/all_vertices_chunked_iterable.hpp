@@ -12,6 +12,7 @@
 #pragma once
 
 #include <optional>
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/skip_list.hpp"
 
@@ -21,10 +22,12 @@ class Storage;
 
 class AllVerticesChunkedIterable final {
   utils::SkipListDb<Vertex>::Accessor vertices_accessor_;  // Main pin accessor
-  Storage *storage_;                                                                     // Read only
-  Transaction *transaction_;                                                             // Read only
+  Storage *storage_;                                       // Read only
+  Transaction *transaction_;                               // Read only
   View view_;
   utils::SkipListDb<Vertex>::ChunkCollection chunks_;
+  // see AllVerticesIterable: vertices with gid >= max_gid_ are out of scope.
+  Gid max_gid_;
 
  public:
   class Iterator final {
@@ -44,13 +47,14 @@ class AllVerticesChunkedIterable final {
     bool operator!=(const Iterator &other) const { return it_ != other.it_; }
   };
 
-  AllVerticesChunkedIterable(utils::SkipListDb<Vertex>::Accessor vertices_accessor,
-                             size_t num_chunks, Storage *storage, Transaction *transaction, View view)
+  AllVerticesChunkedIterable(utils::SkipListDb<Vertex>::Accessor vertices_accessor, size_t num_chunks, Storage *storage,
+                             Transaction *transaction, View view, Gid max_gid)
       : vertices_accessor_(std::move(vertices_accessor)),
         storage_(storage),
         transaction_(transaction),
         view_(view),
-        chunks_{vertices_accessor_.create_chunks(num_chunks)} {}
+        chunks_{vertices_accessor_.create_chunks(num_chunks)},
+        max_gid_(max_gid) {}
 
   class Chunk {
     Iterator begin_;

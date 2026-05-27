@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
@@ -27,6 +28,8 @@ namespace r = ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
+
+InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() = default;
 
 namespace {
 inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_type, PropertyId property,
@@ -126,9 +129,13 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_edge, EdgeAccessor &current_accessor,
                         PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                        Transaction *transaction, EdgeTypeId edge_type) {
+                        Transaction *transaction, EdgeTypeId edge_type, Gid max_gid) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->edge == current_edge.ptr) {
+      continue;
+    }
+
+    if (index_iterator->edge->gid >= max_gid) {
       continue;
     }
 
@@ -200,19 +207,13 @@ bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, Property
 bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(edge_type, property);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  index->Publish(commit_timestamp, gauge_);
   return true;
 }
 
-void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypePropertyIndices);
-}
-
-InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() {
-  if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypePropertyIndices);
-  }
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property,
@@ -243,6 +244,7 @@ auto InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId p
         updater(std::make_shared<ActiveIndices>(index_container));
         return evicted_entry;
       });
+
   CleanupAllIndices();
   return evicted;
 }
@@ -446,7 +448,7 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterable(
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
     EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction)
+    Transaction *transaction, Gid max_gid)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
@@ -457,7 +459,8 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterable(
       bounds_valid_(ValidateBounds(lower_bound_, upper_bound_)),
       view_(view),
       storage_(storage),
-      transaction_(transaction) {}
+      transaction_(transaction),
+      max_gid_(max_gid) {}
 
 InMemoryEdgeTypePropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgeTypePropertyIndex::Entry>::Iterator index_iterator)
@@ -485,7 +488,8 @@ void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->view_,
                      self_->storage_,
                      self_->transaction_,
-                     self_->edge_type_);
+                     self_->edge_type_,
+                     self_->max_gid_);
 }
 
 void InMemoryEdgeTypePropertyIndex::RunGC() {
@@ -509,6 +513,7 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
             "Index for edge type {} and property {} doesn't exist",
             edge_type.AsUint(),
             property.AsUint());
+  const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
   return {it->second->skiplist.access(),
           std::move(vertex_accessor),
           std::move(edge_accessor),
@@ -518,7 +523,8 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
           upper_bound,
           view,
           storage,
-          transaction};
+          transaction,
+          max_gid};
 }
 
 InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::ActiveIndices::ChunkedEdges(
@@ -531,6 +537,7 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::Ac
             "Index for edge type {} and property {} doesn't exist",
             edge_type.AsUint(),
             property.AsUint());
+  const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
   return {it->second->skiplist.access(),
           std::move(vertex_accessor),
           std::move(edge_accessor),
@@ -541,7 +548,8 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::Ac
           view,
           storage,
           transaction,
-          num_chunks};
+          num_chunks,
+          max_gid};
 }
 
 EdgeTypePropertyIndex::AbortProcessor InMemoryEdgeTypePropertyIndex::ActiveIndices::GetAbortProcessor() const {
@@ -589,7 +597,7 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
     EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction, size_t num_chunks)
+    Transaction *transaction, size_t num_chunks, Gid max_gid)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
@@ -600,7 +608,8 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
       bounds_valid_(ValidateBounds(lower_bound_, upper_bound_)),
       view_(view),
       storage_(storage),
-      transaction_(transaction) {
+      transaction_(transaction),
+      max_gid_(max_gid) {
   if (!bounds_valid_) return;
 
   // Chunk with bounds
@@ -626,7 +635,8 @@ void InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid
                      self_->view_,
                      self_->storage_,
                      self_->transaction_,
-                     self_->edge_type_);
+                     self_->edge_type_,
+                     self_->max_gid_);
 }
 
 }  // namespace memgraph::storage

@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -31,6 +32,7 @@
 #include <thread>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <usearch/index_plugins.hpp>
 #include <utility>
 #include <variant>
@@ -56,6 +58,7 @@
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/common.hpp"
@@ -111,8 +114,6 @@
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
 #include "utils/compile_time.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/functional.hpp"
 #include "utils/likely.hpp"
@@ -127,6 +128,7 @@
 #include "utils/settings.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
@@ -140,24 +142,6 @@ import memgraph.utils.aws;
 
 namespace r = ranges;
 namespace rv = ranges::views;
-
-namespace memgraph::metrics {
-extern Event ReadQuery;
-extern Event WriteQuery;
-extern Event ReadWriteQuery;
-
-extern const Event StreamsCreated;
-extern const Event TriggersCreated;
-
-extern const Event QueryExecutionLatency_us;
-
-extern const Event CommitedTransactions;
-extern const Event RollbackedTransactions;
-extern const Event ActiveTransactions;
-
-extern const Event ShowSchema;
-extern const Event ShowStorageInfoOnDatabase;
-}  // namespace memgraph::metrics
 
 namespace {
 
@@ -234,6 +218,8 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
+  transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
+
   if (db_acc->trigger_store()->HasTriggers() && could_commit) {
     trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
   }
@@ -246,9 +232,9 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   db_transactional_accessor_.reset();
   execution_db_accessor_.reset();
   trigger_context_collector_.reset();
+  // Clear ScopedGauge, which decrements the gauge backing this metric.
+  transaction_gauge_ = {};
 }
-
-// namespace memgraph::metrics
 
 struct QueryLogWrapper {
   std::string_view query;
@@ -324,22 +310,6 @@ auth::UserOrRoleType ToAuthType(AuthQuery::UserOrRoleType t) {
       return auth::UserOrRoleType::ROLE;
     default:
       return auth::UserOrRoleType::UNSPECIFIED;
-  }
-}
-
-void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
-  switch (type) {
-    case plan::ReadWriteTypeChecker::RWType::R:
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadQuery);
-      break;
-    case plan::ReadWriteTypeChecker::RWType::W:
-      memgraph::metrics::IncrementCounter(memgraph::metrics::WriteQuery);
-      break;
-    case plan::ReadWriteTypeChecker::RWType::RW:
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadWriteQuery);
-      break;
-    default:
-      break;
   }
 }
 
@@ -443,10 +413,10 @@ class ReplQueryHandler {
       }
     } else {
       ValidatePort(port);
-
       auto const config = memgraph::replication::ReplicationServerConfig{
           .repl_server = memgraph::io::network::Endpoint(memgraph::replication::kDefaultReplicationServerIp,
-                                                         static_cast<uint16_t>(*port))};
+                                                         static_cast<uint16_t>(*port)),
+          .tls_config = flags::TlsConfigFromClusterFlags()};
 
       if (!handler_->TrySetReplicationRoleReplica(config)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
@@ -483,7 +453,7 @@ class ReplQueryHandler {
                                              .mode = repl_mode,
                                              .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
                                              .replica_check_frequency = replica_check_frequency,
-                                             .ssl = std::nullopt};
+                                             .tls_config = flags::TlsConfigFromClusterFlags()};
 
     const auto error = handler_->TryRegisterReplica(replication_config);
 
@@ -2555,7 +2525,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
     return config_map;
   };
 
-  memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
+  db_acc->metric_handles()->streams_created.Increment();
 
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
@@ -2597,7 +2567,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
     throw SemanticException("Service URL must not be an empty string!");
   }
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
+  db->metric_handles()->streams_created.Increment();
 
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
@@ -3061,6 +3031,7 @@ struct PullPlan {
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                     storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
+                    metrics::DatabaseMetricHandles &metric_handles,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
                     std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
@@ -3099,22 +3070,24 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
+  metrics::DatabaseMetricHandles *metric_handles_;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
-                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
-                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   utils::PriorityThreadPool *worker_pool, memory::ArenaPool *db_arena_pool
+                   metrics::DatabaseMetricHandles &metric_handles, TriggerContextCollector *trigger_context_collector,
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
+                   const std::optional<int64_t> hops_limit, utils::PriorityThreadPool *worker_pool,
+                   memory::ArenaPool *db_arena_pool
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
 #endif
                    )
     : plan_(plan),
-      cursor_(plan->plan().MakeCursor(execution_memory)),
+      cursor_(plan->plan().MakeCursor(execution_memory, metric_handles)),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit),
       query_logger_(query_logger)
@@ -3122,8 +3095,10 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       ,
       user_resource_{std::move(user_resource)}
 #endif
-{
+      ,
+      metric_handles_(&metric_handles) {
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
+  ctx_.metric_handles = &metric_handles;
   if (hops_limit) {
 #ifdef MG_ENTERPRISE
     if (parallel_execution) {
@@ -3249,8 +3224,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     query_logger_->trace(fmt::format("Query execution time: {}", execution_time_.count()));
   }
 
-  memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
-                             std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
+  metric_handles_->query_execution_latency_seconds.Observe(execution_time_.count());
 
   // We are finished with pulling all the data, therefore we can send any
   // metadata about the results i.e. notifications and statistics
@@ -3389,7 +3363,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw ExplicitTransactionUsageException("No current transaction to rollback.");
         }
 
-        memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions);
+        (*current_db_.db_acc_)->metric_handles()->rolled_back_transactions.Increment();
 
         Abort();
         expect_rollback_ = false;
@@ -3567,6 +3541,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               std::move(stopping_context),
                                               dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
                                               interpreter.query_logger_,
+                                              *(*current_db.db_acc_)->metric_handles(),
                                               trigger_context_collector,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
@@ -3791,6 +3766,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         std::move(stopping_context),
                                         dbms::DatabaseProtector{db_acc}.clone(),
                                         query_logger,
+                                        *db_acc->metric_handles(),
                                         nullptr,
                                         memory_limit,
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
@@ -3896,7 +3872,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     return label_stats;
   };
 
-  auto populate_label_property_stats = [execution_db_accessor, view](auto index_info) {
+  auto populate_label_property_stats = [execution_db_accessor, view](auto &index_info) {
     std::map<LPIndex, std::map<std::vector<storage::PropertyValue>, int64_t>> label_property_counter;
     std::map<LPIndex, uint64_t> vertex_degree_counter;
 
@@ -4026,6 +4002,15 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
   std::vector<LPIndex> label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
+  // Stats are keyed by (label, properties) only — `IndexOrder` does not affect
+  // count/chi-squared/avg_degree. Collapse entries that differ only in order
+  // so we don't perform a redundant full vertex scan when both ASC and DESC
+  // indexes exist on the same key.
+  auto const stats_key_proj = [](LPIndex const &e) { return e.stats_key(); };
+  std::ranges::sort(label_property_indices_info, std::less{}, stats_key_proj);
+  label_property_indices_info.erase(
+      std::ranges::unique(label_property_indices_info, std::equal_to{}, stats_key_proj).begin(),
+      label_property_indices_info.end());
   auto label_property_stats = populate_label_property_stats(label_property_indices_info);
 
   std::vector<std::vector<TypedValue>> results;
@@ -4112,11 +4097,10 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   auto populate_label_property_results = [execution_db_accessor](auto const &index_info) {
     std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyPath>>> label_property_results;
     label_property_results.reserve(index_info.size());
-
     std::for_each(index_info.begin(),
                   index_info.end(),
-                  [execution_db_accessor, &label_property_results](const storage::LabelPropertyIndexEntry &entry) {
-                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(entry.label);
+                  [execution_db_accessor, &label_property_results](const storage::LabelId &label) {
+                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(label);
                     label_property_results.insert(
                         label_property_results.end(), std::move_iterator{res.begin()}, std::move_iterator{res.end()});
                   });
@@ -4132,7 +4116,15 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
 
   auto label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
-  auto label_prop_results = populate_label_property_results(label_property_indices_info);
+  // `DeleteLabelPropertyIndexStats` is keyed by label and wipes every
+  // (label, properties) entry in one call — collapse to unique labels so
+  // repeated entries (different property combos, or ASC/DESC pairs) don't
+  // produce redundant replicated metadata deltas.
+  auto unique_labels =
+      label_property_indices_info | rv::transform(&storage::LabelPropertyIndexEntry::label) | ranges::to<std::vector>();
+  std::ranges::sort(unique_labels);
+  unique_labels.erase(std::ranges::unique(unique_labels).begin(), unique_labels.end());
+  auto label_prop_results = populate_label_property_results(unique_labels);
 
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
@@ -4645,7 +4637,10 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   };
 
   auto index_name = vector_index_query->index_name_;
-  auto label_name = vector_index_query->label_.name;
+  auto label_mode = vector_index_query->label_mode_;
+  std::vector<std::string> label_names;
+  label_names.reserve(vector_index_query->labels_.size());
+  for (const auto &label : vector_index_query->labels_) label_names.push_back(label.name);
   auto prop_name = vector_index_query->property_.name;
   auto *storage = db_acc->storage();
   const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
@@ -4673,16 +4668,18 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
                  invalidate_plan_cache = std::move(invalidate_plan_cache),
                  query_parameters = std::move(parsed_query.parameters),
                  index_name = std::move(index_name),
-                 label_name = std::move(label_name),
+                 label_mode,
+                 label_names = std::move(label_names),
                  prop_name = std::move(prop_name)]() {
         Notification index_notification(SeverityLevel::INFO);
         index_notification.code = NotificationCode::CREATE_INDEX;
-        index_notification.title = fmt::format("Created vector index on label {}, property {}.", label_name, prop_name);
-        auto label_id = storage->NameToLabel(label_name);
+        index_notification.title = fmt::format("Created vector index {}.", index_name);
+        std::vector<storage::LabelId> label_ids;
+        for (const auto &name : label_names) label_ids.push_back(storage->NameToLabel(name));
         auto prop_id = storage->NameToProperty(prop_name);
         auto maybe_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
             .index_name = index_name,
-            .label_id = label_id,
+            .label_filter = storage::VectorLabelFilter{.mode = label_mode, .ids = std::move(label_ids)},
             .property = prop_id,
             .metric_kind = vector_index_config.metric,
             .dimension = vector_index_config.dimension,
@@ -4692,10 +4689,8 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         });
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
         if (!maybe_error) {
-          index_notification.title = fmt::format(
-              "Error while creating vector index on label {}, property {}, for more information check the logs.",
-              label_name,
-              prop_name);
+          index_notification.title =
+              fmt::format("Error while creating vector index {}, for more information check the logs.", index_name);
         }
         return index_notification;
       };
@@ -4754,7 +4749,10 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
   };
 
   auto index_name = vector_index_query->index_name_;
-  auto edge_type = vector_index_query->edge_type_.name;
+  auto edge_type_mode = vector_index_query->edge_type_mode_;
+  std::vector<std::string> edge_type_names;
+  edge_type_names.reserve(vector_index_query->edge_types_.size());
+  for (const auto &et : vector_index_query->edge_types_) edge_type_names.push_back(et.name);
   auto prop_name = vector_index_query->property_.name;
   auto *storage = db_acc->storage();
 
@@ -4781,16 +4779,18 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
              invalidate_plan_cache = std::move(invalidate_plan_cache),
              query_parameters = std::move(parsed_query.parameters),
              index_name = std::move(index_name),
-             edge_type = std::move(edge_type),
+             edge_type_mode,
+             edge_type_names = std::move(edge_type_names),
              prop_name = std::move(prop_name)]() {
     Notification index_notification(SeverityLevel::INFO);
     index_notification.code = NotificationCode::CREATE_INDEX;
-    index_notification.title = fmt::format("Created vector index on edge type {}, property {}.", edge_type, prop_name);
-    auto edge_type_id = storage->NameToEdgeType(edge_type);
+    index_notification.title = fmt::format("Created vector edge index {}.", index_name);
+    std::vector<storage::EdgeTypeId> edge_type_ids;
+    for (const auto &name : edge_type_names) edge_type_ids.push_back(storage->NameToEdgeType(name));
     auto prop_id = storage->NameToProperty(prop_name);
     auto maybe_error = dba->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
         .index_name = index_name,
-        .edge_type_id = edge_type_id,
+        .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = edge_type_mode, .ids = std::move(edge_type_ids)},
         .property = prop_id,
         .metric_kind = vector_index_config.metric,
         .dimension = vector_index_config.dimension,
@@ -4800,10 +4800,8 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
     });
     utils::OnScopeExit const invalidator(invalidate_plan_cache);
     if (!maybe_error) {
-      index_notification.title = fmt::format(
-          "Error while creating vector index on edge type {}, property {}, for more information check the logs.",
-          edge_type,
-          prop_name);
+      index_notification.title =
+          fmt::format("Error while creating vector edge index {}, for more information check the logs.", index_name);
     }
     return index_notification;
   };
@@ -5280,7 +5278,8 @@ PreparedQuery PrepareReplicationInfoQuery(ParsedQuery parsed_query, bool in_expl
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
@@ -5421,7 +5420,8 @@ PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, bool in_explicit_
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 }
 
 PreparedQuery PrepareShowQueryCallableMappingsQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
@@ -5445,7 +5445,8 @@ PreparedQuery PrepareShowQueryCallableMappingsQuery(ParsedQuery parsed_query, bo
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 }
 
 TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
@@ -5484,38 +5485,39 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
 
 Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPropertyValue::map_t &user_parameters,
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
-                       std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name) {
+                       std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name,
+                       metrics::DatabaseMetricHandles &metric_handles) {
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
-  return {
-      .header = {},
-      // NOLINTNEXTLINE(bugprone-exception-escape)
-      .fn = [trigger_name = std::move(trigger_query->trigger_name_),
-             trigger_statement = std::move(trigger_query->statement_),
-             event_type = trigger_query->event_type_,
-             before_commit = trigger_query->before_commit_,
-             trigger_store,
-             interpreter_context,
-             dba,
-             user_parameters,
-             owner = std::move(owner),
-             db_name,
-             privilege_context = trigger_query->privilege_context_]() mutable -> std::vector<std::vector<TypedValue>> {
-        trigger_store->AddTrigger(std::move(trigger_name),
-                                  trigger_statement,
-                                  user_parameters,
-                                  ToTriggerEventType(event_type),
-                                  before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
-                                  &interpreter_context->ast_cache,
-                                  dba,
-                                  interpreter_context->config.query,
-                                  std::move(owner),
-                                  db_name,
-                                  privilege_context,
-                                  interpreter_context->parameters);
-        memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
-        return {};
-      }};
+  return {.header = {},
+          // NOLINTNEXTLINE(bugprone-exception-escape)
+          .fn = [trigger_name = std::move(trigger_query->trigger_name_),
+                 trigger_statement = std::move(trigger_query->statement_),
+                 event_type = trigger_query->event_type_,
+                 before_commit = trigger_query->before_commit_,
+                 trigger_store,
+                 interpreter_context,
+                 dba,
+                 user_parameters,
+                 owner = std::move(owner),
+                 db_name,
+                 privilege_context = trigger_query->privilege_context_,
+                 metric_handles]() mutable -> std::vector<std::vector<TypedValue>> {
+            trigger_store->AddTrigger(std::move(trigger_name),
+                                      trigger_statement,
+                                      user_parameters,
+                                      ToTriggerEventType(event_type),
+                                      before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
+                                      &interpreter_context->ast_cache,
+                                      dba,
+                                      interpreter_context->config.query,
+                                      std::move(owner),
+                                      db_name,
+                                      privilege_context,
+                                      interpreter_context->parameters);
+            metric_handles.triggers_created.Increment();
+            return {};
+          }};
 }
 
 Callback DropTrigger(TriggerQuery *trigger_query, TriggerStore *trigger_store) {
@@ -5571,6 +5573,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   std::optional<Notification> trigger_notification;
 
+  auto *metric_handles = current_db.db_acc_->get()->metric_handles();
   auto callback = std::invoke([trigger_query,
                                trigger_store,
                                interpreter_context,
@@ -5578,14 +5581,21 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                user_parameters = parsed_query.user_parameters,
                                owner = std::move(user_or_role),
                                &trigger_notification,
+                               metric_handles,
                                db_name = current_db.db_acc_->get()->name()]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO,
                                      NotificationCode::CREATE_TRIGGER,
                                      fmt::format("Created trigger {}.", trigger_query->trigger_name_));
-        return CreateTrigger(
-            trigger_query, user_parameters, trigger_store, interpreter_context, dba, std::move(owner), db_name);
+        return CreateTrigger(trigger_query,
+                             user_parameters,
+                             trigger_store,
+                             interpreter_context,
+                             dba,
+                             std::move(owner),
+                             db_name,
+                             *metric_handles);
       case TriggerQuery::Action::DROP_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO,
                                      NotificationCode::DROP_TRIGGER,
@@ -5966,11 +5976,11 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
   callback.fn = [storage]() mutable -> std::vector<std::vector<TypedValue>> {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
     constexpr bool kForce = true;
-    const auto maybe_path = mem_storage->CreateSnapshot(kForce);
+    const auto maybe_path = mem_storage->CreateSnapshot(kForce, "manual");
     if (!maybe_path) {
       switch (maybe_path.error()) {
         case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. {}. Please contact support.",
+          spdlog::warn("snapshot failed: {}. Please contact support.",
                        storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
           break;
         case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
@@ -6219,7 +6229,8 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
@@ -6503,6 +6514,16 @@ auto ToStatusFilter(TransactionStatus status) -> std::optional<TransactionQueueQ
   }
 }
 
+auto StartTimeAndElapsedMs(std::chrono::system_clock::time_point start,
+                           std::chrono::steady_clock::time_point steady_start) -> std::pair<TypedValue, int64_t> {
+  static const utils::Timezone kUtc = utils::DefaultTimezone();
+  auto const start_us = std::chrono::duration_cast<std::chrono::microseconds>(start.time_since_epoch());
+  TypedValue start_tv(utils::ZonedDateTime(std::chrono::sys_time<std::chrono::microseconds>{start_us}, kUtc));
+  auto const elapsed_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - steady_start).count();
+  return {std::move(start_tv), elapsed_ms};
+}
+
 template <typename Func>
 auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
                       Func &&privilege_checker, const std::vector<TransactionQueueQuery::StatusFilter> &status_filter)
@@ -6547,9 +6568,40 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
         }
       }
       results.back().emplace_back(metadata_tv);
+      auto [start_tv, elapsed_ms] =
+          StartTimeAndElapsedMs(interpreter->transaction_start_time_, interpreter->transaction_start_steady_);
+      results.back().emplace_back(std::move(start_tv));
+      results.back().emplace_back(elapsed_ms);
     }
   }
   return results;
+}
+
+std::vector<TypedValue> BuildSnapshotTransactionRow(storage::SnapshotProgressView const &progress,
+                                                    std::string_view db_name) {
+  std::map<std::string, TypedValue> metadata;
+  metadata.emplace("phase", storage::SnapshotProgress::PhaseToString(progress.phase));
+  metadata.emplace("items_done", static_cast<int64_t>(progress.items_done));
+  metadata.emplace("items_total", static_cast<int64_t>(progress.items_total));
+  metadata.emplace("db_name", std::string{db_name});
+  TypedValue start_tv{};
+  int64_t elapsed_ms = 0;
+  if (progress.start_time_us > 0) {
+    auto const start_tp = std::chrono::system_clock::time_point{std::chrono::microseconds{progress.start_time_us}};
+    auto const steady_start =
+        std::chrono::steady_clock::time_point{std::chrono::milliseconds{progress.start_steady_ms}};
+    std::tie(start_tv, elapsed_ms) = StartTimeAndElapsedMs(start_tp, steady_start);
+  }
+  std::vector<TypedValue> row;
+  row.reserve(7);
+  row.emplace_back("");
+  row.emplace_back("snapshot");
+  row.emplace_back(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")});
+  row.emplace_back("running");
+  row.emplace_back(std::move(metadata));
+  row.emplace_back(std::move(start_tv));
+  row.emplace_back(elapsed_ms);
+  return row;
 }
 
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
@@ -6569,7 +6621,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                 status_filter = transaction_query->status_filter_](const auto &interpreters) {
         return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
       };
-      callback.header = {"username", "transaction_id", "query", "status", "metadata"};
+      callback.header = {"username", "transaction_id", "query", "status", "metadata", "start_time", "elapsed_ms"};
       // Snapshot rows always have status "running"; skip them entirely if the filter
       // is active and RUNNING is not among the requested statuses.
       const bool include_snapshots =
@@ -6584,24 +6636,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
             if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
             auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
             if (!mem_storage->IsSnapshotRunning()) return;
-            auto progress = mem_storage->GetSnapshotProgress();
-            // Build progress metadata
-            std::map<std::string, TypedValue> metadata;
-            metadata["phase"] = TypedValue(storage::SnapshotProgress::PhaseToString(progress.phase));
-            metadata["items_done"] = TypedValue(static_cast<int64_t>(progress.items_done));
-            metadata["items_total"] = TypedValue(static_cast<int64_t>(progress.items_total));
-            if (progress.start_time_us > 0) {
-              auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count();
-              metadata["elapsed_ms"] = TypedValue(static_cast<int64_t>((now_us - progress.start_time_us) / 1000));
-            }
-            metadata["db_name"] = TypedValue(db_acc->name());
-            results.push_back({TypedValue(""),
-                               TypedValue("snapshot"),
-                               TypedValue(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")}),
-                               TypedValue("running"),
-                               TypedValue(metadata)});
+            results.emplace_back(BuildSnapshotTransactionRow(mem_storage->GetSnapshotProgress(), db_acc->name()));
           });
         }
         return results;
@@ -6660,7 +6695,8 @@ PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, std::shared
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 }
 
 PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
@@ -6679,10 +6715,12 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
                              stream->Result(version_value);
                              return QueryHandlerResult::COMMIT;
                            },
-                       .rw_type = RWType::NONE};
+                       .rw_type = RWType::NONE,
+                       .priority = utils::Priority::HIGH};
 }
 
-PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
+PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
+                                       InterpreterContext * /*interpreter_context*/) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -6797,20 +6835,20 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
 
         for (const auto &spec : info.vector_indices_spec) {
+          const auto count = ai->vector_->ApproximateNodesVectorCount(spec.index_name).value_or(0);
           results.push_back({TypedValue(vector_label_property_index_mark),
-                             TypedValue(storage->LabelToName(spec.label_id)),
+                             TypedValue(spec.label_filter.Format([&](auto id) { return storage->LabelToName(id); })),
                              TypedValue(storage->PropertyToName(spec.property)),
-                             TypedValue(static_cast<int>(
-                                 ai->vector_->ApproximateNodesVectorCount(spec.label_id, spec.property).value_or(0)))});
+                             TypedValue(static_cast<int>(count))});
         }
 
         for (const auto &spec : info.vector_edge_indices_spec) {
+          const auto count = ai->vector_edge_->ApproximateEdgesVectorCount(spec.index_name).value_or(0);
           results.push_back(
               {TypedValue(vector_edge_property_index_mark),
-               TypedValue(storage->EdgeTypeToName(spec.edge_type_id)),
+               TypedValue(spec.edge_type_filter.Format([&](auto id) { return storage->EdgeTypeToName(id); })),
                TypedValue(storage->PropertyToName(spec.property)),
-               TypedValue(static_cast<int>(
-                   ai->vector_edge_->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)))});
+               TypedValue(static_cast<int>(count))});
         }
 
         std::ranges::sort(results, [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -6933,37 +6971,29 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         throw QueryRuntimeException(license::LicenseCheckErrorToString(
             license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "SHOW METRICS INFO"));
       }
-#else
-      throw EnterpriseOnlyException();
-#endif
+      std::optional<utils::UUID> current_uuid;
+      if (current_db.db_acc_) {
+        current_uuid = (*current_db.db_acc_)->uuid();
+      }
       header = {"name", "type", "metric type", "value"};
-      handler = [storage = current_db.db_acc_->get()->storage()] {
-        auto const info = storage->GetBaseInfo();
-        auto const metrics_info = memgraph::storage::Storage::GetMetrics();
+      handler = [current_uuid] {
+        std::vector<metrics::MetricInfo> metric_rows;
+        if (current_uuid) {
+          auto result = metrics::Metrics().GetDbMetricsInfo(*current_uuid);
+          if (!result) {
+            throw QueryRuntimeException("{}", result.error());
+          }
+          metric_rows = std::move(*result);
+        }
+        auto const global = metrics::Metrics().GetGlobalMetricsInfo();
+        metric_rows.insert(metric_rows.end(), global.begin(), global.end());
         std::vector<std::vector<TypedValue>> results;
-        results.push_back({TypedValue("VertexCount"),
-                           TypedValue("General"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.vertex_count))});
-        results.push_back({TypedValue("EdgeCount"),
-                           TypedValue("General"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.edge_count))});
-        results.push_back(
-            {TypedValue("AverageDegree"), TypedValue("General"), TypedValue("Gauge"), TypedValue(info.average_degree)});
-        results.push_back({TypedValue("MemoryRes"),
-                           TypedValue("Memory"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.memory_res))});
-        results.push_back({TypedValue("DiskUsage"),
-                           TypedValue("Memory"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.disk_usage))});
-        for (const auto &metric : metrics_info) {
-          results.push_back({TypedValue(metric.name),
-                             TypedValue(metric.type),
-                             TypedValue(metric.event_type),
-                             TypedValue(static_cast<int64_t>(metric.value))});
+        results.reserve(metric_rows.size());
+        for (auto const &m : metric_rows) {
+          results.push_back({TypedValue(m.name),
+                             TypedValue(m.type),
+                             TypedValue(m.metric_type),
+                             std::visit([](auto v) { return TypedValue(v); }, m.value)});
         }
         std::ranges::sort(results, [](auto const &record_1, auto const &record_2) {
           auto const key_1 = std::tie(record_1[1].ValueString(), record_1[2].ValueString(), record_1[0].ValueString());
@@ -6972,7 +7002,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         });
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
-
+#else
+      throw EnterpriseOnlyException();
+#endif
       break;
     }
     case DatabaseInfoQuery::InfoType::VECTOR_INDEX: {
@@ -6988,7 +7020,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
         for (const auto &spec : vector_indices) {
           results.push_back({TypedValue(spec.index_name),
-                             TypedValue(storage->LabelToName(spec.label_id)),
+                             TypedValue(spec.label_filter.Format([&](auto id) { return storage->LabelToName(id); })),
                              TypedValue(storage->PropertyToName(spec.property)),
                              TypedValue(static_cast<int64_t>(spec.capacity)),
                              TypedValue(spec.dimension),
@@ -6999,15 +7031,16 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
 
         for (const auto &spec : vector_edge_indices) {
-          results.push_back({TypedValue(spec.index_name),
-                             TypedValue(storage->EdgeTypeToName(spec.edge_type_id)),
-                             TypedValue(storage->PropertyToName(spec.property)),
-                             TypedValue(static_cast<int64_t>(spec.capacity)),
-                             TypedValue(spec.dimension),
-                             TypedValue(spec.metric),
-                             TypedValue(static_cast<int64_t>(spec.size)),
-                             TypedValue(spec.scalar_kind),
-                             TypedValue(VectorIndexTypeToString(storage::VectorIndexType::ON_EDGES))});
+          results.push_back(
+              {TypedValue(spec.index_name),
+               TypedValue(spec.edge_type_filter.Format([&](auto id) { return storage->EdgeTypeToName(id); })),
+               TypedValue(storage->PropertyToName(spec.property)),
+               TypedValue(static_cast<int64_t>(spec.capacity)),
+               TypedValue(spec.dimension),
+               TypedValue(spec.metric),
+               TypedValue(static_cast<int64_t>(spec.size)),
+               TypedValue(spec.scalar_kind),
+               TypedValue(VectorIndexTypeToString(storage::VectorIndexType::ON_EDGES))});
         }
 
         return std::pair{results, QueryHandlerResult::COMMIT};
@@ -7063,10 +7096,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           if (!db_handler) {
             throw QueryRuntimeException("Database handler is not available");
           }
-          memgraph::metrics::IncrementCounter(memgraph::metrics::ShowStorageInfoOnDatabase);
           auto db_acc = db_handler->Get(db_name);
           auto *db = db_acc.get();
           if (!db) throw QueryRuntimeException("Database '{}' was dropped during query execution.", db_name);
+          if (auto *mh = db->metric_handles()) mh->show_storage_info.Increment();
           auto *storage = db->storage();
           auto info = storage->GetBaseInfo();
 
@@ -7796,7 +7829,8 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
         return std::nullopt;
       },
       .rw_type = RWType::NONE,
-      .db = query->db_name_};
+      .db = query->db_name_,
+      .priority = utils::Priority::HIGH};
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
@@ -7832,7 +7866,8 @@ PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curr
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
@@ -7957,9 +7992,13 @@ PreparedQuery PrepareShowMemoryInfoQuery([[maybe_unused]] ParsedQuery parsed_que
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 #else
-  throw QueryRuntimeException("SHOW MEMORY INFO is only available in the enterprise edition.");
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)interpreter_context;
+  throw EnterpriseOnlyException();
 #endif
 }
 
@@ -8148,7 +8187,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                  user_or_role
 #endif
   ]() mutable -> std::vector<std::vector<TypedValue>> {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ShowSchema);
+    db->metric_handles()->show_schema.Increment();
 
     std::vector<std::vector<TypedValue>> schema;
     auto *storage = db->storage();
@@ -8257,15 +8296,27 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label property_vector
       for (const auto &spec : index_info.vector_indices_spec) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker && !auth_checker->Has(std::span{&spec.label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
-          continue;
+        if (auth_checker) {
+          // Wildcard requires global READ on vertices; non-wildcard requires READ on every listed
+          // label (Has(span<...>) matches any one, which would leak the full label set).
+          const bool authorized =
+              spec.label_filter.ids.empty()
+                  ? auth_checker->HasGlobalPrivilegeOnVertices(AuthQuery::FineGrainedPrivilege::READ)
+                  : std::ranges::all_of(spec.label_filter.ids, [&](auto label) {
+                      return auth_checker->Has(std::span{&label, 1}, AuthQuery::FineGrainedPrivilege::READ);
+                    });
+          if (!authorized) continue;
         }
 #endif
-        node_indexes.push_back(nlohmann::json::object(
-            {{"labels", {storage->LabelToName(spec.label_id)}},
-             {"properties", {storage->PropertyToName(spec.property)}},
-             {"count", storage_acc->ApproximateVerticesVectorCount(spec.label_id, spec.property).value_or(0)},
-             {"type", "label+property_vector"}}));
+        auto label_names = nlohmann::json::array();
+        for (const auto &label : spec.label_filter.ids) {
+          label_names.push_back(storage->LabelToName(label));
+        }
+        const auto count = storage_acc->ApproximateVerticesVectorCount(spec.index_name).value_or(0);
+        node_indexes.push_back(nlohmann::json::object({{"labels", std::move(label_names)},
+                                                       {"properties", {storage->PropertyToName(spec.property)}},
+                                                       {"count", count},
+                                                       {"type", "label+property_vector"}}));
       }
 
       // Edge type indices
@@ -8307,15 +8358,25 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Edge type property_vector
       for (const auto &spec : index_info.vector_edge_indices_spec) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker && !auth_checker->Has(spec.edge_type_id, AuthQuery::FineGrainedPrivilege::READ)) {
-          continue;
+        if (auth_checker) {
+          // Wildcard requires global READ on edges; non-wildcard requires READ on every listed edge type.
+          const bool authorized = spec.edge_type_filter.ids.empty()
+                                      ? auth_checker->HasGlobalPrivilegeOnEdges(AuthQuery::FineGrainedPrivilege::READ)
+                                      : std::ranges::all_of(spec.edge_type_filter.ids, [&](auto et) {
+                                          return auth_checker->Has(et, AuthQuery::FineGrainedPrivilege::READ);
+                                        });
+          if (!authorized) continue;
         }
 #endif
-        node_indexes.push_back(nlohmann::json::object(
-            {{"edge_type", {storage->EdgeTypeToName(spec.edge_type_id)}},
-             {"properties", {storage->PropertyToName(spec.property)}},
-             {"count", storage_acc->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)},
-             {"type", "edge_type+property_vector"}}));
+        auto edge_type_names = nlohmann::json::array();
+        for (const auto &et : spec.edge_type_filter.ids) {
+          edge_type_names.push_back(storage->EdgeTypeToName(et));
+        }
+        const auto count = storage_acc->ApproximateEdgesVectorCount(spec.index_name).value_or(0);
+        edge_indexes.push_back(nlohmann::json::object({{"edge_type", std::move(edge_type_names)},
+                                                       {"properties", {storage->PropertyToName(spec.property)}},
+                                                       {"count", count},
+                                                       {"type", "edge_type+property_vector"}}));
       }
       // Edge type text
       for (const auto &[index_name, edge_type, properties] : index_info.text_edge_indices) {
@@ -9057,8 +9118,11 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
     metrics::FirstFailedQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
+    // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.
+    if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+      h->failed_query.Increment();
+    else
+      metrics::Metrics().global.failed_query->Increment();
     AbortCommand({});
     throw;
   }
@@ -9533,7 +9597,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                         current_db_.db_acc_,
                                         &query_execution->notifications);
     } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+      prepared_query = PrepareDatabaseInfoQuery(
+          std::move(parsed_query), in_explicit_transaction_, current_db_, interpreter_context_);
     } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
       prepared_query = PrepareSystemInfoQuery(std::move(parsed_query),
                                               in_explicit_transaction_,
@@ -9718,7 +9783,30 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     const auto rw_type = query_execution->prepared_query->rw_type;
     query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
 
-    UpdateTypeCount(rw_type);
+    // db_acc_ may be absent for queries that don't require a database (e.g. auth queries); fall back to global counter.
+    auto *const qtype_h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr;
+    switch (rw_type) {
+      case plan::ReadWriteTypeChecker::RWType::R:
+        if (qtype_h)
+          qtype_h->read_query.Increment();
+        else
+          metrics::Metrics().global.read_query->Increment();
+        break;
+      case plan::ReadWriteTypeChecker::RWType::W:
+        if (qtype_h)
+          qtype_h->write_query.Increment();
+        else
+          metrics::Metrics().global.write_query->Increment();
+        break;
+      case plan::ReadWriteTypeChecker::RWType::RW:
+        if (qtype_h)
+          qtype_h->read_write_query.Increment();
+        else
+          metrics::Metrics().global.read_write_query->Increment();
+        break;
+      default:
+        break;
+    }
 
     bool const write_query = IsQueryWrite(rw_type);
     if (write_query) {
@@ -9756,8 +9844,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
     metrics::FirstFailedQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
+    // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.
+    if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+      h->failed_prepare.Increment();
+    else
+      metrics::Metrics().global.failed_prepare->Increment();
     AbortCommand(query_execution_ptr);
     throw;
   }
@@ -9789,9 +9880,11 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAcc
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
-  metrics::IncrementCounter(metrics::ActiveTransactions);
   auto tx_id = interpreter_context_->id_handler.next();
   current_transaction_ = tx_id;
+  transaction_start_time_ = std::chrono::system_clock::now();
+  transaction_start_steady_ = std::chrono::steady_clock::now();
+  // Release publishes the start-time writes above to verifier-holding readers.
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   if (query_logger_) {
     query_logger_->SetTransactionId(std::to_string(tx_id));
@@ -9827,8 +9920,6 @@ void Interpreter::Abort() {
     }
   });
 
-  bool decrement = true;
-
   // System tx
   // TODO Implement system transaction scope and the ability to abort
   system_transaction_.reset();
@@ -9840,7 +9931,6 @@ void Interpreter::Abort() {
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
     if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
-      decrement = false;
       // Retry CAS from the current expected value (compare_exchange_weak already updated expected)
       continue;
     }
@@ -9872,11 +9962,6 @@ void Interpreter::Abort() {
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
   current_timeout_timer_.reset();
-
-  if (decrement) {
-    // Decrement only if the transaction was active when we started to Abort
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
-  }
 
   // Route Abort-path deallocations/cleanup to this DB's arena.
   // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
@@ -10152,10 +10237,8 @@ void Interpreter::Commit() {
         "Cannot commit transaction because the storage mode has changed from in-memory storage to on-disk storage.");
   }
 
-  utils::OnScopeExit update_metrics([]() {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
-  });
+  auto *metric_handles = (*current_db_.db_acc_)->metric_handles();
+  utils::OnScopeExit const update_metrics([metric_handles]() { metric_handles->committed_transactions.Increment(); });
 
   std::optional<TriggerContext> trigger_context = std::nullopt;
   if (current_db_.trigger_context_collector_) {

@@ -40,11 +40,11 @@ DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_h
       !result.has_value()) {
     switch (result.error()) {
       case memgraph::utils::ValidationError::EmptyValue: {
-        std::cout << "Isolation level cannot be empty." << std::endl;
+        std::cerr << "Isolation level cannot be empty." << std::endl;
         break;
       }
       case memgraph::utils::ValidationError::InvalidValue: {
-        std::cout << "Invalid value for isolation level. Allowed values: "
+        std::cerr << "Invalid value for isolation level. Allowed values: "
                   << memgraph::utils::GetAllowedEnumValuesString(isolation_level_mappings) << std::endl;
         break;
       }

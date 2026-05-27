@@ -133,11 +133,13 @@ struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
               ActiveIndicesPtr active_indices, ActiveConstraintsPtr active_constraints,
-              AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt)
+              AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt,
+              metrics::GaugeHandle unreleased_delta_gauge = {})
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
+        original_start_timestamp(start_timestamp),
         command_id(0),
-        deltas(),
+        deltas(unreleased_delta_gauge),
         md_deltas(utils::NewDeleteResource()),
         has_serialization_error(false),
         isolation_level(isolation_level),
@@ -219,7 +221,8 @@ struct Transaction {
 
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
-  std::optional<uint64_t> original_start_timestamp{};
+  // Set at construction; never reassigned. Stable across PeriodicCommit.
+  uint64_t original_start_timestamp{};
   // The `Transaction` object is stack allocated, but the `commit_info`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into

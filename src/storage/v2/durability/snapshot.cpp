@@ -283,10 +283,10 @@ auto Batch(auto &&acc, const uint64_t items_per_batch) {
   return batches;
 }
 
-bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Vertex> *vertices, auto &&partial_edge_handler,
-                           auto &&partial_vertex_handler, const uint64_t items_per_batch, uint64_t &offset_edges,
-                           uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder, uint64_t &edges_count,
-                           uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
+bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Vertex> *vertices,
+                           auto &&partial_edge_handler, auto &&partial_vertex_handler, const uint64_t items_per_batch,
+                           uint64_t &offset_edges, uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder,
+                           uint64_t &edges_count, uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
                            std::vector<BatchInfo> &vertex_batch_infos, std::unordered_set<uint64_t> &used_ids,
                            uint64_t thread_count, auto &&snapshot_aborted, SnapshotProgress *progress = nullptr) {
   SafeTaskQueue tasks;
@@ -4162,14 +4162,15 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -4791,14 +4792,15 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -5412,14 +5414,15 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -6035,14 +6038,15 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -6660,14 +6664,15 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -6712,7 +6717,9 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
 
         indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
             .spec = VectorEdgeIndexSpec{.index_name = std::move(*index_name),
-                                        .edge_type_id = get_edge_type_from_id(*edge_type),
+                                        .edge_type_filter =
+                                            VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE,
+                                                                 .ids = {get_edge_type_from_id(*edge_type)}},
                                         .property = get_property_from_id(*property),
                                         .metric_kind = metric_kind,
                                         .dimension = static_cast<uint16_t>(*dimension),
@@ -7335,14 +7342,15 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -7387,7 +7395,9 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
 
         indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
             .spec = VectorEdgeIndexSpec{.index_name = std::move(*index_name),
-                                        .edge_type_id = get_edge_type_from_id(*edge_type),
+                                        .edge_type_filter =
+                                            VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE,
+                                                                 .ids = {get_edge_type_from_id(*edge_type)}},
                                         .property = get_property_from_id(*property),
                                         .metric_kind = metric_kind,
                                         .dimension = static_cast<uint16_t>(*dimension),
@@ -8021,14 +8031,15 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -8073,7 +8084,9 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
 
         indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
             .spec = VectorEdgeIndexSpec{.index_name = std::move(*index_name),
-                                        .edge_type_id = get_edge_type_from_id(*edge_type),
+                                        .edge_type_filter =
+                                            VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE,
+                                                                 .ids = {get_edge_type_from_id(*edge_type)}},
                                         .property = get_property_from_id(*property),
                                         .metric_kind = metric_kind,
                                         .dimension = static_cast<uint16_t>(*dimension),
@@ -8773,14 +8786,15 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -8827,7 +8841,9 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
 
         indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
             .spec = VectorEdgeIndexSpec{.index_name = std::move(*index_name),
-                                        .edge_type_id = get_edge_type_from_id(*edge_type),
+                                        .edge_type_filter =
+                                            VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE,
+                                                                 .ids = {get_edge_type_from_id(*edge_type)}},
                                         .property = get_property_from_id(*property),
                                         .metric_kind = metric_kind,
                                         .dimension = static_cast<uint16_t>(*dimension),
@@ -9095,6 +9111,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
+// NOLINTNEXTLINE(readability-function-size)
 RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path const &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
                                         utils::SkipListDb<EdgeMetadata> *edges_metadata,
@@ -9540,8 +9557,9 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
           throw RecoveryFailure("The vector index with the same name already exists!");
         }
 
-        auto label = snapshot.ReadUint();
+        const auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
+        VectorLabelFilter label_filter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}};
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read vector index property!");
         auto metric = snapshot.ReadString();
@@ -9556,7 +9574,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector index scalar kind!");
 
         VectorIndexSpec spec{.index_name = std::move(*index_name),
-                             .label_id = get_label_from_id(*label),
+                             .label_filter = std::move(label_filter),
                              .property = get_property_from_id(*property),
                              .metric_kind = MetricFromName(*metric),
                              .dimension = static_cast<uint16_t>(*dimension),
@@ -9606,8 +9624,10 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
           throw RecoveryFailure("The vector index with the same name already exists!");
         }
 
-        auto edge_type = snapshot.ReadUint();
+        const auto edge_type = snapshot.ReadUint();
         if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
+        VectorEdgeTypeFilter edge_type_filter{.mode = VectorMatchMode::SINGLE,
+                                              .ids = {get_edge_type_from_id(*edge_type)}};
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read vector edge index property!");
         auto metric = snapshot.ReadString();
@@ -9623,7 +9643,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
 
         indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
             .spec = VectorEdgeIndexSpec{.index_name = std::move(*index_name),
-                                        .edge_type_id = get_edge_type_from_id(*edge_type),
+                                        .edge_type_filter = std::move(edge_type_filter),
                                         .property = get_property_from_id(*property),
                                         .metric_kind = MetricFromName(*metric),
                                         .dimension = static_cast<uint16_t>(*dimension),
@@ -9978,15 +9998,881 @@ void RecoverDescriptionStore(Decoder &snapshot, SnapshotInfo const &info, NameId
 }
 
 // NOLINTNEXTLINE(readability-function-size)
-RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem::path const &path,
-                                             utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                             utils::SkipListDb<EdgeMetadata> *edges_metadata,
-                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                             Config const &config, EnumStore *enum_store,
-                                             SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
-                                             memgraph::storage::DescriptionStore *description_store,
-                                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
+RecoveredSnapshot LoadCurrentVersionSnapshot(
+    Decoder &snapshot, std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+    utils::SkipListDb<Edge> *edges, utils::SkipListDb<EdgeMetadata> *edges_metadata,
+    std::deque<std::pair<std::string, uint64_t>> *epoch_history, NameIdMapper *name_id_mapper,
+    std::atomic<uint64_t> *edge_count, Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
+    std::optional<SnapshotObserverInfo> const &snapshot_info, uint64_t version) {
+  // Cleanup of loaded data in case of failure.
+
+  RecoveryInfo recovery_info;
+  RecoveredIndicesAndConstraints indices_constraints;
+
+  bool success = false;
+  auto const cleanup = utils::OnScopeExit([&] {
+    if (!success) {
+      edges->clear();
+      vertices->clear();
+      edges_metadata->clear();
+      epoch_history->clear();
+      enum_store->clear();
+    }
+  });
+
+  // Read snapshot info.
+  const auto info = ReadSnapshotInfo(path);
+  spdlog::info("Recovering {} vertices and {} edges.", info.vertices_count, info.edges_count);
+  // Check for edges.
+  bool const snapshot_has_edges = info.offset_edges != 0;
+
+  // Recover mapper.
+  std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
+  {
+    spdlog::info("Recovering mapper metadata.");
+    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
+
+    auto size = snapshot.ReadUint();
+    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
+
+    for (uint64_t i = 0; i < *size; ++i) {
+      auto id = snapshot.ReadUint();
+      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
+      auto name = snapshot.ReadString();
+      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
+      auto my_id = name_id_mapper->NameToId(*name);
+      snapshot_id_map.emplace(*id, my_id);
+      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
+    }
+  }
+
+  // Recover enums.
+  // TODO: when we have enum deletion/edits we will need to handle remapping
+  {
+    spdlog::info("Recovering metadata of enums.");
+    if (!snapshot.SetPosition(info.offset_enums)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_ENUMS) {
+      throw RecoveryFailure("Couldn't read section enums marker!");
+    }
+
+    auto size = snapshot.ReadUint();
+    if (!size) throw RecoveryFailure("Couldn't read the number of enums!");
+    spdlog::info("Recovering metadata of {} enums.", *size);
+    for (uint64_t i = 0; i < *size; ++i) {
+      auto etype = snapshot.ReadString();
+      if (!etype) throw RecoveryFailure("Couldn't read enum type of enums!");
+
+      auto value_count = snapshot.ReadUint();
+      if (!value_count) throw RecoveryFailure("Couldn't read enum values length of enums!");
+
+      auto evalues = std::vector<std::string>{};
+      evalues.reserve(*value_count);
+      for (uint64_t j = 0; j < *value_count; ++j) {
+        auto evalue = snapshot.ReadString();
+        if (!evalue) throw RecoveryFailure("Couldn't read enum value of enums!");
+        evalues.emplace_back(*std::move(evalue));
+      }
+
+      auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
+      if (!ret) {
+        throw RecoveryFailure("The enum could not be created!");
+      }
+    }
+    spdlog::info("Metadata of enums are recovered.");
+  }
+
+  auto get_label_from_id = [&snapshot_id_map](uint64_t label_id) {
+    auto it = snapshot_id_map.find(label_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find label id in snapshot_id_map!");
+    return LabelId::FromUint(it->second);
+  };
+  auto get_property_from_id = [&snapshot_id_map](uint64_t property_id) {
+    auto it = snapshot_id_map.find(property_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find property id in snapshot_id_map!");
+    return PropertyId::FromUint(it->second);
+  };
+  auto get_edge_type_from_id = [&snapshot_id_map](uint64_t edge_type_id) {
+    auto it = snapshot_id_map.find(edge_type_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find edge type id in snapshot_id_map!");
+    return EdgeTypeId::FromUint(it->second);
+  };
+  auto get_property_paths = [&](std::string_view ctx) {
+    auto n_paths = snapshot.ReadUint();
+    if (!n_paths) throw RecoveryFailure("Couldn't read number of properties for {}.", ctx);
+    auto property_paths = std::vector<PropertyPath>{};
+    property_paths.reserve(*n_paths);
+    for (uint64_t i = 0; i < *n_paths; ++i) {
+      auto n_props = snapshot.ReadUint();
+      if (!n_props) throw RecoveryFailure("Couldn't read number of properties for {}.", ctx);
+      auto properties = std::vector<PropertyId>{};
+      properties.reserve(*n_props);
+      for (uint64_t j = 0; j < *n_props; ++j) {
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property for {}.", ctx);
+        properties.emplace_back(get_property_from_id(*property));
+      }
+      property_paths.emplace_back(std::move(properties));
+    }
+    return property_paths;
+  };
+
+  // Reset current edge count.
+  edge_count->store(0, std::memory_order_release);
+
+  {
+    // Recover vertices (labels and properties).
+    spdlog::info("Recovering vertices.");
+    uint64_t last_vertex_gid{0};
+
+    if (!snapshot.SetPosition(info.offset_vertex_batches)) {
+      throw RecoveryFailure("Couldn't read data from snapshot!");
+    }
+
+    const auto vertex_batches = ReadBatchInfos(snapshot);
+    {
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path,
+           vertices,
+           schema_info,
+           &vertex_batches,
+           &get_label_from_id,
+           &get_property_from_id,
+           &last_vertex_gid,
+           &snapshot_info,
+           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+                                                                      *vertices,
+                                                                      schema_info,
+                                                                      batch.offset,
+                                                                      batch.count,
+                                                                      get_label_from_id,
+                                                                      get_property_from_id,
+                                                                      name_id_mapper,
+                                                                      snapshot_info);
+            if (batch_index == vertex_batches.size() - 1) {
+              last_vertex_gid = last_vertex_gid_in_batch;
+            }
+          },
+          vertex_batches);
+    }
+
+    spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      {
+        RecoverOnMultipleThreads(
+            config.durability.recovery_thread_count,
+            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
+                const size_t /*batch_index*/, const BatchInfo &batch) {
+              LoadPartialEdges(
+                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
+            },
+            edge_batches);
+      }
+    }
+    spdlog::info("Edges are recovered.");
+
+    // Recover vertices (in/out edges).
+    spdlog::info("Recover connectivity.");
+    recovery_info.vertex_batches.reserve(vertex_batches.size());
+    for (const auto batch : vertex_batches) {
+      recovery_info.vertex_batches.emplace_back(Gid::FromUint(0), batch.count);
+    }
+    std::atomic<uint64_t> highest_edge_gid{0};
+
+    {
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path,
+           vertices,
+           edges,
+           edges_metadata,
+           schema_info,
+           edge_count,
+           items = config.salient.items,
+           snapshot_has_edges,
+           &get_edge_type_from_id,
+           &highest_edge_gid,
+           &recovery_info,
+           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+            const auto result = LoadPartialConnectivity(path,
+                                                        *vertices,
+                                                        *edges,
+                                                        *edges_metadata,
+                                                        schema_info,
+                                                        batch.offset,
+                                                        batch.count,
+                                                        items,
+                                                        snapshot_has_edges,
+                                                        get_edge_type_from_id,
+                                                        snapshot_info);
+            edge_count->fetch_add(result.edge_count);
+            atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
+            recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
+          },
+          vertex_batches);
+    }
+    spdlog::info("Connectivity is recovered.");
+
+    // Set initial values for edge/vertex ID generators.
+    recovery_info.next_edge_id = highest_edge_gid + 1;
+    recovery_info.next_vertex_id = last_vertex_gid + 1;
+  }
+
+  // Recover indices.
+  {
+    spdlog::info("Recovering metadata of indices.");
+    if (!snapshot.SetPosition(info.offset_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_INDICES) throw RecoveryFailure("Couldn't read section indices!");
+
+    // Recover label indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of label indices");
+      spdlog::info("Recovering metadata of {} label indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label of label index!");
+        AddRecoveredIndexConstraint(
+            &indices_constraints.indices.label, get_label_from_id(*label), "The label index already exists!");
+        SPDLOG_TRACE("Recovered metadata of label index for :{}", name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+      }
+      spdlog::info("Metadata of label indices are recovered.");
+    }
+
+    // Recover label indices statistics.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of entries for label index statistics!");
+      spdlog::info("Recovering metadata of {} label indices statistics.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        const auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label while recovering label index statistics!");
+        const auto count = snapshot.ReadUint();
+        if (!count) throw RecoveryFailure("Couldn't read count for label index statistics!");
+        const auto avg_degree = snapshot.ReadDouble();
+        if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
+        const auto label_id = get_label_from_id(*label);
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
+        SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+      }
+      spdlog::info("Metadata of label indices are recovered.");
+    }
+
+    // Recover label+property indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of label properties indices.");
+      spdlog::info("Recovering metadata of {} label+properties indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
+        auto property_paths = get_property_paths("label properties index");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
+                                    {get_label_from_id(*label), property_paths},
+                                    "The label+property index already exists!");
+        SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     fmt::format("{}",
+                                 utils::JoinVector(property_paths | rv::transform([&](const PropertyPath &path) {
+                                                     return path | rv::transform([&](const auto &property_id) {
+                                                              return name_id_mapper->IdToName(property_id.AsUint());
+                                                            }) |
+                                                            rv::join(". ") | r::to<std::string>;
+                                                   }) | r::to_vector,
+                                                   ", ")));
+      }
+      spdlog::info("Metadata of label+property indices are recovered.");
+    }
+
+    // Recover DESC label+property indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of DESC label properties indices.");
+      spdlog::info("Recovering metadata of {} DESC label+properties indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for DESC label properties index.");
+        auto property_paths = get_property_paths("DESC label properties index");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties_desc,
+                                    {get_label_from_id(*label), property_paths},
+                                    "The DESC label+property index already exists!");
+      }
+      spdlog::info("Metadata of DESC label+property indices are recovered.");
+    }
+
+    // Recover label+property indices statistics.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of entries for label property statistics!");
+      spdlog::info("Recovering metadata of {} label+property indices statistics.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        const auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for label property index statistics!");
+        auto property_paths = get_property_paths("label property index statistics");
+        const auto count = snapshot.ReadUint();
+        if (!count) throw RecoveryFailure("Couldn't read count for label property index statistics!!");
+        const auto distinct_values_count = snapshot.ReadUint();
+        if (!distinct_values_count)
+          throw RecoveryFailure("Couldn't read distinct values count for label property index statistics!");
+        const auto statistic = snapshot.ReadDouble();
+        if (!statistic) throw RecoveryFailure("Couldn't read statistics value for label-property index statistics!");
+        const auto avg_group_size = snapshot.ReadDouble();
+        if (!avg_group_size)
+          throw RecoveryFailure("Couldn't read average group size for label property index statistics!");
+        const auto avg_degree = snapshot.ReadDouble();
+        if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
+        const auto label_id = get_label_from_id(*label);
+        indices_constraints.indices.label_property_stats.emplace_back(
+            label_id,
+            std::make_pair(std::move(property_paths),
+                           LabelPropertyIndexStats{.count = *count,
+                                                   .distinct_values_count = *distinct_values_count,
+                                                   .statistic = *statistic,
+                                                   .avg_group_size = *avg_group_size,
+                                                   .avg_degree = *avg_degree}));
+        SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of label+property indices are recovered.");
+    }
+
+    spdlog::info("Recovering metadata of indices.");
+    if (!snapshot.SetPosition(info.offset_edge_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_EDGE_INDICES)
+      throw RecoveryFailure("Couldn't read section edge-indices!");
+
+    {
+      // Recover edge-type indices.
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of edge-type indices");
+      spdlog::info("Recovering metadata of {} edge-type indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto edge_type = snapshot.ReadUint();
+        if (!edge_type) throw RecoveryFailure("Couldn't read edge-type of edge-type index!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.edge,
+                                    get_edge_type_from_id(*edge_type),
+                                    "The edge-type index already exists!");
+        SPDLOG_TRACE("Recovered metadata of edge-type index for :{}",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)));
+      }
+      spdlog::info("Metadata of edge-type indices are recovered.");
+    }
+    {
+      // Recover edge-type + property indices.
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of edge-type indices");
+      spdlog::info("Recovering metadata of {} edge-type indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto edge_type = snapshot.ReadUint();
+        if (!edge_type) throw RecoveryFailure("Couldn't read edge-type of edge-type + property index!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property of edge-type + property index!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.edge_type_property,
+                                    {get_edge_type_from_id(*edge_type), get_property_from_id(*property)},
+                                    "The edge-type + property index already exists!");
+        SPDLOG_TRACE("Recovered metadata of edge-type index for :{}({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of edge-type + property indices are recovered.");
+    }
+
+    {
+      // Recover global edge property indices.
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of global edge property indices");
+      spdlog::info("Recovering metadata of {} global edge property indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property of global edge property index!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.edge_property,
+                                    get_property_from_id(*property),
+                                    "The global edge property index already exists!");
+        SPDLOG_TRACE("Recovered metadata of global edge property index for ({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of global edge property indices are recovered.");
+    }
+
+    // Recover point indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of point indices!");
+      spdlog::info("Recovering metadata of {} point indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for point index!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property for point index");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.point_label_property,
+                                    {get_label_from_id(*label), get_property_from_id(*property)},
+                                    "The point index already exists!");
+        SPDLOG_TRACE("Recovered metadata of point index for :{}({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of point indices are recovered.");
+    }
+
+    // Recover vector indices.
+    {
+      auto num_indices = snapshot.ReadUint();
+      if (!num_indices) throw RecoveryFailure("Couldn't recover the number of vector indices!");
+      spdlog::info("Recovering {} vector indices.", *num_indices);
+
+      for (uint64_t i = 0; i < *num_indices; ++i) {
+        auto index_name = snapshot.ReadString();
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
+
+        if (r::any_of(indices_constraints.indices.vector_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.spec.index_name == index_name; }) ||
+            r::any_of(indices_constraints.indices.vector_edge_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.spec.index_name == index_name; })) {
+          throw RecoveryFailure("The vector index with the same name already exists!");
+        }
+
+        VectorLabelFilter label_filter{.mode = VectorMatchMode::SINGLE, .ids = {}};
+        if (version >= kVectorIndexMultiLabel) {
+          auto mode_raw = snapshot.ReadUint();
+          if (!mode_raw) throw RecoveryFailure("Couldn't read vector index label mode!");
+          auto label_count = snapshot.ReadUint();
+          if (!label_count) throw RecoveryFailure("Couldn't read vector index label count!");
+          label_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
+          label_filter.ids.reserve(*label_count);
+          for (uint64_t k = 0; k < *label_count; ++k) {
+            auto label = snapshot.ReadUint();
+            if (!label) throw RecoveryFailure("Couldn't read vector index label!");
+            label_filter.ids.push_back(get_label_from_id(*label));
+          }
+        } else {
+          auto label = snapshot.ReadUint();
+          if (!label) throw RecoveryFailure("Couldn't read vector index label!");
+          label_filter.ids.push_back(get_label_from_id(*label));
+        }
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read vector index property!");
+        auto metric = snapshot.ReadString();
+        if (!metric) throw RecoveryFailure("Couldn't read vector index metric!");
+        auto dimension = snapshot.ReadUint();
+        if (!dimension) throw RecoveryFailure("Couldn't read vector index dimension!");
+        auto resize_coefficient = snapshot.ReadUint();
+        if (!resize_coefficient) throw RecoveryFailure("Couldn't read vector index resize coefficient!");
+        auto capacity = snapshot.ReadUint();
+        if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
+        auto scalar_kind = snapshot.ReadUint();
+        if (!scalar_kind) throw RecoveryFailure("Couldn't read vector index scalar kind!");
+
+        VectorIndexSpec spec{.index_name = std::move(*index_name),
+                             .label_filter = std::move(label_filter),
+                             .property = get_property_from_id(*property),
+                             .metric_kind = MetricFromName(*metric),
+                             .dimension = static_cast<uint16_t>(*dimension),
+                             .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+                             .capacity = *capacity,
+                             .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+
+        auto entry_count = snapshot.ReadUint();
+        if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
+
+        absl::flat_hash_map<Gid, utils::small_vector<float>> index_entries;
+        index_entries.reserve(*entry_count);
+        utils::small_vector<float> vector;
+        vector.reserve(*dimension);
+        for (uint64_t j = 0; j < *entry_count; ++j) {
+          auto gid = snapshot.ReadUint();
+          if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
+
+          for (uint64_t k = 0; k < *dimension; ++k) {
+            auto value = snapshot.ReadDouble();
+            if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
+            vector.push_back(static_cast<float>(*value));
+          }
+          index_entries.emplace(Gid::FromUint(*gid), vector);
+          vector.clear();
+        }
+
+        indices_constraints.indices.vector_indices.emplace_back(
+            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = std::move(index_entries)});
+      }
+      spdlog::info("Vector indices are recovered.");
+    }
+
+    // Recover vector edge indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of vector edge indices!");
+      spdlog::info("Recovering {} vector edge indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto index_name = snapshot.ReadString();
+        if (!index_name) throw RecoveryFailure("Couldn't read vector edge index name!");
+
+        if (r::any_of(indices_constraints.indices.vector_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.spec.index_name == index_name; }) ||
+            r::any_of(indices_constraints.indices.vector_edge_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.spec.index_name == index_name; })) {
+          throw RecoveryFailure("The vector index with the same name already exists!");
+        }
+
+        VectorEdgeTypeFilter edge_type_filter{.mode = VectorMatchMode::SINGLE, .ids = {}};
+        if (version >= kVectorIndexMultiLabel) {
+          auto mode_raw = snapshot.ReadUint();
+          if (!mode_raw) throw RecoveryFailure("Couldn't read vector edge index edge type mode!");
+          auto edge_type_count = snapshot.ReadUint();
+          if (!edge_type_count) throw RecoveryFailure("Couldn't read vector edge index edge type count!");
+          edge_type_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
+          edge_type_filter.ids.reserve(*edge_type_count);
+          for (uint64_t k = 0; k < *edge_type_count; ++k) {
+            auto edge_type = snapshot.ReadUint();
+            if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
+            edge_type_filter.ids.push_back(get_edge_type_from_id(*edge_type));
+          }
+        } else {
+          auto edge_type = snapshot.ReadUint();
+          if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
+          edge_type_filter.ids.push_back(get_edge_type_from_id(*edge_type));
+        }
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read vector edge index property!");
+        auto metric = snapshot.ReadString();
+        if (!metric) throw RecoveryFailure("Couldn't read vector edge index metric!");
+        auto dimension = snapshot.ReadUint();
+        if (!dimension) throw RecoveryFailure("Couldn't read vector edge index dimension!");
+        auto resize_coefficient = snapshot.ReadUint();
+        if (!resize_coefficient) throw RecoveryFailure("Couldn't read vector edge index resize coefficient!");
+        auto capacity = snapshot.ReadUint();
+        if (!capacity) throw RecoveryFailure("Couldn't read vector edge index capacity!");
+        auto scalar_kind = snapshot.ReadUint();
+        if (!scalar_kind) throw RecoveryFailure("Couldn't read vector edge index scalar kind!");
+
+        VectorEdgeIndexSpec spec{.index_name = std::move(*index_name),
+                                 .edge_type_filter = std::move(edge_type_filter),
+                                 .property = get_property_from_id(*property),
+                                 .metric_kind = MetricFromName(*metric),
+                                 .dimension = static_cast<uint16_t>(*dimension),
+                                 .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+                                 .capacity = *capacity,
+                                 .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+
+        auto entry_count = snapshot.ReadUint();
+        if (!entry_count) throw RecoveryFailure("Couldn't read vector edge index entry count!");
+
+        absl::flat_hash_map<Gid, utils::small_vector<float>> index_entries;
+        index_entries.reserve(*entry_count);
+        utils::small_vector<float> vector;
+        vector.reserve(*dimension);
+        for (uint64_t j = 0; j < *entry_count; ++j) {
+          auto gid = snapshot.ReadUint();
+          if (!gid) throw RecoveryFailure("Couldn't read vector edge index entry gid!");
+
+          for (uint64_t k = 0; k < *dimension; ++k) {
+            auto value = snapshot.ReadDouble();
+            if (!value) throw RecoveryFailure("Couldn't read vector edge index entry value!");
+            vector.push_back(static_cast<float>(*value));
+          }
+          index_entries.emplace(Gid::FromUint(*gid), vector);
+          vector.clear();
+        }
+
+        indices_constraints.indices.vector_edge_indices.emplace_back(
+            VectorEdgeIndexRecoveryInfo{.spec = std::move(spec), .index_entries = std::move(index_entries)});
+      }
+      spdlog::info("Vector edge indices are recovered.");
+    }
+
+    // Recover text indices.
+    {
+      // Recover text indices on nodes
+      {
+        auto size_opt = snapshot.ReadUint();
+        const auto size = size_opt.value_or(0);
+        spdlog::info("Recovering metadata of {} text indices.", size);
+        for (uint64_t i = 0; i < size; ++i) {
+          auto index_name = snapshot.ReadString();
+          if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
+          auto label = snapshot.ReadUint();
+          if (!label) throw RecoveryFailure("Couldn't read text index label!");
+          // Read properties
+          auto n_props = snapshot.ReadUint();
+          if (!n_props) throw RecoveryFailure("Couldn't read text index properties count!");
+          std::vector<PropertyId> properties;
+          properties.reserve(*n_props);
+          for (uint64_t j = 0; j < *n_props; ++j) {
+            auto property = snapshot.ReadUint();
+            if (!property) throw RecoveryFailure("Couldn't read text index property!");
+            properties.emplace_back(get_property_from_id(*property));
+          }
+
+          AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
+                                      TextIndexSpec{.index_name = index_name.value(),
+                                                    .label = get_label_from_id(*label),
+                                                    .properties = std::move(properties)},
+                                      "The text index already exists!");
+          SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
+                       index_name.value(),
+                       name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+        }
+        spdlog::info("Metadata of text indices are recovered.");
+      }
+      // Recover text indices on edges
+      {
+        const auto size_opt = snapshot.ReadUint();
+        const auto size = size_opt.value_or(0);
+        spdlog::info("Recovering metadata of {} text indices.", size);
+        for (uint64_t i = 0; i < size; ++i) {
+          const auto index_name = snapshot.ReadString();
+          if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
+          const auto edge_type_id = snapshot.ReadUint();
+          if (!edge_type_id) throw RecoveryFailure("Couldn't read text index edge type!");
+          // Read properties
+          const auto n_props = snapshot.ReadUint();
+          if (!n_props) throw RecoveryFailure("Couldn't read text index properties count!");
+          std::vector<PropertyId> properties;
+          properties.reserve(*n_props);
+          for (uint64_t j = 0; j < *n_props; ++j) {
+            const auto property = snapshot.ReadUint();
+            if (!property) throw RecoveryFailure("Couldn't read text index property!");
+            properties.emplace_back(get_property_from_id(*property));
+          }
+          AddRecoveredIndexConstraint(&indices_constraints.indices.text_edge_indices,
+                                      TextEdgeIndexSpec{.index_name = index_name.value(),
+                                                        .edge_type = get_edge_type_from_id(*edge_type_id),
+                                                        .properties = std::move(properties)},
+                                      "The text edge index already exists!");
+          SPDLOG_TRACE("Recovered metadata of text edge index {} for :{}",
+                       index_name.value(),
+                       name_id_mapper->IdToName(snapshot_id_map.at(*edge_type_id)));
+        }
+        spdlog::info("Metadata of text edge indices are recovered.");
+      }
+    }
+
+    spdlog::info("Metadata of indices are recovered.");
+  }
+
+  // Recover constraints.
+  {
+    spdlog::info("Recovering metadata of constraints.");
+    if (!snapshot.SetPosition(info.offset_constraints)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_CONSTRAINTS)
+      throw RecoveryFailure("Couldn't read section constraints marker!");
+
+    // Recover existence constraints.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of existence constraints!");
+      spdlog::info("Recovering metadata of {} existence constraints.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label of existence constraints!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property of existence constraints!");
+        AddRecoveredIndexConstraint(&indices_constraints.constraints.existence,
+                                    {get_label_from_id(*label), get_property_from_id(*property)},
+                                    "The existence constraint already exists!");
+        SPDLOG_TRACE("Recovered metadata of existence constraint for :{}({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of existence constraints are recovered.");
+    }
+
+    // Recover unique constraints.
+    // Snapshot version should be checked since unique constraints were
+    // implemented in later versions of snapshot.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
+      spdlog::info("Recovering metadata of {} unique constraints.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label of unique constraints!");
+        auto properties_count = snapshot.ReadUint();
+        if (!properties_count) throw RecoveryFailure("Couldn't read the number of properties in unique constraint!");
+        std::set<PropertyId> properties;
+        for (uint64_t j = 0; j < *properties_count; ++j) {
+          auto property = snapshot.ReadUint();
+          if (!property) throw RecoveryFailure("Couldn't read property of unique constraint!");
+          properties.insert(get_property_from_id(*property));
+        }
+        AddRecoveredIndexConstraint(&indices_constraints.constraints.unique,
+                                    {get_label_from_id(*label), properties},
+                                    "The unique constraint already exists!");
+        SPDLOG_TRACE("Recovered metadata of unique constraints for :{}",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+      }
+      spdlog::info("Metadata of unique constraints are recovered.");
+    }
+
+    // Recover type constraints.
+    // Snapshot version should be checked since type constraints were
+    // implemented in later versions of snapshot.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of type constraints!");
+
+      spdlog::info("Recovering metadata of {} type constraints.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label of type constraints!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property of type constraint!");
+        auto type = snapshot.ReadUint();
+        if (!type) throw RecoveryFailure("Couldn't read type of type constraint!");
+
+        AddRecoveredIndexConstraint(
+            &indices_constraints.constraints.type,
+            {get_label_from_id(*label), get_property_from_id(*property), static_cast<TypeConstraintKind>(*type)},
+            "The type constraint already exists!");
+        SPDLOG_TRACE("Recovered metadata for IS TYPED {} constraint for :{}({})",
+                     TypeConstraintKindToString(static_cast<TypeConstraintKind>(*type)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of type constraints are recovered.");
+    }
+
+    spdlog::info("Metadata of constraints are recovered.");
+  }
+
+  spdlog::info("Recovering metadata.");
+  // Recover epoch history
+  {
+    if (!snapshot.SetPosition(info.offset_epoch_history)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    const auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_EPOCH_HISTORY)
+      throw RecoveryFailure("Couldn't read section epoch history marker!");
+
+    const auto history_size = snapshot.ReadUint();
+    if (!history_size) {
+      throw RecoveryFailure("Couldn't read history size!");
+    }
+
+    for (uint64_t i = 0; i < *history_size; ++i) {
+      auto maybe_epoch_id = snapshot.ReadString();
+      if (!maybe_epoch_id) {
+        throw RecoveryFailure("Couldn't read maybe epoch id!");
+      }
+      const auto maybe_last_durable_timestamp = snapshot.ReadUint();
+      if (!maybe_last_durable_timestamp) {
+        throw RecoveryFailure("Couldn't read maybe last durable timestamp!");
+      }
+      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_durable_timestamp);
+    }
+  }
+
+  // Recover TTL data if available
+  if (info.offset_ttl != SnapshotInfo::kInvalidOffset) {
+    spdlog::info("Recovering TTL data.");
+    if (!snapshot.SetPosition(info.offset_ttl)) throw RecoveryFailure("Couldn't read TTL data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_TTL) {
+      throw RecoveryFailure("Couldn't read section TTL marker!");
+    }
+
+    // Read TTL enabled state
+    auto ttl_enabled = snapshot.ReadBool();
+    if (!ttl_enabled) throw RecoveryFailure("Couldn't read TTL enabled state!");
+
+    if (*ttl_enabled) {
+      // Running
+      auto ttl_running = snapshot.ReadBool();
+      if (!ttl_running) throw RecoveryFailure("Couldn't read TTL running state!");
+
+      // Read period
+      auto has_period = snapshot.ReadBool();
+      if (!has_period) throw RecoveryFailure("Couldn't read TTL period flag!");
+
+      std::optional<std::chrono::microseconds> period;
+      if (*has_period) {
+        auto period_count = snapshot.ReadUint();
+        if (!period_count) throw RecoveryFailure("Couldn't read TTL period count!");
+        period = std::chrono::microseconds(*period_count);
+      }
+
+      // Read start_time
+      auto has_start_time = snapshot.ReadBool();
+      if (!has_start_time) throw RecoveryFailure("Couldn't read TTL start_time flag!");
+
+      std::optional<std::chrono::system_clock::time_point> start_time;
+      if (*has_start_time) {
+        auto start_time_count = snapshot.ReadUint();
+        if (!start_time_count) throw RecoveryFailure("Couldn't read TTL start_time count!");
+        start_time = std::chrono::system_clock::time_point(std::chrono::system_clock::duration(*start_time_count));
+      }
+
+      // Read should_run_edge_ttl
+      auto should_run_edge_ttl = snapshot.ReadBool();
+      if (!should_run_edge_ttl) throw RecoveryFailure("Couldn't read TTL should_run_edge_ttl!");
+
+      // Create TtlInfo and store it in recovery_info;
+      ttl->Enable();
+      ttl->Configure(*should_run_edge_ttl);
+      ttl->SetInterval(period, start_time);
+      if (ttl_running.value()) {
+        ttl->Resume();
+      } else {
+        ttl->Pause();
+      }
+    } else {
+      ttl->Disable();
+    }
+
+    spdlog::info("TTL data recovered.");
+  }
+
+  RecoverDescriptionStore(snapshot, info, name_id_mapper, description_store);
+
+  spdlog::info("Metadata recovered.");
+  // Recover timestamp.
+  recovery_info.next_timestamp = info.start_timestamp + 1;
+  recovery_info.num_committed_txns = info.num_committed_txns;
+
+  // Set success flag (to disable cleanup).
+  success = true;
+
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
+}
+
+RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path const &path,
+                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                        NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                                        Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+                                        memgraph::storage::ttl::TTL *ttl,
+                                        memgraph::storage::DescriptionStore *description_store,
+                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // Cleanup of loaded data in case of failure.
 
   RecoveryInfo recovery_info;
@@ -10455,14 +11341,15 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         auto scalar_kind = snapshot.ReadUint();
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector index scalar kind!");
 
-        VectorIndexSpec spec{.index_name = std::move(*index_name),
-                             .label_id = get_label_from_id(*label),
-                             .property = get_property_from_id(*property),
-                             .metric_kind = MetricFromName(*metric),
-                             .dimension = static_cast<uint16_t>(*dimension),
-                             .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                             .capacity = *capacity,
-                             .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        VectorIndexSpec spec{
+            .index_name = std::move(*index_name),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = MetricFromName(*metric),
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
 
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
@@ -10522,7 +11409,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector edge index scalar kind!");
 
         VectorEdgeIndexSpec spec{.index_name = std::move(*index_name),
-                                 .edge_type_id = get_edge_type_from_id(*edge_type),
+                                 .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE,
+                                                                          .ids = {get_edge_type_from_id(*edge_type)}},
                                  .property = get_property_from_id(*property),
                                  .metric_kind = MetricFromName(*metric),
                                  .dimension = static_cast<uint16_t>(*dimension),
@@ -11044,6 +11932,22 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    snapshot_info);
     }
     case 34U: {
+      return LoadSnapshotVersion34(snapshot,
+                                   path,
+                                   vertices,
+                                   edges,
+                                   edges_metadata,
+                                   epoch_history,
+                                   name_id_mapper,
+                                   edge_count,
+                                   config,
+                                   enum_store,
+                                   schema_info,
+                                   ttl,
+                                   description_store,
+                                   snapshot_info);
+    }
+    case 35U: {
       return LoadCurrentVersionSnapshot(snapshot,
                                         path,
                                         vertices,
@@ -11057,7 +11961,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                         schema_info,
                                         ttl,
                                         description_store,
-                                        snapshot_info);
+                                        snapshot_info,
+                                        *version);
     }
     default: {
       // `IsVersionSupported` checks that the version is within the supported
@@ -11126,6 +12031,10 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
   // one WAL file that contains deltas before the snapshot, this correctly
   // handles the edge case when that one file is the current WAL file that
   if (it != wal_files.begin()) {
+    auto const num_to_delete = static_cast<size_t>(std::distance(wal_files.begin(), std::prev(it)));
+    spdlog::info("snapshot retention: deleting {} pre-snapshot WAL file(s) (oldest retained snapshot ts={})",
+                 num_to_delete,
+                 old_durable_ts);
     std::for_each(wal_files.begin(), std::prev(it), [file_retainer](auto const &wal_info) {
       file_retainer->DeleteFile(wal_info.path);
     });
@@ -11174,6 +12083,9 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
 
   // -1 because the current snapshot path has been skipped
   const uint32_t num_to_erase = old_snapshot_files.size() - (snapshot_retention_count - 1);
+  spdlog::info("snapshot retention: deleting {} old snapshot file(s), retention_count={}",
+               num_to_erase,
+               snapshot_retention_count);
   for (size_t i = 0; i < num_to_erase; ++i) {
     const auto &[_, snapshot_path] = old_snapshot_files[i];
     file_retainer->DeleteFile(snapshot_path);
@@ -11182,14 +12094,12 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
 }
 
-std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
-                                                    const std::filesystem::path &snapshot_directory,
-                                                    const std::filesystem::path &wal_directory,
-                                                    utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                                    utils::UUID const &uuid, std::string_view const epoch_id,
-                                                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
-                                                    utils::FileRetainer *file_retainer,
-                                                    std::atomic_bool *abort_snapshot, SnapshotProgress *progress) {
+std::optional<std::filesystem::path> CreateSnapshot(
+    Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
+    const std::filesystem::path &wal_directory, utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+    utils::UUID const &uuid, std::string_view const epoch_id,
+    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
+    std::atomic_bool *abort_snapshot, SnapshotProgress *progress, std::string_view trigger) {
   utils::Timer timer;
 
   // Ensure that the storage directory exists.
@@ -11207,10 +12117,11 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       return false;
     }
     file_retainer->DeleteFile(path);
+    spdlog::info("snapshot aborted");
     return true;
   };
 
-  spdlog::info("Starting snapshot creation to {}", path);
+  spdlog::info("snapshot starting: {} (trigger={})", path, trigger);
   SnapshotEncoder snapshot;
   if (!snapshot.Initialize(path, kSnapshotMagic, kVersion)) {
     spdlog::warn(
@@ -11503,6 +12414,8 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   std::vector<BatchInfo> vertex_batch_infos;
 
   if (storage->config_.durability.allow_parallel_snapshot_creation) {
+    spdlog::info("snapshot writing edges and vertices (parallel, {} threads)",
+                 storage->config_.durability.snapshot_thread_count);
     auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
     if (!MultiThreadedWorkflow(edge_ptr,
                                vertices,
@@ -11531,6 +12444,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     }
   } else {
     if (storage->config_.salient.items.properties_on_edges) {
+      spdlog::info("snapshot writing edges");
       if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
       offset_edges = snapshot.GetPosition();  // Global edge offset
       // Handle edges
@@ -11542,6 +12456,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     if (snapshot_aborted()) {
       return std::nullopt;
     }
+    spdlog::info("snapshot writing vertices");
     if (progress) progress->SetPhase(SnapshotProgress::Phase::VERTICES, vertices->size());
     {
       offset_vertices = snapshot.GetPosition();  // Global vertex offset
@@ -11564,6 +12479,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write label indices.
     {
+      spdlog::info("snapshot writing label indices");
       auto label = transaction->active_indices_->label_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(label.size());
       for (const auto &item : label) {
@@ -11665,6 +12581,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     auto asc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
     auto desc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
 
+    spdlog::info("snapshot writing label-property indices");
     // Write ASC label+properties indices.
     {
       write_label_property_indices(asc_indices);
@@ -11687,6 +12604,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     offset_edge_indices = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_EDGE_INDICES);
     {
+      spdlog::info("snapshot writing edge-type indices");
       auto edge_type = transaction->active_indices_->edge_type_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
@@ -11699,6 +12617,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write edge-type + property indices.
     {
+      spdlog::info("snapshot writing edge-type-property indices");
       auto edge_type = transaction->active_indices_->edge_type_properties_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
@@ -11712,6 +12631,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write global edge property indices.
     {
+      spdlog::info("snapshot writing edge-property indices");
       auto indices = transaction->active_indices_->edge_property_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(indices.size());
       for (const auto &property : indices) {
@@ -11721,6 +12641,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write point indices.
     {
+      spdlog::info("snapshot writing point indices");
       auto point_keys = storage->indices_.point_index_.ListIndices();
       snapshot.WriteUint(point_keys.size());
       for (const auto &[label, property] : point_keys) {
@@ -11734,6 +12655,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write vector indices
     {
+      spdlog::info("snapshot writing vector indices");
       storage->indices_.vector_index_.SerializeAllVectorIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {
         return std::nullopt;
@@ -11742,6 +12664,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write vector edge indices
     {
+      spdlog::info("snapshot writing vector edge indices");
       storage->indices_.vector_edge_index_.SerializeAllVectorEdgeIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {
         return std::nullopt;
@@ -11752,6 +12675,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     {
       // Text indices on nodes
       {
+        spdlog::info("snapshot writing text node indices");
         const auto text_indices = storage->indices_.text_index_.ListIndices();
         snapshot.WriteUint(text_indices.size());
         for (const auto &[index_name, label, properties] : text_indices) {
@@ -11768,6 +12692,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
       // Text indices on edges
       {
+        spdlog::info("snapshot writing text edge indices");
         const auto text_edge_indices = storage->indices_.text_edge_index_.ListIndices();
         snapshot.WriteUint(text_edge_indices.size());
         for (const auto &[index_name, edge_type, properties] : text_edge_indices) {
@@ -11786,6 +12711,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   }
 
   // Write constraints.
+  spdlog::info("snapshot writing constraints");
   if (progress) progress->SetPhase(SnapshotProgress::Phase::CONSTRAINTS, 0);
   {
     offset_constraints = snapshot.GetPosition();
@@ -11835,6 +12761,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   }
 
   // Write mapper data, enums, metadata, batch info, TTL.
+  spdlog::info("snapshot finalizing");
   if (progress) progress->SetPhase(SnapshotProgress::Phase::FINALIZING, 0);
   {
     offset_mapper = snapshot.GetPosition();
@@ -12047,10 +12974,14 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     return std::nullopt;
   }
 
-  // Finalize snapshot file.
-  spdlog::trace("Finalizing snapshot file!");
   snapshot.Finalize();
-  spdlog::info("Snapshot creation successful!");
+  auto const snapshot_size = std::filesystem::file_size(path);
+  spdlog::info("snapshot complete: {} ({} vertices, {} edges, {:.1f} MiB, {:.2f}s)",
+               path,
+               vertices_count,
+               edges_count,
+               static_cast<double>(snapshot_size) / (1024.0 * 1024.0),
+               std::chrono::duration<double>(timer.Elapsed()).count());
 
   auto const old_snapshot_files =
       EnsureRetentionCountSnapshotsExist(snapshot_directory, uuid_str, path, file_retainer, storage);

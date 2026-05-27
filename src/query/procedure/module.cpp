@@ -1149,7 +1149,12 @@ bool PythonModule::Close() {
 // Must be called with GIL taken because of Py_DECREF
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
                              PyObject *sys_mod_ref) {
-  const auto maybe_content = ReadFile(file_path_);
+  MG_ASSERT(PyGILState_Check(), "ProcessFileDependencies requires the GIL to be held");
+  std::optional<std::string> maybe_content;
+  {
+    Py_BEGIN_ALLOW_THREADS maybe_content = ReadFile(file_path_);
+    Py_END_ALLOW_THREADS
+  }
 
   if (maybe_content && !maybe_content->empty()) {
     const char *content_value = maybe_content->c_str();
@@ -1172,26 +1177,36 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
       return;
     }
 
-    if (PyDict_SetItemString(py_global_dict, "code", py_code_content.Ptr()) != 0) {
+    // Run the dependency scanner in a sandbox dict copied from __main__ so that
+    // the scanner script cannot corrupt __main__'s global namespace.
+    const py::Object sandbox_dict(PyDict_Copy(py_global_dict));
+    if (!sandbox_dict) {
       PyErr_Clear();
       return;
     }
 
-    const py::Object py_run_res(PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict));
+    if (PyDict_SetItemString(sandbox_dict.Ptr(), "code", py_code_content.Ptr()) != 0) {
+      PyErr_Clear();
+      return;
+    }
+
+    const py::Object py_run_res(PyRun_String(func_code, Py_file_input, sandbox_dict.Ptr(), sandbox_dict.Ptr()));
     if (!py_run_res) {
-      PyErr_Clear();
+      if (auto exc = py::FetchError()) {
+        spdlog::warn("Python dependency scan failed for {}: {}", file_path_.string(), py::FormatException(*exc));
+      }
       return;
     }
 
-    PyObject *py_res = PyDict_GetItemString(py_global_dict, "modules");
+    const py::Object py_res(py::Object::FromBorrow(PyDict_GetItemString(sandbox_dict.Ptr(), "modules")));
     if (!py_res) {
       // PyDict_GetItemString does not set an exception if the key is not found,
-      // but it might failed for other reasons.
+      // but it might have failed for other reasons.
       PyErr_Clear();
       return;
     }
 
-    const py::Object iterator(PyObject_GetIter(py_res));
+    const py::Object iterator(PyObject_GetIter(py_res.Ptr()));
     if (!iterator) {
       PyErr_Clear();
       return;
@@ -1232,6 +1247,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
         const std::string_view sys_mod_key_name_str(sys_mod_key_name);
         if (sys_mod_key_name_str.starts_with(module_name_str) && sys_mod_key_name_str != module_path) {
           if (PyDict_DelItemString(sys_mod_ref, sys_mod_key_name) != 0) {
+            spdlog::warn("Failed to remove stale sys.modules entry '{}' during module cleanup", sys_mod_key_name);
             PyErr_Clear();
           }
         }

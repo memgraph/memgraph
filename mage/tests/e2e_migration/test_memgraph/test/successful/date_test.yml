@@ -1,0 +1,11 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.date_col AS date_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.date_col) AS date_col_type, toString(row.date_col) AS date_col
+
+output:
+  - date_col_type: 'DATE'
+    date_col: '2023-12-25'

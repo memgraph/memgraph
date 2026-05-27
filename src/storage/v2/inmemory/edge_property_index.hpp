@@ -16,6 +16,8 @@
 #include <utility>
 
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -57,14 +59,17 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   };
 
  public:
+  explicit InMemoryEdgePropertyIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
   struct IndividualIndex {
     explicit IndividualIndex() : skip_list_{} {}
 
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
 
     utils::SkipListDb<Entry> skip_list_;
     IndexStatus status_{};
+    metrics::ScopedGauge gauge_{};
   };
 
   struct IndicesContainer {
@@ -88,7 +93,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
              utils::SkipListDb<Edge>::ConstAccessor edge_accessor, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-             Transaction *transaction);
+             Transaction *transaction, Gid max_gid);
 
     class Iterator {
      public:
@@ -127,21 +132,21 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
+    Gid max_gid_;
   };
 
   class ChunkedIterable {
    public:
     ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
                     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                    utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-                    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, PropertyId property,
+                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                    Transaction *transaction, size_t num_chunks);
+                    Transaction *transaction, size_t num_chunks, Gid max_gid);
 
     class Iterator {
      public:
-      Iterator(ChunkedIterable *self,
-               utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
+      Iterator(ChunkedIterable *self, utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
           : self_(self),
             index_iterator_(index_iterator),
             current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId{}, nullptr, nullptr, self_->storage_,
@@ -200,6 +205,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     Storage *storage_;
     Transaction *transaction_;
     utils::SkipListDb<Entry>::ChunkCollection chunks_;
+    Gid max_gid_;
   };
 
   struct ActiveIndices : EdgePropertyIndex::ActiveIndices {
@@ -222,15 +228,13 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
 
     std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const override;
 
-    Iterable Edges(PropertyId property,
-                   utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    Iterable Edges(PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
                    utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                    Transaction *transaction);
 
-    ChunkedIterable ChunkedEdges(PropertyId property,
-                                 utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+    ChunkedIterable ChunkedEdges(PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
                                  utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
@@ -246,8 +250,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   InMemoryEdgePropertyIndex() = default;
 
   /// @throw std::bad_alloc
-  bool CreateIndexOnePass(PropertyId property,
-                          utils::SkipListDb<Vertex>::Accessor vertices,
+  bool CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
@@ -282,6 +285,8 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   bool InstallIndividualIndex_(PropertyId property, std::shared_ptr<IndividualIndex> entry,
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
   void CleanupAllIndicies();
+
+  metrics::GaugeHandle gauge_{};
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer const>()};

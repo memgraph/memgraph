@@ -87,12 +87,12 @@ class PackageSetup:
             # For pull_request events, return default values
             return {
                 "build_type": "Release",
-                "toolchain": "v6",
                 "push_to_s3": "false",
                 "s3_dest_dir": "",
                 "push_to_github": "false",
                 "malloc": "false",
                 "generate_sbom": "false",
+                "run_smoke_tests": "true",
             }
 
     def _setup_workflow_dispatch(self) -> None:
@@ -114,18 +114,23 @@ class PackageSetup:
 
 
 def print_package_suite(packages: dict, workflow_inputs: dict, set_env_vars: bool = False) -> None:
-    for package, run in packages.items():
-        # Convert package names to valid GitHub output names (replace dots and hyphens with underscores)
-        output_name = package.replace(".", "_").replace("-", "_")
-        print(f"run_package_{output_name}={run}")
-        if set_env_vars:
-            os.popen(f"echo run_package_{output_name}={run} >> $GITHUB_OUTPUT")
+    gh_output = open(os.environ["GITHUB_OUTPUT"], "a") if set_env_vars else None
+    try:
+        for package, run in packages.items():
+            # Convert package names to valid GitHub output names (replace dots and hyphens with underscores)
+            output_name = package.replace(".", "_").replace("-", "_")
+            print(f"run_package_{output_name}={run}")
+            if gh_output:
+                gh_output.write(f"run_package_{output_name}={run}\n")
 
-    # Also output workflow inputs
-    for key, value in workflow_inputs.items():
-        print(f"workflow_input_{key}={value}")
-        if set_env_vars:
-            os.popen(f"echo workflow_input_{key}={value} >> $GITHUB_OUTPUT")
+        # Also output workflow inputs
+        for key, value in workflow_inputs.items():
+            print(f"workflow_input_{key}={value}")
+            if gh_output:
+                gh_output.write(f"workflow_input_{key}={value}\n")
+    finally:
+        if gh_output:
+            gh_output.close()
 
 
 def parse_args() -> argparse.Namespace:

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <compare>
+#include <tuple>
 #include <vector>
 
 #include "storage/v2/id_types.hpp"
@@ -24,6 +25,11 @@ struct LabelPropertyIndexEntry {
   LabelId label;
   std::vector<PropertyPath> properties;
   IndexOrder order{IndexOrder::ASC};
+
+  // Index statistics are independent of `order`.
+  auto stats_key() const noexcept -> std::tuple<LabelId const &, std::vector<PropertyPath> const &> {
+    return std::tie(label, properties);
+  }
 
   friend auto operator<=>(LabelPropertyIndexEntry const &, LabelPropertyIndexEntry const &) = default;
   friend bool operator==(LabelPropertyIndexEntry const &, LabelPropertyIndexEntry const &) = default;

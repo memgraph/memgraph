@@ -1202,6 +1202,25 @@ class Graph:
 
         return not self._graph.is_immutable()
 
+    @property
+    def start_timestamp(self) -> int:
+        """
+        Get a stable identifier for the current logical query, preserved across
+        `USING PERIODIC COMMIT` boundaries.
+
+        Returns:
+            An `int` that is stable for the duration of one logical query.
+
+        Raises:
+            InvalidContextError: If the graph is not in a valid context.
+
+        Examples:
+            ```graph.start_timestamp```
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._graph.start_timestamp
+
     def create_vertex(self) -> Vertex:
         """
         Create an empty vertex.

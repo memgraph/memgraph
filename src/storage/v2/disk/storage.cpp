@@ -53,7 +53,6 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -63,10 +62,6 @@
 #include "utils/small_vector.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
-
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -229,10 +224,10 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 
 }  // namespace
 
-DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
+DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles metric_handles,
                          std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
                          memory::ArenaPool *db_arena_pool, utils::MemoryTracker *db_embedding_memory_tracker)
-    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator), db_arena_pool,
+    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator), metric_handles, db_arena_pool,
               db_embedding_memory_tracker, std::move(database_protector_factory)),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
@@ -516,16 +511,21 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleMainLoadingForEdgeImportCache(&transaction_);
 
-    return VerticesIterable(
-        AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(), storage_, &transaction_, view));
+    return VerticesIterable(AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(),
+                                                storage_,
+                                                &transaction_,
+                                                view,
+                                                kIteratorNoGidUpperBound));
   }
   if (transaction_.scanned_all_vertices_) {
-    return VerticesIterable(AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view));
+    return VerticesIterable(
+        AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
   }
 
   disk_storage->LoadVerticesToMainMemoryCache(&transaction_);
   transaction_.scanned_all_vertices_ = true;
-  return VerticesIterable(AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
@@ -546,7 +546,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
       &transaction_, label, view, index_deltas, indexed_vertices.get());
   disk_storage->LoadVerticesFromDiskLabelIndex(&transaction_, label, gids, index_deltas, indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
@@ -582,7 +583,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   disk_storage->LoadVerticesFromDiskLabelPropertyIndex(
       &transaction_, label, property, gids, index_deltas, indexed_vertices.get(), disk_label_property_filter);
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
@@ -617,7 +619,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   disk_storage->LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
       &transaction_, label, property, gids, value, index_deltas, indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
@@ -658,7 +661,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   disk_storage->LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
       &transaction_, label, property, gids, lower_bound, upper_bound, index_deltas, indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 /// TODO: (andi) This should probably go into some other class not the storage. All utils methods
@@ -938,9 +942,10 @@ StorageInfo DiskStorage::GetBaseInfo() {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_res = utils::GetMemoryRES();
-  memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
-  info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
-  info.unreleased_delta_objects = memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects);
+  metrics::Metrics().global.peak_memory_res_bytes->Set(
+      std::max(static_cast<double>(info.memory_res), metrics::Metrics().global.peak_memory_res_bytes->Value()));
+  info.peak_memory_res = static_cast<uint64_t>(metrics::Metrics().global.peak_memory_res_bytes->Value());
+  info.unreleased_delta_objects = static_cast<uint64_t>(metric_handles_.unreleased_delta_objects.Value());
 
   info.disk_usage = GetDiskSpaceUsage();
   return info;
@@ -1478,9 +1483,9 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
                               CreateDeleteDeserializedObjectDelta(transaction, key, std::move(ts)));
 }
 
-VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils::SkipListDb<Vertex>::Accessor &accessor,
-                                                 storage::Gid gid, VertexKey label_ids, PropertyStore properties,
-                                                 Delta *delta) {
+VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction,
+                                                 utils::SkipListDb<Vertex>::Accessor &accessor, storage::Gid gid,
+                                                 VertexKey label_ids, PropertyStore properties, Delta *delta) {
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
@@ -2178,7 +2183,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
+  storage_->metric_handles_.active_label_indices.Increment();
   return {};
 }
 
@@ -2216,7 +2221,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  storage_->metric_handles_.active_label_property_indices.Increment();
   return {};
 }
 
@@ -2253,7 +2258,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
+  storage_->metric_handles_.active_label_indices.Decrement();
   return {};
 }
 
@@ -2287,7 +2292,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  storage_->metric_handles_.active_label_property_indices.Decrement();
   return {};
 }
 
@@ -2499,7 +2504,8 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           std::move(active_indices),
           std::move(active_constraints),
           {},
-          std::nullopt};
+          std::nullopt,
+          metric_handles_.unreleased_delta_objects};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }

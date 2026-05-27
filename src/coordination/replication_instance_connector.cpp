@@ -50,9 +50,9 @@ void TimedFailureDetector::UpdateInstanceDownTimeoutSec(uint32_t const new_confi
 
 ReplicationInstanceConnector::ReplicationInstanceConnector(
     DataInstanceConfig const &config, CoordinatorInstance *coord_instance, uint32_t const instance_down_timeout_sec,
-    const std::chrono::seconds instance_health_check_frequency_sec)
+    const std::chrono::seconds instance_health_check_frequency_sec, std::optional<utils::TlsConfig> const &tls_config)
     : client_(ReplicationInstanceClient(config.instance_name, config.mgt_server, coord_instance,
-                                        instance_health_check_frequency_sec)),
+                                        instance_health_check_frequency_sec, tls_config)),
       timed_failure_detector_(instance_down_timeout_sec),
       // Stored by value to avoid a dangling pointer: callers build
       repl_client_info_(config.replication_client_info) {}

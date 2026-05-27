@@ -15,7 +15,10 @@
 
 #include "dbms/database_info.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
+#include "flags/coord_flag_env_handler.hpp"
+#include "flags/general.hpp"
 #include "memory/db_arena.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -94,11 +97,22 @@ memory::ArenaPool &Database::Arena() const noexcept { return *db_arena_; }
 
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
+      metrics_(config.salient.uuid, ([&config]() -> metrics::DatabaseMetricHandles {
+                 if (!config.register_metrics) {
+                   return {};
+                 }
+                 auto const should_register =
+                     !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
+                 if (!should_register) {
+                   return {};
+                 }
+                 return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
+               })()),
       after_commit_trigger_pool_{1,
                                  // After-commit triggers run on a dedicated DB worker.
                                  // Keep a DB arena scope alive for the full worker lifetime.
                                  [this]() -> utils::ThreadPool::TaskSignature {
-                                   auto db_arena_scope = std::make_unique<memory::DbArenaScope>(db_arena_.get());
+                                   auto db_arena_scope = std::make_unique<memory::DbArenaScope>(this);
                                    return [db_arena_scope = std::move(db_arena_scope)]() mutable {
                                      db_arena_scope.reset();
                                    };
@@ -107,7 +121,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
           std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams", db_arena_.get())),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
-  const memory::DbArenaScope db_arena_scope{this, memory::DbArenaScope::Type::FORCE};
+  const memory::DbArenaScope db_arena_scope{this};
 
   // Postpone creation after the scope has been created
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
@@ -124,17 +138,21 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
     storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
                                                       std::move(invalidator),
+                                                      metrics_.handles(),
                                                       database_protector_factory,
                                                       db_arena_.get(),
                                                       &db_embedding_memory_tracker_);
   } else {
     storage_ = dbms::CreateInMemoryStorage(std::move(config),
                                            std::move(invalidator),
+                                           metrics_.handles(),
                                            database_protector_factory,
                                            db_arena_.get(),
                                            &db_embedding_memory_tracker_);
   }
 }
+
+Database::DatabaseMetricsRegistration::~DatabaseMetricsRegistration() { metrics::Metrics().RemoveDatabase(uuid_); }
 
 DatabaseInfo Database::GetInfo() const {
   DatabaseInfo info;
@@ -162,6 +180,7 @@ void Database::SwitchToOnDisk() {
   const memory::DbArenaScope db_arena_scope{this};
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
                                                               std::make_unique<storage::PlanInvalidatorDefault>(),
+                                                              metrics_.handles(),
                                                               preserved_factory,
                                                               db_arena_.get(),
                                                               &db_embedding_memory_tracker_);
@@ -172,6 +191,5 @@ void Database::SwitchToOnDisk() {
 // DbArenaScope constructor implementation (Database* variant) - defined here
 // to avoid circular include between db_arena.cpp and database.hpp
 namespace memgraph::memory {
-DbArenaScope::DbArenaScope(const memgraph::dbms::Database *db, DbArenaScope::Type type)
-    : DbArenaScope(db != nullptr ? &db->Arena() : nullptr, type) {}
+DbArenaScope::DbArenaScope(const memgraph::dbms::Database *db) : DbArenaScope(db != nullptr ? &db->Arena() : nullptr) {}
 }  // namespace memgraph::memory

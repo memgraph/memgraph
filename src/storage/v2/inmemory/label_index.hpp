@@ -14,6 +14,8 @@
 #include <span>
 
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -42,13 +44,16 @@ class InMemoryLabelIndex : public LabelIndex {
   };
 
  public:
+  explicit InMemoryLabelIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
   struct IndividualIndex {
     explicit IndividualIndex() : skiplist{} {}
 
-    ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    ~IndividualIndex() = default;
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
     utils::SkipListDb<Entry> skiplist;
     IndexStatus status{};
+    metrics::ScopedGauge gauge_{};
   };
 
   struct AllIndicesEntry {
@@ -76,8 +81,8 @@ class InMemoryLabelIndex : public LabelIndex {
   class Iterable {
    public:
     Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
-             utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label,
-             View view, Storage *storage, Transaction *transaction);
+             utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view, Storage *storage,
+             Transaction *transaction, Gid max_gid);
 
     class Iterator {
      public:
@@ -111,18 +116,18 @@ class InMemoryLabelIndex : public LabelIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
+    Gid max_gid_;
   };
 
   class ChunkedIterable {
    public:
     ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
-                    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor,
-                    LabelId label, View view, Storage *storage, Transaction *transaction, size_t num_chunks);
+                    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view,
+                    Storage *storage, Transaction *transaction, size_t num_chunks, Gid max_gid);
 
     class Iterator {
      public:
-      Iterator(ChunkedIterable *self,
-               utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
+      Iterator(ChunkedIterable *self, utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
           : self_(self), index_iterator_(index_iterator), current_vertex_accessor_(nullptr, self_->storage_, nullptr) {
         AdvanceUntilValid();
       }
@@ -173,6 +178,7 @@ class InMemoryLabelIndex : public LabelIndex {
     Storage *storage_;
     Transaction *transaction_;
     utils::SkipListDb<Entry>::ChunkCollection chunks_;
+    Gid max_gid_;
   };
 
   struct ActiveIndices : LabelIndex::ActiveIndices {
@@ -198,21 +204,17 @@ class InMemoryLabelIndex : public LabelIndex {
 
     Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction);
 
-    Iterable Vertices(LabelId label,
-                      utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view,
-                      Storage *storage, Transaction *transaction);
+    Iterable Vertices(LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+                      Transaction *transaction);
 
-    ChunkedIterable ChunkedVertices(LabelId label,
-                                    utils::SkipListDb<Vertex>::ConstAccessor vertices_acc,
-                                    View view, Storage *storage, Transaction *transaction, size_t num_chunks);
+    ChunkedIterable ChunkedVertices(LabelId label, utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view,
+                                    Storage *storage, Transaction *transaction, size_t num_chunks);
 
     auto GetAbortProcessor() const -> AbortProcessor override;
 
    private:
     std::shared_ptr<IndexContainer const> index_container_;
   };
-
-  InMemoryLabelIndex() = default;
 
   auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;
 
@@ -245,6 +247,8 @@ class InMemoryLabelIndex : public LabelIndex {
   // is taken. Shared by RegisterIndex (true) and RestoreIndex (false).
   bool InstallIndividualIndex_(LabelId label, std::shared_ptr<IndividualIndex> entry,
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
+
+  metrics::GaugeHandle gauge_{};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

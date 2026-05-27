@@ -1,9 +1,9 @@
 image:
-  repository: memgraph/memgraph
+  repository: docker.io/memgraph/memgraph
   # Overrides the image tag whose default is v{{ .Chart.AppVersion }}
   # It is a bad practice to set the image tag name to latest as it can trigger automatic upgrade of the charts
   # With some of the pullPolicy values. Please consider fixing the tag to a specific Memgraph version
-  tag: 3.2.1
+  tag: 3.10.1
   pullPolicy: IfNotPresent
 
 ## Override the default imagePullSecrets
@@ -13,14 +13,30 @@ imagePullSecrets:
 
 replicaCount: 1
 
-## Node Affinity Preferred
-# By setting theses parameters the PREFERRED deployment will be done first on the match LABELS with key and value then on other nodes.
-# nodeKey: "nodegroup" give the name of a key
-# Operator is In
-# nodeValue: "memgraph" give the value of the key
-affinity:
-  nodeKey:
-  nodeValue:
+# Configures the `spec.affinity.nodeAffinity` field of the Memgraph Pod
+nodeAffinity: {}
+# See https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/ for more information
+# Example config:
+#  requiredDuringSchedulingIgnoredDuringExecution:
+#    nodeSelectorTerms:
+#      - matchExpressions:
+#          - key: topology.kubernetes.io/zone
+#            operator: In
+#            values:
+#              - antarctica-east1
+#              - antarctica-west1
+#    preferredDuringSchedulingIgnoredDuringExecution:
+#      - weight: 1
+#        preference:
+#          matchExpressions:
+#            - key: my-organization/node-performance
+#              operator: In
+#              values:
+#                - best
+
+# Priority indicates the importance of a Pod relative to other Pods.
+# More Information: https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/
+priorityClassName: null
 
 nodeSelector: {}
 
@@ -44,8 +60,39 @@ service:
   # HTTP Monitoring
   enableHttpMonitoring: false
   httpPortMonitoring: 9091
+
   annotations: {}
   labels: {}
+  # Creates an additional Service for applications outside the Kubernetes cluster that need access to Memgraph.
+  # Uses the same ports as configured for the main Service
+  loadBalancer:
+    enabled: false
+
+    type: LoadBalancer
+
+    # Bolt Port
+    enableBolt: true
+
+    # Websocket Monitoring
+    enableWebsocketMonitoring: false
+
+    # HTTP Monitoring
+    enableHttpMonitoring: false
+
+    annotations: {}
+    labels: {}
+
+    # Additional configuration
+    externalTrafficPolicy: null
+    ipFamilyPolicy: null
+    ipFamilies: null
+    # If specified and supported by the platform, this will restrict traffic through the cloud-provider load-balancer will be restricted to the specified client IPs.
+    # This field will be ignored if the cloud-provider does not support the feature.
+    # More info: https://kubernetes.io/docs/tasks/access-application-cluster/create-external-load-balancer/
+    loadBalancerSourceRanges: null
+    # Example value:
+    # - 1.2.3.4/32
+    # - 8.8.8.0/28
 
 persistentVolumeClaim:
   ## createStoragePVC `true` will create for each statefulset server a Persistant Volume Claim
@@ -58,7 +105,8 @@ persistentVolumeClaim:
   ## See documentation for choosing the right size depending on the number of Snapshots you want to keep
   ## Default is 3 snapshots and you need space to create a new one and WAL files
   storageSize: 10Gi
-
+  # Volume claim access mode
+  libStorageAccessMode: "ReadWriteOnce"
   ## if `createStoragePVC` is `false` you can choose to use an existing Persistant Volume Claim
   ## Write the name and exising Persistant Volume Claim
   existingClaim: memgraph-0
@@ -78,7 +126,7 @@ persistentVolumeClaim:
   userStorageAccessMode: "ReadWriteOnce"
   userMountPath:
 
-  ## Create a Persistant Volume Claims for Core Dumps
+  ## Create a Persistant Volume Claim for Core Dumps.
   createCoreDumpsClaim: true
   coreDumpsStorageClassName:
   coreDumpsStorageSize: 10Gi
@@ -101,14 +149,17 @@ memgraphConfig:
 # If setting the --memory-limit flag, check that the amount of resources that a pod has been given is more than the actual memory limit you give to Memgraph
 # Setting the Memgraph's memory limit to more than the available resources can trigger pod eviction and restarts before Memgraph can make a query exception and continue running
 # the pod. For further information, check the `resources` section in this file about setting pod memory and cpu limits.
+# If vectorRemote.enabled=true, add the following flags to memgraphConfig:
+# - "--monitoring-port=<service.websocketPortMonitoring>"
+# - "--monitoring-address=0.0.0.0"
+- "--data-directory=/var/lib/memgraph/mg_data"
 - "--also-log-to-stderr=true"
-- "--telemetry-enabled=False"
+- "--telemetry-enabled=false"
 
-# The explicit user and group setup is required because at the init container
-# time, there is not yet a user created. This seems fine because under both
-# Memgraph and Mage images we actually hard-code the user and group id. The
-# config is used to chown user storage and core dumps claims' month paths.
-memgraphUserGroupId: "101:103"
+# This is fine because under both
+# Memgraph and Mage images we actually hard-code the user and group id.
+memgraphUserId: 101
+memgraphGroupId: 103
 
 secrets:
   enabled: false
@@ -127,6 +178,17 @@ memgraphOrganizationName:
 statefulSetAnnotations: {}
 # Annotations to add to the Pod
 podAnnotations: {}
+
+extraEnv: []
+# Example:
+# extraEnv:
+#   - name: CUSTOM_FEATURE_FLAG
+#     value: "true"
+#   - name: API_KEY
+#     valueFrom:
+#       secretKeyRef:
+#         name: my-secret
+#         key: api-key
 
 resources: {}
 # We usually recommend not to specify default resources and to leave this as a conscious
@@ -154,11 +216,15 @@ container:
   terminationGracePeriodSeconds: 1800
   # When a container is ready to be used. Disabled until startupProbe succeeds.
   readinessProbe:
+    # Defining exec.command overrides tcpSocket.
+    # exec:
+    #   command: ["/bin/sh", "-c", "echo 'RETURN 0;' | mgconsole"]
     tcpSocket:
       port: 7687
     failureThreshold: 20
     timeoutSeconds: 10
     periodSeconds: 5
+    initialDelaySeconds: 0
   # To know when a container needs to be restarted.
   # Disabled until startupProbe succeeds.
   livenessProbe:
@@ -167,12 +233,15 @@ container:
     failureThreshold: 20
     timeoutSeconds: 10
     periodSeconds: 5
+    initialDelaySeconds: 0
   # When restoring Memgraph from a backup, it is important to give enough time app to start. Here, we set it to 2h by default.
   startupProbe:
     tcpSocket:
       port: 7687
     failureThreshold: 1440
+    timeoutSeconds: 1
     periodSeconds: 5
+    initialDelaySeconds: 0
 
 # List of custom query modules to be mounted into the app.
 # These will be loaded automatically, on startup.
@@ -184,6 +253,33 @@ customQueryModules: []
 #   Must be present in the ConfigMap referenced with `volume`
 #   file: ""
 
+## @param lifecycleHooks For the memgraph container(s) to automate configuration before or after startup
+## ref: https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/#container-hooks
+## e.g.:
+## lifecycleHooks:
+##   preStop:
+##     exec:
+##       command: ["/scripts/pre-stop.sh"]
+lifecycleHooks: {}
+
+## @param extraVolumes Optionally specify extra list of additional volumes (supports Helm templating)
+## e.g.:
+## extraVolumes:
+## - name: scripts
+##   configMap:
+##     name: scripts
+##     defaultMode: 0755
+extraVolumes: []
+
+## @param extraVolumeMounts Optionally specify extra list of additional volumeMounts
+## e.g.:
+## extraVolumeMounts:
+## - name: scripts
+##   mountPath: /scripts
+##   readOnly: true
+extraVolumeMounts: []
+
+
 # If you are experiencing issues with the sysctlInitContainer, you can disable it here.
 # This is made to increase the max_map_count, necessary for high memory loads in Memgraph
 # If you are experiencing crashing pod with the: Max virtual memory areas vm.max_map_count is too low
@@ -192,4 +288,105 @@ customQueryModules: []
 # https://memgraph.com/docs/database-management/system-configuration#recommended-values-for-the-vmmax_map_count-parameter
 sysctlInitContainer:
   enabled: true
-  maxMapCount: 262144
+  maxMapCount: 524288
+  image:
+    repository: docker.io/library/busybox
+    tag: 1.37.0
+    pullPolicy: IfNotPresent
+
+## @param initContainers Add additional init containers to the Memgraph pod(s)
+## ref: https://kubernetes.io/docs/concepts/workloads/pods/init-containers/
+## e.g:
+## initContainers:
+##  - name: your-image-name
+##    image: your-image
+##    imagePullPolicy: Always
+##    command: ['sh', '-c', 'echo "hello world"']
+##
+initContainers: []
+
+prometheus:
+  enabled: false
+  namespace: monitoring  # Namespace where K8s resources from mg-exporter.yaml will be installed and where your kube-prometheus-stack chart is installed, can be left empty to use release namespace.
+  memgraphExporter:
+    port: 9115
+    pullFrequencySeconds: 5
+    repository: docker.io/memgraph/prometheus-exporter
+    tag: 0.2.3
+  serviceMonitor:
+    enabled: true
+    kubePrometheusStackReleaseName: kube-prometheus-stack
+    interval: 15s
+
+## Optional: vmagent for remote monitoring cluster – scrapes the Prometheus exporter
+## (and optionally kube-state-metrics / node-exporter / kubelet when vmagentRemote.kubernetes.enabled=true)
+## and remote-writes to VictoriaMetrics (or any Prometheus remote-write endpoint).
+## Requires prometheus.enabled so that mg-exporter is deployed. Enable service.enableHttpMonitoring on Memgraph for exporter to read metrics.
+## If vmagentRemote.enabled=true and you only need remote_write, set prometheus.serviceMonitor.enabled=false
+## to avoid duplicate scraping of mg-exporter by both vmagent and kube-prometheus.
+vmagentRemote:
+  enabled: false
+  namespace: ""  # Defaults to prometheus.namespace when empty
+  image:
+    repository: victoriametrics/vmagent
+    tag: v1.139.0
+    pullPolicy: IfNotPresent
+  remoteWrite:
+    url: ""  # e.g. http://vmsingle.monitoring.svc.cluster.local:8428/api/v1/write
+    basicAuth:
+      secretName: ""  # Secret with username and password keys
+      usernameKey: username
+      passwordKey: password
+  scrapeInterval: 15s
+  externalLabels: {}  # e.g. cluster_id: "my-cluster", service_name: "memgraph", cluster_env: "prod"
+  kubernetes:
+    enabled: false  # Enable scraping of Kubernetes infrastructure metrics used by kube-prometheus dashboards.
+    kubeStateMetrics:
+      enabled: true
+      jobName: kube-state-metrics
+      targets:
+        - kube-prometheus-stack-kube-state-metrics.monitoring.svc.cluster.local:8080
+    nodeExporter:
+      enabled: true
+      jobName: node-exporter
+      # When enabled, scrape node-exporter pods via Kubernetes discovery so
+      # namespace/pod/node labels are present for kube-prometheus recording rules.
+      useKubernetesDiscovery: false
+      podMetricsPort: "9100"
+      appNameLabel: prometheus-node-exporter
+      appInstanceLabel: kube-prometheus-stack-prometheus-node-exporter
+      targets:
+        - kube-prometheus-stack-prometheus-node-exporter.monitoring.svc.cluster.local:9100
+    kubelet:
+      enabled: true
+      jobName: kubelet
+      # Scrape kubelet cAdvisor metrics via Kubernetes API server node proxy.
+      metricsPath: /metrics/cadvisor
+      # Also scrape kubelet /metrics
+      additionalMetricsEnabled: true
+      additionalJobName: kubelet-metrics
+      additionalMetricsPath: /metrics
+      apiServerAddress: kubernetes.default.svc:443
+      # Set to true only if your cluster uses an untrusted kube-apiserver serving cert chain.
+      insecureSkipVerify: false
+  resources: {}
+  httpPort: 8429  # vmagent local HTTP listen port (metrics/debug); remote write target is remoteWrite.url
+
+## Optional: Vector sidecar for remote monitoring cluster – exports Memgraph logs via websocket to VictoriaLogs (Loki-compatible API) or any Loki endpoint.
+## Requires Memgraph monitoring websocket/logs on the configured port.
+## Add --monitoring-port=<service.websocketPortMonitoring> and --monitoring-address=0.0.0.0 to memgraphConfig when vectorRemote.enabled=true.
+## If you override memgraphConfig or service.websocketPortMonitoring, keep those values aligned.
+## Exposing that port via service.enableWebsocketMonitoring is optional because Vector connects directly to the pod IP.
+vectorRemote:
+  enabled: false
+  image:
+    repository: timberio/vector
+    tag: 0.49.0-debian
+    pullPolicy: IfNotPresent
+  logsEndpoint: ""  # e.g. http://victoria-logs.monitoring.svc.cluster.local:9428/insert
+  auth:
+    secretName: ""  # Secret with username and password for logs endpoint basic auth
+    usernameKey: username
+    passwordKey: password
+  extraLabels: {}  # e.g. cluster_id: "my-cluster", service_name: "memgraph", cluster_env: "prod", role: "standalone"
+  resources: {}

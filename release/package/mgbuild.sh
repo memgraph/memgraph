@@ -91,8 +91,10 @@ print_help () {
   echo -e "  copy [OPTIONS]                     Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph                   Create memgraph package from built binary inside mgbuild container"
   echo -e "  package-docker [OPTIONS]           Create memgraph docker image and pack it as .tar.gz"
+  echo -e "  package-smoke-image [OPTIONS]      Build a Docker image with the .deb/.rpm package installed (for smoke tests)"
   echo -e "  package-mage-deb [OPTIONS]         Create MAGE DEB package"
   echo -e "  package-mage-docker [OPTIONS]      Create MAGE docker image"
+  echo -e "  package-mage-offline-installer [OPTIONS]  Build a self-contained .run installer for Memgraph + MAGE on Ubuntu 24.04"
   echo -e "  pull                               Pull mgbuild image from dockerhub"
   echo -e "  push [OPTIONS]                     Push mgbuild image to dockerhub"
   echo -e "  run [OPTIONS]                      Run mgbuild container"
@@ -122,6 +124,11 @@ print_help () {
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
   echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> this is required for run, stop and build-memgraph commands on the coverage build"
   echo -e "  --no-conan-cache              Disable conan cache volume mounting (default \"$DEFAULT_CONAN_CACHE_ENABLED\") -> this allows sharing conan cache between containers"
+  echo -e "  --enable-monitoring           Ship test metrics/logs to a remote monitoring stack (default \"false\"); requires --monitoring-host, --cluster-id and --cluster-env"
+  echo -e "  --monitoring-host string      Hostname or IP of the remote monitoring stack (required with --enable-monitoring)"
+  echo -e "  --cluster-id string           Cluster identifier label attached to exported metrics/logs (required with --enable-monitoring)"
+  echo -e "  --cluster-env string          Cluster environment label attached to exported metrics/logs (required with --enable-monitoring)"
+  echo -e "  --service-name string         Service name label attached to exported metrics/logs (default \"\")"
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
@@ -166,6 +173,11 @@ print_help () {
   echo -e "                                This directory should contain the memgraph package."
   echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
 
+  echo -e "\npackage-smoke-image options:"
+  echo -e "  --src-dir string              Relative path inside memgraph directory containing the .deb/.rpm package."
+  echo -e "  --image-tag string            Tag to apply to the resulting memgraph/memgraph:<tag> image (required)."
+  echo -e "  --wheels-dir string           Optional relative path containing pre-built Python wheels (e.g. gssapi)."
+
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login (default empty)"
   echo -e "  -u, --username string         Specify username for docker login (default empty)"
@@ -183,6 +195,16 @@ print_help () {
 
   echo -e "\ngenerate-mage-image-sbom options:"
   echo -e "  --image-name string           Specify the image name (required)"
+
+  echo -e "\npackage-mage-offline-installer options:"
+  echo -e "  --memgraph-deb PATH           Path to the memgraph .deb (required)"
+  echo -e "  --mage-deb PATH               Path to the memgraph-mage .deb (required)"
+  echo -e "  --output PATH                 Output path for the .run file (default: ./memgraph-mage-offline-<version>-<arch><variant>.run)"
+  echo -e "  --wheels-dir PATH             Directory of pre-built host wheels to bundle (default: \"\$PROJECT_ROOT/mage/wheels\")"
+  echo -e "  --malloc                      Variant flag — affects the output filename only"
+  echo -e "  --cuda                        Bundle CUDA-flavoured Python wheels (requires --arch amd)"
+  echo -e "  --cuda-version X.Y            CUDA version for the S3 wheel path (default \"13.0\")"
+  echo -e "                                Build-type and cugraph come from the global --build-type / --cugraph flags."
 
   echo -e "\nToolchain v4 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V4[*]}\""
@@ -894,6 +916,158 @@ package_docker() {
   echo "Docker images saved to $docker_host_image_path."
 }
 
+package_smoke_image() {
+  # Build a Docker image with the produced .deb/.rpm installed, tagged so the
+  # existing smoke test framework (which expects a Docker image) can run it.
+  local package_dir="$PROJECT_ROOT/build/output/$os"
+  local image_tag=""
+  local wheels_dir=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --src-dir)
+        package_dir="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      --image-tag)
+        image_tag=$2
+        shift 2
+      ;;
+      --wheels-dir)
+        wheels_dir="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'" >&2
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ -z "$image_tag" ]]; then
+    echo "Error: --image-tag is required for package-smoke-image" >&2
+    exit 1
+  fi
+
+  local package_name
+  package_name=$(cd "$package_dir" && ls -t memgraph* 2>/dev/null | head -1)
+  if [[ -z "$package_name" ]]; then
+    echo "Error: No memgraph package found in $package_dir" >&2
+    exit 1
+  fi
+  echo "Building smoke image from package: $package_dir/$package_name"
+
+  local base_image=""
+  local pkg_format=""
+  local libpython_pkg=""
+  # numpy 1.26.4 / scipy 1.13.0 have no prebuilt wheels for Python 3.13, and
+  # the source builds fail inside the smoke image (no compiler/headers).
+  # Distros that ship Python 3.13 as the default (debian-13, fedora-41+) need
+  # numpy 2.1.0 / scipy 1.15.0. networkx 3.4 requires Python 3.10+, so
+  # centos-9 (Python 3.9) needs to stay on 3.2.1.
+  local numpy_version="1.26.4"
+  local scipy_version="1.13.0"
+  local networkx_version="3.4.2"
+  case "$os" in
+    ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb"; libpython_pkg="libpython3.12" ;;
+    ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb"; libpython_pkg="libpython3.10" ;;
+    debian-12*)    base_image="debian:12";    pkg_format="deb"; libpython_pkg="libpython3.11" ;;
+    debian-13*)    base_image="debian:13";    pkg_format="deb"; libpython_pkg="libpython3.13"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
+    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm"; networkx_version="3.2.1" ;;
+    centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
+    rocky-10*)     base_image="rockylinux/rockylinux:10";  pkg_format="rpm" ;;
+    fedora-42*)    base_image="fedora:42"; pkg_format="rpm"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
+    *)
+      echo "Error: Unsupported OS for package-smoke-image: $os" >&2
+      exit 1
+    ;;
+  esac
+
+  # Python packages installed globally so memgraph's embedded Python can
+  # import them when loading bundled query modules (node2vec_online,
+  # mgp_networkx, nxalg, wcc, graph_analyzer, etc.). Mirrors the pip
+  # installs in release/docker/v7_deb.dockerfile. gssapi has no PyPI wheels
+  # so it must be supplied as a pre-built wheel via --wheels-dir.
+  local pip_packages="cryptography==46.0.7 PyJWT==2.12.1 requests==2.32.5 \
+ldap3==2.6 pyyaml==6.0.1 python3-saml==1.16.0 lxml==6.1.0 xmlsec==1.3.16 \
+gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==${networkx_version} gensim==4.4.0"
+
+  local build_dir
+  build_dir=$(mktemp -d)
+  # Ensure the temp build context is removed on any exit path — the script
+  # runs under `set -e`, so a failing docker build below would otherwise skip
+  # an unguarded cleanup line. Expanded eagerly so the path is captured even
+  # if $build_dir's scope has unwound by the time the trap fires.
+  trap "rm -rf '$build_dir'" EXIT
+  cp "$package_dir/$package_name" "$build_dir/"
+
+  local pip_find_links=""
+  local copy_wheels_line=""
+  if [[ -n "$wheels_dir" && -d "$wheels_dir" ]]; then
+    mkdir -p "$build_dir/wheels"
+    cp "$wheels_dir"/*.whl "$build_dir/wheels/" 2>/dev/null || true
+    if compgen -G "$build_dir/wheels/*.whl" >/dev/null; then
+      pip_find_links="--find-links=/wheels"
+      copy_wheels_line="COPY wheels /wheels"
+    fi
+  fi
+
+  local install_cmd
+  if [[ "$pkg_format" == "deb" ]]; then
+    # Ubuntu Docker base images filter /usr/share/doc/* via
+    # /etc/dpkg/dpkg.cfg.d/excludes, dropping memgraph's license files
+    # (MEL.pdf/BSL.txt/APL.txt) which the smoke license check verifies.
+    # Add a path-include exception before installing the package, matching
+    # the workaround in release/docker/v7_deb.dockerfile.
+    install_cmd="export DEBIAN_FRONTEND=noninteractive && \
+      export PIP_BREAK_SYSTEM_PACKAGES=1 && \
+      apt-get update && \
+      apt-get install -y --no-install-recommends \
+        libcurl4 libseccomp2 python3 ${libpython_pkg} python3-pip \
+        libatomic1 adduser ca-certificates libkrb5-3 && \
+      apt-get install -y libxmlsec1 && \
+      if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
+        echo '' >> /etc/dpkg/dpkg.cfg.d/excludes && \
+        echo '# Include all memgraph documentation files (licenses, etc.)' >> /etc/dpkg/dpkg.cfg.d/excludes && \
+        echo 'path-include=/usr/share/doc/memgraph/*' >> /etc/dpkg/dpkg.cfg.d/excludes; \
+      fi && \
+      apt-get install -y --no-install-recommends /pkg/$package_name && \
+      pip3 install --no-cache-dir ${pip_find_links} ${pip_packages} && \
+      rm -rf /var/lib/apt/lists/*"
+  else
+    # Fedora/CentOS/Rocky minimal docker images set tsflags=nodocs in
+    # /etc/dnf/dnf.conf, which strips memgraph's license files in
+    # /usr/share/doc/memgraph/. Override on the dnf install line so the
+    # smoke license check passes.
+    install_cmd="export PIP_BREAK_SYSTEM_PACKAGES=1 && \
+      dnf install -y --setopt=tsflags='' xmlsec1 libseccomp libatomic python3-libs python3-pip krb5-libs /pkg/$package_name && \
+      pip3 install --no-cache-dir ${pip_find_links} ${pip_packages} && \
+      dnf clean all"
+  fi
+
+  cat > "$build_dir/Dockerfile" <<EOF
+FROM $base_image
+COPY $package_name /pkg/$package_name
+${copy_wheels_line}
+RUN $install_cmd
+USER memgraph
+WORKDIR /usr/lib/memgraph
+EXPOSE 7687
+ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
+CMD [""]
+EOF
+
+  echo "--- Dockerfile ---"
+  cat "$build_dir/Dockerfile"
+  echo "------------------"
+
+  if ! docker build -t "memgraph/memgraph:$image_tag" "$build_dir"; then
+    echo "Error: docker build failed for memgraph/memgraph:$image_tag" >&2
+    exit 1
+  fi
+  echo "Built smoke image: memgraph/memgraph:$image_tag"
+}
+
 copy_memgraph() {
   local MGBUILD_BUILD_DIR="$MGBUILD_ROOT_DIR/build"
   local PROJECT_BUILD_DIR="$PROJECT_ROOT/build"
@@ -1068,6 +1242,7 @@ copy_memgraph() {
 ##################### TESTS ######################
 ##################################################
 test_memgraph() {
+  local test_name="$1"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_VENV="source ve3/bin/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
@@ -1078,9 +1253,60 @@ test_memgraph() {
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
   local default_benchmark_result_file='benchmark_result.json'
 
+  # Parse key=value output from a deployment.sh monitoring-targets invocation
+  # and export recognized vars if not already set. Uses `<<<` (not a pipe) so
+  # exports propagate to the calling function's shell.
+  _import_monitoring_targets() {
+    while IFS='=' read -r key value; do
+      [[ -z "$value" ]] && continue
+      case "$key" in
+        MEMGRAPH_METRICS_TARGETS)
+          [[ -z "${MEMGRAPH_METRICS_TARGETS:-}" ]] && export MEMGRAPH_METRICS_TARGETS="$value"
+          ;;
+        MEMGRAPH_LOG_WS_TARGETS)
+          [[ -z "${MEMGRAPH_LOG_WS_TARGETS:-}" ]] && export MEMGRAPH_LOG_WS_TARGETS="$value"
+          ;;
+      esac
+    done <<< "$1"
+  }
+
+  resolve_native_ha_monitoring_targets() {
+    _import_monitoring_targets "$(docker exec -u mg "$build_container" bash -c \
+      "cd $MGBUILD_ROOT_DIR/tests/stress/ha/native/deployment && ./deployment.sh monitoring-targets \"$build_container\"")"
+  }
+
+  resolve_docker_ha_monitoring_targets() {
+    _import_monitoring_targets "$("$PROJECT_ROOT/tests/stress/ha/docker/deployment/deployment.sh" monitoring-targets 127.0.0.1)"
+    export MONITORING_USE_HOST_NETWORK="true"
+  }
+
+  resolve_eks_ha_monitoring_targets() {
+    _import_monitoring_targets "$("$PROJECT_ROOT/tests/stress/ha/eks/deployment/deployment.sh" monitoring-targets)"
+    # EKS monitoring targets are public endpoints; host network mode avoids the need for a shared Docker network.
+    export MONITORING_USE_HOST_NETWORK="true"
+  }
+
+  if [[ "$enable_monitoring" == "true" ]]; then
+    case "$test_name" in
+      stress-native-ha)  resolve_native_ha_monitoring_targets ;;
+      stress-docker-ha)  resolve_docker_ha_monitoring_targets ;;
+      # EKS targets are resolved later in the case body, after the cluster exists.
+      stress-eks-ha)     : ;;
+    esac
+
+    if [[ "$test_name" != "stress-eks-ha" ]]; then
+      if [[ -z "$service_name" ]]; then
+        service_name="$test_name"
+        echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+      fi
+      start_monitoring
+      trap stop_monitoring EXIT INT TERM
+    fi
+  fi
+
   # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
-  echo "Running $1 test on $build_container..."
-  case "$1" in
+  echo "Running $test_name test on $build_container..."
+  case "$test_name" in
     unit)
       if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
         docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$(nproc)'
@@ -1104,6 +1330,10 @@ test_memgraph() {
         status=$?
         echo "Copying test report to host..."
         docker cp $build_container:$MGBUILD_ROOT_DIR/tests/drivers/test_report.tar.gz $PROJECT_ROOT/tests/drivers/test_report.tar.gz || true
+        # This trap replaces the outer stop_monitoring trap, so chain it here.
+        if [[ "$enable_monitoring" == "true" ]]; then
+          stop_monitoring || true
+        fi
         exit $status
       }
       trap copy_report EXIT INT TERM
@@ -1153,14 +1383,32 @@ test_memgraph() {
       export MEMGRAPH_ORGANIZATION_NAME=$organization_name
 
       EKS_DEPLOYMENT_SCRIPT="$PROJECT_ROOT/tests/stress/ha/eks/deployment/deployment.sh"
+      local ci_extra_flags=()
 
       cleanup_eks() {
         echo "Destroying EKS cluster..."
         "$EKS_DEPLOYMENT_SCRIPT" destroy || true
       }
-      trap cleanup_eks EXIT INT TERM
+      cleanup_eks_and_monitoring() {
+        if [[ "$enable_monitoring" == "true" ]]; then
+          stop_monitoring || true
+        fi
+        cleanup_eks
+      }
+      trap cleanup_eks_and_monitoring EXIT INT TERM
 
       "$EKS_DEPLOYMENT_SCRIPT" start-cluster
+
+      if [[ "$enable_monitoring" == "true" ]]; then
+        "$EKS_DEPLOYMENT_SCRIPT" start
+        resolve_eks_ha_monitoring_targets
+        if [[ -z "$service_name" ]]; then
+          service_name="$test_name"
+          echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+        fi
+        start_monitoring
+        ci_extra_flags+=(--externally-managed)
+      fi
 
       if [[ ! -d "$PROJECT_ROOT/tests/ve3" ]]; then
         python3 -m venv "$PROJECT_ROOT/tests/ve3"
@@ -1171,7 +1419,7 @@ test_memgraph() {
         source "$PROJECT_ROOT/tests/ve3/bin/activate"
       fi
 
-      cd "$PROJECT_ROOT/tests/stress" && ./continuous_integration --deployment=ha/eks ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}
+      cd "$PROJECT_ROOT/tests/stress" && ./continuous_integration --deployment=ha/eks "${ci_extra_flags[@]}" ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}
     ;;
     durability)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test.log --verbose"
@@ -1656,8 +1904,99 @@ package_mage_docker() {
   echo -e "${GREEN_BOLD}Docker image packaged successfully${RESET}"
 }
 
+package_mage_offline_installer() {
+
+  echo -e "${GREEN_BOLD}Building MAGE offline installer (.run)${RESET}"
+
+  local memgraph_deb=""
+  local mage_deb=""
+  local output=""
+  local wheels_dir="$PROJECT_ROOT/mage/wheels"
+  local malloc=false
+  local cuda=false
+  local cuda_version="13.0"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --memgraph-deb)
+        memgraph_deb=$2
+        shift 2
+      ;;
+      --mage-deb)
+        mage_deb=$2
+        shift 2
+      ;;
+      --output)
+        output=$2
+        shift 2
+      ;;
+      --wheels-dir)
+        wheels_dir=$2
+        shift 2
+      ;;
+      --malloc)
+        malloc=true
+        shift 1
+      ;;
+      --cuda)
+        cuda=true
+        shift 1
+      ;;
+      --cuda-version)
+        cuda_version=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ -z "$memgraph_deb" || -z "$mage_deb" ]]; then
+    echo -e "${RED_BOLD}Error: package-mage-offline-installer requires --memgraph-deb and --mage-deb${RESET}"
+    exit 1
+  fi
+
+  # cugraph is a global mgbuild flag (parallel with package_mage_deb / docker);
+  # it implies cuda for wheel selection.
+  if [[ "$cugraph" = true ]]; then
+    cuda=true
+  fi
+
+  # The mgbuild --arch values are amd/arm; the offline installer script speaks
+  # debian/dpkg arch (amd64/arm64).
+  local dpkg_arch="${arch}64"
+
+  local build_args=(
+    --memgraph-deb "$memgraph_deb"
+    --mage-deb "$mage_deb"
+    --arch "$dpkg_arch"
+    --build-type "$build_type"
+    --cuda "$cuda"
+    --cuda-version "$cuda_version"
+    --malloc "$malloc"
+    --cugraph "$cugraph"
+    --wheels-dir "$wheels_dir"
+  )
+  if [[ -n "$output" ]]; then
+    build_args+=(--output "$output")
+  fi
+
+  "$PROJECT_ROOT/tools/ci/mage-build/build-offline-installer.sh" "${build_args[@]}"
+}
+
 test_mage() {
-  # TODO: move other tests into this function like the test_memgraph function
+  local test_name="$1"
+
+  if [[ "$enable_monitoring" == "true" ]]; then
+    if [[ -z "$service_name" ]]; then
+      service_name="mage-$test_name"
+      echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+    fi
+    start_monitoring
+    trap stop_monitoring EXIT INT TERM
+  fi
 
   function create_e2e_test_env() {
     cd $PROJECT_ROOT/mage
@@ -1784,6 +2123,12 @@ test_mage() {
       cleanup_container() {
         docker stop $neo4j_container || true
         docker rm $neo4j_container || true
+        # This trap replaces the outer stop_monitoring trap, so chain it here
+        # to ensure the monitoring stack restarts fresh for the next test (and
+        # picks up the new service_name/labels from the regenerated configs).
+        if [[ "$enable_monitoring" == "true" ]]; then
+          stop_monitoring || true
+        fi
       }
       trap cleanup_container EXIT INT TERM
       create_e2e_test_env
@@ -1840,6 +2185,12 @@ test_mage() {
         docker rm $mysql_container || true
         docker stop $postgresql_container || true
         docker rm $postgresql_container || true
+        # This trap replaces the outer stop_monitoring trap, so chain it here
+        # to ensure the monitoring stack restarts fresh for the next test (and
+        # picks up the new service_name/labels from the regenerated configs).
+        if [[ "$enable_monitoring" == "true" ]]; then
+          stop_monitoring || true
+        fi
       }
       # Set trap to cleanup on exit/interrupt (scoped to this case branch)
       trap cleanup_containers EXIT INT TERM
@@ -2040,6 +2391,38 @@ build_ssl() {
 
   echo "OpenSSL built and uploaded to conan cache"
 }
+
+start_monitoring() {
+  local metrics_targets="${MEMGRAPH_METRICS_TARGETS:-$build_container:9091}"
+  local log_ws_targets="${MEMGRAPH_LOG_WS_TARGETS:-$build_container:7444}"
+
+  echo -e "${GREEN_BOLD}Setting up monitoring...${RESET}"
+  echo -e "${GREEN_BOLD}Cluster id: ${RED_BOLD}$cluster_id${RESET}"
+  echo -e "${GREEN_BOLD}Cluster env: ${RED_BOLD}$cluster_env${RESET}"
+  echo -e "${GREEN_BOLD}Service name: ${RED_BOLD}$service_name${RESET}"
+  echo -e "${GREEN_BOLD}Metrics targets: ${RED_BOLD}$metrics_targets${RESET}"
+  echo -e "${GREEN_BOLD}Log websocket targets: ${RED_BOLD}$log_ws_targets${RESET}"
+
+  # Run in a subshell so the caller's working directory is preserved.
+  (
+    cd "$PROJECT_ROOT/tools/ci/monitoring"
+    MONITORING_SERVER_HOST=$monitoring_host \
+    CLUSTER_ID=$cluster_id \
+    CLUSTER_ENV=$cluster_env \
+    SERVICE_NAME=$service_name \
+    MEMGRAPH_METRICS_TARGETS=$metrics_targets \
+    MEMGRAPH_LOG_WS_TARGETS=$log_ws_targets \
+    ./up.sh
+  )
+}
+
+stop_monitoring() {
+  echo -e "${GREEN_BOLD}Stopping monitoring...${RESET}"
+  # Run in a subshell so the caller's working directory is preserved.
+  ( cd "$PROJECT_ROOT/tools/ci/monitoring" && ./down.sh )
+}
+
+
 ##################################################
 ################### PARSE ARGS ###################
 ##################################################
@@ -2064,6 +2447,11 @@ conan_cache_dir=""
 command=""
 build_container=""
 cugraph=false
+enable_monitoring=false
+monitoring_host=""
+cluster_id=""
+cluster_env=""
+service_name=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)
@@ -2130,6 +2518,26 @@ while [[ $# -gt 0 ]]; do
       conan_cache_dir=$2
       shift 2
     ;;
+    --enable-monitoring)
+      enable_monitoring=true
+      shift 1
+    ;;
+    --monitoring-host)
+      monitoring_host=$2
+      shift 2
+    ;;
+    --cluster-id)
+      cluster_id=$2
+      shift 2
+    ;;
+    --cluster-env)
+      cluster_env=$2
+      shift 2
+    ;;
+    --service-name)
+      service_name=$2
+      shift 2
+    ;;
     *)
       if [[ "$1" =~ ^--.* ]]; then
         echo -e "Error: Unknown option '$1'"
@@ -2143,6 +2551,13 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
+
+# only allow monitoring if all variables are set
+if [[ "$enable_monitoring" == "true" && (-z "$monitoring_host" || -z "$cluster_id" || -z "$cluster_env") ]]; then
+  echo -e "Error: Monitoring is enabled but not all monitoring variables are set"
+  echo -e "Provide --monitoring-host, --cluster-id and --cluster-env"
+  exit 1
+fi
 
 if [[ -z "$conan_cache_dir" ]]; then
   conan_cache_dir="$HOME/.conan2-ci"
@@ -2162,7 +2577,7 @@ if [[ "$cugraph" == "true" ]]; then
 fi
 
 if [[ "$command" == "" ]]; then
-  echo -e "Error: Command not provided, please provide command"
+  echo -e "Error: Command not provided, please provide command" >&2
   print_help
   exit 1
 fi
@@ -2443,6 +2858,9 @@ case $command in
     package-docker)
       package_docker $@
     ;;
+    package-smoke-image)
+      package_smoke_image $@
+    ;;
     build-heaptrack)
       build_heaptrack $@
     ;;
@@ -2457,6 +2875,9 @@ case $command in
     ;;
     package-mage-docker)
       package_mage_docker $@
+    ;;
+    package-mage-offline-installer)
+      package_mage_offline_installer $@
     ;;
     test-mage)
       test_mage $@

@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <shared_mutex>
 
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
@@ -607,6 +608,39 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 }
 
 #endif
+
+std::optional<memgraph::metrics::StorageSnapshot> DbmsHandler::TryGetStorageSnapshotForMetrics(utils::UUID const &uuid
+                                                                                               [[maybe_unused]]) {
+#ifdef MG_ENTERPRISE
+  try {
+    auto rd = std::shared_lock{lock_};
+    auto db = Get_(uuid);
+    auto const info = db->storage()->GetBaseInfo();
+    return memgraph::metrics::StorageSnapshot{.vertex_count = info.vertex_count,
+                                              .edge_count = info.edge_count,
+                                              .disk_usage = info.disk_usage,
+                                              .db_memory_tracked = db->DbMemoryUsage(),
+                                              .db_peak_memory_tracked = db->DbPeakMemoryUsage(),
+                                              .db_storage_memory_tracked = db->DbStorageMemoryUsage(),
+                                              .db_embedding_memory_tracked = db->DbEmbeddingMemoryUsage(),
+                                              .db_query_memory_tracked = db->DbQueryMemoryUsage()};
+  } catch (UnknownDatabaseException const &) {
+    return std::nullopt;
+  }
+#else
+  auto db_opt = db_gatekeeper_.access();
+  if (!db_opt) return std::nullopt;
+  auto const info = (*db_opt)->storage()->GetBaseInfo();
+  return memgraph::metrics::StorageSnapshot{.vertex_count = info.vertex_count,
+                                            .edge_count = info.edge_count,
+                                            .disk_usage = info.disk_usage,
+                                            .db_memory_tracked = (*db_opt)->DbMemoryUsage(),
+                                            .db_peak_memory_tracked = (*db_opt)->DbPeakMemoryUsage(),
+                                            .db_storage_memory_tracked = (*db_opt)->DbStorageMemoryUsage(),
+                                            .db_embedding_memory_tracked = (*db_opt)->DbEmbeddingMemoryUsage(),
+                                            .db_query_memory_tracked = (*db_opt)->DbQueryMemoryUsage()};
+#endif
+}
 
 void DbmsHandler::RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data) {
   auto const is_enterprise = license::global_license_checker.IsEnterpriseValidFast();

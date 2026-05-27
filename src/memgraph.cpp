@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <variant>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
@@ -38,6 +39,7 @@
 #include "flags/general.hpp"
 #include "flags/logging.hpp"
 #include "glue/MonitoringServerT.hpp"
+#include "glue/PrometheusServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
@@ -45,6 +47,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -63,8 +66,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
-#include "utils/concurrency_hint.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/readable_size.hpp"
@@ -81,10 +82,6 @@
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
 
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-}  // namespace memgraph::metrics
-
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
@@ -94,7 +91,7 @@ constexpr const char *kMgExperimentalEnabled = "MEMGRAPH_EXPERIMENTAL_ENABLED";
 constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
 
-constexpr uint64_t kMgVmMaxMapCount = 262'144;
+constexpr uint64_t kMgVmMaxMapCount = 524'288;
 
 void WarnDeprecatedFlags() {
   auto warn_if_set = [](std::string_view name, std::string_view message) {
@@ -107,8 +104,10 @@ void WarnDeprecatedFlags() {
 /// argv[1..argc-1] entries are unexpected — typically caused by writing `--bool-flag false`
 /// (space-separated) instead of `--bool-flag=false`. gflags bool flags don't consume the
 /// next argument; `--flag false` silently sets the flag to true and orphans "false".
-void CheckSuspiciousPositionalArgs(int argc, char **argv) {
-  if (argc <= 1) return;
+///
+/// @return true if startup should continue, false if `--strict-flag-check` requires aborting.
+[[nodiscard]] bool CheckSuspiciousPositionalArgs(int argc, char **argv) {
+  if (argc <= 1) return true;
 
   auto is_bool_like = [](std::string_view arg) {
     using namespace std::string_view_literals;
@@ -140,7 +139,7 @@ void CheckSuspiciousPositionalArgs(int argc, char **argv) {
     spdlog::log(
         level, "Unexpected positional argument(s): {}. Memgraph does not accept positional arguments.", all_args);
   }
-  if (FLAGS_strict_flag_check) std::exit(EXIT_FAILURE);
+  return !FLAGS_strict_flag_check;
 }
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
@@ -267,7 +266,7 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  CheckSuspiciousPositionalArgs(argc, argv);
+  if (!CheckSuspiciousPositionalArgs(argc, argv)) return EXIT_FAILURE;
   WarnDeprecatedFlags();
 
   // Publish worker count early so allocators can pre-size thread-local structures
@@ -289,6 +288,10 @@ int main(int argc, char **argv) {
   // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
 
+  // Fail fast if --cluster-{cert,key,ca}-file are partially configured.
+  // Must run after logger init so the fatal message is delivered.
+  memgraph::flags::ValidateIntraClusterTLSFlags();
+
   // Block SIGTERM/SIGINT as early as possible so that every thread we spawn
   // inherits the blocked mask.  The main thread will consume them
   // synchronously via sigwait() later.
@@ -297,57 +300,72 @@ int main(int argc, char **argv) {
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
 
-  // Initialize Python
-  auto *program_name = Py_DecodeLocale(argv[0], nullptr);
-  MG_ASSERT(program_name);
-  // Set program name, so Python can find its way to runtime libraries relative
-  // to executable.
-  // TODO: Migrate to PyConfig API (Python 3.11+); Py_SetProgramName is deprecated.
-  Py_SetProgramName(program_name);
-  PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
-  Py_InitializeEx(0 /* = initsigs */);
-  Py_BEGIN_ALLOW_THREADS;
+#ifdef MG_ENTERPRISE
+  memgraph::flags::SetFinalCoordinationSetup();
+  auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
+  bool const is_coordinator_instance = coordination_setup.management_port && coordination_setup.coordinator_port &&
+                                       coordination_setup.coordinator_id &&
+                                       !coordination_setup.coordinator_hostname.empty();
 
-  // Add our Python modules to sys.path
-  try {
-    auto exe_path = memgraph::utils::GetExecutablePath();
-    auto py_support_dir = exe_path.parent_path() / "python_support";
-    if (std::filesystem::is_directory(py_support_dir)) {
-      auto gil = memgraph::py::EnsureGIL();
-      auto maybe_exc = memgraph::py::AppendToSysPath(py_support_dir.c_str());
-      if (maybe_exc) {
-        spdlog::error(memgraph::utils::MessageWithLink(
-            "Unable to load support for embedded Python: {}.", *maybe_exc, "https://memgr.ph/python"));
-      } else {
-        // Change how we load dynamic libraries on Python by using RTLD_NOW flag.
-        // This solves an issue with using the wrong version of libstdc++.
+#else
+  bool const is_coordinator_instance = false;
+#endif
+
+  std::optional<memgraph::utils::Scheduler> python_gc_scheduler{std::nullopt};
+  wchar_t *program_name{nullptr};
+  PyThreadState *python_thread_state{nullptr};
+
+  if (!is_coordinator_instance) {
+    // Initialize Python
+    program_name = Py_DecodeLocale(argv[0], nullptr);
+    MG_ASSERT(program_name);
+    // Set program name, so Python can find its way to runtime libraries relative
+    // to executable.
+    Py_SetProgramName(program_name);
+    PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
+    Py_InitializeEx(0 /* = initsigs */);
+    python_thread_state = PyEval_SaveThread();
+
+    // Add our Python modules to sys.path
+    try {
+      auto exe_path = memgraph::utils::GetExecutablePath();
+      auto py_support_dir = exe_path.parent_path() / "python_support";
+      if (std::filesystem::is_directory(py_support_dir)) {
         auto gil = memgraph::py::EnsureGIL();
-        // NOLINTNEXTLINE(hicpp-signed-bitwise)
-        auto *flag = PyLong_FromLong(RTLD_NOW);
-        auto *setdl = PySys_GetObject("setdlopenflags");
-        MG_ASSERT(setdl);
-        auto *arg = PyTuple_New(1);
-        MG_ASSERT(arg);
-        MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);
-        PyObject_CallObject(setdl, arg);
-        Py_DECREF(flag);
-        Py_DECREF(setdl);
-        Py_DECREF(arg);
+        auto maybe_exc = memgraph::py::AppendToSysPath(py_support_dir.c_str());
+        if (maybe_exc) {
+          spdlog::error(memgraph::utils::MessageWithLink(
+              "Unable to load support for embedded Python: {}.", *maybe_exc, "https://memgr.ph/python"));
+        } else {
+          // Change how we load dynamic libraries on Python by using RTLD_NOW flag.
+          // This solves an issue with using the wrong version of libstdc++.
+          // NOLINTNEXTLINE(hicpp-signed-bitwise)
+          auto *flag = PyLong_FromLong(RTLD_NOW);
+          auto *setdl = PySys_GetObject("setdlopenflags");
+          MG_ASSERT(setdl);
+          auto *arg = PyTuple_New(1);
+          MG_ASSERT(arg);
+          MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);  // steals flag
+          PyObject_CallObject(setdl, arg);
+          // flag stolen by SetItem — do NOT Py_DECREF it
+          // setdl is a borrowed ref from PySys_GetObject — do NOT Py_DECREF it
+          Py_DECREF(arg);
+        }
+      } else {
+        spdlog::error(
+            memgraph::utils::MessageWithLink("Unable to load support for embedded Python: missing directory {}.",
+                                             py_support_dir,
+                                             "https://memgr.ph/python"));
       }
-    } else {
-      spdlog::error(
-          memgraph::utils::MessageWithLink("Unable to load support for embedded Python: missing directory {}.",
-                                           py_support_dir,
-                                           "https://memgr.ph/python"));
+    } catch (const std::filesystem::filesystem_error &e) {
+      spdlog::error(memgraph::utils::MessageWithLink(
+          "Unable to load support for embedded Python: {}.", e.what(), "https://memgr.ph/python"));
     }
-  } catch (const std::filesystem::filesystem_error &e) {
-    spdlog::error(memgraph::utils::MessageWithLink(
-        "Unable to load support for embedded Python: {}.", e.what(), "https://memgr.ph/python"));
-  }
 
-  memgraph::utils::Scheduler python_gc_scheduler;
-  python_gc_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
-  python_gc_scheduler.Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
+    python_gc_scheduler.emplace();
+    python_gc_scheduler->SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
+    python_gc_scheduler->Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
+  }
 
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
@@ -361,14 +379,14 @@ int main(int argc, char **argv) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
       mem_log_scheduler.SetInterval(std::chrono::seconds(3));
-      mem_log_scheduler.Run("Memory check", [] {
+      mem_log_scheduler.Run("Memory check", [peak_gauge = memgraph::metrics::Metrics().global.peak_memory_res_bytes] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn(memgraph::utils::MessageWithLink(
               "Running out of available RAM, only {} MB left.", *free_ram / 1024, "https://memgr.ph/ram"));
 
         auto memory_res = memgraph::utils::GetMemoryRES();
-        memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
+        peak_gauge->Set(std::max(static_cast<double>(memory_res), peak_gauge->Value()));
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -528,32 +546,32 @@ int main(int argc, char **argv) {
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
 
-  db_config.durability.snapshot_interval =
-      memgraph::utils::SchedulerInterval(memgraph::flags::run_time::GetStorageSnapshotInterval());
-  if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
-    if (!db_config.durability.snapshot_interval) {
-      if (FLAGS_storage_wal_enabled) {
-        LOG_FATAL(
-            "In order to use write-ahead-logging you must enable "
-            "periodic snapshots by setting the snapshot interval to a "
-            "value larger than 0!");
-      }
-      db_config.durability.snapshot_wal_mode = DISABLED;
-    } else {
-      if (FLAGS_storage_wal_enabled) {
-        db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL;
+  if (!is_coordinator_instance) {
+    db_config.durability.snapshot_interval =
+        memgraph::utils::SchedulerInterval(memgraph::flags::run_time::GetStorageSnapshotInterval());
+    if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
+      if (!db_config.durability.snapshot_interval) {
+        if (FLAGS_storage_wal_enabled) {
+          LOG_FATAL(
+              "In order to use write-ahead-logging you must enable "
+              "periodic snapshots by setting the snapshot interval to a "
+              "value larger than 0!");
+        }
+        db_config.durability.snapshot_wal_mode = DISABLED;
       } else {
-        db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT;
+        if (FLAGS_storage_wal_enabled) {
+          db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL;
+        } else {
+          db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT;
+        }
       }
+    } else {
+      // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
+      db_config.durability.snapshot_wal_mode = DISABLED;
     }
-  } else {
-    // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
-    db_config.durability.snapshot_wal_mode = DISABLED;
   }
 
 #ifdef MG_ENTERPRISE
-  memgraph::flags::SetFinalCoordinationSetup();
-  auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
   if (coordination_setup.IsDataInstanceManagedByCoordinator() &&
       db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     MG_ASSERT(db_config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL,
@@ -561,9 +579,6 @@ int main(int argc, char **argv) {
               "--storage-wal-enabled=true. One of the flags used for setting up snapshots "
               "--storage-snapshot-interval-sec or --storage-snapshot-interval also needs to be set.");
   }
-  auto const is_coordinator_instance = coordination_setup.management_port && coordination_setup.coordinator_port &&
-                                       coordination_setup.coordinator_id &&
-                                       !coordination_setup.coordinator_hostname.empty();
 
   if (is_coordinator_instance) {
     MG_ASSERT(
@@ -582,11 +597,6 @@ int main(int argc, char **argv) {
               "flag.");
   }
 
-#else
-  bool const is_coordinator_instance = false;
-#endif
-
-#ifdef MG_ENTERPRISE
   if (std::chrono::seconds(FLAGS_instance_down_timeout_sec) <
       std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)) {
     LOG_FATAL(
@@ -696,10 +706,18 @@ int main(int argc, char **argv) {
           "started only with management port.");
     }
 
+    auto maybe_ssl = memgraph::flags::TlsConfigFromClusterFlags();
+    if (!maybe_ssl.has_value()) {
+      spdlog::warn(memgraph::utils::MessageWithLink(
+          "Running HA without intra-cluster TLS. Replication, coordinator, and management traffic is unencrypted.",
+          "https://memgr.ph/cluster-tls"));
+    }
+
     if (is_coordinator_instance) {
       constexpr auto kRaftDataDir = "/high_availability/raft_data";
       auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
+
       coordinator_state = std::make_shared<CoordinatorState>(
           CoordinatorInstanceInitConfig{.coordinator_id = coordination_setup.coordinator_id,
                                         .coordinator_port = coordination_setup.coordinator_port,
@@ -707,10 +725,11 @@ int main(int argc, char **argv) {
                                         .management_port = coordination_setup.management_port,
                                         .durability_dir = high_availability_data_dir,
                                         .coordinator_hostname = coordination_setup.coordinator_hostname,
-                                        .nuraft_log_file = coordination_setup.nuraft_log_file});
+                                        .nuraft_log_file = coordination_setup.nuraft_log_file,
+                                        .tls_config = std::move(maybe_ssl)});
     } else {
-      coordinator_state = std::make_shared<CoordinatorState>(
-          ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
+      coordinator_state = std::make_shared<CoordinatorState>(ReplicationInstanceInitConfig{
+          .management_port = coordination_setup.management_port, .tls_config = std::move(maybe_ssl)});
     }
   };
 
@@ -728,6 +747,20 @@ int main(int argc, char **argv) {
   if (!is_coordinator_instance) {
     dbms_handler.emplace(db_config);
   }
+
+  memgraph::metrics::Metrics().SetStorageSnapshotResolver(
+      [&dbms_handler](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        if (!dbms_handler) return std::nullopt;
+        return dbms_handler->TryGetStorageSnapshotForMetrics(uuid);
+      });
+
+#ifdef MG_ENTERPRISE
+  memgraph::metrics::Metrics().SetInstanceStatusResolver(
+      [&coordinator_state]() -> std::vector<memgraph::coordination::InstanceStatus> {
+        if (!coordinator_state || !coordinator_state->IsCoordinator()) return {};
+        return coordinator_state->ShowInstances();
+      });
+#endif
 
   // singleton replication state
   // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
@@ -779,10 +812,11 @@ int main(int argc, char **argv) {
     // procedures during parallel execution.
     // NOTE: We should also register cleanup, but since threads exist until the end of the program,
     //       everyhting will be cleaned up anyway at program exit.
-    auto python_thread_init = []() { memgraph::query::procedure::RegisterPyThread(); };
-    worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
+
+    worker_pool_.emplace(/* low priority */
+                         static_cast<uint16_t>(FLAGS_bolt_num_workers),
                          /* high priority */ 1U,
-                         python_thread_init);
+                         is_coordinator_instance ? []() {} : []() { memgraph::query::procedure::RegisterPyThread(); });
     io_n_threads = 1U;
   }
 
@@ -819,12 +853,12 @@ int main(int argc, char **argv) {
   auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
   if (!is_coordinator_instance) {
     MG_ASSERT(db_acc.has_value(), "Failed to access the main database");
-  }
 
-  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
-                                                                  FLAGS_data_directory);
-  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-  memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
+    memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
+                                                                    FLAGS_data_directory);
+    memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
+    memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
+  }
 
   // TODO Make multi-tenant
   // No need to check here if coordinator instance because we check above that --init-file is not set on coordinator
@@ -949,11 +983,19 @@ int main(int argc, char **argv) {
     spdlog::error("Skipping adding logger sync for websocket.");
   }
 
-// TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
-  memgraph::glue::MonitoringServerT metrics_server{{FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)},
-                                                   db_acc.has_value() ? db_acc->get()->storage() : nullptr,
-                                                   &bolt_server_context};
+  auto const metrics_endpoint =
+      memgraph::io::network::Endpoint{FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)};
+  using MetricsServerVariant = std::variant<memgraph::glue::PrometheusServerT, memgraph::glue::MonitoringServerT>;
+  MetricsServerVariant metrics_server =
+      FLAGS_metrics_format == "JSON" ? MetricsServerVariant{std::in_place_type<memgraph::glue::MonitoringServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context}
+                                     : MetricsServerVariant{std::in_place_type<memgraph::glue::PrometheusServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context};
   spdlog::trace("Metrics server created.");
 #endif
 
@@ -1016,7 +1058,7 @@ int main(int argc, char **argv) {
     spdlog::trace("Shutting down websocket server");
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
-    metrics_server.Shutdown();
+    std::visit([](auto &s) { s.Shutdown(); }, metrics_server);
     if (coordinator_state && coordinator_state->IsCoordinator()) {
       // Coordinator instance destruction will handle the complete shutdown
       coordinator_state.reset();
@@ -1034,8 +1076,17 @@ int main(int argc, char **argv) {
   spdlog::trace("Web socket server started.");
 
 #ifdef MG_ENTERPRISE
-  metrics_server.Start();
-  spdlog::trace("Metrics server started");
+  std::visit(
+      [](auto &s) {
+        s.Start();
+        if (s.IsRunning()) {
+          spdlog::trace("Metrics server started");
+        } else {
+          spdlog::warn("Metrics server failed to start on port {}. The port may already be in use.",
+                       FLAGS_metrics_port);
+        }
+      },
+      metrics_server);
 #endif
 
   if (!FLAGS_init_data_file.empty() && dbms_handler.has_value()) {
@@ -1065,18 +1116,25 @@ int main(int argc, char **argv) {
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
-  metrics_server.AwaitShutdown();
+  std::visit([](auto &s) { s.AwaitShutdown(); }, metrics_server);
 #endif
-  try {
-    memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
-  } catch (memgraph::query::QueryException &) {
-    spdlog::warn("Failed to unload query modules while shutting down.");
+
+  if (!is_coordinator_instance) {
+    try {
+      memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
+    } catch (memgraph::query::QueryException &) {
+      spdlog::warn("Failed to unload query modules while shutting down.");
+    }
+    python_gc_scheduler->Stop();
+    // NOTE: We intentionally skip Py_Finalize(). Third-party extensions (DGL,
+    // PyTorch, numpy) may have spawned background threads that race with
+    // CPython's TSS teardown, causing "gilstate_tss_set: failed to set current
+    // tstate" fatal errors (bpo-42969). Since the process is about to exit, the
+    // OS reclaims all resources. This is standard practice for embedded Python.
+    MG_ASSERT(python_thread_state, "Invalid Python thread state");
+    PyEval_RestoreThread(python_thread_state);
+    PyMem_RawFree(program_name);
   }
-  python_gc_scheduler.Stop();
-  Py_END_ALLOW_THREADS;
-  // Shutdown Python
-  Py_Finalize();
-  PyMem_RawFree(program_name);
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();
   return 0;

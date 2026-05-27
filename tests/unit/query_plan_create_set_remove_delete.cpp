@@ -794,7 +794,7 @@ TYPED_TEST(QueryPlanTest, Delete) {
     auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, true);
     Frame frame(symbol_table.max_position());
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    delete_op->MakeCursor(memgraph::utils::NewDeleteResource())->Pull(frame, context);
+    delete_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles())->Pull(frame, context);
     dba.AdvanceCommand();
     EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     EXPECT_EQ(6, CountEdges(&dba, memgraph::storage::View::OLD));
@@ -2792,7 +2792,7 @@ TYPED_TEST(DynamicExpandFixture, Expand) {
   frame_writer.Write(scan_node_by_label.sym_, this->v1);
 
   auto *mem = memgraph::utils::NewDeleteResource();
-  auto initial_cursor_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, -1, -1, mem);
+  auto initial_cursor_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, -1, -1, mem, TestMetricHandles());
   auto *initial_cursor = dynamic_cast<ExpandCursor *>(initial_cursor_ptr.get());
   auto expansion_info = initial_cursor->GetExpansionInfo(frame);
 
@@ -2800,7 +2800,7 @@ TYPED_TEST(DynamicExpandFixture, Expand) {
   ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::OUT);
   ASSERT_EQ(expansion_info.existing_node.value(), this->v1);
 
-  auto expanded_first_cursor_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 1, -1, mem);
+  auto expanded_first_cursor_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 1, -1, mem, TestMetricHandles());
   auto *expanded_first_cursor = dynamic_cast<ExpandCursor *>(expanded_first_cursor_ptr.get());
   expansion_info = expanded_first_cursor->GetExpansionInfo(frame);
 
@@ -2808,7 +2808,8 @@ TYPED_TEST(DynamicExpandFixture, Expand) {
   ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::IN);
   ASSERT_EQ(expansion_info.existing_node.value(), this->v4);
 
-  auto expanded_both_take_first_cursor_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 1, 100, mem);
+  auto expanded_both_take_first_cursor_ptr =
+      MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 1, 100, mem, TestMetricHandles());
   auto *expanded_both_take_first = dynamic_cast<ExpandCursor *>(expanded_both_take_first_cursor_ptr.get());
   expansion_info = expanded_both_take_first->GetExpansionInfo(frame);
 
@@ -2816,7 +2817,8 @@ TYPED_TEST(DynamicExpandFixture, Expand) {
   ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::OUT);
   ASSERT_EQ(expansion_info.existing_node.value(), this->v1);
 
-  auto expanded_both_take_second_cursor_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 100, 1, mem);
+  auto expanded_both_take_second_cursor_ptr =
+      MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 100, 1, mem, TestMetricHandles());
   auto *expanded_both_take_second = dynamic_cast<ExpandCursor *>(expanded_both_take_second_cursor_ptr.get());
   expansion_info = expanded_both_take_second->GetExpansionInfo(frame);
 
@@ -2824,7 +2826,8 @@ TYPED_TEST(DynamicExpandFixture, Expand) {
   ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::IN);
   ASSERT_EQ(expansion_info.existing_node.value(), this->v4);
 
-  auto expanded_equal_take_second_cursror_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 5, 5, mem);
+  auto expanded_equal_take_second_cursror_ptr =
+      MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 5, 5, mem, TestMetricHandles());
   auto *expanded_equal_take_second = dynamic_cast<ExpandCursor *>(expanded_equal_take_second_cursror_ptr.get());
   expansion_info = expanded_equal_take_second->GetExpansionInfo(frame);
 
