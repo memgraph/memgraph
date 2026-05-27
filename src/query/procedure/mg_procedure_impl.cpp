@@ -2867,6 +2867,10 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
 }
 
 mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_properties_iterator **result) {
+  // NOTE: This copies the whole properties into the iterator.
+  // TODO: Think of a good way to avoid the copy which doesn't just rely on some
+  // assumption that storage may return a pointer to the property store. This
+  // will probably require a different API in storage.
   return WrapExceptions(
       [v, memory] {
         if (v->IsVirtual()) {
@@ -3185,20 +3189,6 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
     if (e->IsVirtual()) {
       throw ImmutableObjectException{"Cannot set properties on a virtual edge!"};
     }
-    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
-    std::visit(
-        [&props, &e](const auto &items) {
-          for (const auto &item : items) {
-            props.insert(std::visit(
-                [&item, &e](auto *impl) {
-                  return std::make_pair(impl->NameToProperty(item.first),
-                                        ToPropertyValue(item.second, GetNameIdMapper(e->from.graph)));
-                },
-                e->from.graph->impl));
-          }
-        },
-        properties->items);
-
     auto &ea = std::get<memgraph::query::EdgeAccessor>(e->impl);
     auto *ctx = e->from.graph->ctx;
 
@@ -3213,6 +3203,20 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
     if (!MgpEdgeIsMutable(*e)) {
       throw ImmutableObjectException{"Cannot set properties of an immutable edge!"};
     }
+
+    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
+    std::visit(
+        [&props, &e](const auto &items) {
+          for (const auto &item : items) {
+            props.insert(std::visit(
+                [&item, &e](auto *impl) {
+                  return std::make_pair(impl->NameToProperty(item.first),
+                                        ToPropertyValue(item.second, GetNameIdMapper(e->from.graph)));
+                },
+                e->from.graph->impl));
+          }
+        },
+        properties->items);
 
     const auto result = ea.UpdateProperties(props);
     if (!result) {
@@ -3254,6 +3258,10 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
 }
 
 mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properties_iterator **result) {
+  // NOTE: This copies the whole properties into iterator.
+  // TODO: Think of a good way to avoid the copy which doesn't just rely on some
+  // assumption that storage may return a pointer to the property store. This
+  // will probably require a different API in storage.
   return WrapExceptions(
       [e, memory] {
         return std::visit(memgraph::utils::Overloaded{

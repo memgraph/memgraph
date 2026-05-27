@@ -757,10 +757,6 @@ struct mgp_edge {
   mgp_edge(const memgraph::query::VirtualEdge &ve, mgp_graph *graph, allocator_type alloc)
       : alloc(alloc), impl(ve), from(ve.From(), graph, alloc), to(ve.To(), graph, alloc) {}
 
-  mgp_edge(const memgraph::query::VirtualEdge &ve, const memgraph::query::SubgraphVertexAccessor &from_v,
-           const memgraph::query::SubgraphVertexAccessor &to_v, mgp_graph *graph, allocator_type alloc)
-      : alloc(alloc), impl(ve), from(from_v, graph, alloc), to(to_v, graph, alloc) {}
-
   mgp_edge(const mgp_edge &other, allocator_type alloc)
       : alloc(alloc), impl(other.impl), from(other.from, alloc), to(other.to, alloc) {}
 

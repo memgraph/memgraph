@@ -11,10 +11,9 @@
 
 #pragma once
 
-#include <atomic>
-#include <limits>
 #include <memory>
 
+#include "query/synthetic_gid.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
@@ -24,14 +23,6 @@
 #include "utils/pmr/vector.hpp"
 
 namespace memgraph::query {
-
-// Synthetic Gids for VirtualNode and VirtualEdge share a single counter counting down from UINT64_MAX,
-// so node and edge Gids are drawn from the same space and can never collide with each other
-// (nor with real Gids, which count up from 0).
-inline storage::Gid NextSyntheticGid() {
-  static std::atomic<uint64_t> counter{std::numeric_limits<uint64_t>::max()};
-  return storage::Gid::FromUint(counter.fetch_sub(1, std::memory_order_relaxed));
-}
 
 // Standalone graph node with no provenance back to any real vertex.
 class VirtualNode final {

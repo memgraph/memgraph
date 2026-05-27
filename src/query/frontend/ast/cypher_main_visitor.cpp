@@ -3957,9 +3957,6 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::PROJECT_PATH, is_distinct));
     }
-    if (upper_function_name == Aggregation::kDerive) {
-      throw SemanticException("derive() requires exactly 2 arguments: a path and an options map.");
-    }
   }
 
   if (expressions.size() == 2U) {
@@ -3975,6 +3972,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], expressions[1], Aggregation::Op::DERIVE, is_distinct));
     }
+  }
+
+  if (upper_function_name == Aggregation::kDerive) {
+    throw SemanticException("derive() requires exactly 2 arguments: a path and an options map.");
   }
 
   auto *function_expr = storage_->Create<Function>(function_name, expressions);

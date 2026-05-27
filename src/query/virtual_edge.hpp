@@ -15,6 +15,7 @@
 
 #include <boost/functional/hash.hpp>
 
+#include "query/synthetic_gid.hpp"
 #include "query/virtual_node.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"

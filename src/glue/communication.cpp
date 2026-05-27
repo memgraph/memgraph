@@ -19,6 +19,7 @@
 #include "communication/bolt/v1/value.hpp"
 #include "query/graph.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_graph.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"

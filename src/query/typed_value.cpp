@@ -22,7 +22,9 @@
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
+#include "query/virtual_edge.hpp"
 #include "query/virtual_graph.hpp"
+#include "query/virtual_node.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
@@ -71,6 +73,26 @@ TypedValue::TypedValue(VirtualGraph &&graph) : TypedValue(std::move(graph), grap
 TypedValue::TypedValue(VirtualGraph &&graph, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualGraph) {
   auto *graph_ptr = utils::Allocator<VirtualGraph>(alloc_).new_object<VirtualGraph>(std::move(graph));
   alloc_trait::construct(alloc_, &virtual_graph_v, graph_ptr);
+}
+
+TypedValue::TypedValue(const VirtualEdge &ve, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualEdge) {
+  auto *ptr = utils::Allocator<VirtualEdge>(alloc_).new_object<VirtualEdge>(ve);
+  alloc_trait::construct(alloc_, &virtual_edge_v, ptr);
+}
+
+TypedValue::TypedValue(const VirtualNode &vn, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualNode) {
+  auto *ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(vn);
+  alloc_trait::construct(alloc_, &virtual_node_v, ptr);
+}
+
+TypedValue::TypedValue(VirtualEdge &&ve, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualEdge) {
+  auto *ptr = utils::Allocator<VirtualEdge>(alloc_).new_object<VirtualEdge>(std::move(ve));
+  alloc_trait::construct(alloc_, &virtual_edge_v, ptr);
+}
+
+TypedValue::TypedValue(VirtualNode &&vn, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualNode) {
+  auto *ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(std::move(vn));
+  alloc_trait::construct(alloc_, &virtual_node_v, ptr);
 }
 
 TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper)

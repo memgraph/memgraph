@@ -12,6 +12,7 @@
 #include "query/interpret/eval.hpp"
 
 #include "query/graph.hpp"
+#include "query/virtual_graph.hpp"
 
 #include <ranges>
 #include <regex>

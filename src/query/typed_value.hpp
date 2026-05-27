@@ -21,9 +21,6 @@
 #include <vector>
 
 #include "query/path.hpp"
-#include "query/virtual_edge.hpp"
-#include "query/virtual_graph.hpp"
-#include "query/virtual_node.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/flat_map.hpp"
@@ -37,6 +34,8 @@ namespace memgraph::query {
 
 class Graph;         // fwd declare
 class VirtualGraph;  // fwd declare
+class VirtualEdge;   // fwd declare
+class VirtualNode;   // fwd declare
 
 namespace {
 template <typename T>
@@ -289,15 +288,9 @@ class TypedValue {
   explicit TypedValue(const EdgeAccessor &edge, allocator_type alloc = {})
       : alloc_{alloc}, edge_v{edge}, type_(Type::Edge) {}
 
-  explicit TypedValue(const VirtualEdge &ve, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::VirtualEdge) {
-    auto *ptr = utils::Allocator<VirtualEdge>(alloc_).new_object<VirtualEdge>(ve);
-    alloc_trait::construct(alloc_, &virtual_edge_v, ptr);
-  }
+  explicit TypedValue(const VirtualEdge &ve, allocator_type alloc = {});
 
-  explicit TypedValue(const VirtualNode &vn, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::VirtualNode) {
-    auto *ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(vn);
-    alloc_trait::construct(alloc_, &virtual_node_v, ptr);
-  }
+  explicit TypedValue(const VirtualNode &vn, allocator_type alloc = {});
 
   explicit TypedValue(const Path &path, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Path) {
     auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(path);
@@ -393,15 +386,9 @@ class TypedValue {
   explicit TypedValue(EdgeAccessor &&edge, allocator_type alloc) noexcept
       : alloc_{alloc}, edge_v{std::move(edge)}, type_(Type::Edge) {}
 
-  explicit TypedValue(VirtualEdge &&ve, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualEdge) {
-    auto *ptr = utils::Allocator<VirtualEdge>(alloc_).new_object<VirtualEdge>(std::move(ve));
-    alloc_trait::construct(alloc_, &virtual_edge_v, ptr);
-  }
+  explicit TypedValue(VirtualEdge &&ve, allocator_type alloc);
 
-  explicit TypedValue(VirtualNode &&vn, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualNode) {
-    auto *ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(std::move(vn));
-    alloc_trait::construct(alloc_, &virtual_node_v, ptr);
-  }
+  explicit TypedValue(VirtualNode &&vn, allocator_type alloc);
 
   /**
    * Construct with the value of path.
