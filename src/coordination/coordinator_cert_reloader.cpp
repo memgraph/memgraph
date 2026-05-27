@@ -60,11 +60,13 @@ auto CoordinatorCertReloader::Register(SSL_CTX *server_ctx, SSL_CTX *client_ctx,
 
   // Install SSL_CTX_set_cert_cb on BOTH server and client contexts. The cb
   // fires on every new handshake (inbound on server_ctx_, outbound on
-  // client_ctx_) and applies the current snapshot's leaf + chain + key to
-  // the per-connection SSL object via SSL_use_certificate / SSL_use_PrivateKey.
-  // Without the cb on client_ctx_, outbound NuRaft handshakes would keep
-  // presenting whatever cert NuRaft loaded once at init, leaving outbound
-  // rotation stuck on the old cert.
+  // client_ctx_) and applies the current snapshot's leaf + chain + key + CA
+  // verify store to the per-connection SSL object (SSL_use_certificate /
+  // SSL_use_PrivateKey / SSL_set1_verify_cert_store). Everything is applied
+  // per-connection, so a reload never mutates these shared SSL_CTX*s and can't
+  // race a concurrent handshake. Without the cb on client_ctx_, outbound
+  // NuRaft handshakes would keep presenting whatever cert NuRaft loaded once
+  // at init, leaving outbound rotation stuck on the old cert.
   SSL_CTX_set_cert_cb(server_ctx_, &CoordinatorCertReloader::CertCb, this);
   SSL_CTX_set_cert_cb(client_ctx_, &CoordinatorCertReloader::CertCb, this);
 
@@ -84,36 +86,14 @@ auto CoordinatorCertReloader::Prepare() -> std::expected<ReloadPrepared, utils::
   return ReloadPrepared{.next = std::move(*loaded)};
 }
 
-auto CoordinatorCertReloader::Commit(ReloadPrepared prepared) noexcept -> std::expected<void, utils::SSL_CTX_Error> {
-  if (!prepared.next) return {};
-  std::lock_guard const guard{reload_mu_};
-
-  // CA refresh on both contexts — this is the only step that can fail (it
-  // mutates the SSL_CTX in place via `SSL_CTX_load_verify_locations`). Run it
-  // BEFORE the atomic snapshot store: on failure no state has changed yet, so
-  // bailing here leaves the cluster on the previous good state.
-  if (auto r = RefreshCa(); !r.has_value()) return std::unexpected{r.error()};
-
-  // CA refresh succeeded; publish the new cert/key/CA snapshot. This is a
-  // pure atomic store and cannot fail.
+void CoordinatorCertReloader::Commit(ReloadPrepared prepared) noexcept {
+  if (!prepared.next) return;
+  // Pure atomic store — the new snapshot already carries the parsed cert, key,
+  // chain and verify store (built in Prepare/LoadFromDisk). Nothing on the
+  // shared SSL_CTX is mutated, so this cannot fail and new handshakes pick up
+  // the snapshot via the atomic load in CertCb.
   current_.store(std::move(prepared.next), std::memory_order_release);
   spdlog::info("Coordinator TLS committed (cert={}, key={}, ca={}).", cfg_.cert_file, cfg_.key_file, cfg_.ca_file);
-  return {};
-}
-
-auto CoordinatorCertReloader::RefreshCa() -> std::expected<void, utils::SSL_CTX_Error> {
-  auto refresh = [&](SSL_CTX *ctx) -> std::expected<void, utils::SSL_CTX_Error> {
-    if (ctx == nullptr) return {};
-    if (SSL_CTX_load_verify_locations(ctx, cfg_.ca_file.c_str(), nullptr) != 1) {
-      return std::unexpected{utils::SSL_CTX_Error{
-          .err_type = utils::SSL_CTX_ERR_TYPE::FAIL_LOAD_CA,
-          .msg = fmt::format("SSL_CTX_load_verify_locations('{}') failed: {}", cfg_.ca_file, OpenSslErrorString())}};
-    }
-    return {};
-  };
-  if (auto r = refresh(server_ctx_); !r.has_value()) return r;
-  if (auto r = refresh(client_ctx_); !r.has_value()) return r;
-  return {};
 }
 
 auto CoordinatorCertReloader::LoadFromDisk() -> std::expected<std::shared_ptr<CertData>, utils::SSL_CTX_Error> {
@@ -165,6 +145,21 @@ auto CoordinatorCertReloader::LoadFromDisk() -> std::expected<std::shared_ptr<Ce
   }
   data->key.reset(key_raw);
 
+  // --- Build the CA verify store from cfg_.ca_file. This store is applied to
+  // each per-connection SSL in CertCb (SSL_set1_verify_cert_store), so the CA
+  // is never loaded onto the shared SSL_CTX — no in-place mutation, no race.
+  X509_STORE *store_raw = X509_STORE_new();
+  if (store_raw == nullptr) {
+    return std::unexpected{utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_LOAD_CA,
+                                                .msg = "X509_STORE_new returned nullptr"}};
+  }
+  data->verify_store.reset(store_raw);
+  if (X509_STORE_load_locations(store_raw, cfg_.ca_file.c_str(), nullptr) != 1) {
+    return std::unexpected{
+        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_LOAD_CA,
+                             .msg = fmt::format("Couldn't load CA from '{}': {}", cfg_.ca_file, OpenSslErrorString())}};
+  }
+
   data->cert_mtime = SafeMtime(cfg_.cert_file);
   data->key_mtime = SafeMtime(cfg_.key_file);
   data->ca_mtime = SafeMtime(cfg_.ca_file);
@@ -195,8 +190,6 @@ auto CoordinatorCertReloader::RefreshIfStale() -> std::expected<void, utils::SSL
 
   auto loaded = LoadFromDisk();
   if (!loaded.has_value()) return std::unexpected{loaded.error()};
-
-  if (auto r = RefreshCa(); !r.has_value()) return r;
 
   current_.store(*loaded, std::memory_order_release);
   spdlog::info("Coordinator TLS reloaded via lazy mtime check (cert={}, key={}, ca={}).",
@@ -242,6 +235,15 @@ int CoordinatorCertReloader::ApplyToSsl(SSL *ssl, CertData const &data) {
   }
   if (SSL_use_PrivateKey(ssl, data.key.get()) != 1) {
     spdlog::error("SSL_use_PrivateKey failed: {}", OpenSslErrorString());
+    return 0;
+  }
+  // Install the CA trust store on this per-connection SSL (the "1" variant
+  // bumps the X509_STORE refcount, so the snapshot's unique_ptr keeps ownership
+  // and this SSL holds its own reference for the handshake's lifetime). This
+  // replaces what would otherwise be a mutation of the shared SSL_CTX trust
+  // store — keeping the whole apply per-connection and race-free.
+  if (data.verify_store && SSL_set1_verify_cert_store(ssl, data.verify_store.get()) != 1) {
+    spdlog::error("SSL_set1_verify_cert_store failed: {}", OpenSslErrorString());
     return 0;
   }
   return 1;

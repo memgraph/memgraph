@@ -85,14 +85,7 @@ auto ClusterServerSsl::Build() -> std::expected<std::shared_ptr<boost::asio::ssl
     return std::unexpected{
         utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_KEY_FILE, .msg = std::move(msg)}};
   }
-  // NOLINTNEXTLINE(bugprone-unused-return-value)
-  new_ctx->set_options(SSL_OP_NO_SSLv3, ec);
-  if (ec) {
-    auto msg = fmt::format("Cluster server TLS: SSL_OP_NO_SSLv3 failed: {}", ec.message());
-    spdlog::error(msg);
-    return std::unexpected{
-        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_SET_OPTIONS, .msg = std::move(msg)}};
-  }
+  // (SSLv3 is already disabled via ssl::context::no_sslv3 in set_options above.)
 
   if (cfg_.ca_file.empty()) {
     return std::unexpected{
@@ -160,7 +153,7 @@ auto ClusterClientSsl::Build() -> std::expected<std::shared_ptr<boost::asio::ssl
   auto new_ctx = std::make_shared<boost::asio::ssl::context>(ssl::context::tls_client);
 
   // NOLINTNEXTLINE(bugprone-unused-return-value)
-  new_ctx->set_options(SSL_OP_NO_SSLv3);
+  new_ctx->set_options(SSL_OP_NO_SSLv3 | SSL_OP_NO_SSLv2);
 
   boost::system::error_code ec;
   // NOLINTNEXTLINE(bugprone-unused-return-value)

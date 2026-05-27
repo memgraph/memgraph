@@ -267,7 +267,7 @@ bool Socket::Bind(const Endpoint &endpoint) {
 
 // Not const because of C-API
 // NOLINTNEXTLINE
-auto Socket::SetNonBlocking() -> std::expected<void, std::string> {
+[[nodiscard]] auto Socket::SetNonBlocking() -> std::expected<void, std::string> {
   int flags = fcntl(socket_, F_GETFL);
   if (flags < 0) {
     return std::unexpected{"Failed to read flags when setting socket to the non-blocking mode"};
@@ -276,20 +276,6 @@ auto Socket::SetNonBlocking() -> std::expected<void, std::string> {
   if (fcntl(socket_, F_SETFL, flags) < 0) {
     spdlog::error("Failed to restore socket to the non-blocking mode");
     return std::unexpected{"Failed to restore socket to the non-blocking mode"};
-  }
-  return {};
-}
-
-// Not const because of C-API
-// NOLINTNEXTLINE
-auto Socket::SetBlocking() -> std::expected<void, std::string> {
-  int flags = fcntl(socket_, F_GETFL, 0);
-  if (flags < 0) {
-    return std::unexpected{"Failed to read flags when setting socket to the blocking mode"};
-  }
-  flags &= ~O_NONBLOCK;
-  if (fcntl(socket_, F_SETFL, flags) < 0) {
-    return std::unexpected{"Failed to restore socket to the blocking mode"};
   }
   return {};
 }

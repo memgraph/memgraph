@@ -17,6 +17,7 @@
 
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
+#include <openssl/x509_vfy.h>  // X509_STORE, X509_STORE_free
 
 #include <atomic>
 #include <expected>
@@ -29,14 +30,16 @@ namespace memgraph::coordination {
 
 // Process-wide singleton that hot-reloads the cert/key/CA files backing NuRaft's
 // SSL_CTX. Patterned after ClickHouse's CertificateReloader: SSL_CTX_set_cert_cb
-// fires on every new server-side TLS handshake, the callback stats the on-disk
-// cert/key/CA files, and reloads + republishes the in-memory X509+EVP_PKEY if any
-// mtime advanced. CA changes are applied by re-calling SSL_CTX_load_verify_locations
-// on both contexts (server and client) under reload_mu_.
+// fires on every new TLS handshake (server- and client-side), the callback stats
+// the on-disk cert/key/CA files, and reloads + republishes an immutable snapshot
+// (X509 leaf + chain, EVP_PKEY, and a CA X509_STORE) if any mtime advanced.
 //
-// Reads from the cert_cb hot path are lock-free (atomic shared_ptr swap of an
-// immutable CertData snapshot). The mutex serializes the rare reload-from-disk
-// path.
+// Everything is applied to the per-connection SSL — cert/key/chain via
+// SSL_use_certificate/SSL_use_PrivateKey and the CA via SSL_set1_verify_cert_store.
+// The shared SSL_CTX*s are never mutated after Register, so reload can't race a
+// concurrent handshake. Reads from the cert_cb hot path are lock-free (atomic
+// shared_ptr load); the mutex only serializes the rare reload-from-disk path so
+// concurrent stale-detections don't redundantly re-parse the files.
 class CoordinatorCertReloader {
  public:
   static CoordinatorCertReloader &Instance();
@@ -61,39 +64,42 @@ class CoordinatorCertReloader {
     void operator()(EVP_PKEY *p) const noexcept { EVP_PKEY_free(p); }
   };
 
+  struct X509StoreDeleter {
+    void operator()(X509_STORE *p) const noexcept { X509_STORE_free(p); }
+  };
+
   using X509Ptr = std::unique_ptr<X509, X509Deleter>;
   using EvpKeyPtr = std::unique_ptr<EVP_PKEY, EvpKeyDeleter>;
+  using X509StorePtr = std::unique_ptr<X509_STORE, X509StoreDeleter>;
 
-  // Parsed snapshot of the on-disk cert/key/CA at a specific point in time.
-  // Exposed publicly only so `ReloadPrepared` can name it; callers never
-  // construct one manually.
+  // Parsed, immutable snapshot of the on-disk cert/key/CA at a specific point
+  // in time. Everything a handshake needs is here — including the verify store
+  // built from the CA file — so `CertCb` applies it all to the per-connection
+  // SSL and never mutates a shared SSL_CTX. Exposed publicly only so
+  // `ReloadPrepared` can name it; callers never construct one manually.
   struct CertData {
     X509Ptr leaf;
     std::vector<X509Ptr> chain;  // intermediates, may be empty
     EvpKeyPtr key;
+    X509StorePtr verify_store;  // trust store built from the CA file
     std::filesystem::file_time_type cert_mtime{};
     std::filesystem::file_time_type key_mtime{};
     std::filesystem::file_time_type ca_mtime{};
   };
 
-  // Two-phase reload entry points. `Prepare` reads cert/key/CA from disk into
-  // a fresh CertData candidate; no live state changes. `Commit` refreshes the
-  // CA trust store on both SSL_CTX*s and then atomic-stores the candidate.
-  //
-  // Unlike `ClusterServerSsl::Commit` / `ClusterClientSsl::Commit` (which are
-  // pure atomic stores), this Commit *can* fail: NuRaft owns the SSL_CTX and
-  // we have to mutate it in place via `SSL_CTX_load_verify_locations`. We do
-  // the mutation first; if it fails, no snapshot is published and the cluster
-  // stays on the previous good state. Therefore the query handler must run
-  // this Commit FIRST among the three TLS kingdoms — its failure is the only
-  // one that can leave state un-mutated, so committing the others before it
-  // would create a half-rotated cluster on failure.
+  // Two-phase reload entry points. `Prepare` reads cert/key/CA from disk into a
+  // fresh CertData candidate (including building the verify store) — all the
+  // fallible work happens here; no live state changes. `Commit` is a pure
+  // atomic store of the candidate snapshot and cannot fail, exactly like
+  // `ClusterServerSsl::Commit` / `ClusterClientSsl::Commit`. New handshakes
+  // pick the new snapshot up via the atomic load in `CertCb`; nothing on the
+  // shared SSL_CTX is mutated, so there's no race with concurrent handshakes.
   struct ReloadPrepared {
     std::shared_ptr<CertData> next;
   };
 
   [[nodiscard]] auto Prepare() -> std::expected<ReloadPrepared, utils::SSL_CTX_Error>;
-  [[nodiscard]] auto Commit(ReloadPrepared prepared) noexcept -> std::expected<void, utils::SSL_CTX_Error>;
+  void Commit(ReloadPrepared prepared) noexcept;
 
  private:
   CoordinatorCertReloader() = default;
@@ -104,23 +110,21 @@ class CoordinatorCertReloader {
   // so both inbound and outbound NuRaft handshakes pick up rotation.
   static int CertCb(SSL *ssl, void *arg);
 
-  // Loads cert+key from cfg_'s paths into a fresh CertData. Records the
-  // observed mtimes of all three files.
+  // Loads cert+key from cfg_'s paths and builds the CA verify store into a
+  // fresh CertData. Records the observed mtimes of all three files. This is
+  // where all parse failures (bad cert, key, or CA file) surface.
   auto LoadFromDisk() -> std::expected<std::shared_ptr<CertData>, utils::SSL_CTX_Error>;
 
   // Lazy backstop path used by CertCb: stat-checks the three files; if any
-  // mtime > the cached snapshot's, reloads from disk under reload_mu_,
-  // refreshes CA on both SSL_CTX*s, publishes the new snapshot. No-op if
-  // mtimes are unchanged. Separate from the explicit Prepare/Commit path
-  // used by `RELOAD INTRA_CLUSTER TLS`.
+  // mtime advanced vs the cached snapshot, reloads from disk under reload_mu_
+  // and atomic-stores the new snapshot. No-op if mtimes are unchanged.
+  // Separate from the explicit Prepare/Commit path used by
+  // `RELOAD INTRA_CLUSTER TLS`.
   auto RefreshIfStale() -> std::expected<void, utils::SSL_CTX_Error>;
 
-  // Refreshes the CA trust store on both contexts using the current cfg_.
-  // Returns an error if SSL_CTX_load_verify_locations fails on either ctx.
-  // Called under reload_mu_.
-  auto RefreshCa() -> std::expected<void, utils::SSL_CTX_Error>;
-
-  // Hot path — applies a CertData to a per-connection SSL*.
+  // Hot path — applies a CertData (leaf, chain, key, AND verify store) to a
+  // per-connection SSL*. Touches only the per-connection SSL, never the shared
+  // SSL_CTX, so it's safe under concurrent handshakes.
   static int ApplyToSsl(SSL *ssl, CertData const &data);
 
   std::atomic<std::shared_ptr<CertData>> current_{};

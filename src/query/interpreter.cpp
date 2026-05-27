@@ -5041,70 +5041,68 @@ PreparedQuery PrepareReloadSSLQuery(ParsedQuery parsed_query, bool in_explicit_t
 
   auto *reload_query = utils::Downcast<ReloadSSLQuery>(parsed_query.query);
 
-  return PreparedQuery{
-      .header = {},
-      .privileges = std::move(parsed_query.required_privileges),
-      .query_handler =
-          [interpreter_context, notifications, action_type = reload_query->type_](
-              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
-            if (action_type == ReloadSSLQuery::Type::BOLT_SERVER) {
-              if (auto const res = interpreter_context->bolt_server_context_->reload(); !res.has_value()) {
-                throw QueryRuntimeException(res.error().msg);
-              }
-            }
+  return PreparedQuery{.header = {},
+                       .privileges = std::move(parsed_query.required_privileges),
+                       .query_handler =
+                           [interpreter_context, notifications, action_type = reload_query->type_](
+                               AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+                             if (action_type == ReloadSSLQuery::Type::BOLT_SERVER) {
+                               if (auto const res = interpreter_context->bolt_server_context_->reload();
+                                   !res.has_value()) {
+                                 throw QueryRuntimeException(res.error().msg);
+                               }
+                             }
 #ifdef MG_ENTERPRISE
-            else {
-              if (!license::global_license_checker.IsEnterpriseValidFast()) {
-                throw QueryRuntimeException(license::LicenseCheckErrorToString(
-                    license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "RELOAD TLS"));
-              }
+                             else {
+                               if (!license::global_license_checker.IsEnterpriseValidFast()) {
+                                 throw QueryRuntimeException(license::LicenseCheckErrorToString(
+                                     license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "RELOAD TLS"));
+                               }
 
-              // Two-phase commit across the three TLS "kingdoms" on this node:
-              //   1. ClusterServerSsl  — every Memgraph cluster-TLS server context (replication,
-              //      data-instance management, coordinator-instance management) reads through it.
-              //   2. ClusterClientSsl  — every Memgraph cluster-TLS client context (replication,
-              //      peer-coordinator, peer data-instance) reads through it.
-              //   3. CoordinatorCertReloader — NuRaft's server+client SSL_CTXs, whose cert
-              //      hot-swap is done via the SSL_CTX_set_cert_cb path because NuRaft owns the
-              //      contexts itself.
-              //
-              // Each Prepare() builds a candidate from disk into scratch space without touching
-              // live state. We only Commit (atomic-store) after every Prepare succeeds, so an
-              // unparseable cert/key/CA file leaves the cluster on the previous good state.
-              auto srv_prep = communication::ClusterServerSsl::Instance().Prepare();
-              if (!srv_prep.has_value()) {
-                throw QueryRuntimeException("cluster server TLS: " + srv_prep.error().msg);
-              }
+                               // Two-phase commit across the three TLS "kingdoms" on this node:
+                               //   1. ClusterServerSsl  — every Memgraph cluster-TLS server context (replication,
+                               //      data-instance management, coordinator-instance management) reads through it.
+                               //   2. ClusterClientSsl  — every Memgraph cluster-TLS client context (replication,
+                               //      peer-coordinator, peer data-instance) reads through it.
+                               //   3. CoordinatorCertReloader — NuRaft's server+client SSL_CTXs, whose cert
+                               //      hot-swap is done via the SSL_CTX_set_cert_cb path because NuRaft owns the
+                               //      contexts itself.
+                               //
+                               // Each Prepare() builds a candidate from disk into scratch space without touching
+                               // live state. We only Commit (atomic-store) after every Prepare succeeds, so an
+                               // unparseable cert/key/CA file leaves the cluster on the previous good state.
+                               auto srv_prep = communication::ClusterServerSsl::Instance().Prepare();
+                               if (!srv_prep.has_value()) {
+                                 throw QueryRuntimeException("cluster server TLS: " + srv_prep.error().msg);
+                               }
 
-              auto cli_prep = communication::ClusterClientSsl::Instance().Prepare();
-              if (!cli_prep.has_value()) {
-                throw QueryRuntimeException("cluster client TLS: " + cli_prep.error().msg);
-              }
+                               auto cli_prep = communication::ClusterClientSsl::Instance().Prepare();
+                               if (!cli_prep.has_value()) {
+                                 throw QueryRuntimeException("cluster client TLS: " + cli_prep.error().msg);
+                               }
 
-              auto raft_prep = coordination::CoordinatorCertReloader::Instance().Prepare();
-              if (!raft_prep.has_value()) {
-                throw QueryRuntimeException("NuRaft TLS: " + raft_prep.error().msg);
-              }
+                               auto raft_prep = coordination::CoordinatorCertReloader::Instance().Prepare();
+                               if (!raft_prep.has_value()) {
+                                 throw QueryRuntimeException("NuRaft TLS: " + raft_prep.error().msg);
+                               }
 
-              // All prepares succeeded — commit. NuRaft commits FIRST because its Commit is the
-              // only one that can still fail (the in-place `SSL_CTX_load_verify_locations` for
-              // the CA trust store; see CoordinatorCertReloader::Commit docs). If it fails, we
-              // throw BEFORE the Cluster*Ssl atomic-store commits run, leaving the cluster on
-              // the previous good state. After NuRaft commits successfully, the remaining two
-              // commits are pure atomic stores and genuinely cannot fail.
-              if (auto const res = coordination::CoordinatorCertReloader::Instance().Commit(std::move(*raft_prep));
-                  !res.has_value()) {
-                throw QueryRuntimeException("NuRaft TLS commit: " + res.error().msg);
-              }
-              communication::ClusterServerSsl::Instance().Commit(std::move(*srv_prep));
-              communication::ClusterClientSsl::Instance().Commit(std::move(*cli_prep));
-            }
+                               // All prepares succeeded. Every Commit is now a pure atomic store of an
+                               // already-built snapshot (NuRaft included — it applies cert+key+CA per-connection
+                               // via SSL_set1_verify_cert_store, so it no longer mutates a shared SSL_CTX). None
+                               // can fail, so commit order is irrelevant.
+                               communication::ClusterServerSsl::Instance().Commit(std::move(*srv_prep));
+                               communication::ClusterClientSsl::Instance().Commit(std::move(*cli_prep));
+                               coordination::CoordinatorCertReloader::Instance().Commit(std::move(*raft_prep));
+                             }
+#else
+                             throw QueryRuntimeException(
+                                 "RELOAD INTRA_CLUSTER TLS cannot be invoked in the community build");
 #endif
-            notifications->emplace_back(
-                SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloading SSL for Bolt server");
-            return QueryHandlerResult::COMMIT;
-          },
-      .rw_type = RWType::NONE};
+                             notifications->emplace_back(
+                                 SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloading SSL for Bolt server");
+                             return QueryHandlerResult::COMMIT;
+                           },
+                       .rw_type = RWType::NONE};
 }
 
 #ifdef MG_ENTERPRISE

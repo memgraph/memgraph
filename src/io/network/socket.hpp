@@ -108,14 +108,9 @@ class Socket {
   std::optional<Socket> Accept();
 
   /**
-   * Sets the socket to non-blocking. Returns false on failure.
+   * Sets the socket to non-blocking. Returns unexpected holding the error message on failure.
    */
-  auto SetNonBlocking() -> std::expected<void, std::string>;
-
-  /**
-  Sets the socket to the blocking mode. Returns false on failure.
-  */
-  auto SetBlocking() -> std::expected<void, std::string>;
+  [[nodiscard]] auto SetNonBlocking() -> std::expected<void, std::string>;
 
   /**
    * Enables TCP keep-alive on the socket.

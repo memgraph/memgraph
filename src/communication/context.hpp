@@ -145,7 +145,7 @@ class ServerContext final {
   // from the singleton, so the result reflects any reload that happened
   // since the last call.
   SSL_CTX *context();
-  boost::asio::ssl::context &context_clone();
+  std::shared_ptr<boost::asio::ssl::context> context_clone();
 
   bool use_ssl() const;
 

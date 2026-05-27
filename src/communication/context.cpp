@@ -35,7 +35,7 @@ ClientContext::ClientContext(bool use_ssl) : use_ssl_(use_ssl), ctx_(nullptr) {
 
     // Disable legacy SSL support. Other options can be seen here:
     // https://www.openssl.org/docs/man1.0.2/ssl/SSL_CTX_set_options.html
-    SSL_CTX_set_options(ctx_, SSL_OP_NO_SSLv3);
+    SSL_CTX_set_options(ctx_, SSL_OP_NO_SSLv3 | SSL_OP_NO_SSLv2);
   }
 }
 
@@ -137,15 +137,11 @@ SSL_CTX *ServerContext::context() {
   return ptr->native_handle();
 }
 
-boost::asio::ssl::context &ServerContext::context_clone() {
-  if (mode_ == Mode::ClusterView) {
-    auto ptr = ClusterServerSsl::Instance().CurrentContext();
-    MG_ASSERT(ptr, "ClusterView ServerContext used before ClusterServerSsl::Init");
-    return *ptr;
-  }
-  auto ptr = ctx_.load(std::memory_order_acquire);
+std::shared_ptr<boost::asio::ssl::context> ServerContext::context_clone() {
+  auto ptr =
+      mode_ == Mode::ClusterView ? ClusterServerSsl::Instance().CurrentContext() : ctx_.load(std::memory_order_acquire);
   MG_ASSERT(ptr, "Trying to use uninitialized SSL context");
-  return *ptr;
+  return ptr;
 }
 
 bool ServerContext::use_ssl() const {
@@ -201,14 +197,6 @@ auto ServerContext::reload() -> std::expected<void, utils::SSL_CTX_Error> {
     spdlog::error(err_msg);
     return std::unexpected{
         utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_KEY_FILE, .msg = std::move(err_msg)}};
-  }
-  // NOLINTNEXTLINE(bugprone-unused-return-value)
-  new_ctx->set_options(SSL_OP_NO_SSLv3, ec);
-  if (ec) {
-    auto err_msg = fmt::format("Setting options to SSL context failed! Error: {}", ec.message());
-    spdlog::error(err_msg);
-    return std::unexpected{
-        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_SET_OPTIONS, .msg = std::move(err_msg)}};
   }
 
   if (!ca_file_.empty()) {
