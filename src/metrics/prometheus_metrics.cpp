@@ -77,6 +77,30 @@ bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
 prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
     0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0};
 
+inline prometheus::Histogram::BucketBoundaries const kThroughputBuckets{1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9};
+
+void RemoveDurabilityThroughput(std::string_view instance_name,
+                                prometheus::Family<prometheus::Histogram> &throughput_family,
+                                DurabilityThroughput &throughput) {
+  std::lock_guard const lock{throughput.mutex};
+  if (auto it = throughput.by_instance.find(instance_name); it != throughput.by_instance.end()) {
+    throughput_family.Remove(it->second);
+    throughput.by_instance.erase(it);
+  }
+}
+
+void ObserveDurabilityThroughput(std::string const &instance_name, double bytes_per_second,
+                                 prometheus::Family<prometheus::Histogram> &throughput_family,
+                                 DurabilityThroughput &throughput) {
+  std::lock_guard const lock{throughput.mutex};
+  auto it = throughput.by_instance.find(instance_name);
+  if (it == throughput.by_instance.end()) {
+    prometheus::Labels const labels{{"mg_instance", instance_name}};
+    it = throughput.by_instance.emplace(instance_name, &throughput_family.Add(labels, kThroughputBuckets)).first;
+  }
+  it->second->Observe(bytes_per_second);
+}
+
 }  // namespace
 
 PrometheusMetrics::PrometheusMetrics()
@@ -751,7 +775,16 @@ PrometheusMetrics::PrometheusMetrics()
       gc_skiplist_cleanup_latency_family_{prometheus::BuildHistogram()
                                               .Name("memgraph_gc_skiplist_cleanup_latency_seconds")
                                               .Help("GC skiplist cleanup latency in seconds")
-                                              .Register(registry_)}
+                                              .Register(registry_)},
+      snapshot_throughput_family_{prometheus::BuildHistogram()
+                                      .Name("memgraph_snapshot_throughput_bytes_per_second")
+                                      .Help("Throughput of snapshot sent to each replica during recovery, in bytes/s")
+                                      .Register(registry_)},
+
+      wal_throughput_family_{prometheus::BuildHistogram()
+                                 .Name("memgraph_wal_throughput_bytes_per_second")
+                                 .Help("Throughput of WAL files sent to each replica during recovery, in bytes/s")
+                                 .Register(registry_)}
 #ifdef MG_ENTERPRISE
       ,
       instance_up_family_{prometheus::BuildGauge()
@@ -1220,6 +1253,19 @@ uint64_t PrometheusMetrics::UpdateAndGetPeakMemoryRes(uint64_t const current) co
   return new_peak;
 }
 
+void PrometheusMetrics::ObserveSnapshotThroughput(std::string const &instance_name, double const bytes_per_second) {
+  ObserveDurabilityThroughput(instance_name, bytes_per_second, snapshot_throughput_family_, snapshot_throughput_);
+}
+
+void PrometheusMetrics::ObserveWalThroughput(std::string const &instance_name, double const bytes_per_second) {
+  ObserveDurabilityThroughput(instance_name, bytes_per_second, wal_throughput_family_, wal_throughput_);
+}
+
+void PrometheusMetrics::RemoveReplicationThroughput(std::string_view instance_name) {
+  RemoveDurabilityThroughput(instance_name, snapshot_throughput_family_, snapshot_throughput_);
+  RemoveDurabilityThroughput(instance_name, wal_throughput_family_, wal_throughput_);
+}
+
 namespace {
 
 // Compute percentile from a prometheus histogram's cumulative bucket data.
@@ -1288,6 +1334,23 @@ void AppendMergedHistogramPercentiles(std::vector<MetricInfo> &out, std::string 
   for (auto const [quantile, label] :
        {std::pair{0.50, "_us_50p"}, std::pair{0.90, "_us_90p"}, std::pair{0.99, "_us_99p"}}) {
     out.push_back({name + label, type, "Histogram", MergedHistogramPercentile(hdatas, quantile) * 1e6});
+  }
+}
+
+// Appends per-instance throughput percentiles (bytes/second) for every replica tracked in `throughput`. Unlike the
+// latency appenders above, throughput is already in its natural unit, so values are emitted unscaled.
+void AppendThroughputPercentiles(std::vector<MetricInfo> &out, std::string const &name, std::string const &type,
+                                 DurabilityThroughput const &throughput) {
+  std::lock_guard const lock{throughput.mutex};
+  for (auto const &[instance_name, histogram] : throughput.by_instance) {
+    for (auto const [quantile, label] : {std::pair{0.50, "_bytes_per_second_50p"},
+                                         std::pair{0.90, "_bytes_per_second_90p"},
+                                         std::pair{0.99, "_bytes_per_second_99p"}}) {
+      out.push_back({fmt::format("{}[{}]{}", name, instance_name, label),
+                     type,
+                     "Histogram",
+                     HistogramPercentile(*histogram, quantile)});
+    }
   }
 }
 
@@ -2092,6 +2155,10 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(
       out, "UpdateDataInstanceConfigRpc", "HighAvailability", *global.update_data_instance_config_rpc_seconds);
   AppendHistogramPercentiles(out, "GetHistories", "HighAvailability", *global.get_histories_seconds);
+
+  // Per-instance replication transfer throughput (bytes/s)
+  AppendThroughputPercentiles(out, "SnapshotThroughput", "HighAvailability", snapshot_throughput_);
+  AppendThroughputPercentiles(out, "WalThroughput", "HighAvailability", wal_throughput_);
 
   // StorageInfo global/system level (no-db SHOW STORAGE INFO)
   out.push_back({"ShowStorageInfo", "StorageInfo", "Counter", static_cast<int64_t>(global.show_storage_info->Value())});
