@@ -81,6 +81,7 @@ enum class Permission : uint64_t {
   PARALLEL_EXECUTION     = 1U << 28U,
   SERVER_SIDE_PARAMETERS = 1U << 29U,
   SERVER_SIDE_DESCRIPTIONS = 1U << 30U,
+  RELOAD_TLS             = 1U << 31U
 };
 // clang-format on
 
@@ -117,6 +118,7 @@ inline constexpr std::array kPermissionsAll = {
     Permission::PARALLEL_EXECUTION,
     Permission::SERVER_SIDE_PARAMETERS,
     Permission::SERVER_SIDE_DESCRIPTIONS,
+    Permission::RELOAD_TLS
 };
 // clang-format on
 

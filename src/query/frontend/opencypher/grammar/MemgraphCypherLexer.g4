@@ -168,6 +168,7 @@ READ_FILE               : R E A D UNDERSCORE F I L E ;
 RECOVER                 : R E C O V E R ;
 REGISTER                : R E G I S T E R ;
 RELOAD                  : R E L O A D ;
+RELOAD_TLS              : R E L O A D UNDERSCORE T L S ;
 RENAME                  : R E N A M E ;
 REPLACE                 : R E P L A C E ;
 REPLICA                 : R E P L I C A ;
