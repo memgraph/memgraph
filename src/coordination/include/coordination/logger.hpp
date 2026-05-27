@@ -73,7 +73,6 @@ class Logger final : public logger {
  private:
   static spdlog::level::level_enum GetSpdlogLevel(int nuraft_log_level);
   static nuraft_log_level GetNuRaftLevel(spdlog::level::level_enum spdlog_level);
-
   std::shared_ptr<spdlog::logger> logger_;
 };
 

@@ -10,17 +10,23 @@
 // licenses/APL.txt.
 #pragma once
 
-#include <spdlog/common.h>
-#include <spdlog/sinks/ansicolor_sink.h>
+#include <ctime>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 
+#include "gflags/gflags.h"
+#include "spdlog/common.h"
 #include "spdlog/sinks/sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 
 namespace memgraph::flags {
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(log_retention_days);
+
+auto GetSinkLocalTime() -> tm;
 
 inline std::shared_ptr<spdlog::sinks::sink> &stderr_sink() {
   static std::shared_ptr<spdlog::sinks::sink> sink = std::make_shared<spdlog::sinks::stderr_color_sink_st>();
