@@ -993,17 +993,6 @@ package_smoke_image() {
     exit 1
   fi
 
-  # memgraph_*.deb matches the main deb (debuginfo deb is memgraph-debuginfo_*
-  # with a hyphen); memgraph-[0-9]*.rpm matches memgraph-<version>.rpm and
-  # excludes memgraph-debuginfo-*.rpm (no digit immediately after "memgraph-").
-  # Bare `memgraph*` would non-deterministically pick the debuginfo companion,
-  # which can't install standalone (it Requires: memgraph = <version>).
-  # NOTE: assigning via `local var=$(...)` (single line) is intentional —
-  # under `set -Eeuo pipefail` one of the two globs will be a literal on a
-  # deb-only or rpm-only OS, causing `ls` to exit 2 and (via pipefail) the
-  # substitution to exit 2. Wrapping in `local` masks that with the builtin's
-  # success status so set -e doesn't kill the script; a bare assignment
-  # would. Same trick is used at line ~938 for the same reason.
   local package_name=$(cd "$package_dir" && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1)
   if [[ -z "$package_name" ]]; then
     echo "Error: No memgraph package found in $package_dir" >&2

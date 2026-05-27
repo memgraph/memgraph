@@ -136,6 +136,7 @@ env:
   MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
   CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
   CLUSTER_ENV: "ci-mage-${{ inputs.arch }}"
+  S3_DEST_DIR: "${{ inputs.s3_dest_dir }}"
 
 jobs:
   BuildAndPush:
@@ -456,7 +457,7 @@ jobs:
           DBG_DIR=build/debug-symbols
           mkdir -p "$DBG_DIR"
 
-          if [[ -z "${{ env.MEMGRAPH_DOWNLOAD_LINK }}" ]]; then
+          if [[ -z "$MEMGRAPH_DOWNLOAD_LINK" ]]; then
             ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
@@ -470,7 +471,7 @@ jobs:
             tar -xzf mage/mage-debug.tar.gz -C "$DBG_DIR"
           fi
 
-          manifest_url="s3://deps.memgraph.io/${{ inputs.s3_dest_dir }}/debug-symbols-manifest-${ARTIFACT_NAME}.txt"
+          manifest_url="s3://deps.memgraph.io/${S3_DEST_DIR}/debug-symbols-manifest-${ARTIFACT_NAME}.txt"
           bash tools/ci/upload-debug-symbols.sh "$DBG_DIR" \
             --manifest-s3-url "$manifest_url"
           rm -rf "$DBG_DIR"

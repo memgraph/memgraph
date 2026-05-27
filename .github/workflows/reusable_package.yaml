@@ -105,12 +105,6 @@ jobs:
 
       - name: "Set artifact name and dir"
         run: |
-          # The deb/rpm is always produced. Its S3 subdir (PKG_ARTIFACT_NAME)
-          # follows the historical convention "<os>[-malloc][-aarch64]
-          # [-relwithdebinfo]" so existing download links and tooling that
-          # build URLs from this naming keep working. The "PKG_" prefix
-          # covers both deb (debian/ubuntu) and rpm (centos/fedora/rocky)
-          # since both formats are produced by this workflow.
           artifact_dir='build/output'
           pkg_artifact_name="$OS"
           if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
@@ -125,12 +119,6 @@ jobs:
           echo "PKG_ARTIFACT_NAME=$pkg_artifact_name" >> $GITHUB_ENV
           echo "PACKAGE_ARTIFACT_DIR=${artifact_dir}/package" >> $GITHUB_ENV
 
-          # Docker artifact dirs/names only when build_docker_image != 'none'.
-          # Prod and debug images get separate local dirs (and matching S3
-          # subdirs) so the debug archive doesn't land alongside the prod
-          # one in the customer-facing docker/ folder. Naming pattern
-          # mirrors PKG_ARTIFACT_NAME: docker[-malloc][-aarch64] for prod,
-          # same with a trailing -relwithdebinfo for debug.
           if [[ "$BUILD_DOCKER_IMAGE" != "none" ]]; then
             docker_base='docker'
             if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
@@ -525,18 +513,10 @@ jobs:
       - name: "Rename Package"
         if: github.ref == 'refs/heads/master' && !inputs.ref
         run: |
-          # During testing, we keep the default CPack naming (previous tag +
-          # commit count + commit hash). On master, retag with the latest PR
-          # number + short commit so the artifacts in S3 are easy to map to
-          # a specific PR.
           tag="$(tools/ci/get_latest_tag.sh)"
           pr="$(git log --pretty=%B | grep -oP '(?<=\(#)\d+(?=\))' | head -n 1)"
           commit="$(git rev-parse HEAD | cut -c1-12)"
 
-          # Always rename the deb/rpm in PACKAGE_ARTIFACT_DIR. memgraph_*.deb
-          # (underscore) / memgraph-[0-9]*.rpm match the main package;
-          # memgraph-debuginfo_* is a separate companion produced by
-          # component packaging and stays under its CPack name.
           if [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
             old_name="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph_*.deb 2>/dev/null | head -n 1)"
             new_name="memgraph_${tag}+pr${pr}~${commit}-1_${ARCH}64.deb"
@@ -551,12 +531,6 @@ jobs:
           fi
           mv -v "$old_name" "$PACKAGE_ARTIFACT_DIR/$new_name"
 
-          # Also rename any docker image archives produced this run. Prod and
-          # debug live in separate sibling dirs (DOCKER_PROD_ARTIFACT_DIR /
-          # DOCKER_DEBUG_ARTIFACT_DIR); walk each. The debug archive keeps
-          # the -relwithdebinfo suffix in its basename so the file is
-          # identifiable on its own (the S3 subdir is already
-          # -relwithdebinfo).
           if [[ "$BUILD_DOCKER_IMAGE" == "prod" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
             for old_name in "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz; do
               [ -e "$old_name" ] || continue

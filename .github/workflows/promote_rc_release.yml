@@ -566,10 +566,6 @@ jobs:
       - name: Promote MAGE ubuntu packages to release bucket
         if: ${{ matrix.image_ext == '' }}
         run: |
-          # `memgraph-mage*_...` matches both memgraph-mage_X.deb (main) and
-          # memgraph-mage-debuginfo_X.deb (companion); the `*` between
-          # `mage` and `_${RELEASE_VERSION}` is empty for the main and
-          # `-debuginfo` for the companion, so one cp picks up both.
           aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" --recursive --exclude "*" --include "memgraph-mage*_${RELEASE_VERSION}-1_*.deb"
           echo "Copied Ubuntu 24.04 MAGE packages (main + debuginfo) to s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
 
@@ -729,12 +725,6 @@ jobs:
 
   PromoteDebugSymbols:
     name: Promote debug symbols to memgraph-debugsym
-    # Reads the per-job debug-symbols-manifest*.txt files written next to
-    # each RC package (memgraph + MAGE) by upload-debug-symbols.sh and
-    # copies the listed build-ids from the RC staging bucket
-    # (deps.memgraph.io/debug-symbols/) into the release debuginfod bucket.
-    # Runs after package promotion so we only ship symbols for build-ids
-    # that actually landed in the release.
     needs: [PromotePackage, PromoteDocker, PromoteDockerMAGE]
     runs-on: ubuntu-latest
     steps:
