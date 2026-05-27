@@ -1889,8 +1889,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
 
   // StorageInfo — per-db total (sum across all databases)
   out.push_back({"ShowStorageInfoOnDatabase", "StorageInfo", "Counter", total_show_storage_info});
-  // StorageInfo — global/system-level counter
-  out.push_back({"ShowStorageInfo", "StorageInfo", "Counter", static_cast<int64_t>(global.show_storage_info->Value())});
 
   // Query
   AppendMergedHistogramPercentiles(out, "QueryExecutionLatency", "Query", query_exec_hdatas);
