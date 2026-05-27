@@ -386,7 +386,7 @@ def test_node_type_properties1():
             f"CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes , mandatory RETURN nodeType, nodeLabels, propertyName, propertyTypes , mandatory ORDER BY propertyName, nodeLabels[0];",
         )[0]
     )
-    assert (result) == [":`Activity`", ["Activity"], "location", ["String"], True]
+    assert (result) == [":`Activity`", ["Activity"], "location", ["String"], False]
 
     result = list(
         execute_and_fetch_all(
@@ -394,7 +394,7 @@ def test_node_type_properties1():
             f"CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes , mandatory RETURN nodeType, nodeLabels, propertyName, propertyTypes , mandatory ORDER BY propertyName, nodeLabels[0];",
         )[1]
     )
-    assert (result) == [":`Activity`", ["Activity"], "name", ["String"], True]
+    assert (result) == [":`Activity`", ["Activity"], "name", ["String"], False]
 
     result = list(
         execute_and_fetch_all(
@@ -402,7 +402,7 @@ def test_node_type_properties1():
             f"CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes , mandatory RETURN nodeType, nodeLabels, propertyName, propertyTypes , mandatory ORDER BY propertyName, nodeLabels[0];",
         )[2]
     )
-    assert (result) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert (result) == [":`Dog`", ["Dog"], "name", ["String"], False]
 
     result = list(
         execute_and_fetch_all(
@@ -410,7 +410,7 @@ def test_node_type_properties1():
             f"CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes , mandatory RETURN nodeType, nodeLabels, propertyName, propertyTypes , mandatory ORDER BY propertyName, nodeLabels[0];",
         )[3]
     )
-    assert (result) == [":`Dog`", ["Dog"], "owner", ["String"], True]
+    assert (result) == [":`Dog`", ["Dog"], "owner", ["String"], False]
 
 
 def test_node_type_properties2():
@@ -484,7 +484,7 @@ def test_node_type_properties5():
         f"CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes , mandatory RETURN nodeType, nodeLabels, propertyName, propertyTypes , mandatory ORDER BY propertyName, nodeLabels[0];",
     )
 
-    assert (list(result[0])) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert (list(result[0])) == [":`Dog`", ["Dog"], "name", ["String"], False]
     assert (result.__len__()) == 1
 
 
@@ -502,7 +502,7 @@ def test_node_type_properties6():
         f"CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes , mandatory RETURN nodeType, nodeLabels, propertyName, propertyTypes , mandatory ORDER BY propertyName, nodeLabels[0];",
     )
 
-    assert (list(result[0])) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert (list(result[0])) == [":`Dog`", ["Dog"], "name", ["String"], False]
     assert (list(result[1])) == [":`Dog`", ["Dog"], "owner", ["String"], False]
     assert (result.__len__()) == 2
 
@@ -520,12 +520,12 @@ def test_node_type_properties_multiple_property_types():
         cursor,
         f"CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes , mandatory RETURN nodeType, nodeLabels, propertyName, propertyTypes , mandatory ORDER BY propertyName, nodeLabels[0];",
     )
-    assert (list(result[0])) == [":`Node`", ["Node"], "prop1", ["Int", "String"], True] or (list(result[0])) == [
+    assert (list(result[0])) == [":`Node`", ["Node"], "prop1", ["Int", "String"], False] or (list(result[0])) == [
         ":`Node`",
         ["Node"],
         "prop1",
         ["String", "Int"],
-        True,
+        False,
     ]
     assert (result.__len__()) == 1
 
@@ -574,7 +574,7 @@ def test_rel_type_properties3():
         cursor,
         f"CALL schema.rel_type_properties() YIELD relType,propertyName, propertyTypes , mandatory RETURN relType, propertyName, propertyTypes , mandatory;",
     )
-    assert (list(result[0])) == [":`LOVES`", "duration", ["Int"], True]
+    assert (list(result[0])) == [":`LOVES`", "duration", ["Int"], False]
     assert (result.__len__()) == 1
 
 
@@ -592,7 +592,7 @@ def test_rel_type_properties4():
         f"CALL schema.rel_type_properties() YIELD relType,propertyName, propertyTypes , mandatory RETURN relType, propertyName, propertyTypes , mandatory;",
     )
     assert (list(result[0])) == [":`LOVES`", "weather", ["String"], False]
-    assert (list(result[1])) == [":`LOVES`", "duration", ["Int"], True]
+    assert (list(result[1])) == [":`LOVES`", "duration", ["Int"], False]
     assert (result.__len__()) == 2
 
 
@@ -609,11 +609,11 @@ def test_rel_type_properties_multiple_property_types():
         cursor,
         f"CALL schema.rel_type_properties() YIELD relType,propertyName, propertyTypes , mandatory RETURN relType, propertyName, propertyTypes , mandatory;",
     )
-    assert (list(result[0])) == [":`LOVES`", "duration", ["Int", "String"], True] or (list(result[0])) == [
+    assert (list(result[0])) == [":`LOVES`", "duration", ["Int", "String"], False] or (list(result[0])) == [
         ":`LOVES`",
         "duration",
         ["String", "Int"],
-        True,
+        False,
     ]
     assert (result.__len__()) == 1
 
@@ -630,8 +630,8 @@ def test_node_type_properties_zoned_datetime():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
     )
     assert len(result) == 2
-    assert list(result[0]) == [":`Event`", ["Event"], "name", ["String"], True]
-    assert list(result[1]) == [":`Event`", ["Event"], "scheduled", ["ZonedDateTime"], True]
+    assert list(result[0]) == [":`Event`", ["Event"], "name", ["String"], False]
+    assert list(result[1]) == [":`Event`", ["Event"], "scheduled", ["DateTime"], False]
 
 
 def test_node_type_properties_point2d():
@@ -646,8 +646,8 @@ def test_node_type_properties_point2d():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
     )
     assert len(result) == 2
-    assert list(result[0]) == [":`Place`", ["Place"], "location", ["Point2d"], True]
-    assert list(result[1]) == [":`Place`", ["Place"], "name", ["String"], True]
+    assert list(result[0]) == [":`Place`", ["Place"], "location", ["Point"], False]
+    assert list(result[1]) == [":`Place`", ["Place"], "name", ["String"], False]
 
 
 def test_node_type_properties_point3d():
@@ -662,8 +662,8 @@ def test_node_type_properties_point3d():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
     )
     assert len(result) == 2
-    assert list(result[0]) == [":`Place`", ["Place"], "location", ["Point3d"], True]
-    assert list(result[1]) == [":`Place`", ["Place"], "name", ["String"], True]
+    assert list(result[0]) == [":`Place`", ["Place"], "location", ["Point"], False]
+    assert list(result[1]) == [":`Place`", ["Place"], "name", ["String"], False]
 
 
 def test_node_type_properties_enum():
@@ -680,8 +680,8 @@ def test_node_type_properties_enum():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
     )
     assert len(result) == 2
-    assert list(result[0]) == [":`Item`", ["Item"], "name", ["String"], True]
-    assert list(result[1]) == [":`Item`", ["Item"], "status", ["Enum"], True]
+    assert list(result[0]) == [":`Item`", ["Item"], "name", ["String"], False]
+    assert list(result[1]) == [":`Item`", ["Item"], "status", ["Enum"], False]
 
 
 def test_rel_type_properties_point2d():
@@ -696,7 +696,7 @@ def test_rel_type_properties_point2d():
         "RETURN relType, propertyName, propertyTypes, mandatory;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`VISITED`", "location", ["Point2d"], True]
+    assert list(result[0]) == [":`VISITED`", "location", ["Point"], False]
 
 
 def test_node_type_properties_config_include_labels():
@@ -715,7 +715,7 @@ def test_node_type_properties_config_include_labels():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], False]
 
 
 def test_node_type_properties_config_exclude_labels():
@@ -734,7 +734,7 @@ def test_node_type_properties_config_exclude_labels():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`Cat`", ["Cat"], "name", ["String"], True]
+    assert list(result[0]) == [":`Cat`", ["Cat"], "name", ["String"], False]
 
 
 def test_node_type_properties_config_sample():
@@ -748,7 +748,8 @@ def test_node_type_properties_config_sample():
         CREATE (:Dog {name: 'Buddy'})
         """,
     )
-    # With sample=2, only first 2 nodes are sampled. Both have 'owner', so it appears mandatory.
+    # Sampling controls scan size but does not drive mandatory (which is constraint-based).
+    # With no existence constraints, mandatory is False even when every sampled node has the property.
     result = execute_and_fetch_all(
         cursor,
         "CALL schema.node_type_properties({sample: 2}) "
@@ -757,8 +758,8 @@ def test_node_type_properties_config_sample():
     )
     assert len(result) == 2
     mandatory = {list(r)[2]: list(r)[4] for r in result}
-    assert mandatory["name"] is True
-    assert mandatory["owner"] is True
+    assert mandatory["name"] is False
+    assert mandatory["owner"] is False
 
 
 def test_node_type_properties_config_include_and_exclude_labels():
@@ -779,7 +780,7 @@ def test_node_type_properties_config_include_and_exclude_labels():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], False]
 
 
 def test_node_type_properties_config_empty_map():
@@ -796,7 +797,7 @@ def test_node_type_properties_config_empty_map():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], False]
 
 
 def test_node_type_properties_config_include_rels():
@@ -816,7 +817,7 @@ def test_node_type_properties_config_include_rels():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY nodeLabels[0], propertyName;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], False]
 
 
 def test_node_type_properties_config_exclude_rels():
@@ -837,8 +838,8 @@ def test_node_type_properties_config_exclude_rels():
     )
     # Dog and Activity nodes remain (Activity has no outgoing HATES)
     assert len(result) == 2
-    assert list(result[0]) == [":`Activity`", ["Activity"], "name", ["String"], True]
-    assert list(result[1]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert list(result[0]) == [":`Activity`", ["Activity"], "name", ["String"], False]
+    assert list(result[1]) == [":`Dog`", ["Dog"], "name", ["String"], False]
 
 
 def test_node_type_properties_config_include_and_exclude_rels():
@@ -860,7 +861,7 @@ def test_node_type_properties_config_include_and_exclude_rels():
     )
     # Only Rex (Dog) has LOVES without HATES
     assert len(result) == 1
-    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], False]
 
 
 def test_rel_type_properties_config_include_rels():
@@ -879,7 +880,7 @@ def test_rel_type_properties_config_include_rels():
         "RETURN relType, propertyName, propertyTypes, mandatory;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], False]
 
 
 def test_rel_type_properties_config_exclude_rels():
@@ -898,7 +899,7 @@ def test_rel_type_properties_config_exclude_rels():
         "RETURN relType, propertyName, propertyTypes, mandatory;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], False]
 
 
 def test_rel_type_properties_config_include_labels():
@@ -918,7 +919,7 @@ def test_rel_type_properties_config_include_labels():
         "RETURN relType, propertyName, propertyTypes, mandatory;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], False]
 
 
 def test_rel_type_properties_config_exclude_labels():
@@ -938,7 +939,7 @@ def test_rel_type_properties_config_exclude_labels():
         "RETURN relType, propertyName, propertyTypes, mandatory;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], False]
 
 
 def test_rel_type_properties_config_empty_map():
@@ -954,7 +955,7 @@ def test_rel_type_properties_config_empty_map():
         "RETURN relType, propertyName, propertyTypes, mandatory;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], False]
 
 
 def test_rel_type_properties_config_include_and_exclude_rels():
@@ -988,7 +989,7 @@ def test_node_type_properties_apoc_meta_mapping():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], False]
 
 
 def test_node_type_properties_db_schema_mapping():
@@ -1001,7 +1002,7 @@ def test_node_type_properties_db_schema_mapping():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], False]
 
 
 def test_rel_type_properties_apoc_meta_mapping():
@@ -1017,7 +1018,7 @@ def test_rel_type_properties_apoc_meta_mapping():
         "RETURN relType, propertyName, propertyTypes, mandatory;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], False]
 
 
 def test_rel_type_properties_db_schema_mapping():
@@ -1033,7 +1034,7 @@ def test_rel_type_properties_db_schema_mapping():
         "RETURN relType, propertyName, propertyTypes, mandatory;",
     )
     assert len(result) == 1
-    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], False]
 
 
 def test_node_type_properties_observations_counts():
@@ -1054,7 +1055,7 @@ def test_node_type_properties_observations_counts():
         "ORDER BY propertyName;",
     )
     counts = {list(r)[1]: (list(r)[2], list(r)[3], list(r)[4]) for r in result}
-    assert counts["name"] == (True, 3, 3)
+    assert counts["name"] == (False, 3, 3)
     assert counts["owner"] == (False, 1, 3)
 
 
@@ -1077,8 +1078,8 @@ def test_rel_type_properties_source_and_target_labels():
         "ORDER BY sourceNodeLabels[0];",
     )
     assert len(result) == 2
-    assert list(result[0]) == [":`LOVES`", ["Cat"], ["Activity"], "duration", ["Int"], True, 1, 1]
-    assert list(result[1]) == [":`LOVES`", ["Dog"], ["Activity"], "duration", ["Int"], True, 1, 1]
+    assert list(result[0]) == [":`LOVES`", ["Cat"], ["Activity"], "duration", ["Int"], False, 1, 1]
+    assert list(result[1]) == [":`LOVES`", ["Dog"], ["Activity"], "duration", ["Int"], False, 1, 1]
 
 
 def test_rel_type_properties_partitions_by_endpoint_labels():
@@ -1103,7 +1104,7 @@ def test_rel_type_properties_partitions_by_endpoint_labels():
     # Dog -> Activity: 2 rels, duration property only on 1 -> not mandatory
     # Cat -> Place: 1 rel with weather -> mandatory
     rows = {(list(r)[1][0], list(r)[2][0], list(r)[3]): (list(r)[4], list(r)[5], list(r)[6]) for r in result}
-    assert rows[("Cat", "Place", "weather")] == (True, 1, 1)
+    assert rows[("Cat", "Place", "weather")] == (False, 1, 1)
     assert rows[("Dog", "Activity", "duration")] == (False, 1, 2)
 
 
@@ -1155,6 +1156,89 @@ def test_node_type_properties_empty_properties_row():
     )
     assert len(result) == 1
     assert list(result[0]) == [":`Empty`", "", 0, 3]
+
+
+def test_node_type_properties_list_is_opaque():
+    # Lists are reported as List[Any] regardless of element type. The Simba BI connector
+    # maps any list to VARCHAR (no array SQL type), so element-type detection adds no value.
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE (:Item {strs: ['a', 'b'], mixed: [1, 'a', true]})")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD propertyName, propertyTypes "
+        "RETURN propertyName, propertyTypes ORDER BY propertyName;",
+    )
+    rows = {list(r)[0]: list(r)[1] for r in result}
+    assert rows["strs"] == ["List[Any]"]
+    assert rows["mixed"] == ["List[Any]"]
+
+
+def test_mandatory_true_when_existence_constraint_present():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    execute_and_fetch_all(cursor, "CREATE (:Person {name: 'Alice'})")
+    try:
+        result = execute_and_fetch_all(
+            cursor,
+            "CALL schema.node_type_properties() YIELD propertyName, mandatory RETURN propertyName, mandatory;",
+        )
+        rows = {list(r)[0]: list(r)[1] for r in result}
+        assert rows["name"] is True
+    finally:
+        execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+
+
+def test_mandatory_false_when_no_constraint_even_if_always_present():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE (:Person {name: 'Alice'}) CREATE (:Person {name: 'Bob'})")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD propertyName, mandatory RETURN propertyName, mandatory;",
+    )
+    rows = {list(r)[0]: list(r)[1] for r in result}
+    assert rows["name"] is False
+
+
+def test_mandatory_constraint_label_specific_on_multi_label_node():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    execute_and_fetch_all(cursor, "CREATE (:Person:Employee {name: 'Alice'})")
+    try:
+        result = execute_and_fetch_all(
+            cursor,
+            "CALL schema.node_type_properties() YIELD propertyName, mandatory RETURN propertyName, mandatory;",
+        )
+        rows = {list(r)[0]: list(r)[1] for r in result}
+        assert rows["name"] is True
+    finally:
+        execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+
+
+def test_mandatory_constraint_unrelated_label_not_picked_up():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.email);")
+    execute_and_fetch_all(cursor, "CREATE (:Company {email: 'info@x.com'})")
+    try:
+        result = execute_and_fetch_all(
+            cursor,
+            "CALL schema.node_type_properties() YIELD nodeLabels, propertyName, mandatory "
+            "RETURN nodeLabels, propertyName, mandatory;",
+        )
+        rows = {tuple(list(r)[0]) + (list(r)[1],): list(r)[2] for r in result}
+        assert rows[("Company", "email")] is False
+    finally:
+        execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.email);")
+
+
+def test_rel_mandatory_always_false():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE (:A)-[:R {p: 1}]->(:B)")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties() YIELD propertyName, mandatory RETURN propertyName, mandatory;",
+    )
+    rows = {list(r)[0]: list(r)[1] for r in result}
+    assert rows["p"] is False
 
 
 if __name__ == "__main__":

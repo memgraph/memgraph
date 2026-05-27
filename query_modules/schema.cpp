@@ -13,7 +13,9 @@
 #include <boost/functional/hash.hpp>
 #include <iostream>
 #include <mgp.hpp>
+#include <ranges>
 #include <set>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Schema {
@@ -52,7 +54,6 @@ constexpr std::string_view kConfigSample = "sample";
 constexpr std::string_view kConfigMaxRels = "maxRels";
 constexpr int64_t kDefaultSample = 1000;
 constexpr int64_t kDefaultMaxRels = 100;
-constexpr int kInitialNumberOfPropertyOccurances = 1;
 
 std::string TypeOf(const mgp::Type &type);
 
@@ -78,11 +79,12 @@ std::string Schema::TypeOf(const mgp::Type &type) {
     case mgp::Type::Null:
       return "Null";
     case mgp::Type::Bool:
-      return "Bool";
+      return "Boolean";
+    // Memgraph docs call this "Integer", but Simba JDBC empirically maps "Integer" to VARCHAR.
     case mgp::Type::Int:
       return "Int";
     case mgp::Type::Double:
-      return "Double";
+      return "Float";
     case mgp::Type::String:
       return "String";
     case mgp::Type::List:
@@ -103,12 +105,13 @@ std::string Schema::TypeOf(const mgp::Type &type) {
       return "LocalDateTime";
     case mgp::Type::Duration:
       return "Duration";
+    // Memgraph docs call this "ZonedDateTime"; we emit "DateTime" because the Simba BI connector
+    // maps "DateTime" -> SQL_TIMESTAMP. Without this rename BI tools degrade the column to VARCHAR.
     case mgp::Type::ZonedDateTime:
-      return "ZonedDateTime";
+      return "DateTime";
     case mgp::Type::Point2d:
-      return "Point2d";
     case mgp::Type::Point3d:
-      return "Point3d";
+      return "Point";
     case mgp::Type::Enum:
       return "Enum";
     default:
@@ -145,15 +148,26 @@ void Schema::ProcessPropertiesRel(mgp::Record &record, const std::string &type, 
 }
 
 struct PropertyInfo {
-  std::unordered_set<std::string> property_types;  // property types
+  std::unordered_set<std::string> property_types;
   int64_t number_of_property_occurrences = 0;
-
-  PropertyInfo() = default;
-
-  explicit PropertyInfo(std::string &&property_type)
-      : property_types({std::move(property_type)}),
-        number_of_property_occurrences(Schema::kInitialNumberOfPropertyOccurances) {}
 };
+
+void AppendPropertyTypes(PropertyInfo &info, const mgp::Value &prop) {
+  info.property_types.insert(Schema::TypeOf(prop.Type()));
+  info.number_of_property_occurrences++;
+}
+
+std::unordered_map<std::string, std::unordered_set<std::string>> BuildExistenceConstraintsByLabel(
+    mgp_graph *memgraph_graph) {
+  std::unordered_map<std::string, std::unordered_set<std::string>> by_label;
+  for (const auto &c : mgp::ListAllExistenceConstraints(memgraph_graph)) {
+    std::string s(c.ValueString());
+    auto colon = s.find(':');
+    if (colon == std::string::npos) continue;
+    by_label[s.substr(0, colon)].insert(s.substr(colon + 1));
+  }
+  return by_label;
+}
 
 struct LabelOrRelTypeInfo {
   std::unordered_map<std::string, PropertyInfo> properties;  // key is a property name
@@ -309,6 +323,8 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
     }
     auto max_rels = ExtractIntFromConfig(config, kConfigMaxRels, kDefaultMaxRels);
 
+    const auto constraints_by_label = BuildExistenceConstraintsByLabel(memgraph_graph);
+
     std::unordered_map<std::set<std::string>, LabelOrRelTypeInfo, LabelsHash> node_types_properties;
 
     for (const auto node : mgp::Graph(memgraph_graph).Nodes()) {
@@ -352,13 +368,7 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
       }
 
       for (const auto &[key, prop] : node.Properties()) {
-        auto prop_type = TypeOf(prop.Type());
-        if (current_labels_info.properties.find(key) == current_labels_info.properties.end()) {
-          current_labels_info.properties[key] = PropertyInfo{std::move(prop_type)};
-        } else {
-          current_labels_info.properties[key].property_types.emplace(prop_type);
-          current_labels_info.properties[key].number_of_property_occurrences++;
-        }
+        AppendPropertyTypes(current_labels_info.properties[key], prop);
       }
     }
 
@@ -372,7 +382,10 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
           (sample > 0) ? std::min(sample, labels_info.number_of_occurrences) : labels_info.number_of_occurrences;
       for (const auto &[prop_name, prop_info] : labels_info.properties) {
         auto prop_types = PropertyTypesToList(prop_info.property_types);
-        const bool mandatory = prop_info.number_of_property_occurrences == effective_count;
+        const bool mandatory = std::ranges::any_of(node_type, [&](const auto &label) {
+          auto it = constraints_by_label.find(label);
+          return it != constraints_by_label.end() && it->second.contains(prop_name);
+        });
         auto record = record_factory.NewRecord();
         ProcessPropertiesNode(record,
                               label_type,
@@ -463,13 +476,7 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
         rel_info.number_of_occurrences++;
 
         for (auto &[prop_name, prop] : rel.Properties()) {
-          auto prop_type = TypeOf(prop.Type());
-          if (auto it = rel_info.properties.find(prop_name); it == rel_info.properties.end()) {
-            rel_info.properties.emplace(prop_name, PropertyInfo{std::move(prop_type)});
-          } else {
-            it->second.property_types.emplace(std::move(prop_type));
-            it->second.number_of_property_occurrences++;
-          }
+          AppendPropertyTypes(rel_info.properties[prop_name], prop);
         }
       }
     }
@@ -480,7 +487,8 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
       auto target_list = LabelsToList(key.target_labels);
       for (const auto &[prop_name, prop_info] : labels_info.properties) {
         auto prop_types = PropertyTypesToList(prop_info.property_types);
-        const bool mandatory = prop_info.number_of_property_occurrences == labels_info.number_of_occurrences;
+        // Memgraph has no rel-type existence constraints; mandatory is always false for relationships.
+        const bool mandatory = false;
         auto record = record_factory.NewRecord();
         ProcessPropertiesRel(record,
                              type_str,
