@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <utility>
@@ -81,7 +82,19 @@ class ArenaPool {
 
  private:
 #if USE_JEMALLOC
-  DbArenaHooks hooks_{};
+  // Heap-allocated so its address is stable for jemalloc and, critically,
+  // so that it can outlive ~ArenaPool() on the unhook-failure path. We
+  // install `&hooks_->hooks` on each jemalloc arena via mallctl; jemalloc
+  // can still invoke this hook from tcache flush / decay long after
+  // ~ArenaPool() returns. On the happy path the unique_ptr destructs
+  // normally — by then we've already restored the default extent hooks on
+  // every arena, so no callback can reach this struct. On the failure path
+  // (mallctl fails to swap hooks back), ~ArenaPool() calls
+  // `(void)hooks_.release()` to intentionally leak this struct (~64 B per
+  // failed restore) so any retained jemalloc reference stays valid for the
+  // process lifetime. The arena is also abandoned (not returned to
+  // GlobalArenaPool), so this leak is bounded.
+  std::unique_ptr<DbArenaHooks> hooks_;
 
   // Protects arenas_, free_count_, and first_arena_use_count_.
   mutable std::mutex arena_mux_;
