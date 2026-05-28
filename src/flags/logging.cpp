@@ -10,10 +10,6 @@
 // licenses/APL.txt.
 #include "flags/logging.hpp"
 
-#include <spdlog/async_logger.h>
-#include <spdlog/logger.h>
-#include <spdlog/sinks/sink.h>
-#include <spdlog/spdlog.h>
 #include <array>
 #include <cstdint>
 #include <ctime>
@@ -25,12 +21,16 @@
 #include <utility>
 #include <vector>
 
-#include "flags/run_time_configurable.hpp"
 #include "gflags/gflags.h"
 #include "spdlog/async.h"
+#include "spdlog/async_logger.h"
 #include "spdlog/common.h"
+#include "spdlog/logger.h"
 #include "spdlog/sinks/daily_file_sink.h"
 #include "spdlog/sinks/dist_sink.h"
+#include "spdlog/spdlog.h"
+
+#include "flags/run_time_configurable.hpp"
 #include "utils/enum.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
@@ -81,6 +81,9 @@ inline constexpr std::array log_level_mappings{std::pair{"TRACE"sv, spdlog::leve
                                                std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
 namespace memgraph::flags {
+
+auto LogRetentionDays() -> uint64_t { return FLAGS_log_retention_days; }
+
 const std::string &GetAllowedLogLevels() {
   static const std::string allowed_levels = memgraph::utils::GetAllowedEnumValuesString(log_level_mappings);
   return allowed_levels;
@@ -109,6 +112,14 @@ std::optional<spdlog::level::level_enum> LogLevelToEnum(std::string_view value) 
   return memgraph::utils::StringToEnum<spdlog::level::level_enum>(value, log_level_mappings);
 }
 
+auto GetSinkLocalTime() -> tm {
+  time_t current_time{0};
+  (void)time(&current_time);
+  tm local_time{};
+  localtime_r(&current_time, &local_time);  // localtime_r is thread-safe, unlike localtime
+  return local_time;
+}
+
 // We use dist_sink which is MT safe together with _st subsinks
 // This allows us MT safe
 void InitializeLogger() {
@@ -119,16 +130,9 @@ void InitializeLogger() {
   sub_sinks.emplace_back(stderr_sink());
 
   if (!FLAGS_log_file.empty()) {
-    // get local time
-    time_t current_time{0};
-    struct tm *local_time{nullptr};
-
-    // Silent the error
-    (void)time(&current_time);
-    local_time = localtime(&current_time);
-
+    auto const local_time = GetSinkLocalTime();
     sub_sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_st>(
-        FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, FLAGS_log_retention_days));
+        FLAGS_log_file, local_time.tm_hour, local_time.tm_min, false, LogRetentionDays()));
   }
 
   auto dist_sink = std::make_shared<spdlog::sinks::dist_sink_mt>(std::move(sub_sinks));
@@ -180,7 +184,7 @@ void CleanLogsDir() {
 
   auto const log_path = std::filesystem::path{FLAGS_log_file};
   auto const log_directory = log_path.parent_path();
-  auto const cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::days(FLAGS_log_retention_days);
+  auto const cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::days(LogRetentionDays());
 
   // Logs error only at the end, doesn't log for each file
   std::error_code ec;

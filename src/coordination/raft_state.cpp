@@ -46,6 +46,7 @@
 
 #include "coordination/constants.hpp"
 #include "coordination/coordination_observer.hpp"
+#include "coordination/coordinator_cert_reloader.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_instance_aux.hpp"
@@ -303,6 +304,15 @@ auto RaftState::InitRaftServer(std::optional<utils::TlsConfig> const &tls_config
     asio_opts.server_cert_file_ = tls_config->cert_file;
     asio_opts.server_key_file_ = tls_config->key_file;
     asio_opts.root_cert_file_ = tls_config->ca_file;
+    // Register Memgraph's cert reloader against NuRaft's SSL contexts so that
+    // SSL_CTX_set_cert_cb fires on every new server-side handshake and picks
+    // up cert/key/CA file changes on disk (mtime-checked). See
+    // src/coordination/coordinator_cert_reloader.hpp.
+    asio_opts.ssl_ctx_init_ = [cfg = *tls_config](SSL_CTX *server_ctx, SSL_CTX *client_ctx) {
+      if (auto r = CoordinatorCertReloader::Instance().Register(server_ctx, client_ctx, cfg); !r.has_value()) {
+        spdlog::error("Failed to register coordinator cert reloader: {}", r.error().msg);
+      }
+    };
   }
 
   raft_params params;

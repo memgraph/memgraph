@@ -857,6 +857,9 @@ PrometheusMetrics::PrometheusMetrics()
   global.update_data_instance_config_rpc_seconds =
       &update_data_instance_config_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.get_histories_seconds = &get_histories_family_.Add(no_labels, kLatencyBuckets);
+
+  // StorageInfo global/system level (no-db fallback, same family as per-db)
+  global.show_storage_info = &show_storage_info_family_.Add(no_labels);
 }
 
 void PrometheusMetrics::SetStorageSnapshotResolver(StorageSnapshotResolver resolver) {
@@ -1206,6 +1209,15 @@ void PrometheusMetrics::UpdateGauges() {
         ->Set(static_cast<double>(inst.last_succ_resp_ms) / 1000.0);
   }
 #endif
+}
+
+uint64_t PrometheusMetrics::UpdateAndGetPeakMemoryRes(uint64_t const current) const {
+  static std::mutex mtx;
+  std::lock_guard const lock{mtx};
+  auto const peak = static_cast<uint64_t>(global.peak_memory_res_bytes->Value());
+  auto const new_peak = std::max(current, peak);
+  global.peak_memory_res_bytes->Set(static_cast<double>(new_peak));
+  return new_peak;
 }
 
 namespace {
@@ -1875,7 +1887,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   // SchemaInfo
   out.push_back({"ShowSchema", "SchemaInfo", "Counter", total_show_schema});
 
-  // StorageInfo
+  // StorageInfo — per-db total (sum across all databases)
   out.push_back({"ShowStorageInfoOnDatabase", "StorageInfo", "Counter", total_show_storage_info});
 
   // Query
@@ -2080,6 +2092,9 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(
       out, "UpdateDataInstanceConfigRpc", "HighAvailability", *global.update_data_instance_config_rpc_seconds);
   AppendHistogramPercentiles(out, "GetHistories", "HighAvailability", *global.get_histories_seconds);
+
+  // StorageInfo global/system level (no-db SHOW STORAGE INFO)
+  out.push_back({"ShowStorageInfo", "StorageInfo", "Counter", static_cast<int64_t>(global.show_storage_info->Value())});
 
   return out;
 }
@@ -2377,6 +2392,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
     {"DeletedEdges", deleted_edges},
     {"ShowSchema", show_schema},
     {"ShowStorageInfoOnDatabase", show_storage_info},
+    {"ShowStorageInfo", static_cast<int64_t>(global.show_storage_info->Value())},
     {"SuccessfulFailovers", static_cast<int64_t>(global.successful_failovers->Value())},
     {"RaftFailedFailovers", static_cast<int64_t>(global.raft_failed_failovers->Value())},
     {"NoAliveInstanceFailedFailovers", static_cast<int64_t>(global.no_alive_instance_failed_failovers->Value())},

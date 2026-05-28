@@ -267,27 +267,17 @@ bool Socket::Bind(const Endpoint &endpoint) {
 
 // Not const because of C-API
 // NOLINTNEXTLINE
-void Socket::SetNonBlocking() {
-  const unsigned flags = fcntl(socket_, F_GETFL);
-  constexpr unsigned o_nonblock = O_NONBLOCK;
-  MG_ASSERT(flags != -1, "Can't get socket mode");
-  MG_ASSERT(fcntl(socket_, F_SETFL, flags | o_nonblock) != -1, "Can't set socket nonblocking");
-}
-
-// Not const because of C-API
-// NOLINTNEXTLINE
-auto Socket::SetBlocking() -> bool {
-  int flags = fcntl(socket_, F_GETFL, 0);
+[[nodiscard]] auto Socket::SetNonBlocking() -> std::expected<void, std::string> {
+  int flags = fcntl(socket_, F_GETFL);
   if (flags < 0) {
-    spdlog::error("Failed to read flags when setting socket to blocking mode");
-    return false;
+    return std::unexpected{"Failed to read flags when setting socket to the non-blocking mode"};
   }
-  flags &= ~O_NONBLOCK;
+  flags |= O_NONBLOCK;
   if (fcntl(socket_, F_SETFL, flags) < 0) {
-    spdlog::error("Failed to restore socket to blocking mode after SSL handshake");
-    return false;
+    spdlog::error("Failed to restore socket to the non-blocking mode");
+    return std::unexpected{"Failed to restore socket to the non-blocking mode"};
   }
-  return true;
+  return {};
 }
 
 // Not const because of C-API
@@ -429,9 +419,28 @@ bool Socket::WaitForReadyRead(std::optional<int> timeout_ms) const {
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
 
-  // -1 for blocking indefinitely, otherwise wait for timeout_ms.
-  int const timeout = timeout_ms ? *timeout_ms : -1;
-  int const ret = poll(&p, 1, timeout);
+  auto deadline = std::invoke([&timeout_ms]() -> std::optional<std::chrono::steady_clock::time_point> {
+    if (!timeout_ms) return std::nullopt;
+    return std::chrono::steady_clock::now() + std::chrono::milliseconds(*timeout_ms);
+  });
+
+  int ret;
+  do {
+    // -1 for blocking indefinitely, otherwise wait for the remaining time until deadline.
+    auto const remaining_timeout_ms = std::invoke([&deadline]() -> int {
+      if (!deadline) return -1;
+      return static_cast<int>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now()).count());
+    });
+
+    if (deadline.has_value() && remaining_timeout_ms < 0) {
+      spdlog::error("Waiting too long to get in ready state for reading. Timeout occurred.");
+      return false;
+    }
+
+    ret = poll(&p, 1, remaining_timeout_ms);
+  } while (ret < 0 && errno == EINTR);
+
   if (ret == -1) {
     spdlog::error("Error occurred while polling for file descriptors.");
     return false;
@@ -453,9 +462,29 @@ bool Socket::WaitForReadyWrite(std::optional<int> timeout_ms) const {
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
 
-  // -1 for blocking indefinitely, otherwise wait for timeout_ms.
-  int const timeout = timeout_ms ? *timeout_ms : -1;
-  int const ret = poll(&p, 1, timeout);
+  auto deadline = std::invoke([&timeout_ms]() -> std::optional<std::chrono::steady_clock::time_point> {
+    if (!timeout_ms) return std::nullopt;
+    return std::chrono::steady_clock::now() + std::chrono::milliseconds(*timeout_ms);
+  });
+
+  int ret;
+  do {
+    // -1 for blocking indefinitely, otherwise wait for the remaining time until deadline.
+    auto const remaining_timeout_ms = std::invoke([&deadline]() -> int {
+      if (!deadline) return -1;
+      return static_cast<int>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now()).count());
+    });
+
+    // -1 is allowed if there was no timeout set
+    if (deadline.has_value() && remaining_timeout_ms < 0) {
+      spdlog::error("Waiting too long to get in ready state for writing. Timeout occurred.");
+      return false;
+    }
+
+    ret = poll(&p, 1, remaining_timeout_ms);
+  } while (ret < 0 && errno == EINTR);
+
   if (ret == -1) {
     spdlog::error("Error occurred while polling for file descriptors.");
     return false;

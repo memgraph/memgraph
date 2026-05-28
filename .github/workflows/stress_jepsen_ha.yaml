@@ -61,66 +61,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  determine-sync:
+  determine-inputs:
     if: ${{ github.event_name != 'workflow_dispatch' }}
-    name: "Determine Sync Mode"
+    name: "Determine Test Inputs"
     runs-on: ubuntu-latest
     outputs:
-      mode: ${{ steps.set_sync.outputs.mode }}
+      mode: ${{ steps.pick.outputs.mode }}
+      signal: ${{ steps.pick.outputs.signal }}
+      intra_tls: ${{ steps.pick.outputs.intra_tls }}
     steps:
-      - name: Determine in which mode test should run based on day
-        id: set_sync
+      - name: Randomly pick mode, shutdown signal, and intra-cluster TLS
+        id: pick
         run: |
-          # Get the current day of the month (leading zeros are stripped)
-          DAY=$(date +%d)
-          MOD=$((10#$DAY % 4))
+          MODES=(sync sync_mixed strict_sync strict_sync_mixed)
+          echo "mode=${MODES[$((RANDOM % 4))]}" >> $GITHUB_OUTPUT
 
-          if [ $MOD -eq 0 ]; then
-            echo "mode=sync" >> $GITHUB_OUTPUT
-          elif [ $MOD -eq 1 ]; then
-            echo "mode=sync_mixed" >> $GITHUB_OUTPUT
-          elif [ $MOD -eq 2 ]; then
-            echo "mode=strict_sync" >> $GITHUB_OUTPUT
-          else
-            echo "mode=strict_sync_mixed" >> $GITHUB_OUTPUT
-          fi
+          SIGNALS=(KILL TERM)
+          echo "signal=${SIGNALS[$((RANDOM % 2))]}" >> $GITHUB_OUTPUT
 
-  determine-shutdown-signal:
-    if: ${{ github.event_name != 'workflow_dispatch' }}
-    name: "Determine Shutdown Signal"
-    runs-on: ubuntu-latest
-    outputs:
-      signal: ${{ steps.set_signal.outputs.signal }}
-    steps:
-      - name: Determine shutdown signal based on day
-        id: set_signal
-        run: |
-          DAY=$(date +%d)
-          MOD=$((10#$DAY % 2))
-
-          if [ $MOD -eq 0 ]; then
-            echo "signal=KILL" >> $GITHUB_OUTPUT
-          else
-            echo "signal=TERM" >> $GITHUB_OUTPUT
-          fi
+          TLS_CHOICES=(true false)
+          echo "intra_tls=${TLS_CHOICES[$((RANDOM % 2))]}" >> $GITHUB_OUTPUT
 
   run-jepsen-tests:
-    needs: [determine-sync, determine-shutdown-signal]
+    needs: [determine-inputs]
     strategy:
       fail-fast: false
       matrix:
         mt: [true, false]
     uses: ./.github/workflows/reusable_stress_jepsen.yaml
     with:
-      name: "${{ needs.determine-sync.outputs.mode }}${{ matrix.mt && '-mt' || '' }}"
+      name: "${{ needs.determine-inputs.outputs.mode }}${{ matrix.mt && '-mt' || '' }}"
       mt: ${{ matrix.mt }}
-      mode: ${{ needs.determine-sync.outputs.mode }}
+      mode: ${{ needs.determine-inputs.outputs.mode }}
       time-limit: ${{ matrix.mt && '7200' || '25200' }}
       num-tenants: ${{ matrix.mt && '3' || '1' }}
       concurrency: ""
       storage-backup-dir-enabled: true
-      shutdown-signal: ${{ needs.determine-shutdown-signal.outputs.signal }}
-      intra-cluster-tls: false
+      shutdown-signal: ${{ needs.determine-inputs.outputs.signal }}
+      intra-cluster-tls: ${{ needs.determine-inputs.outputs.intra_tls }}
     secrets: inherit
 
   run-manual-jepsen-tests:

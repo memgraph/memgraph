@@ -289,10 +289,10 @@ def test_commit_works(test_name):
     # Create data on MAIN
     instance3_cursor = connect(host="localhost", port=7689).cursor()
     execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
-    res = dict(execute_and_fetch_all(instance3_cursor, "show storage info"))
+    res = dict(execute_and_fetch_all(instance3_cursor, "show storage info on current database"))
 
     def get_unreleased_delta_obj(instance_cursor):
-        res = dict(execute_and_fetch_all(instance_cursor, "show storage info"))
+        res = dict(execute_and_fetch_all(instance_cursor, "show storage info on current database"))
         return res["unreleased_delta_objects"]
 
     mg_sleep_and_assert(0, partial(get_unreleased_delta_obj, instance3_cursor))

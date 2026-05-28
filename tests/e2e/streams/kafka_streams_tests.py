@@ -24,7 +24,7 @@ from mg_utils import mg_sleep_and_assert
 
 
 def _get_storage_info(cursor):
-    cursor.execute("SHOW STORAGE INFO")
+    cursor.execute("SHOW STORAGE INFO ON CURRENT DATABASE")
     return {row[0]: row[1] for row in cursor.fetchall()}
 
 
@@ -524,12 +524,12 @@ def test_check_stream_with_batch_limit_with_invalid_batch_limit(kafka_topics, co
 
 def test_db_memory_grows_from_kafka_stream_ingestion(kafka_producer, kafka_topics, connection):
     """
-    Objects created by Kafka consumer ingestion must be attributed to db_memory_tracked.
+    Objects created by Kafka consumer ingestion must be attributed to tenant_memory_tracked.
 
     The Kafka consumer thread is fully pinned to the DB jemalloc arena via je_mallctl
     (kafka/consumer.cpp). Every vertex/edge created by the transformation Cypher query
-    goes through the DB arena extent hooks and is reflected in SHOW STORAGE INFO →
-    db_memory_tracked.
+    goes through the DB arena extent hooks and is reflected in
+    SHOW STORAGE INFO ON CURRENT DATABASE → tenant_memory_tracked.
     """
     assert len(kafka_topics) > 0
     cursor = connection.cursor()
@@ -539,7 +539,7 @@ def test_db_memory_grows_from_kafka_stream_ingestion(kafka_producer, kafka_topic
     common.create_stream(cursor, stream_name, topic, "kafka_transform.simple")
     common.start_stream(cursor, stream_name)
 
-    before = _parse_size_bytes(_get_storage_info(cursor).get("db_memory_tracked", "0B"))
+    before = _parse_size_bytes(_get_storage_info(cursor).get("tenant_memory_tracked", "0B"))
 
     # Send enough messages to trigger arena extent allocations (each message creates
     # one :MESSAGE node with topic + payload properties via kafka_transform.simple).
@@ -550,7 +550,7 @@ def test_db_memory_grows_from_kafka_stream_ingestion(kafka_producer, kafka_topic
     # Wait for the last message to be ingested before measuring.
     common.kafka_check_vertex_exists_with_topic_and_payload(cursor, topic, common.SIMPLE_MSG)
 
-    after = _parse_size_bytes(_get_storage_info(cursor).get("db_memory_tracked", "0B"))
+    after = _parse_size_bytes(_get_storage_info(cursor).get("tenant_memory_tracked", "0B"))
 
     # Cleanup
     common.stop_stream(cursor, stream_name)
@@ -558,7 +558,8 @@ def test_db_memory_grows_from_kafka_stream_ingestion(kafka_producer, kafka_topic
     cursor.execute("MATCH (n:MESSAGE) DETACH DELETE n")
 
     assert after > before, (
-        f"db_memory_tracked must grow after Kafka consumer creates {msg_count} nodes. " f"before={before} after={after}"
+        f"tenant_memory_tracked must grow after Kafka consumer creates {msg_count} nodes. "
+        f"before={before} after={after}"
     )
 
 

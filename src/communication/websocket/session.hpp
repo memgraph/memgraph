@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -75,7 +75,7 @@ class Session : public std::enable_shared_from_this<Session> {
 
   std::variant<PlainWebSocket, SSLWebSocket> CreateWebSocket(tcp::socket &&socket, ServerContext &context);
 
-  std::optional<std::reference_wrapper<boost::asio::ssl::context>> ssl_context_;
+  std::shared_ptr<boost::asio::ssl::context> ssl_context_;
   std::variant<PlainWebSocket, SSLWebSocket> ws_;
   boost::beast::flat_buffer buffer_;
   std::deque<std::shared_ptr<std::string>> messages_;

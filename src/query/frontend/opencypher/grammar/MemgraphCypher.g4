@@ -112,6 +112,7 @@ memgraphCypherKeyword : cypherKeyword
                       | INSTANCE
                       | INSTANCES
                       | INTEGER
+                      | INTRA_CLUSTER
                       | INVOKER
                       | ISOLATION
                       | JSONL
@@ -168,6 +169,7 @@ memgraphCypherKeyword : cypherKeyword
                       | RECOVER
                       | REGISTER
                       | RELOAD
+                      | RELOAD_TLS
                       | RENAME
                       | REPLACE
                       | REPLICA
@@ -567,6 +569,7 @@ privilege : CREATE
           | PROFILE_RESTRICTION
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
+          | RELOAD_TLS
           ;
 
 granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
@@ -910,7 +913,7 @@ ttlQuery: stopTtlQuery
         | startTtlQuery
         ;
 
-reloadSSLQuery: RELOAD BOLT_SERVER TLS ;
+reloadSSLQuery: RELOAD ( BOLT_SERVER | INTRA_CLUSTER ) TLS ;
 
 typeConstraintType : BOOLEAN
              | STRING
@@ -992,10 +995,10 @@ showDescriptions
     : SHOW DESCRIPTIONS
     ;
 
-// Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' clause.
+// Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' or 'ON CURRENT DATABASE' clause.
 // systemInfoQuery is re-listed so it dispatches to the overridden storageInfo above.
 systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
-storageInfo : STORAGE INFO ( ON DATABASE db=symbolicName )? ;
+storageInfo : STORAGE INFO ( ON ( DATABASE db=symbolicName | CURRENT DATABASE ) )? ;
 
 edgeTypePatternNode
     : '(' ( ':' labelName )+ ')'

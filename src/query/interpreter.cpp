@@ -41,7 +41,9 @@
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "communication/cluster_tls.hpp"
 #include "coordination/constants.hpp"
+#include "coordination/coordinator_cert_reloader.hpp"
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "db_accessor.hpp"
@@ -50,7 +52,10 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
+#include "flags/general.hpp"
+#include "flags/isolation_level.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "flags/storage_mode.hpp"
 #include "frontend/ast/query/tenant_profile.hpp"
 #include "frontend/ast/query/user_profile.hpp"
 #include "frontend/semantic/rw_checker.hpp"
@@ -148,6 +153,25 @@ namespace {
 using memgraph::query::Expression;
 using memgraph::query::ExpressionVisitor;
 using memgraph::query::TypedValue;
+
+struct InstanceStorageInfo {
+  uint64_t memory_res;
+  uint64_t peak_memory_res;
+  uint64_t disk_usage;
+  int64_t vm_max_map_count;
+};
+
+InstanceStorageInfo GetInstanceStorageInfo() {
+  const auto memory_res = memgraph::utils::GetMemoryRES();
+  const auto peak_memory_res = memgraph::metrics::Metrics().UpdateAndGetPeakMemoryRes(memory_res);
+  const int64_t vm_max_map_count =
+      memgraph::utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
+  const auto disk_usage = memgraph::utils::GetDirDiskUsage(FLAGS_data_directory);
+  return {.memory_res = memory_res,
+          .peak_memory_res = peak_memory_res,
+          .disk_usage = disk_usage,
+          .vm_max_map_count = vm_max_map_count};
+}
 
 auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
                     ExpressionVisitor<TypedValue> &evaluator)
@@ -5036,16 +5060,70 @@ PreparedQuery PrepareReloadSSLQuery(ParsedQuery parsed_query, bool in_explicit_t
   if (in_explicit_transaction) {
     throw ReloadSSLMulticommandTxException();
   }
+
+  auto *reload_query = utils::Downcast<ReloadSSLQuery>(parsed_query.query);
+
   return PreparedQuery{
       .header = {},
       .privileges = std::move(parsed_query.required_privileges),
       .query_handler =
-          [interpreter_context, notifications](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
-            if (auto const res = interpreter_context->bolt_server_context_->reload(); !res.has_value()) {
-              throw QueryRuntimeException(res.error().msg);
+          [interpreter_context, notifications, action_type = reload_query->type_](
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+            if (action_type == ReloadSSLQuery::Type::BOLT_SERVER) {
+              if (auto const res = interpreter_context->bolt_server_context_->reload(); !res.has_value()) {
+                throw QueryRuntimeException(res.error().msg);
+              }
+              notifications->emplace_back(
+                  SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloaded TLS on Bolt server");
+            } else {
+#ifdef MG_ENTERPRISE
+              if (!license::global_license_checker.IsEnterpriseValidFast()) {
+                throw QueryRuntimeException(license::LicenseCheckErrorToString(
+                    license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "RELOAD TLS"));
+              }
+
+              // Two-phase commit across the three TLS "kingdoms" on this node:
+              //   1. ClusterServerSsl  — every Memgraph cluster-TLS server context (replication,
+              //      data-instance management, coordinator-instance management) reads through it.
+              //   2. ClusterClientSsl  — every Memgraph cluster-TLS client context (replication,
+              //      peer-coordinator, peer data-instance) reads through it.
+              //   3. CoordinatorCertReloader — NuRaft's server+client SSL_CTXs, whose cert
+              //      hot-swap is done via the SSL_CTX_set_cert_cb path because NuRaft owns the
+              //      contexts itself.
+              //
+              // Each Prepare() builds a candidate from disk into scratch space without touching
+              // live state. We only Commit (atomic-store) after every Prepare succeeds, so an
+              // unparseable cert/key/CA file leaves the cluster on the previous good state.
+              auto srv_prep = communication::ClusterServerSsl::Instance().Prepare();
+              if (!srv_prep.has_value()) {
+                throw QueryRuntimeException("cluster server TLS: " + srv_prep.error().msg);
+              }
+
+              auto cli_prep = communication::ClusterClientSsl::Instance().Prepare();
+              if (!cli_prep.has_value()) {
+                throw QueryRuntimeException("cluster client TLS: " + cli_prep.error().msg);
+              }
+
+              auto raft_prep = coordination::CoordinatorCertReloader::Instance().Prepare();
+              if (!raft_prep.has_value()) {
+                throw QueryRuntimeException("NuRaft TLS: " + raft_prep.error().msg);
+              }
+
+              // All prepares succeeded. Every Commit is now a pure atomic store of an
+              // already-built snapshot (NuRaft included — it applies cert+key+CA per-connection
+              // via SSL_set1_verify_cert_store, so it no longer mutates a shared SSL_CTX). None
+              // can fail, so commit order is irrelevant.
+              communication::ClusterServerSsl::Instance().Commit(std::move(*srv_prep));
+              communication::ClusterClientSsl::Instance().Commit(std::move(*cli_prep));
+              coordination::CoordinatorCertReloader::Instance().Commit(std::move(*raft_prep));
+              notifications->emplace_back(
+                  SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloaded TLS for intra-cluster communication");
+
+#else
+              throw QueryRuntimeException("RELOAD INTRA_CLUSTER TLS cannot be invoked in the community build");
+#endif
             }
-            notifications->emplace_back(
-                SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloading SSL for Bolt server");
+
             return QueryHandlerResult::COMMIT;
           },
       .rw_type = RWType::NONE};
@@ -7089,20 +7167,42 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         throw QueryRuntimeException("Coordinators don't have storage!");
       }
 #endif
-      if (info_query->database_) {
-#ifdef MG_ENTERPRISE
-        handler = [db_name = *info_query->database_, db_handler = interpreter_context->dbms_handler]
-            -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
-          if (!db_handler) {
-            throw QueryRuntimeException("Database handler is not available");
+      auto *dbms_handler = interpreter_context->dbms_handler;
+      auto resolve_database = [&]() -> std::optional<dbms::DatabaseAccess> {
+        if (info_query->database_) {
+          const auto &db_name = *info_query->database_;
+          if (!license::global_license_checker.IsEnterpriseValidFast() && db_name != dbms::kDefaultDB) {
+            throw QueryRuntimeException(license::LicenseCheckErrorToString(
+                license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
           }
-          auto db_acc = db_handler->Get(db_name);
+#ifdef MG_ENTERPRISE
+          auto db = dbms_handler->Get(db_name);
+#else
+          auto db = dbms_handler->Get();
+#endif
+          if (!db) {
+            throw QueryRuntimeException("Database '{}' was not found.", db_name);
+          }
+          return db;
+        }
+        if (info_query->is_current_database_) {
+          if (!current_db.db_acc_) {
+            throw QueryRuntimeException("No current database for the session.");
+          }
+          return current_db.db_acc_;
+        }
+        return std::nullopt;
+      };
+      auto database = resolve_database();
+
+      if (database) {
+        handler = [db_acc = std::move(
+                       *database)] mutable -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
           auto *db = db_acc.get();
-          if (!db) throw QueryRuntimeException("Database '{}' was dropped during query execution.", db_name);
+          if (!db) throw QueryRuntimeException("Database was dropped during query execution.");
           if (auto *mh = db->metric_handles()) mh->show_storage_info.Increment();
           auto *storage = db->storage();
           auto info = storage->GetBaseInfo();
-
           const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
           const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
           const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
@@ -7131,53 +7231,36 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
-#else
-        throw QueryRuntimeException("SHOW STORAGE INFO ON DATABASE is only available in the enterprise edition.");
-#endif
       } else {
-        MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
-        handler = [storage = current_db.db_acc_->get()->storage(),
-                   db = current_db.db_acc_->get(),
-                   interpreter_isolation_level,
-                   next_transaction_isolation_level] {
-          auto info = storage->GetBaseInfo();
-          const int64_t vm_max_map_count_storage_info =
-              utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
-          const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
-          const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
-          const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
+        handler = [interpreter_isolation_level, next_transaction_isolation_level] {
+          metrics::Metrics().global.show_storage_info->Increment();
+          const auto instance_info = GetInstanceStorageInfo();
           const std::vector<std::vector<TypedValue>> results{
-              {TypedValue("name"), TypedValue(storage->name())},
-              {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
-              {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
-              {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
-              {TypedValue("average_degree"), TypedValue(info.average_degree)},
-              {TypedValue("vm_max_map_count"), TypedValue(vm_max_map_count_storage_info)},
-              {TypedValue("memory_res"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_res)))},
+              {TypedValue("vm_max_map_count"), TypedValue(instance_info.vm_max_map_count)},
+              {TypedValue("memory_res"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.memory_res)))},
               {TypedValue("peak_memory_res"),
-               TypedValue(utils::GetReadableSize(static_cast<double>(info.peak_memory_res)))},
-              {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
-              {TypedValue("global_disk_usage"),
-               TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
-              {TypedValue("global_memory_tracked"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.peak_memory_res)))},
+              {TypedValue("disk_usage"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.disk_usage)))},
+              {TypedValue("memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
-              {TypedValue("global_runtime_allocation_limit"),
+              {TypedValue("memory_limit"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.MaximumHardLimit())))},
-              {TypedValue("global_license_allocation_limit"), TypedValue(std::invoke([] {
+              {TypedValue("license_memory_limit"), TypedValue([] {
                  auto info = license::global_license_checker.GetLicenseInfo().Lock();
                  const int64_t limit = info->has_value() ? (*info)->license.memory_limit : 0;
                  return limit > 0 ? utils::GetReadableSize(static_cast<double>(limit)) : std::string("unlimited");
-               }))},
-              {TypedValue("db_memory_tracked"),
-               TypedValue(utils::GetReadableSize(db_storage_memory + db_embedding_memory + db_query_memory))},
-              {TypedValue("db_storage_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory))},
-              {TypedValue("db_embedding_memory_tracked"), TypedValue(utils::GetReadableSize(db_embedding_memory))},
-              {TypedValue("db_query_memory_tracked"), TypedValue(utils::GetReadableSize(db_query_memory))},
-              {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+               }())},
+              {TypedValue("query+graph_memory_tracked"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
+              {TypedValue("vector_index_memory_tracked"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(utils::vector_index_memory_tracker.Amount())))},
+              {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(flags::ParseIsolationLevel()))},
               {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
               {TypedValue("next_session_isolation_level"),
                TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
-              {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))}};
+              {TypedValue("global_storage_mode"), TypedValue(StorageModeToString(flags::ParseStorageMode()))}};
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
       }
@@ -7205,9 +7288,14 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       header = {"license info", "value"};
       handler = [] {
         const auto license_info = license::global_license_checker.GetDetailedLicenseInfo();
-        const auto memory_limit = license_info.memory_limit != 0
-                                      ? utils::GetReadableSize(static_cast<double>(license_info.memory_limit))
-                                      : "UNLIMITED";
+        std::string memory_limit = "UNLIMITED";
+        std::string memory_limit_policy = "Memory usage is not limited.";
+        if (license_info.memory_limit != 0) {
+          memory_limit = utils::GetReadableSize(static_cast<double>(license_info.memory_limit));
+          memory_limit_policy = license_info.license_type == license::kLicenseTypeAiPlatform
+                                    ? "Graph and query memory are limited. Vector index memory is not limited."
+                                    : "All memory usage is limited.";
+        }
 
         const std::vector<std::vector<TypedValue>> results{
             {TypedValue("organization_name"), TypedValue(license_info.organization_name)},
@@ -7217,6 +7305,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("valid_until"), TypedValue(license_info.valid_until)},
             {TypedValue("memory_limit"), TypedValue(memory_limit)},
             {TypedValue("status"), TypedValue(license_info.status)},
+            {TypedValue("memory_limit_policy"), TypedValue(memory_limit_policy)},
         };
 
         return std::pair{results, QueryHandlerResult::NOTHING};

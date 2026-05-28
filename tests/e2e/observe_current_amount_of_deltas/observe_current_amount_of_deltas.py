@@ -19,7 +19,7 @@ def get_current_amount_of_deltas():
     storage_info_connection = connect_with_autocommit()
 
     storage_cursor = storage_info_connection.cursor()
-    result = execute_and_fetch_all(storage_cursor, "SHOW STORAGE INFO")
+    result = execute_and_fetch_all(storage_cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")
 
     result = [x for x in result if x[0] == "unreleased_delta_objects"][0][1]
 

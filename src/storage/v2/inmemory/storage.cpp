@@ -2741,6 +2741,14 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
+  // Drain before UNIQUE: worker holds AsyncIndexer::mutex_ while waiting on
+  // main_lock_, so draining under UNIQUE would deadlock.
+  if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL && storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    spdlog::info("SetStorageMode: draining async indexer before transition to IN_MEMORY_ANALYTICAL");
+    async_indexer_.CompleteRemaining();
+    spdlog::info("SetStorageMode: async indexer drained");
+  }
+
   auto unique_accessor = UniqueAccess();
   MG_ASSERT(
       (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
@@ -2756,8 +2764,13 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
             "Constraints are not supported in analytical storage mode. Please drop them before "
             "changing storage mode to analytical or use transactional mode.");
       }
-      // Ensure all pending work has been completed before changing to IN_MEMORY_ANALYTICAL
-      async_indexer_.CompleteRemaining();
+      // Anything enqueued in the gap between drain and UNIQUE can't be drained here without deadlock.
+      if (!async_indexer_.IsIdle()) {
+        throw utils::BasicException(
+            "Cannot switch to IN_MEMORY_ANALYTICAL: an async index creation task (from CREATE INDEX "
+            "or ENABLE TTL) was enqueued concurrently with the storage mode change. Wait for pending "
+            "index creation to finish and retry.");
+      }
       snapshot_runner_.Pause();
     } else {
       // No need to resume async indexer, it is always running.
@@ -3343,9 +3356,7 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_res = utils::GetMemoryRES();
-  metrics::Metrics().global.peak_memory_res_bytes->Set(
-      std::max(static_cast<double>(info.memory_res), metrics::Metrics().global.peak_memory_res_bytes->Value()));
-  info.peak_memory_res = static_cast<uint64_t>(metrics::Metrics().global.peak_memory_res_bytes->Value());
+  info.peak_memory_res = metrics::Metrics().UpdateAndGetPeakMemoryRes(info.memory_res);
   info.unreleased_delta_objects = static_cast<uint64_t>(metric_handles_.unreleased_delta_objects.Value());
 
   // Special case for the default database

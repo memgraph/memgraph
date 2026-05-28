@@ -143,7 +143,7 @@ def test_error_paths():
 
 
 def test_attach_lifecycle_propagates_limit():
-    """SET surfaces the limit in SHOW STORAGE INFO; ALTER updates it; REMOVE falls back
+    """SET surfaces the limit in SHOW STORAGE INFO ON DATABASE; ALTER updates it; REMOVE falls back
     to the global --memory-limit."""
     conn = connect()
     cur = conn.cursor()

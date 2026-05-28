@@ -3130,11 +3130,13 @@ class SystemInfoQuery : public memgraph::query::Query {
 
   memgraph::query::SystemInfoQuery::InfoType info_type_;
   std::optional<std::string> database_;
+  bool is_current_database_{false};
 
   SystemInfoQuery *Clone(AstStorage *storage) const override {
     SystemInfoQuery *object = storage->Create<SystemInfoQuery>();
     object->info_type_ = info_type_;
     object->database_ = database_;
+    object->is_current_database_ = is_current_database_;
     return object;
   }
 };
@@ -4327,9 +4329,15 @@ class ReloadSSLQuery : public memgraph::query::Query {
 
   ReloadSSLQuery() = default;
 
+  enum class Type : uint8_t { BOLT_SERVER, INTRA_CLUSTER } type_;
+
   DEFVISITABLE(QueryVisitor<void>);
 
-  ReloadSSLQuery *Clone(AstStorage *storage) const override { return storage->Create<ReloadSSLQuery>(); }
+  ReloadSSLQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ReloadSSLQuery>();
+    object->type_ = type_;
+    return object;
+  }
 
  private:
   friend class AstStorage;

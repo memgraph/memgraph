@@ -39,6 +39,7 @@ target_sources(mg-coordination
 
         PRIVATE
         coordination_observer.cpp
+        coordinator_cert_reloader.cpp
         coordinator_cluster_state.cpp
         coordinator_communication_config.cpp
         coordinator_instance.cpp
