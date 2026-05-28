@@ -85,8 +85,7 @@ class Session {
       { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
     }
   bool Execute_(TImpl &impl) {
-    // Per-message session-trace guard. nullptr is the explicit no-op opt-out (test
-    // fakes, pre-auth); the requires-clause above gives a clean error if omitted.
+    // nullptr is the explicit no-op opt-out (test fakes, pre-auth).
     memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
     if (state_ == State::Handshake) [[unlikely]] {
       // Resize the input buffer to ensure that a whole chunk can fit into it.

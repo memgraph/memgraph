@@ -46,7 +46,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   memgraph::metrics::DatabaseMetricHandles *GetMetricHandles() { return nullptr; }
 
-  // This test does not exercise the session-trace stream; opt out explicitly.
+  // No trace stream needed; nullptr opts out of the per-message guard.
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return nullptr; }
 
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {

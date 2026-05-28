@@ -14,7 +14,6 @@
 #include <fmt/format.h>
 #include <spdlog/common.h>
 #include <spdlog/spdlog.h>
-#include <atomic>
 #include <cstdint>
 #include <iterator>
 #include <string>
@@ -23,13 +22,14 @@
 
 namespace memgraph::logging {
 
-// Per-session log state. Mutated and read only on the bolt thread; relaxed atomics suffice.
+// Per-session log state. Only the bolt dispatcher thread touches this; the TLS
+// guard (ScopedSessionLog) is installed there and workers never inherit it.
 class SessionLogContext {
  public:
-  // SET SESSION TRACE ON|OFF toggle. Events emit at INFO.
-  void SetTrace(bool on) noexcept { trace_enabled_.store(on, std::memory_order_relaxed); }
+  // Toggled by SET SESSION TRACE; events emit at INFO.
+  void SetTrace(bool on) noexcept { trace_enabled_ = on; }
 
-  bool trace_enabled() const noexcept { return trace_enabled_.load(std::memory_order_relaxed); }
+  bool trace_enabled() const noexcept { return trace_enabled_; }
 
   void SetSessionUuid(std::string uuid) { session_uuid_ = std::move(uuid); }
 
@@ -43,7 +43,6 @@ class SessionLogContext {
 
   std::string_view session_uuid() const noexcept { return session_uuid_; }
 
-  // Rebuilt every call (no cache). user omitted in userless mode.
   void AppendTraceTags(fmt::memory_buffer &out) const {
     fmt::format_to(std::back_inserter(out), "[session={}]", session_uuid_);
     if (!user_.empty()) fmt::format_to(std::back_inserter(out), " [user={}]", user_);
@@ -54,12 +53,11 @@ class SessionLogContext {
   std::string session_uuid_;
   std::string user_;
   uint64_t tx_id_ = 0;
-  std::atomic<bool> trace_enabled_{false};
+  bool trace_enabled_ = false;
 };
 
 namespace detail {
 inline thread_local SessionLogContext *current_session_log = nullptr;
-inline thread_local fmt::memory_buffer log_assembly_buf;  // reused across emits
 
 // Cheap-first gate: TLS → toggle → spdlog level. Returns ctx if a trace would emit.
 inline SessionLogContext *ActiveTraceContext() noexcept {
@@ -88,21 +86,30 @@ class ScopedSessionLog {
   SessionLogContext *prev_;
 };
 
-// Gate *expensive* arg construction (JSON dumps, plan prints) on this — Emit's args
-// evaluate before its own inner gate.
+// Caller-side gate for expensive args (JSON dumps, plan prints): Emit's args evaluate before its inner gate.
 inline bool IsSessionTraceEnabled() noexcept { return detail::ActiveTraceContext() != nullptr; }
 
-// No-op on threads without a guard (worker pool, GC, NuRaft) — don't emit inside worker lambdas.
+// No-op on threads without a guard (worker pool, GC, NuRaft).
 template <typename... Args>
 void EmitSessionTraceEvent(fmt::format_string<Args...> fmt_str, Args &&...args) {
   auto *ctx = detail::ActiveTraceContext();
   if (ctx == nullptr) return;
-  auto &buf = detail::log_assembly_buf;
-  buf.clear();
+  fmt::memory_buffer buf;
   ctx->AppendTraceTags(buf);
   buf.push_back(' ');
   fmt::format_to(std::back_inserter(buf), fmt_str, std::forward<Args>(args)...);
-  spdlog::default_logger_raw()->log(spdlog::level::info, std::string_view{buf.data(), buf.size()});
+  spdlog::info(std::string_view{buf.data(), buf.size()});
+}
+
+// Pre-formatted overload: no "{}" placeholder; braces in msg are emitted verbatim.
+inline void EmitSessionTraceEvent(std::string_view msg) {
+  auto *ctx = detail::ActiveTraceContext();
+  if (ctx == nullptr) return;
+  fmt::memory_buffer buf;
+  ctx->AppendTraceTags(buf);
+  buf.push_back(' ');
+  buf.append(msg.data(), msg.data() + msg.size());
+  spdlog::info(std::string_view{buf.data(), buf.size()});
 }
 
 }  // namespace memgraph::logging

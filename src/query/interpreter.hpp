@@ -671,11 +671,11 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       }
     }
   } catch (const ExplicitTransactionUsageException &e) {
-    memgraph::logging::EmitSessionTraceEvent("{}", e.what());
+    memgraph::logging::EmitSessionTraceEvent(e.what());
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &e) {
-    memgraph::logging::EmitSessionTraceEvent("{}", e.what());
+    memgraph::logging::EmitSessionTraceEvent(e.what());
     metrics::FirstFailedQuery();
     if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
       mh->failed_query.Increment();

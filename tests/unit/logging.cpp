@@ -285,8 +285,21 @@ TEST_F(SessionTraceEmitTest, LevelAboveInfoSkipsArgumentFormatting) {
   EXPECT_TRUE(sink_->messages.empty());
 }
 
-// The call-site gate must mirror the inner gate (incl. log level), else callers build
-// expensive trace args that the emitter then discards.
+// Pre-formatted overload: braces in the payload are emitted verbatim, not as format spec.
+TEST_F(SessionTraceEmitTest, PreFormattedOverloadEmitsBracesVerbatim) {
+  SessionLogContext ctx;
+  ctx.SetSessionUuid("s1");
+  ctx.SetTxId(9);
+  ctx.SetTrace(true);
+  ScopedSessionLog guard(&ctx);
+
+  EmitSessionTraceEvent(std::string_view{"oops { bad fmt }"});
+
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_EQ(sink_->messages[0], "[session=s1] [tx=9] oops { bad fmt }");
+}
+
+// Call-site gate must mirror the inner gate (incl. log level), else callers build trace args for nothing.
 TEST_F(SessionTraceEmitTest, IsSessionTraceEnabledRespectsLogLevel) {
   SessionLogContext ctx;
   ctx.SetTrace(true);

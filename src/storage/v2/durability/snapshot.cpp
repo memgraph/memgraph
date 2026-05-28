@@ -12242,8 +12242,8 @@ std::optional<std::filesystem::path> CreateSnapshot(
   std::vector<BatchInfo> vertex_batch_infos;
 
   if (storage->config_.durability.allow_parallel_snapshot_creation) {
-    spdlog::info("snapshot writing edges and vertices (parallel, {} threads)",
-                 storage->config_.durability.snapshot_thread_count);
+    spdlog::trace("snapshot writing edges and vertices (parallel, {} threads)",
+                  storage->config_.durability.snapshot_thread_count);
     auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
     if (!MultiThreadedWorkflow(edge_ptr,
                                vertices,
@@ -12272,7 +12272,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     }
   } else {
     if (storage->config_.salient.items.properties_on_edges) {
-      spdlog::info("snapshot writing edges");
+      spdlog::trace("snapshot writing edges");
       if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
       offset_edges = snapshot.GetPosition();  // Global edge offset
       // Handle edges
@@ -12284,7 +12284,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     if (snapshot_aborted()) {
       return std::nullopt;
     }
-    spdlog::info("snapshot writing vertices");
+    spdlog::trace("snapshot writing vertices");
     if (progress) progress->SetPhase(SnapshotProgress::Phase::VERTICES, vertices->size());
     {
       offset_vertices = snapshot.GetPosition();  // Global vertex offset
@@ -12307,7 +12307,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write label indices.
     {
-      spdlog::info("snapshot writing label indices");
+      spdlog::trace("snapshot writing label indices");
       auto label = transaction->active_indices_->label_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(label.size());
       for (const auto &item : label) {
@@ -12409,7 +12409,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     auto asc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
     auto desc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
 
-    spdlog::info("snapshot writing label-property indices");
+    spdlog::trace("snapshot writing label-property indices");
     // Write ASC label+properties indices.
     {
       write_label_property_indices(asc_indices);
@@ -12432,7 +12432,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     offset_edge_indices = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_EDGE_INDICES);
     {
-      spdlog::info("snapshot writing edge-type indices");
+      spdlog::trace("snapshot writing edge-type indices");
       auto edge_type = transaction->active_indices_->edge_type_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
@@ -12445,7 +12445,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write edge-type + property indices.
     {
-      spdlog::info("snapshot writing edge-type-property indices");
+      spdlog::trace("snapshot writing edge-type-property indices");
       auto edge_type = transaction->active_indices_->edge_type_properties_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
@@ -12459,7 +12459,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write global edge property indices.
     {
-      spdlog::info("snapshot writing edge-property indices");
+      spdlog::trace("snapshot writing edge-property indices");
       auto indices = transaction->active_indices_->edge_property_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(indices.size());
       for (const auto &property : indices) {
@@ -12469,7 +12469,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write point indices.
     {
-      spdlog::info("snapshot writing point indices");
+      spdlog::trace("snapshot writing point indices");
       auto point_keys = storage->indices_.point_index_.ListIndices();
       snapshot.WriteUint(point_keys.size());
       for (const auto &[label, property] : point_keys) {
@@ -12483,7 +12483,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write vector indices
     {
-      spdlog::info("snapshot writing vector indices");
+      spdlog::trace("snapshot writing vector indices");
       storage->indices_.vector_index_.SerializeAllVectorIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {
         return std::nullopt;
@@ -12492,7 +12492,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write vector edge indices
     {
-      spdlog::info("snapshot writing vector edge indices");
+      spdlog::trace("snapshot writing vector edge indices");
       storage->indices_.vector_edge_index_.SerializeAllVectorEdgeIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {
         return std::nullopt;
@@ -12503,7 +12503,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     {
       // Text indices on nodes
       {
-        spdlog::info("snapshot writing text node indices");
+        spdlog::trace("snapshot writing text node indices");
         const auto text_indices = storage->indices_.text_index_.ListIndices();
         snapshot.WriteUint(text_indices.size());
         for (const auto &[index_name, label, properties] : text_indices) {
@@ -12520,7 +12520,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
       }
       // Text indices on edges
       {
-        spdlog::info("snapshot writing text edge indices");
+        spdlog::trace("snapshot writing text edge indices");
         const auto text_edge_indices = storage->indices_.text_edge_index_.ListIndices();
         snapshot.WriteUint(text_edge_indices.size());
         for (const auto &[index_name, edge_type, properties] : text_edge_indices) {
@@ -12539,7 +12539,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
   }
 
   // Write constraints.
-  spdlog::info("snapshot writing constraints");
+  spdlog::trace("snapshot writing constraints");
   if (progress) progress->SetPhase(SnapshotProgress::Phase::CONSTRAINTS, 0);
   {
     offset_constraints = snapshot.GetPosition();
@@ -12589,7 +12589,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
   }
 
   // Write mapper data, enums, metadata, batch info, TTL.
-  spdlog::info("snapshot finalizing");
+  spdlog::trace("snapshot finalizing");
   if (progress) progress->SetPhase(SnapshotProgress::Phase::FINALIZING, 0);
   {
     offset_mapper = snapshot.GetPosition();

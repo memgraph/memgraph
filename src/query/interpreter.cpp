@@ -3267,7 +3267,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
   auto stats_and_total_time = GetStatsWithTotalTime(ctx_);
 
-  if (memgraph::logging::IsSessionTraceEnabled()) {  // outer gate keeps the .dump() off when trace is off
+  if (memgraph::logging::IsSessionTraceEnabled()) {
     memgraph::logging::EmitSessionTraceEvent("Profile plan\n{}", ProfilingStatsToJson(stats_and_total_time).dump());
   }
 
@@ -3508,7 +3508,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
-    memgraph::logging::EmitSessionTraceEvent("{}", hint);
+    memgraph::logging::EmitSessionTraceEvent(hint);
   }
 
   if (memgraph::logging::IsSessionTraceEnabled()) {
@@ -3625,12 +3625,12 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
-    memgraph::logging::EmitSessionTraceEvent("{}", hint);
+    memgraph::logging::EmitSessionTraceEvent(hint);
   }
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
-  // PrettyPrint is needed for the EXPLAIN result rows below; only the trace emit is gated.
+  // PrettyPrint feeds the EXPLAIN result rows below; only the trace emit is gated.
   if (memgraph::logging::IsSessionTraceEnabled()) {
     memgraph::logging::EmitSessionTraceEvent("Explain plan:\n{}", printed_plan.str());
   }
@@ -3740,7 +3740,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
-    memgraph::logging::EmitSessionTraceEvent("{}", hint);
+    memgraph::logging::EmitSessionTraceEvent(hint);
   }
   AccessorCompliance(*cypher_query_plan, *dba);
   const auto rw_type = cypher_query_plan->rw_type();
@@ -8208,11 +8208,10 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
 
     interpreter->GetLogContext()->SetTrace(session_trace_enabled);
     if (session_trace_enabled) {
-      // Trace events emit at INFO — warn if --log-level filters them out.
       if (!spdlog::should_log(spdlog::level::info)) {
         spdlog::warn(
-            "SET SESSION TRACE ON: trace events emit at INFO, but --log-level is filtering INFO out. "
-            "Lower --log-level to info (or below) to see them.");
+            "SET SESSION TRACE ON: trace events emit at INFO, but the current log level filters INFO out. "
+            "Lower it at runtime with SET DATABASE SETTING \"log.level\" TO \"INFO\" (or below).");
       }
       memgraph::logging::EmitSessionTraceEvent("Session initialized!");
     }
