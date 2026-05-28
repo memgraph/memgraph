@@ -254,6 +254,12 @@ add_unit_test(query_procedures_mgp_graph
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
 
+add_unit_test(query_virtual_graph
+    SOURCES query_virtual_graph.cpp
+    LINK_TARGETS mg-query
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+)
+
 
 # END query/procedure
 add_unit_test(query_profile
