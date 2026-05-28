@@ -433,7 +433,7 @@ bool Socket::WaitForReadyRead(std::optional<int> timeout_ms) const {
           std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now()).count());
     });
 
-    if (remaining_timeout_ms < 0) {
+    if (deadline.has_value() && remaining_timeout_ms < 0) {
       spdlog::error("Waiting too long to get in ready state for reading. Timeout occurred.");
       return false;
     }
@@ -476,7 +476,8 @@ bool Socket::WaitForReadyWrite(std::optional<int> timeout_ms) const {
           std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now()).count());
     });
 
-    if (remaining_timeout_ms < 0) {
+    // -1 is allowed if there was no timeout set
+    if (deadline.has_value() && remaining_timeout_ms < 0) {
       spdlog::error("Waiting too long to get in ready state for writing. Timeout occurred.");
       return false;
     }
