@@ -4566,13 +4566,27 @@ void WrapTextEdgeSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **r
 }
 
 mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
-                                      text_search_mode search_mode, std::size_t limit, mgp_memory *memory,
+                                      text_search_mode search_mode, std::size_t limit, uint8_t fuzzy_distance,
+                                      int fuzzy_prefix, int fuzzy_transpositions, mgp_memory *memory,
                                       mgp_map **result) {
-  return WrapExceptions([graph, memory, index_name, search_query, search_mode, result, limit]() {
+  return WrapExceptions([graph,
+                         memory,
+                         index_name,
+                         search_query,
+                         search_mode,
+                         result,
+                         limit,
+                         fuzzy_distance,
+                         fuzzy_prefix,
+                         fuzzy_transpositions]() {
     std::vector<memgraph::storage::TextSearchResult> text_search_results;
     std::optional<std::string> error_msg = std::nullopt;
+    const memgraph::storage::TextSearchConfig config{.limit = limit,
+                                                     .fuzzy_distance = fuzzy_distance,
+                                                     .fuzzy_prefix = fuzzy_prefix != 0,
+                                                     .fuzzy_transpositions = fuzzy_transpositions != 0};
     try {
-      text_search_results = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode, limit);
+      text_search_results = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode, config);
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
@@ -4610,13 +4624,27 @@ mgp_error mgp_graph_aggregate_over_text_edge_index(mgp_graph *graph, const char 
 }
 
 mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
-                                           enum text_search_mode search_mode, std::size_t limit,
-                                           struct mgp_memory *memory, struct mgp_map **result) {
-  return WrapExceptions([graph, memory, index_name, search_query, search_mode, result, limit]() {
+                                           enum text_search_mode search_mode, std::size_t limit, uint8_t fuzzy_distance,
+                                           int fuzzy_prefix, int fuzzy_transpositions, struct mgp_memory *memory,
+                                           struct mgp_map **result) {
+  return WrapExceptions([graph,
+                         memory,
+                         index_name,
+                         search_query,
+                         search_mode,
+                         result,
+                         limit,
+                         fuzzy_distance,
+                         fuzzy_prefix,
+                         fuzzy_transpositions]() {
     std::vector<memgraph::storage::TextEdgeSearchResult> text_edge_search_results;
     std::optional<std::string> error_msg = std::nullopt;
+    const memgraph::storage::TextSearchConfig config{.limit = limit,
+                                                     .fuzzy_distance = fuzzy_distance,
+                                                     .fuzzy_prefix = fuzzy_prefix != 0,
+                                                     .fuzzy_transpositions = fuzzy_transpositions != 0};
     try {
-      text_edge_search_results = graph->getImpl()->SearchEdgeTextIndex(index_name, search_query, search_mode, limit);
+      text_edge_search_results = graph->getImpl()->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }

@@ -197,8 +197,7 @@ class Storage {
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
-          metrics::DatabaseMetricHandles metric_handles = {},
-          memory::ArenaPool *db_arena_pool = nullptr,
+          metrics::DatabaseMetricHandles metric_handles = {}, memory::ArenaPool *db_arena_pool = nullptr,
           utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
           std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
 
@@ -628,8 +627,8 @@ class Accessor {
   }
 
   std::vector<TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                                text_search_mode search_mode, std::size_t limit) const {
-    return transaction_.active_indices_->text_->Search(index_name, search_query, search_mode, limit, transaction_);
+                                                text_search_mode search_mode, const TextSearchConfig &config) const {
+    return transaction_.active_indices_->text_->Search(index_name, search_query, search_mode, config, transaction_);
   }
 
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
@@ -643,8 +642,10 @@ class Accessor {
   }
 
   std::vector<TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name, const std::string &search_query,
-                                                        text_search_mode search_mode, std::size_t limit) const {
-    return transaction_.active_indices_->text_edge_->Search(index_name, search_query, search_mode, limit, transaction_);
+                                                        text_search_mode search_mode,
+                                                        const TextSearchConfig &config) const {
+    return transaction_.active_indices_->text_edge_->Search(
+        index_name, search_query, search_mode, config, transaction_);
   }
 
   virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;

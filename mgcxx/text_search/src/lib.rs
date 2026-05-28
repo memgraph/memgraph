@@ -65,6 +65,10 @@ mod ffi {
         return_fields: Vec<String>,
         aggregation_query: String,
         limit: usize,
+        // 0 disables fuzziness; tantivy caps the value at 2.
+        fuzzy_distance: u8,
+        fuzzy_prefix: bool,
+        fuzzy_transpositions: bool,
         // NOTE: Any primitive value here is a bit of a problem because of default value on the C++
         // side.
     }
@@ -150,6 +154,25 @@ mod ffi {
 impl ffi::SearchInput {
     fn effective_limit(&self) -> usize {
         if self.limit == 0 { 1000 } else { self.limit }
+    }
+}
+
+// No-op when fuzzy_distance == 0; otherwise turns every search field into a fuzzy match.
+fn apply_fuzzy_config(
+    query_parser: &mut QueryParser,
+    search_fields: &[tantivy::schema::Field],
+    input: &ffi::SearchInput,
+) {
+    if input.fuzzy_distance == 0 {
+        return;
+    }
+    for field in search_fields {
+        query_parser.set_field_fuzzy(
+            *field,
+            input.fuzzy_prefix,
+            input.fuzzy_distance,
+            input.fuzzy_transpositions,
+        );
     }
 }
 
@@ -835,7 +858,8 @@ fn search_gids_pinned(
     let schema = &context.tantivyContext.schema;
 
     let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
-    let query_parser = QueryParser::for_index(index, search_fields);
+    let mut query_parser = QueryParser::for_index(index, search_fields.clone());
+    apply_fuzzy_config(&mut query_parser, &search_fields, input);
     let query = query_parser.parse_query(&input.search_query).map_err(|e| {
         Error::new(
             ErrorKind::Other,
@@ -925,7 +949,8 @@ fn search_edge_gids_pinned(
     let schema = &context.tantivyContext.schema;
 
     let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
-    let query_parser = QueryParser::for_index(index, search_fields);
+    let mut query_parser = QueryParser::for_index(index, search_fields.clone());
+    apply_fuzzy_config(&mut query_parser, &search_fields, input);
     let query = query_parser.parse_query(&input.search_query).map_err(|e| {
         Error::new(
             ErrorKind::Other,

@@ -88,6 +88,14 @@ bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
 // Text index change tracking
 enum class TextIndexOp { ADD, UPDATE, REMOVE };
 
+// Keep in sync with mgp::TextSearchConfig in include/mgp.hpp.
+struct TextSearchConfig {
+  std::size_t limit{1000};
+  std::uint8_t fuzzy_distance{0};
+  bool fuzzy_prefix{false};
+  bool fuzzy_transpositions{true};
+};
+
 struct TextIndexSpec {
   bool operator==(const TextIndexSpec &other) const = default;
 

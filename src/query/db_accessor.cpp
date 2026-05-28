@@ -231,8 +231,8 @@ bool DbAccessor::TextIndexExists(const std::string &index_name) const { return a
 std::vector<storage::TextSearchResult> DbAccessor::TextIndexSearch(const std::string &index_name,
                                                                    const std::string &search_query,
                                                                    text_search_mode search_mode,
-                                                                   std::size_t limit) const {
-  return accessor_->TextIndexSearch(index_name, search_query, search_mode, limit);
+                                                                   const storage::TextSearchConfig &config) const {
+  return accessor_->TextIndexSearch(index_name, search_query, search_mode, config);
 }
 
 std::string DbAccessor::TextIndexAggregate(const std::string &index_name, const std::string &search_query,
@@ -245,11 +245,10 @@ std::string DbAccessor::TextEdgeIndexAggregate(const std::string &index_name, co
   return accessor_->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
 }
 
-std::vector<storage::TextEdgeSearchResult> DbAccessor::SearchEdgeTextIndex(const std::string &index_name,
-                                                                           const std::string &search_query,
-                                                                           text_search_mode search_mode,
-                                                                           std::size_t limit) const {
-  return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, limit);
+std::vector<storage::TextEdgeSearchResult> DbAccessor::SearchEdgeTextIndex(
+    const std::string &index_name, const std::string &search_query, text_search_mode search_mode,
+    const storage::TextSearchConfig &config) const {
+  return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
 }
 
 bool DbAccessor::PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
