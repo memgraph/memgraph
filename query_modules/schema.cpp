@@ -72,16 +72,15 @@ void RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 void Assert(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 }  // namespace Schema
 
-/*we have << operator for type in Cpp API, but in it we return somewhat different strings than I would like in this
-module, so I implemented a small function here*/
+// Type names tuned to match the Simba BI connector's recognised set.
 std::string Schema::TypeOf(const mgp::Type &type) {
   switch (type) {
     case mgp::Type::Null:
       return "Null";
     case mgp::Type::Bool:
       return "Boolean";
-    // Memgraph docs call this "Integer", but Simba JDBC empirically maps "Integer" to VARCHAR.
     case mgp::Type::Int:
+      // "Integer" would degrade to VARCHAR in Simba JDBC.
       return "Int";
     case mgp::Type::Double:
       return "Float";
@@ -105,12 +104,12 @@ std::string Schema::TypeOf(const mgp::Type &type) {
       return "LocalDateTime";
     case mgp::Type::Duration:
       return "Duration";
-    // Memgraph docs call this "ZonedDateTime"; we emit "DateTime" because the Simba BI connector
-    // maps "DateTime" -> SQL_TIMESTAMP. Without this rename BI tools degrade the column to VARCHAR.
     case mgp::Type::ZonedDateTime:
+      // "ZonedDateTime" would degrade to VARCHAR; "DateTime" maps to SQL_TIMESTAMP.
       return "DateTime";
     case mgp::Type::Point2d:
     case mgp::Type::Point3d:
+      // Simba JDBC and Neo4j collapse both to "Point".
       return "Point";
     case mgp::Type::Enum:
       return "Enum";
@@ -157,17 +156,20 @@ void AppendPropertyTypes(PropertyInfo &info, const mgp::Value &prop) {
   info.number_of_property_occurrences++;
 }
 
+namespace {
+// Constraints come as "label:property.path"; property paths may contain '.', labels cannot contain ':'.
 std::unordered_map<std::string, std::unordered_set<std::string>> BuildExistenceConstraintsByLabel(
     mgp_graph *memgraph_graph) {
   std::unordered_map<std::string, std::unordered_set<std::string>> by_label;
   for (const auto &c : mgp::ListAllExistenceConstraints(memgraph_graph)) {
-    std::string s(c.ValueString());
-    auto colon = s.find(':');
-    if (colon == std::string::npos) continue;
-    by_label[s.substr(0, colon)].insert(s.substr(colon + 1));
+    std::string_view sv = c.ValueString();
+    auto colon = sv.rfind(':');
+    if (colon == std::string_view::npos) continue;
+    by_label[std::string(sv.substr(0, colon))].insert(std::string(sv.substr(colon + 1)));
   }
   return by_label;
 }
+}  // namespace
 
 struct LabelOrRelTypeInfo {
   std::unordered_map<std::string, PropertyInfo> properties;  // key is a property name
@@ -487,7 +489,7 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
       auto target_list = LabelsToList(key.target_labels);
       for (const auto &[prop_name, prop_info] : labels_info.properties) {
         auto prop_types = PropertyTypesToList(prop_info.property_types);
-        // Memgraph has no rel-type existence constraints; mandatory is always false for relationships.
+        // Memgraph has no rel-type existence constraints.
         const bool mandatory = false;
         auto record = record_factory.NewRecord();
         ProcessPropertiesRel(record,
