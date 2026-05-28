@@ -992,10 +992,10 @@ showDescriptions
     : SHOW DESCRIPTIONS
     ;
 
-// Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' clause.
+// Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' or 'ON CURRENT DATABASE' clause.
 // systemInfoQuery is re-listed so it dispatches to the overridden storageInfo above.
 systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
-storageInfo : STORAGE INFO ( ON DATABASE db=symbolicName )? ;
+storageInfo : STORAGE INFO ( ON ( DATABASE db=symbolicName | CURRENT DATABASE ) )? ;
 
 edgeTypePatternNode
     : '(' ( ':' labelName )+ ')'

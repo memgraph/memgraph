@@ -215,7 +215,7 @@ def get_storage_data(session) -> Tuple[float, float]:
     try:
         data = execute_till_success(session, f"SHOW STORAGE INFO")[0]
         res_data = isolate_value(data, "memory_res")
-        memory_tracker_data = isolate_value(data, "global_memory_tracked")
+        memory_tracker_data = isolate_value(data, "memory_tracked")
         log.info(
             f"Worker {Constants.MONITOR_CLEANUP_FUNCTION} logged memory: memory tracker {memory_tracker_data} vs res data {res_data}"
         )

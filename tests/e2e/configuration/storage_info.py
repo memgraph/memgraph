@@ -16,41 +16,20 @@ import mgclient
 import pytest
 
 default_storage_info_dict = {
-    "name": "memgraph",
-    "database_uuid": "abcd",
-    "vertex_count": 0,
-    "edge_count": 0,
-    "average_degree": 0,
     "vm_max_map_count": 0,  # machine dependent
     "memory_res": "",  # machine dependent
     "peak_memory_res": "",  # machine dependent
-    "unreleased_delta_objects": 0,
-    "global_disk_usage": "",  # machine dependent
-    "global_memory_tracked": "",  # machine dependent
-    "global_runtime_allocation_limit": "",  # machine dependent
-    "global_license_allocation_limit": "",  # license dependent
+    "disk_usage": "",  # machine dependent
+    "memory_tracked": "",  # machine dependent
+    "memory_limit": "",  # machine dependent
+    "license_memory_limit": "",  # license dependent
+    "query+graph_memory_tracked": "",  # machine dependent
+    "vector_index_memory_tracked": "",  # machine dependent
     "global_isolation_level": "SNAPSHOT_ISOLATION",
     "session_isolation_level": "",
     "next_session_isolation_level": "",
-    "storage_mode": "IN_MEMORY_TRANSACTIONAL",
-    "db_memory_tracked": "",  # machine dependent
-    "db_storage_memory_tracked": "",  # machine dependent
-    "db_embedding_memory_tracked": "",  # machine dependent
-    "db_query_memory_tracked": "",  # machine dependent
+    "global_storage_mode": "IN_MEMORY_TRANSACTIONAL",
 }
-
-
-def apply_queries_and_check_for_storage_info(cursor, setup_query_list, expected_values):
-    for query in setup_query_list:
-        cursor.execute(query)
-
-    cursor.execute("SHOW STORAGE INFO")
-    config = cursor.fetchall()
-
-    for conf in config:
-        conf_name = conf[0]
-        if conf_name in expected_values:
-            assert expected_values[conf_name] == conf[1]
 
 
 def test_does_default_config_match():
@@ -63,18 +42,15 @@ def test_does_default_config_match():
 
     # The default value of these is dependent on the given machine.
     machine_dependent_configurations = [
-        "database_uuid",
         "memory_res",
         "peak_memory_res",
-        "global_disk_usage",
-        "global_memory_tracked",
-        "global_runtime_allocation_limit",
-        "global_license_allocation_limit",
-        "db_memory_tracked",
-        "db_storage_memory_tracked",
-        "db_embedding_memory_tracked",
-        "db_query_memory_tracked",
+        "disk_usage",
+        "memory_tracked",
+        "memory_limit",
+        "license_memory_limit",
         "vm_max_map_count",
+        "query+graph_memory_tracked",
+        "vector_index_memory_tracked",
     ]
     # Number of different data-points returned by SHOW STORAGE INFO
     assert len(config) == len(default_storage_info_dict)
@@ -92,39 +68,46 @@ def test_info_change():
 
     cursor = connection.cursor()
 
-    # Check for vertex and edge changes
+    # Check for vertex and edge changes (DB-specific fields)
     setup_query_list = [
         "CREATE(n{id: 1}),(m{id: 2})",
         "MATCH(n),(m) WHERE n.id = 1 AND m.id = 2 CREATE (n)-[r:relation]->(m)",
     ]
-    expected_values = {
-        "vertex_count": 2,
-        "edge_count": 1,
-    }
+    for query in setup_query_list:
+        cursor.execute(query)
 
-    apply_queries_and_check_for_storage_info(cursor, setup_query_list, expected_values)
+    cursor.execute("SHOW STORAGE INFO ON CURRENT DATABASE")
+    config = cursor.fetchall()
+    db_values = {row[0]: row[1] for row in config}
+    assert db_values.get("vertex_count") == 2
+    assert db_values.get("edge_count") == 1
 
-    # Check for isolation level changes
-    setup_query_list = [
+    # Check for isolation level changes (DB-scoped mutations)
+    for query in [
         "SET GLOBAL TRANSACTION ISOLATION LEVEL READ UNCOMMITTED",
         "SET NEXT TRANSACTION ISOLATION LEVEL READ COMMITTED",
         "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED",
-    ]
+    ]:
+        cursor.execute(query)
 
-    expected_values = {
-        "global_isolation_level": "READ_UNCOMMITTED",
-        "session_isolation_level": "READ_COMMITTED",
-        "next_session_isolation_level": "READ_COMMITTED",
-    }
+    cursor.execute("SHOW STORAGE INFO ON CURRENT DATABASE")
+    config = cursor.fetchall()
+    db_values = {row[0]: row[1] for row in config}
+    assert db_values.get("storage_isolation_level") == "READ_UNCOMMITTED"
 
-    apply_queries_and_check_for_storage_info(cursor, setup_query_list, expected_values)
+    # session and next_session isolation levels are returned by the bare query only,
+    # so fetch them separately.
+    cursor.execute("SHOW STORAGE INFO")
+    global_values = {row[0]: row[1] for row in cursor.fetchall()}
+    assert global_values.get("session_isolation_level") == "READ_COMMITTED"
+    assert global_values.get("next_session_isolation_level") == "READ_COMMITTED"
 
-    # Check for storage mode change
-    setup_query_list = ["STORAGE MODE IN_MEMORY_ANALYTICAL"]
-
-    expected_values = {"storage_mode": "IN_MEMORY_ANALYTICAL"}
-
-    apply_queries_and_check_for_storage_info(cursor, setup_query_list, expected_values)
+    # Check for storage mode change (DB-scoped mutation)
+    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL")
+    cursor.execute("SHOW STORAGE INFO ON CURRENT DATABASE")
+    config = cursor.fetchall()
+    db_values = {row[0]: row[1] for row in config}
+    assert db_values.get("storage_mode") == "IN_MEMORY_ANALYTICAL"
 
 
 def test_show_storage_info_on_database():
@@ -159,11 +142,41 @@ def test_show_storage_info_on_database():
     # Session-level fields must NOT be present.
     assert "session_isolation_level" not in config
     assert "next_session_isolation_level" not in config
-    assert "global_memory_tracked" not in config
+    assert "memory_tracked" not in config
 
     assert config["name"] == "memgraph"
     assert config["storage_mode"] in ("IN_MEMORY_TRANSACTIONAL", "IN_MEMORY_ANALYTICAL")
     assert config["tenant_memory_limit"] != "unlimited"
+
+
+def test_show_storage_info_bare_vs_on_current_database():
+    connection = mgclient.connect(host="localhost", port=7687)
+    connection.autocommit = True
+    cursor = connection.cursor()
+
+    cursor.execute("SHOW STORAGE INFO")
+    bare = {row[0]: row[1] for row in cursor.fetchall()}
+
+    cursor.execute("SHOW STORAGE INFO ON CURRENT DATABASE")
+    current = {row[0]: row[1] for row in cursor.fetchall()}
+
+    # Bare/global variant must contain instance-level fields
+    assert "memory_tracked" in bare
+    assert "vm_max_map_count" in bare
+    assert "query+graph_memory_tracked" in bare
+
+    # ON CURRENT DATABASE variant must contain DB-level fields
+    assert "name" in current
+    assert "vertex_count" in current
+    assert "edge_count" in current
+    assert "graph_memory_tracked" in current
+    assert "query_memory_tracked" in current
+
+    # They must NOT contain each other's exclusive fields
+    assert "vertex_count" not in bare
+    assert "name" not in bare
+    assert "memory_tracked" not in current
+    assert "vm_max_map_count" not in current
 
 
 if __name__ == "__main__":

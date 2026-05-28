@@ -4871,9 +4871,28 @@ TEST_P(CypherMainVisitorTest, TestProfileAuthQuery) {
 
 TEST_P(CypherMainVisitorTest, TestShowStorageInfo) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO"));
-  ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::STORAGE);
+  {
+    auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::STORAGE);
+    EXPECT_FALSE(query->database_.has_value());
+    EXPECT_FALSE(query->is_current_database_);
+  }
+  {
+    auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO ON DATABASE memgraph"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::STORAGE);
+    ASSERT_TRUE(query->database_.has_value());
+    EXPECT_EQ(*query->database_, "memgraph");
+    EXPECT_FALSE(query->is_current_database_);
+  }
+  {
+    auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO ON CURRENT DATABASE"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::STORAGE);
+    EXPECT_FALSE(query->database_.has_value());
+    EXPECT_TRUE(query->is_current_database_);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, TestShowIndexInfo) {

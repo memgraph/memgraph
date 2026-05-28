@@ -240,7 +240,7 @@ struct DatabaseMetricHandles {
   // SchemaInfo
   CounterHandle show_schema;
 
-  // StorageInfo
+  // StorageInfo database specific
   CounterHandle show_storage_info;
 
   // Histograms
@@ -332,6 +332,9 @@ struct GlobalMetricHandles {
   prometheus::Histogram *system_recovery_rpc_seconds;
   prometheus::Histogram *update_data_instance_config_rpc_seconds;
   prometheus::Histogram *get_histories_seconds;
+
+  // StorageInfo global/system level
+  prometheus::Counter *show_storage_info;
 };
 
 class PrometheusMetrics {
@@ -348,6 +351,10 @@ class PrometheusMetrics {
   void RemoveDatabase(utils::UUID const &uuid);
   void RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
   void UpdateGauges();
+
+  /// Thread-safe update of the global peak_memory_res_bytes gauge.
+  /// Sets the gauge to max(current, previous) and returns the new peak.
+  uint64_t UpdateAndGetPeakMemoryRes(uint64_t current) const;
 
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
 #ifdef MG_ENTERPRISE

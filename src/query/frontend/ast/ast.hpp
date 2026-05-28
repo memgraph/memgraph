@@ -3130,11 +3130,13 @@ class SystemInfoQuery : public memgraph::query::Query {
 
   memgraph::query::SystemInfoQuery::InfoType info_type_;
   std::optional<std::string> database_;
+  bool is_current_database_{false};
 
   SystemInfoQuery *Clone(AstStorage *storage) const override {
     SystemInfoQuery *object = storage->Create<SystemInfoQuery>();
     object->info_type_ = info_type_;
     object->database_ = database_;
+    object->is_current_database_ = is_current_database_;
     return object;
   }
 };
