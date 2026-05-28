@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "rpc/server.hpp"
+#include "utils/tls.hpp"
 
 namespace memgraph::coordination {
 

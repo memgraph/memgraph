@@ -13,6 +13,7 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "rpc/server.hpp"
+#include "utils/tls.hpp"
 
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {

@@ -15,6 +15,7 @@
 #include <openssl/types.h>
 #include <atomic>
 #include <boost/asio/ssl/context.hpp>
+#include <cstdint>
 #include <expected>
 #include <memory>
 #include <optional>
@@ -36,62 +37,63 @@ namespace memgraph::communication {
  */
 class ClientContext final {
  public:
+  // ClientContext has two operating modes:
+  //   * Standalone — owns its own SSL_CTX, built from constructor args. Used
+  //     by Bolt clients and tests with explicit cert/key/ca paths.
+  //   * ClusterView — delegates to the process-wide `ClusterClientSsl`
+  //     singleton. Used by every intra-cluster client (replication, peer
+  //     coordinator, peer data instance) so they all pick up cert/key/CA
+  //     reload via a single atomic store on the singleton.
+  enum class Mode : std::uint8_t { Standalone, ClusterView };
+
   /**
-   * This constructor constructs a ClientContext that can either not use SSL
-   * (`use_ssl` is `false` by default), or it constructs a ClientContext that
-   * doesn't use a client certificate when `use_ssl` is set to `true`.
+   * Standalone, no SSL (or SSL without a client cert if `use_ssl` is true).
    */
   explicit ClientContext(bool use_ssl = false);
 
   /**
-   * This constructor constructs a ClientContext that uses SSL and uses the
-   * specific client private key and certificate combination. If the parameters
-   * `key_file` and `cert_file` are equal to "" then the constructor falls back
-   * to the above constructor that uses SSL without certificates.
+   * Standalone with client cert+key but no CA verification.
    */
   ClientContext(const std::string &key_file, const std::string &cert_file);
 
   /**
-   * This constructor constructs a ClientContext that uses SSL and uses the
-   * specific client private key and certificate combination. If the parameters
-   * `key_file`, `cert_file`, `ca_file` are equal to "" then the constructor falls back
-   * to the above constructor that uses SSL without certificates.
+   * Standalone with cert+key+CA (full mTLS shape).
    */
   ClientContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file);
+
+  // Produces a ClusterView-mode ClientContext. `ClusterClientSsl::Instance()`
+  // must already be initialized (via memgraph.cpp startup wiring) — otherwise
+  // `context()` will assert.
+  static ClientContext FromClusterSingleton();
 
   // This object can't be copied because the underlying SSL implementation is
   // messy and ownership can't be handled correctly.
   ClientContext(const ClientContext &) = delete;
   ClientContext &operator=(const ClientContext &) = delete;
 
-  // Move constructor/assignment that handle ownership change correctly.
-  ClientContext(ClientContext &&other) noexcept;
-  ClientContext &operator=(ClientContext &&other) noexcept;
+  ClientContext(ClientContext &&other) noexcept = default;
+  ClientContext &operator=(ClientContext &&other) noexcept = default;
 
-  // Destructor that handles ownership of the SSL object.
-  ~ClientContext();
+  ~ClientContext() = default;
 
-  SSL_CTX *context();
+  // Returns the live SSL context. Callers must keep the returned shared_ptr
+  // alive across `SSL_new` — in ClusterView mode the cluster TLS singleton
+  // may swap and drop the previous context concurrently, and SSL_new only
+  // up-refs the underlying SSL_CTX once it actually runs.
+  std::shared_ptr<boost::asio::ssl::context> context();
 
   auto use_ssl() const -> bool;
 
  private:
-  bool use_ssl_;
-  SSL_CTX *ctx_;
-};
+  // Private mode-taking constructor. Only used internally by
+  // FromClusterSingleton to produce a ClusterView. Standalone construction
+  // goes through the public constructors above.
+  explicit ClientContext(Mode mode) : mode_(mode) {}
 
-enum class SSL_CTX_ERR_TYPE : uint8_t {
-  FAIL_CERT_FILE,
-  FAIL_KEY_FILE,
-  FAIL_SET_OPTIONS,
-  FAIL_LOAD_CA,
-  FAIL_SET_SSL_VERIFICATION_MODE,
-  FLAGS_NOT_CONFIGURED
-};
-
-struct SSL_CTX_Error {
-  SSL_CTX_ERR_TYPE err_type;
-  std::string msg;
+  Mode mode_{Mode::Standalone};
+  // Standalone-mode state. Unused (but harmless) in ClusterView.
+  bool use_ssl_{false};
+  std::shared_ptr<boost::asio::ssl::context> ctx_;
 };
 
 /**
@@ -102,17 +104,32 @@ struct SSL_CTX_Error {
  */
 class ServerContext final {
  public:
+  // ServerContext mirrors ClientContext's two-mode shape:
+  //   * Standalone — owns its own SSL_CTX, built from constructor args.
+  //     Used by Bolt's server and by tests.
+  //   * ClusterView — delegates to the process-wide `ClusterServerSsl`
+  //     singleton. Used by every intra-cluster server (replication,
+  //     data-instance management, coordinator-instance management) so they
+  //     all pick up cert/key/CA reload via a single atomic store on the
+  //     singleton.
+  enum class Mode : std::uint8_t { Standalone, ClusterView };
+
   ServerContext() = default;
   /**
-   * This constructor constructs a ServerContext that uses SSL. The parameters
-   * `key_file` and `cert_file` can't be "" because when setting up a server it
-   * is mandatory to supply a private key and certificate. The parameter
-   * `ca_file` can be "" because SSL doesn't necessarily need to check that the
-   * client has a valid certificate. If you specify `verify_peer` to be `true`
-   * to check that the client certificate is valid, then you need to supply a
-   * valid `ca_file` as well.
+   * This constructor constructs a Standalone ServerContext that uses SSL.
+   * The parameters `key_file` and `cert_file` can't be "" because when
+   * setting up a server it is mandatory to supply a private key and
+   * certificate. The parameter `ca_file` can be "" because SSL doesn't
+   * necessarily need to check that the client has a valid certificate. If
+   * you specify `verify_peer` to be `true` to check that the client
+   * certificate is valid, then you need to supply a valid `ca_file` as well.
    */
   ServerContext(std::string key_file, std::string cert_file, std::string ca_file = "", bool verify_peer = false);
+
+  // Produces a ClusterView-mode ServerContext. `ClusterServerSsl::Instance()`
+  // must already be initialized (via memgraph.cpp startup wiring) — otherwise
+  // `context()` will assert.
+  static ServerContext FromClusterSingleton();
 
   // This object can't be copied because the underlying SSL implementation is
   // messy and ownership can't be handled correctly.
@@ -123,14 +140,24 @@ class ServerContext final {
 
   ~ServerContext();
 
-  SSL_CTX *context();
-  boost::asio::ssl::context &context_clone();
+  std::shared_ptr<boost::asio::ssl::context> context_clone();
 
   bool use_ssl() const;
 
-  [[nodiscard]] auto reload() -> std::expected<void, SSL_CTX_Error>;
+  // Reload only makes sense in Standalone mode. In ClusterView mode reload
+  // must go through `ClusterServerSsl::Instance().{Prepare,Commit}` directly;
+  // calling this asserts (the per-class `ReloadTls()` plumbing that used to
+  // call this on cluster contexts is deleted).
+  [[nodiscard]] auto reload() -> std::expected<void, utils::SSL_CTX_Error>;
 
  private:
+  // Private mode-taking constructor. Only used internally by
+  // FromClusterSingleton to produce a ClusterView. Standalone construction
+  // goes through the default ctor or the public cert-file constructor above.
+  explicit ServerContext(Mode mode) : mode_(mode) {}
+
+  Mode mode_{Mode::Standalone};
+  // Standalone-mode state. Unused (but harmless) in ClusterView.
   std::string key_file_;
   std::string cert_file_;
   std::string ca_file_;
@@ -138,19 +165,17 @@ class ServerContext final {
   std::atomic<std::shared_ptr<boost::asio::ssl::context>> ctx_;
 };
 
-// TODO: (andi) Templatize
+// Helpers that pick the right Context shape for a given cluster TLS config.
+// With `tls_config` set, both helpers produce a `ClusterView` Context that
+// delegates to the process-wide cluster TLS singleton; reload happens once
+// at the singleton level. Without `tls_config`, the helpers return a
+// default-constructed Standalone Context (no SSL).
 inline auto CreateServerContext(std::optional<utils::TlsConfig> const &tls_config) -> communication::ServerContext {
-  return tls_config.has_value() ? communication::ServerContext{tls_config->key_file,
-                                                               tls_config->cert_file,
-                                                               tls_config->ca_file,
-                                                               /*verify_peer=*/true}
-                                : communication::ServerContext{};
+  return tls_config.has_value() ? communication::ServerContext::FromClusterSingleton() : communication::ServerContext{};
 }
 
 inline auto CreateClientContext(std::optional<utils::TlsConfig> const &tls_config) -> communication::ClientContext {
-  return tls_config.has_value()
-             ? communication::ClientContext{tls_config->key_file, tls_config->cert_file, tls_config->ca_file}
-             : communication::ClientContext{};
+  return tls_config.has_value() ? communication::ClientContext::FromClusterSingleton() : communication::ClientContext{};
 }
 
 }  // namespace memgraph::communication

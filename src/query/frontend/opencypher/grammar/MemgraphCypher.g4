@@ -112,6 +112,7 @@ memgraphCypherKeyword : cypherKeyword
                       | INSTANCE
                       | INSTANCES
                       | INTEGER
+                      | INTRA_CLUSTER
                       | INVOKER
                       | ISOLATION
                       | JSONL
@@ -168,6 +169,7 @@ memgraphCypherKeyword : cypherKeyword
                       | RECOVER
                       | REGISTER
                       | RELOAD
+                      | RELOAD_TLS
                       | RENAME
                       | REPLACE
                       | REPLICA
@@ -567,6 +569,7 @@ privilege : CREATE
           | PROFILE_RESTRICTION
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
+          | RELOAD_TLS
           ;
 
 granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
@@ -910,7 +913,7 @@ ttlQuery: stopTtlQuery
         | startTtlQuery
         ;
 
-reloadSSLQuery: RELOAD BOLT_SERVER TLS ;
+reloadSSLQuery: RELOAD ( BOLT_SERVER | INTRA_CLUSTER ) TLS ;
 
 typeConstraintType : BOOLEAN
              | STRING
