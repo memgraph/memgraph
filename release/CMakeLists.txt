@@ -129,10 +129,11 @@ set(CPACK_RPM_DEBUGINFO_PACKAGE_NAME "memgraph-debuginfo")
 # in the RPM verbatim.
 #
 # Note: CPack RPM has no CPACK_RPM_<COMPONENT>_SPEC_MORE_DEFINE — only the
-# global form — but the substitution only fires for auto-generated specs.
-# The main `memgraph` component is built from our custom memgraph.spec.in
-# (CPACK_RPM_MEMGRAPH_USER_BINARY_SPECFILE above), which bypasses this
-# template entirely, so the defines here scope cleanly to debuginfo.
+# global form — and CPack DOES substitute @CPACK_RPM_SPEC_MORE_DEFINE@ into
+# user binary specfiles too. Scoping is achieved by deliberately omitting
+# the @CPACK_RPM_SPEC_MORE_DEFINE@ placeholder from
+# release/rpm/memgraph.spec.in, so the substitution only lands in the
+# auto-generated debuginfo spec.
 set(CPACK_RPM_SPEC_MORE_DEFINE [[%define __strip /bin/true
 %global __os_install_post %{nil}
 %global _build_id_links none]])
