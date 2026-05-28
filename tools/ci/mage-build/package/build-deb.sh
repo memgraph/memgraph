@@ -76,9 +76,12 @@ if find "$SCRIPT_DIR/build/usr/lib/memgraph/query_modules" -maxdepth 1 -name '*.
 fi
 if [[ "$HAS_DEBUGINFO" != "true" ]]; then
     echo "No .debug sidecars present — dropping memgraph-mage-debuginfo package from control."
-    # Delete from the "Package: memgraph-mage-debuginfo" line through EOF
-    # so dpkg-buildpackage only emits the main package on this run.
-    sed -i '/^Package: memgraph-mage-debuginfo$/,$d' "$SCRIPT_DIR/debian/control"
+    # Drop only the debuginfo stanza so dpkg-buildpackage emits just the main
+    # package on this run. Treat blank-line-separated stanzas as awk records
+    # so later additions after the debuginfo stanza survive untouched.
+    awk -v RS='' -v ORS='\n\n' '!/^Package: memgraph-mage-debuginfo/' \
+        "$SCRIPT_DIR/debian/control" > "$SCRIPT_DIR/debian/control.tmp"
+    mv "$SCRIPT_DIR/debian/control.tmp" "$SCRIPT_DIR/debian/control"
 fi
 
 # Replace template variables in Debian control files
