@@ -20,13 +20,13 @@
 #include "memory/db_arena_fwd.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
-#include "query/query_logger.hpp"
 #include "query/stream.hpp"
 #include "query/trigger_context.hpp"
 #include "system/transaction.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/memory.hpp"
 #include "utils/priorities.hpp"
+#include "utils/session_context.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -491,12 +491,11 @@ class Interpreter final {
     return system_transaction_ ? &*system_transaction_ : nullptr;
   }
 
-  std::optional<QueryLogger> query_logger_{};
-
-  bool IsQueryLoggingActive() const;
-  void LogQueryMessage(std::string message);
+  memgraph::logging::SessionLogContext *GetLogContext() noexcept { return &session_log_ctx_; }
 
  private:
+  memgraph::logging::SessionLogContext session_log_ctx_{};
+
   void ResetInterpreter() {
     query_executions_.clear();
     system_transaction_.reset();
@@ -672,11 +671,11 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       }
     }
   } catch (const ExplicitTransactionUsageException &e) {
-    LogQueryMessage(e.what());
+    memgraph::logging::EmitSessionTraceEvent("{}", e.what());
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &e) {
-    LogQueryMessage(e.what());
+    memgraph::logging::EmitSessionTraceEvent("{}", e.what());
     metrics::FirstFailedQuery();
     if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
       mh->failed_query.Increment();

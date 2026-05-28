@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <optional>
 
 #include "communication/bolt/v1/constants.hpp"
@@ -26,6 +27,7 @@
 #include "communication/bolt/v1/states/init.hpp"
 #include "communication/metrics.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/session_context.hpp"
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 
@@ -79,7 +81,13 @@ class Session {
    * Goes through the bolt states in order to execute commands from the client.
    */
   template <typename TImpl>
+    requires requires(TImpl &impl) {
+      { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
+    }
   bool Execute_(TImpl &impl) {
+    // Per-message session-trace guard. nullptr is the explicit no-op opt-out (test
+    // fakes, pre-auth); the requires-clause above gives a clean error if omitted.
+    memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
     if (state_ == State::Handshake) [[unlikely]] {
       // Resize the input buffer to ensure that a whole chunk can fit into it.
       // This can be done only once because the buffer holds its size.
