@@ -78,8 +78,7 @@ def test_return_whole_node_redacts_denied_property():
     assert len(result) == 1
     node = result[0][0]
     assert node.properties["name"] == "Alice"
-    assert "ssn" in node.properties
-    assert node.properties["ssn"] is None
+    assert "ssn" not in node.properties
 
 
 def test_where_on_denied_property_returns_no_rows():
@@ -132,8 +131,7 @@ def test_path_traversal_redacts_denied_property():
     # Middle node (Employee) should have ssn redacted
     for node in nodes:
         if "Employee" in node.labels:
-            assert "ssn" in node.properties
-            assert node.properties["ssn"] is None
+            assert "ssn" not in node.properties
             assert node.properties["name"] == "Alice"
 
 

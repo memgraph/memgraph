@@ -290,10 +290,9 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   for (const auto &prop : *maybe_properties) {
     if (auth_checker && !auth_checker->HasPropertyPermission(
                             *maybe_labels, prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
-      properties[db.PropertyToName(prop.first)] = communication::bolt::Value{};
-    } else {
-      properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
+      continue;
     }
+    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)
   auto element_id = std::to_string(id.AsInt());
@@ -314,10 +313,9 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
   for (const auto &prop : *maybe_properties) {
     if (auth_checker && !auth_checker->HasPropertyPermission(
                             edge.EdgeType(), prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
-      properties[db.PropertyToName(prop.first)] = communication::bolt::Value{};
-    } else {
-      properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
+      continue;
     }
+    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)
   const auto element_id = std::to_string(id.AsInt());

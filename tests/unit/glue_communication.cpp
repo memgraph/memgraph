@@ -108,7 +108,7 @@ class ToBoltTest : public ::testing::Test {
   void TearDown() override { std::filesystem::remove_all(data_directory); }
 };
 
-TEST_F(ToBoltTest, PropertyFGAVertexDeniedPropertyIsNull) {
+TEST_F(ToBoltTest, PropertyFGAVertexDeniedPropertyOmitted) {
   auto acc = storage->Access(memgraph::storage::WRITE);
   auto vertex = acc->CreateVertex();
   ASSERT_TRUE(vertex.AddLabel(acc->NameToLabel("Employee")).has_value());
@@ -122,9 +122,9 @@ TEST_F(ToBoltTest, PropertyFGAVertexDeniedPropertyIsNull) {
   ASSERT_TRUE(result.has_value());
 
   auto const &props = result->properties;
-  ASSERT_EQ(props.size(), 2);
+  ASSERT_EQ(props.size(), 1);
   EXPECT_EQ(props.at("name").ValueString(), "Alice");
-  EXPECT_EQ(props.at("ssn").type(), BoltValueType::Null);
+  EXPECT_FALSE(props.contains("ssn"));
 }
 
 TEST_F(ToBoltTest, PropertyFGAVertexGrantedPropertyPresent) {
@@ -164,7 +164,7 @@ TEST_F(ToBoltTest, PropertyFGANullCheckerMeansNoFiltering) {
   EXPECT_EQ(props.at("ssn").ValueString(), "123-45-6789");
 }
 
-TEST_F(ToBoltTest, PropertyFGAEdgeDeniedPropertyIsNull) {
+TEST_F(ToBoltTest, PropertyFGAEdgeDeniedPropertyOmitted) {
   auto acc = storage->Access(memgraph::storage::WRITE);
   auto v1 = acc->CreateVertex();
   auto v2 = acc->CreateVertex();
@@ -179,9 +179,9 @@ TEST_F(ToBoltTest, PropertyFGAEdgeDeniedPropertyIsNull) {
   ASSERT_TRUE(result.has_value());
 
   auto const &props = result->properties;
-  ASSERT_EQ(props.size(), 2);
+  ASSERT_EQ(props.size(), 1);
   EXPECT_EQ(props.at("amount").ValueInt(), 100);
-  EXPECT_EQ(props.at("secret").type(), BoltValueType::Null);
+  EXPECT_FALSE(props.contains("secret"));
 }
 
 TEST_F(ToBoltTest, PropertyFGAMultiLabelDenyOnAnyLabelDenies) {
@@ -198,9 +198,9 @@ TEST_F(ToBoltTest, PropertyFGAMultiLabelDenyOnAnyLabelDenies) {
   ASSERT_TRUE(result.has_value());
 
   auto const &props = result->properties;
-  ASSERT_EQ(props.size(), 2);
+  ASSERT_EQ(props.size(), 1);
   EXPECT_EQ(props.at("name").ValueString(), "Bob");
-  EXPECT_EQ(props.at("ssn").type(), BoltValueType::Null);
+  EXPECT_FALSE(props.contains("ssn"));
 }
 
 #endif
