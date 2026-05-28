@@ -263,5 +263,146 @@ def test_grant_set_property_on_edge_type():
     common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {start_date} ON RELATIONSHIPS WORKS_AT FROM user;")
 
 
+# --- Write-path enforcement tests ---
+
+
+def test_set_property_denied_throws():
+    """SET n.prop fails when user lacks SET PROPERTY permission on that property."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES Employee TO user;")
+    try:
+        with pytest.raises(Exception, match="(?i)property"):
+            common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) SET n.ssn = 'new-ssn';")
+    finally:
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES Employee FROM user;")
+
+
+def test_set_property_allowed_succeeds():
+    """SET n.prop succeeds when user has SET PROPERTY permission."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {name} ON NODES Employee TO user;")
+    try:
+        common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) SET n.name = 'Bob';")
+        result = common.execute_and_fetch_all(admin_cursor(), "MATCH (n:Employee) RETURN n.name;")
+        assert result[0][0] == "Bob"
+    finally:
+        # Restore original value
+        common.execute_and_fetch_all(admin, "MATCH (n:Employee) SET n.name = 'Alice';")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {name} ON NODES Employee FROM user;")
+
+
+def test_set_property_no_write_rules_allows():
+    """SET n.prop succeeds when no SET PROPERTY rules exist (no rules = no restriction)."""
+    admin = admin_cursor()
+    try:
+        common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) SET n.name = 'Bob';")
+        result = common.execute_and_fetch_all(admin, "MATCH (n:Employee) RETURN n.name;")
+        assert result[0][0] == "Bob"
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n:Employee) SET n.name = 'Alice';")
+
+
+def test_remove_property_denied_throws():
+    """REMOVE n.prop fails when user lacks SET PROPERTY permission."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES Employee TO user;")
+    try:
+        with pytest.raises(Exception, match="(?i)property"):
+            common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) REMOVE n.ssn;")
+    finally:
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES Employee FROM user;")
+
+
+def test_set_properties_update_denied_property_throws():
+    """SET n += {prop: val} fails if any property in the map is denied."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES Employee TO user;")
+    try:
+        with pytest.raises(Exception, match="(?i)property"):
+            common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) SET n += {ssn: '000', name: 'Bob'};")
+    finally:
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES Employee FROM user;")
+
+
+def test_set_properties_replace_denied_property_throws():
+    """SET n = {prop: val} fails if any property being set or removed is denied."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES Employee TO user;")
+    try:
+        # This replaces all properties. Even though ssn isn't in the new map,
+        # it would be removed, which requires write permission.
+        with pytest.raises(Exception, match="(?i)property"):
+            common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) SET n = {name: 'Bob'};")
+    finally:
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES Employee FROM user;")
+
+
+def test_create_node_denied_property_throws():
+    """CREATE with a denied property fails."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES Employee TO user;")
+    try:
+        with pytest.raises(Exception, match="(?i)property"):
+            common.execute_and_fetch_all(user_cursor(), "CREATE (:Employee {name: 'Eve', ssn: '999'});")
+    finally:
+        # Clean up in case it did get created
+        common.execute_and_fetch_all(admin, "MATCH (n:Employee {name: 'Eve'}) DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES Employee FROM user;")
+
+
+def test_create_node_allowed_succeeds():
+    """CREATE with only allowed properties succeeds."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {name} ON NODES Employee TO user;")
+    try:
+        common.execute_and_fetch_all(user_cursor(), "CREATE (:Employee {name: 'Eve'});")
+        result = common.execute_and_fetch_all(admin_cursor(), "MATCH (n:Employee {name: 'Eve'}) RETURN n.name;")
+        assert len(result) == 1
+        assert result[0][0] == "Eve"
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n:Employee {name: 'Eve'}) DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {name} ON NODES Employee FROM user;")
+
+
+def test_create_edge_denied_property_throws():
+    """CREATE edge with a denied property fails."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON RELATIONSHIPS WORKS_AT TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {secret_code} ON RELATIONSHIPS WORKS_AT TO user;")
+    try:
+        with pytest.raises(Exception, match="(?i)property"):
+            common.execute_and_fetch_all(
+                user_cursor(),
+                "MATCH (e:Employee {name: 'Alice'}), (c:Company {name: 'Acme'}) "
+                "CREATE (e)-[:WORKS_AT {secret_code: 'Y99'}]->(c);",
+            )
+    finally:
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON RELATIONSHIPS WORKS_AT FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {secret_code} ON RELATIONSHIPS WORKS_AT FROM user;")
+
+
+def test_set_edge_property_denied_throws():
+    """SET on edge property fails when denied."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON RELATIONSHIPS WORKS_AT TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {secret_code} ON RELATIONSHIPS WORKS_AT TO user;")
+    try:
+        with pytest.raises(Exception, match="(?i)property"):
+            common.execute_and_fetch_all(user_cursor(), "MATCH ()-[r:WORKS_AT]->() SET r.secret_code = 'hacked';")
+    finally:
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON RELATIONSHIPS WORKS_AT FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {secret_code} ON RELATIONSHIPS WORKS_AT FROM user;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

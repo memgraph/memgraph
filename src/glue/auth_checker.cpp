@@ -356,6 +356,8 @@ bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId co
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
+  auto const perm_type = type == query::AuthQuery::PropertyPermissionType::WRITE ? auth::PropertyPermissionType::WRITE
+                                                                                 : auth::PropertyPermissionType::READ;
   auto const &permissions = GetCachedPropertyLabelPermissions();
   auto const &rules = permissions.GetRules();
   auto const &prop_name = dba_->PropertyToName(property);
@@ -364,10 +366,10 @@ bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId co
   for (auto label : labels) {
     auto const &label_name = dba_->LabelToName(label);
     if (!rules.contains(label_name)) continue;
-    any_rules = true;
-    auto level = permissions.Has(label_name, prop_name);
+    auto level = permissions.Has(label_name, prop_name, perm_type);
     if (level == auth::PermissionLevel::DENY) return false;
     if (level == auth::PermissionLevel::GRANT) any_grant = true;
+    if (level != auth::PermissionLevel::NEUTRAL) any_rules = true;
   }
   if (!any_rules) return true;
   return any_grant;
@@ -379,11 +381,14 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
+  auto const perm_type = type == query::AuthQuery::PropertyPermissionType::WRITE ? auth::PropertyPermissionType::WRITE
+                                                                                 : auth::PropertyPermissionType::READ;
   auto const &permissions = GetCachedPropertyEdgeTypePermissions();
   auto const &edge_type_name = dba_->EdgeTypeToName(edge_type);
   if (!permissions.GetRules().contains(edge_type_name)) return true;
   auto const &prop_name = dba_->PropertyToName(property);
-  return permissions.Has(edge_type_name, prop_name) != auth::PermissionLevel::DENY;
+  auto level = permissions.Has(edge_type_name, prop_name, perm_type);
+  return level != auth::PermissionLevel::DENY;
 }
 
 bool FineGrainedAuthChecker::IsPropertyVisible(std::string const &property_name,
