@@ -51,7 +51,7 @@ void AsyncIndexer::Clear() {
 }
 
 bool AsyncIndexer::IsIdle() const {
-  // Lock-free; safe under any other lock (including storage main_lock_ UNIQUE).
+  // Lock-free.
   return (request_queue_.size() == 0 && !is_processing_.load()) || HasThreadStopped();
 }
 
