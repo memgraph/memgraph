@@ -71,11 +71,12 @@ function(mg_split_debug target)
         #      core-dumper use when there's no binary to anchor the lookup
         #      from (e.g. resolving symbols from a bare core).
         # CMake 3.24+ exposes the build-id via file(READ_ELF ... BUILD_ID).
-        # The symlink is relative so it survives chroot / container rebasing.
-        # Symlink lives at <prefix>/lib/debug/.build-id/<aa>/<rest>.debug —
-        # four levels under <prefix> — so the target is always "../../../../"
-        # plus MGSD_INSTALL_DESTINATION plus the basename, regardless of how
-        # deep MGSD_INSTALL_DESTINATION itself is.
+        # file(RELATIVE_PATH ...) computes the link target from the symlink
+        # parent dir to the .debug file's actual location, so the result is
+        # whatever traversal is correct given where each ends up under
+        # CMAKE_INSTALL_PREFIX — no hardcoded "../"s to drift out of sync
+        # if either path is ever relocated. The target stays relative so the
+        # link still resolves under chroot / container rebasing / DESTDIR.
         install(CODE "
             set(_debug_file \"\${CMAKE_INSTALL_PREFIX}/${MGSD_INSTALL_DESTINATION}/$<TARGET_FILE_NAME:${target}>.debug\")
             if(EXISTS \"\${_debug_file}\")
@@ -85,8 +86,9 @@ function(mg_split_debug target)
                     string(SUBSTRING \"\${_bid}\" 2 -1 _rest)
                     set(_link_dir \"\${CMAKE_INSTALL_PREFIX}/lib/debug/.build-id/\${_aa}\")
                     file(MAKE_DIRECTORY \"\${_link_dir}\")
+                    file(RELATIVE_PATH _rel_target \"\${_link_dir}\" \"\${_debug_file}\")
                     file(CREATE_LINK
-                        \"../../../../${MGSD_INSTALL_DESTINATION}/$<TARGET_FILE_NAME:${target}>.debug\"
+                        \"\${_rel_target}\"
                         \"\${_link_dir}/\${_rest}.debug\"
                         SYMBOLIC)
                 endif()
