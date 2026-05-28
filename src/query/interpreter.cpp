@@ -1005,6 +1005,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   auto property_permissions = auth_query->property_permissions_;
   auto property_entity_name = auth_query->property_entity_name_;
   auto property_entity_type = auth_query->property_entity_type_;
+  auto property_permission_type = auth_query->property_permission_type_ == AuthQuery::PropertyPermissionType::WRITE
+                                      ? auth::PropertyPermissionType::WRITE
+                                      : auth::PropertyPermissionType::READ;
 #endif
   auto password = EvaluateOptionalExpression(auth_query->password_, evaluator);
 
@@ -1830,6 +1833,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                      properties = std::move(property_permissions),
                      entity_name = std::move(property_entity_name),
                      property_entity_type,
+                     property_permission_type,
                      entity_type,
                      interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
@@ -1838,16 +1842,31 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         auto *system_tx = &*interpreter->system_transaction_;
         switch (action) {
           case AuthQuery::Action::GRANT_PROPERTY_PERMISSION:
-            auth->GrantPropertyPermission(
-                user_or_role, properties, entity_name, property_entity_type, entity_type, system_tx);
+            auth->GrantPropertyPermission(user_or_role,
+                                          properties,
+                                          entity_name,
+                                          property_entity_type,
+                                          entity_type,
+                                          property_permission_type,
+                                          system_tx);
             break;
           case AuthQuery::Action::DENY_PROPERTY_PERMISSION:
-            auth->DenyPropertyPermission(
-                user_or_role, properties, entity_name, property_entity_type, entity_type, system_tx);
+            auth->DenyPropertyPermission(user_or_role,
+                                         properties,
+                                         entity_name,
+                                         property_entity_type,
+                                         entity_type,
+                                         property_permission_type,
+                                         system_tx);
             break;
           case AuthQuery::Action::REVOKE_PROPERTY_PERMISSION:
-            auth->RevokePropertyPermission(
-                user_or_role, properties, entity_name, property_entity_type, entity_type, system_tx);
+            auth->RevokePropertyPermission(user_or_role,
+                                           properties,
+                                           entity_name,
+                                           property_entity_type,
+                                           entity_type,
+                                           property_permission_type,
+                                           system_tx);
             break;
           default:
             LOG_FATAL("Unexpected property permission action");

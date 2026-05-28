@@ -348,30 +348,35 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
 
   auto emit = [&](memgraph::auth::PropertyAccessPermissions const &perms, std::string_view entity_kind) {
     for (auto const &[entity, prop_map] : perms.GetRules()) {
-      std::vector<std::string> granted;
-      std::vector<std::string> denied;
-      for (auto const &[prop, perm] : prop_map) {
-        auto const read_bit = static_cast<uint8_t>(memgraph::auth::PropertyPermissionType::READ);
-        if (perm.grants & read_bit) {
-          granted.push_back(prop);
-        } else if (perm.denies & read_bit) {
-          denied.push_back(prop);
+      auto emit_for_type = [&](memgraph::auth::PropertyPermissionType perm_type, std::string_view type_label) {
+        auto const bit = static_cast<uint8_t>(perm_type);
+        std::vector<std::string> granted;
+        std::vector<std::string> denied;
+        for (auto const &[prop, perm] : prop_map) {
+          if (perm.grants & bit) {
+            granted.push_back(prop);
+          } else if (perm.denies & bit) {
+            denied.push_back(prop);
+          }
         }
-      }
-      std::ranges::sort(granted);
-      std::ranges::sort(denied);
+        std::ranges::sort(granted);
+        std::ranges::sort(denied);
 
-      auto emit_row = [&](std::vector<std::string> const &props, std::string_view level, std::string_view verb) {
-        auto prop_list = memgraph::utils::Join(props, ", ");
-        auto privilege = fmt::format("READ {{{}}} ON {} :{}", prop_list, entity_kind, entity);
-        auto description = fmt::format("PROPERTY PERMISSION {} TO {}", verb, user_or_role_str);
-        result.push_back({memgraph::query::TypedValue(std::move(privilege)),
-                          memgraph::query::TypedValue(std::string(level)),
-                          memgraph::query::TypedValue(std::move(description))});
+        auto emit_row = [&](std::vector<std::string> const &props, std::string_view level, std::string_view verb) {
+          auto prop_list = memgraph::utils::Join(props, ", ");
+          auto privilege = fmt::format("{} {{{}}} ON {} :{}", type_label, prop_list, entity_kind, entity);
+          auto description = fmt::format("PROPERTY PERMISSION {} TO {}", verb, user_or_role_str);
+          result.push_back({memgraph::query::TypedValue(std::move(privilege)),
+                            memgraph::query::TypedValue(std::string(level)),
+                            memgraph::query::TypedValue(std::move(description))});
+        };
+
+        if (!granted.empty()) emit_row(granted, "GRANT", "GRANTED");
+        if (!denied.empty()) emit_row(denied, "DENY", "DENIED");
       };
 
-      if (!granted.empty()) emit_row(granted, "GRANT", "GRANTED");
-      if (!denied.empty()) emit_row(denied, "DENY", "DENIED");
+      emit_for_type(memgraph::auth::PropertyPermissionType::READ, "READ");
+      emit_for_type(memgraph::auth::PropertyPermissionType::WRITE, "SET PROPERTY");
     }
   };
 
@@ -1383,42 +1388,48 @@ void AuthQueryHandler::GrantPropertyPermission(const std::string &user_or_role,
                                                const std::vector<std::string> &properties,
                                                const std::string &entity_name,
                                                query::AuthQuery::PropertyEntityType entity_type,
-                                               auth::UserOrRoleType type, system::Transaction *system_tx) {
-  EditPropertyPermission(user_or_role,
-                         properties,
-                         entity_name,
-                         entity_type,
-                         type,
-                         system_tx,
-                         [](auto &perms, auto const &entity, auto const &prop) { perms.Grant(entity, prop); });
+                                               auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
+                                               system::Transaction *system_tx) {
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_name,
+      entity_type,
+      type,
+      system_tx,
+      [perm_type](auto &perms, auto const &entity, auto const &prop) { perms.Grant(entity, prop, perm_type); });
 }
 
 void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
                                               const std::vector<std::string> &properties,
                                               const std::string &entity_name,
                                               query::AuthQuery::PropertyEntityType entity_type,
-                                              auth::UserOrRoleType type, system::Transaction *system_tx) {
-  EditPropertyPermission(user_or_role,
-                         properties,
-                         entity_name,
-                         entity_type,
-                         type,
-                         system_tx,
-                         [](auto &perms, auto const &entity, auto const &prop) { perms.Deny(entity, prop); });
+                                              auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
+                                              system::Transaction *system_tx) {
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_name,
+      entity_type,
+      type,
+      system_tx,
+      [perm_type](auto &perms, auto const &entity, auto const &prop) { perms.Deny(entity, prop, perm_type); });
 }
 
 void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
                                                 const std::vector<std::string> &properties,
                                                 const std::string &entity_name,
                                                 query::AuthQuery::PropertyEntityType entity_type,
-                                                auth::UserOrRoleType type, system::Transaction *system_tx) {
-  EditPropertyPermission(user_or_role,
-                         properties,
-                         entity_name,
-                         entity_type,
-                         type,
-                         system_tx,
-                         [](auto &perms, auto const &entity, auto const &prop) { perms.Revoke(entity, prop); });
+                                                auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
+                                                system::Transaction *system_tx) {
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_name,
+      entity_type,
+      type,
+      system_tx,
+      [perm_type](auto &perms, auto const &entity, auto const &prop) { perms.Revoke(entity, prop, perm_type); });
 }
 
 void AuthQueryHandler::CreateProfile(const std::string &profile_name,
