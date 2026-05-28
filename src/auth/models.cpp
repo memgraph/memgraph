@@ -666,24 +666,50 @@ bool operator!=(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 
 // --- PropertyAccessPermissions ---
 
-void PropertyAccessPermissions::Grant(std::string const &entity, std::string const &property) {
-  rules_[entity][property] = PropertyPermission::GRANT;
+namespace {
+PermissionLevel CheckBit(PropertyPermission const &perm, uint8_t bit) {
+  if (perm.denies & bit) return PermissionLevel::DENY;
+  if (perm.grants & bit) return PermissionLevel::GRANT;
+  return PermissionLevel::NEUTRAL;
+}
+}  // namespace
+
+void PropertyAccessPermissions::Grant(std::string const &entity, std::string const &property,
+                                      PropertyPermissionType type) {
+  auto const bit = static_cast<uint8_t>(type);
+  auto &perm = rules_[entity][property];
+  perm.grants |= bit;
+  perm.denies &= ~bit;
 }
 
-void PropertyAccessPermissions::Deny(std::string const &entity, std::string const &property) {
-  rules_[entity][property] = PropertyPermission::DENY;
+void PropertyAccessPermissions::Deny(std::string const &entity, std::string const &property,
+                                     PropertyPermissionType type) {
+  auto const bit = static_cast<uint8_t>(type);
+  auto &perm = rules_[entity][property];
+  perm.denies |= bit;
+  perm.grants &= ~bit;
 }
 
-void PropertyAccessPermissions::Revoke(std::string const &entity, std::string const &property) {
+void PropertyAccessPermissions::Revoke(std::string const &entity, std::string const &property,
+                                       PropertyPermissionType type) {
   auto entity_it = rules_.find(entity);
   if (entity_it == rules_.end()) return;
-  entity_it->second.erase(property);
-  if (entity_it->second.empty()) {
-    rules_.erase(entity_it);
+  auto prop_it = entity_it->second.find(property);
+  if (prop_it == entity_it->second.end()) return;
+  auto const bit = static_cast<uint8_t>(type);
+  prop_it->second.grants &= ~bit;
+  prop_it->second.denies &= ~bit;
+  if (prop_it->second.grants == 0 && prop_it->second.denies == 0) {
+    entity_it->second.erase(prop_it);
+    if (entity_it->second.empty()) {
+      rules_.erase(entity_it);
+    }
   }
 }
 
-PermissionLevel PropertyAccessPermissions::Has(std::string const &entity, std::string const &property) const {
+PermissionLevel PropertyAccessPermissions::Has(std::string const &entity, std::string const &property,
+                                               PropertyPermissionType type) const {
+  auto const bit = static_cast<uint8_t>(type);
   auto entity_it = rules_.find(entity);
   if (entity_it == rules_.end()) return PermissionLevel::NEUTRAL;
 
@@ -692,13 +718,14 @@ PermissionLevel PropertyAccessPermissions::Has(std::string const &entity, std::s
   // Check explicit property rule first
   auto prop_it = props.find(property);
   if (prop_it != props.end()) {
-    return prop_it->second == PropertyPermission::DENY ? PermissionLevel::DENY : PermissionLevel::GRANT;
+    auto level = CheckBit(prop_it->second, bit);
+    if (level != PermissionLevel::NEUTRAL) return level;
   }
 
   // Check wildcard
   auto wildcard_it = props.find("*");
   if (wildcard_it != props.end()) {
-    return wildcard_it->second == PropertyPermission::DENY ? PermissionLevel::DENY : PermissionLevel::GRANT;
+    return CheckBit(wildcard_it->second, bit);
   }
 
   return PermissionLevel::NEUTRAL;
@@ -709,7 +736,7 @@ nlohmann::json PropertyAccessPermissions::Serialize() const {
   for (auto const &[entity, props] : rules_) {
     nlohmann::json props_json = nlohmann::json::object();
     for (auto const &[prop, perm] : props) {
-      props_json[prop] = perm == PropertyPermission::GRANT ? "GRANT" : "DENY";
+      props_json[prop] = {{"grants", perm.grants}, {"denies", perm.denies}};
     }
     data[entity] = props_json;
   }
@@ -722,12 +749,19 @@ PropertyAccessPermissions PropertyAccessPermissions::Deserialize(nlohmann::json 
   for (auto const &[entity, props_json] : data.items()) {
     if (!props_json.is_object()) continue;
     for (auto const &[prop, perm_json] : props_json.items()) {
-      if (!perm_json.is_string()) continue;
-      auto const perm_str = perm_json.get<std::string>();
-      if (perm_str == "GRANT") {
-        result.Grant(entity, prop);
-      } else if (perm_str == "DENY") {
-        result.Deny(entity, prop);
+      if (perm_json.is_string()) {
+        // Old format: "GRANT" / "DENY" → interpret as READ only
+        auto const &perm_str = perm_json.get_ref<nlohmann::json::string_t const &>();
+        if (perm_str == "GRANT") {
+          result.Grant(entity, prop, PropertyPermissionType::READ);
+        } else if (perm_str == "DENY") {
+          result.Deny(entity, prop, PropertyPermissionType::READ);
+        }
+      } else if (perm_json.is_object()) {
+        // New format: {"grants": N, "denies": N}
+        auto &perm = result.rules_[entity][prop];
+        perm.grants = perm_json.value("grants", uint8_t{0});
+        perm.denies = perm_json.value("denies", uint8_t{0});
       }
     }
   }
@@ -767,11 +801,14 @@ PropertyAccessPermissions Merge(PropertyAccessPermissions const &first, Property
   PropertyAccessPermissions result = first;
   for (auto const &[entity, props] : second.GetRules()) {
     for (auto const &[prop, perm] : props) {
-      auto current = result.Has(entity, prop);
-      if (perm == PropertyPermission::DENY) {
-        result.Deny(entity, prop);
-      } else if (current == PermissionLevel::NEUTRAL) {
-        result.Grant(entity, prop);
+      for (auto type : {PropertyPermissionType::READ, PropertyPermissionType::WRITE}) {
+        auto second_level = CheckBit(perm, static_cast<uint8_t>(type));
+        if (second_level == PermissionLevel::DENY) {
+          result.Deny(entity, prop, type);
+        } else if (second_level == PermissionLevel::GRANT &&
+                   result.Has(entity, prop, type) == PermissionLevel::NEUTRAL) {
+          result.Grant(entity, prop, type);
+        }
       }
     }
   }

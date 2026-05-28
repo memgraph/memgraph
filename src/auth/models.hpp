@@ -411,17 +411,28 @@ bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 #endif
 
 #ifdef MG_ENTERPRISE
-enum class PropertyPermission : uint8_t { GRANT, DENY };
+enum class PropertyPermissionType : uint8_t { NONE = 0, READ = 0x01, WRITE = 0x02 };
+
+struct PropertyPermission {
+  uint8_t grants{std::to_underlying(PropertyPermissionType::NONE)};
+  uint8_t denies{std::to_underlying(PropertyPermissionType::NONE)};
+
+  bool operator==(PropertyPermission const &) const = default;
+};
 
 class PropertyAccessPermissions final {
  public:
   PropertyAccessPermissions() = default;
 
-  void Grant(std::string const &entity, std::string const &property);
-  void Deny(std::string const &entity, std::string const &property);
-  void Revoke(std::string const &entity, std::string const &property);
+  void Grant(std::string const &entity, std::string const &property,
+             PropertyPermissionType type = PropertyPermissionType::READ);
+  void Deny(std::string const &entity, std::string const &property,
+            PropertyPermissionType type = PropertyPermissionType::READ);
+  void Revoke(std::string const &entity, std::string const &property,
+              PropertyPermissionType type = PropertyPermissionType::READ);
 
-  PermissionLevel Has(std::string const &entity, std::string const &property) const;
+  PermissionLevel Has(std::string const &entity, std::string const &property,
+                      PropertyPermissionType type = PropertyPermissionType::READ) const;
 
   nlohmann::json Serialize() const;
   static PropertyAccessPermissions Deserialize(nlohmann::json const &data);

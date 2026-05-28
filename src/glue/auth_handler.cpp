@@ -351,7 +351,12 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
       std::vector<std::string> granted;
       std::vector<std::string> denied;
       for (auto const &[prop, perm] : prop_map) {
-        (perm == memgraph::auth::PropertyPermission::GRANT ? granted : denied).push_back(prop);
+        auto const read_bit = static_cast<uint8_t>(memgraph::auth::PropertyPermissionType::READ);
+        if (perm.grants & read_bit) {
+          granted.push_back(prop);
+        } else if (perm.denies & read_bit) {
+          denied.push_back(prop);
+        }
       }
       std::ranges::sort(granted);
       std::ranges::sort(denied);

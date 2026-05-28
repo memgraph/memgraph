@@ -1608,6 +1608,245 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsMerge) {
   }
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissionsReadWriteIndependence) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  using memgraph::auth::PropertyPermissionType;
+
+  // Grant READ only — WRITE stays NEUTRAL
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
+  }
+
+  // Grant WRITE only — READ stays NEUTRAL
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "ssn", PropertyPermissionType::WRITE);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  }
+
+  // Grant both READ and WRITE
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "ssn", PropertyPermissionType::READ);
+    perms.Grant("Employee", "ssn", PropertyPermissionType::WRITE);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  }
+
+  // Deny READ only — WRITE stays NEUTRAL
+  {
+    PropertyAccessPermissions perms;
+    perms.Deny("Employee", "ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
+  }
+
+  // Deny WRITE only — READ stays NEUTRAL
+  {
+    PropertyAccessPermissions perms;
+    perms.Deny("Employee", "ssn", PropertyPermissionType::WRITE);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::DENY);
+  }
+
+  // Grant READ, Deny WRITE on same property
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "ssn", PropertyPermissionType::READ);
+    perms.Deny("Employee", "ssn", PropertyPermissionType::WRITE);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::DENY);
+  }
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsReadWriteWildcard) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  using memgraph::auth::PropertyPermissionType;
+
+  // Wildcard READ grant, specific WRITE deny
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "*", PropertyPermissionType::READ);
+    perms.Deny("Employee", "ssn", PropertyPermissionType::WRITE);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
+  }
+
+  // Wildcard WRITE grant, specific READ deny
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "*", PropertyPermissionType::WRITE);
+    perms.Deny("Employee", "ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+  }
+
+  // Wildcard grant both, specific deny READ
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "*", PropertyPermissionType::READ);
+    perms.Grant("Employee", "*", PropertyPermissionType::WRITE);
+    perms.Deny("Employee", "ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  }
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsReadWriteRevoke) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  using memgraph::auth::PropertyPermissionType;
+
+  // Revoke READ leaves WRITE intact
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "ssn", PropertyPermissionType::READ);
+    perms.Grant("Employee", "ssn", PropertyPermissionType::WRITE);
+    perms.Revoke("Employee", "ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  }
+
+  // Revoke WRITE leaves READ intact
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "ssn", PropertyPermissionType::READ);
+    perms.Grant("Employee", "ssn", PropertyPermissionType::WRITE);
+    perms.Revoke("Employee", "ssn", PropertyPermissionType::WRITE);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
+  }
+
+  // Revoke both removes the entry entirely
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "ssn", PropertyPermissionType::READ);
+    perms.Grant("Employee", "ssn", PropertyPermissionType::WRITE);
+    perms.Revoke("Employee", "ssn", PropertyPermissionType::READ);
+    perms.Revoke("Employee", "ssn", PropertyPermissionType::WRITE);
+    EXPECT_TRUE(perms.GetRules().empty());
+  }
+
+  // Revoke READ with wildcard fallback
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant("Employee", "*", PropertyPermissionType::READ);
+    perms.Grant("Employee", "*", PropertyPermissionType::WRITE);
+    perms.Deny("Employee", "ssn", PropertyPermissionType::READ);
+    perms.Revoke("Employee", "ssn", PropertyPermissionType::READ);
+    // After revoking specific READ deny, falls back to wildcard READ grant
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  }
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsReadWriteSerializeRoundtrip) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  using memgraph::auth::PropertyPermissionType;
+
+  PropertyAccessPermissions perms;
+  perms.Grant("Employee", "*", PropertyPermissionType::READ);
+  perms.Deny("Employee", "ssn", PropertyPermissionType::READ);
+  perms.Grant("Employee", "salary", PropertyPermissionType::WRITE);
+  perms.Grant("PAID", "amount", PropertyPermissionType::READ);
+  perms.Grant("PAID", "amount", PropertyPermissionType::WRITE);
+
+  auto json = perms.Serialize();
+  auto deserialized = PropertyAccessPermissions::Deserialize(json);
+
+  EXPECT_EQ(deserialized.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(deserialized.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(deserialized.Has("Employee", "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.Has("Employee", "salary", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.Has("Employee", "salary", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.Has("PAID", "amount", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.Has("PAID", "amount", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  EXPECT_EQ(perms, deserialized);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsDeserializeOldFormat) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  using memgraph::auth::PropertyPermissionType;
+
+  // Old format: {"Employee": {"ssn": "DENY", "*": "GRANT"}, "PAID": {"amount": "GRANT"}}
+  // Should deserialize as READ-only permissions (backwards compat)
+  nlohmann::json old_format = {{"Employee", {{"ssn", "DENY"}, {"*", "GRANT"}}}, {"PAID", {{"amount", "GRANT"}}}};
+
+  auto perms = PropertyAccessPermissions::Deserialize(old_format);
+  EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(perms.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms.Has("PAID", "amount", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has("PAID", "amount", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsReadWriteMerge) {
+  using memgraph::auth::Merge;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  using memgraph::auth::PropertyPermissionType;
+
+  // DENY READ in second overrides GRANT READ in first; WRITE unaffected
+  {
+    PropertyAccessPermissions first;
+    first.Grant("Employee", "ssn", PropertyPermissionType::READ);
+    first.Grant("Employee", "ssn", PropertyPermissionType::WRITE);
+    PropertyAccessPermissions second;
+    second.Deny("Employee", "ssn", PropertyPermissionType::READ);
+    auto merged = Merge(first, second);
+    EXPECT_EQ(merged.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+    EXPECT_EQ(merged.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  }
+
+  // DENY WRITE in second overrides GRANT WRITE in first; READ unaffected
+  {
+    PropertyAccessPermissions first;
+    first.Grant("Employee", "ssn", PropertyPermissionType::READ);
+    first.Grant("Employee", "ssn", PropertyPermissionType::WRITE);
+    PropertyAccessPermissions second;
+    second.Deny("Employee", "ssn", PropertyPermissionType::WRITE);
+    auto merged = Merge(first, second);
+    EXPECT_EQ(merged.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(merged.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::DENY);
+  }
+
+  // GRANT WRITE in second fills NEUTRAL WRITE in first
+  {
+    PropertyAccessPermissions first;
+    first.Grant("Employee", "ssn", PropertyPermissionType::READ);
+    PropertyAccessPermissions second;
+    second.Grant("Employee", "ssn", PropertyPermissionType::WRITE);
+    auto merged = Merge(first, second);
+    EXPECT_EQ(merged.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(merged.Has("Employee", "ssn", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  }
+
+  // GRANT READ in second does NOT override DENY READ in first
+  {
+    PropertyAccessPermissions first;
+    first.Deny("Employee", "ssn", PropertyPermissionType::READ);
+    PropertyAccessPermissions second;
+    second.Grant("Employee", "ssn", PropertyPermissionType::READ);
+    auto merged = Merge(first, second);
+    EXPECT_EQ(merged.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  }
+}
+
 TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
   const std::string any_label = "AnyString";
   const std::string check_label = "Label";
