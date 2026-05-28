@@ -60,5 +60,37 @@ function(mg_split_debug target)
             DESTINATION ${MGSD_INSTALL_DESTINATION}
             COMPONENT debuginfo
             OPTIONAL)
+
+        # Also lay down a build-id-indexed symlink at
+        # /usr/lib/debug/.build-id/<aa>/<rest>.debug -> ../../../<dest>/<file>.debug
+        # so the debuginfo package is discoverable through both lookup paths
+        # gdb / lldb / debuginfod use:
+        #   1. .gnu_debuglink next to the binary (already covered by the
+        #      sibling .debug file above), and
+        #   2. the FHS-standard build-id path that debuginfod and the kernel
+        #      core-dumper use when there's no binary to anchor the lookup
+        #      from (e.g. resolving symbols from a bare core).
+        # CMake 3.24+ exposes the build-id via file(READ_ELF ... BUILD_ID).
+        # The symlink is relative so it survives chroot / container rebasing.
+        # Symlink lives at <prefix>/lib/debug/.build-id/<aa>/<rest>.debug —
+        # four levels under <prefix> — so the target is always "../../../../"
+        # plus MGSD_INSTALL_DESTINATION plus the basename, regardless of how
+        # deep MGSD_INSTALL_DESTINATION itself is.
+        install(CODE "
+            set(_debug_file \"\${CMAKE_INSTALL_PREFIX}/${MGSD_INSTALL_DESTINATION}/$<TARGET_FILE_NAME:${target}>.debug\")
+            if(EXISTS \"\${_debug_file}\")
+                file(READ_ELF \"\${_debug_file}\" BUILD_ID _bid)
+                if(_bid)
+                    string(SUBSTRING \"\${_bid}\" 0 2 _aa)
+                    string(SUBSTRING \"\${_bid}\" 2 -1 _rest)
+                    set(_link_dir \"\${CMAKE_INSTALL_PREFIX}/lib/debug/.build-id/\${_aa}\")
+                    file(MAKE_DIRECTORY \"\${_link_dir}\")
+                    file(CREATE_LINK
+                        \"../../../../${MGSD_INSTALL_DESTINATION}/$<TARGET_FILE_NAME:${target}>.debug\"
+                        \"\${_link_dir}/\${_rest}.debug\"
+                        SYMBOLIC)
+                endif()
+            endif()
+        " COMPONENT debuginfo)
     endif()
 endfunction()
