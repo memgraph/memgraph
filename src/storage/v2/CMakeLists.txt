@@ -32,6 +32,7 @@ target_sources(mg-storage-v2
         durability/snapshot.cpp
         durability/wal.cpp
         edge_accessor.cpp
+        edge_metadata_index.cpp
         edge_ref.cpp
         edges_iterable.cpp
         id_types.cpp

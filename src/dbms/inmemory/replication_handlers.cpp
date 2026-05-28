@@ -666,7 +666,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           dst_snapshot_file,
           &storage->vertices_,
           &storage->edges_,
-          &storage->edges_metadata_,
+          storage->edges_metadata_index_ ? &*storage->edges_metadata_index_ : nullptr,
           &storage->repl_storage_state_.history,
           storage->name_id_mapper_.get(),
           &storage->edge_count_,
@@ -691,16 +691,18 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       // We are the only active transaction, so mark everything up to the next timestamp
       if (storage->timestamp_ > 0) storage->commit_log_->MarkFinishedInRange(0, storage->timestamp_ - 1);
 
-      RecoverIndicesStatsAndConstraints(&storage->vertices_,
-                                        storage->name_id_mapper_.get(),
-                                        &storage->indices_,
-                                        &storage->constraints_,
-                                        storage->config_,
-                                        recovery_info,
-                                        storage->DbArenaPool(),
-                                        indices_constraints,
-                                        storage->config_.salient.items.properties_on_edges,
-                                        snapshot_observer_info);
+      RecoverDerivedState(&storage->vertices_,
+                          &storage->edges_,
+                          storage->name_id_mapper_.get(),
+                          &storage->indices_,
+                          &storage->constraints_,
+                          storage->config_,
+                          recovery_info,
+                          storage->DbArenaPool(),
+                          indices_constraints,
+                          storage->edges_metadata_index_ ? &*storage->edges_metadata_index_ : nullptr,
+                          storage->config_.salient.items.properties_on_edges,
+                          snapshot_observer_info);
     } catch (const storage::durability::RecoveryFailure &e) {
       spdlog::error(
           "Couldn't load the snapshot from {} because of: {}. Storage will be cleared. Snapshot and WAL files are "

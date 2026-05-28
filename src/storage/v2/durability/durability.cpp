@@ -30,6 +30,8 @@
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/edge.hpp"
+#include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
@@ -221,6 +223,19 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // indices and constraints must be recovered after the data recovery is done
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
+
+namespace {
+void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                                 utils::SkipListDb<Vertex> *, NameIdMapper *,
+                                 const std::optional<ParallelizedSchemaCreationInfo> &,
+                                 std::optional<SnapshotObserverInfo> const &);
+void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                              utils::SkipListDb<Vertex> *, NameIdMapper *,
+                              const std::optional<ParallelizedSchemaCreationInfo> &,
+                              std::optional<SnapshotObserverInfo> const &);
+void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                            utils::SkipListDb<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &,
+                            std::optional<SnapshotObserverInfo> const &);
 
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                         Constraints *constraints, utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper,
@@ -513,12 +528,23 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
 
   spdlog::info("Type constraints are recreated from metadata.");
 }
+}  // namespace
 
-void RecoverIndicesStatsAndConstraints(utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                                       Indices *indices, Constraints *constraints, Config const &config,
-                                       RecoveryInfo const &recovery_info, memory::ArenaPool *db_arena_pool,
-                                       RecoveredIndicesAndConstraints &indices_constraints, bool properties_on_edges,
-                                       std::optional<SnapshotObserverInfo> const &snapshot_info) {
+void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] utils::SkipListDb<Edge> *edges,
+                         NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
+                         RecoveryInfo const &recovery_info, memory::ArenaPool *db_arena_pool,
+                         RecoveredIndicesAndConstraints &indices_constraints, EdgeMetadataIndex *edges_metadata,
+                         bool properties_on_edges, std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  // Rebuild the edge metadata index from the fully recovered adjacency before any
+  // other derived structure observes it.
+  if (edges_metadata) {
+    edges_metadata->RebuildFrom(*vertices, GetParallelExecInfo(recovery_info, config, db_arena_pool));
+    // Every recovered edge must have an edge-metadata entry; fail at recovery rather
+    // than later in GC or via lookups.
+    DMG_ASSERT(edges_metadata->size() == edges->size(),
+               "Edge metadata count does not match edge count after recovery!");
+  }
+
   RecoverIndicesAndStats(indices_constraints.indices,
                          indices,
                          vertices,
@@ -547,7 +573,7 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
 
 std::optional<RecoveryInfo> Recovery::RecoverData(
     utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipListDb<Vertex> *vertices,
-    utils::SkipListDb<Edge> *edges, utils::SkipListDb<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
+    utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata, std::atomic<uint64_t> *edge_count,
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
     memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
@@ -782,15 +808,17 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   }
 
   // Apply meta structures now after all graph data has been loaded
-  RecoverIndicesStatsAndConstraints(vertices,
-                                    name_id_mapper,
-                                    indices,
-                                    constraints,
-                                    config,
-                                    recovery_info,
-                                    db_arena_pool,
-                                    indices_constraints,
-                                    config.salient.items.properties_on_edges);
+  RecoverDerivedState(vertices,
+                      edges,
+                      name_id_mapper,
+                      indices,
+                      constraints,
+                      config,
+                      recovery_info,
+                      db_arena_pool,
+                      indices_constraints,
+                      edges_metadata,
+                      config.salient.items.properties_on_edges);
 
   spdlog::trace("Epoch id: {}. Last durable commit timestamp: {}.",
                 std::string(repl_storage_state.epoch_.id()),

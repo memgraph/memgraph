@@ -46,6 +46,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -3707,7 +3708,12 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   config.durability.snapshot_on_exit = false;
   memgraph::utils::SkipListDb<memgraph::storage::Vertex> vertices;
   memgraph::utils::SkipListDb<memgraph::storage::Edge> edges;
-  memgraph::utils::SkipListDb<memgraph::storage::EdgeMetadata> edges_metadata;
+  // Mirror InMemoryStorage: the metadata index only exists when both
+  // properties_on_edges and enable_edges_metadata are set.
+  std::optional<memgraph::storage::EdgeMetadataIndex> edges_metadata{
+      (config.salient.items.properties_on_edges && config.salient.items.enable_edges_metadata)
+          ? std::optional<memgraph::storage::EdgeMetadataIndex>{std::in_place}
+          : std::nullopt};
   std::unique_ptr<memgraph::storage::NameIdMapper> name_id_mapper = std::make_unique<memgraph::storage::NameIdMapper>();
   std::atomic<uint64_t> edge_count{0};
   uint64_t wal_seq_num{0};
@@ -3728,7 +3734,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       repl_storage_state,
       &vertices,
       &edges,
-      &edges_metadata,
+      edges_metadata ? &*edges_metadata : nullptr,
       &edge_count,
       name_id_mapper.get(),
       &indices,
@@ -3965,6 +3971,87 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     ASSERT_FALSE(edge.has_value());
 
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Every recovered edge has a metadata entry, so delete + GC succeeds.
+  {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    for (auto i{0U}; i < 5U; ++i) {
+      auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD);
+      ASSERT_TRUE(edge.has_value());
+      ASSERT_TRUE(acc->DeleteEdge(&*edge).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  db.storage()->FreeMemory();
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    for (auto i{0U}; i < 5U; ++i) {
+      ASSERT_FALSE(acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD).has_value());
+    }
+  }
+}
+
+// Edges recovered from WAL (no snapshot) are registered in edge metadata, so they
+// resolve by id and are deletable.
+TEST_P(DurabilityTest, EdgeMetadataRecoveredFromWal) {
+  if (!GetParam()) {
+    return;
+  }
+  // Create dataset, persisted to WAL only (no snapshot).
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Recover from WAL with edge metadata enabled.
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient.items = {.properties_on_edges = GetParam(), .enable_edges_metadata = true, .enable_schema_info = false}};
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
+
+  // Every WAL-recovered edge is resolvable by id via metadata.
+  {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    for (auto i{0U}; i < kNumBaseEdges; ++i) {
+      auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD);
+      ASSERT_TRUE(edge.has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Delete + GC of WAL-recovered edges succeeds.
+  {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    for (auto i{0U}; i < 5U; ++i) {
+      auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD);
+      ASSERT_TRUE(edge.has_value());
+      ASSERT_TRUE(acc->DeleteEdge(&*edge).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  db.storage()->FreeMemory();
+
+  // The deleted edges are now gone from both the edge store and the edge metadata index.
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    for (auto i{0U}; i < 5U; ++i) {
+      ASSERT_FALSE(acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD).has_value());
+    }
   }
 }
 
@@ -4756,4 +4843,177 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
     ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
     ASSERT_EQ(acc->GetAllDescriptions().size(), 5);
   }
+}
+
+// An edge present only in adjacency after one recovery cycle becomes fully
+// addressable (resolvable by id, deletable, GC-safe) after a snapshot-on-exit
+// round-trip, because the post-recovery rebuild repopulates its metadata from
+// the snapshot's adjacency. Phases: (1) create edge, persist to WAL only;
+// (2) recover from WAL, exit writing a snapshot-on-exit; (3) recover from that
+// snapshot.
+TEST_F(DurabilityTest, EdgeMetadataHealedByCleanRestart) {
+  memgraph::storage::Gid from_gid{memgraph::storage::Gid::FromUint(0)};
+  memgraph::storage::Gid edge_gid{memgraph::storage::Gid::FromUint(0)};
+
+  // Phase 1: create the edge, persisted to WAL only.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = true, .enable_edges_metadata = true}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto acc = db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    from_gid = v1.Gid();
+    auto edge = acc->CreateEdge(&v1, &v2, db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.has_value());
+    edge_gid = edge->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Phase 2: recover from WAL (edge is metadata-less here - do NOT fetch by id),
+  // then exit writing a snapshot that captures it from adjacency.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .recover_on_startup = true, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = true, .enable_edges_metadata = true}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    // Confirm the edge actually survived WAL recovery via adjacency (a vertex
+    // out-edge scan, which does not consult the edge metadata index).
+    auto acc = db.Access(memgraph::storage::READ);
+    auto v1 = acc->FindVertex(from_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1);
+    auto out_edges = v1->OutEdges(memgraph::storage::View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    ASSERT_EQ(out_edges->edges[0].Gid(), edge_gid);
+  }
+  ASSERT_GE(GetSnapshotsList().size(), 1);
+
+  // Phase 3: recover from the snapshot - metadata is rebuilt, so the edge is safe.
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = true, .enable_edges_metadata = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    auto edge = acc->FindEdge(edge_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(edge.has_value());
+  }
+  {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(from_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1);
+    auto out_edges = v1->OutEdges(memgraph::storage::View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    auto edge = out_edges->edges[0];
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  db.storage()->FreeMemory();
+}
+
+// Snapshot holds an edge, a WAL-tail delta DELETES it, then recovery + GC.
+// Because metadata is rebuilt from final adjacency (and WAL delete removes the
+// edge from both edges_ and adjacency together), the deleted edge ends up in
+// neither edges_ nor edge metadata - no stale entry, no "metadata not found".
+// The surviving edge must still be fully usable.
+TEST_F(DurabilityTest, EdgeMetadataConsistentAfterSnapshotThenWalDelete) {
+  memgraph::storage::Gid v1_gid{memgraph::storage::Gid::FromUint(0)};
+  memgraph::storage::Gid deleted_edge_gid{memgraph::storage::Gid::FromUint(0)};
+  memgraph::storage::Gid surviving_edge_gid{memgraph::storage::Gid::FromUint(0)};
+
+  // Phase 1: create two edges, snapshot them, then delete one (delete goes to WAL
+  // AFTER the snapshot).
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = true, .enable_edges_metadata = true}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      auto v1 = acc->CreateVertex();
+      auto v2 = acc->CreateVertex();
+      auto v3 = acc->CreateVertex();
+      v1_gid = v1.Gid();
+      auto e1 = acc->CreateEdge(&v1, &v2, db.storage()->NameToEdgeType("et"));
+      auto e2 = acc->CreateEdge(&v1, &v3, db.storage()->NameToEdgeType("et"));
+      ASSERT_TRUE(e1.has_value() && e2.has_value());
+      deleted_edge_gid = e1->Gid();
+      surviving_edge_gid = e2->Gid();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Snapshot now contains both edges.
+    ASSERT_TRUE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot(true).has_value());
+
+    // Delete one edge AFTER the snapshot -> recorded in the WAL tail.
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
+      ASSERT_TRUE(v1);
+      auto out_edges = v1->OutEdges(memgraph::storage::View::OLD);
+      ASSERT_TRUE(out_edges.has_value());
+      ASSERT_EQ(out_edges->edges.size(), 2U);
+      auto to_delete =
+          std::ranges::find_if(out_edges->edges, [&](auto const &e) { return e.Gid() == deleted_edge_gid; });
+      ASSERT_NE(to_delete, out_edges->edges.end());
+      ASSERT_TRUE(acc->DeleteEdge(&*to_delete).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+  }
+
+  ASSERT_GE(GetSnapshotsList().size(), 1);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Phase 2: recover (snapshot + WAL delete), then exercise both edges and GC.
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = true, .enable_edges_metadata = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    // Deleted edge: gone from edges_ -> nullopt (never reaches metadata).
+    ASSERT_FALSE(acc->FindEdge(deleted_edge_gid, memgraph::storage::View::OLD).has_value());
+    // Surviving edge: present and resolvable via metadata.
+    ASSERT_TRUE(acc->FindEdge(surviving_edge_gid, memgraph::storage::View::OLD).has_value());
+  }
+  {
+    // The surviving edge is deletable and GC-safe.
+    auto acc = db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1);
+    auto out_edges = v1->OutEdges(memgraph::storage::View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    auto edge = out_edges->edges[0];
+    ASSERT_EQ(edge.Gid(), surviving_edge_gid);
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  db.storage()->FreeMemory();
 }
