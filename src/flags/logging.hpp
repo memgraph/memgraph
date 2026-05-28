@@ -16,15 +16,13 @@
 #include <string>
 #include <string_view>
 
-#include "gflags/gflags.h"
 #include "spdlog/common.h"
 #include "spdlog/sinks/sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 
 namespace memgraph::flags {
 
-// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_uint64(log_retention_days);
+auto LogRetentionDays() -> uint64_t;
 
 auto GetSinkLocalTime() -> tm;
 

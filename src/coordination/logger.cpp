@@ -32,7 +32,7 @@ Logger::Logger(std::string log_file) {
         local_time.tm_hour,
         local_time.tm_min,
         false,
-        flags::FLAGS_log_retention_days));  // reuse log retention days from the gflags
+        flags::LogRetentionDays()));  // reuse log retention days from the gflags
   }
   // empty sinks => usable logger that drops everything (file path not configured)
   logger_ = std::make_shared<spdlog::logger>("NuRaft", sinks.begin(), sinks.end());

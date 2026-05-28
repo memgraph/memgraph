@@ -81,6 +81,9 @@ inline constexpr std::array log_level_mappings{std::pair{"TRACE"sv, spdlog::leve
                                                std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
 namespace memgraph::flags {
+
+auto LogRetentionDays() -> uint64_t { return FLAGS_log_retention_days; }
+
 const std::string &GetAllowedLogLevels() {
   static const std::string allowed_levels = memgraph::utils::GetAllowedEnumValuesString(log_level_mappings);
   return allowed_levels;
@@ -129,7 +132,7 @@ void InitializeLogger() {
   if (!FLAGS_log_file.empty()) {
     auto const local_time = GetSinkLocalTime();
     sub_sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_st>(
-        FLAGS_log_file, local_time.tm_hour, local_time.tm_min, false, FLAGS_log_retention_days));
+        FLAGS_log_file, local_time.tm_hour, local_time.tm_min, false, LogRetentionDays()));
   }
 
   auto dist_sink = std::make_shared<spdlog::sinks::dist_sink_mt>(std::move(sub_sinks));
@@ -181,7 +184,7 @@ void CleanLogsDir() {
 
   auto const log_path = std::filesystem::path{FLAGS_log_file};
   auto const log_directory = log_path.parent_path();
-  auto const cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::days(FLAGS_log_retention_days);
+  auto const cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::days(LogRetentionDays());
 
   // Logs error only at the end, doesn't log for each file
   std::error_code ec;
