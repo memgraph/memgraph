@@ -40,8 +40,9 @@ struct AsyncIndexer {
 
   void Clear();
 
+  /// Lock-free.
   /// @return true if no work is queued and thread is waiting, false otherwise
-  bool IsIdle() const;  // lock-free
+  bool IsIdle() const;
 
   /// Check if the async indexer thread has stopped (due to null protector or stop request)
   /// @return true if the background thread is no longer running, false otherwise

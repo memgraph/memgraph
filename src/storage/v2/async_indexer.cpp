@@ -51,7 +51,6 @@ void AsyncIndexer::Clear() {
 }
 
 bool AsyncIndexer::IsIdle() const {
-  // Lock-free.
   return (request_queue_.size() == 0 && !is_processing_.load()) || HasThreadStopped();
 }
 
