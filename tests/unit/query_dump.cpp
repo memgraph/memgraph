@@ -2213,6 +2213,14 @@ class StubPropertyFGAChecker final : public memgraph::query::FineGrainedAuthChec
     return !denied_.contains({dba_->EdgeTypeToName(edge_type), dba_->PropertyToName(property)});
   }
 
+  bool IsPropertyVisible(std::string const &property_name,
+                         memgraph::query::AuthQuery::PropertyPermissionType) const override {
+    for (auto const &[entity, prop] : denied_) {
+      if (prop == property_name) return false;
+    }
+    return true;
+  }
+
  private:
   memgraph::query::DbAccessor *dba_;
   DenySet denied_;

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -218,9 +219,16 @@ class HierarchicalLogicalOperatorVisitor : public LogicalOperatorCompositeVisito
 
 class NamedLogicalOperator {
  public:
+  using PropertyVisibleFn = std::function<bool(std::string const &)>;
+
   mutable const DbAccessor *dba_{nullptr};
+  mutable PropertyVisibleFn property_visible_;
+
   virtual std::string ToString() const = 0;
   virtual ~NamedLogicalOperator() = default;
+
+  std::string PropertyName(storage::PropertyId id) const;
+  std::string RedactPropertyName(std::string const &name) const;
 
  protected:
   NamedLogicalOperator() = default;
@@ -1280,7 +1288,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   Expression *expression_;
   memgraph::query::plan::Filters all_filters_;
 
-  static std::string SingleFilterName(const query::plan::FilterInfo &single_filter);
+  std::string SingleFilterName(const query::plan::FilterInfo &single_filter) const;
 
   std::string ToString() const override;
 

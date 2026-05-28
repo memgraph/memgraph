@@ -3200,6 +3200,13 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 #endif
   ctx_.stopping_context = std::move(stopping_context);
   ctx_.is_profile_query = is_profile_query;
+#ifdef MG_ENTERPRISE
+  if (is_profile_query && ctx_.auth_checker) {
+    ctx_.property_visible_ = [checker = ctx_.auth_checker](std::string const &name) {
+      return checker->IsPropertyVisible(name, AuthQuery::PropertyPermissionType::READ);
+    };
+  }
+#endif
   ctx_.trigger_context_collector = trigger_context_collector;
   ctx_.frame_change_collector = frame_change_collector;
   ctx_.evaluation_context.memory = execution_memory;
@@ -3644,7 +3651,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notification> *notifications,
                                   InterpreterContext *interpreter_context, Interpreter &interpreter,
-                                  CurrentDB &current_db) {
+                                  CurrentDB &current_db,
+                                  [[maybe_unused]] std::shared_ptr<QueryUserOrRole> user_or_role) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(
       utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.stripped_query().str()), kExplainQueryStart),
@@ -3687,8 +3695,22 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
     memgraph::logging::EmitSessionTraceEvent(hint);
   }
 
+  plan::NamedLogicalOperator::PropertyVisibleFn property_visible;
+#ifdef MG_ENTERPRISE
+  if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context->auth_checker && user_or_role &&
+      *user_or_role) {
+    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
+    if (auth_checker && auth_checker->NeedsFineGrainedAuthChecker()) {
+      auto shared_checker = std::shared_ptr<FineGrainedAuthChecker>(std::move(auth_checker));
+      property_visible = [checker = std::move(shared_checker)](std::string const &name) {
+        return checker->IsPropertyVisible(name, AuthQuery::PropertyPermissionType::READ);
+      };
+    }
+  }
+#endif
+
   std::stringstream printed_plan;
-  plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
+  plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan, property_visible);
   // PrettyPrint feeds the EXPLAIN result rows below; only the trace emit is gated.
   if (memgraph::logging::IsSessionTraceEnabled()) {
     memgraph::logging::EmitSessionTraceEvent("Explain plan:\n{}", printed_plan.str());
@@ -9759,8 +9781,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
       );
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
-      prepared_query = PrepareExplainQuery(
-          std::move(parsed_query), &query_execution->notifications, interpreter_context_, *this, current_db_);
+      prepared_query = PrepareExplainQuery(std::move(parsed_query),
+                                           &query_execution->notifications,
+                                           interpreter_context_,
+                                           *this,
+                                           current_db_,
+                                           user_or_role_);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
       prepared_query = PrepareProfileQuery(std::move(parsed_query),
                                            in_explicit_transaction_,

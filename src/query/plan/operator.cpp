@@ -118,6 +118,17 @@ namespace rv = r::views;
 
 namespace memgraph::query::plan {
 
+std::string NamedLogicalOperator::PropertyName(storage::PropertyId id) const {
+  auto const &name = dba_->PropertyToName(id);
+  if (property_visible_ && !property_visible_(name)) return "<redacted>";
+  return name;
+}
+
+std::string NamedLogicalOperator::RedactPropertyName(std::string const &name) const {
+  if (property_visible_ && !property_visible_(name)) return "<redacted>";
+  return name;
+}
+
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
@@ -1227,7 +1238,7 @@ std::string ScanAllByEdgeTypeProperty::ToString() const {
       common_.edge_symbol.name(),
       utils::IterableToString(
           common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
-      dba_->PropertyToName(property_),
+      PropertyName(property_),
       common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node2_symbol.name());
 }
@@ -1371,7 +1382,7 @@ std::string ScanAllByEdgeTypePropertyValue::ToString() const {
       common_.edge_symbol.name(),
       utils::IterableToString(
           common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
-      dba_->PropertyToName(property_),
+      PropertyName(property_),
       common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node2_symbol.name());
 }
@@ -1430,7 +1441,7 @@ std::string ScanAllByEdgeTypePropertyRange::ToString() const {
       common_.edge_symbol.name(),
       utils::IterableToString(
           common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
-      dba_->PropertyToName(property_),
+      PropertyName(property_),
       common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node2_symbol.name());
 }
@@ -1477,7 +1488,7 @@ std::string ScanAllByEdgeProperty::ToString() const {
                      common_.node1_symbol.name(),
                      common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
                      common_.edge_symbol.name(),
-                     dba_->PropertyToName(property_),
+                     PropertyName(property_),
                      common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
                      common_.node2_symbol.name());
 }
@@ -1523,7 +1534,7 @@ std::string ScanAllByEdgePropertyValue::ToString() const {
                      common_.node1_symbol.name(),
                      common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
                      common_.edge_symbol.name(),
-                     dba_->PropertyToName(property_),
+                     PropertyName(property_),
                      common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
                      common_.node2_symbol.name());
 }
@@ -1576,7 +1587,7 @@ std::string ScanAllByEdgePropertyRange::ToString() const {
                      common_.node1_symbol.name(),
                      common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
                      common_.edge_symbol.name(),
-                     dba_->PropertyToName(property_),
+                     PropertyName(property_),
                      common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
                      common_.node2_symbol.name());
 }
@@ -1641,10 +1652,13 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
 
 std::string ScanAllByLabelProperties::ToString() const {
   // TODO: better diagnostics...info about expression_ranges_?
-  auto const property_names = properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
-                                return storage::ToString(property_path, dba_);
-                              }) |
-                              ranges::to_vector;
+  auto const property_names =
+      properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
+        return utils::Join(
+            property_path | std::ranges::views::transform([&](storage::PropertyId prop) { return PropertyName(prop); }),
+            ".");
+      }) |
+      ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
   std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
   return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}}){3}",
@@ -4438,7 +4452,7 @@ std::unique_ptr<LogicalOperator> Filter::Clone(AstStorage *storage) const {
   return object;
 }
 
-std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
+std::string Filter::SingleFilterName(FilterInfo const &single_filter) const {
   using Type = query::plan::FilterInfo::Type;
   switch (single_filter.type) {
     case Type::Generic: {
@@ -4496,8 +4510,10 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       return fmt::format("({} {}{})", identifier_expression->name_, AND_label_string, OR_label_string);
     }
     case Type::Property: {
-      return fmt::format(
-          "{{{}.{}}}", single_filter.property_filter->symbol_.name(), single_filter.property_filter->property_ids_);
+      auto const &path = single_filter.property_filter->property_ids_.path;
+      auto redacted = utils::Join(
+          path | std::ranges::views::transform([&](auto const &pix) { return RedactPropertyName(pix.name); }), ".");
+      return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(), redacted);
     }
     case Type::Id: {
       return fmt::format("{}({})",
@@ -4508,8 +4524,9 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       return "Pattern";
     }
     case Type::Point: {
-      return fmt::format(
-          "{{{}.{}}}", single_filter.point_filter->symbol_.name(), single_filter.point_filter->property_.name);
+      return fmt::format("{{{}.{}}}",
+                         single_filter.point_filter->symbol_.name(),
+                         RedactPropertyName(single_filter.point_filter->property_.name));
     }
     case Type::EdgeType: {
       if (single_filter.expression->GetTypeInfo() != EdgeTypesTest::kType) {
@@ -9331,7 +9348,7 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem,
 std::string ScanAllByPointDistance::ToString() const {
   auto const &name = output_symbol_.name();
   auto const &label = dba_->LabelToName(label_);
-  auto const &property = dba_->PropertyToName(property_);
+  auto const property = PropertyName(property_);
   return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, label, property);
 }
 
@@ -9398,7 +9415,7 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem,
 std::string ScanAllByPointWithinbbox::ToString() const {
   auto const &name = output_symbol_.name();
   auto const &label = dba_->LabelToName(label_);
-  auto const &property = dba_->PropertyToName(property_);
+  auto const property = PropertyName(property_);
   return fmt::format("ScanAllByPointWithinbbox ({0} :{1} {{{2}}})", name, label, property);
 }
 
@@ -9793,10 +9810,13 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
 }
 
 std::string ScanParallelByLabelProperties::ToString() const {
-  auto const property_names = properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
-                                return storage::ToString(property_path, dba_);
-                              }) |
-                              ranges::to_vector;
+  auto const property_names =
+      properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
+        return utils::Join(
+            property_path | std::ranges::views::transform([&](storage::PropertyId prop) { return PropertyName(prop); }),
+            ".");
+      }) |
+      ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
   std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
   return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {{{2}}}){3}",
@@ -9849,7 +9869,7 @@ std::string ScanParallelByEdgeTypeProperty::ToString() const {
   return fmt::format("ScanParallelByEdgeTypeProperty (threads: {}, -[:{}]- {{{}}})",
                      num_threads_,
                      dba_->EdgeTypeToName(edge_type_),
-                     dba_->PropertyToName(property_));
+                     PropertyName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypeProperty::Clone(AstStorage *storage) const {
@@ -9899,7 +9919,7 @@ std::string ScanParallelByEdgeTypePropertyRange::ToString() const {
   return fmt::format("ScanParallelByEdgeTypePropertyRange (threads: {}, -[:{}]- {{{}}})",
                      num_threads_,
                      dba_->EdgeTypeToName(edge_type_),
-                     dba_->PropertyToName(property_));
+                     PropertyName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyRange::Clone(AstStorage *storage) const {
@@ -9945,8 +9965,7 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
 }
 
 std::string ScanParallelByEdgeProperty::ToString() const {
-  return fmt::format(
-      "ScanParallelByEdgeProperty (threads: {}, -[]- {{{}}})", num_threads_, dba_->PropertyToName(property_));
+  return fmt::format("ScanParallelByEdgeProperty (threads: {}, -[]- {{{}}})", num_threads_, PropertyName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeProperty::Clone(AstStorage *storage) const {
@@ -9986,7 +10005,7 @@ UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResourc
 
 std::string ScanParallelByEdgePropertyValue::ToString() const {
   return fmt::format(
-      "ScanParallelByEdgePropertyValue (threads: {}, -[]- {{{}}})", num_threads_, dba_->PropertyToName(property_));
+      "ScanParallelByEdgePropertyValue (threads: {}, -[]- {{{}}})", num_threads_, PropertyName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyValue::Clone(AstStorage *storage) const {
@@ -10034,7 +10053,7 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
 
 std::string ScanParallelByEdgePropertyRange::ToString() const {
   return fmt::format(
-      "ScanParallelByEdgePropertyRange (threads: {}, -[]- {{{}}})", num_threads_, dba_->PropertyToName(property_));
+      "ScanParallelByEdgePropertyRange (threads: {}, -[]- {{{}}})", num_threads_, PropertyName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyRange::Clone(AstStorage *storage) const {
@@ -10137,7 +10156,7 @@ std::string ScanParallelByEdgeTypePropertyValue::ToString() const {
   return fmt::format("ScanParallelByEdgeTypePropertyValue (threads: {}, -[:{}]- {{{}}})",
                      num_threads_,
                      dba_->EdgeTypeToName(edge_type_),
-                     dba_->PropertyToName(property_));
+                     PropertyName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyValue::Clone(AstStorage *storage) const {

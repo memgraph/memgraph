@@ -159,6 +159,29 @@ def test_show_schema_info_admin_sees_all_properties():
     assert "ssn" in prop_keys
 
 
+def test_explain_redacts_denied_property():
+    rows = common.execute_and_fetch_all(user_cursor(), "EXPLAIN MATCH (n:Employee) WHERE n.ssn = 'X' RETURN n.ssn;")
+    non_produce = [row[0] for row in rows if "Produce" not in row[0]]
+    plan_text = "\n".join(non_produce)
+    assert "ssn" not in plan_text
+    assert "<redacted>" in plan_text
+
+
+def test_explain_shows_allowed_property():
+    rows = common.execute_and_fetch_all(user_cursor(), "EXPLAIN MATCH (n:Employee) WHERE n.name = 'X' RETURN n.name;")
+    plan_text = "\n".join(row[0] for row in rows)
+    assert "name" in plan_text
+    assert "<redacted>" not in plan_text
+
+
+def test_profile_redacts_denied_property():
+    rows = common.execute_and_fetch_all(user_cursor(), "PROFILE MATCH (n:Employee) WHERE n.ssn = 'X' RETURN n.ssn;")
+    non_produce = [row[0] for row in rows if "Produce" not in row[0]]
+    operators = "\n".join(non_produce)
+    assert "ssn" not in operators
+    assert "<redacted>" in operators
+
+
 def test_admin_sees_all_properties():
     result = common.execute_and_fetch_all(admin_cursor(), "MATCH (n:Employee) RETURN n.ssn AS ssn, n.name AS name;")
     assert len(result) == 1

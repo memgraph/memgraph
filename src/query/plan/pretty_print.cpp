@@ -248,7 +248,8 @@ nlohmann::json ToJson(const std::vector<T> &items, const Args &...args) {
 }  // namespace
 
 struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
-  explicit PlanToJsonVisitor(const DbAccessor *dba) : dba_(dba) {}
+  explicit PlanToJsonVisitor(const DbAccessor *dba, NamedLogicalOperator::PropertyVisibleFn property_visible = {})
+      : dba_(dba), property_visible_(std::move(property_visible)) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -341,13 +342,39 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
  protected:
   nlohmann::json output_;
   const DbAccessor *dba_;
+  NamedLogicalOperator::PropertyVisibleFn property_visible_;
+
+  std::string RedactPropertyName(std::string const &name) const {
+    if (property_visible_ && !property_visible_(name)) return "<redacted>";
+    return name;
+  }
+
+  nlohmann::json PropertyToJson(storage::PropertyId property) const {
+    return RedactPropertyName(dba_->PropertyToName(property));
+  }
+
+  nlohmann::json PropertyPathToJson(storage::PropertyPath const &path) const {
+    return path |
+           rv::transform([&](auto &&property_id) { return RedactPropertyName(dba_->PropertyToName(property_id)); }) |
+           rv::join('.') | r::to<std::string>;
+  }
+
+  nlohmann::json PropertiesToJson(std::vector<storage::PropertyPath> const &paths) const {
+    nlohmann::json json;
+    for (auto const &path : paths) {
+      json.emplace_back(PropertyPathToJson(path));
+    }
+    return json;
+  }
 
   nlohmann::json PopOutput();
 };
 
 }  // namespace impl
 
-PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), out_(out) {}
+PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out,
+                         NamedLogicalOperator::PropertyVisibleFn property_visible)
+    : dba_(dba), out_(out), property_visible_(std::move(property_visible)) {}
 
 // NOLINTBEGIN(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
 #define PRE_VISIT(TOp)                                                       \
@@ -365,7 +392,9 @@ PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), 
 #define PRE_VISIT_DBA_TS(TOp)                                                              \
   bool PlanPrinter::PreVisit(TOp &op) {                                                    \
     op.dba_ = dba_;                                                                        \
+    op.property_visible_ = property_visible_;                                              \
     WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); }); \
+    op.property_visible_ = nullptr;                                                        \
     op.dba_ = nullptr;                                                                     \
     return true;                                                                           \
   }
@@ -395,7 +424,8 @@ PRE_VISIT_DBA_TS(ScanAllByPointDistance);
 PRE_VISIT_DBA_TS(ScanAllByPointWithinbbox);
 
 namespace {
-std::string ScanChunkToString(const auto &op, const DbAccessor *dba) {
+std::string ScanChunkToString(const auto &op, const DbAccessor *dba,
+                              NamedLogicalOperator::PropertyVisibleFn const &property_visible) {
   // ScanChunk is always connected to a ParallelMerge->ScanParallel variant. Combine the two and return the same plan
   // that a single threaded query would produce.
   auto *node = dynamic_cast<ScanParallel *>(op.input_->input().get());
@@ -403,7 +433,9 @@ std::string ScanChunkToString(const auto &op, const DbAccessor *dba) {
     throw std::runtime_error("ScanChunk must be connected to a ScanParallel variant");
   }
   node->dba_ = dba;
+  node->property_visible_ = property_visible;
   auto name = node->ToString();
+  node->property_visible_ = nullptr;
   node->dba_ = nullptr;
   name.replace(name.find("Parallel"), strlen("Parallel"), "All");
   name.insert(name.find('(') + 1, op.output_symbol_.name() + ", ");
@@ -412,12 +444,14 @@ std::string ScanChunkToString(const auto &op, const DbAccessor *dba) {
 }  // namespace
 
 bool PlanPrinter::PreVisit(ScanChunk &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
+  WithPrintLn(
+      [this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_, property_visible_); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(ScanChunkByEdge &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
+  WithPrintLn(
+      [this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_, property_visible_); });
   return true;
 }
 
@@ -554,7 +588,9 @@ bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::Filter &op) {
+  op.property_visible_ = property_visible_;
   WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
+  op.property_visible_ = nullptr;
   for (const auto &pattern_filter : op.pattern_filters_) {
     Branch(*pattern_filter);
   }
@@ -602,14 +638,16 @@ void PlanPrinter::Branch(query::plan::LogicalOperator &op, const std::string &br
   --depth_;
 }
 
-void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out) {
-  PlanPrinter printer(&dba, out);
+void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out,
+                 NamedLogicalOperator::PropertyVisibleFn property_visible) {
+  PlanPrinter printer(&dba, out, std::move(property_visible));
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }
 
-nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root) {
-  impl::PlanToJsonVisitor visitor(&dba);
+nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root,
+                          NamedLogicalOperator::PropertyVisibleFn property_visible) {
+  impl::PlanToJsonVisitor visitor(&dba, std::move(property_visible));
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(visitor);
   return visitor.output();
@@ -660,7 +698,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelProperties &op) {
   json self;
   self["name"] = "ScanAllByLabelProperties";
   self["label"] = ToJson(op.label_, *dba_);
-  self["properties"] = ToJson(op.properties_, *dba_);
+  self["properties"] = PropertiesToJson(op.properties_);
   self["expression_ranges"] = ToJson(op.expression_ranges_, *dba_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
@@ -711,7 +749,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeTypeProperty &op) {
   json self;
   self["name"] = "ScanAllByEdgeTypeProperty";
   self["edge_type"] = ToJson(op.common_.edge_types[0], *dba_);
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
 
   op.input_->Accept(*this);
@@ -725,7 +763,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeTypePropertyValue &op) {
   json self;
   self["name"] = "ScanAllByEdgeTypePropertyValue";
   self["edge_type"] = ToJson(op.common_.edge_types[0], *dba_);
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["expression"] = ToJson(op.expression_, *dba_);
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
 
@@ -740,7 +778,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeTypePropertyRange &op) {
   json self;
   self["name"] = "ScanAllByEdgeTypePropertyRange";
   self["edge_type"] = ToJson(op.common_.edge_types[0], *dba_);
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
@@ -755,7 +793,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeTypePropertyRange &op) {
 bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeProperty &op) {
   json self;
   self["name"] = "ScanAllByEdgeProperty";
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
 
   op.input_->Accept(*this);
@@ -768,7 +806,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeProperty &op) {
 bool PlanToJsonVisitor::PreVisit(ScanAllByEdgePropertyValue &op) {
   json self;
   self["name"] = "ScanAllByEdgePropertyValue";
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["expression"] = ToJson(op.expression_, *dba_);
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
 
@@ -782,7 +820,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgePropertyValue &op) {
 bool PlanToJsonVisitor::PreVisit(ScanAllByEdgePropertyRange &op) {
   json self;
   self["name"] = "ScanAllByEdgePropertyRange";
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
@@ -860,7 +898,7 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByLabelProperties &op) {
   json self;
   self["name"] = "ScanParallelByLabelProperties";
   self["label"] = ToJson(op.label_, *dba_);
-  self["properties"] = ToJson(op.properties_, *dba_);
+  self["properties"] = PropertiesToJson(op.properties_);
   self["expression_ranges"] = ToJson(op.expression_ranges_, *dba_);
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
@@ -907,7 +945,7 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeTypeProperty &op) {
   json self;
   self["name"] = "ScanParallelByEdgeTypeProperty";
   self["edge_type"] = ToJson(op.edge_type_, *dba_);
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
 
@@ -922,7 +960,7 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeTypePropertyValue &op) {
   json self;
   self["name"] = "ScanParallelByEdgeTypePropertyValue";
   self["edge_type"] = ToJson(op.edge_type_, *dba_);
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["expression"] = ToJson(op.expression_, *dba_);
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
@@ -938,7 +976,7 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeTypePropertyRange &op) {
   json self;
   self["name"] = "ScanParallelByEdgeTypePropertyRange";
   self["edge_type"] = ToJson(op.edge_type_, *dba_);
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
   self["num_threads"] = op.num_threads_;
@@ -954,7 +992,7 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeTypePropertyRange &op) {
 bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeProperty &op) {
   json self;
   self["name"] = "ScanParallelByEdgeProperty";
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
 
@@ -968,7 +1006,7 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeProperty &op) {
 bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgePropertyValue &op) {
   json self;
   self["name"] = "ScanParallelByEdgePropertyValue";
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["expression"] = ToJson(op.expression_, *dba_);
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
@@ -983,7 +1021,7 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgePropertyValue &op) {
 bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgePropertyRange &op) {
   json self;
   self["name"] = "ScanParallelByEdgePropertyRange";
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
   self["num_threads"] = op.num_threads_;
@@ -1154,7 +1192,7 @@ bool PlanToJsonVisitor::PreVisit(Delete &op) {
 bool PlanToJsonVisitor::PreVisit(SetProperty &op) {
   json self;
   self["name"] = "SetProperty";
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["lhs"] = ToJson(op.lhs_, *dba_);
   self["rhs"] = ToJson(op.rhs_, *dba_);
 
@@ -1168,7 +1206,7 @@ bool PlanToJsonVisitor::PreVisit(SetProperty &op) {
 bool PlanToJsonVisitor::PreVisit(SetNestedProperty &op) {
   json self;
   self["name"] = "SetNestedProperty";
-  self["property_path"] = ToJson(op.property_path_, *dba_);
+  self["property_path"] = PropertyPathToJson(op.property_path_);
   self["lhs"] = ToJson(op.lhs_, *dba_);
   self["rhs"] = ToJson(op.rhs_, *dba_);
 
@@ -1216,7 +1254,7 @@ bool PlanToJsonVisitor::PreVisit(SetLabels &op) {
 bool PlanToJsonVisitor::PreVisit(RemoveProperty &op) {
   json self;
   self["name"] = "RemoveProperty";
-  self["property"] = ToJson(op.property_, *dba_);
+  self["property"] = PropertyToJson(op.property_);
   self["lhs"] = ToJson(op.lhs_, *dba_);
 
   op.input_->Accept(*this);
@@ -1229,7 +1267,7 @@ bool PlanToJsonVisitor::PreVisit(RemoveProperty &op) {
 bool PlanToJsonVisitor::PreVisit(RemoveNestedProperty &op) {
   json self;
   self["name"] = "RemoveNestedProperty";
-  self["property_path"] = ToJson(op.property_path_, *dba_);
+  self["property_path"] = PropertyPathToJson(op.property_path_);
   self["lhs"] = ToJson(op.lhs_, *dba_);
 
   op.input_->Accept(*this);

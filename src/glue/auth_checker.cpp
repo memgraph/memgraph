@@ -386,6 +386,25 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
   return permissions.Has(edge_type_name, prop_name) != auth::PermissionLevel::DENY;
 }
 
+bool FineGrainedAuthChecker::IsPropertyVisible(std::string const &property_name,
+                                               query::AuthQuery::PropertyPermissionType type) const {
+  if (!property_fga_enabled_) return true;
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return true;
+
+  auto check_permissions = [&](auth::PropertyAccessPermissions const &permissions) {
+    for (auto const &[entity, _] : permissions.GetRules()) {
+      if (permissions.Has(entity, property_name) == auth::PermissionLevel::DENY) return false;
+    }
+    return true;
+  };
+
+  if (type == query::AuthQuery::PropertyPermissionType::READ) {
+    return check_permissions(GetCachedPropertyLabelPermissions()) &&
+           check_permissions(GetCachedPropertyEdgeTypePermissions());
+  }
+  return true;
+}
+
 void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
 
 bool FineGrainedAuthChecker::IsThreadSafe() const { return IsCachedPermissionsPopulated(); }

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,7 +37,9 @@ class ScopedProfile {
       stats_ = &context_->stats;
       stats_->key = key;
       op.dba_ = context->db_accessor;
+      op.property_visible_ = context->property_visible_;
       stats_->name = op.ToString();
+      op.property_visible_ = nullptr;
       op.dba_ = nullptr;
     } else {
       stats_ = nullptr;
@@ -51,7 +53,9 @@ class ScopedProfile {
         stats_ = &root_->children.back();
         stats_->key = key;
         op.dba_ = context->db_accessor;
+        op.property_visible_ = context->property_visible_;
         stats_->name = op.ToString();
+        op.property_visible_ = nullptr;
         op.dba_ = nullptr;
       } else {
         stats_ = &(*it);

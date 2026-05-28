@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <type_traits>
 
@@ -141,6 +142,7 @@ struct ExecutionContext {
   // allocations still attribute to the parent DB.
   memgraph::memory::ArenaPool *db_arena_pool{nullptr};
   metrics::DatabaseMetricHandles *metric_handles{nullptr};
+  std::function<bool(std::string const &)> property_visible_;
 
   auto commit_args() -> storage::CommitArgs;
 };
