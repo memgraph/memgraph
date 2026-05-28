@@ -94,6 +94,10 @@ set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
 #       companion: .debug sidecars for memgraph + query modules. Depends on
 #       the main package at the exact matching version. .debug files install
 #       alongside their binaries; gdb resolves them via .gnu_debuglink.
+#
+# Symbol-server prep is a CI concern, not a CPack one: see
+# tools/ci/prepare-symbol-archive.sh, which performs its own component
+# install and lays the sidecars out by build-id.
 set(CPACK_COMPONENTS_ALL memgraph debuginfo)
 
 # --- DEB component config ---
@@ -118,22 +122,10 @@ set(CPACK_RPM_COMPONENT_INSTALL ON)
 set(CPACK_RPM_MEMGRAPH_PACKAGE_NAME "memgraph")
 set(CPACK_RPM_DEBUGINFO_PACKAGE_NAME "memgraph-debuginfo")
 
-# Disable rpmbuild's post-install stripping for the auto-generated
-# debuginfo component spec. Without this override, brp-strip recognises
-# our .debug sidecars as ELF and strips their DWARF sections — leaving
-# each file at ~10% of its DEB counterpart and effectively useless for
-# gdb/debuginfod. The .debug files are already produced by
-# `objcopy --only-keep-debug` (see cmake/SplitDebug.cmake); we want them
-# in the RPM verbatim.
-#
-# Note: CPack RPM has no CPACK_RPM_<COMPONENT>_SPEC_MORE_DEFINE — only the
-# global form — but the substitution only fires for auto-generated specs.
-# The main `memgraph` component is built from our custom memgraph.spec.in
-# (CPACK_RPM_MEMGRAPH_USER_BINARY_SPECFILE above), which bypasses this
-# template entirely, so the defines here scope cleanly to debuginfo.
-set(CPACK_RPM_SPEC_MORE_DEFINE [[%define __strip /bin/true
-%global __os_install_post %{nil}
-%global _build_id_links none]])
+# Both component specs are hand-written. The debuginfo spec disables
+# rpmbuild's brp-strip so our pre-extracted .debug sidecars keep their
+# DWARF; the main spec retains rpmbuild's default postprocessing.
+set(CPACK_RPM_DEBUGINFO_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph-debuginfo.spec.in")
 set(CPACK_RPM_DEBUGINFO_FILE_NAME
     "memgraph-debuginfo-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
 set(CPACK_RPM_DEBUGINFO_PACKAGE_REQUIRES

@@ -1239,7 +1239,10 @@ copy_memgraph() {
     #   - /lib/systemd/system (release/CMakeLists.txt)
     #   - /etc/memgraph/auth_module/ldap.example.yaml (src/auth/CMakeLists.txt)
     echo "Installing Memgraph using cmake --install with DESTDIR=$staging_dir..."
-    docker exec -u mg "$build_container" bash -c "$ACTIVATE_CONAN_BUILDENV && DESTDIR=$staging_dir cmake --install $MGBUILD_BUILD_DIR"
+    # --component memgraph skips the debuginfo + symbol-archive components,
+    # which would otherwise drop .debug sidecars into lib/memgraph/ (bloating
+    # the docker image) and flat at the prefix root (pollution).
+    docker exec -u mg "$build_container" bash -c "$ACTIVATE_CONAN_BUILDENV && DESTDIR=$staging_dir cmake --install $MGBUILD_BUILD_DIR --component memgraph"
 
     # Copy the staged installation from container to host
     # DESTDIR prepends to the install prefix (/usr/local), so files are at $staging_dir/usr/local/lib/memgraph/
