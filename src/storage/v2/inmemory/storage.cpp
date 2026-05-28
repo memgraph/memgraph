@@ -2741,8 +2741,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
-  // Drain async indexer before UNIQUE: the worker holds AsyncIndexer::mutex_
-  // while waiting on main_lock_, so draining under UNIQUE would deadlock.
+  // Drain before UNIQUE: worker holds AsyncIndexer::mutex_ while waiting on
+  // main_lock_, so draining under UNIQUE would deadlock.
   if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL && storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     spdlog::info("SetStorageMode: draining async indexer before transition to IN_MEMORY_ANALYTICAL");
     async_indexer_.CompleteRemaining();
@@ -2764,13 +2764,12 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
             "Constraints are not supported in analytical storage mode. Please drop them before "
             "changing storage mode to analytical or use transactional mode.");
       }
-      // Anything enqueued between the pre-UNIQUE drain and here cannot be
-      // drained under UNIQUE without deadlocking.
+      // Anything enqueued in the gap between drain and UNIQUE can't be drained here without deadlock.
       if (!async_indexer_.IsIdle()) {
         throw utils::BasicException(
-            "Cannot switch to IN_MEMORY_ANALYTICAL: async index creation tasks were enqueued "
-            "concurrently with the storage mode change. Wait for pending CREATE INDEX requests "
-            "to finish and retry.");
+            "Cannot switch to IN_MEMORY_ANALYTICAL: an async index creation task (from CREATE INDEX "
+            "or ENABLE TTL) was enqueued concurrently with the storage mode change. Wait for pending "
+            "index creation to finish and retry.");
       }
       snapshot_runner_.Pause();
     } else {

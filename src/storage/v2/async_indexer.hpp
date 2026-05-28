@@ -40,9 +40,7 @@ struct AsyncIndexer {
 
   void Clear();
 
-  /// Check if the async indexer is idle (no pending work)
-  /// @return true if no work is queued and thread is waiting, false otherwise
-  bool IsIdle() const;
+  bool IsIdle() const;  // lock-free
 
   /// Check if the async indexer thread has stopped (due to null protector or stop request)
   /// @return true if the background thread is no longer running, false otherwise
@@ -56,8 +54,6 @@ struct AsyncIndexer {
   void CompleteRemaining();
 
  private:
-  bool IsIdle_() const;
-
   struct LabelProperties {
     LabelId label;
     PropertiesPaths properties;

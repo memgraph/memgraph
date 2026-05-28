@@ -188,8 +188,7 @@ TEST(StorageModeAsyncIndexerDeadlock, EnableTtlStyleEnqueueThenAnalytical) {
   using namespace memgraph::storage;
   using namespace std::chrono_literals;
 
-  // Heap-allocated: on regression the worker is stuck and joining hangs the
-  // test binary, so we leak instead.
+  // Heap-allocated so we can leak on regression — destructor would hang.
   auto *storage = new InMemoryStorage{Config{}};
   auto label = storage->NameToLabel("TTL");
   auto prop = storage->NameToProperty("ttl");
@@ -198,11 +197,13 @@ TEST(StorageModeAsyncIndexerDeadlock, EnableTtlStyleEnqueueThenAnalytical) {
   auto unique_holder = storage->UniqueAccess();
   storage->GetAsyncIndexer().Enqueue(label, std::vector{PropertyPath{prop}});
 
-  std::promise<void> done;
-  auto done_fut = done.get_future();
-  std::thread setter([&] {
+  // Heap-owned promise: on the detach path we leak it along with storage so
+  // a delayed (non-permanent) deadlock can't write through a dangling ref.
+  auto *done = new std::promise<void>{};
+  auto done_fut = done->get_future();
+  std::thread setter([storage, done] {
     storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
-    done.set_value();
+    done->set_value();
   });
 
   // Release UNIQUE during the worker's 2nd backoff sleep [2100–2250 ms] so
@@ -211,11 +212,12 @@ TEST(StorageModeAsyncIndexerDeadlock, EnableTtlStyleEnqueueThenAnalytical) {
   unique_holder.reset();
 
   if (done_fut.wait_for(5s) != std::future_status::ready) {
-    setter.detach();
+    setter.detach();  // leak storage + promise; can't join without hanging.
     FAIL() << "SetStorageMode hung — AsyncIndexer / main_lock_ deadlock is back";
     return;
   }
   EXPECT_EQ(storage->GetStorageMode(), StorageMode::IN_MEMORY_ANALYTICAL);
   setter.join();
+  delete done;
   delete storage;
 }
