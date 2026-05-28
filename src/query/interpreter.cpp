@@ -5053,9 +5053,8 @@ PreparedQuery PrepareReloadSSLQuery(ParsedQuery parsed_query, bool in_explicit_t
               }
               notifications->emplace_back(
                   SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloaded TLS on Bolt server");
-            }
+            } else {
 #ifdef MG_ENTERPRISE
-            else {
               if (!license::global_license_checker.IsEnterpriseValidFast()) {
                 throw QueryRuntimeException(license::LicenseCheckErrorToString(
                     license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "RELOAD TLS"));
@@ -5097,10 +5096,11 @@ PreparedQuery PrepareReloadSSLQuery(ParsedQuery parsed_query, bool in_explicit_t
               coordination::CoordinatorCertReloader::Instance().Commit(std::move(*raft_prep));
               notifications->emplace_back(
                   SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloaded TLS for intra-cluster communication");
-            }
+
 #else
-            throw QueryRuntimeException("RELOAD INTRA_CLUSTER TLS cannot be invoked in the community build");
+              throw QueryRuntimeException("RELOAD INTRA_CLUSTER TLS cannot be invoked in the community build");
 #endif
+            }
 
             return QueryHandlerResult::COMMIT;
           },

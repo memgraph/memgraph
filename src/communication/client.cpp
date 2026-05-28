@@ -202,7 +202,7 @@ auto Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout
           return std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now())
               .count();
         });
-        if (remaining_timeout_ms && *remaining_timeout_ms < 0) {
+        if (remaining_timeout_ms && *remaining_timeout_ms <= 0) {
           return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
         }
 
