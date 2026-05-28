@@ -7,6 +7,14 @@ include(FetchContent)
 
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
+# MAGE is built in-tree from a memgraph checkout; SplitDebug.cmake is
+# expected at ../../cmake/ relative to mage/cpp/. Fail loud if a future
+# build context moves MAGE out of tree.
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/../../cmake/SplitDebug.cmake")
+    message(FATAL_ERROR
+        "MAGE must be built inside the memgraph tree; "
+        "expected SplitDebug.cmake at ${PROJECT_SOURCE_DIR}/../../cmake/")
+endif()
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cugraph_cmake ${PROJECT_SOURCE_DIR}/../../cmake)
 
 include(SplitDebug)

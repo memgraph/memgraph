@@ -58,11 +58,6 @@ BuildRequires: systemd
 @FILE_NAME_DEFINE@
 %define _unpackaged_files_terminate_build 0
 @TMP_RPM_SPEC_INSTALL_POST@
-# CPACK_RPM_SPEC_MORE_DEFINE intentionally NOT substituted here.
-# The global SPEC_MORE_DEFINE is set in release/CMakeLists.txt solely to
-# disable rpmbuild's brp-strip on the auto-generated debuginfo spec (so
-# our .debug sidecars keep their DWARF). The main memgraph package must
-# retain rpmbuild's default postprocessing.
 @CPACK_RPM_COMPRESSION_TYPE_TMP@
 
 %description

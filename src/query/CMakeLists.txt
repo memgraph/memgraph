@@ -22,7 +22,7 @@ set_target_properties(mg-module-support  PROPERTIES
     OUTPUT_NAME "memgraph_module_support"
 )
 
-mg_split_debug(mg-module-support)
+mg_split_debug(mg-module-support INSTALL_DESTINATION lib/memgraph)
 
 find_package(antlr4-runtime REQUIRED)
 find_package(cppitertools REQUIRED)

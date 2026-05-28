@@ -86,9 +86,7 @@ if(lower_build_type STREQUAL "release")
                 COMMENT "Stripping symbols and sections from memgraph")
 endif()
 
-# When MG_SPLIT_DEBUG is enabled, extract debug info into memgraph.debug and
-# strip the binary via objcopy. Valid only with RelWithDebInfo/Debug builds.
-mg_split_debug(memgraph)
+mg_split_debug(memgraph INSTALL_DESTINATION lib/memgraph)
 
 # Generate the configuration file under the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
@@ -103,9 +101,6 @@ add_custom_command(TARGET memgraph POST_BUILD
         ${CMAKE_SOURCE_DIR}/config/mappings.json
         ${CMAKE_BINARY_DIR}/config/apoc_compatibility_mappings.json)
 
-# Everything here is under "memgraph" install component.
-set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
-
 # TODO: Default directory permissions to 755
 # NOTE: This is added in CMake 3.11, so enable it then
 # set(CMAKE_INSTALL_DEFAULT_DIRECTORY_PERMISSIONS
@@ -114,16 +109,6 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 # Install memgraph
 install(TARGETS memgraph
     RUNTIME DESTINATION lib/memgraph)
-
-# Install the .debug sidecar into a separate "debuginfo" component so it
-# ships as memgraph-debuginfo_*.deb / memgraph-debuginfo*.rpm rather than
-# bloating the main package. OPTIONAL because Release builds (and any build
-# without MG_SPLIT_DEBUG) don't produce one. gdb auto-locates the sidecar
-# via .gnu_debuglink (basename match next to the binary).
-install(FILES $<TARGET_FILE:memgraph>.debug
-    DESTINATION lib/memgraph
-    COMPONENT debuginfo
-    OPTIONAL)
 
 # Install custom libstdc++
 get_property(CUSTOM_LIBSTDCXX_PATH GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH)
@@ -192,13 +177,6 @@ install(FILES
 
 install(TARGETS mg-module-support
     LIBRARY DESTINATION lib/memgraph)
-
-# Sidecar .debug for mg-module-support (mirrors the memgraph install above).
-# OPTIONAL because Release/non-split-debug builds don't produce a sidecar.
-install(FILES $<TARGET_FILE:mg-module-support>.debug
-    DESTINATION lib/memgraph
-    COMPONENT debuginfo
-    OPTIONAL)
 
 # Install Python source for supporting our embedded Python.
 install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.py

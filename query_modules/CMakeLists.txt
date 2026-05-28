@@ -9,8 +9,6 @@ disallow_in_source_build()
 find_package(fmt REQUIRED)
 find_package(Boost REQUIRED CONFIG)
 
-# Install query modules with Memgraph
-set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 function(add_post_build_strip_in_release target build_type_var)
@@ -35,7 +33,7 @@ function(add_custom_library NAME SRC)
 
     # Apply post-build strip in release mode
     add_post_build_strip_in_release(${NAME} CMAKE_BUILD_TYPE)
-    mg_split_debug(${NAME})
+    mg_split_debug(${NAME} INSTALL_DESTINATION lib/memgraph/query_modules)
 
     set_target_properties(${NAME} PROPERTIES
         PREFIX ""
@@ -70,7 +68,7 @@ function(add_query_module target_name version src)
   target_compile_options(${target_name} PRIVATE -Wall)
 
   add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
-  mg_split_debug(${target_name})
+  mg_split_debug(${target_name} INSTALL_DESTINATION lib/memgraph/query_modules)
 
   set_target_properties(${target_name} PROPERTIES
       PREFIX "" # remove "lib" prefix
@@ -117,23 +115,12 @@ add_custom_target(copy_mage_python_query_modules ALL
 )
 
 # Install C++ query modules
-set(MG_QUERY_MODULE_TARGETS
+install(TARGETS
     convert convert_c example_c example_cpp schema mgps_cpp
     text_search vector_search pagerank_online
-    community_detection_online katz_centrality_online)
-install(TARGETS ${MG_QUERY_MODULE_TARGETS}
+    community_detection_online katz_centrality_online
     DESTINATION lib/memgraph/query_modules
 )
-
-# Per-module .debug sidecars ship in the separate "debuginfo" component
-# (memgraph-debuginfo_*.deb / memgraph-debuginfo*.rpm). OPTIONAL so builds
-# without MG_SPLIT_DEBUG still pass install().
-foreach(_qm_target IN LISTS MG_QUERY_MODULE_TARGETS)
-    install(FILES $<TARGET_FILE:${_qm_target}>.debug
-        DESTINATION lib/memgraph/query_modules
-        COMPONENT debuginfo
-        OPTIONAL)
-endforeach()
 
 # Install the Python example and modules
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)
