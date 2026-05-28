@@ -112,7 +112,8 @@ class Session final {
     // Prepare SSL if we should be using it.
     if (context->use_ssl()) {
       // Create a new SSL object that will be used for SSL communication.
-      ssl_ = SSL_new(context->context());
+      tls_context_ = context->context_clone();
+      ssl_ = SSL_new(tls_context_->native_handle());
       MG_ASSERT(ssl_ != nullptr, "Couldn't create server SSL object!");
 
       // Create a new BIO (block I/O) SSL object so that OpenSSL can communicate
@@ -322,6 +323,7 @@ class Session final {
   }
 
   // We own the socket.
+  std::shared_ptr<boost::asio::ssl::context> tls_context_;
   io::network::Socket socket_;
 
   // Input and output buffers/streams.

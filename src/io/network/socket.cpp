@@ -419,9 +419,28 @@ bool Socket::WaitForReadyRead(std::optional<int> timeout_ms) const {
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
 
-  // -1 for blocking indefinitely, otherwise wait for timeout_ms.
-  int const timeout = timeout_ms ? *timeout_ms : -1;
-  int const ret = poll(&p, 1, timeout);
+  auto deadline = std::invoke([&timeout_ms]() -> std::optional<std::chrono::steady_clock::time_point> {
+    if (!timeout_ms) return std::nullopt;
+    return std::chrono::steady_clock::now() + std::chrono::milliseconds(*timeout_ms);
+  });
+
+  int ret;
+  do {
+    // -1 for blocking indefinitely, otherwise wait for the remaining time until deadline.
+    auto const remaining_timeout_ms = std::invoke([&deadline]() -> int {
+      if (!deadline) return -1;
+      return static_cast<int>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now()).count());
+    });
+
+    if (remaining_timeout_ms < 0) {
+      spdlog::error("Waiting too long to get in ready state for reading. Timeout occurred.");
+      return false;
+    }
+
+    ret = poll(&p, 1, remaining_timeout_ms);
+  } while (ret < 0 && errno == EINTR);
+
   if (ret == -1) {
     spdlog::error("Error occurred while polling for file descriptors.");
     return false;
@@ -443,9 +462,28 @@ bool Socket::WaitForReadyWrite(std::optional<int> timeout_ms) const {
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
 
-  // -1 for blocking indefinitely, otherwise wait for timeout_ms.
-  int const timeout = timeout_ms ? *timeout_ms : -1;
-  int const ret = poll(&p, 1, timeout);
+  auto deadline = std::invoke([&timeout_ms]() -> std::optional<std::chrono::steady_clock::time_point> {
+    if (!timeout_ms) return std::nullopt;
+    return std::chrono::steady_clock::now() + std::chrono::milliseconds(*timeout_ms);
+  });
+
+  int ret;
+  do {
+    // -1 for blocking indefinitely, otherwise wait for the remaining time until deadline.
+    auto const remaining_timeout_ms = std::invoke([&deadline]() -> int {
+      if (!deadline) return -1;
+      return static_cast<int>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now()).count());
+    });
+
+    if (remaining_timeout_ms < 0) {
+      spdlog::error("Waiting too long to get in ready state for writing. Timeout occurred.");
+      return false;
+    }
+
+    ret = poll(&p, 1, remaining_timeout_ms);
+  } while (ret < 0 && errno == EINTR);
+
   if (ret == -1) {
     spdlog::error("Error occurred while polling for file descriptors.");
     return false;

@@ -71,17 +71,16 @@ class ClientContext final {
   ClientContext(const ClientContext &) = delete;
   ClientContext &operator=(const ClientContext &) = delete;
 
-  // Move constructor/assignment that handle ownership change correctly.
-  ClientContext(ClientContext &&other) noexcept;
-  ClientContext &operator=(ClientContext &&other) noexcept;
+  ClientContext(ClientContext &&other) noexcept = default;
+  ClientContext &operator=(ClientContext &&other) noexcept = default;
 
-  // Destructor that handles ownership of the SSL object.
-  ~ClientContext();
+  ~ClientContext() = default;
 
-  // Returns the live SSL_CTX. In Standalone mode this is the owned `ctx_`;
-  // in ClusterView it's an atomic load from the singleton (so the result
-  // reflects any reload that happened since the last call).
-  SSL_CTX *context();
+  // Returns the live SSL context. Callers must keep the returned shared_ptr
+  // alive across `SSL_new` — in ClusterView mode the cluster TLS singleton
+  // may swap and drop the previous context concurrently, and SSL_new only
+  // up-refs the underlying SSL_CTX once it actually runs.
+  std::shared_ptr<boost::asio::ssl::context> context();
 
   auto use_ssl() const -> bool;
 
@@ -94,7 +93,7 @@ class ClientContext final {
   Mode mode_{Mode::Standalone};
   // Standalone-mode state. Unused (but harmless) in ClusterView.
   bool use_ssl_{false};
-  SSL_CTX *ctx_{nullptr};
+  std::shared_ptr<boost::asio::ssl::context> ctx_;
 };
 
 /**
@@ -141,10 +140,6 @@ class ServerContext final {
 
   ~ServerContext();
 
-  // Returns the live SSL_CTX. In ClusterView mode this is an atomic load
-  // from the singleton, so the result reflects any reload that happened
-  // since the last call.
-  SSL_CTX *context();
   std::shared_ptr<boost::asio::ssl::context> context_clone();
 
   bool use_ssl() const;

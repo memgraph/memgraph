@@ -98,8 +98,14 @@ auto Client::SetupSslObjects() -> std::expected<void, std::string> {
   // Release SSL objects left over from any prior Connect call on this Client.
   ReleaseSslObjects();
 
+  // Pin the SSL context for the lifetime of this connection — without this, a
+  // concurrent cluster TLS reload could drop the previous shared_ptr from the
+  // singleton and free the SSL_CTX between context() returning and SSL_new
+  // up-ref'ing it.
+  ssl_context_ = context_->context();
+
   // Create a new SSL object that will be used for SSL communication.
-  ssl_ = SSL_new(context_->context());
+  ssl_ = SSL_new(ssl_context_->native_handle());
   if (ssl_ == nullptr) {
     return std::unexpected{"SSL_new returned nullptr"};
   }
@@ -268,6 +274,13 @@ void Client::ClearData() { buffer_.read_end()->Clear(); }
 auto Client::Write(const uint8_t *data, size_t len, bool have_more, const std::optional<int> timeout_ms)
     -> std::expected<void, io::network::ClientCommunicationError> {
   if (ssl_) {
+    auto const deadline = std::invoke([&timeout_ms]() -> std::optional<std::chrono::steady_clock::time_point> {
+      if (timeout_ms) {
+        return std::chrono::steady_clock::now() + std::chrono::milliseconds(*timeout_ms);
+      }
+      return std::nullopt;
+    });
+
     // `SSL_write` has the interface of a normal `write` call. Because of that
     // we need to ensure that all data is written to the socket manually.
     while (len > 0) {
@@ -280,15 +293,24 @@ auto Client::Write(const uint8_t *data, size_t len, bool have_more, const std::o
       auto written = SSL_write(ssl_, data, static_cast<int>(len));
       if (written < 0) {
         auto err = SSL_get_error(ssl_, written);
+        auto const remaining_timeout_ms = std::invoke([&deadline]() -> std::optional<int> {
+          if (!deadline) return std::nullopt;
+          return std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now())
+              .count();
+        });
+        if (remaining_timeout_ms && *remaining_timeout_ms < 0) {
+          return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
+        }
+
         if (err == SSL_ERROR_WANT_READ) {
           // OpenSSL wants to read (renegotiation). Wait for read readiness with the supplied timeout;
           // nullopt -> poll(-1) blocks indefinitely, matching pre-non-blocking behavior.
-          if (!socket_.WaitForReadyRead(timeout_ms)) {
+          if (!socket_.WaitForReadyRead(remaining_timeout_ms)) {
             return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
           }
         } else if (err == SSL_ERROR_WANT_WRITE) {
           // The OS send buffer is full on a non-blocking socket; wait for capacity.
-          if (!socket_.WaitForReadyWrite(timeout_ms)) {
+          if (!socket_.WaitForReadyWrite(remaining_timeout_ms)) {
             return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
           }
         } else {
@@ -325,6 +347,7 @@ void Client::ReleaseSslObjects() {
     ssl_ = nullptr;
     bio_ = nullptr;
   }
+  ssl_context_.reset();
 }
 
 ClientInputStream::ClientInputStream(Client &client) : client_(client) {}

@@ -23,9 +23,12 @@
 #undef FALSE
 
 #include <expected>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string_view>
+
+#include <boost/asio/ssl/context.hpp>
 
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
@@ -148,6 +151,10 @@ class Client final {
   Buffer buffer_;
 
   ClientContext *context_;
+  // Pins the SSL context for the lifetime of this connection so a concurrent
+  // cluster TLS reload cannot free the SSL_CTX underneath `ssl_`. Mirrors the
+  // shape used by the v2/http/websocket sessions.
+  std::shared_ptr<boost::asio::ssl::context> ssl_context_;
   SSL *ssl_{nullptr};
   BIO *bio_{nullptr};
   std::chrono::milliseconds connect_timeout_ms_;

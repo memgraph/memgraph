@@ -52,7 +52,7 @@ BASIC_PRIVILEGES = [
 def test_lba_procedures_show_privileges_first_user():
     expected_assertions_josip = [
         (
-            "CREATE, READ, UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE), DELETE ON ALL LABELS",
+            "RELOAD_TLS, CREATE, READ, UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE), DELETE ON ALL LABELS",
             "GRANT",
             "GLOBAL LABEL PERMISSION GRANTED TO USER",
         ),
