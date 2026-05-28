@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_cert_reloader.hpp"
+#include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 
 #include <fmt/format.h>
@@ -50,9 +51,15 @@ CoordinatorCertReloader &CoordinatorCertReloader::Instance() {
 auto CoordinatorCertReloader::Register(SSL_CTX *server_ctx, SSL_CTX *client_ctx, utils::TlsConfig cfg)
     -> std::expected<void, utils::SSL_CTX_Error> {
   std::lock_guard const guard{reload_mu_};
+  // cfg_ is written only here and read lock-free by Prepare/Commit/
+  // RefreshIfStale/LoadFromDisk. The contract is "written once at startup,
+  // before any reader runs" — enforce it.
+  DMG_ASSERT(!registered_.load(std::memory_order_relaxed),
+             "CoordinatorCertReloader::Register called more than once; cfg_ must not be mutated after startup.");
   server_ctx_ = server_ctx;
   client_ctx_ = client_ctx;
   cfg_ = std::move(cfg);
+  registered_.store(true, std::memory_order_release);
 
   auto loaded = LoadFromDisk();
   if (!loaded.has_value()) return std::unexpected{loaded.error()};
@@ -79,7 +86,7 @@ auto CoordinatorCertReloader::Prepare() -> std::expected<ReloadPrepared, utils::
   // Reload not active (Register was never called — no NuRaft / no TLS).
   // A successful Prepare with a null candidate is the right answer: Commit
   // will see a null candidate and do nothing.
-  if (server_ctx_ == nullptr) return ReloadPrepared{.next = nullptr};
+  if (!registered_.load(std::memory_order_acquire)) return ReloadPrepared{.next = nullptr};
 
   auto loaded = LoadFromDisk();
   if (!loaded.has_value()) return std::unexpected{loaded.error()};

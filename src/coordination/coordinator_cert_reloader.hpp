@@ -129,6 +129,12 @@ class CoordinatorCertReloader {
 
   std::atomic<std::shared_ptr<CertData>> current_{};
   std::mutex reload_mu_;
+  // Written once in Register() at startup before NuRaft accepts any
+  // connections and before the RELOAD INTRA_CLUSTER TLS query handler is
+  // reachable. After that, cfg_ is effectively const and all readers
+  // (Prepare, Commit, RefreshIfStale, LoadFromDisk) access it lock-free.
+  // registered_ enforces the "written once" invariant via DMG_ASSERT.
+  std::atomic<bool> registered_{false};
   utils::TlsConfig cfg_;
   SSL_CTX *server_ctx_{nullptr};
   SSL_CTX *client_ctx_{nullptr};
