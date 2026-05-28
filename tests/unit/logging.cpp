@@ -162,32 +162,24 @@ using memgraph::logging::EmitSessionTraceEvent;
 using memgraph::logging::ScopedSessionLog;
 using memgraph::logging::SessionLogContext;
 
-// Renders the tag prefix via AppendPrefixTo.
-std::string Prefix(const SessionLogContext &ctx) {
+std::string TraceTags(const SessionLogContext &ctx) {
   fmt::memory_buffer buf;
-  ctx.AppendPrefixTo(buf);
+  ctx.AppendTraceTags(buf);
   return std::string(buf.data(), buf.size());
 }
 
-TEST(SessionLogContext, PrefixComposition) {
+TEST(SessionLogContext, TraceTagComposition) {
   SessionLogContext ctx;
-  EXPECT_TRUE(Prefix(ctx).empty());
-
   ctx.SetSessionUuid("abc");
-  EXPECT_EQ(Prefix(ctx), "[session=abc]");
+  ctx.SetTxId(42);
+  EXPECT_EQ(TraceTags(ctx), "[session=abc] [tx=42]");
 
   ctx.SetUser("alice");
-  EXPECT_EQ(Prefix(ctx), "[session=abc] [user=alice]");
-
-  ctx.SetTxId("42");
-  EXPECT_EQ(Prefix(ctx), "[session=abc] [user=alice] [tx=42]");
+  EXPECT_EQ(TraceTags(ctx), "[session=abc] [user=alice] [tx=42]");
 
   // Clearing a middle field must not leave a dangling separator or empty token.
   ctx.ClearUser();
-  EXPECT_EQ(Prefix(ctx), "[session=abc] [tx=42]");
-
-  ctx.ClearTxId();
-  EXPECT_EQ(Prefix(ctx), "[session=abc]");
+  EXPECT_EQ(TraceTags(ctx), "[session=abc] [tx=42]");
 }
 
 TEST(ScopedSessionLog, NestingAndUnwindRestore) {
@@ -248,7 +240,7 @@ TEST_F(SessionTraceEmitTest, NoActiveContextEmitsNothing) {
 TEST_F(SessionTraceEmitTest, TraceEnabledEmitsTaggedMessage) {
   SessionLogContext ctx;
   ctx.SetSessionUuid("s1");
-  ctx.SetTxId("7");
+  ctx.SetTxId(7);
   ctx.SetTrace(true);
   ScopedSessionLog guard(&ctx);
 
@@ -256,17 +248,6 @@ TEST_F(SessionTraceEmitTest, TraceEnabledEmitsTaggedMessage) {
 
   ASSERT_EQ(sink_->messages.size(), 1u);
   EXPECT_EQ(sink_->messages[0], "[session=s1] [tx=7] hello 42");
-}
-
-TEST_F(SessionTraceEmitTest, EmptyPrefixEmitsBareMessage) {
-  SessionLogContext ctx;  // no uuid/user/tx => empty prefix
-  ctx.SetTrace(true);
-  ScopedSessionLog guard(&ctx);
-
-  EmitSessionTraceEvent("plain {}", 5);
-
-  ASSERT_EQ(sink_->messages.size(), 1u);
-  EXPECT_EQ(sink_->messages[0], "plain 5");
 }
 
 // Lazy-format regression guard: closed gate ⇒ args not formatted.

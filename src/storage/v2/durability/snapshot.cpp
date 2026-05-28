@@ -24,7 +24,6 @@
 #include <queue>
 #include <ranges>
 #include <string>
-#include <system_error>
 #include <thread>
 
 #include "memory/db_arena_fwd.hpp"

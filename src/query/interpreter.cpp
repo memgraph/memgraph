@@ -9963,7 +9963,7 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   transaction_start_steady_ = std::chrono::steady_clock::now();
   // Release publishes the start-time writes above to verifier-holding readers.
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-  session_log_ctx_.SetTxId(std::to_string(tx_id));
+  session_log_ctx_.SetTxId(tx_id);
   metadata_ = GenOptional(extras.metadata_pv);
 }
 
@@ -10508,7 +10508,6 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
 #endif
 
 void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
-  // Copy uuid into the context first, then move it into the aggregate (one copy + one move).
   session_log_ctx_.SetSessionUuid(uuid);
   session_info_ = {
       .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
