@@ -9,7 +9,7 @@ Usage: ./build.sh [OPTIONS] [CMAKE_ARGS...]
 Build script for Memgraph using Conan 2 and CMake.
 
 OPTIONS:
-    --build-type TYPE       Build type: Release, RelWithDebInfo, or Debug (default: RelWithDebInfo)
+    --build-type TYPE       Build type: Release, RelWithDebInfo, or Debug (default: Release)
     --target TARGET         Specific CMake target to build (default: all targets)
     --reserve-cores N       Reserve N cores for other tasks (default: 0, uses all cores)
     --skip-os-deps          Skip OS dependency checks
@@ -18,8 +18,7 @@ OPTIONS:
     --dev                   Developer mode: enables --skip-os-deps --keep-build
     --update-lockfile       Update conan.lock before installing dependencies
     --graph-info            Generate dependency graph as graph.html and exit
-    --split-debug           Extract debug info into sidecar .debug files (default for RelWithDebInfo/Debug)
-    --no-split-debug        Keep debug info inside the binary (opt-out of the default)
+    --split-debug           Extract debug info into sidecar .debug files (requires RelWithDebInfo/Debug)
     --help                  Show this help message
 
 ENVIRONMENT VARIABLES:
@@ -56,7 +55,7 @@ EOF
 }
 
 # Default values
-BUILD_TYPE="RelWithDebInfo"
+BUILD_TYPE="Release"
 TARGET=""
 CMAKE_ARGS=""
 config_only=false
@@ -67,8 +66,7 @@ offline=false
 update_lockfile=false
 graph_info=false
 RESERVE_CORES=0
-# Tri-state: "" auto-decides from BUILD_TYPE; "on" forces split; "off" forces no-split.
-SPLIT_DEBUG=""
+SPLIT_DEBUG=off
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -119,10 +117,6 @@ while [[ $# -gt 0 ]]; do
             SPLIT_DEBUG=on
             shift
             ;;
-        --no-split-debug)
-            SPLIT_DEBUG=off
-            shift
-            ;;
         --help|-h)
             show_help
             ;;
@@ -134,16 +128,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Auto-enable split-debug for build types that emit debug info. Release has
-# nothing to split; RelWithDebInfo/Debug do. Users can force either way with
-# --split-debug / --no-split-debug.
-if [[ -z "$SPLIT_DEBUG" ]]; then
-    if [[ "$BUILD_TYPE" == "RelWithDebInfo" || "$BUILD_TYPE" == "Debug" ]]; then
-        SPLIT_DEBUG=on
-    else
-        SPLIT_DEBUG=off
-    fi
-fi
 if [[ "$SPLIT_DEBUG" == "on" ]]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMG_SPLIT_DEBUG=ON"
 fi
