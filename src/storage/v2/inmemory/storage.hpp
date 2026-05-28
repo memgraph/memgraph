@@ -13,11 +13,13 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "storage/v2/commit_log.hpp"
+#include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
@@ -797,13 +799,9 @@ class InMemoryStorage final : public Storage {
 
   void PrepareForNewEpoch() override;
 
-  void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
-
-  EdgeInfo FindEdge(Gid gid);
+  EdgeInfo FindEdge(Gid edge_gid);
 
   EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
-
-  EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
   // Database-owned arena pool for per-thread arena management.
   // Database must outlive Storage; Database member declaration order guarantees that.
@@ -814,7 +812,8 @@ class InMemoryStorage final : public Storage {
   // the appropriate execution boundary.
   utils::SkipListDb<Vertex> vertices_;
   utils::SkipListDb<Edge> edges_;
-  utils::SkipListDb<EdgeMetadata> edges_metadata_;
+  // Present iff salient.items.enable_edges_metadata && salient.items.properties_on_edges.
+  std::optional<EdgeMetadataIndex> edges_metadata_index_;
 
   // Durability
   durability::Recovery recovery_;

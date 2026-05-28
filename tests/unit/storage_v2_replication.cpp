@@ -1897,3 +1897,81 @@ TEST_F(ReplicationTest, GetTelemetryJson) {
   auto const expected_json = nlohmann::json({{"async", 1}, {"sync", 1}, {"strict_sync", 0}});
   ASSERT_EQ(main_json.value(), expected_json);
 }
+
+// A replica recovered via snapshot transfer must end up with edge metadata, so
+// a later (replicated) delete + GC on the replica does not hit "metadata not
+// found". Exercises the snapshot-recovery path on the replica.
+TEST_F(ReplicationTest, EdgeMetadataRecoveredOnReplicaSnapshotTransfer) {
+  main_conf.salient.items.enable_edges_metadata = true;
+  repl_conf.salient.items.enable_edges_metadata = true;
+
+  Gid e0_gid{Gid::FromUint(0)};
+  Gid e1_gid{Gid::FromUint(0)};
+
+  MinMemgraph main(main_conf);
+
+  // Create a couple of edges on main.
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto v3 = acc->CreateVertex();
+    auto e0 = acc->CreateEdge(&v1, &v2, main.db.storage()->NameToEdgeType("et"));
+    auto e1 = acc->CreateEdge(&v1, &v3, main.db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(e0.has_value() && e1.has_value());
+    e0_gid = e0->Gid();
+    e1_gid = e1->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // Force a snapshot. With no finalized WAL yet, registering a fresh replica makes
+  // GetRecoverySteps ship the SNAPSHOT (not WAL), exercising the snapshot-recovery
+  // metadata rebuild on the replica.
+  ASSERT_TRUE(static_cast<InMemoryStorage *>(main.db.storage())->CreateSnapshot(true).has_value());
+
+  MinMemgraph replica(repl_conf);
+  auto replica_store_handler = replica.repl_handler;
+  replica_store_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+  while (main.db.storage()->GetReplicaState(replicas[0]) != ReplicaState::READY) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // Replica recovered via snapshot transfer must resolve both edges by id (metadata).
+  {
+    auto acc = replica.db.Access(memgraph::storage::READ);
+    ASSERT_TRUE(acc->FindEdge(e0_gid, View::OLD).has_value());
+    ASSERT_TRUE(acc->FindEdge(e1_gid, View::OLD).has_value());
+  }
+
+  // Delete one edge on main; SYNC replication applies it on the replica.
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto e = acc->FindEdge(e0_gid, View::OLD);
+    ASSERT_TRUE(e.has_value());
+    ASSERT_TRUE(acc->DeleteEdge(&*e).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+  while (main.db.storage()->GetReplicaState(replicas[0]) != ReplicaState::READY) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // Replica GC removes the deleted edge's metadata cleanly.
+  replica.db.storage()->FreeMemory();
+
+  // Deleted edge gone on replica; surviving edge intact.
+  {
+    auto acc = replica.db.Access(memgraph::storage::READ);
+    ASSERT_FALSE(acc->FindEdge(e0_gid, View::OLD).has_value());
+    ASSERT_TRUE(acc->FindEdge(e1_gid, View::OLD).has_value());
+  }
+}
