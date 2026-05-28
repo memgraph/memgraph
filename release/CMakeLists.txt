@@ -94,11 +94,21 @@ set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
 #       companion: .debug sidecars for memgraph + query modules. Depends on
 #       the main package at the exact matching version. .debug files install
 #       alongside their binaries; gdb resolves them via .gnu_debuglink.
+#   * memgraph-full_<ver>_all.deb / memgraph-full-<ver>-1.noarch.rpm
+#       metapackage: no files of its own; Depends/Requires pull in
+#       memgraph + memgraph-debuginfo at the matching version. Sugar over
+#       `apt install memgraph memgraph-debuginfo`.
 #
 # Symbol-server prep is a CI concern, not a CPack one: see
 # tools/ci/prepare-symbol-archive.sh, which performs its own component
 # install and lays the sidecars out by build-id.
-set(CPACK_COMPONENTS_ALL memgraph debuginfo)
+set(CPACK_COMPONENTS_ALL memgraph debuginfo full)
+
+# The "full" metapackage carries one trivial doc file so CPack has something
+# to package — empty components are finicky across CPack versions.
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/full/README
+    DESTINATION share/doc/memgraph-full
+    COMPONENT full)
 
 # --- DEB component config ---
 set(CPACK_DEB_COMPONENT_INSTALL ON)
@@ -116,6 +126,17 @@ set(CPACK_DEBIAN_DEBUGINFO_DESCRIPTION
     "Debug symbols (.debug sidecars) for the matching memgraph package.
  Install alongside memgraph for symbolicated stack traces; gdb auto-locates
  each sidecar via .gnu_debuglink next to the corresponding binary.")
+
+set(CPACK_DEBIAN_FULL_PACKAGE_NAME "memgraph-full")
+set(CPACK_DEBIAN_FULL_PACKAGE_ARCHITECTURE "all")
+set(CPACK_DEBIAN_FULL_FILE_NAME
+    "memgraph-full_${MEMGRAPH_VERSION_DEB}_all.deb")
+set(CPACK_DEBIAN_FULL_PACKAGE_DEPENDS
+    "memgraph (= ${MEMGRAPH_VERSION_DEB}), memgraph-debuginfo (= ${MEMGRAPH_VERSION_DEB})")
+set(CPACK_DEBIAN_FULL_DESCRIPTION
+    "Metapackage: memgraph plus matching debug symbols.
+ Installs memgraph and memgraph-debuginfo at the same version in one step.
+ Carries no files of its own beyond a README.")
 
 # --- RPM component config ---
 set(CPACK_RPM_COMPONENT_INSTALL ON)
@@ -135,6 +156,19 @@ set(CPACK_RPM_DEBUGINFO_PACKAGE_SUMMARY
     "Debug symbols for memgraph")
 set(CPACK_RPM_DEBUGINFO_PACKAGE_DESCRIPTION
     "Debug symbols (.debug sidecars) for the matching memgraph package.")
+
+set(CPACK_RPM_FULL_PACKAGE_NAME "memgraph-full")
+set(CPACK_RPM_FULL_PACKAGE_ARCHITECTURE "noarch")
+set(CPACK_RPM_FULL_FILE_NAME
+    "memgraph-full-${MEMGRAPH_VERSION_RPM}-1.noarch.rpm")
+set(CPACK_RPM_FULL_PACKAGE_REQUIRES
+    "memgraph = ${MEMGRAPH_VERSION_RPM}-1, memgraph-debuginfo = ${MEMGRAPH_VERSION_RPM}-1")
+set(CPACK_RPM_FULL_PACKAGE_AUTOREQ "no")
+set(CPACK_RPM_FULL_PACKAGE_SUMMARY
+    "Metapackage: memgraph plus matching debug symbols")
+set(CPACK_RPM_FULL_PACKAGE_DESCRIPTION
+    "Metapackage: installs memgraph and memgraph-debuginfo at the same
+version in one step. Carries no files of its own beyond a README.")
 
 # All variables must be set before including.
 include(CPack)

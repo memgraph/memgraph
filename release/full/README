@@ -1,0 +1,17 @@
+memgraph-full is a metapackage. It contains no files of its own; installing
+it pulls in `memgraph` and `memgraph-debuginfo` at matching versions in one
+step, equivalent to:
+
+    apt install memgraph memgraph-debuginfo      # Debian/Ubuntu
+    dnf install memgraph memgraph-debuginfo      # RPM-based distros
+
+Use this when you want symbolicated stack traces and gdb-ready debug info
+alongside the database, without having to remember the companion package
+name.
+
+Removal note: `apt remove memgraph-full` does not by itself uninstall
+`memgraph` or `memgraph-debuginfo`, but those packages are flagged as
+automatically installed. They will be removed by the next `apt autoremove`
+unless you mark them manual:
+
+    apt-mark manual memgraph memgraph-debuginfo

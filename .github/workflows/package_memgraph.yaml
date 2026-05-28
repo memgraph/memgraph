@@ -10,13 +10,6 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      package_flavour:
-        type: choice
-        description: "Deb/rpm flavour. 'prod' = stripped binary, symbols archived separately. 'debug' = symbols embedded, '-relwithdebinfo' suffix on filenames. (Docker image flavour is controlled separately via build_docker_image.)"
-        default: 'prod'
-        options:
-          - prod
-          - debug
       os:
         type: choice
         description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. To produce a docker image, pick a ubuntu-24.04 variant and set build_docker_image."
@@ -71,10 +64,6 @@ on:
 
   workflow_call:
     inputs:
-      package_flavour:
-        type: string
-        description: "Deb/rpm flavour: 'prod' (stripped binary, symbols archived separately) or 'debug' (symbols embedded, '-relwithdebinfo' suffix). Docker image flavour is controlled separately via build_docker_image."
-        default: 'prod'
       os:
         type: string
         description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. To produce a docker image, pick a ubuntu-24.04 variant and set build_docker_image."
@@ -134,7 +123,6 @@ jobs:
       run_package_ubuntu_24_04: ${{ steps.setup.outputs.run_package_ubuntu_24_04 }}
       run_package_ubuntu_24_04_arm: ${{ steps.setup.outputs.run_package_ubuntu_24_04_arm }}
       run_package_ubuntu_24_04_malloc: ${{ steps.setup.outputs.run_package_ubuntu_24_04_malloc }}
-      workflow_input_package_flavour: ${{ steps.setup.outputs.workflow_input_package_flavour }}
       workflow_input_toolchain: ${{ steps.setup.outputs.workflow_input_toolchain }}
       workflow_input_push_to_s3: ${{ steps.setup.outputs.workflow_input_push_to_s3 }}
       workflow_input_push_to_github: ${{ steps.setup.outputs.workflow_input_push_to_github }}
@@ -168,8 +156,6 @@ jobs:
       os: "centos-9"
       arch: "amd"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
@@ -187,8 +173,6 @@ jobs:
       os: "centos-10"
       arch: "amd"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
@@ -206,8 +190,6 @@ jobs:
       os: "debian-12"
       arch: "amd"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
@@ -225,8 +207,6 @@ jobs:
       os: "debian-12"
       arch: "arm"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: false
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
@@ -244,8 +224,6 @@ jobs:
       os: "debian-13"
       arch: "amd"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: false
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
@@ -263,8 +241,6 @@ jobs:
       os: "debian-13"
       arch: "arm"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
@@ -282,8 +258,6 @@ jobs:
       os: "fedora-42"
       arch: "amd"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
@@ -301,8 +275,6 @@ jobs:
       os: "fedora-42"
       arch: "arm"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: false
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
@@ -320,8 +292,6 @@ jobs:
       os: "rocky-10"
       arch: "amd"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
@@ -339,8 +309,6 @@ jobs:
       os: "ubuntu-22.04"
       arch: "amd"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
@@ -358,8 +326,6 @@ jobs:
       os: "ubuntu-24.04"
       arch: "amd"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' || needs.PackageSetup.outputs.workflow_input_build_docker_image_amd != 'none' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_amd }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
@@ -378,8 +344,6 @@ jobs:
       os: "ubuntu-24.04"
       arch: "arm"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' || needs.PackageSetup.outputs.workflow_input_build_docker_image_arm != 'none' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_arm }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
@@ -398,8 +362,6 @@ jobs:
       os: "ubuntu-24.04"
       arch: "amd"
       build_type: RelWithDebInfo
-      split_debug: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour == 'prod' || needs.PackageSetup.outputs.workflow_input_build_docker_image_malloc != 'none' }}
-      package_flavour: ${{ needs.PackageSetup.outputs.workflow_input_package_flavour }}
       build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_malloc }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}

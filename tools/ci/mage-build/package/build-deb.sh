@@ -18,17 +18,7 @@ CLEAN_VERSION=$(echo $VERSION | sed 's/_/+/g')
 # and replace anythin preceding the version number
 CLEAN_VERSION=$(echo $CLEAN_VERSION | sed 's/^[^0-9]*//')
 
-# PACKAGE_FLAVOUR controls whether the -relwithdebinfo suffix is applied:
-# - "prod" (default) produces the stripped package customers install (no suffix).
-# - "debug" produces the symbols-embedded package used for interactive debugging.
-# The suffix used to be gated on BUILD_TYPE=RelWithDebInfo alone; now we split
-# the RWD build type into two packaging flavours via MG_SPLIT_DEBUG.
-PACKAGE_FLAVOUR="${PACKAGE_FLAVOUR:-prod}"
-
 PACKAGE_NAME="memgraph-mage_${VERSION}-1_${ARCH}"
-if [[ "$BUILD_TYPE" == "RelWithDebInfo" && "$PACKAGE_FLAVOUR" == "debug" ]]; then
-    PACKAGE_NAME="${PACKAGE_NAME}-relwithdebinfo"
-fi
 if [[ "$MALLOC" == true ]]; then
     PACKAGE_NAME="${PACKAGE_NAME}-malloc"
 fi
@@ -58,31 +48,18 @@ tar -xvzf $PACKAGE_DIR -C $SCRIPT_DIR/build/usr/lib/memgraph/
 # SOVERSION — what mage's add_query_module produces). After the move,
 # build/ holds the stripped .so files for the main package; build-debuginfo/
 # holds the corresponding .debug sidecars for the debuginfo package.
-#
-# For the debug flavour (no split-debug build), no sidecars exist —
-# symbols are embedded in the .so files directly. In that case the
-# debuginfo deb would be empty, so drop its stanza from control before
-# dpkg-buildpackage and skip the move.
 DEBUGINFO_STAGE="$SCRIPT_DIR/build-debuginfo/usr/lib/memgraph/query_modules"
 mkdir -pv "$DEBUGINFO_STAGE"
-HAS_DEBUGINFO=false
-if find "$SCRIPT_DIR/build/usr/lib/memgraph/query_modules" -maxdepth 1 -name '*.so*.debug' -print -quit | grep -q .; then
-    HAS_DEBUGINFO=true
-    (cd "$SCRIPT_DIR/build/usr/lib/memgraph/query_modules" && \
-        find . -name '*.so*.debug' -print | while read -r f; do
-            mkdir -p "$DEBUGINFO_STAGE/$(dirname "$f")"
-            mv -v "$f" "$DEBUGINFO_STAGE/$f"
-        done)
+if ! find "$SCRIPT_DIR/build/usr/lib/memgraph/query_modules" -maxdepth 1 -name '*.so*.debug' -print -quit | grep -q .; then
+    echo "Error: no .debug sidecars in $SCRIPT_DIR/build/usr/lib/memgraph/query_modules" >&2
+    echo "       MAGE builds must run with --split-debug so the debuginfo deb is non-empty." >&2
+    exit 1
 fi
-if [[ "$HAS_DEBUGINFO" != "true" ]]; then
-    echo "No .debug sidecars present — dropping memgraph-mage-debuginfo package from control."
-    # Drop only the debuginfo stanza so dpkg-buildpackage emits just the main
-    # package on this run. Treat blank-line-separated stanzas as awk records
-    # so later additions after the debuginfo stanza survive untouched.
-    awk -v RS='' -v ORS='\n\n' '!/^Package: memgraph-mage-debuginfo/' \
-        "$SCRIPT_DIR/debian/control" > "$SCRIPT_DIR/debian/control.tmp"
-    mv "$SCRIPT_DIR/debian/control.tmp" "$SCRIPT_DIR/debian/control"
-fi
+(cd "$SCRIPT_DIR/build/usr/lib/memgraph/query_modules" && \
+    find . -name '*.so*.debug' -print | while read -r f; do
+        mkdir -p "$DEBUGINFO_STAGE/$(dirname "$f")"
+        mv -v "$f" "$DEBUGINFO_STAGE/$f"
+    done)
 
 # Replace template variables in Debian control files
 sed -i "s/@ARCH@/$ARCH/g" $SCRIPT_DIR/debian/control
@@ -96,8 +73,18 @@ dpkg-buildpackage -us -uc -b
 
 old_name="$(ls ../memgraph-mage_*.deb | grep -v -- '-debuginfo' | head -n 1)"
 mv "$old_name" "$PACKAGE_NAME"
-if [[ "$HAS_DEBUGINFO" == "true" ]]; then
-    debuginfo_old="$(ls ../memgraph-mage-debuginfo_*.deb | head -n 1)"
-    debuginfo_new="memgraph-mage-debuginfo_${PACKAGE_NAME#memgraph-mage_}"
-    mv "$debuginfo_old" "$debuginfo_new"
-fi
+
+debuginfo_old="$(ls ../memgraph-mage-debuginfo_*.deb | head -n 1)"
+debuginfo_new="memgraph-mage-debuginfo_${PACKAGE_NAME#memgraph-mage_}"
+mv "$debuginfo_old" "$debuginfo_new"
+
+# memgraph-mage-full is the noarch metapackage; its content is identical
+# across variants (only Depends), but rename so the variant suffix
+# (-malloc, -cuda, -cugraph) is reflected in the filename — keeps the
+# artifact bucket's globs unambiguous when multiple variants land side by side.
+full_old="$(ls ../memgraph-mage-full_*.deb | head -n 1)"
+# Extract just the variant suffix portion from PACKAGE_NAME, e.g.
+# memgraph-mage_1.2.3-1_amd64-malloc.deb -> -malloc.deb
+variant_suffix="${PACKAGE_NAME#memgraph-mage_${VERSION}-1_${ARCH}}"
+full_new="memgraph-mage-full_${VERSION}-1_all${variant_suffix}"
+mv "$full_old" "$full_new"

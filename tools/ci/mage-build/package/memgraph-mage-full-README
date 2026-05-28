@@ -1,0 +1,16 @@
+memgraph-mage-full is a metapackage. It contains no files of its own;
+installing it pulls in `memgraph-mage` and `memgraph-mage-debuginfo` at
+matching versions in one step, equivalent to:
+
+    apt install memgraph-mage memgraph-mage-debuginfo
+
+Use this when you want the MAGE query modules with symbolicated stack
+traces ready to go, without having to remember the companion package
+name.
+
+Removal note: `apt remove memgraph-mage-full` does not by itself
+uninstall `memgraph-mage` or `memgraph-mage-debuginfo`, but those
+packages are flagged as automatically installed. They will be removed
+by the next `apt autoremove` unless you mark them manual:
+
+    apt-mark manual memgraph-mage memgraph-mage-debuginfo

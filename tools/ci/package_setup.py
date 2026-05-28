@@ -91,7 +91,6 @@ class PackageSetup:
         else:
             # For pull_request events, return default values
             inputs = {
-                "package_flavour": "prod",
                 "push_to_s3": "false",
                 "s3_dest_dir": "",
                 "push_to_github": "false",
