@@ -25,13 +25,31 @@ prometheus::Histogram *RpcInfo<replication::WalFilesRpc>::histogram() {
 }
 
 template <>
+void RpcInfo<replication::WalFilesRpc>::ObserveThroughput(std::string const &instance_name,
+                                                          double const bytes_per_seconds) {
+  metrics::Metrics().ObserveWalThroughput(instance_name, bytes_per_seconds);
+}
+
+template <>
 prometheus::Histogram *RpcInfo<replication::CurrentWalRpc>::histogram() {
   return metrics::Metrics().global.current_wal_rpc_seconds;
 }
 
 template <>
+void RpcInfo<replication::CurrentWalRpc>::ObserveThroughput(std::string const &instance_name,
+                                                            double const bytes_per_second) {
+  metrics::Metrics().ObserveWalThroughput(instance_name, bytes_per_second);
+}
+
+template <>
 prometheus::Histogram *RpcInfo<replication::SnapshotRpc>::histogram() {
   return metrics::Metrics().global.snapshot_rpc_seconds;
+}
+
+template <>
+void RpcInfo<replication::SnapshotRpc>::ObserveThroughput(std::string const &instance_name,
+                                                          double const bytes_per_second) {
+  metrics::Metrics().ObserveSnapshotThroughput(instance_name, bytes_per_second);
 }
 
 /// This method tries to find the optimal path for recovering a single replica.
