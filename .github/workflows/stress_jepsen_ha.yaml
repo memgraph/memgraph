@@ -98,7 +98,7 @@ jobs:
       concurrency: ""
       storage-backup-dir-enabled: true
       shutdown-signal: ${{ needs.determine-inputs.outputs.signal }}
-      intra-cluster-tls: ${{ needs.determine-inputs.outputs.intra_tls }}
+      intra-cluster-tls: ${{ needs.determine-inputs.outputs.intra_tls == 'true' }}
     secrets: inherit
 
   run-manual-jepsen-tests:
