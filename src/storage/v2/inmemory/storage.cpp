@@ -2480,39 +2480,27 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_->edge_type_.get());
-  return EdgesIterable(
-      active_indices->Edges(edge_type, std::move(vertex_acc), std::move(edge_acc), view, storage_, &transaction_));
+  return EdgesIterable(active_indices->Edges(edge_type, std::move(vertex_acc), view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property, View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
-  return EdgesIterable(active_indices->Edges(edge_type,
-                                             property,
-                                             std::move(vertex_acc),
-                                             std::move(edge_acc),
-                                             std::nullopt,
-                                             std::nullopt,
-                                             view,
-                                             storage_,
-                                             &transaction_));
+  return EdgesIterable(active_indices->Edges(
+      edge_type, property, std::move(vertex_acc), std::nullopt, std::nullopt, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
                                                        const PropertyValue &value, View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
   return EdgesIterable(active_indices->Edges(edge_type,
                                              property,
                                              std::move(vertex_acc),
-                                             std::move(edge_acc),
                                              utils::MakeBoundInclusive(value),
                                              utils::MakeBoundInclusive(value),
                                              view,
@@ -2525,37 +2513,26 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Pro
                                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                        View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
-  return EdgesIterable(active_indices->Edges(edge_type,
-                                             property,
-                                             std::move(vertex_acc),
-                                             std::move(edge_acc),
-                                             lower_bound,
-                                             upper_bound,
-                                             view,
-                                             storage_,
-                                             &transaction_));
+  return EdgesIterable(active_indices->Edges(
+      edge_type, property, std::move(vertex_acc), lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *mem_edge_property_active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesIterable(mem_edge_property_active_indices->Edges(
-      property, std::move(vertex_acc), std::move(edge_acc), std::nullopt, std::nullopt, view, storage_, &transaction_));
+      property, std::move(vertex_acc), std::nullopt, std::nullopt, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, const PropertyValue &value, View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *mem_edge_property_active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesIterable(mem_edge_property_active_indices->Edges(property,
                                                                std::move(vertex_acc),
-                                                               std::move(edge_acc),
                                                                utils::MakeBoundInclusive(value),
                                                                utils::MakeBoundInclusive(value),
                                                                view,
@@ -2568,33 +2545,29 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property,
                                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                        View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *mem_edge_property_active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesIterable(mem_edge_property_active_indices->Edges(
-      property, std::move(vertex_acc), std::move(edge_acc), lower_bound, upper_bound, view, storage_, &transaction_));
+      property, std::move(vertex_acc), lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, View view,
                                                                      size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_->edge_type_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(
-      edge_type, std::move(vertices_acc), std::move(edges_acc), view, storage_, &transaction_, num_chunks));
+  return EdgesChunkedIterable(
+      active_indices->ChunkedEdges(edge_type, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
                                                                      View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
                                                            property,
                                                            std::move(vertices_acc),
-                                                           std::move(edges_acc),
                                                            std::nullopt,
                                                            std::nullopt,
                                                            view,
@@ -2607,13 +2580,11 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
     EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
                                                            property,
                                                            std::move(vertices_acc),
-                                                           std::move(edges_acc),
                                                            lower_bound,
                                                            upper_bound,
                                                            view,
@@ -2625,29 +2596,19 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property, View view,
                                                                      size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
-                                                           std::move(vertices_acc),
-                                                           std::move(edges_acc),
-                                                           std::nullopt,
-                                                           std::nullopt,
-                                                           view,
-                                                           storage_,
-                                                           &transaction_,
-                                                           num_chunks));
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(
+      property, std::move(vertices_acc), std::nullopt, std::nullopt, view, storage_, &transaction_, num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property, const PropertyValue &value,
                                                                      View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
                                                            std::move(vertices_acc),
-                                                           std::move(edges_acc),
                                                            utils::MakeBoundInclusive(value),
                                                            utils::MakeBoundInclusive(value),
                                                            view,
@@ -2660,18 +2621,10 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
     PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
-                                                           std::move(vertices_acc),
-                                                           std::move(edges_acc),
-                                                           lower_bound,
-                                                           upper_bound,
-                                                           view,
-                                                           storage_,
-                                                           &transaction_,
-                                                           num_chunks));
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(
+      property, std::move(vertices_acc), lower_bound, upper_bound, view, storage_, &transaction_, num_chunks));
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
