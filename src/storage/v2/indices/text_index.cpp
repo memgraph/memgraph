@@ -304,8 +304,6 @@ std::vector<TextSearchResult> TextIndex::ActiveIndices::Search(const std::string
     const auto lowered_query = ToLowerCasePreservingBooleanOperators(search_query);
     switch (search_mode) {
       case text_search_mode::SPECIFIED_PROPERTIES:
-        // search_fields empty so unqualified queries error at parse time.
-        // fuzzy_field still names data so set_field_fuzzy can attach to it.
         search_results = mgcxx::text_search::search_gids_pinned(
             context,
             searcher,

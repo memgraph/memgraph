@@ -68,9 +68,6 @@ mod ffi {
         fuzzy_distance: u8,
         fuzzy_prefix: bool,
         fuzzy_transpositions: bool,
-        // Field set_field_fuzzy attaches to. Decoupled from search_fields so a JSON
-        // field can be made fuzzy without also being a parser default (which would let
-        // path-less queries parse but match nothing). Empty string disables fuzzy.
         fuzzy_field: String,
         // NOTE: Any primitive value here is a bit of a problem because of default value on the C++
         // side.
