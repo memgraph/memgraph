@@ -737,7 +737,7 @@ def test_node_type_properties_config_exclude_labels():
     assert list(result[0]) == [":`Cat`", ["Cat"], "name", ["String"], False]
 
 
-def test_node_type_properties_config_sample():
+def test_node_type_properties_sample_does_not_drive_mandatory():
     cursor = connect().cursor()
     # Create 3 Dog nodes, 2 with owner property, 1 without
     execute_and_fetch_all(
@@ -748,8 +748,7 @@ def test_node_type_properties_config_sample():
         CREATE (:Dog {name: 'Buddy'})
         """,
     )
-    # Sampling controls scan size but does not drive mandatory (which is constraint-based).
-    # With no existence constraints, mandatory is False even when every sampled node has the property.
+    # Sampling caps the scan; mandatory comes from existence constraints, not sample coverage.
     result = execute_and_fetch_all(
         cursor,
         "CALL schema.node_type_properties({sample: 2}) "
@@ -1101,8 +1100,6 @@ def test_rel_type_properties_partitions_by_endpoint_labels():
         "propertyObservations, totalObservations "
         "ORDER BY sourceNodeLabels[0], propertyName;",
     )
-    # Dog -> Activity: 2 rels, duration property only on 1 -> not mandatory
-    # Cat -> Place: 1 rel with weather -> mandatory
     rows = {(list(r)[1][0], list(r)[2][0], list(r)[3]): (list(r)[4], list(r)[5], list(r)[6]) for r in result}
     assert rows[("Cat", "Place", "weather")] == (False, 1, 1)
     assert rows[("Dog", "Activity", "duration")] == (False, 1, 2)
@@ -1177,15 +1174,13 @@ def test_mandatory_true_when_existence_constraint_present():
     cursor = connect().cursor()
     execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
     execute_and_fetch_all(cursor, "CREATE (:Person {name: 'Alice'})")
-    try:
-        result = execute_and_fetch_all(
-            cursor,
-            "CALL schema.node_type_properties() YIELD propertyName, mandatory RETURN propertyName, mandatory;",
-        )
-        rows = {list(r)[0]: list(r)[1] for r in result}
-        assert rows["name"] is True
-    finally:
-        execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD propertyName, mandatory RETURN propertyName, mandatory;",
+    )
+    rows = {list(r)[0]: list(r)[1] for r in result}
+    assert rows["name"] is True
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
 
 
 def test_mandatory_false_when_no_constraint_even_if_always_present():
@@ -1203,31 +1198,27 @@ def test_mandatory_constraint_label_specific_on_multi_label_node():
     cursor = connect().cursor()
     execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
     execute_and_fetch_all(cursor, "CREATE (:Person:Employee {name: 'Alice'})")
-    try:
-        result = execute_and_fetch_all(
-            cursor,
-            "CALL schema.node_type_properties() YIELD propertyName, mandatory RETURN propertyName, mandatory;",
-        )
-        rows = {list(r)[0]: list(r)[1] for r in result}
-        assert rows["name"] is True
-    finally:
-        execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD propertyName, mandatory RETURN propertyName, mandatory;",
+    )
+    rows = {list(r)[0]: list(r)[1] for r in result}
+    assert rows["name"] is True
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
 
 
 def test_mandatory_constraint_unrelated_label_not_picked_up():
     cursor = connect().cursor()
     execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.email);")
     execute_and_fetch_all(cursor, "CREATE (:Company {email: 'info@x.com'})")
-    try:
-        result = execute_and_fetch_all(
-            cursor,
-            "CALL schema.node_type_properties() YIELD nodeLabels, propertyName, mandatory "
-            "RETURN nodeLabels, propertyName, mandatory;",
-        )
-        rows = {tuple(list(r)[0]) + (list(r)[1],): list(r)[2] for r in result}
-        assert rows[("Company", "email")] is False
-    finally:
-        execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.email);")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeLabels, propertyName, mandatory "
+        "RETURN nodeLabels, propertyName, mandatory;",
+    )
+    rows = {tuple(list(r)[0]) + (list(r)[1],): list(r)[2] for r in result}
+    assert rows[("Company", "email")] is False
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.email);")
 
 
 def test_rel_mandatory_always_false():
@@ -1239,6 +1230,79 @@ def test_rel_mandatory_always_false():
     )
     rows = {list(r)[0]: list(r)[1] for r in result}
     assert rows["p"] is False
+
+
+def test_node_type_properties_on_virtual_graph_does_not_crash():
+    # ListAllExistenceConstraints throws on derive() graphs; the procedure must swallow it.
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    execute_and_fetch_all(cursor, "CREATE (:Person {name: 'Alice'})-[:KNOWS]->(:Person {name: 'Bob'})")
+    execute_and_fetch_all(
+        cursor,
+        "MATCH p=(:Person)-[:KNOWS]->(:Person) "
+        "WITH derive(p, {virtualEdgeType: 'KNOWS'}) AS g "
+        "CALL schema.node_type_properties(g) YIELD propertyName, mandatory "
+        "RETURN propertyName, mandatory;",
+    )
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+
+
+def test_mandatory_constraint_only_other_label_present():
+    # Sibling of test_mandatory_constraint_label_specific_on_multi_label_node:
+    # constraint on Person.name, node has only :Employee → not mandatory for the Employee-only row.
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    execute_and_fetch_all(cursor, "CREATE (:Employee {name: 'Bob'})")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeLabels, propertyName, mandatory "
+        "RETURN nodeLabels, propertyName, mandatory;",
+    )
+    rows = {tuple(list(r)[0]) + (list(r)[1],): list(r)[2] for r in result}
+    assert rows[("Employee", "name")] is False
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+
+
+def test_mandatory_constraint_with_no_matching_nodes():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Ghost) ASSERT EXISTS (n.id);")
+    execute_and_fetch_all(cursor, "CREATE (:Person {name: 'Alice'})")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeLabels RETURN nodeLabels;",
+    )
+    labels = {tuple(list(r)[0]) for r in result}
+    assert ("Ghost",) not in labels
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Ghost) ASSERT EXISTS (n.id);")
+
+
+def test_mandatory_true_with_sample_smaller_than_population():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    execute_and_fetch_all(
+        cursor,
+        "UNWIND range(1, 10) AS i CREATE (:Person {name: toString(i)})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties({sample: 3}) "
+        "YIELD propertyName, mandatory, totalObservations "
+        "RETURN propertyName, mandatory, totalObservations;",
+    )
+    rows = {list(r)[0]: (list(r)[1], list(r)[2]) for r in result}
+    assert rows["name"] == (True, 3)
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+
+
+def test_rel_type_existence_constraints_are_rejected():
+    # Drift sentinel for schema.cpp:RelTypeProperties — if Memgraph ever accepts rel-type
+    # existence constraints, the hardcoded `mandatory=false` for relationships becomes wrong.
+    cursor = connect().cursor()
+    with pytest.raises(Exception):
+        execute_and_fetch_all(
+            cursor,
+            "CREATE CONSTRAINT FOR ()-[r:R]->() REQUIRE r.x IS NOT NULL;",
+        )
 
 
 if __name__ == "__main__":
