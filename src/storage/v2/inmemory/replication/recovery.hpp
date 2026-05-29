@@ -15,9 +15,7 @@
 #include <system_error>
 #include <type_traits>
 
-#include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
-#include "rpc/client.hpp"
 #include "rpc/messages.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/replication/recovery.hpp"
