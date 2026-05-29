@@ -426,6 +426,11 @@ add_unit_test(utils_priority_thread_pool
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_epoch_tracker
+    SOURCES utils_epoch_tracker.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_exceptions
     SOURCES utils_exceptions.cpp
     LINK_TARGETS mg-utils
