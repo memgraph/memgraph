@@ -538,17 +538,31 @@ int main(int argc, char **argv) {
                         .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
                         .enable_edge_type_index_auto_creation =
                             FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)
+                        .storage_light_edge = FLAGS_storage_light_edge,
                         .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update,
                         .property_store_compression_enabled = FLAGS_storage_property_store_compression_enabled},
       .salient.storage_mode = memgraph::flags::ParseStorageMode(),
       .salient.property_store_compression_level = memgraph::flags::ParseCompressionLevel(),
       .track_label_counts = FLAGS_telemetry_enabled};
+  // Light edges require properties on edges: coerce BEFORE any check that
+  // depends on properties_on_edges (the edge-type auto-index fatal below and
+  // the edges-metadata warning) so they all observe the effective value.
+  if (db_config.salient.items.storage_light_edge && !db_config.salient.items.properties_on_edges) {
+    spdlog::warn("Light edges require properties on edges. Forcing properties_on_edges to true.");
+    db_config.salient.items.properties_on_edges = true;
+    // enable_edges_metadata was derived from the raw flag at struct-init
+    // (false when properties_on_edges was off) — re-derive it from the user's
+    // request now that properties_on_edges is effectively on.
+    db_config.salient.items.enable_edges_metadata = FLAGS_storage_enable_edges_metadata;
+  }
   if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
     LOG_FATAL(
         "Automatic index creation on edge-types has been set but properties on edges are disabled. If you wish to use "
         "automatic edge-type index creation, enable properties on edges as well.");
   }
-  if (!FLAGS_storage_properties_on_edges && FLAGS_storage_enable_edges_metadata) {
+  // Read the POST-coercion config field so the warning reflects the effective
+  // value (light-edge coercion above may have forced properties_on_edges true).
+  if (!db_config.salient.items.properties_on_edges && FLAGS_storage_enable_edges_metadata) {
     spdlog::warn(
         "Properties on edges were not enabled, hence edges metadata will also be disabled. If you wish to utilize "
         "extra metadata on edges, enable properties on edges as well.");
