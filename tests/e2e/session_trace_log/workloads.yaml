@@ -1,0 +1,13 @@
+session_trace_log: &session_trace_log
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "session_trace_log.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Session trace log"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["session_trace_log/session_trace_log.py"]
+    <<: *session_trace_log

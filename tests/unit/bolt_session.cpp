@@ -46,6 +46,9 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   memgraph::metrics::DatabaseMetricHandles *GetMetricHandles() { return nullptr; }
 
+  // No trace stream needed; nullptr opts out of the per-message guard.
+  memgraph::logging::SessionLogContext *GetLogContext() noexcept { return nullptr; }
+
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();

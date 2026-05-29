@@ -60,6 +60,7 @@ target_sources(mg-utils
     small_vector.hpp
     static_vector.hpp
     logging.hpp
+    session_context.hpp
     string.hpp
     scheduler.hpp
     priority_thread_pool.hpp

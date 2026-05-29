@@ -320,7 +320,6 @@ startup_config_dict = {
         "",
         "Experimental features to be used, JSON object. Options []",
     ),
-    "query_log_directory": ("", "", "Path to directory where the query logs should be stored."),
     "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),
     "storage_rocksdb_enable_thread_tracking": (
         "false",
