@@ -196,7 +196,7 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
 }
 
 void UnlinkAndRemoveDeltas(delta_container &deltas,
-                           std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_edges,
+                           std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
                            std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
                            IndexPerformanceTracker &impact_tracker) {
   for (auto &delta : deltas) {
@@ -229,7 +229,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas,
         edge.SetDelta(nullptr);
         if (edge.deleted()) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-          current_deleted_edges.push_back(edge.gid);
+          current_deleted_edges.push_back(prev.edge);
         }
         break;
       }
@@ -1280,7 +1280,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 }
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
-    std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_edges,
+    std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
     std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
@@ -1315,7 +1315,7 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_vertices;
-  std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_edges;
+  std::list<Edge *, memory::DbAwareAllocator<Edge *>> current_deleted_edges;
   auto impact_tracker = IndexPerformanceTracker{};
 
   // STEP 1 + STEP 2 - delta cleanup
@@ -1327,6 +1327,7 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
         [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.end(), current_deleted_vertices); });
   }
   if (!current_deleted_edges.empty()) {
+    // O(1) splice under the SpinLock — never an O(batch) copy while locked.
     mem_storage->deleted_edges_.WithLock(
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), current_deleted_edges); });
   }
@@ -1369,11 +1370,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                                               transaction_.start_timestamp);
     }
 
-    // We collect vertices and edges we've created here and then splice them into
-    // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
-    // by one and acquiring lock every time.
+    // We collect vertices and edges we've deleted here into local vectors first,
+    // then remove them directly from the skiplists and transfer ownership
+    // to the GC in one locked batch, instead of acquiring the lock once per element.
     std::vector<Gid> my_deleted_vertices;
-    std::vector<Gid> my_deleted_edges;
+    std::vector<Edge *> my_deleted_edges;
 
     // TWO passes needed here
     // Abort will modify objects to restore state to how they were before this txn
@@ -1424,7 +1425,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
               case Delta::Action::DELETE_OBJECT: {
                 edge->SetDeleted(true);
-                my_deleted_edges.push_back(edge->gid);
+                my_deleted_edges.push_back(edge);
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
@@ -1676,9 +1677,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                   transaction_.start_timestamp,
                                   mem_storage->name_id_mapper_.get());
     // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
+    // my_deleted_edges holds Edge* for edges this aborting txn created (abort-of-create);
+    // they remain in `edges_` until the remove loop below, so reading ->gid here is safe.
     if (!my_deleted_edges.empty()) {
       if (auto &idx = mem_storage->edges_metadata_index_) {
-        idx->OnEdgesDeleted(my_deleted_edges);
+        idx->OnEdgesDeleted(my_deleted_edges | std::ranges::views::transform(&Edge::gid));
       }
     }
 
@@ -1693,8 +1696,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // EDGES
     if (!my_deleted_edges.empty()) {
       auto edges_acc = mem_storage->edges_.access();
-      for (auto gid : my_deleted_edges) {
-        edges_acc.remove(gid);
+      for (auto *edge : my_deleted_edges) {
+        edges_acc.remove(edge->gid);
       }
     }
   }
@@ -2959,7 +2962,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
   // vertices that appear in an index also exist in main storage.
-  std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_edges{};
+  std::list<Edge *, memory::DbAwareAllocator<Edge *>> current_deleted_edges{};
   std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_vertices{};
 
   deleted_vertices_.WithLock([&](auto &deleted_vertices) { current_deleted_vertices.swap(deleted_vertices); });
@@ -3054,7 +3057,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             edge->SetDelta(nullptr);
             if (edge->deleted()) {
               DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-              current_deleted_edges.push_back(edge->gid);
+              current_deleted_edges.push_back(edge);
             }
             break;
           }
@@ -3211,9 +3214,11 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
 
   // EDGES METADATA (has ptr to Vertices, must be before removing vertices)
+  // current_deleted_edges holds Edge* still owned by `edges_`; this single-threaded GC pass
+  // frees them only in the remove loop below (MG_ASSERT'd), so reading ->gid here is safe.
   if (!current_deleted_edges.empty()) {
     if (auto &idx = edges_metadata_index_) {
-      idx->OnEdgesDeleted(current_deleted_edges);
+      idx->OnEdgesDeleted(current_deleted_edges | std::ranges::views::transform(&Edge::gid));
     }
   }
 
@@ -3236,14 +3241,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // Remove edges from vector edge index BEFORE vertex skip-list removal.
     // edge_endpoints_ stores Vertex* — freeing vertices first would leave dangling pointers.
     if (!current_deleted_edges.empty() && !indices_.vector_edge_index_.Empty()) {
-      auto edge_acc = edges_.access();
-      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
-                                     auto it = edge_acc.find(gid);
-                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
-                                     return &*it;
-                                   }) |
-                                   std::ranges::to<std::vector>();
-
+      // RemoveEdgesFromVectorEdgeIndices takes a contiguous std::span; current_deleted_edges
+      // is a std::list (kept so the under-lock handover stays an O(1) splice), so materialize
+      // a temp vector here. This runs off the deleted_edges_ lock, during GC.
+      std::vector<Edge *> const edges_to_remove(current_deleted_edges.begin(), current_deleted_edges.end());
       indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
     }
 
@@ -3257,18 +3258,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto edge_acc = edges_.access();
 
     if (current_deleted_vertices.empty() && !indices_.vector_edge_index_.Empty()) {
-      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
-                                     auto it = edge_acc.find(gid);
-                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
-                                     return &*it;
-                                   }) |
-                                   std::ranges::to<std::vector>();
-
+      // std::list -> contiguous temp vector for the std::span API (off-lock; see above).
+      std::vector<Edge *> const edges_to_remove(current_deleted_edges.begin(), current_deleted_edges.end());
       indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
     }
 
-    for (auto edge : current_deleted_edges) {
-      MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
+    for (auto *edge : current_deleted_edges) {
+      MG_ASSERT(edge_acc.remove(edge->gid), "Invalid database state!");
     }
   }
 
