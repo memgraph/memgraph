@@ -55,7 +55,12 @@ LicenseInfoSender::LicenseInfoSender(std::string url, std::string uuid, std::str
       });
 }
 
-LicenseInfoSender::~LicenseInfoSender() { scheduler_.Stop(); }
+LicenseInfoSender::~LicenseInfoSender() { Stop(); }
+
+void LicenseInfoSender::Stop() {
+  abort_.store(true, std::memory_order_relaxed);
+  scheduler_.Stop();
+}
 
 void LicenseInfoSender::SendData() {
   nlohmann::json data = nlohmann::json::object();
@@ -85,7 +90,8 @@ void LicenseInfoSender::SendData() {
   }
   if (!requests::RequestPostJson(url_,
                                  data,
-                                 /* timeout_in_seconds = */ 2 * 60)) {
+                                 /* timeout_in_seconds = */ 2 * 60,
+                                 &abort_)) {
     spdlog::trace("Cannot send license information, enable {} availability!", url_);
   }
 }

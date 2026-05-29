@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <nlohmann/json_fwd.hpp>
@@ -36,6 +37,12 @@ class LicenseInfoSender final {
   LicenseInfoSender &operator=(LicenseInfoSender &&) noexcept = delete;
   ~LicenseInfoSender();
 
+  /**
+   * Signal the license sender to stop immediately.
+   * Call this during shutdown to prevent blocking.
+   */
+  void Stop();
+
  private:
   void SendData();
 
@@ -46,6 +53,8 @@ class LicenseInfoSender final {
 
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info_;
   utils::Scheduler scheduler_;
+
+  std::atomic<bool> abort_{false};
 };
 
 }  // namespace memgraph::license
