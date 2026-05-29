@@ -159,7 +159,8 @@ void RecordPropertyObservation(PropertyInfo &info, const mgp::Value &prop) {
 namespace {
 using ConstraintsByLabel = std::unordered_map<std::string, std::unordered_set<std::string>>;
 
-// Entries come as "label:property"; rfind handles property names with ':' correctly since labels cannot.
+// Entries are "<label>:<property_path>", unescaped. Names containing ':' (only possible via
+// backticked Cypher syntax) would be ambiguous; rfind is an arbitrary tie-break.
 ConstraintsByLabel BuildExistenceConstraintsByLabel(mgp_graph *memgraph_graph) {
   ConstraintsByLabel by_label;
   try {
