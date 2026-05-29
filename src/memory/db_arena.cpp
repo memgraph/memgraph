@@ -312,7 +312,9 @@ ArenaPool::~ArenaPool() noexcept {
             "ArenaPool {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx, err);
         spdlog::error("ArenaPool {}: leaking arena from GlobalArenaPool reuse after failed hook restore", arena_idx);
         hooks_->tracker = nullptr;
-        (void)hooks_.release();
+        // Intentional leak: keep hooks alive so the orphaned arena (which we failed to restore to
+        // default hooks) does not call back into freed memory on subsequent allocations.
+        (void)hooks_.release();  // NOLINT(bugprone-unused-return-value)
         continue;
       }
 
