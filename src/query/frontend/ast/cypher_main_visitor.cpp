@@ -4487,6 +4487,39 @@ antlrcpp::Any CypherMainVisitor::visitSetSessionTraceQuery(MemgraphCypher::SetSe
   return session_trace_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitSetSessionSettingQuery(MemgraphCypher::SetSessionSettingQueryContext *ctx) {
+  auto *session_setting_query = storage_->Create<SessionSettingQuery>();
+
+  if (!ctx->settingName()->literal()->StringLiteral()) {
+    throw SemanticException("Setting name should be a string literal");
+  }
+  if (!ctx->settingValue()->literal()->StringLiteral()) {
+    throw SemanticException("Setting value should be a string literal");
+  }
+
+  session_setting_query->setting_name_ = std::any_cast<Expression *>(ctx->settingName()->accept(this));
+  MG_ASSERT(session_setting_query->setting_name_);
+  session_setting_query->setting_value_ = std::any_cast<Expression *>(ctx->settingValue()->accept(this));
+  MG_ASSERT(session_setting_query->setting_value_);
+
+  query_ = session_setting_query;
+  return session_setting_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitResetSessionSettingQuery(MemgraphCypher::ResetSessionSettingQueryContext *ctx) {
+  auto *reset_query = storage_->Create<ResetSessionSettingQuery>();
+
+  if (!ctx->settingName()->literal()->StringLiteral()) {
+    throw SemanticException("Setting name should be a string literal");
+  }
+
+  reset_query->setting_name_ = std::any_cast<Expression *>(ctx->settingName()->accept(this));
+  MG_ASSERT(reset_query->setting_name_);
+
+  query_ = reset_query;
+  return reset_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitLimitKV(MemgraphCypher::LimitKVContext *ctx) {
   auto key = utils::ToLowerCase(std::any_cast<std::string>(ctx->key->accept(this)));
   auto value = VisitLimitValue(ctx->val, this);

@@ -14,9 +14,11 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "utils/observer.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/session_context.hpp"
 #include "utils/settings.hpp"
 
 namespace memgraph::flags::run_time {
@@ -132,5 +134,27 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
  * @brief Detach observer from the global snapshor period variable
  */
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);
+
+// Slow / failed query log settings, cached for fast reads.
+int64_t GetLogMinDurationMs();
+bool GetLogFailedQueries();
+bool GetLogQueryPlan();
+
+// Settings keys for slow/failed query log; the same strings are stored in the
+// per-session overlay and registered in the global settings store.
+inline constexpr std::string_view kLogMinDurationMsKey = "log.min_duration_ms";
+inline constexpr std::string_view kLogFailedQueriesKey = "log.failed_queries";
+inline constexpr std::string_view kLogQueryPlanKey = "log.query_plan";
+
+// Read the effective value of a session-overridable setting. Looks up the
+// session overlay first, then falls back to the cached global value.
+template <typename T>
+T GetEffective(std::string_view key, const logging::SessionLogContext *ctx);
+
+template <>
+int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogContext *ctx);
+
+template <>
+bool GetEffective<bool>(std::string_view key, const logging::SessionLogContext *ctx);
 
 }  // namespace memgraph::flags::run_time

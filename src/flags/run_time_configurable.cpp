@@ -118,6 +118,17 @@ DEFINE_uint64(file_download_conn_timeout_sec, 10,
 DEFINE_VALIDATED_uint64(storage_access_timeout_sec, 1, "Query's storage level access timeout in seconds.",
                         FLAG_IN_RANGE(1, 1'000'000));
 
+// Slow / failed query log flags.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_int64(log_min_duration_ms, -1,
+             "Threshold in milliseconds; queries whose summed parse+plan+execute time meets or exceeds this value are "
+             "logged with a [slow-query] tag. -1 disables; 0 logs every successful query.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(log_failed_queries, false,
+            "When true, every user-initiated query that throws emits one [failed-query] log line.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(log_query_plan, true, "When true, slow-query log lines include the query plan as an indented PLAN: block.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -173,6 +184,11 @@ constexpr auto kFileDownloadConnTimeoutSecGFlagsKey = "file_download_conn_timeou
 constexpr auto kStorageAccessTimeoutSecSettingKey = "storage.access_timeout_sec";
 constexpr auto kStorageAccessTimeoutSecGFlagsKey = "storage_access_timeout_sec";
 
+// Slow / failed query log
+constexpr auto kLogMinDurationMsGFlagsKey = "log_min_duration_ms";
+constexpr auto kLogFailedQueriesGFlagsKey = "log_failed_queries";
+constexpr auto kLogQueryPlanGFlagsKey = "log_query_plan";
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
@@ -183,6 +199,23 @@ std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
+std::atomic<int64_t> log_min_duration_ms_{-1};
+std::atomic<bool> log_failed_queries_{false};
+std::atomic<bool> log_query_plan_{true};
+
+memgraph::utils::Settings::ValidatorResult ValidInt64Str(std::string_view in) {
+  try {
+    size_t n_processed = 0;
+    const std::string s{in};
+    std::stoll(s, &n_processed);
+    if (n_processed != s.size()) {
+      return std::unexpected{"Value must be an integer."};
+    }
+    return {};
+  } catch (const std::exception &) {
+    return std::unexpected{"Value must be an integer."};
+  }
+}
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
@@ -536,6 +569,30 @@ void Initialize(utils::Settings &settings) {
           return std::unexpected{"storage.access_timeout_sec must be a valid unsigned integer"};
         }
       });
+
+  /*
+   * Register slow / failed query log flags.
+   */
+  register_flag(
+      kLogMinDurationMsGFlagsKey,
+      std::string{memgraph::flags::run_time::kLogMinDurationMsKey},
+      kRestore,
+      [](const std::string &val) { log_min_duration_ms_.store(std::stoll(val), std::memory_order_release); },
+      ValidInt64Str);
+
+  register_flag(
+      kLogFailedQueriesGFlagsKey,
+      std::string{memgraph::flags::run_time::kLogFailedQueriesKey},
+      kRestore,
+      [](const std::string &val) { log_failed_queries_.store(val == "true", std::memory_order_release); },
+      ValidBoolStr);
+
+  register_flag(
+      kLogQueryPlanGFlagsKey,
+      std::string{memgraph::flags::run_time::kLogQueryPlanKey},
+      kRestore,
+      [](const std::string &val) { log_query_plan_.store(val == "true", std::memory_order_release); },
+      ValidBoolStr);
 }
 
 std::string GetServerName() {
@@ -608,6 +665,41 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
 
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Detach(observer);
+}
+
+int64_t GetLogMinDurationMs() { return log_min_duration_ms_.load(std::memory_order_acquire); }
+
+bool GetLogFailedQueries() { return log_failed_queries_.load(std::memory_order_acquire); }
+
+bool GetLogQueryPlan() { return log_query_plan_.load(std::memory_order_acquire); }
+
+template <>
+int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogContext *ctx) {
+  if (ctx != nullptr) {
+    if (auto overlay = ctx->GetSetting(key); overlay.has_value()) {
+      try {
+        return std::stoll(std::string{*overlay});
+      } catch (const std::exception &) {
+        // Fall through to global. The setter rejects invalid input, so this is defence in depth.
+      }
+    }
+  }
+  if (key == kLogMinDurationMsKey) return GetLogMinDurationMs();
+  MG_ASSERT(false, "GetEffective<int64_t> called for unregistered key");
+  return 0;
+}
+
+template <>
+bool GetEffective<bool>(std::string_view key, const logging::SessionLogContext *ctx) {
+  if (ctx != nullptr) {
+    if (auto overlay = ctx->GetSetting(key); overlay.has_value()) {
+      return *overlay == "true";
+    }
+  }
+  if (key == kLogFailedQueriesKey) return GetLogFailedQueries();
+  if (key == kLogQueryPlanKey) return GetLogQueryPlan();
+  MG_ASSERT(false, "GetEffective<bool> called for unregistered key");
+  return false;
 }
 
 }  // namespace memgraph::flags::run_time

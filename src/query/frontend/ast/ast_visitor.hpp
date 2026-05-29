@@ -139,6 +139,8 @@ class DropEnumQuery;
 class ShowSchemaInfoQuery;
 class TtlQuery;
 class SessionTraceQuery;
+class SessionSettingQuery;
+class ResetSessionSettingQuery;
 class UserProfileQuery;
 class TenantProfileQuery;
 class ParameterQuery;
@@ -191,7 +193,8 @@ class QueryVisitor
           MultiDatabaseQuery, UseDatabaseQuery, ShowDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery,
           CoordinatorQuery, DropAllIndexesQuery, DropAllConstraintsQuery, DropGraphQuery, CreateEnumQuery,
           ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,
-          ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery, UserProfileQuery, TenantProfileQuery, ParameterQuery,
-          DescriptionQuery, ReloadSSLQuery, ShowMemoryInfoQuery> {};
+          ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery, SessionSettingQuery, ResetSessionSettingQuery,
+          UserProfileQuery, TenantProfileQuery, ParameterQuery, DescriptionQuery, ReloadSSLQuery, ShowMemoryInfoQuery> {
+};
 
 }  // namespace memgraph::query

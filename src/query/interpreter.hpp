@@ -17,6 +17,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -500,6 +501,16 @@ class Interpreter final {
   plan::v2::QueryPlannerContext &query_planner_context() { return query_planner_context_; }
 
  private:
+  void MaybeEmitFailedQueryLog(std::string_view query, std::string_view error) const {
+    if (memgraph::logging::ScopedSessionLog::Current() == nullptr) return;
+    if (!flags::run_time::GetEffective<bool>(flags::run_time::kLogFailedQueriesKey,
+                                             memgraph::logging::ScopedSessionLog::Current()))
+      return;
+    const auto db_name = current_db_.name();
+    const std::string_view db_view = db_name.empty() ? std::string_view{"<none>"} : std::string_view{db_name};
+    memgraph::logging::EmitFailedQueryLog(session_info_.username, db_view, query, error);
+  }
+
   memgraph::logging::SessionLogContext session_log_ctx_{};
 
   void ResetInterpreter() {
@@ -537,6 +548,13 @@ class Interpreter final {
     std::optional<PreparedQuery> prepared_query;
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
+    // Original query text, captured so slow- / failed-query log emits can quote it
+    // after the lambda chain that owns parsed_query has been torn down.
+    std::string query_string;
+    // Rendered plan tree, populated during PrepareCypherQuery only if slow-query
+    // logging is on and log.query_plan is true. The DbAccessor needed to render
+    // it is gone by the time Pull's slow-query gate fires.
+    std::optional<std::string> slow_query_plan_text;
 
     static auto Create(utils::MemoryTracker *db_query_tracker = nullptr) -> std::unique_ptr<QueryExecution> {
       return std::make_unique<QueryExecution>(db_query_tracker);
@@ -628,6 +646,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   // it after it finishes executing because it gets destroyed alongside
   // the prepared query and its execution memory.
   std::optional<std::map<std::string, TypedValue>> maybe_summary;
+  // Stash before query_execution can be invalidated by ResetInterpreter / reset.
+  std::string captured_query_string;
+  std::optional<std::string> captured_plan_text;
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
@@ -643,6 +664,8 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     if (maybe_res) {
       // Save its summary
       maybe_summary.emplace(std::move(query_execution->summary));
+      captured_query_string = std::move(query_execution->query_string);
+      captured_plan_text = std::move(query_execution->slow_query_plan_text);
       if (!query_execution->notifications.empty()) {
         std::vector<TypedValue> notifications;
         notifications.reserve(query_execution->notifications.size());
@@ -680,10 +703,12 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     }
   } catch (const ExplicitTransactionUsageException &e) {
     memgraph::logging::EmitSessionTraceEvent(e.what());
+    MaybeEmitFailedQueryLog(query_execution ? query_execution->query_string : std::string{}, e.what());
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent(e.what());
+    MaybeEmitFailedQueryLog(query_execution ? query_execution->query_string : std::string{}, e.what());
     metrics::FirstFailedQuery();
     if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
       mh->failed_query.Increment();
@@ -709,6 +734,28 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     } else {
       metrics::Metrics().global.successful_query->Increment();
     }
+
+    const auto threshold_ms = flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey,
+                                                                     memgraph::logging::ScopedSessionLog::Current());
+    if (threshold_ms >= 0) {
+      auto duration_seconds = [&](const char *key) -> double {
+        auto it = maybe_summary->find(key);
+        if (it == maybe_summary->end() || !it->second.IsDouble()) return 0.0;
+        return it->second.ValueDouble();
+      };
+      const double total_sec = duration_seconds("parsing_time") + duration_seconds("planning_time") +
+                               duration_seconds("plan_execution_time");
+      const auto duration_ms = static_cast<int64_t>(total_sec * 1000.0);
+      if (duration_ms >= threshold_ms) {
+        std::optional<std::string_view> plan_view;
+        if (captured_plan_text.has_value()) plan_view = *captured_plan_text;
+        const auto db_name = current_db_.name();
+        const std::string_view db_view = db_name.empty() ? std::string_view{"<none>"} : std::string_view{db_name};
+        memgraph::logging::EmitSlowQueryLog(
+            session_info_.username, db_view, captured_query_string, duration_ms, plan_view);
+      }
+    }
+
     // return the execution summary
     maybe_summary->insert_or_assign("has_more", false);
     return std::move(*maybe_summary);

@@ -3451,7 +3451,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                 Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr
+                                 Interpreter &interpreter, std::optional<std::string> *slow_query_plan_out,
+                                 FrameChangeCollector *frame_change_collector = nullptr
 #ifdef MG_ENTERPRISE
                                  ,
                                  std::shared_ptr<utils::UserResources> user_resource = {}
@@ -3516,6 +3517,17 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     std::stringstream printed_plan;
     plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
     memgraph::logging::EmitSessionTraceEvent("Explain plan:\n{}", printed_plan.str());
+  }
+
+  if (slow_query_plan_out != nullptr) {
+    const auto *log_ctx = interpreter.GetLogContext();
+    const auto threshold_ms = flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, log_ctx);
+    const auto include_plan = flags::run_time::GetEffective<bool>(flags::run_time::kLogQueryPlanKey, log_ctx);
+    if (threshold_ms >= 0 && include_plan) {
+      std::stringstream printed_plan;
+      plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
+      *slow_query_plan_out = printed_plan.str();
+    }
   }
 
   PrepareCaching(plan->ast_storage(), frame_change_collector);
@@ -8251,6 +8263,119 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
       .rw_type = RWType::NONE};
 }
 
+namespace {
+// Curated allow-list of settings the user can override per-session. Adding to this
+// list also requires updating the GetEffective specializations.
+const std::array<std::string_view, 3> kSessionSettableKeys = {
+    flags::run_time::kLogMinDurationMsKey, flags::run_time::kLogFailedQueriesKey, flags::run_time::kLogQueryPlanKey};
+
+bool IsSessionSettable(std::string_view key) {
+  return std::ranges::any_of(kSessionSettableKeys, [&](std::string_view k) { return k == key; });
+}
+
+void ValidateSessionSettingValue(std::string_view key, std::string_view value) {
+  if (key == flags::run_time::kLogMinDurationMsKey) {
+    try {
+      const std::string s{value};
+      size_t pos = 0;
+      std::stoll(s, &pos);
+      if (pos != s.size()) throw std::invalid_argument{"trailing characters"};
+    } catch (const std::exception &) {
+      throw utils::BasicException("Setting '{}' requires an integer value", key);
+    }
+  } else if (key == flags::run_time::kLogFailedQueriesKey || key == flags::run_time::kLogQueryPlanKey) {
+    if (value != "true" && value != "false") {
+      throw utils::BasicException("Setting '{}' requires 'true' or 'false'", key);
+    }
+  }
+}
+}  // namespace
+
+PreparedQuery PrepareSessionSettingQuery(ParsedQuery parsed_query, Interpreter *interpreter) {
+  auto *query = utils::Downcast<SessionSettingQuery>(parsed_query.query);
+  MG_ASSERT(query);
+
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+  const auto name_tv = EvaluateOptionalExpression(query->setting_name_, evaluator);
+  if (!name_tv.IsString()) throw utils::BasicException("Setting name should be a string literal");
+  const auto value_tv = EvaluateOptionalExpression(query->setting_value_, evaluator);
+  if (!value_tv.IsString()) throw utils::BasicException("Setting value should be a string literal");
+
+  std::string name{name_tv.ValueString()};
+  std::string value{value_tv.ValueString()};
+
+  if (!IsSessionSettable(name)) {
+    throw utils::BasicException("Setting \"{}\" cannot be set per-session", name);
+  }
+  ValidateSessionSettingValue(name, value);
+
+  auto handler = [interpreter, name = std::move(name), value = std::move(value)]() mutable {
+    interpreter->GetLogContext()->SetSetting(name, std::move(value));
+    return std::pair{std::vector<std::vector<TypedValue>>{}, QueryHandlerResult::NOTHING};
+  };
+
+  return PreparedQuery{
+      .header = {},
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [handler = std::move(handler),
+                        action = QueryHandlerResult::NOTHING,
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          auto [results, action_on_complete] = handler();
+          action = action_on_complete;
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
+        if (pull_plan->Pull(stream, n)) return action;
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+}
+
+PreparedQuery PrepareResetSessionSettingQuery(ParsedQuery parsed_query, Interpreter *interpreter) {
+  auto *query = utils::Downcast<ResetSessionSettingQuery>(parsed_query.query);
+  MG_ASSERT(query);
+
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+  const auto name_tv = EvaluateOptionalExpression(query->setting_name_, evaluator);
+  if (!name_tv.IsString()) throw utils::BasicException("Setting name should be a string literal");
+  std::string name{name_tv.ValueString()};
+
+  if (!IsSessionSettable(name)) {
+    throw utils::BasicException("Setting \"{}\" cannot be set per-session", name);
+  }
+
+  auto handler = [interpreter, name = std::move(name)]() mutable {
+    interpreter->GetLogContext()->ResetSetting(name);
+    return std::pair{std::vector<std::vector<TypedValue>>{}, QueryHandlerResult::NOTHING};
+  };
+
+  return PreparedQuery{
+      .header = {},
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [handler = std::move(handler),
+                        action = QueryHandlerResult::NOTHING,
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          auto [results, action_on_complete] = handler();
+          action = action_on_complete;
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
+        if (pull_plan->Pull(stream, n)) return action;
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+}
+
 PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, CurrentDB &current_db
 #ifdef MG_ENTERPRISE
                                          ,
@@ -9202,6 +9327,7 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     return Interpreter::ParseInfo{.parsed_query = std::move(parsed_query), .parsing_time = parsing_time};
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
+    MaybeEmitFailedQueryLog(query_string, e.what());
     // Trigger first failed query
     metrics::FirstFailedQuery();
     // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.
@@ -9299,6 +9425,10 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */ }
 
   void Visit(SessionTraceQuery & /*unused*/) override {}
+
+  void Visit(SessionSettingQuery & /*unused*/) override {}
+
+  void Visit(ResetSessionSettingQuery & /*unused*/) override {}
 
   void Visit(ReloadSSLQuery & /*unused*/) override { /*No need for storage*/ }
 
@@ -9491,6 +9621,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
+  // Save before move-into-Prepare* invalidates parse_info.parsed_query.query_string.
+  const std::string original_query_string = parsed_query.query_string;
   try {
     // SetupInterpreterTransaction selected the execution DB for data queries.
     // System-only queries can intentionally have no current DB tracker.
@@ -9509,6 +9641,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
 
     query_execution->summary["parsing_time"] = parse_info.parsing_time;
+    query_execution->query_string = parse_info.parsed_query.query_string;
     memgraph::logging::EmitSessionTraceEvent("Query parsing time: {}", parse_info.parsing_time);
 
     // Set a default cost estimate of 0. Individual queries can overwrite this
@@ -9597,6 +9730,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                           user_or_role_,
                                           make_stopping_context(),
                                           *this,
+                                          &query_execution->slow_query_plan_text,
                                           &*frame_change_collector_
 #ifdef MG_ENTERPRISE
                                           ,
@@ -9850,6 +9984,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       );
     } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
       prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
+    } else if (utils::Downcast<SessionSettingQuery>(parsed_query.query)) {
+      prepared_query = PrepareSessionSettingQuery(std::move(parsed_query), this);
+    } else if (utils::Downcast<ResetSessionSettingQuery>(parsed_query.query)) {
+      prepared_query = PrepareResetSessionSettingQuery(std::move(parsed_query), this);
     } else if (utils::Downcast<UserProfileQuery>(parsed_query.query)) {
       prepared_query = PrepareUserProfileQuery(std::move(parsed_query), interpreter_context_, this);
     } else if (utils::Downcast<TenantProfileQuery>(parsed_query.query)) {
@@ -9928,6 +10066,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             .db = query_execution->prepared_query->db};
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
+    MaybeEmitFailedQueryLog(original_query_string, e.what());
     // Trigger first failed query
     metrics::FirstFailedQuery();
     // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.
