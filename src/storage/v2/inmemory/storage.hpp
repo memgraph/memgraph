@@ -26,6 +26,7 @@
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -821,6 +822,12 @@ class InMemoryStorage final : public Storage {
   // current DB TLS scope, while long-lived DB work establishes that scope at
   // the appropriate execution boundary.
   utils::SkipListDb<Vertex> vertices_;
+
+  // Returns a pin that keeps edge-index iterables' underlying Edge memory alive
+  // for the lifetime of the iterable. Heavy mode pins the edges_ skip-list
+  // ConstAccessor (the first alternative of the EdgePin variant).
+  [[nodiscard]] EdgePin MakeEdgePin() const { return edges_.access(); }
+
   utils::SkipListDb<Edge> edges_;
   // Present iff salient.items.enable_edges_metadata && salient.items.properties_on_edges.
   std::optional<EdgeMetadataIndex> edges_metadata_index_;
