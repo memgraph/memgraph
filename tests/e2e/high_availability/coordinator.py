@@ -203,5 +203,11 @@ def test_main_and_replicas_cannot_register_coord_server(test_name):
         assert str(e.value) == "Only coordinator can register coordinator server!"
 
 
+def test_coord_cannot_change_storage_mode(test_name):
+    cursor = setup_test(test_name=test_name)
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(cursor, "storage mode in_memory_analytical")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
