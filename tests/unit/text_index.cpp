@@ -30,7 +30,7 @@ using namespace memgraph::storage;
 
 static constexpr std::string_view test_index = "test_index";
 static constexpr std::string_view test_label = "test_label";
-static constexpr std::size_t default_limit = 10;
+static constexpr memgraph::storage::TextSearchConfig default_config{.limit = 10};
 
 class TextIndexTest : public testing::Test {
  public:
@@ -97,7 +97,7 @@ TEST_F(TextIndexTest, SimpleAbortTest) {
 
     // This is enough to check if abort works
     acc->Abort();
-    auto result = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_limit);
+    auto result = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_config);
     EXPECT_EQ(result.size(), 0);
   }
 }
@@ -118,7 +118,7 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto result = acc->TextIndexSearch(
-        test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(result.size(), 1);
   }
 
@@ -134,12 +134,12 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto result = acc->TextIndexSearch(
-        test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(result.size(), 0);
 
     // But content should still be searchable
     result = acc->TextIndexSearch(
-        test_index.data(), "data.content:Test", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.content:Test", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(result.size(), 1);
   }
 }
@@ -163,7 +163,7 @@ TEST_F(TextIndexTest, ConcurrencyTest) {
 
   // Check that all entries ended up in the index by searching
   auto acc = this->storage->Access(memgraph::storage::WRITE);
-  auto results = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_limit);
+  auto results = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_config);
   EXPECT_EQ(results.size(), index_size);
 }
 
@@ -181,7 +181,7 @@ TEST_F(TextIndexTest, PinnedSearcherSnapshotConsistency) {
   // Open a search accessor — its searcher snapshot is pinned on first search
   auto search_acc = this->storage->Access(memgraph::storage::WRITE);
   auto first_search = search_acc->TextIndexSearch(
-      test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+      test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_config);
   ASSERT_EQ(first_search.size(), 2);
 
   // Meanwhile, another transaction adds more data and commits
@@ -193,14 +193,14 @@ TEST_F(TextIndexTest, PinnedSearcherSnapshotConsistency) {
 
   // Second search in the same accessor should see the SAME snapshot (2 results, not 3)
   auto second_search = search_acc->TextIndexSearch(
-      test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+      test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_config);
   EXPECT_EQ(second_search.size(), 2);
 
   // A fresh accessor should see the new data
   {
     auto fresh_acc = this->storage->Access(memgraph::storage::WRITE);
     auto fresh_search = fresh_acc->TextIndexSearch(
-        test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(fresh_search.size(), 3);
   }
 }
@@ -222,7 +222,7 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto result = acc->TextIndexSearch(
-        test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(result.size(), 1);
   }
 
@@ -252,21 +252,21 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
 
     // Original node should still be there (delete was aborted)
     auto initial_result = acc->TextIndexSearch(
-        test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(initial_result.size(), 1);
 
     // First new node should be there (add was committed)
     auto new1_result = acc->TextIndexSearch(
-        test_index.data(), "data.title:\"New Title 1\"", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:\"New Title 1\"", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(new1_result.size(), 1);
 
     // Second new node should be there (add was committed)
     auto new2_result = acc->TextIndexSearch(
-        test_index.data(), "data.title:\"New Title 2\"", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:\"New Title 2\"", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(new2_result.size(), 1);
 
     // Total should be 3 nodes (1 original + 2 new)
-    auto all_results = acc->TextIndexSearch(test_index.data(), "*", text_search_mode::ALL_PROPERTIES, default_limit);
+    auto all_results = acc->TextIndexSearch(test_index.data(), "*", text_search_mode::ALL_PROPERTIES, default_config);
     EXPECT_EQ(all_results.size(), 3);
   }
 }
