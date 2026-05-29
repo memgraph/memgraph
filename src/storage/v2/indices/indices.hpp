@@ -78,7 +78,7 @@ struct Indices {
     VectorIndex::AbortProcessor vector_;
     VectorEdgeIndex::AbortProcessor vector_edge_;
 
-    void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
+    void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, EdgeRef edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
     void CollectOnLabelAddition(LabelId labelId, Vertex *vertex);
     void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);

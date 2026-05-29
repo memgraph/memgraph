@@ -1539,11 +1539,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             // properties are disabled.
             storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
-            // TODO: Change edge type index to work with EdgeRef rather than Edge *
             if (!mem_storage->config_.salient.items.properties_on_edges) break;
 
             auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
-            index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
+            index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge);
             // TODO: ensure collector also processeses for edge_type+property index
 
             break;

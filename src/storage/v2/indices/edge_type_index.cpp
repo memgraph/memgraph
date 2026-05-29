@@ -15,7 +15,7 @@
 
 namespace memgraph::storage {
 void EdgeTypeIndexAbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
-                                                       Edge *edge) {
+                                                       EdgeRef edge) {
   auto it = cleanup_collection_.find(edge_type);
   if (it == cleanup_collection_.end()) return;
   it->second.emplace_back(from_vertex, to_vertex, edge);

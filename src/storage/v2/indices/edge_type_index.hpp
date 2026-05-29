@@ -31,7 +31,7 @@ struct Vertex;
 
 struct EdgeTypeIndexActiveIndices;
 struct EdgeTypeIndexAbortProcessor;
-using EdgeTypeIndexAbortableInfo = std::map<EdgeTypeId, std::vector<std::tuple<Vertex *, Vertex *, Edge *>>>;
+using EdgeTypeIndexAbortableInfo = std::map<EdgeTypeId, std::vector<std::tuple<Vertex *, Vertex *, EdgeRef>>>;
 
 class EdgeTypeIndex {
  public:
@@ -56,7 +56,7 @@ class EdgeTypeIndex {
 struct EdgeTypeIndexAbortProcessor {
   explicit EdgeTypeIndexAbortProcessor(std::span<EdgeTypeId const> edge_types);
 
-  void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
+  void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, EdgeRef edge);
 
   EdgeTypeIndexAbortableInfo cleanup_collection_;
 };
