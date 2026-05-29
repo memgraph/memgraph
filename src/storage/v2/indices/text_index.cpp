@@ -303,24 +303,20 @@ std::vector<TextSearchResult> TextIndex::ActiveIndices::Search(const std::string
 
     const auto lowered_query = ToLowerCasePreservingBooleanOperators(search_query);
     switch (search_mode) {
-      case text_search_mode::SPECIFIED_PROPERTIES: {
-        // fuzzy needs an explicit field for set_field_fuzzy; non-fuzzy keeps the default
-        // empty so unqualified queries still error at parse time.
-        rust::Vec<rust::String> default_fields;
-        if (config.fuzzy_distance > 0) default_fields.emplace_back("data");
+      case text_search_mode::SPECIFIED_PROPERTIES:
+        // search_fields empty so unqualified queries error at parse time.
+        // fuzzy_field still names data so set_field_fuzzy can attach to it.
         search_results = mgcxx::text_search::search_gids_pinned(
             context,
             searcher,
-            mgcxx::text_search::SearchInput{.search_fields = std::move(default_fields),
-                                            .search_query = lowered_query,
+            mgcxx::text_search::SearchInput{.search_query = lowered_query,
                                             .limit = config.limit,
                                             .fuzzy_distance = config.fuzzy_distance,
                                             .fuzzy_prefix = config.fuzzy_prefix,
-                                            .fuzzy_transpositions = config.fuzzy_transpositions});
+                                            .fuzzy_transpositions = config.fuzzy_transpositions,
+                                            .fuzzy_field = "data"});
         break;
-      }
       case text_search_mode::REGEX:
-        // regex bypasses QueryParser, so fuzzy_* are inapplicable here.
         search_results = mgcxx::text_search::regex_search_gids_pinned(
             context,
             searcher,
@@ -336,7 +332,8 @@ std::vector<TextSearchResult> TextIndex::ActiveIndices::Search(const std::string
                                             .limit = config.limit,
                                             .fuzzy_distance = config.fuzzy_distance,
                                             .fuzzy_prefix = config.fuzzy_prefix,
-                                            .fuzzy_transpositions = config.fuzzy_transpositions});
+                                            .fuzzy_transpositions = config.fuzzy_transpositions,
+                                            .fuzzy_field = "all"});
         break;
       default:
         throw query::TextSearchException(

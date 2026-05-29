@@ -1017,7 +1017,6 @@ MGP_ENUM_CLASS text_search_mode{
 /// In case of a Tantivy error, the "search_results" key is absent, and "error_msg" contains the error message.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
-/// fuzzy_distance == 0 disables fuzziness. Tantivy caps it at 2. fuzzy_* are ignored for REGEX.
 enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
                                            enum text_search_mode search_mode, size_t limit, uint8_t fuzzy_distance,
                                            int fuzzy_prefix, int fuzzy_transpositions, struct mgp_memory *memory,

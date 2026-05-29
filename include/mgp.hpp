@@ -29,6 +29,7 @@
 #include "_mgp.hpp"
 #include "mg_exceptions.hpp"
 #include "mg_procedure.h"
+#include "text_search_config.hpp"
 
 namespace mgp {
 
@@ -5407,14 +5408,6 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
 inline constexpr std::string_view kErrorMsgKey = "error_msg";
 inline constexpr std::string_view kSearchResultsKey = "search_results";
 inline constexpr std::string_view kAggregationResultsKey = "aggregation_results";
-
-// Keep in sync with memgraph::storage::TextSearchConfig in src/storage/v2/indices/text_index_utils.hpp.
-struct TextSearchConfig {
-  std::size_t limit{1000};
-  std::uint8_t fuzzy_distance{0};
-  bool fuzzy_prefix{false};
-  bool fuzzy_transpositions{true};
-};
 
 inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
                             text_search_mode search_mode, const TextSearchConfig &config) {

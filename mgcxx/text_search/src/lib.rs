@@ -65,10 +65,13 @@ mod ffi {
         return_fields: Vec<String>,
         aggregation_query: String,
         limit: usize,
-        // 0 disables fuzziness; tantivy caps the value at 2.
         fuzzy_distance: u8,
         fuzzy_prefix: bool,
         fuzzy_transpositions: bool,
+        // Field set_field_fuzzy attaches to. Decoupled from search_fields so a JSON
+        // field can be made fuzzy without also being a parser default (which would let
+        // path-less queries parse but match nothing). Empty string disables fuzzy.
+        fuzzy_field: String,
         // NOTE: Any primitive value here is a bit of a problem because of default value on the C++
         // side.
     }
@@ -157,23 +160,27 @@ impl ffi::SearchInput {
     }
 }
 
-// No-op when fuzzy_distance == 0; otherwise turns every search field into a fuzzy match.
 fn apply_fuzzy_config(
     query_parser: &mut QueryParser,
-    search_fields: &[tantivy::schema::Field],
+    schema: &Schema,
     input: &ffi::SearchInput,
-) {
+) -> Result<(), std::io::Error> {
     if input.fuzzy_distance == 0 {
-        return;
+        return Ok(());
     }
-    for field in search_fields {
-        query_parser.set_field_fuzzy(
-            *field,
-            input.fuzzy_prefix,
-            input.fuzzy_distance,
-            input.fuzzy_transpositions,
-        );
-    }
+    let field = schema.get_field(&input.fuzzy_field).map_err(|e| {
+        Error::new(
+            ErrorKind::Other,
+            format!("fuzzy field '{}' not found in schema -> {}", input.fuzzy_field, e),
+        )
+    })?;
+    query_parser.set_field_fuzzy(
+        field,
+        input.fuzzy_prefix,
+        input.fuzzy_distance,
+        input.fuzzy_transpositions,
+    );
+    Ok(())
 }
 
 fn owned_value_to_json(val: OwnedValue) -> serde_json::Value {
@@ -858,8 +865,8 @@ fn search_gids_pinned(
     let schema = &context.tantivyContext.schema;
 
     let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
-    let mut query_parser = QueryParser::for_index(index, search_fields.clone());
-    apply_fuzzy_config(&mut query_parser, &search_fields, input);
+    let mut query_parser = QueryParser::for_index(index, search_fields);
+    apply_fuzzy_config(&mut query_parser, schema, input)?;
     let query = query_parser.parse_query(&input.search_query).map_err(|e| {
         Error::new(
             ErrorKind::Other,
@@ -949,8 +956,8 @@ fn search_edge_gids_pinned(
     let schema = &context.tantivyContext.schema;
 
     let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
-    let mut query_parser = QueryParser::for_index(index, search_fields.clone());
-    apply_fuzzy_config(&mut query_parser, &search_fields, input);
+    let mut query_parser = QueryParser::for_index(index, search_fields);
+    apply_fuzzy_config(&mut query_parser, schema, input)?;
     let query = query_parser.parse_query(&input.search_query).map_err(|e| {
         Error::new(
             ErrorKind::Other,

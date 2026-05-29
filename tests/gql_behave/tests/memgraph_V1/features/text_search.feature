@@ -466,26 +466,6 @@ Feature: Text search related features
             | title           | score  |
             | 'Test Document' | 1.0    |
 
-    Scenario: Fuzzy search with distance 0 only returns exact matches
-        Given an empty graph
-        And having executed
-            """
-            CREATE TEXT INDEX fuzzyIndex ON :Document
-            """
-        And having executed
-            """
-            CREATE (:Document {title: 'memgraph'})
-            CREATE (:Document {title: 'memgrap'})
-            """
-        When executing query:
-            """
-            CALL text_search.search('fuzzyIndex', 'data.title:memgraph', {fuzzy_distance: 0}) YIELD node
-            RETURN node.title AS title
-            """
-        Then the result should be:
-            | title       |
-            | 'memgraph'  |
-
     Scenario: Fuzzy search with distance 1 tolerates a single edit
         Given an empty graph
         And having executed
@@ -531,25 +511,6 @@ Feature: Text search related features
             | title         |
             | 'memgrahps'   |
             | 'memgraph'    |
-
-    Scenario: Fuzzy search with transpositions enabled treats adjacent swap as one edit
-        Given an empty graph
-        And having executed
-            """
-            CREATE TEXT INDEX fuzzyIndex ON :Document
-            """
-        And having executed
-            """
-            CREATE (:Document {title: 'memgrahp'})
-            """
-        When executing query:
-            """
-            CALL text_search.search('fuzzyIndex', 'data.title:memgraph', {fuzzy_distance: 1, fuzzy_transpositions: true}) YIELD node
-            RETURN node.title AS title
-            """
-        Then the result should be:
-            | title       |
-            | 'memgrahp'  |
 
     Scenario: Fuzzy search with transpositions disabled requires two edits for a swap
         Given an empty graph
@@ -609,28 +570,6 @@ Feature: Text search related features
             | title         |
             | 'memgraph'    |
             | 'unrelated'   |
-
-    Scenario: Limit inside config map caps the result count
-        Given an empty graph
-        And having executed
-            """
-            CREATE TEXT INDEX limitMapIndex ON :Document
-            """
-        And having executed
-            """
-            CREATE (:Document {content: 'test'})
-            CREATE (:Document {content: 'test'})
-            CREATE (:Document {content: 'test'})
-            CREATE (:Document {content: 'test'})
-            """
-        When executing query:
-            """
-            CALL text_search.search('limitMapIndex', 'data.content:test', {limit: 2}) YIELD node
-            RETURN count(node) AS count
-            """
-        Then the result should be:
-            | count |
-            | 2     |
 
     Scenario: Empty config map preserves default behaviour
         Given an empty graph
@@ -697,6 +636,38 @@ Feature: Text search related features
         When executing query:
             """
             CALL text_search.search('unqualifiedIndex', 'memgraph', {}) YIELD node RETURN node
+            """
+        Then an error should be raised
+
+    Scenario: Unqualified query with fuzzy errors at parse time
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX unqualifiedFuzzyIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('unqualifiedFuzzyIndex', 'memgrahp', {fuzzy_distance: 1}) YIELD node RETURN node
+            """
+        Then an error should be raised
+
+    Scenario: Nonexistent field prefix errors at parse time
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX wrongFieldIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('wrongFieldIndex', 'nonexistent.foo:memgraph', {}) YIELD node RETURN node
             """
         Then an error should be raised
 

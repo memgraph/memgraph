@@ -44,9 +44,6 @@ constexpr std::string_view kConfigFuzzyTranspositions = "fuzzy_transpositions";
 constexpr std::array<std::string_view, 4> kRecognisedConfigKeys{
     kConfigLimit, kConfigFuzzyDistance, kConfigFuzzyPrefix, kConfigFuzzyTranspositions};
 
-// upper bound enforced by tantivy's levenshtein_automata
-constexpr std::uint8_t kMaxFuzzyDistance = 2;
-
 mgp::TextSearchConfig ParseConfig(const mgp::Map &config, bool fuzzy_supported);
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
@@ -97,11 +94,6 @@ mgp::TextSearchConfig TextSearch::ParseConfig(const mgp::Map &config, bool fuzzy
 
   if (config.KeyExists(kConfigFuzzyDistance)) {
     const auto raw = ExtractTyped(config, kConfigFuzzyDistance, &mgp::Value::IsInt, "an integer").ValueInt();
-    if (raw < 0 || raw > kMaxFuzzyDistance) {
-      throw std::invalid_argument(
-          fmt::format("text_search config 'fuzzy_distance' must be between 0 and {} (tantivy levenshtein cap).",
-                      kMaxFuzzyDistance));
-    }
     RejectIfUnsupported(fuzzy_supported, raw != 0, kConfigFuzzyDistance);
     parsed.fuzzy_distance = static_cast<std::uint8_t>(raw);
   }

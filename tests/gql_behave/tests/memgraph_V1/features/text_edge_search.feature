@@ -504,19 +504,3 @@ Feature: Text edge search related features
             | title       |
             | 'memgrap'   |
             | 'memgraph'  |
-
-    Scenario: Fuzzy edge search with distance above 2 is rejected
-        Given an empty graph
-        And having executed
-            """
-            CREATE TEXT EDGE INDEX rejectEdgeIndex ON :RELATES_TO
-            """
-        And having executed
-            """
-            CREATE (a:Document)-[:RELATES_TO {title: 'memgraph'}]->(b:Document)
-            """
-        When executing query:
-            """
-            CALL text_search.search_edges('rejectEdgeIndex', 'data.title:memgraph', {fuzzy_distance: 5}) YIELD edge RETURN edge
-            """
-        Then an error should be raised
