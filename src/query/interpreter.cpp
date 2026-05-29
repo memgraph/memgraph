@@ -5897,10 +5897,12 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 
   std::function<void()> callback;
 
-  if (interpreter_context->coordinator_state_->IsDataInstance() &&
+#ifdef MG_ENTERPRISE
+  if (interpreter_context->coordinator_state_ && interpreter_context->coordinator_state_->IsDataInstance() &&
       requested_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
     throw QueryRuntimeException("Data instances cannot use analytical mode");
   }
+#endif
 
   if (current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
       requested_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
