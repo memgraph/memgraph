@@ -445,11 +445,11 @@ void InMemoryEdgeTypePropertyIndex::DropGraphClearIndices() {
 
 InMemoryEdgeTypePropertyIndex::Iterable::Iterable(
     utils::SkipListDb<InMemoryEdgeTypePropertyIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-    EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, Gid max_gid)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
@@ -505,7 +505,7 @@ void InMemoryEdgeTypePropertyIndex::RunGC() {
 
 InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveIndices::Edges(
     EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_container_->find({edge_type, property});
@@ -513,10 +513,12 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
             "Index for edge type {} and property {} doesn't exist",
             edge_type.AsUint(),
             property.AsUint());
+  // Pin before snapshotting max_gid so the accessor epoch covers everything the scan may touch.
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
   return {it->second->skiplist.access(),
           std::move(vertex_accessor),
-          std::move(edge_accessor),
+          std::move(edge_pin),
           edge_type,
           property,
           lower_bound,
@@ -529,7 +531,7 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
 
 InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::ActiveIndices::ChunkedEdges(
     EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
   auto it = index_container_->find({edge_type, property});
@@ -537,10 +539,12 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::Ac
             "Index for edge type {} and property {} doesn't exist",
             edge_type.AsUint(),
             property.AsUint());
+  // Pin before snapshotting max_gid so the accessor epoch covers everything the scan may touch.
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
   return {it->second->skiplist.access(),
           std::move(vertex_accessor),
-          std::move(edge_accessor),
+          std::move(edge_pin),
           edge_type,
           property,
           lower_bound,
@@ -594,11 +598,11 @@ void InMemoryEdgeTypePropertyIndex::CleanupAllIndices() {
 
 InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<InMemoryEdgeTypePropertyIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-    EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks, Gid max_gid)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),

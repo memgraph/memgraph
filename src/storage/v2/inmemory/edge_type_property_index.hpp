@@ -25,6 +25,7 @@
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
+#include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -63,9 +64,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   class Iterable {
    public:
     Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
-             utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-             utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, PropertyId property,
-             const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+             utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+             PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
              Transaction *transaction, Gid max_gid);
 
@@ -95,7 +95,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
-    utils::SkipListDb<Edge>::ConstAccessor pin_accessor_edge_;
+    EdgePin pin_accessor_edge_;
     utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipListDb<Entry>::Accessor index_accessor_;
     [[maybe_unused]] EdgeTypeId edge_type_;
@@ -112,9 +112,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   class ChunkedIterable {
    public:
     ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
-                    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, PropertyId property,
-                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+                    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                     Transaction *transaction, size_t num_chunks, Gid max_gid);
 
@@ -167,7 +166,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     size_t size() const { return chunks_.size(); }
 
    private:
-    utils::SkipListDb<Edge>::ConstAccessor pin_accessor_edge_;
+    EdgePin pin_accessor_edge_;
     utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipListDb<Entry>::Accessor index_accessor_;
     [[maybe_unused]] EdgeTypeId edge_type_;
@@ -224,14 +223,12 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
 
     Iterable Edges(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                   utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                    Transaction *transaction);
 
     ChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
                                  utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                                 utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                  Storage *storage, Transaction *transaction, size_t num_chunks);
