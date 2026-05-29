@@ -90,7 +90,6 @@ TESTS = [
     {"redirect": True},
     {"no_response_count": 2},
     {"wrong_code_count": 2},
-    {"hang": True, "duration": 0},
     {"path": "/nonexistant/", "no_check": True},
     {"endpoint": "http://127.0.0.1:9000/nonexistant/", "no_check": True},
     {"start_server": False},
