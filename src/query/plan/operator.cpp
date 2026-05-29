@@ -6672,7 +6672,8 @@ class AggregateCursor : public Cursor {
     }
   }
 
-  VirtualNode BuildDerivedNode(std::string_view labels_key, std::string_view props_key, const TypedValue::TMap &options,
+  VirtualNode BuildDerivedNode(const VertexAccessor &real_vertex, std::string_view labels_key,
+                               std::string_view props_key, const TypedValue::TMap &options,
                                VirtualNode::allocator_type alloc) const {
     VirtualNode::label_list labels{alloc};
     if (const auto labels_it = options.find(labels_key); labels_it != options.end()) {
@@ -6685,11 +6686,29 @@ class AggregateCursor : public Cursor {
         }
         labels.emplace_back(label.ValueString());
       }
+    } else if (db_accessor_) {
+      // no labels option -> inherit every label from the original vertex
+      auto maybe_labels = real_vertex.Labels(storage::View::NEW);
+      if (!maybe_labels) throw QueryRuntimeException("derive() could not read labels of a path vertex.");
+      for (const auto label_id : *maybe_labels) {
+        const auto &name = db_accessor_->LabelToName(label_id);
+        labels.emplace_back(name.data(), name.size());
+      }
     }
+
     VirtualNode::property_map properties{alloc};
-    ApplyPropertyMap(options, props_key, [&](storage::PropertyId id, storage::PropertyValue pv) {
-      properties.insert_or_assign(id, std::move(pv));
-    });
+    if (options.contains(props_key)) {
+      ApplyPropertyMap(options, props_key, [&](storage::PropertyId id, storage::PropertyValue pv) {
+        properties.insert_or_assign(id, std::move(pv));
+      });
+    } else if (db_accessor_) {
+      // no properties option -> inherit every property from the original vertex
+      auto maybe_props = real_vertex.Properties(storage::View::NEW);
+      if (!maybe_props) throw QueryRuntimeException("derive() could not read properties of a path vertex.");
+      for (auto &[id, pv] : *maybe_props) {
+        properties.insert_or_assign(id, std::move(pv));
+      }
+    }
     return {std::move(labels), std::move(properties), alloc};
   }
 
@@ -6748,7 +6767,7 @@ class AggregateCursor : public Cursor {
       if (const auto it = dedup.find(real_gid); it != dedup.end()) {
         return projected_graph.FindNode(it->second);
       }
-      auto new_node = BuildDerivedNode(labels_key, props_key, options, alloc);
+      auto new_node = BuildDerivedNode(real_vertex, labels_key, props_key, options, alloc);
       const auto synth_gid = new_node.Gid();
       dedup[real_gid] = synth_gid;
       projected_graph.InsertNode(std::move(new_node));
