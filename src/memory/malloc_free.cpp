@@ -20,6 +20,16 @@
 #include "global_memory_control.hpp"
 #include "query_memory_control.hpp"
 
+#ifndef NDEBUG
+// Debug-only escape detector (defined in db_arena.cpp). Forward-declared here to
+// avoid pulling the full ArenaPool header into the hot allocator TU. Detects a
+// per-DB arena pointer being freed through the global allocator on a thread that
+// holds no DbArenaScope — the ownership escape behind the shutdown UAF.
+namespace memgraph::memory::dbg {
+void CheckEscapingFree(void *ptr, const char *op, int flags) noexcept;
+}  // namespace memgraph::memory::dbg
+#endif
+
 namespace {
 inline auto alloc_tracking(size_t size, int flags = 0) -> bool {
   if (size > 0 && memgraph::memory::IsQueryTracked()) [[unlikely]] {
@@ -37,6 +47,12 @@ inline void failed_alloc_tracking(size_t size, int flags = 0) {
 }
 
 inline void free_tracking(void *ptr, int flags = 0) {
+#ifndef NDEBUG
+  // Single chokepoint for free / dallocx / sdallocx / JeDealloc. The flags carry
+  // the tcache selector, so CheckEscapingFree can ignore the legitimate
+  // explicit/TCACHE_NONE per-DB free path and flag only automatic-tcache frees.
+  memgraph::memory::dbg::CheckEscapingFree(ptr, "global-free", flags);
+#endif
   if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
     auto actual_size = je_sallocx(ptr, flags);
     memgraph::memory::TrackFreeOnCurrentThread(actual_size);

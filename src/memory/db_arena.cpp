@@ -19,6 +19,18 @@
 #include <string>
 #include <utility>
 
+#ifndef NDEBUG
+#include <execinfo.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <unordered_map>
+#include <unordered_set>
+#endif
+
 #include "utils/logging.hpp"
 
 #if USE_JEMALLOC
@@ -43,6 +55,245 @@ bool ConsumeFailureInjection(testing::ArenaPoolFailureInjection failure) {
                                                                        testing::ArenaPoolFailureInjection::None);
 }
 
+#ifndef NDEBUG
+// ---------------------------------------------------------------------------
+// Debug-only instrumentation for the per-DB extent hooks.
+//
+// The crash under investigation is `db_arena_dalloc` being invoked from a
+// tantivy `merge_thread_N`'s `tcache_destroy` at thread exit, dereferencing a
+// `DbArenaHooks::tracker` that points at an already-destroyed per-DB
+// MemoryTracker. These checks pin down which of two failure modes is happening:
+//
+//   * LIFETIME  — the DbArenaHooks struct itself was freed/restored while a
+//                 foreign thread still had the arena's extent cached/bound. The
+//                 live-hooks registry catches this: a hook firing with a `dh`
+//                 not in the registry is a use-after-free of the hooks struct.
+//   * CROSS-TALK — a *live* per-DB hook fires from a thread that is NOT under
+//                 the owning DbArenaScope (tls_db_arena_state.arena_pool ==
+//                 nullptr), e.g. a tantivy merge thread or a jemalloc bg
+//                 thread decaying the per-DB arena.
+//
+// Everything here is allocation-free (snprintf to a stack buffer + write(2))
+// so it is safe to call from inside an extent hook, which jemalloc may invoke
+// during tcache flush / arena decay where re-entering the allocator (spdlog,
+// fmt) could deadlock.
+// ---------------------------------------------------------------------------
+namespace {
+std::mutex g_live_hooks_mutex;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::unordered_set<const DbArenaHooks *> g_live_hooks;
+
+void RegisterLiveHooks(const DbArenaHooks *h) {
+  const std::lock_guard lock(g_live_hooks_mutex);
+  g_live_hooks.insert(h);
+}
+
+void UnregisterLiveHooks(const DbArenaHooks *h) {
+  const std::lock_guard lock(g_live_hooks_mutex);
+  g_live_hooks.erase(h);
+}
+
+bool IsLiveHooks(const DbArenaHooks *h) {
+  const std::lock_guard lock(g_live_hooks_mutex);
+  return g_live_hooks.contains(h);
+}
+
+// --- Runtime toggles (read once) ----------------------------------------------
+// All instrumentation defaults ON in Debug. The alloc-origin capture below is
+// the only piece heavy enough to perturb the shutdown race; set
+// MG_DBARENA_NO_ALLOC_ORIGIN=1 to drop it while keeping the (cheap) escape
+// detector and hook backtraces.
+bool BacktraceEnabled() {
+  static const bool v = (std::getenv("MG_DBARENA_NO_BACKTRACE") == nullptr);
+  return v;
+}
+
+bool AllocOriginEnabled() {
+  static const bool v = (std::getenv("MG_DBARENA_NO_ALLOC_ORIGIN") == nullptr);
+  return v;
+}
+
+// Allocation-free backtrace dump (backtrace_symbols_fd is async-signal-safe and
+// does NOT call malloc, unlike backtrace_symbols). Safe to call from inside an
+// extent hook where re-entering the allocator could deadlock.
+void DumpBacktrace(const char *tag) {
+  if (!BacktraceEnabled()) return;
+  void *frames[32];
+  const int n = backtrace(frames, 32);
+  char hdr[64];
+  const int hn = snprintf(hdr, sizeof(hdr), "[db_arena %s] --- backtrace (%d) ---\n", tag, n);
+  if (hn > 0) {
+    ssize_t ignored = write(STDERR_FILENO, hdr, static_cast<size_t>(hn));
+    (void)ignored;
+  }
+  backtrace_symbols_fd(frames, n, STDERR_FILENO);
+}
+
+// --- Live per-DB arena index snapshot (lock-free hot-path read) ----------------
+// Holds the arena indices that currently have per-DB extent hooks installed. The
+// escape detector in the global free path reads this on every free, so it is a
+// fixed-size atomic array (per-DB pools own only 1-2 arenas at a time).
+constexpr size_t kMaxLiveArenas = 64;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<unsigned> g_db_arenas[kMaxLiveArenas];
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<size_t> g_db_arena_n{0};
+std::mutex g_db_arenas_mutex;
+
+void RegisterLiveArena(unsigned idx) {
+  if (idx == 0) return;
+  const std::lock_guard lock(g_db_arenas_mutex);
+  const size_t n = g_db_arena_n.load(std::memory_order_relaxed);
+  for (size_t i = 0; i < n; ++i) {
+    if (g_db_arenas[i].load(std::memory_order_relaxed) == idx) return;  // already present
+  }
+  if (n >= kMaxLiveArenas) return;
+  g_db_arenas[n].store(idx, std::memory_order_relaxed);
+  g_db_arena_n.store(n + 1, std::memory_order_release);
+}
+
+void UnregisterLiveArena(unsigned idx) {
+  if (idx == 0) return;
+  const std::lock_guard lock(g_db_arenas_mutex);
+  size_t n = g_db_arena_n.load(std::memory_order_relaxed);
+  for (size_t i = 0; i < n; ++i) {
+    if (g_db_arenas[i].load(std::memory_order_relaxed) == idx) {
+      g_db_arenas[i].store(g_db_arenas[n - 1].load(std::memory_order_relaxed), std::memory_order_relaxed);
+      g_db_arena_n.store(n - 1, std::memory_order_release);
+      return;
+    }
+  }
+}
+
+bool IsLiveDbArena(unsigned idx) {
+  if (idx == 0) return false;
+  const size_t n = g_db_arena_n.load(std::memory_order_acquire);
+  for (size_t i = 0; i < n; ++i) {
+    if (g_db_arenas[i].load(std::memory_order_relaxed) == idx) return true;
+  }
+  return false;
+}
+
+// --- Allocation-origin map -----------------------------------------------------
+// addr -> backtrace captured at the per-DB allocation site. Populated by
+// DbAllocateBytes, erased by DbDeallocateBytes (the legitimate per-DB free). A
+// pointer freed via the GLOBAL free path (the escape) is NOT erased, so its
+// allocating backtrace is still here when the escape detector finds it -> names
+// the exact C++ object that leaked onto a foreign thread.
+struct AllocRec {
+  void *frames[24];
+  int depth;
+  size_t size;
+  unsigned arena_idx;
+};
+
+std::mutex g_alloc_map_mutex;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::unordered_map<void *, AllocRec> g_alloc_map;
+
+void RecordAllocOrigin(void *ptr, size_t size, unsigned arena_idx) {
+  if (ptr == nullptr || !AllocOriginEnabled()) return;
+  AllocRec rec{};
+  rec.depth = backtrace(rec.frames, 24);
+  rec.size = size;
+  rec.arena_idx = arena_idx;
+  const std::lock_guard lock(g_alloc_map_mutex);
+  g_alloc_map[ptr] = rec;
+}
+
+void ForgetAllocOrigin(void *ptr) {
+  if (ptr == nullptr || !AllocOriginEnabled()) return;
+  const std::lock_guard lock(g_alloc_map_mutex);
+  g_alloc_map.erase(ptr);
+}
+
+// Dump (and consume) the stored allocation backtrace for ptr, if any.
+void DumpAllocOrigin(void *ptr) {
+  if (!AllocOriginEnabled()) return;
+  AllocRec rec{};
+  bool found = false;
+  {
+    const std::lock_guard lock(g_alloc_map_mutex);
+    if (auto it = g_alloc_map.find(ptr); it != g_alloc_map.end()) {
+      rec = it->second;
+      found = true;
+    }
+  }
+  char hdr[96];
+  const int hn = found ? snprintf(hdr,
+                                  sizeof(hdr),
+                                  "[db_arena ESCAPING-FREE] alloc-origin size=%zu arena_ind=%u (%d frames):\n",
+                                  rec.size,
+                                  rec.arena_idx,
+                                  rec.depth)
+                       : snprintf(hdr, sizeof(hdr), "[db_arena ESCAPING-FREE] alloc-origin: <not in map>\n");
+  if (hn > 0) {
+    ssize_t ignored = write(STDERR_FILENO, hdr, static_cast<size_t>(hn));
+    (void)ignored;
+  }
+  if (found) backtrace_symbols_fd(rec.frames, rec.depth, STDERR_FILENO);
+}
+
+// A tantivy/rayon worker thread — the decisive (dangerous) caller. Main/mg
+// threads are benign here (teardown purge), so we never want to drown the
+// worker-thread smoking gun under their backtraces.
+bool ThreadIsWorker() {
+  char tname[32] = {0};
+  pthread_getname_np(pthread_self(), tname, sizeof(tname));
+  return (strstr(tname, "merge") != nullptr) || (strstr(tname, "segment") != nullptr) ||
+         (strstr(tname, "tantivy") != nullptr) || (strstr(tname, "rayon") != nullptr);
+}
+
+void ReportHookIssue(const char *severity, const char *op, const DbArenaHooks *dh, unsigned arena_ind) {
+  char tname[32] = {0};
+  pthread_getname_np(pthread_self(), tname, sizeof(tname));
+  char buf[256];
+  const int n = snprintf(buf,
+                         sizeof(buf),
+                         "[db_arena %s] op=%s hooks=%p arena_ind=%u thread=%s scoped=%d\n",
+                         severity,
+                         op,
+                         static_cast<const void *>(dh),
+                         arena_ind,
+                         tname,
+                         tls_db_arena_state.arena_pool != nullptr);
+  if (n > 0) {
+    ssize_t ignored = write(STDERR_FILENO, buf, static_cast<size_t>(n));
+    (void)ignored;
+  }
+}
+
+// Validate a hook callback BEFORE it dereferences dh->tracker. IsLiveHooks does
+// not dereference dh, so it is safe even when dh is a dangling pointer.
+void ValidateHookCall(const DbArenaHooks *dh, unsigned arena_ind, const char *op) {
+  if (!IsLiveHooks(dh)) {
+    // The hooks struct is not currently installed by any live ArenaPool: a
+    // foreign thread is decaying/flushing an extent through freed hooks.
+    ReportHookIssue("FATAL-STALE-HOOKS-UAF", op, dh, arena_ind);
+    DumpBacktrace("FATAL-STALE-HOOKS-UAF");
+    abort();
+  }
+  if (tls_db_arena_state.arena_pool == nullptr) {
+    // Live hooks, but the calling thread holds no DbArenaScope: this is the
+    // foreign-thread decay (tantivy merge / jemalloc background_thread) that
+    // becomes a UAF once the owning DB's MemoryTracker is destroyed. The
+    // backtrace shows the jemalloc internal path: tcache_bin_flush_* frames
+    // mean the thread cached & is flushing an arena-N region (mechanism A);
+    // arena_decay_* from tsd_cleanup means the thread's tcache is bound to the
+    // per-DB arena (mechanism B).
+    ReportHookIssue("WARN-UNSCOPED-FOREIGN-DECAY", op, dh, arena_ind);
+    // Full backtrace for every worker-thread decay (the smoking gun) plus a
+    // small global budget for the rest, so benign main-thread teardown purges
+    // do not bury the signal under hundreds of identical stacks.
+    static std::atomic<int> warn_dump_budget{32};
+    if (ThreadIsWorker() || warn_dump_budget.fetch_sub(1, std::memory_order_relaxed) > 0) {
+      DumpBacktrace("WARN-UNSCOPED-FOREIGN-DECAY");
+    }
+  }
+}
+}  // namespace
+#endif  // NDEBUG
+
 // ---------------------------------------------------------------------------
 // Extent hook callbacks for per-DB arenas.
 // Each callback receives back the exact `extent_hooks_t *` pointer that was
@@ -54,6 +305,9 @@ bool ConsumeFailureInjection(testing::ArenaPoolFailureInjection failure) {
 void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t alignment, bool *zero, bool *commit,
                      unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+#ifndef NDEBUG
+  ValidateHookCall(dh, arena_ind, "alloc");
+#endif
   const bool requested_commit = *commit;
   // tracker may be null on an abandoned arena whose ArenaPool failed to restore default hooks;
   // in that case we skip tracking but still proxy to the base jemalloc hooks.
@@ -80,6 +334,9 @@ void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t 
 
 bool db_arena_dalloc(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+#ifndef NDEBUG
+  ValidateHookCall(dh, arena_ind, "dalloc");
+#endif
   const bool err = dh->base_hooks->dalloc(dh->base_hooks, addr, size, committed, arena_ind);
   if (!err && committed) {
     if (dh->tracker) dh->tracker->Free(static_cast<int64_t>(size));
@@ -89,6 +346,9 @@ bool db_arena_dalloc(extent_hooks_t *hooks, void *addr, size_t size, bool commit
 
 void db_arena_destroy(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+#ifndef NDEBUG
+  ValidateHookCall(dh, arena_ind, "destroy");
+#endif
   if (committed) {
     if (dh->tracker) dh->tracker->Free(static_cast<int64_t>(size));
   }
@@ -97,6 +357,9 @@ void db_arena_destroy(extent_hooks_t *hooks, void *addr, size_t size, bool commi
 
 bool db_arena_commit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+#ifndef NDEBUG
+  ValidateHookCall(dh, arena_ind, "commit");
+#endif
   const bool err = dh->base_hooks->commit(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
     if (dh->tracker) {
@@ -114,6 +377,9 @@ bool db_arena_commit(extent_hooks_t *hooks, void *addr, size_t size, size_t offs
 bool db_arena_decommit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
                        unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+#ifndef NDEBUG
+  ValidateHookCall(dh, arena_ind, "decommit");
+#endif
   const bool err = dh->base_hooks->decommit(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
     if (dh->tracker) dh->tracker->Free(static_cast<int64_t>(length));
@@ -124,6 +390,9 @@ bool db_arena_decommit(extent_hooks_t *hooks, void *addr, size_t size, size_t of
 bool db_arena_purge_forced(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
                            unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+#ifndef NDEBUG
+  ValidateHookCall(dh, arena_ind, "purge_forced");
+#endif
   if (dh->base_hooks->purge_forced == nullptr) return true;
   const bool err = dh->base_hooks->purge_forced(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
@@ -280,6 +549,26 @@ ArenaPool::ArenaPool(utils::MemoryTracker *tracker) {
   arenas_.push_back(first_arena_idx_);
   free_count_ = arenas_.size();
   pending.Commit();
+#ifndef NDEBUG
+  // Construction succeeded: the hooks are installed and reachable by jemalloc.
+  // Acquire() installs this same struct on any additional arenas, so a single
+  // registration covers the whole pool.
+  RegisterLiveHooks(hooks_.get());
+  RegisterLiveArena(first_arena_idx_);
+  {
+    char buf[160];
+    const int n = snprintf(buf,
+                           sizeof(buf),
+                           "[db_arena ARENA-LIVE] arena_ind=%u hooks=%p tracker=%p\n",
+                           first_arena_idx_,
+                           static_cast<void *>(hooks_.get()),
+                           static_cast<void *>(tracker));
+    if (n > 0) {
+      ssize_t ignored = write(STDERR_FILENO, buf, static_cast<size_t>(n));
+      (void)ignored;
+    }
+  }
+#endif
 }
 
 ArenaPool::~ArenaPool() noexcept {
@@ -318,6 +607,22 @@ ArenaPool::~ArenaPool() noexcept {
         continue;
       }
 
+#ifndef NDEBUG
+      // Hooks restored to default for this arena: it is no longer a per-DB
+      // arena. After this point any foreign-thread free of an arena_idx pointer
+      // is a stale/recycled-arena access. (On the unhook-failure path above we
+      // `continue` without reaching here, so the arena stays registered — its
+      // hooks are intentionally leaked and still installed.)
+      UnregisterLiveArena(arena_idx);
+      {
+        char buf[128];
+        const int n = snprintf(buf, sizeof(buf), "[db_arena ARENA-GONE] arena_ind=%u (hooks restored)\n", arena_idx);
+        if (n > 0) {
+          ssize_t ignored = write(STDERR_FILENO, buf, static_cast<size_t>(n));
+          (void)ignored;
+        }
+      }
+#endif
       try {
         GlobalArenaPool::Instance().Release(arena_idx);
       } catch (const std::exception &e) {
@@ -326,6 +631,15 @@ ArenaPool::~ArenaPool() noexcept {
         LogDestructorCleanupFailure("ArenaPool", arena_idx, "release", "unknown exception");
       }
     }
+#ifndef NDEBUG
+    // All arenas restored to default hooks above, so the hooks struct is no
+    // longer reachable by jemalloc on the happy path; drop it from the live
+    // registry. On the unhook-failure path hooks_ was release()'d (now null)
+    // and intentionally leaked with tracker=nullptr, so we deliberately leave
+    // it registered — a late call there hits the tracker==nullptr guard in the
+    // hook body and is harmless, and must not trip the stale-hooks abort.
+    if (hooks_) UnregisterLiveHooks(hooks_.get());
+#endif
   } catch (const std::exception &e) {
     LogDestructorCleanupFailure("ArenaPool", first_arena_idx_, "cleanup", e.what());
   } catch (...) {
@@ -374,6 +688,21 @@ unsigned ArenaPool::Acquire() {
   pending.MarkHooksInstalled(hooks_->base_hooks);
   arenas_.push_back(new_idx);
   pending.Commit();
+#ifndef NDEBUG
+  RegisterLiveArena(new_idx);
+  {
+    char buf[160];
+    const int n = snprintf(buf,
+                           sizeof(buf),
+                           "[db_arena ARENA-LIVE] arena_ind=%u hooks=%p (Acquire)\n",
+                           new_idx,
+                           static_cast<void *>(hooks_.get()));
+    if (n > 0) {
+      ssize_t ignored = write(STDERR_FILENO, buf, static_cast<size_t>(n));
+      (void)ignored;
+    }
+  }
+#endif
   return new_idx;
 }
 
@@ -518,7 +847,14 @@ void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
     if (alignment > alignof(std::max_align_t)) {
       flags |= MALLOCX_ALIGN(alignment);
     }
-    return ::JeNew(bytes, flags);
+    void *p = ::JeNew(bytes, flags);
+#ifndef NDEBUG
+    // Record the call site so that, if this per-DB pointer is later freed via
+    // the GLOBAL free path on a foreign thread, the escape detector can name
+    // the object that leaked.
+    RecordAllocOrigin(p, bytes, idx);
+#endif
+    return p;
   }
 #endif
   return ::operator new(bytes, std::align_val_t{alignment});
@@ -527,6 +863,9 @@ void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
 void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept {
 #if USE_JEMALLOC
 #ifndef NDEBUG
+  // This is the legitimate per-DB free path: drop the alloc-origin record so a
+  // later GLOBAL-path free of the same address is not mistaken for an escape.
+  ForgetAllocOrigin(p);
   // Debug-only: verify the pointer belongs to the current DB's arena pool.
   // A mismatch means we are about to free memory via the wrong tcache or
   // arena, which can corrupt jemalloc state.
@@ -555,6 +894,82 @@ void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexce
   ::operator delete(p, bytes, std::align_val_t{alignment});
 #endif
 }
+
+#ifndef NDEBUG
+namespace dbg {
+// Called from the GLOBAL free shims (free / dallocx / sdallocx / JeDealloc) on
+// every free. If a foreign (unscoped) thread frees a pointer that belongs to a
+// per-DB arena, this is the ownership escape that ultimately crashes: the region
+// enters the foreign thread's automatic tcache and is flushed to the per-DB
+// arena at thread exit, possibly after ~ArenaPool. We log (never abort) so a
+// single run captures every escape, the freeing thread, and — via the
+// alloc-origin map — the C++ object and call site that leaked.
+void CheckEscapingFree(void *ptr, const char *op, int flags) noexcept {
+#if USE_JEMALLOC
+  if (ptr == nullptr) return;
+  // Only AUTOMATIC-tcache frees are dangerous: they cache the per-DB extent in
+  // the freeing thread and defer its return to the arena until tcache flush /
+  // thread exit (the UAF window). The legitimate per-DB free path
+  // (DbDeallocateBytes -> JeFree -> JeDealloc) passes MALLOCX_TCACHE_NONE or an
+  // explicit tcache; jemalloc encodes the tcache selector in bits [8..19], so a
+  // non-zero tcache field means this is NOT an automatic-tcache free -> skip.
+  constexpr int kTcacheFieldMask = 0xFFF << 8;
+  if ((flags & kTcacheFieldMask) != 0) return;
+  if (g_db_arena_n.load(std::memory_order_acquire) == 0) return;  // no per-DB arena currently live
+  // A thread under a DbArenaScope frees per-DB memory through DbDeallocateBytes,
+  // not here; skip it. Unscoped frees of per-DB pointers are either the escape
+  // (e.g. a tantivy merge thread) or benign main-thread teardown — the logged
+  // thread name distinguishes them.
+  if (tls_db_arena_state.arena_pool != nullptr) return;
+  unsigned ptr_arena = 0;
+  size_t sz = sizeof(ptr_arena);
+  if (je_mallctl("arenas.lookup", &ptr_arena, &sz, static_cast<void *>(&ptr), sizeof(ptr)) != 0) return;
+  if (!IsLiveDbArena(ptr_arena)) return;
+
+  // Bound the output. The DANGEROUS escapes (tantivy merge/segment threads) free
+  // during operation, BEFORE teardown, so they consume the dump budget first;
+  // the BENIGN flood (main thread freeing the whole graph during ~Storage)
+  // arrives last and only gets rate-limited one-liners. A merge thread is also
+  // always granted a full dump regardless of budget.
+  char tname[32] = {0};
+  pthread_getname_np(pthread_self(), tname, sizeof(tname));
+  const bool worker_thread = (strstr(tname, "merge") != nullptr) || (strstr(tname, "segment") != nullptr) ||
+                             (strstr(tname, "tantivy") != nullptr) || (strstr(tname, "rayon") != nullptr);
+
+  // Per-thread one-line cap: first 16, then every 4096th.
+  thread_local uint64_t tl_seen = 0;
+  const uint64_t seen = tl_seen++;
+  const bool log_line = worker_thread || seen < 16 || (seen % 4096 == 0);
+  if (log_line) {
+    char buf[256];
+    const int n = snprintf(buf,
+                           sizeof(buf),
+                           "[db_arena ESCAPING-FREE] op=%s addr=%p arena_ind=%u thread=%s scoped=0 seen=%llu\n",
+                           op,
+                           ptr,
+                           ptr_arena,
+                           tname,
+                           static_cast<unsigned long long>(seen));
+    if (n > 0) {
+      ssize_t ignored = write(STDERR_FILENO, buf, static_cast<size_t>(n));
+      (void)ignored;
+    }
+  }
+
+  // Full backtrace dump: every worker-thread escape, plus a global budget for
+  // the rest (so the earliest escapes are always captured in full).
+  static std::atomic<int> dump_budget{256};
+  if (worker_thread || dump_budget.fetch_sub(1, std::memory_order_relaxed) > 0) {
+    DumpBacktrace("ESCAPING-FREE free-site");
+    DumpAllocOrigin(ptr);
+  }
+#else
+  (void)ptr;
+  (void)op;
+#endif
+}
+}  // namespace dbg
+#endif  // NDEBUG
 
 DbArenaScope::DbArenaScope(ArenaPool *arena_pool) : prev_state_(tls_db_arena_state) {
   cur_state_.arena_pool = arena_pool;
