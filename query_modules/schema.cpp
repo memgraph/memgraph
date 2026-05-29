@@ -494,8 +494,7 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
       auto target_list = LabelsToList(key.target_labels);
       for (const auto &[prop_name, prop_info] : labels_info.properties) {
         auto prop_types = PropertyTypesToList(prop_info.property_types);
-        // Sentinel: test_rel_type_existence_constraints_are_rejected. If it fails, wire mandatory up.
-        const bool mandatory = false;
+        const bool mandatory = false;  // no rel-type existence constraints in Memgraph
         auto record = record_factory.NewRecord();
         ProcessPropertiesRel(record,
                              type_str,

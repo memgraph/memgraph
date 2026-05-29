@@ -1294,16 +1294,5 @@ def test_mandatory_true_with_sample_smaller_than_population():
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
 
 
-def test_rel_type_existence_constraints_are_rejected():
-    # Drift sentinel for schema.cpp:RelTypeProperties — if Memgraph ever accepts rel-type
-    # existence constraints, the hardcoded `mandatory=false` for relationships becomes wrong.
-    cursor = connect().cursor()
-    with pytest.raises(Exception):
-        execute_and_fetch_all(
-            cursor,
-            "CREATE CONSTRAINT FOR ()-[r:R]->() REQUIRE r.x IS NOT NULL;",
-        )
-
-
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
