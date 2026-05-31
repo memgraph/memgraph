@@ -2812,12 +2812,19 @@ TYPED_TEST(FunctionTest, Date) {
   const auto today = memgraph::utils::CurrentDate();
   EXPECT_EQ(this->EvaluateFunction("DATE").ValueDate(), today);
 
+  const auto plural_param = TypedValue(std::map<std::string, TypedValue>{
+      {"years", TypedValue(1970)}, {"months", TypedValue(1)}, {"days", TypedValue(1)}});
+  EXPECT_EQ(this->EvaluateFunction("DATE", plural_param).ValueDate(), unix_epoch);
+
   EXPECT_THROW(this->EvaluateFunction("DATE", "{}"), memgraph::utils::BasicException);
-  EXPECT_THROW(this->EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"years", TypedValue(1970)}}),
+  EXPECT_THROW(this->EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"yearz", TypedValue(1970)}}),
                QueryRuntimeException);
   EXPECT_THROW(this->EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"mnths", TypedValue(1970)}}),
                QueryRuntimeException);
   EXPECT_THROW(this->EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"dayz", TypedValue(1970)}}),
+               QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction(
+                   "DATE", std::map<std::string, TypedValue>{{"year", TypedValue(1970)}, {"years", TypedValue(1971)}}),
                QueryRuntimeException);
 
   EXPECT_EQ(this->EvaluateFunction("DATE", memgraph::utils::Date({1977, 1, 11})).ValueDate(),
@@ -2849,6 +2856,14 @@ TYPED_TEST(FunctionTest, LocalTime) {
               today.MicrosecondsSinceEpoch(),
               one_sec_in_microseconds);
 
+  const auto plural_param = TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1)},
+                                                                         {"minutes", TypedValue(2)},
+                                                                         {"seconds", TypedValue(3)},
+                                                                         {"milliseconds", TypedValue(4)},
+                                                                         {"microseconds", TypedValue(5)}});
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME", plural_param).ValueLocalTime(),
+            memgraph::utils::LocalTime({1, 2, 3, 4, 5}));
+
   EXPECT_THROW(this->EvaluateFunction("LOCALTIME", "{}"), memgraph::utils::BasicException);
   EXPECT_THROW(
       this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"hous", TypedValue(1970)}})),
@@ -2857,8 +2872,11 @@ TYPED_TEST(FunctionTest, LocalTime) {
       this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"minut", TypedValue(1970)}})),
       QueryRuntimeException);
   EXPECT_THROW(
-      this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
+      this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"secz", TypedValue(1970)}})),
       QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{
+                                                       {"second", TypedValue(1)}, {"seconds", TypedValue(2)}})),
+               QueryRuntimeException);
 
   EXPECT_EQ(this->EvaluateFunction("LOCALTIME", memgraph::utils::LocalTime({10, 33, 23, 42, 123})).ValueLocalTime(),
             memgraph::utils::LocalTime({10, 33, 23, 42, 123}));
@@ -2896,12 +2914,27 @@ TYPED_TEST(FunctionTest, LocalDateTime) {
     EXPECT_NEAR(this->EvaluateFunction("LOCALDATETIME").ValueLocalDateTime().SysMicrosecondsSinceEpoch(),
                 today.SysMicrosecondsSinceEpoch(),
                 one_sec_in_microseconds);
+    const auto plural_param = TypedValue(std::map<std::string, TypedValue>{{"years", TypedValue(1972)},
+                                                                           {"months", TypedValue(2)},
+                                                                           {"days", TypedValue(3)},
+                                                                           {"hours", TypedValue(4)},
+                                                                           {"minutes", TypedValue(5)},
+                                                                           {"seconds", TypedValue(6)},
+                                                                           {"milliseconds", TypedValue(7)},
+                                                                           {"microseconds", TypedValue(8)}});
+    EXPECT_EQ(this->EvaluateFunction("LOCALDATETIME", plural_param).ValueLocalDateTime(),
+              memgraph::utils::LocalDateTime({1972, 2, 3}, {4, 5, 6, 7, 8}));
+
     EXPECT_THROW(this->EvaluateFunction("LOCALDATETIME", "{}"), memgraph::utils::BasicException);
     EXPECT_THROW(this->EvaluateFunction("LOCALDATETIME",
-                                        TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1970)}})),
+                                        TypedValue(std::map<std::string, TypedValue>{{"hourz", TypedValue(1970)}})),
                  QueryRuntimeException);
     EXPECT_THROW(this->EvaluateFunction("LOCALDATETIME",
-                                        TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
+                                        TypedValue(std::map<std::string, TypedValue>{{"secz", TypedValue(1970)}})),
+                 QueryRuntimeException);
+    EXPECT_THROW(this->EvaluateFunction("LOCALDATETIME",
+                                        TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                                     {"hours", TypedValue(2)}})),
                  QueryRuntimeException);
 
     EXPECT_EQ(
@@ -2937,13 +2970,26 @@ TYPED_TEST(FunctionTest, Duration) {
 
   EXPECT_EQ(this->EvaluateFunction("DURATION", map_param).ValueDuration(),
             memgraph::utils::Duration({3, 4, 5, 6, 7, 8}));
+
+  const auto plural_param = TypedValue(std::map<std::string, TypedValue>{{"days", TypedValue(3)},
+                                                                         {"hours", TypedValue(4)},
+                                                                         {"minutes", TypedValue(5)},
+                                                                         {"seconds", TypedValue(6)},
+                                                                         {"milliseconds", TypedValue(7)},
+                                                                         {"microseconds", TypedValue(8)}});
+  EXPECT_EQ(this->EvaluateFunction("DURATION", plural_param).ValueDuration(),
+            memgraph::utils::Duration({3, 4, 5, 6, 7, 8}));
+
   EXPECT_THROW(this->EvaluateFunction("DURATION", "{}"), memgraph::utils::BasicException);
   EXPECT_THROW(
-      this->EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1970)}})),
+      this->EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"hourz", TypedValue(1970)}})),
       QueryRuntimeException);
   EXPECT_THROW(
-      this->EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
+      this->EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"secz", TypedValue(1970)}})),
       QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{
+                                                      {"second", TypedValue(6)}, {"seconds", TypedValue(7)}})),
+               QueryRuntimeException);
 
   const auto map_param_negative = TypedValue(std::map<std::string, TypedValue>{{"day", TypedValue(-3)},
                                                                                {"hour", TypedValue(-4)},

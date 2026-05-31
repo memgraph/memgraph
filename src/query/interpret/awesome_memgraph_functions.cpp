@@ -22,6 +22,7 @@
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 
@@ -1501,8 +1502,12 @@ concept IsNumberOrInteger = utils::SameAsAnyOf<T, Number, Integer>;
 template <IsNumberOrInteger ArgType>
 bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters) {
   bool has_mapped_any_field{false};
+  std::unordered_set<const void *> assigned_units;
   for (const auto &[key, value] : input_parameters) {
     if (auto it = parameter_mappings.find(key); it != parameter_mappings.end()) {
+      if (!assigned_units.insert(static_cast<const void *>(it->second)).second) {
+        throw QueryRuntimeException("The same temporal unit is set more than once, including by key '{}'.", key);
+      }
       has_mapped_any_field = true;
       if (value.IsInt()) {
         *it->second = value.ValueInt();
@@ -1554,8 +1559,11 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
   using namespace std::literals;
   std::unordered_map parameter_mappings = {std::pair{"year"sv, &date_parameters.year},
+                                           std::pair{"years"sv, &date_parameters.year},
                                            std::pair{"month"sv, &date_parameters.month},
-                                           std::pair{"day"sv, &date_parameters.day}};
+                                           std::pair{"months"sv, &date_parameters.month},
+                                           std::pair{"day"sv, &date_parameters.day},
+                                           std::pair{"days"sv, &date_parameters.day}};
 
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
   return TypedValue(utils::Date(date_parameters), ctx.memory);
@@ -1600,10 +1608,15 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
   using namespace std::literals;
   std::unordered_map parameter_mappings{
       std::pair{"hour"sv, &local_time_parameters.hour},
+      std::pair{"hours"sv, &local_time_parameters.hour},
       std::pair{"minute"sv, &local_time_parameters.minute},
+      std::pair{"minutes"sv, &local_time_parameters.minute},
       std::pair{"second"sv, &local_time_parameters.second},
+      std::pair{"seconds"sv, &local_time_parameters.second},
       std::pair{"millisecond"sv, &local_time_parameters.millisecond},
+      std::pair{"milliseconds"sv, &local_time_parameters.millisecond},
       std::pair{"microsecond"sv, &local_time_parameters.microsecond},
+      std::pair{"microseconds"sv, &local_time_parameters.microsecond},
   };
 
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
@@ -1644,13 +1657,21 @@ TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionCo
   using namespace std::literals;
   std::unordered_map parameter_mappings{
       std::pair{"year"sv, &date_parameters.year},
+      std::pair{"years"sv, &date_parameters.year},
       std::pair{"month"sv, &date_parameters.month},
+      std::pair{"months"sv, &date_parameters.month},
       std::pair{"day"sv, &date_parameters.day},
+      std::pair{"days"sv, &date_parameters.day},
       std::pair{"hour"sv, &local_time_parameters.hour},
+      std::pair{"hours"sv, &local_time_parameters.hour},
       std::pair{"minute"sv, &local_time_parameters.minute},
+      std::pair{"minutes"sv, &local_time_parameters.minute},
       std::pair{"second"sv, &local_time_parameters.second},
+      std::pair{"seconds"sv, &local_time_parameters.second},
       std::pair{"millisecond"sv, &local_time_parameters.millisecond},
+      std::pair{"milliseconds"sv, &local_time_parameters.millisecond},
       std::pair{"microsecond"sv, &local_time_parameters.microsecond},
+      std::pair{"microseconds"sv, &local_time_parameters.microsecond},
   };
 
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
@@ -1671,11 +1692,17 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   utils::DurationParameters duration_parameters;
   using namespace std::literals;
   std::unordered_map parameter_mappings{std::pair{"day"sv, &duration_parameters.day},
+                                        std::pair{"days"sv, &duration_parameters.day},
                                         std::pair{"hour"sv, &duration_parameters.hour},
+                                        std::pair{"hours"sv, &duration_parameters.hour},
                                         std::pair{"minute"sv, &duration_parameters.minute},
+                                        std::pair{"minutes"sv, &duration_parameters.minute},
                                         std::pair{"second"sv, &duration_parameters.second},
+                                        std::pair{"seconds"sv, &duration_parameters.second},
                                         std::pair{"millisecond"sv, &duration_parameters.millisecond},
-                                        std::pair{"microsecond"sv, &duration_parameters.microsecond}};
+                                        std::pair{"milliseconds"sv, &duration_parameters.millisecond},
+                                        std::pair{"microsecond"sv, &duration_parameters.microsecond},
+                                        std::pair{"microseconds"sv, &duration_parameters.microsecond}};
   MapNumericParameters<Number>(parameter_mappings, args[0].ValueMap());
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
