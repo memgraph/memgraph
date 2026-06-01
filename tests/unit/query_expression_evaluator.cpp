@@ -13,7 +13,9 @@
 #include <cmath>
 #include <iterator>
 #include <memory>
+#include <set>
 #include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -2874,8 +2876,9 @@ TYPED_TEST(FunctionTest, LocalTime) {
   EXPECT_THROW(
       this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"secz", TypedValue(1970)}})),
       QueryRuntimeException);
-  EXPECT_THROW(this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{
-                                                       {"second", TypedValue(1)}, {"seconds", TypedValue(2)}})),
+  EXPECT_THROW(this->EvaluateFunction("LOCALTIME",
+                                      TypedValue(std::map<std::string, TypedValue>{{"second", TypedValue(1)},
+                                                                                   {"seconds", TypedValue(2)}})),
                QueryRuntimeException);
 
   EXPECT_EQ(this->EvaluateFunction("LOCALTIME", memgraph::utils::LocalTime({10, 33, 23, 42, 123})).ValueLocalTime(),
@@ -2932,9 +2935,9 @@ TYPED_TEST(FunctionTest, LocalDateTime) {
     EXPECT_THROW(this->EvaluateFunction("LOCALDATETIME",
                                         TypedValue(std::map<std::string, TypedValue>{{"secz", TypedValue(1970)}})),
                  QueryRuntimeException);
-    EXPECT_THROW(this->EvaluateFunction("LOCALDATETIME",
-                                        TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
-                                                                                     {"hours", TypedValue(2)}})),
+    EXPECT_THROW(this->EvaluateFunction(
+                     "LOCALDATETIME",
+                     TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)}, {"hours", TypedValue(2)}})),
                  QueryRuntimeException);
 
     EXPECT_EQ(
@@ -2987,8 +2990,9 @@ TYPED_TEST(FunctionTest, Duration) {
   EXPECT_THROW(
       this->EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"secz", TypedValue(1970)}})),
       QueryRuntimeException);
-  EXPECT_THROW(this->EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{
-                                                      {"second", TypedValue(6)}, {"seconds", TypedValue(7)}})),
+  EXPECT_THROW(this->EvaluateFunction("DURATION",
+                                      TypedValue(std::map<std::string, TypedValue>{{"second", TypedValue(6)},
+                                                                                   {"seconds", TypedValue(7)}})),
                QueryRuntimeException);
 
   const auto map_param_negative = TypedValue(std::map<std::string, TypedValue>{{"day", TypedValue(-3)},
@@ -3008,6 +3012,53 @@ TYPED_TEST(FunctionTest, Duration) {
             memgraph::utils::Duration({3, 4, 5, 6, 100, 110}));
 
   EXPECT_TRUE(this->EvaluateFunction("DURATION", TypedValue()).IsNull());
+}
+
+// The create-time trigger check rejects unrecognised temporal map keys using
+// the validator key sets behind IsRecognisedTemporalKey. Those sets are
+// hand-maintained copies of the builders' parameter_mappings, with nothing
+// structurally linking the two. If a unit key is added to a builder mapping but
+// not the validator (or removed from one side only), a previously-valid trigger
+// would be wrongly rejected at CREATE. For each builder, derive the keys it
+// actually accepts from the builder itself and require it to equal the
+// validator's recognised set.
+TYPED_TEST(FunctionTest, TemporalValidatorKeySetsMatchBuilders) {
+  using memgraph::query::IsRecognisedTemporalKey;
+  using memgraph::query::IsTemporalMapBuilder;
+
+  // A superset of every temporal unit spelling plus keys no builder accepts.
+  // The assertion does not depend on this list being exhaustive: it only has to
+  // cover any key either side might accept so both derived sets are compared
+  // over the same candidates.
+  const std::vector<std::string> candidate_keys = {
+      "year",   "years",   "month",      "months",      "day",         "days",         "hour",        "hours",
+      "minute", "minutes", "second",     "seconds",     "millisecond", "milliseconds", "microsecond", "microseconds",
+      "week",   "weeks",   "nanosecond", "nanoseconds", "fortnight",   "timezone",     "yir",         "hr"};
+
+  // True if the builder accepts key, derived by probing the real builder. A
+  // single-int-valued map is rejected with an unknown-key error only when the
+  // key is unrecognised; a recognised key may still throw for another reason
+  // (an out-of-range constructed value), which still means the key is accepted.
+  auto builder_accepts = [this](const std::string &fn, const std::string &key) -> bool {
+    try {
+      this->EvaluateFunction(fn, TypedValue(std::map<std::string, TypedValue>{{key, TypedValue(1)}}));
+      return true;
+    } catch (const QueryRuntimeException &e) {
+      return std::string{e.what()}.find("Unknown key") == std::string::npos;
+    }
+  };
+
+  for (const auto *fn : {"DATE", "LOCALTIME", "LOCALDATETIME", "DURATION"}) {
+    ASSERT_TRUE(IsTemporalMapBuilder(fn)) << fn << " should be a temporal map builder";
+    std::set<std::string> builder_keys;
+    std::set<std::string> validator_keys;
+    for (const auto &key : candidate_keys) {
+      if (builder_accepts(fn, key)) builder_keys.insert(key);
+      if (IsRecognisedTemporalKey(fn, key)) validator_keys.insert(key);
+    }
+    EXPECT_EQ(builder_keys, validator_keys)
+        << "Create-time validator key set for " << fn << " has drifted from the keys the builder accepts";
+  }
 }
 
 TYPED_TEST(FunctionTest, ZonedDateTime) {
