@@ -4411,39 +4411,21 @@ class SessionSettingQuery : public memgraph::query::Query {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
+  enum class Action { SET_SETTING, RESET_SETTING };
+
   SessionSettingQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  memgraph::query::SessionSettingQuery::Action action_;
   Expression *setting_name_{nullptr};
   Expression *setting_value_{nullptr};
 
   SessionSettingQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<SessionSettingQuery>();
+    object->action_ = action_;
     object->setting_name_ = setting_name_ ? setting_name_->Clone(storage) : nullptr;
     object->setting_value_ = setting_value_ ? setting_value_->Clone(storage) : nullptr;
-    return object;
-  }
-
- private:
-  friend class AstStorage;
-};
-
-class ResetSessionSettingQuery : public memgraph::query::Query {
- public:
-  static const utils::TypeInfo kType;
-
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  ResetSessionSettingQuery() = default;
-
-  DEFVISITABLE(QueryVisitor<void>);
-
-  Expression *setting_name_{nullptr};
-
-  ResetSessionSettingQuery *Clone(AstStorage *storage) const override {
-    auto *object = storage->Create<ResetSessionSettingQuery>();
-    object->setting_name_ = setting_name_ ? setting_name_->Clone(storage) : nullptr;
     return object;
   }
 

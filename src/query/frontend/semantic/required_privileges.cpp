@@ -210,8 +210,6 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(SessionSettingQuery & /*session_setting_query*/) override {}
 
-  void Visit(ResetSessionSettingQuery & /*reset_session_setting_query*/) override {}
-
   void Visit(DescriptionQuery & /*description_query*/) override {
     AddPrivilege(AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS);
   }

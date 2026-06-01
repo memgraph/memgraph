@@ -464,10 +464,6 @@ constexpr utils::TypeInfo query::SessionTraceQuery::kType{
 constexpr utils::TypeInfo query::SessionSettingQuery::kType{
     .id = utils::TypeId::AST_SESSION_SETTING_QUERY, .name = "SessionSettingQuery", .superclass = &query::Query::kType};
 
-constexpr utils::TypeInfo query::ResetSessionSettingQuery::kType{.id = utils::TypeId::AST_RESET_SESSION_SETTING_QUERY,
-                                                                 .name = "ResetSessionSettingQuery",
-                                                                 .superclass = &query::Query::kType};
-
 constexpr utils::TypeInfo query::UserProfileQuery::kType{
     .id = utils::TypeId::AST_USER_PROFILE_QUERY, .name = "UserProfileQuery", .superclass = &query::Query::kType};
 

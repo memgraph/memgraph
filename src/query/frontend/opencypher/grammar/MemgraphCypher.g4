@@ -299,8 +299,7 @@ query : cypherQuery
       | showSchemaInfoQuery
       | ttlQuery
       | setSessionTraceQuery
-      | setSessionSettingQuery
-      | resetSessionSettingQuery
+      | sessionSettingQuery
       | userProfileQuery
       | tenantProfileQuery
       | descriptionQuery
@@ -541,9 +540,13 @@ setMainDatabase : SET MAIN DATABASE db=symbolicName FOR target=userOrRole ;
 
 setSessionTraceQuery : SET SESSION TRACE (ON | OFF) ;
 
-setSessionSettingQuery : SET SESSION SETTING settingName TO settingValue ;
+sessionSettingQuery : setSessionSetting
+                    | resetSessionSetting
+                    ;
 
-resetSessionSettingQuery : RESET SESSION SETTING settingName ;
+setSessionSetting : SET SESSION SETTING settingName TO settingValue ;
+
+resetSessionSetting : RESET SESSION SETTING settingName ;
 
 privilege : CREATE
           | DELETE

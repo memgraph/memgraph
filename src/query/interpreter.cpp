@@ -8276,61 +8276,29 @@ PreparedQuery PrepareSessionSettingQuery(ParsedQuery parsed_query, Interpreter *
 
   const auto name_tv = EvaluateOptionalExpression(query->setting_name_, evaluator);
   if (!name_tv.IsString()) throw utils::BasicException("Setting name should be a string literal");
-  const auto value_tv = EvaluateOptionalExpression(query->setting_value_, evaluator);
-  if (!value_tv.IsString()) throw utils::BasicException("Setting value should be a string literal");
-
-  std::string name{name_tv.ValueString()};
-  std::string value{value_tv.ValueString()};
-
-  if (!flags::run_time::IsSessionSettable(name)) {
-    throw utils::BasicException("Setting \"{}\" cannot be set per-session", name);
-  }
-  if (auto err = flags::run_time::ValidateSessionSettingValue(name, value); err.has_value()) {
-    throw utils::BasicException(*err);
-  }
-
-  auto handler = [interpreter, name = std::move(name), value = std::move(value)]() mutable {
-    interpreter->GetLogContext()->SetSetting(name, std::move(value));
-    return std::pair{std::vector<std::vector<TypedValue>>{}, QueryHandlerResult::NOTHING};
-  };
-
-  return PreparedQuery{
-      .header = {},
-      .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [handler = std::move(handler),
-                        action = QueryHandlerResult::NOTHING,
-                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        if (!pull_plan) {
-          auto [results, action_on_complete] = handler();
-          action = action_on_complete;
-          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-        }
-        if (pull_plan->Pull(stream, n)) return action;
-        return std::nullopt;
-      },
-      .rw_type = RWType::NONE};
-}
-
-PreparedQuery PrepareResetSessionSettingQuery(ParsedQuery parsed_query, Interpreter *interpreter) {
-  auto *query = utils::Downcast<ResetSessionSettingQuery>(parsed_query.query);
-  MG_ASSERT(query);
-
-  EvaluationContext evaluation_context;
-  evaluation_context.timestamp = QueryTimestamp();
-  evaluation_context.parameters = parsed_query.parameters;
-  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-
-  const auto name_tv = EvaluateOptionalExpression(query->setting_name_, evaluator);
-  if (!name_tv.IsString()) throw utils::BasicException("Setting name should be a string literal");
   std::string name{name_tv.ValueString()};
 
   if (!flags::run_time::IsSessionSettable(name)) {
     throw utils::BasicException("Setting \"{}\" cannot be set per-session", name);
   }
 
-  auto handler = [interpreter, name = std::move(name)]() mutable {
-    interpreter->GetLogContext()->ResetSetting(name);
+  const bool is_set = query->action_ == SessionSettingQuery::Action::SET_SETTING;
+  std::string value;
+  if (is_set) {
+    const auto value_tv = EvaluateOptionalExpression(query->setting_value_, evaluator);
+    if (!value_tv.IsString()) throw utils::BasicException("Setting value should be a string literal");
+    value = std::string{value_tv.ValueString()};
+    if (auto err = flags::run_time::ValidateSessionSettingValue(name, value); err.has_value()) {
+      throw utils::BasicException(*err);
+    }
+  }
+
+  auto handler = [interpreter, is_set, name = std::move(name), value = std::move(value)]() mutable {
+    if (is_set) {
+      interpreter->GetLogContext()->SetSetting(name, std::move(value));
+    } else {
+      interpreter->GetLogContext()->ResetSetting(name);
+    }
     return std::pair{std::vector<std::vector<TypedValue>>{}, QueryHandlerResult::NOTHING};
   };
 
@@ -9404,8 +9372,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(SessionSettingQuery & /*unused*/) override {}
 
-  void Visit(ResetSessionSettingQuery & /*unused*/) override {}
-
   void Visit(ReloadSSLQuery & /*unused*/) override { /*No need for storage*/ }
 
   // Some queries require an active transaction in order to be prepared.
@@ -9962,8 +9928,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
     } else if (utils::Downcast<SessionSettingQuery>(parsed_query.query)) {
       prepared_query = PrepareSessionSettingQuery(std::move(parsed_query), this);
-    } else if (utils::Downcast<ResetSessionSettingQuery>(parsed_query.query)) {
-      prepared_query = PrepareResetSessionSettingQuery(std::move(parsed_query), this);
     } else if (utils::Downcast<UserProfileQuery>(parsed_query.query)) {
       prepared_query = PrepareUserProfileQuery(std::move(parsed_query), interpreter_context_, this);
     } else if (utils::Downcast<TenantProfileQuery>(parsed_query.query)) {

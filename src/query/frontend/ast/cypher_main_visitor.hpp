@@ -1366,12 +1366,17 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return SessionSettingQuery*
    */
-  antlrcpp::Any visitSetSessionSettingQuery(MemgraphCypher::SetSessionSettingQueryContext *ctx) override;
+  antlrcpp::Any visitSessionSettingQuery(MemgraphCypher::SessionSettingQueryContext *ctx) override;
 
   /**
-   * @return ResetSessionSettingQuery*
+   * @return SessionSettingQuery*
    */
-  antlrcpp::Any visitResetSessionSettingQuery(MemgraphCypher::ResetSessionSettingQueryContext *ctx) override;
+  antlrcpp::Any visitSetSessionSetting(MemgraphCypher::SetSessionSettingContext *ctx) override;
+
+  /**
+   * @return SessionSettingQuery*
+   */
+  antlrcpp::Any visitResetSessionSetting(MemgraphCypher::ResetSessionSettingContext *ctx) override;
 
   /**
    * @return std::pair<std::string, UserProfileQuery::LimitValueResult>
