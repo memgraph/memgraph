@@ -672,10 +672,12 @@ emptyVertex : '(' ')' ;
 
 emptyEdge : dash dash rightArrowHead ;
 
-createTrigger : CREATE TRIGGER triggerName ( SECURITY ( DEFINER | INVOKER ) ) ? ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
+createTrigger : CREATE TRIGGER ifNotExists? triggerName ( SECURITY ( DEFINER | INVOKER ) ) ? ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
               ( AFTER | BEFORE ) COMMIT EXECUTE triggerStatement ;
 
-dropTrigger : DROP TRIGGER triggerName ;
+ifExists : IF EXISTS ;
+
+dropTrigger : DROP TRIGGER ifExists? triggerName ;
 
 showTriggers : SHOW TRIGGERS | SHOW TRIGGER INFO ;
 

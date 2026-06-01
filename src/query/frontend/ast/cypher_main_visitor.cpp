@@ -1304,6 +1304,7 @@ antlrcpp::Any CypherMainVisitor::visitTriggerQuery(MemgraphCypher::TriggerQueryC
 antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTriggerContext *ctx) {
   auto *trigger_query = storage_->Create<TriggerQuery>();
   trigger_query->action_ = TriggerQuery::Action::CREATE_TRIGGER;
+  trigger_query->check_if_exists_ = ctx->ifNotExists() != nullptr;
   trigger_query->trigger_name_ = std::any_cast<std::string>(ctx->triggerName()->symbolicName()->accept(this));
   trigger_query->privilege_context_ =
       ctx->INVOKER() ? TriggerPrivilegeContext::INVOKER : TriggerPrivilegeContext::DEFINER;  // definer is default
@@ -1358,6 +1359,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTrigge
 antlrcpp::Any CypherMainVisitor::visitDropTrigger(MemgraphCypher::DropTriggerContext *ctx) {
   auto *trigger_query = storage_->Create<TriggerQuery>();
   trigger_query->action_ = TriggerQuery::Action::DROP_TRIGGER;
+  trigger_query->check_if_exists_ = ctx->ifExists() != nullptr;
   trigger_query->trigger_name_ = std::any_cast<std::string>(ctx->triggerName()->symbolicName()->accept(this));
   return trigger_query;
 }

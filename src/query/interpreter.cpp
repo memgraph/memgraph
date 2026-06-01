@@ -5568,6 +5568,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                  trigger_statement = std::move(trigger_query->statement_),
                  event_type = trigger_query->event_type_,
                  before_commit = trigger_query->before_commit_,
+                 if_not_exists = trigger_query->check_if_exists_,
                  trigger_store,
                  interpreter_context,
                  dba,
@@ -5587,7 +5588,8 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                                       std::move(owner),
                                       db_name,
                                       privilege_context,
-                                      interpreter_context->parameters);
+                                      interpreter_context->parameters,
+                                      if_not_exists);
             metric_handles.triggers_created.Increment();
             return {};
           }};
@@ -5596,8 +5598,9 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
 Callback DropTrigger(TriggerQuery *trigger_query, TriggerStore *trigger_store) {
   return {.header = {},
           .fn = [trigger_name = std::move(trigger_query->trigger_name_),
+                 if_exists = trigger_query->check_if_exists_,
                  trigger_store]() -> std::vector<std::vector<TypedValue>> {
-            trigger_store->DropTrigger(trigger_name);
+            trigger_store->DropTrigger(trigger_name, if_exists);
             return {};
           }};
 }

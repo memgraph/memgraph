@@ -6331,10 +6331,22 @@ TEST_P(CypherMainVisitorTest, DropTrigger) {
 
   TestInvalidQuery("DROP TR", ast_generator);
   TestInvalidQuery("DROP TRIGGER", ast_generator);
+  // IF EXISTS with no trigger name following is incomplete
+  TestInvalidQuery("DROP TRIGGER IF EXISTS", ast_generator);
 
-  auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("DROP TRIGGER trigger"));
-  EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::DROP_TRIGGER);
-  EXPECT_EQ(parsed_query->trigger_name_, "trigger");
+  {
+    auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("DROP TRIGGER trigger"));
+    EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::DROP_TRIGGER);
+    EXPECT_EQ(parsed_query->trigger_name_, "trigger");
+    EXPECT_FALSE(parsed_query->check_if_exists_);
+  }
+
+  {
+    auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("DROP TRIGGER IF EXISTS trigger"));
+    EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::DROP_TRIGGER);
+    EXPECT_EQ(parsed_query->trigger_name_, "trigger");
+    EXPECT_TRUE(parsed_query->check_if_exists_);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, ShowTriggers) {
@@ -6434,6 +6446,25 @@ TEST_P(CypherMainVisitorTest, CreateTriggers) {
                             memgraph::utils::Trim(statement));
       }
     }
+  }
+
+  TestInvalidQuery("CREATE TRIGGER IF NOT EXISTS", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER IF NOT EXISTS trigger", ast_generator);
+
+  {
+    auto *parsed_query = dynamic_cast<TriggerQuery *>(
+        ast_generator.ParseQuery("CREATE TRIGGER trigger ON CREATE AFTER COMMIT EXECUTE a"));
+    EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::CREATE_TRIGGER);
+    EXPECT_FALSE(parsed_query->check_if_exists_);
+  }
+
+  {
+    auto *parsed_query = dynamic_cast<TriggerQuery *>(
+        ast_generator.ParseQuery("CREATE TRIGGER IF NOT EXISTS trigger ON CREATE AFTER COMMIT EXECUTE a"));
+    EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::CREATE_TRIGGER);
+    EXPECT_EQ(parsed_query->trigger_name_, "trigger");
+    EXPECT_EQ(parsed_query->event_type_, TriggerQuery::EventType::CREATE);
+    EXPECT_TRUE(parsed_query->check_if_exists_);
   }
 }
 

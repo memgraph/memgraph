@@ -3608,6 +3608,9 @@ class TriggerQuery : public memgraph::query::Query {
   bool before_commit_;
   std::string statement_;
   TriggerPrivilegeContext privilege_context_;
+  // CREATE TRIGGER IF NOT EXISTS is a no-op when the name is taken; DROP TRIGGER
+  // IF EXISTS is a no-op when the name is absent. Otherwise both error.
+  bool check_if_exists_{false};
 
   TriggerQuery *Clone(AstStorage *storage) const override {
     TriggerQuery *object = storage->Create<TriggerQuery>();
@@ -3617,6 +3620,7 @@ class TriggerQuery : public memgraph::query::Query {
     object->before_commit_ = before_commit_;
     object->statement_ = statement_;
     object->privilege_context_ = privilege_context_;
+    object->check_if_exists_ = check_if_exists_;
     return object;
   }
 

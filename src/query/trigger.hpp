@@ -138,9 +138,10 @@ struct TriggerStore {
                   TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
                   DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
                   std::shared_ptr<QueryUserOrRole> creator, std::string_view db_name,
-                  TriggerPrivilegeContext privilege_context, parameters::Parameters const *server_parameters);
+                  TriggerPrivilegeContext privilege_context, parameters::Parameters const *server_parameters,
+                  bool if_not_exists = false);
 
-  void DropTrigger(const std::string &name);
+  void DropTrigger(const std::string &name, bool if_exists = false);
   void DropAll();
 
   struct TriggerInfo {

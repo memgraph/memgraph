@@ -514,9 +514,12 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                               const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
                               std::string_view db_name, TriggerPrivilegeContext privilege_context,
-                              parameters::Parameters const *server_parameters) {
+                              parameters::Parameters const *server_parameters, bool if_not_exists) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
+    if (if_not_exists) {
+      return;
+    }
     throw utils::BasicException("Trigger with the same name already exists.");
   }
 
@@ -583,10 +586,13 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
   triggers_acc.insert(std::move(*trigger));
 }
 
-void TriggerStore::DropTrigger(const std::string &name) {
+void TriggerStore::DropTrigger(const std::string &name, bool if_exists) {
   std::unique_lock store_guard{store_lock_};
   const auto maybe_trigger_data = storage_.Get(name);
   if (!maybe_trigger_data) {
+    if (if_exists) {
+      return;
+    }
     throw utils::BasicException("Trigger with name '{}' doesn't exist", name);
   }
 

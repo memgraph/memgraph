@@ -1230,6 +1230,21 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
                                 nullptr),
                memgraph::utils::BasicException);
 
+  // IF NOT EXISTS makes re-adding a same-named trigger a no-op rather than an error
+  ASSERT_NO_THROW(store.AddTrigger("trigger",
+                                   "RETURN 1",
+                                   {},
+                                   memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                   memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                                   &this->ast_cache,
+                                   &*this->dba,
+                                   memgraph::query::InterpreterConfig::Query{},
+                                   this->auth_checker.GenQueryUser(std::nullopt, {}),
+                                   memgraph::dbms::kDefaultDB,
+                                   memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                   nullptr,
+                                   /*if_not_exists=*/true));
+
   ASSERT_EQ(store.GetTriggerInfo().size(), 1);
   ASSERT_EQ(store.BeforeCommitTriggers().size(), 1);
   ASSERT_EQ(store.AfterCommitTriggers().size(), 0);
@@ -1239,6 +1254,8 @@ TYPED_TEST(TriggerStoreTest, DropTrigger) {
   memgraph::query::TriggerStore store{this->testing_directory};
 
   ASSERT_THROW(store.DropTrigger("Unknown"), memgraph::utils::BasicException);
+  // IF EXISTS makes dropping an absent trigger a no-op rather than an error
+  ASSERT_NO_THROW(store.DropTrigger("Unknown", /*if_exists=*/true));
 
   const auto *trigger_name = "trigger";
   store.AddTrigger(trigger_name,
@@ -1256,6 +1273,9 @@ TYPED_TEST(TriggerStoreTest, DropTrigger) {
 
   ASSERT_THROW(store.DropTrigger("Unknown"), memgraph::utils::BasicException);
   ASSERT_NO_THROW(store.DropTrigger(trigger_name));
+  ASSERT_EQ(store.GetTriggerInfo().size(), 0);
+  // Dropping the now-absent trigger again is a no-op with IF EXISTS
+  ASSERT_NO_THROW(store.DropTrigger(trigger_name, /*if_exists=*/true));
   ASSERT_EQ(store.GetTriggerInfo().size(), 0);
 }
 
