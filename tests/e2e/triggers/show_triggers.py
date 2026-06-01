@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import sys
+import time
 
 import mgclient
 import pytest
@@ -53,14 +54,12 @@ def test_show_triggers_output_format(connect):
     result = execute_and_fetch_all(cursor, "SHOW TRIGGERS")
     assert len(result) == 3
 
-    # Expected columns: "trigger name", "statement", "privilege context", "event type", "phase", "owner"
-    expected_columns = ["trigger name", "statement", "privilege context", "event type", "phase", "owner"]
-
-    # Convert results to dictionary for easier access
+    # Convert results to dictionary for easier access. The health columns (last executed,
+    # failure count, last error) are appended after the original six.
     triggers = {}
     for row in result:
-        # Each row should be a tuple with 6 elements
-        assert len(row) == 6
+        # Each row should be a tuple with 9 elements
+        assert len(row) == 9
         trigger_name = row[0]
         triggers[trigger_name] = {
             "trigger name": row[0],
@@ -69,6 +68,9 @@ def test_show_triggers_output_format(connect):
             "event type": row[3],
             "phase": row[4],
             "owner": row[5],
+            "last executed": row[6],
+            "failure count": row[7],
+            "last error": row[8],
         }
 
     assert "trigger_invoker" in triggers
@@ -79,6 +81,10 @@ def test_show_triggers_output_format(connect):
     assert invoker["event type"] == "CREATE"
     assert invoker["phase"] == "BEFORE COMMIT"
     assert invoker["owner"] is None
+    # A trigger that has never fired reports null last_executed and zero failure_count.
+    assert invoker["last executed"] is None
+    assert invoker["failure count"] == 0
+    assert invoker["last error"] is None
 
     assert "trigger_definer" in triggers
     definer = triggers["trigger_definer"]
@@ -153,6 +159,52 @@ def test_show_triggers_after_drop(connect):
 
     result = execute_and_fetch_all(cursor, "SHOW TRIGGERS")
     assert len(result) == 0
+
+
+def test_show_triggers_failing_trigger_health(connect):
+    """A trigger that throws at fire time becomes visible through the health columns."""
+    cursor = connect.cursor()
+
+    # The body passes CREATE-time validation but divides by zero once it actually fires.
+    execute_and_fetch_all(
+        cursor,
+        """CREATE TRIGGER failing_trigger
+        ON CREATE AFTER COMMIT EXECUTE
+        UNWIND createdVertices AS node SET node.bad = 1 / 0""",
+    )
+
+    def get_failing():
+        result = execute_and_fetch_all(cursor, "SHOW TRIGGERS")
+        triggers = {row[0]: row for row in result}
+        return triggers["failing_trigger"]
+
+    # Before it ever fires, health is null/zero.
+    row = get_failing()
+    assert row[6] is None  # last executed
+    assert row[7] == 0  # failure count
+    assert row[8] is None  # last error
+
+    # Trigger a fire that fails. After-commit triggers run asynchronously, so poll.
+    execute_and_fetch_all(cursor, "CREATE (:Node)")
+
+    deadline = time.time() + 15
+    row = get_failing()
+    while row[7] < 1 and time.time() < deadline:
+        time.sleep(0.1)
+        row = get_failing()
+
+    assert row[6] is not None  # last executed is now populated
+    assert row[7] == 1  # failure count incremented
+    assert row[8] is not None  # last error populated
+
+    # A second failing fire increments the count further.
+    execute_and_fetch_all(cursor, "CREATE (:Node)")
+    deadline = time.time() + 15
+    row = get_failing()
+    while row[7] < 2 and time.time() < deadline:
+        time.sleep(0.1)
+        row = get_failing()
+    assert row[7] == 2
 
 
 if __name__ == "__main__":

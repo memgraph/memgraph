@@ -12,8 +12,13 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <memory>
+#include <mutex>
+#include <optional>
+#include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -68,7 +73,28 @@ struct Trigger {
 
   auto PrivilegeContext() const noexcept { return privilege_context_; }
 
+  // Sentinel for a trigger that has never fired; rendered as null in SHOW TRIGGERS.
+  static constexpr int64_t kNeverExecuted = std::numeric_limits<int64_t>::min();
+
+  int64_t LastExecuted() const noexcept { return std::atomic_ref{last_executed_}.load(std::memory_order_relaxed); }
+
+  uint64_t FailureCount() const noexcept { return std::atomic_ref{failure_count_}.load(std::memory_order_relaxed); }
+
+  std::optional<std::string> LastError() const {
+    auto guard = std::shared_lock{health_lock_};
+    if (last_error_.empty()) return std::nullopt;
+    return last_error_;
+  }
+
  private:
+  void ExecuteImpl(DbAccessor *dba, memgraph::dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
+                   double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
+                   std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context, bool is_main,
+                   std::shared_ptr<QueryUserOrRole> triggering_user, const AuthChecker *auth_checker) const;
+
+  void RecordExecution() const;
+  void RecordFailure(std::string error) const;
+
   struct TriggerPlan {
     using IdentifierInfo = std::pair<Identifier, TriggerIdentifierTag>;
 
@@ -90,6 +116,13 @@ struct Trigger {
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
   std::shared_ptr<QueryUserOrRole> creator_;
   TriggerPrivilegeContext privilege_context_{TriggerPrivilegeContext::DEFINER};
+
+  // In-memory, non-durable health state. Numeric fields are accessed via atomic_ref (plain storage keeps Trigger
+  // movable into the skip list); last_error_ is guarded by health_lock_ and materialized lazily in GetTriggerInfo.
+  mutable int64_t last_executed_{kNeverExecuted};
+  mutable uint64_t failure_count_{0};
+  mutable utils::RWSpinLock health_lock_;
+  mutable std::string last_error_;
 };
 
 enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
@@ -117,6 +150,9 @@ struct TriggerStore {
     TriggerPhase phase;
     std::optional<std::string> owner;
     TriggerPrivilegeContext privilege_context;
+    std::optional<int64_t> last_executed;
+    uint64_t failure_count;
+    std::optional<std::string> last_error;
   };
 
   std::vector<TriggerInfo> GetTriggerInfo() const;

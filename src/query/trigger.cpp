@@ -15,6 +15,7 @@
 #include <cstdint>
 
 #include "dbms/database.hpp"
+#include "query/common.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -232,6 +233,16 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
   return trigger_plan_;
 }
 
+void Trigger::RecordExecution() const {
+  std::atomic_ref{last_executed_}.store(QueryTimestamp(), std::memory_order_relaxed);
+}
+
+void Trigger::RecordFailure(std::string error) const {
+  std::atomic_ref{failure_count_}.fetch_add(1, std::memory_order_relaxed);
+  auto guard = std::unique_lock{health_lock_};
+  last_error_ = std::move(error);
+}
+
 void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
                       std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context, bool is_main,
@@ -241,6 +252,30 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
     return;
   }
 
+  RecordExecution();
+
+  try {
+    ExecuteImpl(dba,
+                db_acc,
+                execution_memory,
+                max_execution_time_sec,
+                is_shutting_down,
+                transaction_status,
+                context,
+                is_main,
+                triggering_user,
+                auth_checker);
+  } catch (const utils::BasicException &e) {
+    RecordFailure(e.what());
+    throw;
+  }
+}
+
+void Trigger::ExecuteImpl(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
+                          const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
+                          std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context,
+                          bool is_main, std::shared_ptr<QueryUserOrRole> triggering_user,
+                          [[maybe_unused]] const AuthChecker *auth_checker) const {
   spdlog::debug("Executing trigger '{}'", name_);
   auto trigger_plan = GetPlan(dba, db_acc->name(), triggering_user);
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
@@ -592,12 +627,16 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
     for (const auto &trigger : trigger_list.access()) {
       std::optional<std::string> owner_str{};
       if (const auto &owner = trigger.Creator(); owner && *owner) owner_str = owner->username();
+      const auto last_executed = trigger.LastExecuted();
       info.push_back({trigger.Name(),
                       trigger.OriginalStatement(),
                       trigger.EventType(),
                       phase,
                       std::move(owner_str),
-                      trigger.PrivilegeContext()});
+                      trigger.PrivilegeContext(),
+                      last_executed == Trigger::kNeverExecuted ? std::nullopt : std::optional{last_executed},
+                      trigger.FailureCount(),
+                      trigger.LastError()});
     }
   };
 

@@ -5603,14 +5603,22 @@ Callback DropTrigger(TriggerQuery *trigger_query, TriggerStore *trigger_store) {
 }
 
 Callback ShowTriggers(TriggerStore *trigger_store) {
-  return {.header = {"trigger name", "statement", "privilege context", "event type", "phase", "owner"},
+  return {.header = {"trigger name",
+                     "statement",
+                     "privilege context",
+                     "event type",
+                     "phase",
+                     "owner",
+                     "last executed",
+                     "failure count",
+                     "last error"},
           .fn = [trigger_store] {
             std::vector<std::vector<TypedValue>> results;
             auto trigger_infos = trigger_store->GetTriggerInfo();
             results.reserve(trigger_infos.size());
             for (auto &trigger_info : trigger_infos) {
               std::vector<TypedValue> typed_trigger_info;
-              typed_trigger_info.reserve(5);
+              typed_trigger_info.reserve(9);
               typed_trigger_info.emplace_back(std::move(trigger_info.name));
               typed_trigger_info.emplace_back(std::move(trigger_info.statement));
               typed_trigger_info.emplace_back(
@@ -5620,6 +5628,11 @@ Callback ShowTriggers(TriggerStore *trigger_store) {
                                                                                                 : "AFTER COMMIT");
               typed_trigger_info.emplace_back(trigger_info.owner.has_value() ? TypedValue{*trigger_info.owner}
                                                                              : TypedValue{});
+              typed_trigger_info.emplace_back(
+                  trigger_info.last_executed.has_value() ? TypedValue{*trigger_info.last_executed} : TypedValue{});
+              typed_trigger_info.emplace_back(static_cast<int64_t>(trigger_info.failure_count));
+              typed_trigger_info.emplace_back(trigger_info.last_error.has_value() ? TypedValue{*trigger_info.last_error}
+                                                                                  : TypedValue{});
 
               results.push_back(std::move(typed_trigger_info));
             }
