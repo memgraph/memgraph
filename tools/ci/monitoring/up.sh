@@ -64,21 +64,18 @@ COMPOSE_CMD=(docker compose)
 COMPOSE_FILES=(-f "${COMPOSE_FILE}")
 if [[ "${MONITORING_USE_HOST_NETWORK}" == "true" ]]; then
   COMPOSE_FILES=(-f "${HOST_NETWORK_COMPOSE_FILE}")
-  MG_EXPORTER_SCRAPE_TARGET="127.0.0.1:9115"
-else
-  MG_EXPORTER_SCRAPE_TARGET="mg-exporter:9115"
 fi
 
-MG_EXPORTER_CONFIG="${GENERATED_DIR}/mg-exporter.yaml"
 VMAGENT_SCRAPE_CONFIG="${GENERATED_DIR}/vmagent-scrape.yml"
 VECTOR_CONFIG="${GENERATED_DIR}/vector.yaml"
 
 export MEMGRAPH_METRICS_HOST MEMGRAPH_METRICS_PORT
 
+# vmagent scrapes Memgraph's OpenMetrics endpoint directly (no mg-exporter in
+# between). Each instance must run with --metrics-format=OpenMetrics so that the
+# metrics port serves Prometheus/OpenMetrics text instead of the legacy JSON.
+MEMGRAPH_SCRAPE_TARGETS_BLOCK=""
 if [[ -n "${MEMGRAPH_METRICS_TARGETS}" ]]; then
-  MG_EXPORTER_DEPLOYMENT_TYPE="HA"
-  MEMGRAPH_INSTANCES_BLOCK=""
-  target_index=1
   IFS=',' read -r -a metrics_targets <<< "${MEMGRAPH_METRICS_TARGETS}"
   for target in "${metrics_targets[@]}"; do
     trimmed_target="$(echo "${target}" | xargs)"
@@ -89,23 +86,16 @@ if [[ -n "${MEMGRAPH_METRICS_TARGETS}" ]]; then
     target_port="${trimmed_target##*:}"
     if [[ "${target_host}" == "${target_port}" ]]; then
       target_host="${trimmed_target}"
-      target_port="9091"
+      target_port="${MEMGRAPH_METRICS_PORT}"
     fi
-    MEMGRAPH_INSTANCES_BLOCK+=$'  - name: memgraph'"${target_index}"$'\n'
-    MEMGRAPH_INSTANCES_BLOCK+=$'    url: http://'"${target_host}"$'\n'
-    MEMGRAPH_INSTANCES_BLOCK+=$'    port: '"${target_port}"$'\n'
-    MEMGRAPH_INSTANCES_BLOCK+=$'    type: data_instance\n'
-    target_index=$((target_index + 1))
+    MEMGRAPH_SCRAPE_TARGETS_BLOCK+=$'          - '"${target_host}:${target_port}"$'\n'
   done
-  if [[ -z "${MEMGRAPH_INSTANCES_BLOCK}" ]]; then
+  if [[ -z "${MEMGRAPH_SCRAPE_TARGETS_BLOCK}" ]]; then
     echo "error: MEMGRAPH_METRICS_TARGETS was provided, but no valid targets were parsed." >&2
     exit 2
   fi
-  export MEMGRAPH_INSTANCES_BLOCK
-  envsubst < "${MANIFESTS_DIR}/mg-exporter-ha.yaml.tmpl" > "${MG_EXPORTER_CONFIG}"
 else
-  MG_EXPORTER_DEPLOYMENT_TYPE="standalone"
-  envsubst < "${MANIFESTS_DIR}/mg-exporter-standalone.yaml.tmpl" > "${MG_EXPORTER_CONFIG}"
+  MEMGRAPH_SCRAPE_TARGETS_BLOCK+=$'          - '"${MEMGRAPH_METRICS_HOST}:${MEMGRAPH_METRICS_PORT}"$'\n'
 fi
 
 if [[ -z "${MEMGRAPH_LOG_WS_TARGETS}" ]]; then
@@ -214,10 +204,10 @@ if [[ -z "${VECTOR_ENRICH_INPUTS}" ]]; then
   exit 2
 fi
 
-export COMPOSE_PROJECT_NAME REMOTE_WRITE_URL VLOGS_INSERT_ENDPOINT MG_EXPORTER_DEPLOYMENT_TYPE
+export COMPOSE_PROJECT_NAME REMOTE_WRITE_URL VLOGS_INSERT_ENDPOINT
 export MEMGRAPH_METRICS_HOST MEMGRAPH_METRICS_PORT CLUSTER_ID CLUSTER_ENV SERVICE_NAME
 export VECTOR_SOURCES_BLOCK VECTOR_PREPROCESS_BLOCK VECTOR_ENRICH_INPUTS
-export VMAGENT_AUTH_ARGS VLOGS_AUTH_BLOCK MG_EXPORTER_SCRAPE_TARGET
+export VMAGENT_AUTH_ARGS VLOGS_AUTH_BLOCK MEMGRAPH_SCRAPE_TARGETS_BLOCK
 
 envsubst < "${MANIFESTS_DIR}/vmagent-scrape.yml.tmpl" > "${VMAGENT_SCRAPE_CONFIG}"
 envsubst < "${MANIFESTS_DIR}/vector.yaml.tmpl" > "${VECTOR_CONFIG}"
@@ -284,7 +274,6 @@ else
 fi
 echo
 echo "Generated files:"
-echo "  ${MG_EXPORTER_CONFIG}"
 echo "  ${VMAGENT_SCRAPE_CONFIG}"
 echo "  ${VECTOR_CONFIG}"
 echo

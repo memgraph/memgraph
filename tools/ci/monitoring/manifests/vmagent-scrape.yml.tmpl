@@ -6,7 +6,10 @@ global:
     cluster_env: "${CLUSTER_ENV}"
 
 scrape_configs:
-  - job_name: memgraph-exporter
+  # Memgraph exposes Prometheus/OpenMetrics directly on the metrics port
+  # (requires the instance to run with --metrics-format=OpenMetrics).
+  - job_name: memgraph
+    metrics_path: /metrics
     static_configs:
       - targets:
-          - ${MG_EXPORTER_SCRAPE_TARGET}
+${MEMGRAPH_SCRAPE_TARGETS_BLOCK}

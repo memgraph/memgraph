@@ -2,12 +2,14 @@
 
 This bundle reuses the same remote monitoring flow as `victoria-cluster`, but for Memgraph processes running inside mgbuild containers.
 
-- Metrics: `Memgraph -> mg-exporter -> vmagent -> VictoriaMetrics`
+- Metrics: `Memgraph (OpenMetrics, port 9091) -> vmagent -> VictoriaMetrics`
 - Logs: `Memgraph websocket (port 7444) -> vector -> VictoriaLogs`
+
+`vmagent` scrapes Memgraph's metrics endpoint directly; the standalone
+`mg-exporter` is no longer used.
 
 ## What this starts
 
-- `mg-exporter` (`memgraph/prometheus-exporter:0.2.3`)
 - `vmagent` (`victoriametrics/vmagent:v1.139.0`)
 - `vector` (`timberio/vector:0.49.0-debian`)
 
@@ -17,6 +19,8 @@ This bundle reuses the same remote monitoring flow as `victoria-cluster`, but fo
 - `envsubst`
 - mgbuild services started from `release/package/*-builders-v7.yml`
 - `mgbuild_network` Docker network exists
+- Memgraph instances started with `--metrics-format=OpenMetrics` so the metrics
+  port (`9091`) serves Prometheus/OpenMetrics text instead of the legacy JSON
 - Memgraph instances expose websocket logs on port `7444`
 
 ## Endpoint configuration
@@ -40,7 +44,7 @@ or host + optional ports/schemes:
 - `CLUSTER_ENV` (default: `ci-standalone-victoria`)
 - `MEMGRAPH_METRICS_HOST` (default: `host.docker.internal`)
 - `MEMGRAPH_METRICS_PORT` (default: `9091`)
-- `MEMGRAPH_METRICS_TARGETS` (comma-separated, e.g. `mgbuild_v7_ubuntu-24.04:9091,mgbuild_v7_debian-12:9091`; enables multi-instance exporter mode)
+- `MEMGRAPH_METRICS_TARGETS` (comma-separated, e.g. `mgbuild_v7_ubuntu-24.04:9091,mgbuild_v7_debian-12:9091`; enables multi-instance scraping)
 - `MEMGRAPH_LOG_WS_PORT` (default: `7444`)
 - `MEMGRAPH_LOG_WS_TARGETS` (comma-separated websocket targets; accepts `host`, `host:port`, or full `ws://...`; defaults to `MEMGRAPH_METRICS_TARGETS` when present)
 - `MONITORING_USERNAME` / `MONITORING_PASSWORD` (optional basic auth for both VictoriaMetrics remote write and VictoriaLogs push; also supports `CI_MONITORING_USER` / `CI_MONITORING_PASSWORD`)
@@ -48,8 +52,7 @@ or host + optional ports/schemes:
 
 ## Multi-instance notes
 
-- One `mg-exporter` can scrape multiple Memgraph instances using `MEMGRAPH_METRICS_TARGETS`.
-- One `vmagent` is enough because it scrapes only `mg-exporter`.
+- One `vmagent` can scrape multiple Memgraph instances directly using `MEMGRAPH_METRICS_TARGETS`.
 - One `vector` is enough because it can connect to multiple websocket targets.
 - For parallel monitoring stacks, use different `COMPOSE_PROJECT_NAME` values.
 
@@ -80,6 +83,5 @@ cd tools/ci/monitoring
 
 `up.sh` renders runtime files in `generated/`:
 
-- `generated/mg-exporter.yaml`
 - `generated/vmagent-scrape.yml`
 - `generated/vector.yaml`
