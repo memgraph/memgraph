@@ -14,6 +14,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "replication/replication_client.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_query_handler.hpp"
@@ -359,6 +360,10 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::Unre
       // Remove instance level clients
       auto const n_unregistered =
           std::erase_if(mainData.registered_replicas_, [name](auto const &client) { return client.name_ == name; });
+
+      // Drop the per-instance replication throughput series so the metric maps don't grow unbounded.
+      metrics::Metrics().RemoveReplicationThroughput(name);
+
       return n_unregistered != 0 ? query::UnregisterReplicaResult::SUCCESS
                                  : query::UnregisterReplicaResult::CANNOT_UNREGISTER;
     };

@@ -28,14 +28,23 @@
     (repl-utils/replication-open-connection this node nodes-config))
   (setup! [this _test]
     (when (= (:replication-role this) :main)
-      (try
-        (utils/with-session (:conn this) session
-          (mgquery/detach-delete-all session)
-          (info "Initial nodes deleted.")
-          (create-nodes session)
-          (info "Initial nodes created."))
-        (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-          (info (utils/node-is-down (:node this)))))))
+      (loop [attempts 10]
+        (let [result (try
+                       (utils/with-session (:conn this) session
+                         (mgquery/detach-delete-all session)
+                         (info "Initial nodes deleted.")
+                         (create-nodes session)
+                         (info "Initial nodes created."))
+                       :done
+                       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                         (info (utils/node-is-down (:node this)))
+                         :retry)
+                       (catch Exception e
+                         (info "Fatal failure when trying to connect to instances" (:node this) e)
+                         (System/exit -1)))]
+          (when (and (= result :retry) (pos? attempts))
+            (Thread/sleep 3000)
+            (recur (dec attempts)))))))
 
   (invoke! [this _test op]
     (case (:f op)

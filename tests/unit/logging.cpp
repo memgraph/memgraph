@@ -10,17 +10,37 @@
 // licenses/APL.txt.
 
 #include "flags/logging.hpp"
+#include "utils/session_context.hpp"
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
+#include <spdlog/sinks/base_sink.h>
 
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 DECLARE_string(log_file);
 DECLARE_uint64(log_retention_days);
+
+// Counter-incrementing fmt formatter — proves the lazy-format contract.
+struct CountingFormattable {
+  static inline int format_count = 0;
+};
+
+template <>
+struct fmt::formatter<CountingFormattable> : fmt::formatter<std::string_view> {
+  template <typename FormatContext>
+  auto format(const CountingFormattable & /*unused*/, FormatContext &ctx) const {
+    ++CountingFormattable::format_count;
+    return fmt::formatter<std::string_view>::format("counted", ctx);
+  }
+};
 
 namespace {
 
@@ -136,6 +156,160 @@ TEST_F(CleanLogsDirTest, NonExistentDirectory) {
   FLAGS_log_file = "/tmp/mg_nonexistent_dir_test/memgraph.log";
   FLAGS_log_retention_days = 2;
   EXPECT_NO_THROW(memgraph::flags::CleanLogsDir());
+}
+
+using memgraph::logging::EmitSessionTraceEvent;
+using memgraph::logging::ScopedSessionLog;
+using memgraph::logging::SessionLogContext;
+
+std::string TraceTags(const SessionLogContext &ctx) {
+  fmt::memory_buffer buf;
+  ctx.AppendTraceTags(buf);
+  return std::string(buf.data(), buf.size());
+}
+
+TEST(SessionLogContext, TraceTagComposition) {
+  SessionLogContext ctx;
+  ctx.SetSessionUuid("abc");
+  ctx.SetTxId(42);
+  EXPECT_EQ(TraceTags(ctx), "[session=abc] [tx=42]");
+
+  ctx.SetUser("alice");
+  EXPECT_EQ(TraceTags(ctx), "[session=abc] [user=alice] [tx=42]");
+
+  // Clearing a middle field must not leave a dangling separator or empty token.
+  ctx.ClearUser();
+  EXPECT_EQ(TraceTags(ctx), "[session=abc] [tx=42]");
+}
+
+TEST(ScopedSessionLog, NestingAndUnwindRestore) {
+  SessionLogContext outer;
+  SessionLogContext inner;
+  EXPECT_EQ(ScopedSessionLog::Current(), nullptr);
+  {
+    ScopedSessionLog g_outer(&outer);
+    EXPECT_EQ(ScopedSessionLog::Current(), &outer);
+    try {
+      ScopedSessionLog g_inner(&inner);
+      ASSERT_EQ(ScopedSessionLog::Current(), &inner);
+      throw std::runtime_error("boom");
+    } catch (const std::runtime_error &) {
+      // g_inner's dtor must restore on unwind, else a dangling TLS ptr leaks across messages.
+    }
+    EXPECT_EQ(ScopedSessionLog::Current(), &outer);
+  }
+  EXPECT_EQ(ScopedSessionLog::Current(), nullptr);
+}
+
+// Captures the raw (pre-pattern) payload of every emitted log message.
+class CapturingSink : public spdlog::sinks::base_sink<std::mutex> {
+ public:
+  std::vector<std::string> messages;
+
+ protected:
+  void sink_it_(const spdlog::details::log_msg &msg) override {
+    messages.emplace_back(msg.payload.data(), msg.payload.size());
+  }
+
+  void flush_() override {}
+};
+
+class SessionTraceEmitTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    previous_logger_ = spdlog::default_logger();
+    sink_ = std::make_shared<CapturingSink>();
+    auto logger = std::make_shared<spdlog::logger>("session_trace_test", sink_);
+    logger->set_level(spdlog::level::trace);
+    spdlog::set_default_logger(logger);
+    CountingFormattable::format_count = 0;
+  }
+
+  void TearDown() override { spdlog::set_default_logger(previous_logger_); }
+
+  std::shared_ptr<CapturingSink> sink_;
+  std::shared_ptr<spdlog::logger> previous_logger_;
+};
+
+TEST_F(SessionTraceEmitTest, NoActiveContextEmitsNothing) {
+  ASSERT_EQ(ScopedSessionLog::Current(), nullptr);
+  EmitSessionTraceEvent("hello {}", 1);
+  EXPECT_TRUE(sink_->messages.empty());
+}
+
+TEST_F(SessionTraceEmitTest, TraceEnabledEmitsTaggedMessage) {
+  SessionLogContext ctx;
+  ctx.SetSessionUuid("s1");
+  ctx.SetTxId(7);
+  ctx.SetTrace(true);
+  ScopedSessionLog guard(&ctx);
+
+  EmitSessionTraceEvent("hello {}", 42);
+
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_EQ(sink_->messages[0], "[session=s1] [tx=7] hello 42");
+}
+
+// Lazy-format regression guard: closed gate ⇒ args not formatted.
+TEST_F(SessionTraceEmitTest, DisabledDoesNotFormatArguments) {
+  SessionLogContext ctx;
+  ctx.SetSessionUuid("s1");
+  ScopedSessionLog guard(&ctx);  // disabled
+
+  EmitSessionTraceEvent("value {}", CountingFormattable{});
+
+  EXPECT_EQ(CountingFormattable::format_count, 0);
+  EXPECT_TRUE(sink_->messages.empty());
+}
+
+TEST_F(SessionTraceEmitTest, EnabledFormatsArgumentsExactlyOnce) {
+  SessionLogContext ctx;
+  ctx.SetTrace(true);
+  ScopedSessionLog guard(&ctx);
+
+  EmitSessionTraceEvent("value {}", CountingFormattable{});
+
+  EXPECT_EQ(CountingFormattable::format_count, 1);
+}
+
+// --log-level above INFO filters trace events and skips arg formatting entirely.
+TEST_F(SessionTraceEmitTest, LevelAboveInfoSkipsArgumentFormatting) {
+  spdlog::default_logger()->set_level(spdlog::level::warn);
+  SessionLogContext ctx;
+  ctx.SetTrace(true);
+  ScopedSessionLog guard(&ctx);
+
+  EmitSessionTraceEvent("value {}", CountingFormattable{});
+
+  EXPECT_EQ(CountingFormattable::format_count, 0);
+  EXPECT_TRUE(sink_->messages.empty());
+}
+
+// Pre-formatted overload: braces in the payload are emitted verbatim, not as format spec.
+TEST_F(SessionTraceEmitTest, PreFormattedOverloadEmitsBracesVerbatim) {
+  SessionLogContext ctx;
+  ctx.SetSessionUuid("s1");
+  ctx.SetTxId(9);
+  ctx.SetTrace(true);
+  ScopedSessionLog guard(&ctx);
+
+  EmitSessionTraceEvent(std::string_view{"oops { bad fmt }"});
+
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_EQ(sink_->messages[0], "[session=s1] [tx=9] oops { bad fmt }");
+}
+
+// Call-site gate must mirror the inner gate (incl. log level), else callers build trace args for nothing.
+TEST_F(SessionTraceEmitTest, IsSessionTraceEnabledRespectsLogLevel) {
+  SessionLogContext ctx;
+  ctx.SetTrace(true);
+  ScopedSessionLog guard(&ctx);
+
+  spdlog::default_logger()->set_level(spdlog::level::trace);
+  EXPECT_TRUE(memgraph::logging::IsSessionTraceEnabled());
+
+  spdlog::default_logger()->set_level(spdlog::level::warn);
+  EXPECT_FALSE(memgraph::logging::IsSessionTraceEnabled());
 }
 
 }  // namespace
