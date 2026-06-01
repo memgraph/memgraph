@@ -10116,7 +10116,8 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                       triggering_user,
                       interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
-      spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
+      spdlog::error("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
+      if (auto *mh = db_acc->metric_handles()) mh->triggers_failed.Increment();
       db_accessor.Abort();
       continue;
     }

@@ -154,6 +154,7 @@ EXPECTED_JSON_METRICS = {
     "Trigger": {
         "TriggersCreated",
         "TriggersExecuted",
+        "TriggersFailed",
     },
     "HighAvailability": {
         "BecomeLeaderSuccess",

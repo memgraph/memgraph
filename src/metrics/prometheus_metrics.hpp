@@ -230,6 +230,7 @@ struct DatabaseMetricHandles {
   // Trigger
   CounterHandle triggers_created;
   CounterHandle triggers_executed;
+  CounterHandle triggers_failed;
 
   // Transaction
   GaugeHandle active_transactions;
@@ -524,6 +525,7 @@ class PrometheusMetrics {
   // Per-database metric families — trigger
   prometheus::Family<prometheus::Counter> &triggers_created_family_;
   prometheus::Family<prometheus::Counter> &triggers_executed_family_;
+  prometheus::Family<prometheus::Counter> &triggers_failed_family_;
 
   // Global metric families — session
   prometheus::Family<prometheus::Gauge> &active_sessions_family_;

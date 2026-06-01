@@ -102,6 +102,7 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     # Trigger
     "triggers_created_total",
     "triggers_executed_total",
+    "triggers_failed_total",
     # Transaction
     "active_transactions",
     "committed_transactions_total",
@@ -288,6 +289,43 @@ def test_openmetrics_per_db_transaction_counters(populated_databases):
     m = parse_openmetrics(scrape_openmetrics())
     assert om_get(m, "memgraph_committed_transactions_total", "memgraph") > 0
     assert om_get(m, "memgraph_committed_transactions_total", "db2") > 0
+
+
+def test_triggers_failed_total_increments_on_failing_trigger():
+    """An after-commit trigger that throws at fire time bumps triggers_failed."""
+    import time
+
+    conn = mgclient.connect(host="localhost", port=7687)
+    conn.autocommit = True
+    cursor = conn.cursor()
+
+    before = om_get(parse_openmetrics(scrape_openmetrics()), "memgraph_triggers_failed_total", "memgraph") or 0
+
+    try:
+        execute(
+            cursor,
+            "CREATE TRIGGER failing_after_commit ON () CREATE AFTER COMMIT "
+            "EXECUTE UNWIND createdVertices AS v CREATE (:Boom {bad: 1 / 0})",
+        )
+        # Firing the trigger: the after-commit body divides by zero and throws.
+        execute(cursor, "CREATE (:FireTrigger)")
+
+        # After-commit triggers run asynchronously, so poll for the increment.
+        after = before
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            after = om_get(parse_openmetrics(scrape_openmetrics()), "memgraph_triggers_failed_total", "memgraph") or 0
+            if after > before:
+                break
+            time.sleep(0.2)
+        assert after > before, "memgraph_triggers_failed_total did not increment on a failing trigger"
+    finally:
+        try:
+            execute(cursor, "DROP TRIGGER failing_after_commit")
+        except Exception:
+            pass
+        execute(cursor, "MATCH (n) DETACH DELETE n")
+        conn.close()
 
 
 if __name__ == "__main__":

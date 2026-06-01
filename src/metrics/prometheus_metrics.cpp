@@ -457,6 +457,10 @@ PrometheusMetrics::PrometheusMetrics()
                                     .Name("memgraph_triggers_executed_total")
                                     .Help("Number of triggers executed")
                                     .Register(registry_)},
+      triggers_failed_family_{prometheus::BuildCounter()
+                                  .Name("memgraph_triggers_failed_total")
+                                  .Help("Number of triggers that failed at fire time")
+                                  .Register(registry_)},
       // Session
       active_sessions_family_{prometheus::BuildGauge()
                                   .Name("memgraph_active_sessions")
@@ -1007,6 +1011,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .messages_consumed = {&messages_consumed_family_.Add(labels)},
                   .triggers_created = {&triggers_created_family_.Add(labels)},
                   .triggers_executed = {&triggers_executed_family_.Add(labels)},
+                  .triggers_failed = {&triggers_failed_family_.Add(labels)},
                   .active_transactions = {&active_transactions_family_.Add(labels)},
                   .committed_transactions = {&committed_transactions_family_.Add(labels)},
                   .rolled_back_transactions = {&rolled_back_transactions_family_.Add(labels)},
@@ -1120,6 +1125,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   messages_consumed_family_.Remove(h.messages_consumed.get());
   triggers_created_family_.Remove(h.triggers_created.get());
   triggers_executed_family_.Remove(h.triggers_executed.get());
+  triggers_failed_family_.Remove(h.triggers_failed.get());
   active_transactions_family_.Remove(h.active_transactions.get());
   committed_transactions_family_.Remove(h.committed_transactions.get());
   rolled_back_transactions_family_.Remove(h.rolled_back_transactions.get());
@@ -1547,6 +1553,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   // Trigger
   out.push_back({"TriggersCreated", "Trigger", "Counter", static_cast<int64_t>(h.triggers_created.Value())});
   out.push_back({"TriggersExecuted", "Trigger", "Counter", static_cast<int64_t>(h.triggers_executed.Value())});
+  out.push_back({"TriggersFailed", "Trigger", "Counter", static_cast<int64_t>(h.triggers_failed.Value())});
 
   // Transaction
   out.push_back({"ActiveTransactions", "Transaction", "Gauge", static_cast<int64_t>(h.active_transactions.Value())});
@@ -1681,6 +1688,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_messages_consumed = 0;
   int64_t total_triggers_created = 0;
   int64_t total_triggers_executed = 0;
+  int64_t total_triggers_failed = 0;
   int64_t total_active_transactions = 0;
   int64_t total_committed_transactions = 0;
   int64_t total_rolled_back_transactions = 0;
@@ -1785,6 +1793,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_messages_consumed += static_cast<int64_t>(h.messages_consumed.Value());
       total_triggers_created += static_cast<int64_t>(h.triggers_created.Value());
       total_triggers_executed += static_cast<int64_t>(h.triggers_executed.Value());
+      total_triggers_failed += static_cast<int64_t>(h.triggers_failed.Value());
       total_active_transactions += static_cast<int64_t>(h.active_transactions.Value());
       total_committed_transactions += static_cast<int64_t>(h.committed_transactions.Value());
       total_rolled_back_transactions += static_cast<int64_t>(h.rolled_back_transactions.Value());
@@ -1904,6 +1913,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   // Trigger
   out.push_back({"TriggersCreated", "Trigger", "Counter", total_triggers_created});
   out.push_back({"TriggersExecuted", "Trigger", "Counter", total_triggers_executed});
+  out.push_back({"TriggersFailed", "Trigger", "Counter", total_triggers_failed});
 
   // Transaction
   out.push_back({"ActiveTransactions", "Transaction", "Gauge", total_active_transactions});
@@ -2241,6 +2251,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
   int64_t messages_consumed = 0;
   int64_t triggers_created = 0;
   int64_t triggers_executed = 0;
+  int64_t triggers_failed = 0;
   int64_t active_sessions_v = 0;
   int64_t active_bolt_v = 0;
   int64_t active_tcp_v = 0;
@@ -2339,6 +2350,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
       messages_consumed += static_cast<int64_t>(h.messages_consumed.Value());
       triggers_created += static_cast<int64_t>(h.triggers_created.Value());
       triggers_executed += static_cast<int64_t>(h.triggers_executed.Value());
+      triggers_failed += static_cast<int64_t>(h.triggers_failed.Value());
       active_txn += static_cast<int64_t>(h.active_transactions.Value());
       committed_txn += static_cast<int64_t>(h.committed_transactions.Value());
       rolled_back_txn += static_cast<int64_t>(h.rolled_back_transactions.Value());
@@ -2439,6 +2451,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
     {"MessagesConsumed", messages_consumed},
     {"TriggersCreated", triggers_created},
     {"TriggersExecuted", triggers_executed},
+    {"TriggersFailed", triggers_failed},
     {"ActiveSessions", active_sessions_v},
     {"ActiveBoltSessions", active_bolt_v},
     {"ActiveTCPSessions", active_tcp_v},

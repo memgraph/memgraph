@@ -256,6 +256,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         # Trigger
         {"name": "TriggersCreated", "type": "Trigger", "metric type": "Counter"},
         {"name": "TriggersExecuted", "type": "Trigger", "metric type": "Counter"},
+        {"name": "TriggersFailed", "type": "Trigger", "metric type": "Counter"},
     ]
     results = list(memgraph.execute_and_fetch("SHOW METRICS INFO"))
     actual_metrics = [{"name": x["name"], "type": x["type"], "metric type": x["metric type"]} for x in results]
