@@ -798,6 +798,34 @@ Feature: Aggregations
             | s_lbl | s_score | t_lbl | t_rank |
             | true  | 99      | true  | 7      |
 
+    Scenario: derive inherits all labels and properties from origin nodes when options are omitted
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:Person:Admin {name: 'Alice', age: 30})-[:R]->(b:City {name: 'NYC', pop: 8000000})
+            """
+        When executing query:
+            """
+            MATCH p=(:Person {name: 'Alice'})-[:R]->(:City) WITH derive(p, {virtualEdgeType: 'V'}) AS graph UNWIND graph.edges AS e RETURN 'Person' IN labels(startNode(e)) AND 'Admin' IN labels(startNode(e)) AS s_lbls, startNode(e).name AS s_name, startNode(e).age AS s_age, 'City' IN labels(endNode(e)) AS t_lbl, endNode(e).pop AS t_pop
+            """
+        Then the result should be:
+            | s_lbls | s_name  | s_age | t_lbl | t_pop   |
+            | true   | 'Alice' | 30    | true  | 8000000 |
+
+    Scenario: derive inherits per key - explicit source labels override but source properties still inherited
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:Person {name: 'Alice', age: 30})-[:R]->(b:City {name: 'NYC'})
+            """
+        When executing query:
+            """
+            MATCH p=(:Person)-[:R]->(:City) WITH derive(p, {virtualEdgeType: 'V', sourceNodeLabels: ['Renamed']}) AS graph UNWIND graph.edges AS e RETURN labels(startNode(e)) AS s_lbls, startNode(e).name AS s_name, startNode(e).age AS s_age, 'City' IN labels(endNode(e)) AS t_lbl, endNode(e).name AS t_name
+            """
+        Then the result should be:
+            | s_lbls      | s_name  | s_age | t_lbl | t_name |
+            | ['Renamed'] | 'Alice' | 30    | true  | 'NYC'  |
+
     Scenario: undirectedEdgeTypes doubles the virtual edge between distinct endpoints
         Given an empty graph
         And having executed
