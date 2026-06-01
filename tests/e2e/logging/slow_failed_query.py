@@ -213,6 +213,29 @@ def test_failed_query_logged_on_commit_failure():
     assert relevant, f'commit-time failure must log the query text, not query=""; got: {content!r}'
 
 
+def test_failed_query_with_newline_stays_single_line():
+    r"""A multi-line query must be escaped onto one physical [failed-query] line (newline -> \n)."""
+    log_path = _active_log_path()
+    start = os.path.getsize(log_path)
+
+    conn = _connect()
+    _run(conn, 'SET SESSION SETTING "log.failed_queries" TO "true"')
+    multiline = "UNWIND [1, 0] AS denom_multiline_marker\nRETURN 1 / denom_multiline_marker"
+    try:
+        _run(conn, multiline)
+    except mgclient.DatabaseError:
+        pass
+
+    content = _read_appended(log_path, start, expect=["[failed-query]", "denom_multiline_marker"])
+    relevant = [line for line in content.splitlines() if "[failed-query]" in line and "denom_multiline_marker" in line]
+    assert relevant, f"expected one [failed-query] line carrying the query; got: {content!r}"
+    line = relevant[0]
+    # Both halves of the query landed on the same physical line (the newline did not split the record)...
+    assert "UNWIND [1, 0]" in line and "RETURN 1 /" in line, f"record split across lines: {line!r}"
+    # ...and the embedded newline is rendered as the two-char escape, not a raw break.
+    assert r"\n" in line
+
+
 # --- Session isolation ----------------------------------------------------------------
 
 

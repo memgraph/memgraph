@@ -16,13 +16,30 @@
 namespace memgraph::logging {
 
 namespace {
-// Append "<value>" with embedded `"` and `\` escaped. Used so multi-line and
-// quote-laden queries stay greppable on a single shell-quoted token.
+// Append "<value>" as a self-delimiting field: `"` and `\` are escaped, and
+// newlines/tabs become escape sequences so the field never spans log lines.
 void AppendQuoted(fmt::memory_buffer &out, std::string_view value) {
   out.push_back('"');
   for (char c : value) {
-    if (c == '"' || c == '\\') out.push_back('\\');
-    out.push_back(c);
+    switch (c) {
+      case '"':
+        out.append(std::string_view{"\\\""});
+        break;
+      case '\\':
+        out.append(std::string_view{"\\\\"});
+        break;
+      case '\n':
+        out.append(std::string_view{"\\n"});
+        break;
+      case '\r':
+        out.append(std::string_view{"\\r"});
+        break;
+      case '\t':
+        out.append(std::string_view{"\\t"});
+        break;
+      default:
+        out.push_back(c);
+    }
   }
   out.push_back('"');
 }

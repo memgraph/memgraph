@@ -403,6 +403,16 @@ TEST_F(QueryLogEmitTest, FailedQueryEscapesBackslashInErrorAndQuery) {
             R"([failed-query] user=alice db=memgraph error="bad path c:\\tmp" query="LOAD CSV FROM \"c:\\tmp\"")");
 }
 
+TEST_F(QueryLogEmitTest, FieldsEscapeNewlinesAndTabsOntoSingleLine) {
+  // A multi-line query and a tab-laden error must stay on one physical line so
+  // the quoted fields remain self-delimiting; only the PLAN block is multi-line.
+  memgraph::logging::EmitFailedQueryLog("alice", "memgraph", "MATCH (n)\nRETURN n", "boom\ttab");
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_EQ(sink_->messages[0].find('\n'), std::string::npos);
+  EXPECT_EQ(sink_->messages[0],
+            R"([failed-query] user=alice db=memgraph error="boom\ttab" query="MATCH (n)\nRETURN n")");
+}
+
 TEST_F(QueryLogEmitTest, FailedQueryLineHasTagAndFields) {
   memgraph::logging::EmitFailedQueryLog("alice", "memgraph", "RETURN 1/0", "Division by zero");
   ASSERT_EQ(sink_->messages.size(), 1u);
