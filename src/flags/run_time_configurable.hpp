@@ -150,13 +150,13 @@ inline constexpr std::string_view kLogQueryPlanKey = "log.query_plan";
 // the cached global. Only int64_t and bool exist; the primary template is deleted
 // so an unsupported T is a compile error, not a link/runtime failure.
 template <typename T>
-T GetEffective(std::string_view key, const logging::SessionLogContext *ctx) = delete;
+T GetEffective(std::string_view key, const logging::SessionLogContext &ctx) = delete;
 
 template <>
-int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogContext *ctx);
+int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogContext &ctx);
 
 template <>
-bool GetEffective<bool>(std::string_view key, const logging::SessionLogContext *ctx);
+bool GetEffective<bool>(std::string_view key, const logging::SessionLogContext &ctx);
 
 // True if `key` is one of the per-session-overridable settings (the allow-list).
 bool IsSessionSettable(std::string_view key);

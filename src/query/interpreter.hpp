@@ -505,7 +505,7 @@ class Interpreter final {
   void MaybeEmitFailedQueryLog(std::string_view query, std::string_view error) const {
     // TLS guard absent => no bolt message is in flight (worker/GC/NuRaft thread); never emit.
     if (memgraph::logging::ScopedSessionLog::Current() == nullptr) return;
-    if (!flags::run_time::GetEffective<bool>(flags::run_time::kLogFailedQueriesKey, &session_log_ctx_)) return;
+    if (!flags::run_time::GetEffective<bool>(flags::run_time::kLogFailedQueriesKey, session_log_ctx_)) return;
     const auto db_name = CurrentDbLogName();
     memgraph::logging::EmitFailedQueryLog(session_info_.username, db_name, query, error);
   }
@@ -690,7 +690,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       {
         auto renderer = std::move(query_execution->render_slow_query_plan);
         const auto threshold_ms =
-            flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, &session_log_ctx_);
+            flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, session_log_ctx_);
         if (threshold_ms >= 0) {
           auto duration_seconds = [&](const char *key) -> double {
             auto it = maybe_summary->find(key);
@@ -702,7 +702,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
           slow_query_duration_ms = static_cast<int64_t>(total_sec * 1000.0);
           if (slow_query_duration_ms >= threshold_ms) {
             emit_slow_query = true;
-            if (renderer && flags::run_time::GetEffective<bool>(flags::run_time::kLogQueryPlanKey, &session_log_ctx_)) {
+            if (renderer && flags::run_time::GetEffective<bool>(flags::run_time::kLogQueryPlanKey, session_log_ctx_)) {
               captured_plan_text = renderer();
             }
           }

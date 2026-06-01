@@ -186,7 +186,6 @@ constexpr auto kFileDownloadConnTimeoutSecGFlagsKey = "file_download_conn_timeou
 constexpr auto kStorageAccessTimeoutSecSettingKey = "storage.access_timeout_sec";
 constexpr auto kStorageAccessTimeoutSecGFlagsKey = "storage_access_timeout_sec";
 
-// Slow / failed query log
 constexpr auto kLogMinDurationMsGFlagsKey = "log_min_duration_ms";
 constexpr auto kLogFailedQueriesGFlagsKey = "log_failed_queries";
 constexpr auto kLogQueryPlanGFlagsKey = "log_query_plan";
@@ -567,7 +566,6 @@ void Initialize(utils::Settings &settings) {
         }
       });
 
-  // Register slow / failed query log flags.
   register_flag(
       kLogMinDurationMsGFlagsKey,
       std::string{memgraph::flags::run_time::kLogMinDurationMsKey},
@@ -708,14 +706,12 @@ std::optional<std::string> ValidateSessionSettingValue(std::string_view key, std
 }
 
 template <>
-int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogContext *ctx) {
-  if (ctx != nullptr) {
-    if (auto overlay = ctx->GetSetting(key); overlay.has_value()) {
-      int64_t value{};
-      auto [ptr, ec] = std::from_chars(overlay->data(), overlay->data() + overlay->size(), value);
-      // Defence in depth: setter already validated; on parse failure fall back to global.
-      if (ec == std::errc{} && ptr == overlay->data() + overlay->size()) return value;
-    }
+int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogContext &ctx) {
+  if (auto overlay = ctx.GetSetting(key); overlay.has_value()) {
+    int64_t value{};
+    auto [ptr, ec] = std::from_chars(overlay->data(), overlay->data() + overlay->size(), value);
+    // Defence in depth: setter already validated; on parse failure fall back to global.
+    if (ec == std::errc{} && ptr == overlay->data() + overlay->size()) return value;
   }
   if (key == kLogMinDurationMsKey) return GetLogMinDurationMs();
   MG_ASSERT(false, "GetEffective<int64_t> called for unregistered key");
@@ -723,12 +719,10 @@ int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogCon
 }
 
 template <>
-bool GetEffective<bool>(std::string_view key, const logging::SessionLogContext *ctx) {
-  if (ctx != nullptr) {
-    // ValidateSessionSettingValue guarantees the stored value is canonical lowercase.
-    if (auto overlay = ctx->GetSetting(key); overlay.has_value()) {
-      return *overlay == "true";
-    }
+bool GetEffective<bool>(std::string_view key, const logging::SessionLogContext &ctx) {
+  // ValidateSessionSettingValue guarantees the stored value is canonical lowercase.
+  if (auto overlay = ctx.GetSetting(key); overlay.has_value()) {
+    return *overlay == "true";
   }
   if (key == kLogFailedQueriesKey) return GetLogFailedQueries();
   if (key == kLogQueryPlanKey) return GetLogQueryPlan();

@@ -3520,7 +3520,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   }
 
   if (slow_query_plan_renderer_out != nullptr &&
-      flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, interpreter.GetLogContext()) >= 0) {
+      flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, *interpreter.GetLogContext()) >=
+          0) {
     // Arm the renderer only when slow-query logging may apply. Pull invokes it
     // lazily, while dba is alive and only past the threshold, so fast queries
     // don't pay for rendering. log.query_plan is re-checked at emit time. plan is
