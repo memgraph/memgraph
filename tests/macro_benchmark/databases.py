@@ -76,6 +76,7 @@ class Memgraph:
         # SHOW SCHEMA INFO has to enable edge metadata (or edge index); otherwise it is unusable
         database_args += ["--storage-properties-on-edges"]
         database_args += ["--storage-enable-edges-metadata"]
+        database_args += ["--metrics-format", "OpenMetrics"]
 
         # find executable path
         runner_bin = self.args.runner_bin

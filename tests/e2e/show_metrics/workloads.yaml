@@ -9,7 +9,7 @@ show_metrics_cluster: &show_metrics_cluster
 show_metrics_json_cluster: &show_metrics_json_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--metrics-port=9091"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--metrics-port=9091", "--metrics-format=JSON"]
       log_file: "show_metrics_json_values.log"
       setup_queries: []
       validation_queries: []
