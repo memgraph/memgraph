@@ -8294,11 +8294,14 @@ PreparedQuery PrepareSessionSettingQuery(ParsedQuery parsed_query, Interpreter *
     }
   }
 
-  auto handler = [interpreter, is_set, name = std::move(name), value = std::move(value)]() mutable {
-    if (is_set) {
-      interpreter->GetLogContext()->SetSetting(name, std::move(value));
-    } else {
-      interpreter->GetLogContext()->ResetSetting(name);
+  auto handler = [interpreter, action = query->action_, name = std::move(name), value = std::move(value)]() mutable {
+    switch (action) {
+      case SessionSettingQuery::Action::SET_SETTING:
+        interpreter->GetLogContext()->SetSetting(name, std::move(value));
+        break;
+      case SessionSettingQuery::Action::RESET_SETTING:
+        interpreter->GetLogContext()->ResetSetting(name);
+        break;
     }
     return std::pair{std::vector<std::vector<TypedValue>>{}, QueryHandlerResult::NOTHING};
   };
@@ -9564,8 +9567,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
-  // Save before move-into-Prepare* invalidates parse_info.parsed_query.query_string.
-  const std::string original_query_string = parsed_query.query_string;
   try {
     // SetupInterpreterTransaction selected the execution DB for data queries.
     // System-only queries can intentionally have no current DB tracker.
@@ -10007,7 +10008,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             .db = query_execution->prepared_query->db};
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
-    MaybeEmitFailedQueryLog(original_query_string, e.what());
+    // query_execution holds the query string copy that survives Prepare* moving it out.
+    const std::string_view failed_query_text = (query_execution_ptr && *query_execution_ptr)
+                                                   ? std::string_view{(*query_execution_ptr)->query_string}
+                                                   : std::string_view{};
+    MaybeEmitFailedQueryLog(failed_query_text, e.what());
     // Trigger first failed query
     metrics::FirstFailedQuery();
     // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.

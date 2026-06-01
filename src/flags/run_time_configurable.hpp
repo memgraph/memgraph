@@ -136,7 +136,6 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
  */
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);
 
-// Slow / failed query log settings, cached for fast reads.
 int64_t GetLogMinDurationMs();
 bool GetLogFailedQueries();
 bool GetLogQueryPlan();

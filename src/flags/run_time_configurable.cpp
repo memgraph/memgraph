@@ -669,8 +669,8 @@ bool GetLogFailedQueries() { return log_failed_queries_.load(std::memory_order_a
 bool GetLogQueryPlan() { return log_query_plan_.load(std::memory_order_acquire); }
 
 namespace {
-// Single source for the per-session-overridable settings; IsSessionSettable,
-// ValidateSessionSettingValue and GetEffective all derive from it.
+// Per-session-overridable settings; IsSessionSettable and ValidateSessionSettingValue
+// derive from it. GetEffective keeps its own per-key fallback (see below).
 enum class SessionSettingType { kInt64, kBool };
 
 struct SessionSettableSetting {
@@ -714,8 +714,7 @@ int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogCon
     if (ec == std::errc{} && ptr == overlay->data() + overlay->size()) return value;
   }
   if (key == kLogMinDurationMsKey) return GetLogMinDurationMs();
-  MG_ASSERT(false, "GetEffective<int64_t> called for unregistered key");
-  return 0;
+  LOG_FATAL("GetEffective<int64_t> called for unregistered key");
 }
 
 template <>
@@ -726,8 +725,7 @@ bool GetEffective<bool>(std::string_view key, const logging::SessionLogContext &
   }
   if (key == kLogFailedQueriesKey) return GetLogFailedQueries();
   if (key == kLogQueryPlanKey) return GetLogQueryPlan();
-  MG_ASSERT(false, "GetEffective<bool> called for unregistered key");
-  return false;
+  LOG_FATAL("GetEffective<bool> called for unregistered key");
 }
 
 }  // namespace memgraph::flags::run_time
