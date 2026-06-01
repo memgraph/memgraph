@@ -3,7 +3,7 @@
 #
 # Usage: upload-debug-symbols.sh <source-dir> [--bucket <bucket>] [--prefix <prefix>]
 #                                              [--endpoint-url <url>] [--region <region>]
-#                                              [--dry-run]
+#                                              [--dry-run] [--manifest-s3-url <url>]
 #
 # Each .debug file is uploaded to
 #   s3://<bucket>/<prefix>/<aa>/<rest>.debug
@@ -16,6 +16,10 @@
 # (use this for MinIO and other S3-compatible servers; AWS CLI v1 ignores
 # the AWS_ENDPOINT_URL env var, so passing it explicitly is the safe path).
 # --region sets --region on the cp; some SDK versions error without one.
+# --manifest-s3-url is used by promotion scripts to write out the list of
+# build-ids that were uploaded, so they can be copied from the staging bucket
+# to the production bucket. This is optional so that daily / PR runs don't leave
+# any trace in the release symbol server.
 
 set -euo pipefail
 

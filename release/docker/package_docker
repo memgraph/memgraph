@@ -88,7 +88,7 @@ case "$package_flavour" in
     exit 1
   ;;
 esac
-echo "latest_image: $latest_image, latest_tag: $latest_tag, package_path: $package_path, src_path: $src_path, toolchain: $toolchain, arch: $arch, custom_mirror: $custom_mirror"
+echo "latest_image: $latest_image, latest_tag: $tag_latest, package_path: $package_path, src_path: $src_path, toolchain: $toolchain_version, arch: $arch, custom_mirror: $custom_mirror"
 if [[ "$package_path" == "" || ! -f "$package_path" ]]; then
   echo "File '$package_path' does not exist!"
   exit 1
