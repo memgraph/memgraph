@@ -6,9 +6,22 @@ analytical_mode_cluster: &analytical_mode_cluster
       setup_queries: []
       validation_queries: []
 
+analytical_mode_data_instance: &analytical_mode_data_instance
+  cluster:
+    main:
+      args: ["--bolt-port=7687", "--log-level=TRACE", "--management-port=10000"]
+      log_file: "analytical_data_instance.log"
+      setup_queries: []
+      validation_queries: []
+
 
 workloads:
   - name: "Analytical mode checks"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["analytical_mode/free_memory.py"]
     <<: *analytical_mode_cluster
+
+  - name: "Analytical mode data instance"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["analytical_mode/analytical_data_instance.py"]
+    <<: *analytical_mode_data_instance

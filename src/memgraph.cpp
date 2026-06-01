@@ -586,6 +586,10 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
+  MG_ASSERT(!(coordination_setup.IsDataInstanceManagedByCoordinator() &&
+              db_config.salient.storage_mode == IN_MEMORY_ANALYTICAL),
+            "Data instances cannot use analytical mode!");
+
   if (coordination_setup.IsDataInstanceManagedByCoordinator() &&
       db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     MG_ASSERT(db_config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL,
@@ -601,6 +605,7 @@ int main(int argc, char **argv) {
     MG_ASSERT(FLAGS_init_data_file.empty(),
               "Coordinator instances don't support --init-data-file flag. Please restart the instance by removing this "
               "flag.");
+    spdlog::warn("All storage-related flags are ignored since coordinators don't have storage.");
   }
 
   if (coordination_setup.IsDataInstanceManagedByCoordinator()) {
