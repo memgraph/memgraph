@@ -254,6 +254,116 @@ def test_reset_session_setting_reverts_to_global_default():
     assert not relevant_after, "after RESET the session must follow the (disabled) global default"
 
 
+# --- Global setting (SET DATABASE SETTING) and global/session precedence --------------
+
+# Defaults the instance starts with; global tests restore these so they don't leak.
+_GLOBAL_DEFAULTS = {
+    "log.min_duration_ms": "-1",
+    "log.failed_queries": "false",
+    "log.query_plan": "true",
+}
+
+
+def _set_global(conn, key, value):
+    _run(conn, f'SET DATABASE SETTING "{key}" TO "{value}"')
+
+
+def _reset_globals(conn):
+    for key, value in _GLOBAL_DEFAULTS.items():
+        _set_global(conn, key, value)
+
+
+def test_global_slow_query_setting_applies_without_session_override():
+    """SET DATABASE SETTING enables slow logging instance-wide; a fresh session that
+    never overrides it must still be logged."""
+    log_path = _active_log_path()
+
+    admin = _connect()
+    try:
+        _set_global(admin, "log.min_duration_ms", "0")
+
+        start = os.path.getsize(log_path)
+        conn = _connect()  # empty overlay -> falls through to the global
+        _run(conn, "RETURN 'global_applies_marker'")
+
+        content = _read_appended(log_path, start, expect=["global_applies_marker", "[slow-query]"])
+        relevant = [l for l in content.splitlines() if "global_applies_marker" in l and "[slow-query]" in l]
+        assert relevant, f"global threshold 0 should slow-log a non-overriding session; got: {content!r}"
+    finally:
+        _reset_globals(admin)
+
+
+def test_session_override_beats_nondefault_global():
+    """With slow logging on globally, a session that opts out (-1) is silent while a
+    parallel non-overriding session still follows the global."""
+    log_path = _active_log_path()
+
+    admin = _connect()
+    try:
+        _set_global(admin, "log.min_duration_ms", "0")
+
+        start = os.path.getsize(log_path)
+        opted_out = _connect()
+        follower = _connect()
+        _run(opted_out, 'SET SESSION SETTING "log.min_duration_ms" TO "-1"')
+
+        _run(opted_out, "RETURN 'override_opt_out_marker'")
+        _run(follower, "RETURN 'override_follow_marker'")
+
+        content = _read_appended(log_path, start, expect=["override_follow_marker"])
+        out = [l for l in content.splitlines() if "override_opt_out_marker" in l and "[slow-query]" in l]
+        fol = [l for l in content.splitlines() if "override_follow_marker" in l and "[slow-query]" in l]
+        assert not out, "session opted out with -1 must not be slow-logged even though the global is 0"
+        assert fol, "non-overriding session must follow the global (0) and be slow-logged"
+    finally:
+        _reset_globals(admin)
+
+
+def test_nonoverriding_session_tracks_global_changed_after_connect():
+    """A session with no override picks up a global change made AFTER it connected:
+    GetEffective re-reads the live global on every query rather than snapshotting."""
+    log_path = _active_log_path()
+
+    admin = _connect()
+    try:
+        conn = _connect()  # connect first, overlay empty
+        _set_global(admin, "log.min_duration_ms", "0")  # global flips on afterwards
+
+        start = os.path.getsize(log_path)
+        _run(conn, "RETURN 'live_global_marker'")
+
+        content = _read_appended(log_path, start, expect=["live_global_marker", "[slow-query]"])
+        relevant = [l for l in content.splitlines() if "live_global_marker" in l and "[slow-query]" in l]
+        assert relevant, f"pre-existing session must track a later global change; got: {content!r}"
+    finally:
+        _reset_globals(admin)
+
+
+def test_global_failed_query_setting_applies_without_session_override():
+    """SET DATABASE SETTING log.failed_queries=true logs failures for a session that
+    never set it per-session."""
+    log_path = _active_log_path()
+
+    admin = _connect()
+    try:
+        _set_global(admin, "log.failed_queries", "true")
+
+        start = os.path.getsize(log_path)
+        conn = _connect()
+        try:
+            _run(conn, "THIS IS NOT VALID CYPHER global_failed_marker")
+        except mgclient.DatabaseError:
+            pass
+
+        content = _read_appended(log_path, start, expect=["[failed-query]", "global_failed_marker"])
+        relevant = [l for l in content.splitlines() if "[failed-query]" in l and "global_failed_marker" in l]
+        assert (
+            relevant
+        ), f"global log.failed_queries=true should log a non-overriding session's failure; got: {content!r}"
+    finally:
+        _reset_globals(admin)
+
+
 # --- Allow-list -----------------------------------------------------------------------
 
 
