@@ -40,9 +40,9 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
   try {
     nlohmann::json mappings = {};
     mappings["properties"] = {};
-    mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
-    mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
-    mappings["properties"]["gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
+    mappings["properties"][kDataField] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
+    mappings["properties"][kAllField] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
+    mappings["properties"][kGidField] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
 
     if (index_->contains(index_info.index_name)) {
       throw query::TextSearchException("Text index {} already exists at path: {}.", index_info.index_name, index_path);
@@ -68,9 +68,9 @@ void TextIndex::AddNodeToTextIndex(std::int64_t gid, nlohmann::json properties, 
                                    mgcxx::text_search::Context &context) {
   if (all_property_values.empty()) return;
   nlohmann::json document = {};
-  document["data"] = std::move(properties);
-  document["all"] = std::move(all_property_values);
-  document["gid"] = static_cast<std::uint64_t>(gid);
+  document[kDataField] = std::move(properties);
+  document[kAllField] = std::move(all_property_values);
+  document[kGidField] = static_cast<std::uint64_t>(gid);
 
   try {
     mgcxx::text_search::add_document(
@@ -312,26 +312,26 @@ std::vector<TextSearchResult> TextIndex::ActiveIndices::Search(const std::string
                                             .fuzzy_distance = config.fuzzy_distance,
                                             .fuzzy_prefix = config.fuzzy_prefix,
                                             .fuzzy_transpositions = config.fuzzy_transpositions,
-                                            .fuzzy_field = "data"});
+                                            .fuzzy_field = kDataField});
         break;
       case text_search_mode::REGEX:
         search_results = mgcxx::text_search::regex_search_gids_pinned(
             context,
             searcher,
             mgcxx::text_search::SearchInput{
-                .search_fields = {"all"}, .search_query = lowered_query, .limit = config.limit});
+                .search_fields = {kAllField}, .search_query = lowered_query, .limit = config.limit});
         break;
       case text_search_mode::ALL_PROPERTIES:
         search_results = mgcxx::text_search::search_gids_pinned(
             context,
             searcher,
-            mgcxx::text_search::SearchInput{.search_fields = {"all"},
+            mgcxx::text_search::SearchInput{.search_fields = {kAllField},
                                             .search_query = lowered_query,
                                             .limit = config.limit,
                                             .fuzzy_distance = config.fuzzy_distance,
                                             .fuzzy_prefix = config.fuzzy_prefix,
                                             .fuzzy_transpositions = config.fuzzy_transpositions,
-                                            .fuzzy_field = "all"});
+                                            .fuzzy_field = kAllField});
         break;
       default:
         throw query::TextSearchException(
@@ -361,7 +361,7 @@ std::string TextIndex::ActiveIndices::Aggregate(const std::string &index_name, c
     aggregation_result = mgcxx::text_search::aggregate(
         context,
         mgcxx::text_search::SearchInput{
-            .search_fields = {"data"}, .search_query = search_query, .aggregation_query = aggregation_query});
+            .search_fields = {kDataField}, .search_query = search_query, .aggregation_query = aggregation_query});
 
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());

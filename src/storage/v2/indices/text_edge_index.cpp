@@ -40,11 +40,12 @@ void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const Text
   try {
     nlohmann::json mappings = {};
     mappings["properties"] = {};
-    mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
-    mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
-    mappings["properties"]["edge_gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
-    mappings["properties"]["from_vertex_gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
-    mappings["properties"]["to_vertex_gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
+    mappings["properties"][kDataField] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
+    mappings["properties"][kAllField] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
+    mappings["properties"][kEdgeGidField] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
+    mappings["properties"][kFromVertexGidField] = {
+        {"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
+    mappings["properties"][kToVertexGidField] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
 
     if (index_->contains(index_info.index_name)) {
       throw query::TextSearchException(
@@ -73,11 +74,11 @@ void TextEdgeIndex::AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_
                                        mgcxx::text_search::Context &context) {
   if (all_property_values.empty()) return;
   nlohmann::json document = {};
-  document["data"] = std::move(properties);
-  document["all"] = std::move(all_property_values);
-  document["edge_gid"] = static_cast<std::uint64_t>(edge_gid);
-  document["from_vertex_gid"] = static_cast<std::uint64_t>(from_vertex_gid);
-  document["to_vertex_gid"] = static_cast<std::uint64_t>(to_vertex_gid);
+  document[kDataField] = std::move(properties);
+  document[kAllField] = std::move(all_property_values);
+  document[kEdgeGidField] = static_cast<std::uint64_t>(edge_gid);
+  document[kFromVertexGidField] = static_cast<std::uint64_t>(from_vertex_gid);
+  document[kToVertexGidField] = static_cast<std::uint64_t>(to_vertex_gid);
 
   try {
     mgcxx::text_search::add_document(
@@ -310,26 +311,26 @@ std::vector<TextEdgeSearchResult> TextEdgeIndex::ActiveIndices::Search(const std
                                             .fuzzy_distance = config.fuzzy_distance,
                                             .fuzzy_prefix = config.fuzzy_prefix,
                                             .fuzzy_transpositions = config.fuzzy_transpositions,
-                                            .fuzzy_field = "data"});
+                                            .fuzzy_field = kDataField});
         break;
       case text_search_mode::REGEX:
         search_results = mgcxx::text_search::regex_search_edge_gids_pinned(
             context,
             searcher,
             mgcxx::text_search::SearchInput{
-                .search_fields = {"all"}, .search_query = lowered_query, .limit = config.limit});
+                .search_fields = {kAllField}, .search_query = lowered_query, .limit = config.limit});
         break;
       case text_search_mode::ALL_PROPERTIES:
         search_results = mgcxx::text_search::search_edge_gids_pinned(
             context,
             searcher,
-            mgcxx::text_search::SearchInput{.search_fields = {"all"},
+            mgcxx::text_search::SearchInput{.search_fields = {kAllField},
                                             .search_query = lowered_query,
                                             .limit = config.limit,
                                             .fuzzy_distance = config.fuzzy_distance,
                                             .fuzzy_prefix = config.fuzzy_prefix,
                                             .fuzzy_transpositions = config.fuzzy_transpositions,
-                                            .fuzzy_field = "all"});
+                                            .fuzzy_field = kAllField});
         break;
       default:
         throw query::TextSearchException(
@@ -362,7 +363,7 @@ std::string TextEdgeIndex::ActiveIndices::Aggregate(const std::string &index_nam
     aggregation_result = mgcxx::text_search::aggregate(
         context,
         mgcxx::text_search::SearchInput{
-            .search_fields = {"data"}, .search_query = search_query, .aggregation_query = aggregation_query});
+            .search_fields = {kDataField}, .search_query = search_query, .aggregation_query = aggregation_query});
 
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
