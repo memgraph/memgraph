@@ -13,6 +13,7 @@
 
 #include <functional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 #include "query/procedure/module_fwd.hpp"
@@ -78,5 +79,14 @@ bool IsFunctionPure(std::string_view function_name);
 
 // Returns the current hops counter if set, otherwise null.
 TypedValue GetHopsCounter(const TypedValue *args, int64_t nargs, const FunctionContext &ctx);
+
+/// True if the uppercase function name is a temporal builder whose map form
+/// accepts unit keys: DATE, LOCALTIME, LOCALDATETIME or DURATION.
+bool IsTemporalMapBuilder(std::string_view upper_function_name);
+
+/// True if key is a recognised map key for the given temporal builder. The
+/// builder must be one of the names IsTemporalMapBuilder accepts; any other
+/// name yields false.
+bool IsRecognisedTemporalKey(std::string_view upper_function_name, std::string_view key);
 
 }  // namespace memgraph::query

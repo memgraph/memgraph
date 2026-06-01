@@ -1250,6 +1250,49 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
   ASSERT_EQ(store.AfterCommitTriggers().size(), 0);
 }
 
+TYPED_TEST(TriggerStoreTest, TemporalKeyValidationAtCreate) {
+  memgraph::query::TriggerStore store{this->testing_directory};
+
+  auto add = [&](const char *name, const char *query) {
+    store.AddTrigger(name,
+                     query,
+                     {},
+                     memgraph::query::TriggerEventType::VERTEX_CREATE,
+                     memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                     &this->ast_cache,
+                     &*this->dba,
+                     memgraph::query::InterpreterConfig::Query{},
+                     this->auth_checker.GenQueryUser(std::nullopt, {}),
+                     memgraph::dbms::kDefaultDB,
+                     memgraph::query::TriggerPrivilegeContext::DEFINER,
+                     nullptr);
+  };
+
+  // Unknown temporal map keys are wrong on every path: reject at create time.
+  ASSERT_THROW(add("bad_duration", "RETURN duration({fortnights: 2})"), memgraph::utils::BasicException);
+  ASSERT_THROW(add("bad_date", "RETURN date({yir: 2020})"), memgraph::utils::BasicException);
+  ASSERT_THROW(add("bad_localtime", "RETURN localtime({hr: 1})"), memgraph::utils::BasicException);
+  ASSERT_THROW(add("bad_localdatetime", "RETURN localdatetime({nope: 1})"), memgraph::utils::BasicException);
+  // duration has no year/month units even though date does.
+  ASSERT_THROW(add("bad_duration_year", "RETURN duration({year: 1})"), memgraph::utils::BasicException);
+
+  // Singular and plural unit keys are recognised and create successfully.
+  ASSERT_NO_THROW(add("ok_singular", "RETURN duration({second: 5})"));
+  ASSERT_NO_THROW(add("ok_plural", "RETURN duration({seconds: 5})"));
+  ASSERT_NO_THROW(add("ok_date_plural", "RETURN date({years: 2020, months: 1, days: 2})"));
+  ASSERT_NO_THROW(add("ok_localdatetime", "RETURN localdatetime({year: 2020, hour: 1, microseconds: 7})"));
+
+  // A non-map argument is not a structural map-key error.
+  ASSERT_NO_THROW(add("ok_string", "RETURN duration('P1D')"));
+
+  // No general constant evaluation: a recognised-key builder with an
+  // out-of-range value throws only when evaluated, so it still creates. The
+  // same holds for any other throwing-but-unreachable constant subexpression.
+  ASSERT_NO_THROW(add("ok_out_of_range", "RETURN localtime({hour: 999})"));
+  ASSERT_NO_THROW(add("ok_guarded_value", "RETURN CASE WHEN false THEN localtime({hour: 999}) ELSE 1 END"));
+  ASSERT_NO_THROW(add("ok_div_zero", "RETURN CASE WHEN false THEN 1 / 0 ELSE 1 END"));
+}
+
 TYPED_TEST(TriggerStoreTest, DropTrigger) {
   memgraph::query::TriggerStore store{this->testing_directory};
 

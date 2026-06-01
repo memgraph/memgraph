@@ -20,7 +20,10 @@
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
+#include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan_v2/frontend/egraph_converter.hpp"
@@ -28,6 +31,7 @@
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/memory.hpp"
+#include "utils/string.hpp"
 #ifdef MG_ENTERPRISE
 #include "license/license.hpp"
 #endif
@@ -165,6 +169,48 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
           IdentifierTag::SET_EDGE_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES, IdentifierTag::UPDATED_EDGES);
   }
 }
+
+// Rejects a temporal builder applied to a map literal whose constant keys are
+// not recognised units. These keys are wrong on every code path, so failing at
+// create time produces no false positives. No other expression is evaluated:
+// a throwing-but-unreachable subexpression must still create.
+class TemporalKeyValidator : public HierarchicalTreeVisitor {
+ public:
+  using HierarchicalTreeVisitor::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using HierarchicalTreeVisitor::Visit;
+  using typename HierarchicalTreeVisitor::ReturnType;
+
+  bool PreVisit(Function &function) override {
+    const auto &name = function.function_name_;
+    if (IsTemporalMapBuilder(name) && function.arguments_.size() == 1) {
+      if (auto *map = utils::Downcast<MapLiteral>(function.arguments_[0])) {
+        for (const auto &[key, value] : map->elements_) {
+          if (!IsRecognisedTemporalKey(name, key.name)) {
+            throw SemanticException(
+                "{}() does not recognise the temporal map key '{}'.", utils::ToLowerCase(name), key.name);
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  ReturnType Visit(Identifier & /*unused*/) override { return true; }
+
+  ReturnType Visit(PrimitiveLiteral & /*unused*/) override { return true; }
+
+  ReturnType Visit(ParameterLookup & /*unused*/) override { return true; }
+
+  ReturnType Visit(EnumValueAccess & /*unused*/) override { return true; }
+};
+
+void ValidateTriggerBody(Query *query) {
+  auto *cypher_query = utils::Downcast<CypherQuery>(query);
+  if (!cypher_query) return;
+  TemporalKeyValidator validator;
+  cypher_query->Accept(validator);
+}
 }  // namespace
 
 Trigger::Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
@@ -178,6 +224,10 @@ Trigger::Trigger(std::string name, const std::string &query, const UserParameter
       event_type_{event_type},
       creator_{creator ? creator->clone() : nullptr},  // deep copy (otherwise not thread safe)
       privilege_context_{privilege_context} {
+  // Structural create-time check: a temporal builder over a constant-keyed map
+  // with an unrecognised key is invalid on every path, so reject it now rather
+  // than letting the trigger fail silently at fire time.
+  ValidateTriggerBody(parsed_statements_.query);
   // We check immediately if the query is valid by trying to create a plan.
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
     GetPlan(db_accessor, db_name, creator_);

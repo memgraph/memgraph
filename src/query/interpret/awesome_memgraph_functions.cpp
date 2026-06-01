@@ -1525,6 +1525,57 @@ bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
   return has_mapped_any_field;
 }
 
+// The recognised map keys for each temporal builder, mirroring the
+// parameter_mappings the builders below construct. Each unit accepts both its
+// singular and plural spelling.
+const std::unordered_set<std::string_view> kDateMapKeys{"year", "years", "month", "months", "day", "days"};
+const std::unordered_set<std::string_view> kLocalTimeMapKeys{"hour",
+                                                             "hours",
+                                                             "minute",
+                                                             "minutes",
+                                                             "second",
+                                                             "seconds",
+                                                             "millisecond",
+                                                             "milliseconds",
+                                                             "microsecond",
+                                                             "microseconds"};
+const std::unordered_set<std::string_view> kLocalDateTimeMapKeys{"year",
+                                                                 "years",
+                                                                 "month",
+                                                                 "months",
+                                                                 "day",
+                                                                 "days",
+                                                                 "hour",
+                                                                 "hours",
+                                                                 "minute",
+                                                                 "minutes",
+                                                                 "second",
+                                                                 "seconds",
+                                                                 "millisecond",
+                                                                 "milliseconds",
+                                                                 "microsecond",
+                                                                 "microseconds"};
+const std::unordered_set<std::string_view> kDurationMapKeys{"day",
+                                                            "days",
+                                                            "hour",
+                                                            "hours",
+                                                            "minute",
+                                                            "minutes",
+                                                            "second",
+                                                            "seconds",
+                                                            "millisecond",
+                                                            "milliseconds",
+                                                            "microsecond",
+                                                            "microseconds"};
+
+const std::unordered_set<std::string_view> *TemporalMapKeySet(std::string_view upper_function_name) {
+  if (upper_function_name == "DATE") return &kDateMapKeys;
+  if (upper_function_name == "LOCALTIME") return &kLocalTimeMapKeys;
+  if (upper_function_name == "LOCALDATETIME") return &kLocalDateTimeMapKeys;
+  if (upper_function_name == "DURATION") return &kDurationMapKeys;
+  return nullptr;
+}
+
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Optional<Or<Null, String, Map, struct Date, LocalDateTime, ZonedDateTime>>>("date", args, nargs);
   if (nargs == 0) {
@@ -2193,6 +2244,15 @@ bool IsFunctionPure(std::string_view function_name) {
   // This may change in the future when we have a mechanism to mark
   // user-provided functions as pure.
   return false;
+}
+
+bool IsTemporalMapBuilder(std::string_view upper_function_name) {
+  return TemporalMapKeySet(upper_function_name) != nullptr;
+}
+
+bool IsRecognisedTemporalKey(std::string_view upper_function_name, std::string_view key) {
+  const auto *keys = TemporalMapKeySet(upper_function_name);
+  return keys != nullptr && keys->contains(key);
 }
 
 }  // namespace memgraph::query
