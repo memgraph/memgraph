@@ -115,6 +115,13 @@ startup_config_dict = {
         "TRACE",
         "Minimum log level. Allowed values: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL",
     ),
+    "log_min_duration_ms": (
+        "-1",
+        "-1",
+        "Log queries whose parse+plan+execute time (ms) reaches this threshold with a [slow-query] tag. -1 disables; 0 logs every successful query.",
+    ),
+    "log_failed_queries": ("false", "false", "Log each failed query with a [failed-query] tag."),
+    "log_query_plan": ("true", "true", "Append the query's EXPLAIN plan to its [slow-query] log line."),
     "memory_limit": (
         "0",
         "0",

@@ -553,13 +553,11 @@ class Interpreter final {
     std::optional<PreparedQuery> prepared_query;
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
-    // Original query text, captured so slow- / failed-query log emits can quote it
-    // after the lambda chain that owns parsed_query has been torn down.
+    // Original query text, kept so log emits can quote it after the lambda chain
+    // owning parsed_query is torn down.
     std::string query_string;
-    // Lazily renders the plan tree for the slow-query log. Set during PrepareCypherQuery
-    // when slow-query logging is enabled; invoked by Pull only if the duration gate
-    // passes, and only while the DbAccessor it captures is still alive (before commit),
-    // so fast queries never pay for plan rendering.
+    // Lazily renders the plan for the slow-query log. Set in PrepareCypherQuery,
+    // invoked by Pull only past the duration gate and while its DbAccessor is alive.
     std::function<std::string()> render_slow_query_plan;
 
     static auto Create(utils::MemoryTracker *db_query_tracker = nullptr) -> std::unique_ptr<QueryExecution> {
@@ -580,9 +578,9 @@ class Interpreter final {
     }
   };
 
-  // Query text for the failed-query log. After a successful query handler, Pull moves
-  // the text into captured_query_string before Commit (which may throw); on a pre-move
-  // failure captured is empty and the text still lives on the QueryExecution.
+  // Query text for the failed-query log. Pull moves the text into the captured copy
+  // before Commit; on a pre-move failure captured is empty and it still lives on the
+  // QueryExecution.
   static std::string_view FailedQueryText(const std::string &captured,
                                           const std::unique_ptr<QueryExecution> &query_execution) {
     if (!captured.empty()) return captured;
@@ -686,11 +684,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       maybe_summary.emplace(std::move(query_execution->summary));
       captured_query_string = std::move(query_execution->query_string);
 
-      // Evaluate the slow-query gate now, while the DbAccessor the plan renderer
-      // needs is still alive (Commit / ResetInterpreter below tear it down). The
-      // emit itself is deferred until after a successful commit so a query that
-      // fails to commit is logged as failed, not slow. Rendering the plan is paid
-      // for only when the duration actually crosses the threshold.
+      // Evaluate the gate now, while the renderer's DbAccessor is alive (Commit /
+      // ResetInterpreter tear it down). Emit is deferred until after a successful
+      // commit, so a commit failure is logged as failed, not slow.
       {
         auto renderer = std::move(query_execution->render_slow_query_plan);
         const auto threshold_ms =

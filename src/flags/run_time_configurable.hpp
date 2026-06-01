@@ -141,16 +141,14 @@ int64_t GetLogMinDurationMs();
 bool GetLogFailedQueries();
 bool GetLogQueryPlan();
 
-// Settings keys for slow/failed query log; the same strings are stored in the
-// per-session overlay and registered in the global settings store.
+// Settings keys; stored in the per-session overlay and the global settings store.
 inline constexpr std::string_view kLogMinDurationMsKey = "log.min_duration_ms";
 inline constexpr std::string_view kLogFailedQueriesKey = "log.failed_queries";
 inline constexpr std::string_view kLogQueryPlanKey = "log.query_plan";
 
-// Read the effective value of a session-overridable setting. Looks up the
-// session overlay first, then falls back to the cached global value. Only the
-// int64_t and bool specializations exist; the primary template is deleted so an
-// unsupported T is a compile error at the call site, not a link/runtime failure.
+// Effective value of a session-overridable setting: session overlay first, then
+// the cached global. Only int64_t and bool exist; the primary template is deleted
+// so an unsupported T is a compile error, not a link/runtime failure.
 template <typename T>
 T GetEffective(std::string_view key, const logging::SessionLogContext *ctx) = delete;
 

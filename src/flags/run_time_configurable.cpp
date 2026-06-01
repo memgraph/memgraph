@@ -122,14 +122,12 @@ DEFINE_uint64(file_download_conn_timeout_sec, 10,
 DEFINE_VALIDATED_uint64(storage_access_timeout_sec, 1, "Query's storage level access timeout in seconds.",
                         FLAG_IN_RANGE(1, 1'000'000));
 
-// Slow / failed query log flags.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_int64(log_min_duration_ms, -1,
-             "Threshold in milliseconds; queries whose summed parse+plan+execute time meets or exceeds this value are "
-             "logged with a [slow-query] tag. -1 disables; 0 logs every successful query.");
+             "Log queries whose parse+plan+execute time (ms) reaches this threshold with a [slow-query] tag. "
+             "-1 disables; 0 logs every successful query.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(log_failed_queries, false,
-            "When true, every user-initiated query that throws emits one [failed-query] log line.");
+DEFINE_bool(log_failed_queries, false, "Log each failed query with a [failed-query] tag.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(log_query_plan, true, "Append the query's EXPLAIN plan to its [slow-query] log line.");
 
@@ -569,9 +567,7 @@ void Initialize(utils::Settings &settings) {
         }
       });
 
-  /*
-   * Register slow / failed query log flags.
-   */
+  // Register slow / failed query log flags.
   register_flag(
       kLogMinDurationMsGFlagsKey,
       std::string{memgraph::flags::run_time::kLogMinDurationMsKey},
@@ -675,9 +671,8 @@ bool GetLogFailedQueries() { return log_failed_queries_.load(std::memory_order_a
 bool GetLogQueryPlan() { return log_query_plan_.load(std::memory_order_acquire); }
 
 namespace {
-// Authoritative list of the per-session-overridable settings and their value type.
-// IsSessionSettable, ValidateSessionSettingValue and the GetEffective dispatch all
-// derive from this single source so adding a setting is a one-place change.
+// Single source for the per-session-overridable settings; IsSessionSettable,
+// ValidateSessionSettingValue and GetEffective all derive from it.
 enum class SessionSettingType { kInt64, kBool };
 
 struct SessionSettableSetting {
@@ -704,8 +699,7 @@ std::optional<std::string> ValidateSessionSettingValue(std::string_view key, std
         if (!ValidInt64Str(value).has_value()) return fmt::format("Setting '{}' requires an integer value", key);
         return std::nullopt;
       case SessionSettingType::kBool:
-        // The overlay stores the value verbatim and GetEffective<bool> compares it
-        // case-sensitively to "true", so only canonical lowercase is accepted here.
+        // GetEffective<bool> compares verbatim to "true", so only lowercase is valid.
         if (value != "true" && value != "false") return fmt::format("Setting '{}' requires 'true' or 'false'", key);
         return std::nullopt;
     }
@@ -719,7 +713,7 @@ int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogCon
     if (auto overlay = ctx->GetSetting(key); overlay.has_value()) {
       int64_t value{};
       auto [ptr, ec] = std::from_chars(overlay->data(), overlay->data() + overlay->size(), value);
-      // The setter validates the value, so a parse failure here is defence in depth: fall back to global.
+      // Defence in depth: setter already validated; on parse failure fall back to global.
       if (ec == std::errc{} && ptr == overlay->data() + overlay->size()) return value;
     }
   }

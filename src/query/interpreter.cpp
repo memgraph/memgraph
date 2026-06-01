@@ -3521,11 +3521,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
   if (slow_query_plan_renderer_out != nullptr &&
       flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, interpreter.GetLogContext()) >= 0) {
-    // Only arm the renderer when slow-query logging may apply. Pull invokes it
-    // lazily (while dba is still alive) and only if the duration crosses the
-    // threshold, so fast queries never pay for plan rendering. log.query_plan is
-    // re-checked at emit time, hence not gated here. plan is a shared_ptr, so the
-    // copy keeps the tree alive independently of the PullPlan below.
+    // Arm the renderer only when slow-query logging may apply. Pull invokes it
+    // lazily, while dba is alive and only past the threshold, so fast queries
+    // don't pay for rendering. log.query_plan is re-checked at emit time. plan is
+    // a shared_ptr, so the copy keeps the tree alive independently.
     *slow_query_plan_renderer_out = [plan, dba]() {
       std::stringstream printed_plan;
       plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
