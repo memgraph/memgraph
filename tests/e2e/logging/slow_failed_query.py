@@ -56,6 +56,16 @@ def _read_appended(log_path, start_offset, *, expect, timeout=3.0):
         time.sleep(0.05)
 
 
+def _read_after_settle(log_path, start_offset, settle=0.3):
+    """For negative assertions: wait a short fixed window for any erroneous emit to flush, then read."""
+    deadline = time.monotonic() + settle
+    while time.monotonic() < deadline:
+        time.sleep(0.05)
+    with open(log_path, "r") as f:
+        f.seek(start_offset)
+        return f.read()
+
+
 # --- Slow-query log -------------------------------------------------------------------
 
 
@@ -82,14 +92,26 @@ def test_slow_query_skipped_when_threshold_disabled():
     _run(conn, 'SET SESSION SETTING "log.min_duration_ms" TO "-1"')
     _run(conn, "RETURN 'slow_marker_off'")
 
-    # Briefly settle, then verify absence — only check lines that mention our marker.
-    time.sleep(0.2)
-    with open(log_path, "r") as f:
-        f.seek(start)
-        content = f.read()
+    content = _read_after_settle(log_path, start)
     relevant = [line for line in content.splitlines() if "slow_marker_off" in line]
     for line in relevant:
         assert "[slow-query]" not in line
+
+
+def test_slow_query_skipped_when_below_positive_threshold():
+    """A positive threshold logs only queries that exceed it; a trivial query stays under."""
+    log_path = _active_log_path()
+    start = os.path.getsize(log_path)
+
+    conn = _connect()
+    # 10 minutes: no trivial RETURN will ever cross this, exercising the >0 gate path.
+    _run(conn, 'SET SESSION SETTING "log.min_duration_ms" TO "600000"')
+    _run(conn, "RETURN 'slow_marker_under'")
+
+    content = _read_after_settle(log_path, start)
+    relevant = [line for line in content.splitlines() if "slow_marker_under" in line]
+    for line in relevant:
+        assert "[slow-query]" not in line, f"fast query must not cross a 600s threshold; got: {line!r}"
 
 
 def test_slow_query_plan_block_inclusion_gated_by_log_query_plan():
@@ -143,13 +165,52 @@ def test_failed_query_off_emits_nothing():
     except mgclient.DatabaseError:
         pass
 
-    time.sleep(0.2)
-    with open(log_path, "r") as f:
-        f.seek(start)
-        content = f.read()
+    content = _read_after_settle(log_path, start)
     relevant = [line for line in content.splitlines() if "unknown_function_xyz" in line]
     for line in relevant:
         assert "[failed-query]" not in line
+
+
+def test_failed_query_logged_for_runtime_error():
+    """A query that parses and plans but throws during Pull is logged with its query text."""
+    log_path = _active_log_path()
+    start = os.path.getsize(log_path)
+
+    conn = _connect()
+    _run(conn, 'SET SESSION SETTING "log.failed_queries" TO "true"')
+    try:
+        # Division by zero on the second row: a genuine execution-time (Pull) failure.
+        _run(conn, "UNWIND [1, 0] AS denom_marker RETURN 1 / denom_marker")
+    except mgclient.DatabaseError:
+        pass
+
+    content = _read_appended(log_path, start, expect=["[failed-query]", "denom_marker"])
+    relevant = [line for line in content.splitlines() if "[failed-query]" in line and "denom_marker" in line]
+    assert relevant, f"runtime failure must log a [failed-query] line carrying the query text; got: {content!r}"
+
+
+def test_failed_query_logged_on_commit_failure():
+    """A query that executes fine but fails at commit must still log its (non-empty) query text.
+
+    Regression: the query string is moved out before Commit(); the failed-query log must fall
+    back to the captured copy so commit-time failures don't emit query=\"\".
+    """
+    log_path = _active_log_path()
+
+    conn = _connect()
+    _run(conn, "CREATE CONSTRAINT ON (n:CommitFail) ASSERT n.id IS UNIQUE")
+    _run(conn, "CREATE (:CommitFail {id: 'commit_dup_marker'})")
+
+    start = os.path.getsize(log_path)
+    _run(conn, 'SET SESSION SETTING "log.failed_queries" TO "true"')
+    try:
+        _run(conn, "CREATE (:CommitFail {id: 'commit_dup_marker'})")
+    except mgclient.DatabaseError:
+        pass
+
+    content = _read_appended(log_path, start, expect=["[failed-query]"])
+    relevant = [line for line in content.splitlines() if "[failed-query]" in line and "commit_dup_marker" in line]
+    assert relevant, f'commit-time failure must log the query text, not query=""; got: {content!r}'
 
 
 # --- Session isolation ----------------------------------------------------------------
@@ -189,7 +250,7 @@ def test_reset_session_setting_reverts_to_global_default():
     content = _read_appended(log_path, start, expect=["before_reset"])
     relevant_before = [line for line in content.splitlines() if "before_reset" in line and "[slow-query]" in line]
     relevant_after = [line for line in content.splitlines() if "after_reset" in line and "[slow-query]" in line]
-    assert relevant_before
+    assert relevant_before, "before RESET the session opted in — its query should be slow-logged"
     assert not relevant_after, "after RESET the session must follow the (disabled) global default"
 
 

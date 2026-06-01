@@ -3451,7 +3451,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                 Interpreter &interpreter, std::optional<std::string> *slow_query_plan_out,
+                                 Interpreter &interpreter, std::function<std::string()> *slow_query_plan_renderer_out,
                                  FrameChangeCollector *frame_change_collector = nullptr
 #ifdef MG_ENTERPRISE
                                  ,
@@ -3519,15 +3519,18 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     memgraph::logging::EmitSessionTraceEvent("Explain plan:\n{}", printed_plan.str());
   }
 
-  if (slow_query_plan_out != nullptr) {
-    const auto *log_ctx = interpreter.GetLogContext();
-    const auto threshold_ms = flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, log_ctx);
-    const auto include_plan = flags::run_time::GetEffective<bool>(flags::run_time::kLogQueryPlanKey, log_ctx);
-    if (threshold_ms >= 0 && include_plan) {
+  if (slow_query_plan_renderer_out != nullptr &&
+      flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, interpreter.GetLogContext()) >= 0) {
+    // Only arm the renderer when slow-query logging may apply. Pull invokes it
+    // lazily (while dba is still alive) and only if the duration crosses the
+    // threshold, so fast queries never pay for plan rendering. log.query_plan is
+    // re-checked at emit time, hence not gated here. plan is a shared_ptr, so the
+    // copy keeps the tree alive independently of the PullPlan below.
+    *slow_query_plan_renderer_out = [plan, dba]() {
       std::stringstream printed_plan;
       plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
-      *slow_query_plan_out = printed_plan.str();
-    }
+      return printed_plan.str();
+    };
   }
 
   PrepareCaching(plan->ast_storage(), frame_change_collector);
@@ -8263,34 +8266,6 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
       .rw_type = RWType::NONE};
 }
 
-namespace {
-// Curated allow-list of settings the user can override per-session. Adding to this
-// list also requires updating the GetEffective specializations.
-const std::array<std::string_view, 3> kSessionSettableKeys = {
-    flags::run_time::kLogMinDurationMsKey, flags::run_time::kLogFailedQueriesKey, flags::run_time::kLogQueryPlanKey};
-
-bool IsSessionSettable(std::string_view key) {
-  return std::ranges::any_of(kSessionSettableKeys, [&](std::string_view k) { return k == key; });
-}
-
-void ValidateSessionSettingValue(std::string_view key, std::string_view value) {
-  if (key == flags::run_time::kLogMinDurationMsKey) {
-    try {
-      const std::string s{value};
-      size_t pos = 0;
-      std::stoll(s, &pos);
-      if (pos != s.size()) throw std::invalid_argument{"trailing characters"};
-    } catch (const std::exception &) {
-      throw utils::BasicException("Setting '{}' requires an integer value", key);
-    }
-  } else if (key == flags::run_time::kLogFailedQueriesKey || key == flags::run_time::kLogQueryPlanKey) {
-    if (value != "true" && value != "false") {
-      throw utils::BasicException("Setting '{}' requires 'true' or 'false'", key);
-    }
-  }
-}
-}  // namespace
-
 PreparedQuery PrepareSessionSettingQuery(ParsedQuery parsed_query, Interpreter *interpreter) {
   auto *query = utils::Downcast<SessionSettingQuery>(parsed_query.query);
   MG_ASSERT(query);
@@ -8308,10 +8283,12 @@ PreparedQuery PrepareSessionSettingQuery(ParsedQuery parsed_query, Interpreter *
   std::string name{name_tv.ValueString()};
   std::string value{value_tv.ValueString()};
 
-  if (!IsSessionSettable(name)) {
+  if (!flags::run_time::IsSessionSettable(name)) {
     throw utils::BasicException("Setting \"{}\" cannot be set per-session", name);
   }
-  ValidateSessionSettingValue(name, value);
+  if (auto err = flags::run_time::ValidateSessionSettingValue(name, value); err.has_value()) {
+    throw utils::BasicException(*err);
+  }
 
   auto handler = [interpreter, name = std::move(name), value = std::move(value)]() mutable {
     interpreter->GetLogContext()->SetSetting(name, std::move(value));
@@ -8349,7 +8326,7 @@ PreparedQuery PrepareResetSessionSettingQuery(ParsedQuery parsed_query, Interpre
   if (!name_tv.IsString()) throw utils::BasicException("Setting name should be a string literal");
   std::string name{name_tv.ValueString()};
 
-  if (!IsSessionSettable(name)) {
+  if (!flags::run_time::IsSessionSettable(name)) {
     throw utils::BasicException("Setting \"{}\" cannot be set per-session", name);
   }
 
@@ -9730,7 +9707,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                           user_or_role_,
                                           make_stopping_context(),
                                           *this,
-                                          &query_execution->slow_query_plan_text,
+                                          &query_execution->render_slow_query_plan,
                                           &*frame_change_collector_
 #ifdef MG_ENTERPRISE
                                           ,

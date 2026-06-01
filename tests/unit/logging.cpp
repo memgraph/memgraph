@@ -389,6 +389,20 @@ TEST_F(QueryLogEmitTest, SlowQueryEscapesEmbeddedQuotes) {
   EXPECT_NE(sink_->messages[0].find(R"(query="RETURN \"hi\"")"), std::string::npos);
 }
 
+TEST_F(QueryLogEmitTest, SlowQueryEscapesEmbeddedBackslash) {
+  // Both the backslash and the quotes must be escaped, so a literal `\"` becomes `\\\"`.
+  memgraph::logging::EmitSlowQueryLog("bob", "memgraph", R"(RETURN "a\b")", 1, std::nullopt);
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_EQ(sink_->messages[0], R"([slow-query] duration_ms=1 user=bob db=memgraph query="RETURN \"a\\b\"")");
+}
+
+TEST_F(QueryLogEmitTest, FailedQueryEscapesBackslashInErrorAndQuery) {
+  memgraph::logging::EmitFailedQueryLog("alice", "memgraph", R"(LOAD CSV FROM "c:\tmp")", R"(bad path c:\tmp)");
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_EQ(sink_->messages[0],
+            R"([failed-query] user=alice db=memgraph error="bad path c:\\tmp" query="LOAD CSV FROM \"c:\\tmp\"")");
+}
+
 TEST_F(QueryLogEmitTest, FailedQueryLineHasTagAndFields) {
   memgraph::logging::EmitFailedQueryLog("alice", "memgraph", "RETURN 1/0", "Division by zero");
   ASSERT_EQ(sink_->messages.size(), 1u);

@@ -46,6 +46,7 @@ target_sources(mg-utils
     priority_thread_pool.cpp
     resource_monitoring.cpp
     safe_string.cpp
+    session_context.cpp
     shared_quota.cpp
 
     PUBLIC

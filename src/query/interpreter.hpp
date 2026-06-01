@@ -13,6 +13,7 @@
 
 #include <gflags/gflags.h>
 #include <chrono>
+#include <functional>
 #include <optional>
 
 #include "dbms/database.hpp"
@@ -502,13 +503,17 @@ class Interpreter final {
 
  private:
   void MaybeEmitFailedQueryLog(std::string_view query, std::string_view error) const {
+    // TLS guard absent => no bolt message is in flight (worker/GC/NuRaft thread); never emit.
     if (memgraph::logging::ScopedSessionLog::Current() == nullptr) return;
-    if (!flags::run_time::GetEffective<bool>(flags::run_time::kLogFailedQueriesKey,
-                                             memgraph::logging::ScopedSessionLog::Current()))
-      return;
-    const auto db_name = current_db_.name();
-    const std::string_view db_view = db_name.empty() ? std::string_view{"<none>"} : std::string_view{db_name};
-    memgraph::logging::EmitFailedQueryLog(session_info_.username, db_view, query, error);
+    if (!flags::run_time::GetEffective<bool>(flags::run_time::kLogFailedQueriesKey, &session_log_ctx_)) return;
+    const auto db_name = CurrentDbLogName();
+    memgraph::logging::EmitFailedQueryLog(session_info_.username, db_name, query, error);
+  }
+
+  // db= field for the slow-/failed-query log: the current DB name, or "<none>".
+  std::string CurrentDbLogName() const {
+    auto name = current_db_.name();
+    return name.empty() ? std::string{"<none>"} : name;
   }
 
   memgraph::logging::SessionLogContext session_log_ctx_{};
@@ -551,10 +556,11 @@ class Interpreter final {
     // Original query text, captured so slow- / failed-query log emits can quote it
     // after the lambda chain that owns parsed_query has been torn down.
     std::string query_string;
-    // Rendered plan tree, populated during PrepareCypherQuery only if slow-query
-    // logging is on and log.query_plan is true. The DbAccessor needed to render
-    // it is gone by the time Pull's slow-query gate fires.
-    std::optional<std::string> slow_query_plan_text;
+    // Lazily renders the plan tree for the slow-query log. Set during PrepareCypherQuery
+    // when slow-query logging is enabled; invoked by Pull only if the duration gate
+    // passes, and only while the DbAccessor it captures is still alive (before commit),
+    // so fast queries never pay for plan rendering.
+    std::function<std::string()> render_slow_query_plan;
 
     static auto Create(utils::MemoryTracker *db_query_tracker = nullptr) -> std::unique_ptr<QueryExecution> {
       return std::make_unique<QueryExecution>(db_query_tracker);
@@ -573,6 +579,16 @@ class Interpreter final {
       notifications.clear();
     }
   };
+
+  // Query text for the failed-query log. After a successful query handler, Pull moves
+  // the text into captured_query_string before Commit (which may throw); on a pre-move
+  // failure captured is empty and the text still lives on the QueryExecution.
+  static std::string_view FailedQueryText(const std::string &captured,
+                                          const std::unique_ptr<QueryExecution> &query_execution) {
+    if (!captured.empty()) return captured;
+    if (query_execution) return query_execution->query_string;
+    return {};
+  }
 
   // Interpreter supports multiple prepared queries at the same time.
   // The client can reference a specific query for pull using an arbitrary qid
@@ -649,6 +665,10 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   // Stash before query_execution can be invalidated by ResetInterpreter / reset.
   std::string captured_query_string;
   std::optional<std::string> captured_plan_text;
+  // Slow-query gate, evaluated pre-commit (while the plan renderer's DbAccessor is
+  // alive) but emitted post-commit (see below).
+  bool emit_slow_query = false;
+  int64_t slow_query_duration_ms = 0;
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
@@ -665,7 +685,34 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       // Save its summary
       maybe_summary.emplace(std::move(query_execution->summary));
       captured_query_string = std::move(query_execution->query_string);
-      captured_plan_text = std::move(query_execution->slow_query_plan_text);
+
+      // Evaluate the slow-query gate now, while the DbAccessor the plan renderer
+      // needs is still alive (Commit / ResetInterpreter below tear it down). The
+      // emit itself is deferred until after a successful commit so a query that
+      // fails to commit is logged as failed, not slow. Rendering the plan is paid
+      // for only when the duration actually crosses the threshold.
+      {
+        auto renderer = std::move(query_execution->render_slow_query_plan);
+        const auto threshold_ms =
+            flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, &session_log_ctx_);
+        if (threshold_ms >= 0) {
+          auto duration_seconds = [&](const char *key) -> double {
+            auto it = maybe_summary->find(key);
+            if (it == maybe_summary->end() || !it->second.IsDouble()) return 0.0;
+            return it->second.ValueDouble();
+          };
+          const double total_sec = duration_seconds("parsing_time") + duration_seconds("planning_time") +
+                                   duration_seconds("plan_execution_time");
+          slow_query_duration_ms = static_cast<int64_t>(total_sec * 1000.0);
+          if (slow_query_duration_ms >= threshold_ms) {
+            emit_slow_query = true;
+            if (renderer && flags::run_time::GetEffective<bool>(flags::run_time::kLogQueryPlanKey, &session_log_ctx_)) {
+              captured_plan_text = renderer();
+            }
+          }
+        }
+      }
+
       if (!query_execution->notifications.empty()) {
         std::vector<TypedValue> notifications;
         notifications.reserve(query_execution->notifications.size());
@@ -703,12 +750,12 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     }
   } catch (const ExplicitTransactionUsageException &e) {
     memgraph::logging::EmitSessionTraceEvent(e.what());
-    MaybeEmitFailedQueryLog(query_execution ? query_execution->query_string : std::string{}, e.what());
+    MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e.what());
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent(e.what());
-    MaybeEmitFailedQueryLog(query_execution ? query_execution->query_string : std::string{}, e.what());
+    MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e.what());
     metrics::FirstFailedQuery();
     if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
       mh->failed_query.Increment();
@@ -735,25 +782,13 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       metrics::Metrics().global.successful_query->Increment();
     }
 
-    const auto threshold_ms = flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey,
-                                                                     memgraph::logging::ScopedSessionLog::Current());
-    if (threshold_ms >= 0) {
-      auto duration_seconds = [&](const char *key) -> double {
-        auto it = maybe_summary->find(key);
-        if (it == maybe_summary->end() || !it->second.IsDouble()) return 0.0;
-        return it->second.ValueDouble();
-      };
-      const double total_sec = duration_seconds("parsing_time") + duration_seconds("planning_time") +
-                               duration_seconds("plan_execution_time");
-      const auto duration_ms = static_cast<int64_t>(total_sec * 1000.0);
-      if (duration_ms >= threshold_ms) {
-        std::optional<std::string_view> plan_view;
-        if (captured_plan_text.has_value()) plan_view = *captured_plan_text;
-        const auto db_name = current_db_.name();
-        const std::string_view db_view = db_name.empty() ? std::string_view{"<none>"} : std::string_view{db_name};
-        memgraph::logging::EmitSlowQueryLog(
-            session_info_.username, db_view, captured_query_string, duration_ms, plan_view);
-      }
+    // Emit the slow-query line now that the commit succeeded (gate evaluated pre-commit).
+    if (emit_slow_query) {
+      std::optional<std::string_view> plan_view;
+      if (captured_plan_text.has_value()) plan_view = *captured_plan_text;
+      const auto db_name = CurrentDbLogName();
+      memgraph::logging::EmitSlowQueryLog(
+          session_info_.username, db_name, captured_query_string, slow_query_duration_ms, plan_view);
     }
 
     // return the execution summary

@@ -335,6 +335,13 @@ inline uint32_t ParseStringToUint32(const std::string_view s) {
   throw utils::ParseException(s);
 }
 
+inline int64_t ParseStringToInt64(const std::string_view s) {
+  if (int64_t value = 0; std::from_chars(s.data(), s.data() + s.size(), value).ec == std::errc{}) {
+    return value;
+  }
+  throw utils::ParseException(s);
+}
+
 /**
  * Parse a double floating point value from a string using classic locale.
  * Note, the current implementation copies the given string which may perform a

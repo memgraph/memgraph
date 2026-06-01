@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -147,14 +148,23 @@ inline constexpr std::string_view kLogFailedQueriesKey = "log.failed_queries";
 inline constexpr std::string_view kLogQueryPlanKey = "log.query_plan";
 
 // Read the effective value of a session-overridable setting. Looks up the
-// session overlay first, then falls back to the cached global value.
+// session overlay first, then falls back to the cached global value. Only the
+// int64_t and bool specializations exist; the primary template is deleted so an
+// unsupported T is a compile error at the call site, not a link/runtime failure.
 template <typename T>
-T GetEffective(std::string_view key, const logging::SessionLogContext *ctx);
+T GetEffective(std::string_view key, const logging::SessionLogContext *ctx) = delete;
 
 template <>
 int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogContext *ctx);
 
 template <>
 bool GetEffective<bool>(std::string_view key, const logging::SessionLogContext *ctx);
+
+// True if `key` is one of the per-session-overridable settings (the allow-list).
+bool IsSessionSettable(std::string_view key);
+
+// Validate a raw string `value` for `key`. Returns an error message if invalid,
+// std::nullopt if valid. Precondition: IsSessionSettable(key).
+std::optional<std::string> ValidateSessionSettingValue(std::string_view key, std::string_view value);
 
 }  // namespace memgraph::flags::run_time
