@@ -6404,6 +6404,7 @@ class AggregateCursor : public Cursor {
    */
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
     db_accessor_ = context->db_accessor;
+    MG_ASSERT(db_accessor_, "Aggregation expects a current DB transaction");
     ExpressionEvaluator evaluator(frame,
                                   context->symbol_table,
                                   context->evaluation_context,
@@ -6686,7 +6687,7 @@ class AggregateCursor : public Cursor {
         }
         labels.emplace_back(label.ValueString());
       }
-    } else if (db_accessor_) {
+    } else {
       // no labels option -> inherit every label from the original vertex
       auto maybe_labels = real_vertex.Labels(storage::View::NEW);
       if (!maybe_labels) throw QueryRuntimeException("derive() could not read labels of a path vertex.");
@@ -6697,11 +6698,11 @@ class AggregateCursor : public Cursor {
     }
 
     VirtualNode::property_map properties{alloc};
-    if (options.contains(props_key)) {
+    if (options.find(props_key) != options.end()) {
       ApplyPropertyMap(options, props_key, [&](storage::PropertyId id, storage::PropertyValue pv) {
         properties.insert_or_assign(id, std::move(pv));
       });
-    } else if (db_accessor_) {
+    } else {
       // no properties option -> inherit every property from the original vertex
       auto maybe_props = real_vertex.Properties(storage::View::NEW);
       if (!maybe_props) throw QueryRuntimeException("derive() could not read properties of a path vertex.");
