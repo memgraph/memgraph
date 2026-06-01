@@ -46,6 +46,9 @@ class SessionLogContext {
 
   std::string_view session_uuid() const noexcept { return session_uuid_; }
 
+  // Effective auth user (empty when unauthenticated); shared with the trace tags.
+  std::string_view user() const noexcept { return user_; }
+
   void AppendTraceTags(fmt::memory_buffer &out) const {
     fmt::format_to(std::back_inserter(out), "[session={}]", session_uuid_);
     if (!user_.empty()) fmt::format_to(std::back_inserter(out), " [user={}]", user_);

@@ -507,7 +507,7 @@ class Interpreter final {
     if (memgraph::logging::ScopedSessionLog::Current() == nullptr) return;
     if (!flags::run_time::GetEffective<bool>(flags::run_time::kLogFailedQueriesKey, session_log_ctx_)) return;
     const auto db_name = CurrentDbLogName();
-    memgraph::logging::EmitFailedQueryLog(session_info_.username, db_name, query, error);
+    memgraph::logging::EmitFailedQueryLog(session_log_ctx_.user(), db_name, query, error);
   }
 
   // db= field for the slow-/failed-query log: the current DB name, or "<none>".
@@ -784,7 +784,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       if (captured_plan_text.has_value()) plan_view = *captured_plan_text;
       const auto db_name = CurrentDbLogName();
       memgraph::logging::EmitSlowQueryLog(
-          session_info_.username, db_name, captured_query_string, slow_query_duration_ms, plan_view);
+          session_log_ctx_.user(), db_name, captured_query_string, slow_query_duration_ms, plan_view);
     }
 
     // return the execution summary
