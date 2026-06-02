@@ -27,6 +27,7 @@
 #include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/string.hpp"
 
 #include "parameters/parameters.hpp"
 #include "query/plan_v2/frontend/ast_converter.hpp"
@@ -69,9 +70,13 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
   return parameters;
 }
 
-ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
+ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const &user_parameters,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
                        std::string_view database_uuid, parameters::Parameters const *server_parameters) {
+  // Drop leading whitespace so prefix-stripping consumers (EXPLAIN, PROFILE)
+  // can rely on the query starting with its first significant character.
+  std::string query_string{utils::LTrim(raw_query_string)};
+
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
@@ -159,7 +164,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
   }
 
   return ParsedQuery{
-      .query_string = query_string,
+      .query_string = std::move(query_string),
       .stripped_query = std::move(stripped_query),
       .ast_storage = std::move(result.ast_storage),
       .query = result.query,
