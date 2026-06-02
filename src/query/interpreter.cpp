@@ -3522,8 +3522,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // and while dba is alive, so fast queries don't pay for rendering. plan is a
   // shared_ptr, so the capture keeps the tree alive.
   std::function<std::string()> slow_query_plan_renderer;
-  if (flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, *interpreter.GetLogContext()) >=
-      0) {
+  if (flags::run_time::GetEffectiveLogMinDurationMs(*interpreter.GetLogContext()) >= 0) {
     slow_query_plan_renderer = [plan, dba]() {
       std::stringstream printed_plan;
       plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);

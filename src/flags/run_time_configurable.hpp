@@ -146,16 +146,10 @@ inline constexpr std::string_view kLogFailedQueriesKey = "log.failed_queries";
 inline constexpr std::string_view kLogQueryPlanKey = "log.query_plan";
 
 // Effective value of a session-overridable setting: session overlay first, then
-// the cached global. Only int64_t and bool exist; the primary template is deleted
-// so an unsupported T is a compile error, not a link/runtime failure.
-template <typename T>
-T GetEffective(std::string_view key, const logging::SessionLogContext &ctx) = delete;
-
-template <>
-int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogContext &ctx);
-
-template <>
-bool GetEffective<bool>(std::string_view key, const logging::SessionLogContext &ctx);
+// the cached global. One getter per setting keeps the fallback explicit.
+int64_t GetEffectiveLogMinDurationMs(const logging::SessionLogContext &ctx);
+bool GetEffectiveLogFailedQueries(const logging::SessionLogContext &ctx);
+bool GetEffectiveLogQueryPlan(const logging::SessionLogContext &ctx);
 
 // True if `key` is one of the per-session-overridable settings (the allow-list).
 bool IsSessionSettable(std::string_view key);

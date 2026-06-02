@@ -13,7 +13,6 @@
 
 #include <array>
 #include <atomic>
-#include <charconv>
 #include <cstddef>
 #include <expected>
 #include <functional>
@@ -205,9 +204,9 @@ std::atomic<bool> log_failed_queries_{false};
 std::atomic<bool> log_query_plan_{true};
 
 memgraph::utils::Settings::ValidatorResult ValidInt64Str(std::string_view in) {
-  int64_t value{};
-  auto [ptr, ec] = std::from_chars(in.data(), in.data() + in.size(), value);
-  if (ec != std::errc{} || ptr != in.data() + in.size()) {
+  try {
+    (void)memgraph::utils::ParseInt(in);
+  } catch (const memgraph::utils::BasicException &) {
     return std::unexpected{"Value must be an integer."};
   }
   return {};
@@ -570,9 +569,7 @@ void Initialize(utils::Settings &settings) {
       kLogMinDurationMsGFlagsKey,
       std::string{memgraph::flags::run_time::kLogMinDurationMsKey},
       kRestore,
-      [](const std::string &val) {
-        log_min_duration_ms_.store(utils::ParseStringToInt64(val), std::memory_order_release);
-      },
+      [](const std::string &val) { log_min_duration_ms_.store(utils::ParseInt(val), std::memory_order_release); },
       ValidInt64Str);
 
   register_flag(
@@ -669,63 +666,50 @@ bool GetLogFailedQueries() { return log_failed_queries_.load(std::memory_order_a
 bool GetLogQueryPlan() { return log_query_plan_.load(std::memory_order_acquire); }
 
 namespace {
-// Per-session-overridable settings; IsSessionSettable and ValidateSessionSettingValue
-// derive from it. GetEffective keeps its own per-key fallback (see below).
-enum class SessionSettingType { kInt64, kBool };
-
-struct SessionSettableSetting {
-  std::string_view key;
-  SessionSettingType type;
+// Allow-list of per-session-overridable setting keys.
+constexpr std::array<std::string_view, 3> kSessionSettableKeys{
+    kLogMinDurationMsKey,
+    kLogFailedQueriesKey,
+    kLogQueryPlanKey,
 };
 
-constexpr std::array<SessionSettableSetting, 3> kSessionSettableSettings{{
-    {kLogMinDurationMsKey, SessionSettingType::kInt64},
-    {kLogFailedQueriesKey, SessionSettingType::kBool},
-    {kLogQueryPlanKey, SessionSettingType::kBool},
-}};
+// Read a bool overlay (stored canonical lowercase by ValidateSessionSettingValue),
+// falling back to the cached global when no session override is present.
+bool EffectiveBool(const logging::SessionLogContext &ctx, std::string_view key, bool global) {
+  if (auto overlay = ctx.GetSetting(key); overlay.has_value()) return *overlay == "true";
+  return global;
+}
 }  // namespace
 
 bool IsSessionSettable(std::string_view key) {
-  return std::ranges::any_of(kSessionSettableSettings, [&](const auto &s) { return s.key == key; });
+  return std::ranges::find(kSessionSettableKeys, key) != kSessionSettableKeys.end();
 }
 
 std::optional<std::string> ValidateSessionSettingValue(std::string_view key, std::string_view value) {
-  for (const auto &s : kSessionSettableSettings) {
-    if (s.key != key) continue;
-    switch (s.type) {
-      case SessionSettingType::kInt64:
-        if (!ValidInt64Str(value).has_value()) return fmt::format("Setting '{}' requires an integer value", key);
-        return std::nullopt;
-      case SessionSettingType::kBool:
-        // GetEffective<bool> compares verbatim to "true", so only lowercase is valid.
-        if (value != "true" && value != "false") return fmt::format("Setting '{}' requires 'true' or 'false'", key);
-        return std::nullopt;
-    }
+  if (key == kLogMinDurationMsKey) {
+    if (!ValidInt64Str(value).has_value()) return fmt::format("Setting '{}' requires an integer value", key);
+    return std::nullopt;
+  }
+  if (key == kLogFailedQueriesKey || key == kLogQueryPlanKey) {
+    // The effective-value readers compare verbatim to "true", so only lowercase is valid.
+    if (value != "true" && value != "false") return fmt::format("Setting '{}' requires 'true' or 'false'", key);
+    return std::nullopt;
   }
   return std::nullopt;  // Not session-settable; callers gate on IsSessionSettable first.
 }
 
-template <>
-int64_t GetEffective<int64_t>(std::string_view key, const logging::SessionLogContext &ctx) {
-  if (auto overlay = ctx.GetSetting(key); overlay.has_value()) {
-    int64_t value{};
-    auto [ptr, ec] = std::from_chars(overlay->data(), overlay->data() + overlay->size(), value);
-    // Defence in depth: setter already validated; on parse failure fall back to global.
-    if (ec == std::errc{} && ptr == overlay->data() + overlay->size()) return value;
-  }
-  if (key == kLogMinDurationMsKey) return GetLogMinDurationMs();
-  LOG_FATAL("GetEffective<int64_t> called for unregistered key");
+int64_t GetEffectiveLogMinDurationMs(const logging::SessionLogContext &ctx) {
+  // Overlay was validated before storage (like the global setter), so ParseInt won't fail here.
+  if (auto overlay = ctx.GetSetting(kLogMinDurationMsKey); overlay.has_value()) return utils::ParseInt(*overlay);
+  return GetLogMinDurationMs();
 }
 
-template <>
-bool GetEffective<bool>(std::string_view key, const logging::SessionLogContext &ctx) {
-  // ValidateSessionSettingValue guarantees the stored value is canonical lowercase.
-  if (auto overlay = ctx.GetSetting(key); overlay.has_value()) {
-    return *overlay == "true";
-  }
-  if (key == kLogFailedQueriesKey) return GetLogFailedQueries();
-  if (key == kLogQueryPlanKey) return GetLogQueryPlan();
-  LOG_FATAL("GetEffective<bool> called for unregistered key");
+bool GetEffectiveLogFailedQueries(const logging::SessionLogContext &ctx) {
+  return EffectiveBool(ctx, kLogFailedQueriesKey, GetLogFailedQueries());
+}
+
+bool GetEffectiveLogQueryPlan(const logging::SessionLogContext &ctx) {
+  return EffectiveBool(ctx, kLogQueryPlanKey, GetLogQueryPlan());
 }
 
 }  // namespace memgraph::flags::run_time

@@ -508,7 +508,7 @@ class Interpreter final {
   void MaybeEmitFailedQueryLog(std::string_view query, std::string_view error) const {
     // TLS guard absent => no bolt message is in flight (worker/GC/NuRaft thread); never emit.
     if (memgraph::logging::ScopedSessionLog::Current() == nullptr) return;
-    if (!flags::run_time::GetEffective<bool>(flags::run_time::kLogFailedQueriesKey, session_log_ctx_)) return;
+    if (!flags::run_time::GetEffectiveLogFailedQueries(session_log_ctx_)) return;
     const auto db_name = CurrentDbLogName();
     memgraph::logging::EmitFailedQueryLog(session_log_ctx_.user(), db_name, query, error);
   }
@@ -665,8 +665,11 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   // Stash before query_execution can be invalidated by ResetInterpreter / reset.
   std::string captured_query_string;
   std::optional<std::string> captured_plan_text;
-  // Slow-query gate, evaluated pre-commit (while the plan renderer's DbAccessor is
-  // alive) but emitted post-commit (see below).
+  // Slow-query gate, evaluated while the plan renderer's DbAccessor is still alive
+  // and emitted below once this statement finishes. Each statement is logged on its
+  // own completion: for autocommit that is right after Commit() (so a failing commit
+  // logs as failed, not slow); inside an explicit transaction every statement is its
+  // own slow-query unit, independent of the later COMMIT/ROLLBACK.
   bool emit_slow_query = false;
   int64_t slow_query_duration_ms = 0;
   try {
@@ -687,11 +690,10 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       captured_query_string = std::move(query_execution->query_string);
 
       // Evaluate the gate now, while the renderer's DbAccessor is alive (Commit /
-      // ResetInterpreter tear it down). Emit is deferred until after a successful
-      // commit, so a commit failure is logged as failed, not slow.
+      // ResetInterpreter tear it down). For autocommit, emit is deferred to after
+      // Commit() so a commit failure is logged as failed, not slow.
       {
-        const auto threshold_ms =
-            flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, session_log_ctx_);
+        const auto threshold_ms = flags::run_time::GetEffectiveLogMinDurationMs(session_log_ctx_);
         if (threshold_ms >= 0) {
           auto duration_seconds = [&](const char *key) -> double {
             auto it = maybe_summary->find(key);
@@ -704,7 +706,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
           if (slow_query_duration_ms >= threshold_ms) {
             emit_slow_query = true;
             auto &renderer = query_execution->prepared_query->slow_query_plan_renderer;
-            if (renderer && flags::run_time::GetEffective<bool>(flags::run_time::kLogQueryPlanKey, session_log_ctx_)) {
+            if (renderer && flags::run_time::GetEffectiveLogQueryPlan(session_log_ctx_)) {
               captured_plan_text = renderer();
             }
           }

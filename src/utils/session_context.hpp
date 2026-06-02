@@ -56,7 +56,7 @@ class SessionLogContext {
   }
 
   // Per-session overlay for runtime settings. Values are stored as raw strings;
-  // the reader helper in flags::run_time::GetEffective parses to the right type.
+  // the flags::run_time::GetEffective* readers parse them to the right type.
   void SetSetting(std::string_view key, std::string value) {
     session_settings_overlay_.insert_or_assign(std::string{key}, std::move(value));
   }

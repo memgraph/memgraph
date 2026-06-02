@@ -4411,7 +4411,7 @@ class SessionSettingQuery : public memgraph::query::Query {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { SET_SETTING, RESET_SETTING };
+  enum class Action : uint8_t { SET_SETTING, RESET_SETTING };
 
   SessionSettingQuery() = default;
 
