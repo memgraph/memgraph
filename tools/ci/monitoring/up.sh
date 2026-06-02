@@ -64,6 +64,12 @@ COMPOSE_CMD=(docker compose)
 COMPOSE_FILES=(-f "${COMPOSE_FILE}")
 if [[ "${MONITORING_USE_HOST_NETWORK}" == "true" ]]; then
   COMPOSE_FILES=(-f "${HOST_NETWORK_COMPOSE_FILE}")
+  # In host-network mode there is no extra_hosts mapping for host.docker.internal,
+  # so the default standalone scrape target would be unreachable. Fall back to
+  # 127.0.0.1 (an explicit MEMGRAPH_METRICS_HOST override is left untouched).
+  if [[ "${MEMGRAPH_METRICS_HOST}" == "host.docker.internal" ]]; then
+    MEMGRAPH_METRICS_HOST="127.0.0.1"
+  fi
 fi
 
 VMAGENT_SCRAPE_CONFIG="${GENERATED_DIR}/vmagent-scrape.yml"

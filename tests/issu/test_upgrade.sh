@@ -200,9 +200,13 @@ supports_openmetrics() {
   local tag_commit
   tag_commit="$(extract_commit_from_tag "$tag")"
   if [[ -n "$tag_commit" ]]; then
-    # tag carries a commit: does it contain the OpenMetrics commit?
-    git merge-base --is-ancestor "$OPENMETRICS_CUTOFF_COMMIT" "$tag_commit" 2>/dev/null
-    return
+    # tag carries a commit: does it contain the OpenMetrics commit? Guard with an
+    # `if` so a non-zero/128 exit (commit not in a shallow checkout, etc.) doesn't
+    # trip `set -e`; an unknown commit is treated as "not supported".
+    if git merge-base --is-ancestor "$OPENMETRICS_CUTOFF_COMMIT" "$tag_commit" 2>/dev/null; then
+      return 0
+    fi
+    return 1
   fi
   # otherwise fall back to a version compare
   local v
