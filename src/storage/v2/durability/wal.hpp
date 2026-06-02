@@ -41,6 +41,8 @@
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
+import memgraph.storage.property_value;
+
 namespace memgraph::storage {
 class NameIdMapper;
 }  // namespace memgraph::storage
@@ -236,7 +238,8 @@ struct WalTransactionStart {
 
 struct WalTransactionEnd {
   friend bool operator==(const WalTransactionEnd &, const WalTransactionEnd &) = default;
-  using ctr_types = std::tuple<>;
+  using ctr_types = std::tuple<VersionDependant<kCrcProtection, uint32_t>>;
+  std::optional<uint32_t> txn_crc;  // Started protecting txns with CRC summary since kCrcProtection version
 };
 
 struct WalLabelIndexCreate : LabelOpInfo {};
@@ -491,13 +494,8 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
                  Gid in_vertex_gid, EdgeTypeId edge_type_id);
 
 /// Function used to encode the transaction start
-/// Returns the position in the WAL where the flag 'commit' is about to be written
-uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t timestamp, bool commit,
-                                StorageAccessType access_type);
-
-/// Function use to encode the transaction start
-/// Used for replication
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
+/// Returns the position where the flag 'commit' is about to be written
+uint64_t EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
 
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);

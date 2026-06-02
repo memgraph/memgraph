@@ -93,6 +93,8 @@ class Builder {
 
   void FlushInternal(size_t size, bool has_more);
 
+  auto GetPosition() const -> size_t { return pos_; }
+
  private:
   void FlushFileSegment();
 
