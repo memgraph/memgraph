@@ -365,6 +365,9 @@ data:
   - id: "0"
     restoreDataFromSnapshot: false
     volumeSnapshotName: data-0-snap # Used only if restoreDataFromSnapshot is set to true
+    tls:
+      bolt:
+        enabled: false
     internalAccessAnnotations: {} # Per-instance annotations for internal ClusterIP service
     externalAccessAnnotations: {} # Per-instance annotations for external access service (merged with externalAccessConfig.dataInstance.annotations, per-instance takes precedence)
     # Example
@@ -382,6 +385,9 @@ data:
   - id: "1"
     restoreDataFromSnapshot: false
     volumeSnapshotName: data-1-snap
+    tls:
+      bolt:
+        enabled: false
     internalAccessAnnotations: {}
     externalAccessAnnotations: {}
     args:
@@ -395,6 +401,9 @@ coordinators:
   - id: "1"
     restoreDataFromSnapshot: false
     volumeSnapshotName: coord-1-snap
+    tls:
+      bolt:
+        enabled: false
     internalAccessAnnotations: {}
     externalAccessAnnotations: {}
     args:
@@ -406,6 +415,9 @@ coordinators:
   - id: "2"
     restoreDataFromSnapshot: false
     volumeSnapshotName: coord-2-snap
+    tls:
+      bolt:
+        enabled: false
     internalAccessAnnotations: {}
     externalAccessAnnotations: {}
     args:
@@ -417,6 +429,9 @@ coordinators:
   - id: "3"
     restoreDataFromSnapshot: false
     volumeSnapshotName: coord-3-snap
+    tls:
+      bolt:
+        enabled: false
     internalAccessAnnotations: {}
     externalAccessAnnotations: {}
     args:
