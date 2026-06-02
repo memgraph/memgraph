@@ -11,6 +11,8 @@
 
 # -*- coding: utf-8 -*-
 
+import re
+
 
 def query(q, context, params={}):
     """
@@ -39,8 +41,6 @@ def query(q, context, params={}):
     # "EXPLAIN USING PARALLEL EXECUTION RETURN 1" -- not before, which is a parse error.
     if parallel_execution and not is_on_disk:
         if "RETURN" in q.upper():
-            import re
-
             # Split off a leading EXPLAIN/PROFILE keyword (the directive goes after it).
             match = re.match(r"(?is)^(\s*(?:EXPLAIN|PROFILE)\s+)(.*)$", q)
             prefix, body = (match.group(1), match.group(2)) if match else ("", q)
