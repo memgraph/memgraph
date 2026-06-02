@@ -130,6 +130,11 @@ version_gte() {
   ! version_lt "$a" "$b"
 }
 
+# return 0 if $1 > $2
+version_gt() {
+  version_lt "$2" "$1"
+}
+
 HA_39_MIGRATION_CUTOFF_VERSION="3.9.0"
 
 requires_ha_39_migration() {
@@ -182,6 +187,27 @@ behavior_for_tag() {
   else
     echo "auth_pre_upgrade.cypherl"   # 3.7.0 or later
   fi
+}
+
+# --- OpenMetrics support detection ---
+# Memgraph gained the --metrics-format flag / OpenMetrics endpoint in #3911.
+OPENMETRICS_CUTOFF_COMMIT="dbf744fd9b107a8e2ea24f8e1d46166b7f1bb2ff"
+OPENMETRICS_CUTOFF_VERSION="3.11.0"
+
+# return 0 if the Memgraph identified by $1 (tag/commit) supports --metrics-format=OpenMetrics
+supports_openmetrics() {
+  local tag="$1"
+  local tag_commit
+  tag_commit="$(extract_commit_from_tag "$tag")"
+  if [[ -n "$tag_commit" ]]; then
+    # tag carries a commit: does it contain the OpenMetrics commit?
+    git merge-base --is-ancestor "$OPENMETRICS_CUTOFF_COMMIT" "$tag_commit" 2>/dev/null
+    return
+  fi
+  # otherwise fall back to a version compare
+  local v
+  v="$(extract_version_from_tag "$tag")"
+  [[ -n "$v" ]] && version_gte "$v" "$OPENMETRICS_CUTOFF_VERSION"
 }
 
 auth_pre_upgrade_file=$(behavior_for_tag "$LAST_TAG")
@@ -571,6 +597,9 @@ kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRIS
 # repo instead (cloned locally; no --version pin).
 HELM_CHARTS_BRANCH="${HELM_CHARTS_BRANCH:-}"
 HELM_CHARTS_REPO_URL="${HELM_CHARTS_REPO_URL:-https://github.com/memgraph/helm-charts}"
+# TODO(matt): bump CHART_VERSION to the published chart release that includes
+# vmagentRemote.scrapeMemgraphDirectly (chart > 1.1.0) so the default path uses
+# direct OpenMetrics scraping instead of falling back to the mg-exporter.
 CHART_VERSION="${CHART_VERSION:-1.0.1}"
 
 if [[ -n "$HELM_CHARTS_BRANCH" ]]; then
@@ -579,11 +608,19 @@ if [[ -n "$HELM_CHARTS_BRANCH" ]]; then
   git clone --depth 1 --branch "$HELM_CHARTS_BRANCH" "$HELM_CHARTS_REPO_URL" helm-charts
   HA_CHART="helm-charts/charts/memgraph-high-availability"
   CHART_VERSION_ARGS=()
+  # A branch is assumed to support direct OpenMetrics scraping (it's where the feature lives).
+  CHART_SUPPORTS_DIRECT_SCRAPE=true
 else
   helm repo add memgraph https://memgraph.github.io/helm-charts >/dev/null 2>&1 || true
   helm repo update memgraph
   HA_CHART="memgraph/memgraph-high-availability"
   CHART_VERSION_ARGS=(--version "$CHART_VERSION")
+  # The published chart only exposes vmagentRemote.scrapeMemgraphDirectly after 1.1.0.
+  if version_gt "$CHART_VERSION" "1.1.0"; then
+    CHART_SUPPORTS_DIRECT_SCRAPE=true
+  else
+    CHART_SUPPORTS_DIRECT_SCRAPE=false
+  fi
 fi
 
 MEMGRAPH_NAMESPACE="${MEMGRAPH_NAMESPACE:-default}"
@@ -630,13 +667,26 @@ if [[ "${REMOTE_MONITORING_ENABLED}" == "true" ]]; then
     --from-literal=password="${MONITORING_PASSWORD}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  # Always scrape Memgraph's OpenMetrics endpoint directly (no mg-exporter). The
-  # chart appends --metrics-format=OpenMetrics to each instance automatically.
-  # Requires a chart that supports vmagentRemote.scrapeMemgraphDirectly (use
-  # HELM_CHARTS_BRANCH until that chart version is published).
+  # Scrape Memgraph's OpenMetrics endpoint directly only when both the chart and the
+  # starting Memgraph version support it; the chart then appends
+  # --metrics-format=OpenMetrics to each instance. Otherwise fall back to the
+  # mg-exporter (Prometheus) path, which reads Memgraph's legacy JSON metrics and
+  # works with older Memgraph versions.
+  if [[ "$CHART_SUPPORTS_DIRECT_SCRAPE" == "true" ]] && supports_openmetrics "$LAST_TAG"; then
+    echo -e "${GREEN}Monitoring: scraping Memgraph OpenMetrics directly (chart supports it; start tag ${LAST_TAG} supports --metrics-format).${NC}"
+    helm_install_args+=(
+      --set prometheus.enabled=false
+      --set vmagentRemote.scrapeMemgraphDirectly=true
+    )
+  else
+    echo -e "${YELLOW}Monitoring: using mg-exporter (Prometheus) path — OpenMetrics unavailable (chart_supports=${CHART_SUPPORTS_DIRECT_SCRAPE}, start tag ${LAST_TAG}).${NC}"
+    helm_install_args+=(
+      --set prometheus.enabled=true
+      --set "prometheus.namespace=${MONITORING_NAMESPACE}"
+      --set prometheus.serviceMonitor.enabled=false
+    )
+  fi
   helm_install_args+=(
-    --set prometheus.enabled=false
-    --set vmagentRemote.scrapeMemgraphDirectly=true
     --set vmagentRemote.enabled=true
     --set "vmagentRemote.namespace=${MONITORING_NAMESPACE}"
     --set "vmagentRemote.remoteWrite.url=${REMOTE_WRITE_URL}"
