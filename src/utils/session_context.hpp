@@ -68,6 +68,8 @@ class SessionLogContext {
     }
   }
 
+  // noexcept relies on transparent lookup: find(string_view) must not allocate a temporary
+  // std::string key (which could throw bad_alloc). Keep StringHash/equal_to<> transparent.
   std::optional<std::string_view> GetSetting(std::string_view key) const noexcept {
     auto it = session_settings_overlay_.find(key);
     if (it == session_settings_overlay_.end()) return std::nullopt;
