@@ -65,6 +65,11 @@ add_unit_test(bfs_fine_grained
     LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
+add_unit_test(crc_accumulator
+        SOURCES crc_accumulator.cpp
+        LINK_TARGETS mg-utils
+)
+
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils
