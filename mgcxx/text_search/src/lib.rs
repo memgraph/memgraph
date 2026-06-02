@@ -65,6 +65,10 @@ mod ffi {
         return_fields: Vec<String>,
         aggregation_query: String,
         limit: usize,
+        fuzzy_distance: u8,
+        fuzzy_prefix: bool,
+        fuzzy_transpositions: bool,
+        fuzzy_field: String,
         // NOTE: Any primitive value here is a bit of a problem because of default value on the C++
         // side.
     }
@@ -151,6 +155,29 @@ impl ffi::SearchInput {
     fn effective_limit(&self) -> usize {
         if self.limit == 0 { 1000 } else { self.limit }
     }
+}
+
+fn apply_fuzzy_config(
+    query_parser: &mut QueryParser,
+    schema: &Schema,
+    input: &ffi::SearchInput,
+) -> Result<(), std::io::Error> {
+    if input.fuzzy_distance == 0 {
+        return Ok(());
+    }
+    let field = schema.get_field(&input.fuzzy_field).map_err(|e| {
+        Error::new(
+            ErrorKind::Other,
+            format!("fuzzy field '{}' not found in schema -> {}", input.fuzzy_field, e),
+        )
+    })?;
+    query_parser.set_field_fuzzy(
+        field,
+        input.fuzzy_prefix,
+        input.fuzzy_distance,
+        input.fuzzy_transpositions,
+    );
+    Ok(())
 }
 
 fn owned_value_to_json(val: OwnedValue) -> serde_json::Value {
@@ -835,7 +862,8 @@ fn search_gids_pinned(
     let schema = &context.tantivyContext.schema;
 
     let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
-    let query_parser = QueryParser::for_index(index, search_fields);
+    let mut query_parser = QueryParser::for_index(index, search_fields);
+    apply_fuzzy_config(&mut query_parser, schema, input)?;
     let query = query_parser.parse_query(&input.search_query).map_err(|e| {
         Error::new(
             ErrorKind::Other,
@@ -925,7 +953,8 @@ fn search_edge_gids_pinned(
     let schema = &context.tantivyContext.schema;
 
     let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
-    let query_parser = QueryParser::for_index(index, search_fields);
+    let mut query_parser = QueryParser::for_index(index, search_fields);
+    apply_fuzzy_config(&mut query_parser, schema, input)?;
     let query = query_parser.parse_query(&input.search_query).map_err(|e| {
         Error::new(
             ErrorKind::Other,
