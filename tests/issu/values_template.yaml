@@ -381,7 +381,6 @@ data:
       - "--telemetry-enabled=false"
       - "--monitoring-port=7444"
       - "--monitoring-address=0.0.0.0"
-      - "--metrics-format=OpenMetrics"
   - id: "1"
     restoreDataFromSnapshot: false
     volumeSnapshotName: data-1-snap
@@ -395,7 +394,6 @@ data:
       - "--telemetry-enabled=false"
       - "--monitoring-port=7444"
       - "--monitoring-address=0.0.0.0"
-      - "--metrics-format=OpenMetrics"
 
 coordinators:
   - id: "1"
@@ -410,7 +408,6 @@ coordinators:
       - "--telemetry-enabled=false"
       - "--monitoring-port=7444"
       - "--monitoring-address=0.0.0.0"
-      - "--metrics-format=OpenMetrics"
 
   - id: "2"
     restoreDataFromSnapshot: false
@@ -424,7 +421,6 @@ coordinators:
       - "--telemetry-enabled=false"
       - "--monitoring-port=7444"
       - "--monitoring-address=0.0.0.0"
-      - "--metrics-format=OpenMetrics"
 
   - id: "3"
     restoreDataFromSnapshot: false
@@ -438,7 +434,6 @@ coordinators:
       - "--telemetry-enabled=false"
       - "--monitoring-port=7444"
       - "--monitoring-address=0.0.0.0"
-      - "--metrics-format=OpenMetrics"
 
 userContainers:
   data: []
