@@ -57,14 +57,20 @@ void AggregateEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
 }  // namespace TextSearch
 
 namespace {
-// mgp::Map::At returns Value by value; never bind it to a reference.
-mgp::Value ExtractTyped(const mgp::Map &config, std::string_view key, bool (mgp::Value::*is_type)() const,
-                        std::string_view type_name) {
-  auto value = config.At(key);
-  if (!(value.*is_type)()) {
-    throw std::invalid_argument(fmt::format("text_search config '{}' must be {}.", key, type_name));
+int64_t ExtractInt(const mgp::Map &config, std::string_view key) {
+  const auto value = config.At(key);
+  if (!value.IsInt()) {
+    throw std::invalid_argument(fmt::format("text_search config '{}' must be an integer.", key));
   }
-  return value;
+  return value.ValueInt();
+}
+
+bool ExtractBool(const mgp::Map &config, std::string_view key) {
+  const auto value = config.At(key);
+  if (!value.IsBool()) {
+    throw std::invalid_argument(fmt::format("text_search config '{}' must be a boolean.", key));
+  }
+  return value.ValueBool();
 }
 
 void RejectIfUnsupported(bool fuzzy_supported, bool key_makes_difference, std::string_view key) {
@@ -85,7 +91,7 @@ mgp::TextSearchConfig TextSearch::ParseConfig(const mgp::Map &config, bool fuzzy
   }
 
   if (config.KeyExists(kConfigLimit)) {
-    const auto raw = ExtractTyped(config, kConfigLimit, &mgp::Value::IsInt, "an integer").ValueInt();
+    const auto raw = ExtractInt(config, kConfigLimit);
     if (raw < 0) {
       throw std::invalid_argument("text_search config 'limit' must be non-negative.");
     }
@@ -93,19 +99,19 @@ mgp::TextSearchConfig TextSearch::ParseConfig(const mgp::Map &config, bool fuzzy
   }
 
   if (config.KeyExists(kConfigFuzzyDistance)) {
-    const auto raw = ExtractTyped(config, kConfigFuzzyDistance, &mgp::Value::IsInt, "an integer").ValueInt();
+    const auto raw = ExtractInt(config, kConfigFuzzyDistance);
     RejectIfUnsupported(fuzzy_supported, raw != 0, kConfigFuzzyDistance);
     parsed.fuzzy_distance = static_cast<std::uint8_t>(raw);
   }
 
   if (config.KeyExists(kConfigFuzzyPrefix)) {
-    const auto raw = ExtractTyped(config, kConfigFuzzyPrefix, &mgp::Value::IsBool, "a boolean").ValueBool();
+    const auto raw = ExtractBool(config, kConfigFuzzyPrefix);
     RejectIfUnsupported(fuzzy_supported, raw, kConfigFuzzyPrefix);
     parsed.fuzzy_prefix = raw;
   }
 
   if (config.KeyExists(kConfigFuzzyTranspositions)) {
-    const auto raw = ExtractTyped(config, kConfigFuzzyTranspositions, &mgp::Value::IsBool, "a boolean").ValueBool();
+    const auto raw = ExtractBool(config, kConfigFuzzyTranspositions);
     RejectIfUnsupported(fuzzy_supported, !raw, kConfigFuzzyTranspositions);  // default is true
     parsed.fuzzy_transpositions = raw;
   }

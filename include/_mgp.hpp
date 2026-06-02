@@ -373,8 +373,8 @@ inline mgp_map *graph_search_text_index(mgp_graph *graph, const char *index_name
                              search_mode,
                              limit,
                              fuzzy_distance,
-                             static_cast<int>(fuzzy_prefix),
-                             static_cast<int>(fuzzy_transpositions),
+                             fuzzy_prefix,
+                             fuzzy_transpositions,
                              memory);
 }
 
@@ -395,8 +395,8 @@ inline mgp_map *graph_search_text_edge_index(mgp_graph *graph, const char *index
                              search_mode,
                              limit,
                              fuzzy_distance,
-                             static_cast<int>(fuzzy_prefix),
-                             static_cast<int>(fuzzy_transpositions),
+                             fuzzy_prefix,
+                             fuzzy_transpositions,
                              memory);
 }
 

@@ -16,6 +16,7 @@
 #include <thread>
 
 #include "flags/experimental.hpp"
+#include "query/exceptions.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -339,5 +340,62 @@ TEST_F(TextIndexTest, DropTextIndexAbortRestoresIndex) {
     ASSERT_TRUE(acc->DropTextIndex(test_index.data()).has_value())
         << "After an aborted DROP, the text index must be visible again and droppable.";
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TEST_F(TextIndexTest, FuzzySearchToleratesSingleEdit) {
+  this->CreateIndex();
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    this->CreateVertex(acc.get(), "memgraph", "");
+    this->CreateVertex(acc.get(), "memgrap", "");
+    this->CreateVertex(acc.get(), "coffee", "");
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto exact = acc->TextIndexSearch(
+        test_index.data(), "data.title:memgraph", text_search_mode::SPECIFIED_PROPERTIES, default_config);
+    EXPECT_EQ(exact.size(), 1);
+
+    constexpr TextSearchConfig fuzzy_config{.limit = 10, .fuzzy_distance = 1};
+    auto fuzzy = acc->TextIndexSearch(
+        test_index.data(), "data.title:memgraph", text_search_mode::SPECIFIED_PROPERTIES, fuzzy_config);
+    EXPECT_EQ(fuzzy.size(), 2);
+  }
+}
+
+TEST_F(TextIndexTest, FuzzySearchAllProperties) {
+  this->CreateIndex();
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    this->CreateVertex(acc.get(), "memgraph", "");
+    this->CreateVertex(acc.get(), "coffee", "");
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto exact = acc->TextIndexSearch(test_index.data(), "memgrap", text_search_mode::ALL_PROPERTIES, default_config);
+    EXPECT_EQ(exact.size(), 0);
+
+    constexpr TextSearchConfig fuzzy_config{.limit = 10, .fuzzy_distance = 1};
+    auto fuzzy = acc->TextIndexSearch(test_index.data(), "memgrap", text_search_mode::ALL_PROPERTIES, fuzzy_config);
+    EXPECT_EQ(fuzzy.size(), 1);
+  }
+}
+
+TEST_F(TextIndexTest, FuzzyDistanceAboveTwoThrows) {
+  this->CreateIndex();
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    this->CreateVertex(acc.get(), "memgraph", "");
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    constexpr TextSearchConfig bad_config{.limit = 10, .fuzzy_distance = 3};
+    EXPECT_THROW(acc->TextIndexSearch(
+                     test_index.data(), "data.title:memgraph", text_search_mode::SPECIFIED_PROPERTIES, bad_config),
+                 memgraph::query::TextSearchException);
   }
 }

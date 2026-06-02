@@ -1544,6 +1544,61 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnNodes) {
   }
 }
 
+TYPED_TEST(CppApiTestFixture, TestTextIndexFuzzySearch) {
+  constexpr auto index_name = "fuzzy_node_text_index";
+  constexpr auto label_name = "Document";
+  constexpr auto property_name = "content";
+  constexpr std::size_t text_search_limit = 10;
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    auto label = db_acc->NameToLabel(label_name);
+    auto property = db_acc->NameToProperty(property_name);
+    auto text_index_spec =
+        memgraph::storage::TextIndexSpec{.index_name = index_name, .label = label, .properties = {property}};
+    ASSERT_TRUE(db_acc->CreateTextIndex(text_index_spec).has_value());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto graph = mgp::Graph(&raw_graph);
+    auto node = graph.CreateNode();
+    node.AddLabel(label_name);
+    node.SetProperty(property_name, mgp::Value("memgraph"));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto storage_acc = this->storage->Access(memgraph::storage::StorageAccessType::READ);
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+
+    auto exact = mgp::SearchTextIndex(&raw_graph,
+                                      index_name,
+                                      "data.content:memgrap",
+                                      text_search_mode::SPECIFIED_PROPERTIES,
+                                      mgp::TextSearchConfig{.limit = text_search_limit});
+    EXPECT_EQ(exact.Size(), 0);
+
+    auto fuzzy = mgp::SearchTextIndex(&raw_graph,
+                                      index_name,
+                                      "data.content:memgrap",
+                                      text_search_mode::SPECIFIED_PROPERTIES,
+                                      mgp::TextSearchConfig{.limit = text_search_limit, .fuzzy_distance = 1});
+    EXPECT_EQ(fuzzy.Size(), 1);
+  }
+
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    ASSERT_TRUE(db_acc->DropTextIndex(index_name).has_value());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
 TYPED_TEST(CppApiTestFixture, TestTextIndexOnEdges) {
   if constexpr (!std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
     GTEST_SKIP() << "TestTextIndexOnEdges runs only on InMemoryStorage.";
