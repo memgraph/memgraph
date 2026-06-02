@@ -134,6 +134,11 @@ def can_connect_to_github(host=("github.com", 443), timeout=3):
     can connect to the GitHub server.
     """
 
+    # Escape hatch for environments where GitHub is unreachable: a keyless SSH
+    # origin makes the version probe hang cmake-configure rather than fail fast.
+    if os.environ.get("MEMGRAPH__GET_VERSION__LOCAL_ONLY") is not None:
+        return False
+
     if not check_dns_availability():
         print("Warning: Could not connect to GitHub - DNS resolution failed", flush=True, file=sys.stderr)
         return False
