@@ -566,8 +566,25 @@ echo -e "${YELLOW} Creating secret with license details"
 kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=${ENTERPRISE_LICENSE} --from-literal=MEMGRAPH_ORGANIZATION_NAME=${ORGANIZATION_NAME}
 
 # --- Helm chart prep ---
-helm repo add memgraph https://memgraph.github.io/helm-charts >/dev/null 2>&1 || true
-helm repo update memgraph
+# By default install the published chart pinned to a specific version. Optionally,
+# set HELM_CHARTS_BRANCH to install the HA chart from a branch of the helm-charts
+# repo instead (cloned locally; no --version pin).
+HELM_CHARTS_BRANCH="${HELM_CHARTS_BRANCH:-}"
+HELM_CHARTS_REPO_URL="${HELM_CHARTS_REPO_URL:-https://github.com/memgraph/helm-charts}"
+CHART_VERSION="${CHART_VERSION:-1.0.1}"
+
+if [[ -n "$HELM_CHARTS_BRANCH" ]]; then
+  echo -e "${GREEN}Using helm-charts branch '${HELM_CHARTS_BRANCH}' from ${HELM_CHARTS_REPO_URL}${NC}"
+  rm -rf helm-charts
+  git clone --depth 1 --branch "$HELM_CHARTS_BRANCH" "$HELM_CHARTS_REPO_URL" helm-charts
+  HA_CHART="helm-charts/charts/memgraph-high-availability"
+  CHART_VERSION_ARGS=()
+else
+  helm repo add memgraph https://memgraph.github.io/helm-charts >/dev/null 2>&1 || true
+  helm repo update memgraph
+  HA_CHART="memgraph/memgraph-high-availability"
+  CHART_VERSION_ARGS=(--version "$CHART_VERSION")
+fi
 
 MEMGRAPH_NAMESPACE="${MEMGRAPH_NAMESPACE:-default}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
@@ -588,8 +605,8 @@ fi
 
 helm_install_args=(
   install "$RELEASE"
-  memgraph/memgraph-high-availability
-  --version 1.0.1
+  "$HA_CHART"
+  "${CHART_VERSION_ARGS[@]}"
   -f old_values.yaml
   --timeout 120s
   --wait
@@ -613,10 +630,13 @@ if [[ "${REMOTE_MONITORING_ENABLED}" == "true" ]]; then
     --from-literal=password="${MONITORING_PASSWORD}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
+  # Always scrape Memgraph's OpenMetrics endpoint directly (no mg-exporter). The
+  # chart appends --metrics-format=OpenMetrics to each instance automatically.
+  # Requires a chart that supports vmagentRemote.scrapeMemgraphDirectly (use
+  # HELM_CHARTS_BRANCH until that chart version is published).
   helm_install_args+=(
-    --set prometheus.enabled=true
-    --set "prometheus.namespace=${MONITORING_NAMESPACE}"
-    --set prometheus.serviceMonitor.enabled=false
+    --set prometheus.enabled=false
+    --set vmagentRemote.scrapeMemgraphDirectly=true
     --set vmagentRemote.enabled=true
     --set "vmagentRemote.namespace=${MONITORING_NAMESPACE}"
     --set "vmagentRemote.remoteWrite.url=${REMOTE_WRITE_URL}"
@@ -776,7 +796,7 @@ kubectl exec memgraph-data-0-0 -- bash -c "mgconsole < /var/lib/memgraph/pre_upg
 echo "Run test queries on old version"
 
 # --- Upgrade chart values ---
-helm upgrade "$RELEASE" memgraph/memgraph-high-availability --version 1.0.1 -f new_values.yaml
+helm upgrade "$RELEASE" "$HA_CHART" "${CHART_VERSION_ARGS[@]}" -f new_values.yaml
 echo "Updated versions"
 
 
