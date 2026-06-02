@@ -151,12 +151,12 @@ struct PropertyInfo {
   int64_t number_of_property_occurrences = 0;
 };
 
+namespace {
 void RecordPropertyObservation(PropertyInfo &info, const mgp::Value &prop) {
   info.property_types.insert(Schema::TypeOf(prop.Type()));
   info.number_of_property_occurrences++;
 }
 
-namespace {
 using ConstraintsByLabel = std::unordered_map<std::string, std::unordered_set<std::string>>;
 
 // Entries are "<label>:<property_path>", unescaped. Names containing ':' (only possible via

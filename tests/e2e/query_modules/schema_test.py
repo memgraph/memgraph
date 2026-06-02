@@ -684,6 +684,38 @@ def test_node_type_properties_enum():
     assert list(result[1]) == [":`Item`", ["Item"], "status", ["Enum"], False]
 
 
+def test_node_type_properties_boolean():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (n:Flag {name: 'feature', enabled: true})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 2
+    assert list(result[0]) == [":`Flag`", ["Flag"], "enabled", ["Boolean"], False]
+    assert list(result[1]) == [":`Flag`", ["Flag"], "name", ["String"], False]
+
+
+def test_node_type_properties_float():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (n:Measurement {name: 'temperature', value: 21.5})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 2
+    assert list(result[0]) == [":`Measurement`", ["Measurement"], "name", ["String"], False]
+    assert list(result[1]) == [":`Measurement`", ["Measurement"], "value", ["Float"], False]
+
+
 def test_rel_type_properties_point2d():
     cursor = connect().cursor()
     execute_and_fetch_all(
