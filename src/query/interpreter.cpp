@@ -2808,7 +2808,7 @@ Callback HandleQueryCallableMappingsQuery() {
     results.reserve(mapping.size());
 
     for (const auto &[alias, source] : mapping) {
-      const std::string_view type = [&]() -> std::string_view {
+      std::string_view type = [&]() -> std::string_view {
         if (procedure::FindProcedure(procedure::gModuleRegistry, source)) return "procedure";
         if (procedure::FindFunction(procedure::gModuleRegistry, source)) return "function";
         return "unknown";
@@ -3522,10 +3522,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (slow_query_plan_renderer_out != nullptr &&
       flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, *interpreter.GetLogContext()) >=
           0) {
-    // Arm the renderer only when slow-query logging may apply. Pull invokes it
-    // lazily, while dba is alive and only past the threshold, so fast queries
-    // don't pay for rendering. log.query_plan is re-checked at emit time. plan is
-    // a shared_ptr, so the copy keeps the tree alive independently.
+    // Arm only when slow logging may apply; Pull invokes it lazily, past the threshold
+    // and while dba is alive, so fast queries don't pay for rendering. plan is a
+    // shared_ptr, so the capture keeps the tree alive.
     *slow_query_plan_renderer_out = [plan, dba]() {
       std::stringstream printed_plan;
       plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
@@ -10009,9 +10008,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
     // query_execution holds the query string copy that survives Prepare* moving it out.
-    const std::string_view failed_query_text = (query_execution_ptr && *query_execution_ptr)
-                                                   ? std::string_view{(*query_execution_ptr)->query_string}
-                                                   : std::string_view{};
+    std::string_view failed_query_text = (query_execution_ptr && *query_execution_ptr)
+                                             ? std::string_view{(*query_execution_ptr)->query_string}
+                                             : std::string_view{};
     MaybeEmitFailedQueryLog(failed_query_text, e.what());
     // Trigger first failed query
     metrics::FirstFailedQuery();

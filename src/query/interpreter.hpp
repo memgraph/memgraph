@@ -555,6 +555,9 @@ class Interpreter final {
     std::vector<Notification> notifications;
     // Original query text, kept so log emits can quote it after the lambda chain
     // owning parsed_query is torn down.
+    // TODO: avoidable allocation. Already copied into transaction_queries_; could be moved
+    // from parsed_query (after its EXPLAIN/PROFILE uses) or skipped when slow+failed logging
+    // are both off — but then the save-gate must stay a superset of the emit-gate.
     std::string query_string;
     // Lazily renders the plan for the slow-query log. Set in PrepareCypherQuery,
     // invoked by Pull only past the duration gate and while its DbAccessor is alive.
@@ -578,9 +581,8 @@ class Interpreter final {
     }
   };
 
-  // Query text for the failed-query log. Pull moves the text into the captured copy
-  // before Commit; on a pre-move failure captured is empty and it still lives on the
-  // QueryExecution.
+  // Query text for the failed-query log: prefer Pull's captured copy; before Pull moves
+  // it out, captured is empty and the text still lives on the QueryExecution.
   static std::string_view FailedQueryText(const std::string &captured,
                                           const std::unique_ptr<QueryExecution> &query_execution) {
     if (!captured.empty()) return captured;
