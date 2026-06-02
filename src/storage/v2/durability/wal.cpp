@@ -43,6 +43,8 @@
 #include "utils/tag.hpp"
 #include "utils/variant_helpers.hpp"
 
+import memgraph.storage.property_value;
+
 namespace r = ranges;
 namespace rv = r::views;
 
@@ -286,6 +288,16 @@ auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder, const uint64
   if (!flag) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
     return *flag;
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<uint32_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, uint32_t, void> {
+  const auto val = decoder->ReadUint();
+  if (!val) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    return *val;
   }
 }
 
@@ -1205,8 +1217,9 @@ auto convert_to_transaction_access_type(StorageAccessType access_type) -> Transa
 }
 }  // namespace
 
-uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t const timestamp, bool const commit,
+uint64_t EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit,
                                 StorageAccessType access_type) {
+  encoder->ResetCrcAcc();
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
@@ -1216,19 +1229,15 @@ uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t co
   return flag_pos;
 }
 
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit,
-                            StorageAccessType access_type) {
-  encoder->WriteMarker(Marker::SECTION_DELTA);
-  encoder->WriteUint(timestamp);
-  encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
-  encoder->WriteBool(commit);
-  encoder->WriteUint(static_cast<uint8_t>(convert_to_transaction_access_type(access_type)));
-}
-
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
+  // Capture the CRC of everything accumulated since the matching EncodeTransactionStart (txn start + deltas) *before*
+  // writing the transaction-end frame, so the stored value matches what the reader can recompute. The reader snapshots
+  // its accumulator before consuming the transaction-end frame, hence the frame markers must be excluded here.
+  auto const txn_crc = encoder->CrcAccValue();
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_END);
+  encoder->WriteUint(txn_crc);
 }
 
 std::optional<RecoveryInfo> LoadWal(
@@ -1259,6 +1268,9 @@ std::optional<RecoveryInfo> LoadWal(
 
   // Recover deltas
   wal.SetPosition(info.offset_deltas);
+  // Initialize() accumulated the magic + version bytes into the decoder's CRC accumulator and SetPosition() only seeks
+  // the file. Reset here so the first transaction's CRC starts at the first delta, matching EncodeTransactionStart.
+  wal.ResetCrcAcc();
   uint64_t deltas_applied = 0;
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
@@ -1917,17 +1929,24 @@ std::optional<RecoveryInfo> LoadWal(
   };
 
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
+    auto const prev_crc_val = wal.CrcAccValue();
     // Read WAL delta header to find out the delta timestamp.
     if (auto delta_ts = ReadWalDeltaHeader(&wal);
         (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, *version);
-
       // We should always check if the delta is WalTransactionStart to update should_commit
       if (auto *txn_start = std::get_if<WalTransactionStart>(&delta.data_)) {
         should_commit = txn_start->commit.value_or(true);
         ++deltas_applied;
         continue;
+      }
+
+      if (auto *txn_end = std::get_if<WalTransactionEnd>(&delta.data_)) {
+        if (txn_end->txn_crc.has_value() && *txn_end->txn_crc != prev_crc_val) {
+          LOG_FATAL("Durability Crcs don't match. Running: {} Wal: {}", prev_crc_val, *txn_end->txn_crc);
+        }
+        wal.ResetCrcAcc();
       }
 
       if (should_commit) {
@@ -1944,8 +1963,13 @@ std::optional<RecoveryInfo> LoadWal(
       }
 
     } else {
-      // This delta should be skipped.
-      SkipWalDeltaData(&wal, *version);
+      // This delta should be skipped. SkipWalDeltaData returns true when the skipped delta was a transaction end; in
+      // that case reset the CRC accumulator so the next transaction starts clean, mirroring both the reset after a
+      // loaded transaction end and the reset done in EncodeTransactionStart on the write side. Without this, junk from
+      // skipped transactions (and the file header) leaks into the next loaded transaction's CRC.
+      if (SkipWalDeltaData(&wal, *version)) {
+        wal.ResetCrcAcc();
+      }
     }
   }
 

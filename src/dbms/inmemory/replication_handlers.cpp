@@ -12,6 +12,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/utils.hpp"  // Include after all SLK definitions are present
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -21,8 +22,6 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-
-#include "memory/db_arena_fwd.hpp"
 #include "utils/file.hpp"
 #include "utils/observer.hpp"
 
@@ -1175,12 +1174,13 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
   std::unordered_map<EdgeSetPropertyCacheKey, EdgeAccessor, EdgeSetPropertyCacheKeyHash> edge_set_property_cache;
 
+  decoder->ResetCrcAcc();
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
     if (current_batch_counter == deltas_batch_progress_size) {
       rpc::SendInProgressMsg(res_builder);
       current_batch_counter = 0;
     }
-
+    auto const prev_crc_val = decoder->CrcAccValue();
     auto const [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
@@ -1973,6 +1973,13 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
     };
+
+    if (auto const *txn_end = std::get_if<WalTransactionEnd>(&delta.data_)) {
+      if (txn_end->txn_crc.has_value() && *txn_end->txn_crc != prev_crc_val) {
+        LOG_FATAL("Replication crcs don't match. Running: {} Wal: {}", prev_crc_val, *txn_end->txn_crc);
+      }
+      decoder->ResetCrcAcc();
+    }
 
     // If I received PrepareCommitRpc, deltas should be applied (loading_wal will be false)
     // If loading WAL file, WalTransactionStart is decision-maker whether to load the txn from WAL or not

@@ -21,6 +21,8 @@
 #include "utils/endian.hpp"
 #include "utils/temporal.hpp"
 
+import memgraph.storage.property_value;
+
 namespace memgraph::storage::durability {
 
 //////////////////////////
@@ -67,6 +69,7 @@ void Encoder<FileType>::Close() {
 template <typename FileType>
 void Encoder<FileType>::Write(const uint8_t *data, uint64_t size) {
   file_.Write(data, size);
+  crc_acc.Update(data, size);
 }
 
 template <typename FileType>
@@ -357,7 +360,11 @@ std::optional<uint64_t> Decoder::Initialize(const std::filesystem::path &path, c
   return utils::LittleEndianToHost(version_encoded);
 }
 
-bool Decoder::Read(uint8_t *data, size_t size) { return file_.Read(data, size); }
+bool Decoder::Read(uint8_t *data, size_t size) {
+  auto const res = file_.Read(data, size);
+  crc_acc.Update(data, size);
+  return res;
+}
 
 bool Decoder::Peek(uint8_t *data, size_t size) { return file_.Peek(data, size); }
 

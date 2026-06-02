@@ -11,6 +11,8 @@
 
 #include "storage/v2/replication/serialization.hpp"
 
+import memgraph.storage.property_value;
+
 namespace memgraph::storage::replication {
 ////// Encoder //////
 void Encoder::WriteMarker(durability::Marker marker) { slk::Save(marker, builder_); }
@@ -87,6 +89,8 @@ bool Encoder::WriteFile(const std::filesystem::path &path, std::filesystem::path
   WriteFileData(&file);
   return true;
 }
+
+uint64_t Encoder::GetPosition() { return builder_->GetPosition(); }
 
 ////// Decoder //////
 std::optional<durability::Marker> Decoder::ReadMarker() {

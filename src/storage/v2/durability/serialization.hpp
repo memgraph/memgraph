@@ -18,7 +18,10 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/crc_accumulator.hpp"
 #include "utils/file.hpp"
+
+import memgraph.storage.property_value;
 
 namespace memgraph::storage::durability {
 
@@ -27,6 +30,7 @@ namespace memgraph::storage::durability {
 class BaseEncoder {
  protected:
   ~BaseEncoder() = default;
+  utils::CrcAccumulator crc_acc;
 
  public:
   virtual void WriteMarker(Marker marker) = 0;
@@ -38,6 +42,11 @@ class BaseEncoder {
   virtual void WritePoint2d(storage::Point2d value) = 0;
   virtual void WritePoint3d(storage::Point3d value) = 0;
   virtual void WriteExternalPropertyValue(const ExternalPropertyValue &value) = 0;
+  virtual auto GetPosition() -> uint64_t = 0;
+
+  void ResetCrcAcc() { crc_acc.Reset(); }
+
+  auto CrcAccValue() const -> uint32_t { return crc_acc.Value(); }
 };
 
 /// Encoder that is used to generate a snapshot/WAL.
@@ -64,7 +73,7 @@ class Encoder final : public BaseEncoder {
   void WritePoint3d(storage::Point3d value) override;
   void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
-  uint64_t GetPosition();
+  uint64_t GetPosition() override;
   void SetPosition(uint64_t position);
 
   void Sync();
@@ -99,6 +108,7 @@ class Encoder final : public BaseEncoder {
 class BaseDecoder {
  protected:
   ~BaseDecoder() = default;
+  utils::CrcAccumulator crc_acc;
 
  public:
   virtual std::optional<Marker> ReadMarker() = 0;
@@ -113,6 +123,10 @@ class BaseDecoder {
 
   virtual bool SkipString() = 0;
   virtual bool SkipExternalPropertyValue() = 0;
+
+  void ResetCrcAcc() { crc_acc.Reset(); }
+
+  auto CrcAccValue() const -> uint32_t { return crc_acc.Value(); }
 };
 
 /// Decoder that is used to read a generated snapshot/WAL.
