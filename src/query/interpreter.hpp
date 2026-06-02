@@ -690,7 +690,6 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       // ResetInterpreter tear it down). Emit is deferred until after a successful
       // commit, so a commit failure is logged as failed, not slow.
       {
-        auto renderer = std::move(query_execution->prepared_query->slow_query_plan_renderer);
         const auto threshold_ms =
             flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, session_log_ctx_);
         if (threshold_ms >= 0) {
@@ -704,6 +703,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
           slow_query_duration_ms = static_cast<int64_t>(total_sec * 1000.0);
           if (slow_query_duration_ms >= threshold_ms) {
             emit_slow_query = true;
+            auto &renderer = query_execution->prepared_query->slow_query_plan_renderer;
             if (renderer && flags::run_time::GetEffective<bool>(flags::run_time::kLogQueryPlanKey, session_log_ctx_)) {
               captured_plan_text = renderer();
             }
