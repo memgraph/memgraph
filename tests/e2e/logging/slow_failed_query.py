@@ -70,7 +70,7 @@ def _read_after_settle(log_path, start_offset, settle=0.3):
 
 
 def test_slow_query_logged_when_threshold_zero():
-    """min_duration_ms=0 logs every successful query as Postgres's auto_explain does."""
+    """min_duration_ms=0 logs every successful query"""
     log_path = _active_log_path()
     start = os.path.getsize(log_path)
 
@@ -131,7 +131,55 @@ def test_slow_query_plan_block_inclusion_gated_by_log_query_plan():
     full = "\n".join(content.splitlines())
     idx = full.find("slow_no_plan")
     # Check the next ~200 chars after the marker for an unexpected PLAN: block.
-    assert "PLAN:" not in full[idx : idx + 200]
+    assert "PLAN:" not in full[idx:]
+
+
+def test_slow_query_plan_block_emitted_and_indented_when_enabled():
+    """log.query_plan=true (the default) appends a PLAN: block; its operator lines are indented."""
+    log_path = _active_log_path()
+    start = os.path.getsize(log_path)
+
+    conn = _connect()
+    _run(conn, 'SET SESSION SETTING "log.min_duration_ms" TO "0"')
+    _run(conn, 'SET SESSION SETTING "log.query_plan" TO "true"')
+    _run(conn, "RETURN 'slow_with_plan_marker'")
+
+    content = _read_appended(log_path, start, expect=["slow_with_plan_marker", "[slow-query]", "PLAN:"])
+    lines = content.splitlines()
+    header_idx = next((i for i, l in enumerate(lines) if "[slow-query]" in l and "slow_with_plan_marker" in l), None)
+    assert header_idx is not None, f"expected a [slow-query] header for the query; got: {content!r}"
+    # The PLAN: marker sits on its own line below the header (the block legitimately spans lines).
+    plan_idx = next((i for i, l in enumerate(lines[header_idx:], header_idx) if l.strip() == "PLAN:"), None)
+    assert plan_idx is not None, f"plan=true must emit a PLAN: block; got: {content!r}"
+    # The operator line(s) under PLAN: are indented by two spaces (e.g. the Produce operator).
+    plan_body = lines[plan_idx + 1 :]
+    assert any(
+        l.startswith("  ") and l.strip() for l in plan_body
+    ), f"PLAN block lines must be two-space indented; got: {plan_body!r}"
+
+
+def test_slow_query_with_newline_keeps_query_field_single_line():
+    r"""A multi-line successful query must keep its query= field on one physical [slow-query]
+    line (newline -> \n); only the optional PLAN block may legitimately span lines."""
+    log_path = _active_log_path()
+    start = os.path.getsize(log_path)
+
+    conn = _connect()
+    _run(conn, 'SET SESSION SETTING "log.min_duration_ms" TO "0"')
+    # Plan off so the header is the only [slow-query] line carrying the marker (the PLAN block,
+    # which is multi-line by design, would otherwise muddy the single-line assertion).
+    _run(conn, 'SET SESSION SETTING "log.query_plan" TO "false"')
+    multiline = "UNWIND [1, 2] AS slow_multiline_marker\nRETURN slow_multiline_marker"
+    _run(conn, multiline)
+
+    content = _read_appended(log_path, start, expect=["[slow-query]", "slow_multiline_marker"])
+    relevant = [line for line in content.splitlines() if "[slow-query]" in line and "slow_multiline_marker" in line]
+    assert relevant, f"expected one [slow-query] line carrying the query; got: {content!r}"
+    line = relevant[0]
+    # Both halves of the query landed on the same physical line (the newline did not split the record)...
+    assert "UNWIND [1, 2]" in line and "RETURN slow_multiline_marker" in line, f"record split across lines: {line!r}"
+    # ...and the embedded newline is rendered as the two-char escape, not a raw break.
+    assert r"\n" in line
 
 
 # --- Failed-query log -----------------------------------------------------------------
