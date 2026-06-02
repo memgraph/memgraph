@@ -3451,8 +3451,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                 Interpreter &interpreter, std::function<std::string()> *slow_query_plan_renderer_out,
-                                 FrameChangeCollector *frame_change_collector = nullptr
+                                 Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr
 #ifdef MG_ENTERPRISE
                                  ,
                                  std::shared_ptr<utils::UserResources> user_resource = {}
@@ -3519,13 +3518,13 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     memgraph::logging::EmitSessionTraceEvent("Explain plan:\n{}", printed_plan.str());
   }
 
-  if (slow_query_plan_renderer_out != nullptr &&
-      flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, *interpreter.GetLogContext()) >=
-          0) {
-    // Arm only when slow logging may apply; Pull invokes it lazily, past the threshold
-    // and while dba is alive, so fast queries don't pay for rendering. plan is a
-    // shared_ptr, so the capture keeps the tree alive.
-    *slow_query_plan_renderer_out = [plan, dba]() {
+  // Arm only when slow logging may apply; Pull invokes it lazily, past the threshold
+  // and while dba is alive, so fast queries don't pay for rendering. plan is a
+  // shared_ptr, so the capture keeps the tree alive.
+  std::function<std::string()> slow_query_plan_renderer;
+  if (flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, *interpreter.GetLogContext()) >=
+      0) {
+    slow_query_plan_renderer = [plan, dba]() {
       std::stringstream printed_plan;
       plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
       return printed_plan.str();
@@ -3596,7 +3595,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       },
       .rw_type = rw_type,
       .db = current_db.db_acc_->get()->name(),
-      .priority = utils::Priority::LOW};  // Default to LOW priority for all Cypher queries
+      .priority = utils::Priority::LOW,  // Default to LOW priority for all Cypher queries
+      .slow_query_plan_renderer = std::move(slow_query_plan_renderer)};
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notification> *notifications,
@@ -9673,7 +9673,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                           user_or_role_,
                                           make_stopping_context(),
                                           *this,
-                                          &query_execution->render_slow_query_plan,
                                           &*frame_change_collector_
 #ifdef MG_ENTERPRISE
                                           ,

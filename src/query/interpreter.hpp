@@ -212,6 +212,9 @@ struct PreparedQuery {
   plan::ReadWriteTypeChecker::RWType rw_type;
   std::optional<std::string> db{};
   utils::Priority priority{utils::Priority::LOW};
+  // Lazily renders the EXPLAIN plan for the slow-query log; empty unless slow logging may
+  // apply. Pull invokes it past the duration gate, while the plan's DbAccessor is alive.
+  std::function<std::string()> slow_query_plan_renderer{};
 };
 
 /**
@@ -559,9 +562,6 @@ class Interpreter final {
     // from parsed_query (after its EXPLAIN/PROFILE uses) or skipped when slow+failed logging
     // are both off — but then the save-gate must stay a superset of the emit-gate.
     std::string query_string;
-    // Lazily renders the plan for the slow-query log. Set in PrepareCypherQuery,
-    // invoked by Pull only past the duration gate and while its DbAccessor is alive.
-    std::function<std::string()> render_slow_query_plan;
 
     static auto Create(utils::MemoryTracker *db_query_tracker = nullptr) -> std::unique_ptr<QueryExecution> {
       return std::make_unique<QueryExecution>(db_query_tracker);
@@ -690,7 +690,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       // ResetInterpreter tear it down). Emit is deferred until after a successful
       // commit, so a commit failure is logged as failed, not slow.
       {
-        auto renderer = std::move(query_execution->render_slow_query_plan);
+        auto renderer = std::move(query_execution->prepared_query->slow_query_plan_renderer);
         const auto threshold_ms =
             flags::run_time::GetEffective<int64_t>(flags::run_time::kLogMinDurationMsKey, session_log_ctx_);
         if (threshold_ms >= 0) {
