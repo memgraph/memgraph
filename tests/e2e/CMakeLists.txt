@@ -8,40 +8,33 @@ endfunction()
 add_custom_target(memgraph__e2e)
 add_dependencies(memgraph__e2e memgraph)
 
-function(copy_e2e_python_files TARGET_PREFIX FILE_NAME)
-        add_custom_target(memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME} ALL
-                COMMAND ${CMAKE_COMMAND} -E copy
-                ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME}
-                ${CMAKE_CURRENT_BINARY_DIR}/${FILE_NAME}
-                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME})
+function(_copy_e2e_file_impl TARGET_PREFIX SRC FILE_NAME)
+        # Stamp-file pattern so ninja can detect up-to-date and skip the copy.
+        # Plain `add_custom_target(... ALL COMMAND ...)` has no OUTPUT and would
+        # re-run every build regardless of mtime.
+        set(_dst ${CMAKE_CURRENT_BINARY_DIR}/${FILE_NAME})
+        add_custom_command(
+                OUTPUT ${_dst}
+                COMMAND ${CMAKE_COMMAND} -E copy ${SRC} ${_dst}
+                DEPENDS ${SRC})
+        add_custom_target(memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME} ALL DEPENDS ${_dst})
         add_dependencies(memgraph__e2e memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME})
+endfunction()
+
+function(copy_e2e_python_files TARGET_PREFIX FILE_NAME)
+        _copy_e2e_file_impl(${TARGET_PREFIX} ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME} ${FILE_NAME})
 endfunction()
 
 function(copy_e2e_python_files_from_parent_folder TARGET_PREFIX EXTRA_PATH FILE_NAME)
-        add_custom_target(memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME} ALL
-                COMMAND ${CMAKE_COMMAND} -E copy
-                ${CMAKE_CURRENT_SOURCE_DIR}/${EXTRA_PATH}/${FILE_NAME}
-                ${CMAKE_CURRENT_BINARY_DIR}/${FILE_NAME}
-                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${EXTRA_PATH}/${FILE_NAME})
-        add_dependencies(memgraph__e2e memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME})
+        _copy_e2e_file_impl(${TARGET_PREFIX} ${CMAKE_CURRENT_SOURCE_DIR}/${EXTRA_PATH}/${FILE_NAME} ${FILE_NAME})
 endfunction()
 
 function(copy_e2e_cpp_files TARGET_PREFIX FILE_NAME)
-        add_custom_target(memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME} ALL
-                COMMAND ${CMAKE_COMMAND} -E copy
-                ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME}
-                ${CMAKE_CURRENT_BINARY_DIR}/${FILE_NAME}
-                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME})
-        add_dependencies(memgraph__e2e memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME})
+        _copy_e2e_file_impl(${TARGET_PREFIX} ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME} ${FILE_NAME})
 endfunction()
 
 function(copy_e2e_files TARGET_PREFIX FILE_NAME)
-        add_custom_target(memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME} ALL
-                COMMAND ${CMAKE_COMMAND} -E copy
-                ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME}
-                ${CMAKE_CURRENT_BINARY_DIR}/${FILE_NAME}
-                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME})
-        add_dependencies(memgraph__e2e memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME})
+        _copy_e2e_file_impl(${TARGET_PREFIX} ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME} ${FILE_NAME})
 endfunction()
 
 add_subdirectory(fine_grained_access)

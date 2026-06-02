@@ -98,19 +98,29 @@ set(PYTHON_QUERY_MODULES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/mgps.py
     ${CMAKE_CURRENT_SOURCE_DIR}/date.py
 )
-add_custom_target(copy_python_query_modules ALL
-    COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${QUERY_MODULES_BUILD_DIR}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${QUERY_MODULES_BUILD_DIR}/mage
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/mage/python/mage/__init__.py ${QUERY_MODULES_BUILD_DIR}/mage/__init__.py
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${QUERY_MODULES_BUILD_DIR}/mage/date
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/mage/python/mage/date ${QUERY_MODULES_BUILD_DIR}/mage/date
-    COMMAND ${CMAKE_COMMAND} -E touch ${QUERY_MODULES_BUILD_DIR}/mage/date/__init__.py
+file(GLOB MAGE_DATE_FILES "${CMAKE_SOURCE_DIR}/mage/python/mage/date/*")
+mg_add_stamped_custom_target(copy_python_query_modules ALL
+    STAMP_DIR ${QUERY_MODULES_BUILD_DIR}
+    COMMANDS
+        COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${QUERY_MODULES_BUILD_DIR}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${QUERY_MODULES_BUILD_DIR}/mage
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/mage/python/mage/__init__.py ${QUERY_MODULES_BUILD_DIR}/mage/__init__.py
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${QUERY_MODULES_BUILD_DIR}/mage/date
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/mage/python/mage/date ${QUERY_MODULES_BUILD_DIR}/mage/date
+        COMMAND ${CMAKE_COMMAND} -E touch ${QUERY_MODULES_BUILD_DIR}/mage/date/__init__.py
+    DEPENDS
+        ${PYTHON_QUERY_MODULES_FILES}
+        ${CMAKE_SOURCE_DIR}/mage/python/mage/__init__.py
+        ${MAGE_DATE_FILES}
     COMMENT "Copying Python query modules to build/query_modules"
 )
 
 file(GLOB MAGE_PYTHON_QUERY_MODULES "${CMAKE_SOURCE_DIR}/mage/python/*.py")
-add_custom_target(copy_mage_python_query_modules ALL
-    COMMAND ${CMAKE_COMMAND} -E copy ${MAGE_PYTHON_QUERY_MODULES} ${QUERY_MODULES_BUILD_DIR}
+mg_add_stamped_custom_target(copy_mage_python_query_modules ALL
+    STAMP_DIR ${QUERY_MODULES_BUILD_DIR}
+    COMMANDS
+        COMMAND ${CMAKE_COMMAND} -E copy ${MAGE_PYTHON_QUERY_MODULES} ${QUERY_MODULES_BUILD_DIR}
+    DEPENDS ${MAGE_PYTHON_QUERY_MODULES}
     COMMENT "Copying MAGE Python query modules to build/query_modules"
 )
 

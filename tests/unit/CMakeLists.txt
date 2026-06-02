@@ -171,11 +171,38 @@ add_unit_test(query_plan_read_write_typecheck
     LINK_TARGETS mg-query disk_test_utils
 )
 
-add_unit_test(query_plan_v2_create_set_remove_delete
-    SOURCES query_plan_v2_create_set_remove_delete.cpp
-    LINK_TARGETS mg-query mg-glue disk_test_utils
+# ============================================================================
+# plan_v2 unit tests - Layer 1: Pure algebra (no egraph, no planner)
+# ============================================================================
+add_unit_test(query_plan_v2_variable_set
+    SOURCES query_plan_v2_variable_set.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
 )
 
+add_unit_test(query_plan_v2_algebra
+    SOURCES query_plan_v2_algebra.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 2: egraph -> v1 reconstruction + resolver semantics
+# ============================================================================
+add_unit_test(query_plan_v2_converter
+    SOURCES query_plan_v2_converter.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 3: Cardinality estimation (no full pipeline)
+# ============================================================================
+add_unit_test(query_plan_v2_cardinality
+    SOURCES query_plan_v2_cardinality.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 3: Full extraction pipeline + rewrites
+# ============================================================================
 add_unit_test(query_plan_v2_rewrites
     SOURCES query_plan_v2_rewrites.cpp
     LINK_TARGETS mg-query mg-planner
@@ -184,6 +211,14 @@ add_unit_test(query_plan_v2_rewrites
 add_unit_test(query_plan_v2_pipeline
     SOURCES query_plan_v2_pipeline.cpp
     LINK_TARGETS mg-query mg-planner
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 4: End-to-end DML (CREATE/SET/REMOVE/DELETE)
+# ============================================================================
+add_unit_test(query_plan_v2_create_set_remove_delete
+    SOURCES query_plan_v2_create_set_remove_delete.cpp
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(query_pretty_print
@@ -845,11 +880,13 @@ if (MG_ENTERPRISE)
         LINK_TARGETS mg-auth mg-license Boost::filesystem
     )
 
-    add_custom_target(memgraph__unit__auth_kvstore_dir ALL
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore
-        ${CMAKE_CURRENT_BINARY_DIR}/auth_kvstore
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore)
+    file(GLOB _auth_kvstore_files "${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore/*")
+    mg_add_stamped_custom_target(memgraph__unit__auth_kvstore_dir ALL
+        STAMP_DIR ${CMAKE_CURRENT_BINARY_DIR}
+        COMMANDS COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore
+            ${CMAKE_CURRENT_BINARY_DIR}/auth_kvstore
+        DEPENDS ${_auth_kvstore_files})
     add_dependencies(memgraph__unit memgraph__unit__auth_kvstore_dir)
     add_dependencies(${test_unit_prefix}auth memgraph__unit__auth_kvstore_dir)
 endif ()

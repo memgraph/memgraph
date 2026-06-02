@@ -11,7 +11,7 @@
 
 #include <gtest/gtest.h>
 
-#include "test_symbols.hpp"
+#include "test_support/symbols.hpp"
 #include "utils/small_vector.hpp"
 
 import memgraph.planner.core.egraph;

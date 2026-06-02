@@ -19,7 +19,7 @@
 #include "frontend/semantic/rw_checker.hpp"
 #include "frontend/semantic/symbol_generator.hpp"
 #include "plan/read_write_type_checker.hpp"
-#include "plan_v2/egraph_converter.hpp"
+#include "plan_v2/frontend/egraph_converter.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan/planner.hpp"
@@ -29,8 +29,8 @@
 #include "utils/flag_validation.hpp"
 
 #include "parameters/parameters.hpp"
-#include "query/plan_v2/ast_converter.hpp"
-#include "query/plan_v2/rewrites.hpp"
+#include "query/plan_v2/frontend/ast_converter.hpp"
+#include "query/plan_v2/rewrite/rewrites.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -173,12 +173,13 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 }
 
 auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
-                     const std::vector<Identifier *> &predefined_identifiers) -> std::unique_ptr<LogicalPlan> {
+                     const std::vector<Identifier *> &predefined_identifiers,
+                     plan::v2::QueryPlannerContext &planner_context) -> std::unique_ptr<LogicalPlan> {
   // TODO: we need to make sure we decouple symbol position from frame position
   //       symbols are needed for debugging (a semantic name)
   //       during evaluation frame slots are dumping ground for temporary evaluation results
   //       planner may remove need for all symbols (hence we shouldn't waste frame slots that are unused)
-  auto [root, cost, used_ast_storage, symbol_table] = std::invoke([&] {
+  auto result = std::invoke([&] {
     // TODO: this is problem multi tenant queries (ATM we assume a single active database for whole query)
     auto vertex_counts = plan::VertexCountCache(db_accessor);
     auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
@@ -194,22 +195,29 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
       // Extraction produces a compact SymbolTable covering only the symbols in
       // the extracted plan; return it in place of the parse-time table so
       // downstream lookups target the authoritative one.
-      return ConvertToLogicalOperator(egraph, root);
+      return ConvertToLogicalOperator(egraph, root, planner_context);
     }
     auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
     auto [plan, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
-    return std::tuple{std::move(plan), cost, std::move(ast_storage), std::move(symbol_table)};
+    return plan::v2::ExtractionResult{.plan = std::move(plan),
+                                      .cost = cost,
+                                      .ast_storage = std::move(ast_storage),
+                                      .symbol_table = std::move(symbol_table)};
   });
 
   auto rw_type_checker = plan::ReadWriteTypeChecker();
-  rw_type_checker.InferRWType(*root);
-  return std::make_unique<SingleNodeLogicalPlan>(
-      std::move(root), cost, std::move(used_ast_storage), std::move(symbol_table), rw_type_checker.type);
+  rw_type_checker.InferRWType(*result.plan);
+  return std::make_unique<SingleNodeLogicalPlan>(std::move(result.plan),
+                                                 result.cost,
+                                                 std::move(result.ast_storage),
+                                                 std::move(result.symbol_table),
+                                                 rw_type_checker.type);
 }
 
 std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
                                                CypherQuery *query, const Parameters &parameters,
                                                PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
+                                               plan::v2::QueryPlannerContext &planner_context,
                                                const std::vector<Identifier *> &predefined_identifiers) {
   // Skip plan cache when using experimental v2 planner - plans may change as v2 evolves
   const bool use_plan_cache = plan_cache && !flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2);
@@ -235,7 +243,8 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
     }
   }
 
-  auto logical_plan = MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers);
+  auto logical_plan =
+      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers, planner_context);
   auto plan = std::make_shared<PlanWrapper>(std::move(logical_plan));
 
   if (use_plan_cache) {

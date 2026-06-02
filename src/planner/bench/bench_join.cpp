@@ -12,7 +12,6 @@
 #include "bench_rewrite.hpp"
 
 using namespace memgraph::planner::bench;
-using namespace memgraph::planner::bench::sizes;
 
 // ============================================================================
 // Join Strategies
@@ -22,9 +21,6 @@ using namespace memgraph::planner::bench::sizes;
 // - HashJoinShared: Patterns share variables, O(n) matches via hash-join
 // - HashJoinWide: Few shared x values, O(n²/k) matches where k = unique x's
 // - Cartesian: No shared variables, O(n²) matches (worst case)
-
-// Measures: Hash-join with 1:1 variable sharing (Add and Mul share same x,y).
-// Expected: O(n) matches, linear scaling.
 
 class HashJoinSharedFixture : public RewriterFixtureBase {
  protected:
@@ -52,15 +48,13 @@ BENCHMARK_DEFINE_F(HashJoinSharedFixture, Match)(benchmark::State &state) {
 }
 
 BENCHMARK_REGISTER_F(HashJoinSharedFixture, Match)
+    ->Name("Join/HashShared")
     ->Args({kSmall})
     ->Args({kMedium})
     ->Args({kLarge})
     ->Args({kXLarge})
     ->ArgNames({"nodes"})
     ->Unit(benchmark::kMicrosecond);
-
-// Measures: Hash-join with many-to-many sharing (n nodes share k x values).
-// Expected: O(n²/k) matches, super-linear growth.
 
 class HashJoinWideFixture : public RewriterFixtureBase {
  protected:
@@ -91,14 +85,12 @@ BENCHMARK_DEFINE_F(HashJoinWideFixture, Match)(benchmark::State &state) {
 }
 
 BENCHMARK_REGISTER_F(HashJoinWideFixture, Match)
+    ->Name("Join/HashWide")
     ->Args({kSmall})
     ->Args({kMedium})
     ->Args({500})
     ->ArgNames({"nodes"})
     ->Unit(benchmark::kMicrosecond);
-
-// Measures: Cartesian product join (patterns have no shared variables).
-// Expected: O(n²) matches, quadratic scaling - shows worst-case join cost.
 
 class CartesianJoinFixture : public RewriterFixtureBase {
  protected:
@@ -126,6 +118,7 @@ BENCHMARK_DEFINE_F(CartesianJoinFixture, Match)(benchmark::State &state) {
 }
 
 BENCHMARK_REGISTER_F(CartesianJoinFixture, Match)
+    ->Name("Join/Cartesian")
     ->Args({kSmall})
     ->Args({kMedium})
     ->Args({500})

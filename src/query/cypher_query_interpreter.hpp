@@ -33,7 +33,11 @@ namespace memgraph::query {
 
 namespace plan {
 class LogicalOperator;
+
+namespace v2 {
+class QueryPlannerContext;
 }
+}  // namespace plan
 
 class SymbolTable;
 class Query;
@@ -152,7 +156,8 @@ using PlanCache_t = utils::LRUCache<frontend::HashedString, std::shared_ptr<quer
 using PlanCacheLRU = utils::Synchronized<PlanCache_t, utils::RWSpinLock>;
 
 auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
-                     const std::vector<Identifier *> &predefined_identifiers) -> std::unique_ptr<LogicalPlan>;
+                     const std::vector<Identifier *> &predefined_identifiers,
+                     plan::v2::QueryPlannerContext &planner_context) -> std::unique_ptr<LogicalPlan>;
 
 /**
  * Return the parsed *Cypher* query's AST cached logical plan, or create and
@@ -165,6 +170,7 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
 std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
                                                CypherQuery *query, const Parameters &parameters,
                                                PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
+                                               plan::v2::QueryPlannerContext &planner_context,
                                                const std::vector<Identifier *> &predefined_identifiers = {});
 
 }  // namespace memgraph::query

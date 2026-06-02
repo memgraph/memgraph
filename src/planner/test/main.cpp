@@ -14,6 +14,21 @@
 #define APPROVALS_GOOGLETEST
 #include <ApprovalTests.hpp>
 
+#include <sys/prctl.h>
+#include <sys/resource.h>
+
+// Death tests fork() and abort() the child; the kernel then pipes a core dump
+// to apport, which dominates wall time when many death tests run.
+// PR_SET_DUMPABLE=0 makes the kernel skip core-dump generation for this
+// process and its forked children, regardless of /proc/sys/kernel/core_pattern.
+// RLIMIT_CORE=0 is also set as a belt-and-braces fallback.
+static auto const disable_core_dumps = [] {
+  auto rl = rlimit{.rlim_cur = 0, .rlim_max = 0};
+  setrlimit(RLIMIT_CORE, &rl);
+  prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
+  return 0;
+}();
+
 // Ninja produces relative __FILE__ paths, so ApprovalTests cannot locate test sources
 // from the build directory. Disable the check and use a custom namer with absolute paths.
 static auto buildConfigCheck = ApprovalTests::ApprovalTestNamer::setCheckBuildConfig(false);
