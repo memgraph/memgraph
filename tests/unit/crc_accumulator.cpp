@@ -27,6 +27,13 @@ uint32_t FullCrc(std::vector<uint8_t> const &buf) {
   acc.Update(buf.data(), static_cast<uint32_t>(buf.size()));
   return acc.Value();
 }
+
+// Raw register contribution of a single delta byte (== CRC table entry T[delta]); the input PatchByte expects.
+uint32_t TDelta(uint8_t delta) {
+  unsigned char const d = delta;
+  unsigned char const zero = 0;
+  return static_cast<uint32_t>(crc32(0, &d, 1) ^ crc32(0, &zero, 1));
+}
 }  // namespace
 
 TEST(CrcAccumulator, Init) {
@@ -86,7 +93,7 @@ TEST(CrcAccumulator, MovePreservesState) {
 TEST(CrcAccumulator, PatchByteNoOp) {
   std::vector<uint8_t> buf{1, 2, 3, 4, 5};
   // delta == 0 means the byte did not change -> CRC stays the same.
-  ASSERT_EQ(CrcAccumulator::PatchByte(FullCrc(buf), 0, buf.size() - 1), FullCrc(buf));
+  ASSERT_EQ(CrcAccumulator::PatchByte(FullCrc(buf), TDelta(0), buf.size() - 1), FullCrc(buf));
 }
 
 TEST(CrcAccumulator, PatchByteFirstAndLast) {
@@ -97,14 +104,47 @@ TEST(CrcAccumulator, PatchByteFirstAndLast) {
   {
     auto patched = buf;
     patched[0] ^= 0xff;
-    ASSERT_EQ(CrcAccumulator::PatchByte(FullCrc(buf), 0xff, buf.size() - 1), FullCrc(patched));
+    ASSERT_EQ(CrcAccumulator::PatchByte(FullCrc(buf), TDelta(0xff), buf.size() - 1), FullCrc(patched));
   }
   // Flip the last byte: nothing follows it (bytes_after == 0).
   {
     auto patched = buf;
     patched.back() ^= 0xff;
-    ASSERT_EQ(CrcAccumulator::PatchByte(FullCrc(buf), 0xff, 0), FullCrc(patched));
+    ASSERT_EQ(CrcAccumulator::PatchByte(FullCrc(buf), TDelta(0xff), 0), FullCrc(patched));
   }
+}
+
+namespace {
+// Append the CRC trailer the way Encoder::WriteCrc does: the 32-bit CRC stored as 8 little-endian bytes (CRC in the
+// low 4, zero padded), then return the CRC accumulated over data ++ trailer.
+uint32_t AccumulateWithTrailer(std::vector<uint8_t> data, uint32_t crc) {
+  for (int i = 0; i < 8; ++i) data.push_back(static_cast<uint8_t>((static_cast<uint64_t>(crc) >> (8 * i)) & 0xFFU));
+  return FullCrc(data);
+}
+}  // namespace
+
+TEST(CrcAccumulator, VerifyAcceptsIntactStream) {
+  std::mt19937 rng{0xBADC0DE};
+  std::uniform_int_distribution<int> byte_dist{0, 255};
+
+  for (size_t len : {0U, 1U, 7U, 64U, 4096U}) {
+    std::vector<uint8_t> buf(len);
+    for (auto &b : buf) b = static_cast<uint8_t>(byte_dist(rng));
+    auto const crc = FullCrc(buf);
+
+    // Genuine "data ++ crc" reduces to the residue and verifies; a corrupted trailer or body does not.
+    EXPECT_TRUE(CrcAccumulator::Verify(AccumulateWithTrailer(buf, crc)));
+    EXPECT_FALSE(CrcAccumulator::Verify(AccumulateWithTrailer(buf, crc ^ 0x1U)));
+    auto corrupted = buf;
+    corrupted.push_back(0);  // change the body but keep the stale CRC
+    EXPECT_FALSE(CrcAccumulator::Verify(AccumulateWithTrailer(corrupted, crc)));
+  }
+}
+
+TEST(CrcAccumulator, VerifyResidueConstant) {
+  // The accumulated CRC over an intact "data ++ uint64-LE(crc)" stream is the fixed 8-byte-append residue.
+  std::vector<uint8_t> buf{9, 8, 7, 6, 5, 4, 3, 2, 1};
+  ASSERT_EQ(AccumulateWithTrailer(buf, FullCrc(buf)), 0x6522DF69U);
 }
 
 TEST(CrcAccumulator, PatchByteMatchesFullRecompute) {
@@ -126,7 +166,7 @@ TEST(CrcAccumulator, PatchByteMatchesFullRecompute) {
 
       auto patched = buf;
       patched[pos] = new_byte;
-      EXPECT_EQ(CrcAccumulator::PatchByte(original_crc, delta, bytes_after), FullCrc(patched))
+      EXPECT_EQ(CrcAccumulator::PatchByte(original_crc, TDelta(delta), bytes_after), FullCrc(patched))
           << "len=" << len << " pos=" << pos;
     }
   }

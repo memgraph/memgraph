@@ -203,8 +203,9 @@ class DeltaGenerator final {
         ++encoded_deltas;
       }
       if (append_transaction_end) {
-        auto const crc_to_append = gen_->wal_file_.encoder().CrcAccValue();
-        gen_->wal_file_.AppendTransactionEnd(commit_timestamp);
+        // The stored CRC now covers the transaction-end frame itself, so take the exact value the writer recorded
+        // (== what the reader parses) instead of snapshotting the accumulator before the frame.
+        auto const crc_to_append = gen_->wal_file_.AppendTransactionEnd(commit_timestamp).stored_crc_;
         if (gen_->valid_) {
           gen_->UpdateStats(commit_timestamp, encoded_deltas + 1);
           for (auto &data : data_) {
@@ -256,8 +257,7 @@ class DeltaGenerator final {
 
     void FinalizeOperationTx() {
       auto timestamp = gen_->timestamp_;
-      auto const crc_to_append = gen_->wal_file_.encoder().CrcAccValue();
-      gen_->wal_file_.AppendTransactionEnd(timestamp);
+      auto const crc_to_append = gen_->wal_file_.AppendTransactionEnd(timestamp).stored_crc_;
       if (gen_->valid_) {
         gen_->UpdateStats(timestamp, 1);
         memgraph::storage::durability::WalDeltaData data{

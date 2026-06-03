@@ -31,4 +31,14 @@ auto CrcAccumulator::PatchByte(uint32_t const crc, uint32_t const t_delta, uint6
   return static_cast<uint32_t>(crc ^ crc32_combine(t_delta, 0, static_cast<z_off_t>(bytes_after)));
 }
 
+auto CrcAccumulator::Verify(uint32_t const crc) -> bool {
+  // `crc` must be the running CRC after every byte UP TO AND INCLUDING the stored CRC trailer has been folded in.
+  // CRC-32 is self-checking: feeding a block followed by its own CRC reduces to a fixed residue. Because the trailer is
+  // stored as a uint64 (TYPE_INT marker + 8 little-endian bytes, with the 32-bit CRC in the low 4 and zero padding in
+  // the high 4 -- matching how WriteUint/ReadUint move a uint), the residue is the 8-byte-append value below, not the
+  // textbook 4-byte 0x2144DF1C. zlib's CRC-32 carries init/xorout = 0xFFFFFFFF, which is what shifts it off zero.
+  constexpr uint32_t kCrc32Residue = 0x6522DF69U;
+  return crc == kCrc32Residue;
+}
+
 }  // namespace memgraph::utils

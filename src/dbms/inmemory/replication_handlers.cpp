@@ -1180,7 +1180,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
       rpc::SendInProgressMsg(res_builder);
       current_batch_counter = 0;
     }
-    auto const prev_crc_val = decoder->CrcAccValue();
     auto const [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
@@ -1975,8 +1974,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     };
 
     if (auto const *txn_end = std::get_if<WalTransactionEnd>(&delta.data_)) {
-      if (txn_end->txn_crc.has_value() && *txn_end->txn_crc != prev_crc_val) {
-        LOG_FATAL("Replication crcs don't match. Running: {} Wal: {}", prev_crc_val, *txn_end->txn_crc);
+      if (loading_wal && txn_end->txn_crc.has_value() && !utils::CrcAccumulator::Verify(decoder->CrcAccValue())) {
+        LOG_FATAL("Replication WAL CRC mismatch (stored {}, residue {}).", *txn_end->txn_crc, decoder->CrcAccValue());
       }
       decoder->ResetCrcAcc();
     }

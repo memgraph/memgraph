@@ -58,6 +58,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/crc_accumulator.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/scheduler.hpp"
@@ -2543,11 +2544,12 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     std::vector<uint32_t> crc_vals;
     wal.ResetCrcAcc();
     for (uint64_t i = 0; i < info.num_deltas; ++i) {
-      auto prev_crc = wal.CrcAccValue();
       auto timestamp = memgraph::storage::durability::ReadWalDeltaHeader(&wal);
       auto delta_data = memgraph::storage::durability::ReadWalDeltaData(&wal);
-      if (std::get_if<WalTransactionEnd>(&delta_data.data_)) {
-        crc_vals.emplace_back(prev_crc);
+      if (auto const *txn_end = std::get_if<WalTransactionEnd>(&delta_data.data_)) {
+        // The CRC trailer has been folded into the accumulator, so an intact transaction reduces to the residue.
+        EXPECT_TRUE(memgraph::utils::CrcAccumulator::Verify(wal.CrcAccValue()));
+        crc_vals.emplace_back(txn_end->txn_crc.value());
         wal.ResetCrcAcc();
       }
       data.emplace_back(timestamp, delta_data);

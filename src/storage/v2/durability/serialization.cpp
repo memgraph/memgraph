@@ -96,6 +96,19 @@ void Encoder<FileType>::WriteUint(uint64_t value) {
 }
 
 template <typename FileType>
+uint32_t Encoder<FileType>::WriteCrc() {
+  WriteMarker(Marker::TYPE_INT);
+  // CRC over everything up to and including the TYPE_INT marker. Store it exactly like WriteUint stores a uint: as 8
+  // little-endian bytes. This keeps the trailer in lockstep with the 8-byte ReadUint decode path (no stream desync) and
+  // is endian-correct. The reader re-accumulates these bytes; an intact stream then reduces to the fixed CRC residue
+  // checked by CrcAccumulator::Verify.
+  auto const value = CrcAccValue();
+  auto const wire = utils::HostToLittleEndian(static_cast<uint64_t>(value));
+  Write(reinterpret_cast<const uint8_t *>(&wire), sizeof(wire));
+  return value;
+}
+
+template <typename FileType>
 void Encoder<FileType>::WriteDouble(double value) {
   auto value_uint = std::bit_cast<uint64_t>(value);
   value_uint = utils::HostToLittleEndian(value_uint);
