@@ -6,7 +6,6 @@ source "$DIR/../util.sh"
 # Parse command line arguments for --skip-check flag
 SKIP_CHECK=$(parse_skip_check_flag "$@")
 
-# TODO(gitbuda): Rocky gets automatically updates -> figure out how to handle it.
 # Only run checks if --skip-check flag is not provided
 if [[ "$SKIP_CHECK" == false ]]; then
     check_operating_system "rocky-10"
@@ -192,7 +191,6 @@ install() {
     # enable rpm fusion
     dnf install --nogpgcheck -y https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-10.noarch.rpm
 
-    dnf update -y
     dnf install -y wget git python3 python3-pip
 
     # Separate standard and custom packages
