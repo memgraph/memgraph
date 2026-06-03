@@ -47,6 +47,7 @@
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
 
+import memgraph.storage.property_value;
 import memgraph.utils.aws;
 
 namespace memgraph::dbms {
@@ -733,7 +734,8 @@ class InMemoryStorage final : public Storage {
                              IndexPerformanceTracker &impact_tracker);
     SalientConfig::Items config_;
 
-    uint64_t commit_flag_wal_position_{0};
+    // Bookkeeping
+    durability::WalTxnDataPos wal_txn_positions_;
     bool needs_wal_update_{false};
   };
 

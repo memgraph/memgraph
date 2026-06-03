@@ -9,11 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fcntl.h>
+#include <unistd.h>
 #include <algorithm>
 #include <cstdint>
 #include <range/v3/all.hpp>
 #include <type_traits>
 #include <unordered_map>
+#include <vector>
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -40,6 +43,7 @@
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/tag.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -1217,27 +1221,31 @@ auto convert_to_transaction_access_type(StorageAccessType access_type) -> Transa
 }
 }  // namespace
 
-uint64_t EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit,
-                                StorageAccessType access_type) {
+WalTxnDataPos EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit,
+                                     StorageAccessType access_type) {
   encoder->ResetCrcAcc();
+  auto const txn_start_wal_position = encoder->GetPosition();
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
-  auto const flag_pos = encoder->GetPosition();
+  auto const commit_flag_wal_position = encoder->GetPosition();
   encoder->WriteBool(commit);
   encoder->WriteUint(static_cast<uint8_t>(convert_to_transaction_access_type(access_type)));
-  return flag_pos;
+  return {.commit_flag_wal_position_ = commit_flag_wal_position, .txn_start_wal_pos_ = txn_start_wal_position};
 }
 
-void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
+WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   // Capture the CRC of everything accumulated since the matching EncodeTransactionStart (txn start + deltas) *before*
   // writing the transaction-end frame, so the stored value matches what the reader can recompute. The reader snapshots
   // its accumulator before consuming the transaction-end frame, hence the frame markers must be excluded here.
+  auto const txn_end_wal_pos = encoder->GetPosition();  // end of the CRC-protected region
   auto const txn_crc = encoder->CrcAccValue();
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_END);
+  auto const crc_wal_pos = encoder->GetPosition();  // position where the CRC value is stored
   encoder->WriteUint(txn_crc);
+  return {.txn_end_wal_pos_ = txn_end_wal_pos, .crc_wal_pos_ = crc_wal_pos};
 }
 
 std::optional<RecoveryInfo> LoadWal(
@@ -2073,22 +2081,63 @@ void WalFile::AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, St
   UpdateStats(timestamp);
 }
 
-uint64_t WalFile::AppendTransactionStart(uint64_t const timestamp, bool const commit, StorageAccessType access_type) {
-  auto const flag_pos = EncodeTransactionStart(&wal_, timestamp, commit, access_type);
+WalTxnDataPos WalFile::AppendTransactionStart(uint64_t const timestamp, bool const commit,
+                                              StorageAccessType access_type) {
+  auto const wal_positions = EncodeTransactionStart(&wal_, timestamp, commit, access_type);
   UpdateStats(timestamp);
-  return flag_pos;
+  return wal_positions;
 }
 
-void WalFile::UpdateCommitStatus(uint64_t const flag_pos, bool const new_decision) {
-  auto const curr_pos = wal_.GetPosition();
-  wal_.SetPosition(flag_pos);
+void WalFile::UpdateCommitStatus(WalTxnDataPos const &wal_positions, bool const new_decision) {
+  // Remember where appending should resume. GetPosition() also flushes the buffer to disk.
+  auto const end_pos = wal_.GetPosition();
+
+  // Flip the commit flag (false -> true) inside the already-written transaction-start frame.
+  wal_.SetPosition(wal_positions.commit_flag_wal_position_);
   wal_.WriteBool(new_decision);
-  wal_.SetPosition(curr_pos);
+
+  // The commit flag lives inside the CRC-protected region [txn_start, txn_end), so flipping it invalidates the CRC
+  // stored in the transaction-end frame. Recompute it. Seeking flushes the freshly written flag to disk so the
+  // following pread observes the updated bytes.
+  wal_.SetPosition(wal_positions.crc_wal_pos_);
+
+  auto const region_begin = wal_positions.txn_start_wal_pos_;
+  auto const region_size = wal_positions.txn_end_wal_pos_ - region_begin;
+
+  // The WAL is opened write-only, so we cannot pread through its fd. Open a separate read-only fd on the same path to
+  // read back the (now flushed) transaction data region.
+  auto const fd = open(path_.c_str(), O_RDONLY | O_CLOEXEC);
+  MG_ASSERT(fd >= 0,
+            "Failed to open WAL file {} while recomputing CRC after commit-status update: {}",
+            path_,
+            strerror(errno));
+  utils::OnScopeExit close_fd{[fd] { close(fd); }};
+
+  std::vector<uint8_t> region(region_size);
+  size_t bytes_read = 0;
+  while (bytes_read < region_size) {
+    auto const n =
+        pread(fd, region.data() + bytes_read, region_size - bytes_read, static_cast<off_t>(region_begin + bytes_read));
+    MG_ASSERT(n > 0,
+              "Failed to read WAL transaction data while recomputing CRC after commit-status update: {}",
+              strerror(errno));
+    bytes_read += static_cast<size_t>(n);
+  }
+
+  utils::CrcAccumulator crc;
+  crc.Update(region.data(), static_cast<uint32_t>(region.size()));
+
+  // Overwrite the stored CRC value in place (we are positioned at crc_wal_pos_).
+  wal_.WriteUint(crc.Value());
+
+  // Restore the append position; seeking flushes the rewritten CRC to disk.
+  wal_.SetPosition(end_pos);
 }
 
-void WalFile::AppendTransactionEnd(uint64_t timestamp) {
-  EncodeTransactionEnd(&wal_, timestamp);
+WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
+  auto const txn_end_pos = EncodeTransactionEnd(&wal_, timestamp);
   UpdateStats(timestamp);
+  return txn_end_pos;
 }
 
 void WalFile::Sync() { wal_.Sync(); }

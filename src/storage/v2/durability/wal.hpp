@@ -493,12 +493,27 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
 void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp,
                  Gid in_vertex_gid, EdgeTypeId edge_type_id);
 
+struct WalTxnDataPos {
+  uint64_t commit_flag_wal_position_{0};  // position of the commit flag inside the transaction-start frame
+  uint64_t txn_start_wal_pos_{0};         // first byte of the CRC-protected region
+  uint64_t txn_end_wal_pos_{0};           // one-past-last byte of the CRC-protected region (start of the txn-end frame)
+  uint64_t crc_wal_pos_{0};               // position of the stored CRC value inside the transaction-end frame
+};
+
+/// Positions filled in when encoding the transaction end.
+struct WalTxnEndPos {
+  uint64_t txn_end_wal_pos_{0};  // start of the transaction-end frame == end of the CRC-protected region
+  uint64_t crc_wal_pos_{0};      // position where the CRC value is written
+};
+
 /// Function used to encode the transaction start
-/// Returns the position where the flag 'commit' is about to be written
-uint64_t EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
+/// Returns the position where the flag 'commit' is about to be written and txn start position
+WalTxnDataPos EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit,
+                                     StorageAccessType access_type);
 
 /// Function used to encode the transaction end.
-void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
+/// Returns the end of the CRC-protected region and the position where the CRC value is written.
+WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
 // Common to WAL & replication
 void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
@@ -576,14 +591,13 @@ class WalFile {
 
   // True means storage should use deltas associated with this txn, false means skip until
   // you find the next txn.
-  // Returns the position in the WAL where the flag 'commit' is about to be written
-  uint64_t AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type);
+  WalTxnDataPos AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type);
 
   // Updates the commit flag in the WAL file with the new decision whether deltas should be read or skipped upon the
   // recovery
-  void UpdateCommitStatus(uint64_t flag_pos, bool new_decision);
+  void UpdateCommitStatus(WalTxnDataPos const &wal_positions, bool new_decision);
 
-  void AppendTransactionEnd(uint64_t timestamp);
+  WalTxnEndPos AppendTransactionEnd(uint64_t timestamp);
 
   void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
                        LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,

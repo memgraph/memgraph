@@ -40,6 +40,8 @@
 #include "utils/file_locker.hpp"
 #include "utils/uuid.hpp"
 
+import memgraph.storage.property_value;
+
 static constexpr auto kMetricKind = "l2sq";
 static constexpr auto kResizeCoefficient = 2;
 static constexpr auto kScalarKind = unum::usearch::scalar_kind_t::f32_k;
@@ -201,6 +203,7 @@ class DeltaGenerator final {
         ++encoded_deltas;
       }
       if (append_transaction_end) {
+        auto const crc_to_append = gen_->wal_file_.encoder().CrcAccValue();
         gen_->wal_file_.AppendTransactionEnd(commit_timestamp);
         if (gen_->valid_) {
           gen_->UpdateStats(commit_timestamp, encoded_deltas + 1);
@@ -229,7 +232,8 @@ class DeltaGenerator final {
             }
             gen_->data_.emplace_back(commit_timestamp, data);
           }
-          memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionEnd{}};
+          memgraph::storage::durability::WalDeltaData data{
+              memgraph::storage::durability::WalTransactionEnd{crc_to_append}};
           gen_->data_.emplace_back(commit_timestamp, data);
         }
       } else {
@@ -240,21 +244,24 @@ class DeltaGenerator final {
     void StartTx() {
       auto timestamp = gen_->timestamp_;
       constexpr bool commit{true};
+      gen_->wal_file_.encoder().ResetCrcAcc();
       gen_->wal_file_.AppendTransactionStart(timestamp, commit, memgraph::storage::StorageAccessType::UNIQUE);
       if (gen_->valid_) {
         gen_->UpdateStats(timestamp, 1);
         memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionStart{
-            true, memgraph::storage::durability::TransactionAccessType::UNIQUE}};
+            .commit = true, .access_type = memgraph::storage::durability::TransactionAccessType::UNIQUE}};
         gen_->data_.emplace_back(timestamp, data);
       }
     }
 
     void FinalizeOperationTx() {
       auto timestamp = gen_->timestamp_;
+      auto const crc_to_append = gen_->wal_file_.encoder().CrcAccValue();
       gen_->wal_file_.AppendTransactionEnd(timestamp);
       if (gen_->valid_) {
         gen_->UpdateStats(timestamp, 1);
-        memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionEnd{}};
+        memgraph::storage::durability::WalDeltaData data{
+            memgraph::storage::durability::WalTransactionEnd{crc_to_append}};
         gen_->data_.emplace_back(timestamp, data);
       }
     }
