@@ -829,6 +829,11 @@ class InMemoryStorage final : public Storage {
   // Light-edge teardown (frees pool-allocated Edge* still live in vertex
   // adjacency). Gated at every call site by salient.items.storage_light_edge.
   void ClearLightEdges();
+  // Drain the light-edge graveyard: free queued Edge* (PR7b-i frees
+  // unconditionally — no reader pins light edges yet; epoch gating arrives in
+  // PR7b-ii). Called from FreeMemory after edges_.run_gc(); early-returns when
+  // the storage_light_edge flag is off.
+  void DrainLightEdgeGraveyard();
 
   // Database-owned arena pool for per-thread arena management.
   // Database must outlive Storage; Database member declaration order guarantees that.
@@ -838,6 +843,26 @@ class InMemoryStorage final : public Storage {
   // current DB TLS scope, while long-lived DB work establishes that scope at
   // the appropriate execution boundary.
   utils::SkipListDb<Vertex> vertices_;
+
+  // Graveyard for deleted light edges (PR7b-i). Deleted light Edge* are pushed
+  // here ONLY at CollectGarbage time (after metadata + vector-index entries are
+  // already removed). The commit (FastDiscard) and abort light arms route
+  // deleted Edge* through deleted_edges_ so that the guard_epoch watermark is
+  // snapped only after all concurrent readers are ordered. The drain frees them
+  // later. guard_epoch is reserved for the epoch-gated drain wired in PR7b-ii;
+  // in PR7b-i no reader pins light edges so the drain frees unconditionally and
+  // the field is a sentinel (0).
+  struct LightEdgeGraveyardEntry {
+    uint64_t guard_epoch{0};
+    std::vector<Edge *, memory::DbAwareAllocator<Edge *>> edges;
+  };
+
+  // Test helper: number of entries currently sitting in the light-edge graveyard.
+  std::size_t LightEdgeGraveyardSizeForTest() {
+    std::size_t n = 0;
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { n = graveyard.size(); });
+    return n;
+  }
 
   // Returns a pin that keeps edge-index iterables' underlying Edge memory alive
   // for the lifetime of the iterable. Heavy mode pins the edges_ skip-list
@@ -917,6 +942,11 @@ class InMemoryStorage final : public Storage {
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
   utils::Synchronized<std::vector<Edge *, memory::DbAwareAllocator<Edge *>>, utils::SpinLock> deleted_edges_;
+
+  // Deleted light edges awaiting deferred free (see DrainLightEdgeGraveyard).
+  utils::Synchronized<std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>>,
+                      utils::SpinLock>
+      light_edge_graveyard_;
 
   std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
   std::atomic<bool> gc_index_cleanup_edge_performance_ = false;

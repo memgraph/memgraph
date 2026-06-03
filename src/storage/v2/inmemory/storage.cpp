@@ -460,6 +460,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       }
       vertices_.run_gc();
       edges_.run_gc();
+      DrainLightEdgeGraveyard();
 
       // Auto-indexer also has a skiplist
       async_indexer_.RunGC();
@@ -669,6 +670,25 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
     if (!deleted_edges.empty() && transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       mem_storage->gc_full_scan_edges_delete_.store(true, std::memory_order_release);
+
+      // PR7b-i leak fix: in analytical mode the edge is pop_back'd from vertex
+      // adjacency at delete time (storage.cpp DeleteEdge ~528), so the GC full-scan
+      // light arm (which iterates over LIVE adjacency) can never find these light
+      // Edge* -> they would be unreachable and leak (heavy works because its node
+      // persists in the edges_ skip-list scanned by the heavy full-scan arm). Route
+      // the deleted LIGHT Edge* into deleted_edges_, exactly like the transactional
+      // FastDiscard path. CollectGarbage swaps deleted_edges_ into
+      // current_deleted_edges and the light arm pushes them to the graveyard with
+      // guard_epoch = 0U (snapped at collection time). The full-scan light arm then
+      // finds nothing for these (not in adjacency) -> no double-push.
+      // Heavy mode keeps the skip-list full-scan path byte-identical.
+      if (config_.storage_light_edge) {
+        mem_storage->deleted_edges_.WithLock([&](auto &storage_deleted_edges) {
+          for (auto const &edge : deleted_edges) {
+            storage_deleted_edges.push_back(edge.edge_.ptr);
+          }
+        });
+      }
     }
   }};
 
@@ -1312,6 +1332,13 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
         [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.end(), current_deleted_vertices); });
   }
   if (!current_deleted_edges.empty()) {
+    // Both heavy and light edges defer to deleted_edges_ here. Light edges must
+    // NOT be pushed to the light_edge_graveyard_ at commit time: the graveyard
+    // watermark (guard_epoch) is snapped at GC-COLLECTION time so that any
+    // post-commit reader is ordered before it. Riding deleted_edges_ into
+    // CollectGarbage also runs the index cleanup (OnEdgesDeleted +
+    // RemoveEdgesFromVectorEdgeIndices) before the graveyard push, exactly like
+    // heavy. Heavy behaviour is unchanged.
     mem_storage->deleted_edges_.WithLock([&](auto &deleted_edges) {
       deleted_edges.insert(deleted_edges.end(), current_deleted_edges.begin(), current_deleted_edges.end());
     });
@@ -1359,7 +1386,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // then remove them directly from the skiplists and transfer ownership
     // to the GC in one locked batch, instead of acquiring the lock once per element.
     std::vector<Gid> my_deleted_vertices;
-    std::vector<Edge *> my_deleted_edges;
+    std::vector<Edge *, memory::DbAwareAllocator<Edge *>> my_deleted_edges;
 
     // TWO passes needed here
     // Abort will modify objects to restore state to how they were before this txn
@@ -1661,8 +1688,14 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                   *transaction_.active_indices_,
                                   transaction_.start_timestamp,
                                   mem_storage->name_id_mapper_.get());
-    // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
-    if (!my_deleted_edges.empty()) {
+    // EDGES METADATA (has ptr to Vertices, must be before removing verticies).
+    // Heavy edges are removed from the edges_ skiplist below and never re-enter
+    // GC, so abort is their single metadata-removal site. Light edges instead
+    // ride deleted_edges_ into CollectGarbage, which is THEIR single removal site
+    // (OnEdgesDeleted at the transactional GC light arm) — calling OnEdgesDeleted
+    // here too would double-remove the gid and trip the MG_ASSERT in
+    // EdgeMetadataIndex::OnEdgesDeleted. So gate this to heavy only.
+    if (!my_deleted_edges.empty() && !mem_storage->config_.salient.items.storage_light_edge) {
       if (auto &idx = mem_storage->edges_metadata_index_) {
         idx->OnEdgesDeleted(my_deleted_edges | std::ranges::views::transform(&Edge::gid));
       }
@@ -1676,11 +1709,28 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
     }
 
-    // EDGES
+    // EDGES / LIGHT EDGES
+    // Both heavy and light edges defer to deleted_edges_ here. Light edges must
+    // NOT be pushed to the light_edge_graveyard_ at abort time: the graveyard
+    // watermark (guard_epoch) is snapped at GC-COLLECTION time so that any
+    // post-abort reader is ordered before it. Riding deleted_edges_ into
+    // CollectGarbage also runs the index cleanup (OnEdgesDeleted +
+    // RemoveEdgesFromVectorEdgeIndices) before the graveyard push, exactly like
+    // heavy. Light edges have no skiplist node, so the heavy edges_acc.remove
+    // call is skipped for them; only the deleted_edges_ routing applies.
+    // Heavy behaviour is unchanged.
     if (!my_deleted_edges.empty()) {
-      auto edges_acc = mem_storage->edges_.access();
-      for (auto *edge : my_deleted_edges) {
-        edges_acc.remove(edge->gid);
+      if (mem_storage->config_.salient.items.storage_light_edge) {
+        // Watermark snapped at GC-collection time; index cleanup runs in
+        // CollectGarbage before the graveyard push — see FastDiscard above.
+        mem_storage->deleted_edges_.WithLock([&](auto &deleted_edges) {
+          deleted_edges.insert(deleted_edges.end(), my_deleted_edges.begin(), my_deleted_edges.end());
+        });
+      } else {
+        auto edges_acc = mem_storage->edges_.access();
+        for (auto *edge : my_deleted_edges) {
+          edges_acc.remove(edge->gid);
+        }
       }
     }
   }
@@ -3183,16 +3233,31 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
 
-  // EDGES
+  // EDGES / LIGHT EDGES
   if (!current_deleted_edges.empty()) {
-    auto edge_acc = edges_.access();
+    if (config_.salient.items.storage_light_edge) {
+      // Light edges are not skiplist nodes; route them to the graveyard for
+      // deferred free. Clean the vector edge index first (unconditionally —
+      // unlike the heavy arm below which only does so when no vertices were
+      // deleted — because the light Edge* and their Vertex* outlive the push).
+      if (!indices_.vector_edge_index_.Empty()) {
+        indices_.RemoveEdgesFromVectorEdgeIndices(current_deleted_edges);
+      }
+      light_edge_graveyard_.WithLock([&](auto &graveyard) {
+        // guard_epoch defaults to 0 (epoch gating snapped at drain time in 7b-ii)
+        LightEdgeGraveyardEntry entry{.edges = std::move(current_deleted_edges)};
+        graveyard.push_back(std::move(entry));
+      });
+    } else {
+      auto edge_acc = edges_.access();
 
-    if (current_deleted_vertices.empty() && !indices_.vector_edge_index_.Empty()) {
-      indices_.RemoveEdgesFromVectorEdgeIndices(current_deleted_edges);
-    }
+      if (current_deleted_vertices.empty() && !indices_.vector_edge_index_.Empty()) {
+        indices_.RemoveEdgesFromVectorEdgeIndices(current_deleted_edges);
+      }
 
-    for (auto *edge : current_deleted_edges) {
-      MG_ASSERT(edge_acc.remove(edge->gid), "Invalid database state!");
+      for (auto *edge : current_deleted_edges) {
+        MG_ASSERT(edge_acc.remove(edge->gid), "Invalid database state!");
+      }
     }
   }
 
@@ -3253,6 +3318,45 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         if (idx) idx->OnEdgeDeleted(edge.gid);
         edge_acc.remove(edge);
       }
+    }
+
+    // PR7b-i light-edge analytical arm: analytically-deleted light edges do NOT
+    // appear in the edges_ skip-list (they live in vertex adjacency and are
+    // removed at delete time), so there are no entries to find here via edge_acc.
+    // Instead, inform_gc_edge_deletion routes deleted light Edge* directly into
+    // deleted_edges_ so they arrive in current_deleted_edges and are handled by
+    // the transactional light arm above (OnEdgesDeleted + graveyard push with
+    // guard_epoch = 0U). PR7b-ii upgrades this to an adjacency full-scan via
+    // LightEdgeIterable once that iterator exists and epoch tracking is wired.
+  }
+}
+
+void InMemoryStorage::DrainLightEdgeGraveyard() {
+  if (!config_.salient.items.storage_light_edge) return;
+  // PR7b-i: no edge-index iterable pins light edges yet (MakeEdgePin is still the
+  // heavy-only form; the iterable tracker/guard land in PR7b-ii). Therefore no
+  // reader can race the free and we drain the whole graveyard unconditionally
+  // here. The epoch-gated (IsSafeToFree) drain is wired in PR7b-ii.
+  //
+  // The ONLY push site for this graveyard is CollectGarbage at GC-collection
+  // time (storage.cpp EDGES / LIGHT EDGES block, ~line 3221). Both the
+  // commit (FastDiscard) and abort light arms route deleted Edge* through
+  // deleted_edges_ so that CollectGarbage snaps the guard_epoch watermark
+  // AFTER all readers are ordered. Invariant: metadata + vector-index entries
+  // are already removed at GC-collect time before the push happens.
+  std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>> local_graveyard;
+  light_edge_graveyard_.WithLock([&](auto &graveyard) { local_graveyard.swap(graveyard); });
+  if (local_graveyard.empty()) return;
+
+  // The edge-metadata entry for every graveyarded edge was already removed at
+  // GC-collection time (CollectGarbage OnEdgesDeleted at ~line 3188 and
+  // RemoveEdgesFromVectorEdgeIndices at ~line 3228) BEFORE the Edge* was
+  // routed here. The graveyard exists solely to defer the *memory free*; it
+  // must NOT touch edges_metadata_index_ again, otherwise it would
+  // double-remove the entry and trip the `acc.remove` assert in OnEdgeDeleted.
+  for (auto &entry : local_graveyard) {
+    for (auto *edge : entry.edges) {
+      DestroyLightEdge(edge);
     }
   }
 }
@@ -4540,6 +4644,37 @@ void InMemoryStorage::ClearLightEdges() {
       DestroyLightEdge(edge_ref.ptr);
     }
   }
+
+  // PR7b-i: also free any deleted light edges still queued in the graveyard.
+  // Swap out under lock, then free without holding the SpinLock (mirrors
+  // DrainLightEdgeGraveyard's swap-out-then-free pattern).
+  std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>> pending_graveyard;
+  light_edge_graveyard_.WithLock([&](auto &graveyard) { pending_graveyard.swap(graveyard); });
+  for (auto &entry : pending_graveyard) {
+    for (auto *edge : entry.edges) {
+      DestroyLightEdge(edge);
+    }
+  }
+
+  // PR7b-i: free any deleted light edges still queued in deleted_edges_ that
+  // never reached the graveyard (i.e. were deleted but GC has not yet collected
+  // them — see the commit (FastDiscard) / abort routing at the deleted_edges_
+  // inserts and the CollectGarbage swap that drains them into the graveyard).
+  // These pool-allocated Edge* are owned by no skip-list, so without this drain
+  // they leak at teardown/Clear/DropGraph. The three sets (live adjacency,
+  // deleted_edges_, graveyard) are disjoint: CollectGarbage swaps deleted_edges_
+  // empty BEFORE moving the edges into a graveyard entry, and an edge is removed
+  // from vertex adjacency in the same delta-processing step that later routes its
+  // Edge* into deleted_edges_ — so no Edge* freed here is double-freed by the
+  // loops above. Heavy mode never reaches this function (all callers gate on
+  // storage_light_edge); heavy deleted_edges_ Edge* live in the edges_ skip-list
+  // and are freed by it, so they must NOT be DestroyLightEdge'd.
+  deleted_edges_.WithLock([&](auto &deleted_edges) {
+    for (auto *edge : deleted_edges) {
+      DestroyLightEdge(edge);
+    }
+    deleted_edges.clear();
+  });
 }
 
 void InMemoryStorage::Clear() {
