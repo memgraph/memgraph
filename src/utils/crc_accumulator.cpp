@@ -23,4 +23,12 @@ auto CrcAccumulator::Value() const -> uint32_t { return value_; }
 
 void CrcAccumulator::Update(const unsigned char *bytes, uint32_t const len) { value_ = crc32(value_, bytes, len); }
 
+auto CrcAccumulator::PatchByte(uint32_t const crc, uint32_t const t_delta, uint64_t const bytes_after) -> uint32_t {
+  if (t_delta == 0) return crc;  // byte unchanged -> CRC unchanged
+
+  // Propagate that contribution across the `bytes_after` unchanged bytes that follow. Appending N zero bytes is exactly
+  // zlib's crc32_combine(crc, 0, N) operator, which advances the register in O(log N).
+  return static_cast<uint32_t>(crc ^ crc32_combine(t_delta, 0, static_cast<z_off_t>(bytes_after)));
+}
+
 }  // namespace memgraph::utils
