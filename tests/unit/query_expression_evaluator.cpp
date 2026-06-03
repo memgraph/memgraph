@@ -29,6 +29,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/path.hpp"
+#include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/enum.hpp"
@@ -2085,6 +2086,7 @@ TYPED_TEST(FunctionTest, ToBooleanOrNull) {
   // unsupported types -> null (strict TOBOOLEAN throws)
   ASSERT_TRUE(this->EvaluateFunction("TOBOOLEANORNULL", 3.5).IsNull());
   ASSERT_TRUE(this->EvaluateFunction("TOBOOLEANORNULL", MakeTypedValueList(1, 2, 3)).IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOBOOLEANORNULL", TypedValue(std::map<std::string, TypedValue>{})).IsNull());
 }
 
 TYPED_TEST(FunctionTest, ToFloatOrNull) {
@@ -2096,6 +2098,7 @@ TYPED_TEST(FunctionTest, ToFloatOrNull) {
   ASSERT_EQ(this->EvaluateFunction("TOFLOATORNULL", true).ValueDouble(), 1.0);
   // unsupported types -> null (strict TOFLOAT throws)
   ASSERT_TRUE(this->EvaluateFunction("TOFLOATORNULL", MakeTypedValueList(1, 2, 3)).IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOFLOATORNULL", TypedValue(std::map<std::string, TypedValue>{})).IsNull());
 }
 
 TYPED_TEST(FunctionTest, ToIntegerOrNull) {
@@ -2108,6 +2111,7 @@ TYPED_TEST(FunctionTest, ToIntegerOrNull) {
   ASSERT_EQ(this->EvaluateFunction("TOINTEGERORNULL", 3.5).ValueInt(), 3);
   // unsupported types -> null (strict TOINTEGER throws)
   ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", MakeTypedValueList(1, 2, 3)).IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", TypedValue(std::map<std::string, TypedValue>{})).IsNull());
 }
 
 TYPED_TEST(FunctionTest, ToBooleanList) {
@@ -2125,6 +2129,11 @@ TYPED_TEST(FunctionTest, ToBooleanList) {
   CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(false)), MakeTypedValueList(false));
   CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(false, true, false)),
               MakeTypedValueList(false, true, false));
+  // non-convertible element type -> null, no throw
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(true, MakeTypedValueList(2), 0)),
+              MakeTypedValueList(true, TypedValue(), false));
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(3.5, true, 0)),
+              MakeTypedValueList(TypedValue(), true, false));
   // Test empty list
   auto empty_list = TypedValue(std::vector<TypedValue>{});
   CompareList(this->EvaluateFunction("TOBOOLEANLIST", empty_list), empty_list);
@@ -2150,6 +2159,9 @@ TYPED_TEST(FunctionTest, ToFloatList) {
               MakeTypedValueList(-3.0, 3.5, 5.6));
   CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(true)), MakeTypedValueList(1.0));
   CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(false)), MakeTypedValueList(0.0));
+  // non-convertible element type -> null, no throw
+  CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(1.5, MakeTypedValueList(2))),
+              MakeTypedValueList(1.5, TypedValue()));
   // Test empty list
   auto empty_list = TypedValue(std::vector<TypedValue>{});
   CompareList(this->EvaluateFunction("TOFLOATLIST", empty_list), empty_list);
@@ -2173,6 +2185,9 @@ TYPED_TEST(FunctionTest, ToIntegerList) {
   CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(-3.5)), MakeTypedValueList(-3));
   CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(3.5)), MakeTypedValueList(3));
   CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(-3, 3.5, 5.6)), MakeTypedValueList(-3, 3, 5));
+  // non-convertible element type -> null, no throw
+  CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(3, MakeTypedValueList(2))),
+              MakeTypedValueList(3, TypedValue()));
   // Test empty list
   auto empty_list = TypedValue(std::vector<TypedValue>{});
   CompareList(this->EvaluateFunction("TOINTEGERLIST", empty_list), empty_list);
@@ -2186,11 +2201,13 @@ TYPED_TEST(FunctionTest, ToIntegerList) {
 
 TYPED_TEST(FunctionTest, ToStringList) {
   ASSERT_THROW(this->EvaluateFunction("TOSTRINGLIST"), QueryRuntimeException);
+  // whole-arg null -> null (not a list containing null)
+  ASSERT_TRUE(this->EvaluateFunction("TOSTRINGLIST", TypedValue()).IsNull());
   CompareList(this->EvaluateFunction("TOSTRINGLIST", MakeTypedValueList(TypedValue())),
               MakeTypedValueList(TypedValue()));
   CompareList(this->EvaluateFunction("TOSTRINGLIST", MakeTypedValueList(1, true, "x")),
               MakeTypedValueList("1", "true", "x"));
-  // non-convertible element -> null, no throw (unlike the other *List functions)
+  // non-convertible element -> null, no throw
   CompareList(this->EvaluateFunction("TOSTRINGLIST", MakeTypedValueList(MakeTypedValueList(2))),
               MakeTypedValueList(TypedValue()));
   // Test empty list
@@ -2669,6 +2686,33 @@ TYPED_TEST(FunctionTest, ToStringOrNullZonedDateTime) {
 
 TYPED_TEST(FunctionTest, ToStringOrNullUnstringifiableType) {
   EXPECT_TRUE(this->EvaluateFunction("TOSTRINGORNULL", MakeTypedValueList(1, 2, 3)).IsNull());
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullUnconvertibleEnum) {
+  // Enum id not in the store -> toStringOrNull returns null (strict toString throws).
+  using memgraph::storage::Enum;
+  using memgraph::storage::EnumTypeId;
+  using memgraph::storage::EnumValueId;
+  EXPECT_TRUE(this->EvaluateFunction("TOSTRINGORNULL", TypedValue(Enum{EnumTypeId{0}, EnumValueId{0}})).IsNull());
+}
+
+TYPED_TEST(FunctionTest, ToStringPoint) {
+  using memgraph::storage::Point2d;
+  using memgraph::storage::Point3d;
+  using enum memgraph::storage::CoordinateReferenceSystem;
+  const auto p2 = Point2d(Cartesian_2d, 1, 2);
+  const auto p3 = Point3d(Cartesian_3d, 1, 2, 3);
+  // a point stringifies to Memgraph's standard point representation.
+  EXPECT_EQ(this->EvaluateFunction("TOSTRING", TypedValue(p2)).ValueString(),
+            memgraph::query::CypherConstructionFor(p2).c_str());
+  EXPECT_EQ(this->EvaluateFunction("TOSTRING", TypedValue(p3)).ValueString(),
+            memgraph::query::CypherConstructionFor(p3).c_str());
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", TypedValue(p2)).ValueString(),
+            memgraph::query::CypherConstructionFor(p2).c_str());
+  // points flow through toStringList too (it delegates to toStringOrNull).
+  CompareList(
+      this->EvaluateFunction("TOSTRINGLIST", MakeTypedValueList(TypedValue(p2), TypedValue(p3))),
+      MakeTypedValueList(memgraph::query::CypherConstructionFor(p2), memgraph::query::CypherConstructionFor(p3)));
 }
 
 TYPED_TEST(FunctionTest, TimestampVoid) {

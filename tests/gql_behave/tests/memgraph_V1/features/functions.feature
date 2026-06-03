@@ -155,11 +155,11 @@ Feature: Functions
         Given an empty graph
         When executing query:
             """
-            RETURN toBooleanOrNull('true') AS a, toBooleanOrNull('nope') AS b, toBooleanOrNull(null) AS c, toBooleanOrNull([1, 2]) AS d
+            RETURN toBooleanOrNull('true') AS a, toBooleanOrNull('nope') AS b, toBooleanOrNull(null) AS c, toBooleanOrNull([1, 2]) AS d, toBooleanOrNull(1) AS e
             """
         Then the result should be:
-            | a    | b    | c    | d    |
-            | true | null | null | null |
+            | a    | b    | c    | d    | e    |
+            | true | null | null | null | true |
 
     Scenario: ToIntegerOrNull returns null for unconvertible values instead of erroring:
         Given an empty graph
@@ -191,6 +191,15 @@ Feature: Functions
             | n                        |
             | ['1', 'true', 'x', null] |
 
+    Scenario: ToIntegerList nulls non-convertible elements instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toIntegerList([1, [2], '3', 'x']) AS n
+            """
+        Then the result should be:
+            | n                  |
+            | [1, null, 3, null] |
 
     Scenario: Abs test 01:
         Given an empty graph

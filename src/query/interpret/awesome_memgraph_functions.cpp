@@ -29,6 +29,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
+#include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
@@ -602,8 +603,14 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContex
   return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
 }
 
+// Each strict to* conversion and its *OrNull variant share one type-set: the strict form throws
+// on a rejected type, the *OrNull form returns null.
+using ToBooleanTypes = Or<Null, Bool, Integer, String>;
+using ToFloatTypes = Or<Null, Bool, Number, String>;
+using ToIntegerTypes = Or<Null, Bool, Number, String>;
+
 TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Integer, String>>("toBoolean", args, nargs);
+  FType<ToBooleanTypes>("toBoolean", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -622,7 +629,7 @@ TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Number, String>>("toFloat", args, nargs);
+  FType<ToFloatTypes>("toFloat", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -642,7 +649,7 @@ TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext 
 }
 
 TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Number, String>>("toInteger", args, nargs);
+  FType<ToIntegerTypes>("toInteger", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -665,31 +672,19 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
 
 TypedValue ToBooleanOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   if (nargs != 1) throw QueryRuntimeException("'toBooleanOrNull' requires exactly 1 argument.");
-  const auto &value = args[0];
-  // keep in sync with ToBoolean's FType
-  if (!(value.IsNull() || value.IsBool() || value.IsInt() || value.IsString())) {
-    return TypedValue(ctx.memory);
-  }
+  if (!ToBooleanTypes::Check(args[0])) return TypedValue(ctx.memory);
   return ToBoolean(args, nargs, ctx);
 }
 
 TypedValue ToFloatOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   if (nargs != 1) throw QueryRuntimeException("'toFloatOrNull' requires exactly 1 argument.");
-  const auto &value = args[0];
-  // keep in sync with ToFloat's FType
-  if (!(value.IsNull() || value.IsBool() || value.IsInt() || value.IsDouble() || value.IsString())) {
-    return TypedValue(ctx.memory);
-  }
+  if (!ToFloatTypes::Check(args[0])) return TypedValue(ctx.memory);
   return ToFloat(args, nargs, ctx);
 }
 
 TypedValue ToIntegerOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   if (nargs != 1) throw QueryRuntimeException("'toIntegerOrNull' requires exactly 1 argument.");
-  const auto &value = args[0];
-  // keep in sync with ToInteger's FType
-  if (!(value.IsNull() || value.IsBool() || value.IsInt() || value.IsDouble() || value.IsString())) {
-    return TypedValue(ctx.memory);
-  }
+  if (!ToIntegerTypes::Check(args[0])) return TypedValue(ctx.memory);
   return ToInteger(args, nargs, ctx);
 }
 
@@ -702,7 +697,7 @@ TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionCo
   const auto &list = value.ValueList();
   TypedValue::TVector values(ctx.memory);
   values.reserve(list.size());
-  for (const auto &element : list) values.emplace_back(ToBoolean(&element, 1, ctx));
+  for (const auto &element : list) values.emplace_back(ToBooleanOrNull(&element, 1, ctx));
   return TypedValue(std::move(values));
 }
 
@@ -715,7 +710,7 @@ TypedValue ToFloatList(const TypedValue *args, int64_t nargs, const FunctionCont
   const auto &list = value.ValueList();
   TypedValue::TVector values(ctx.memory);
   values.reserve(list.size());
-  for (const auto &element : list) values.emplace_back(ToFloat(&element, 1, ctx));
+  for (const auto &element : list) values.emplace_back(ToFloatOrNull(&element, 1, ctx));
   return TypedValue(std::move(values));
 }
 
@@ -728,24 +723,7 @@ TypedValue ToIntegerList(const TypedValue *args, int64_t nargs, const FunctionCo
   const auto &list = value.ValueList();
   TypedValue::TVector values(ctx.memory);
   values.reserve(list.size());
-  for (const auto &element : list) values.emplace_back(ToInteger(&element, 1, ctx));
-  return TypedValue(std::move(values));
-}
-
-// Defined below, used by ToStringList for per-element conversion.
-TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx);
-
-TypedValue ToStringList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, List>>("toStringList", args, nargs);
-  const auto &value = args[0];
-  if (value.IsNull()) {
-    return TypedValue(ctx.memory);
-  }
-  const auto &list = value.ValueList();
-  TypedValue::TVector values(ctx.memory);
-  values.reserve(list.size());
-  // ToStringOrNull, not ToString: bad elements -> null; ToString aborts on non-stringifiable types.
-  for (const auto &element : list) values.emplace_back(ToStringOrNull(&element, 1, ctx));
+  for (const auto &element : list) values.emplace_back(ToIntegerOrNull(&element, 1, ctx));
   return TypedValue(std::move(values));
 }
 
@@ -1231,7 +1209,8 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
 }
 
 TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>(
+  FType<
+      Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum, Point2d, Point3d>>(
       "toString", args, nargs);
   const auto &arg = args[0];
   using enum TypedValue::Type;
@@ -1284,6 +1263,14 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
       return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
     }
 
+    case Point2d: {
+      return TypedValue(CypherConstructionFor(arg.ValuePoint2d()), ctx.memory);
+    }
+
+    case Point3d: {
+      return TypedValue(CypherConstructionFor(arg.ValuePoint3d()), ctx.memory);
+    }
+
     case List:
     case Map:
     case Vertex:
@@ -1293,9 +1280,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     case Path:
     case Graph:
     case VirtualGraph:
-    case Function:
-    case Point2d:
-    case Point3d: {
+    case Function: {
       MG_ASSERT(false, "unexpected TypedValue::Type");
     }
   }
@@ -1344,12 +1329,20 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
 
     case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (!opt_str) return TypedValue(ctx.memory);  // OrNull: unconvertible enum -> null
+      if (!opt_str) return TypedValue(ctx.memory);  // unresolvable enum -> null
       return TypedValue(*opt_str, ctx.memory);
     }
 
     case Bool: {
       return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
+    }
+
+    case Point2d: {
+      return TypedValue(CypherConstructionFor(arg.ValuePoint2d()), ctx.memory);
+    }
+
+    case Point3d: {
+      return TypedValue(CypherConstructionFor(arg.ValuePoint3d()), ctx.memory);
     }
 
     case Null:
@@ -1362,12 +1355,24 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
     case Path:
     case Graph:
     case VirtualGraph:
-    case Function:
-    case Point2d:
-    case Point3d: {
+    case Function: {
       return TypedValue(ctx.memory);
     }
   }
+}
+
+TypedValue ToStringList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>>("toStringList", args, nargs);
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+  const auto &list = value.ValueList();
+  TypedValue::TVector values(ctx.memory);
+  values.reserve(list.size());
+  // Per-element via ToStringOrNull (not ToString): non-stringifiable elements become null.
+  for (const auto &element : list) values.emplace_back(ToStringOrNull(&element, 1, ctx));
+  return TypedValue(std::move(values));
 }
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -2060,7 +2065,6 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"TOBOOLEANLIST", func_info{.func_ = ToBooleanList, .is_pure_ = true}},
     {"TOFLOATLIST", func_info{.func_ = ToFloatList, .is_pure_ = true}},
     {"TOINTEGERLIST", func_info{.func_ = ToIntegerList, .is_pure_ = true}},
-    {"TOSTRINGLIST", func_info{.func_ = ToStringList, .is_pure_ = true}},
     {"TYPE", func_info{.func_ = Type, .is_pure_ = true}},
     {"VALUETYPE", func_info{.func_ = ValueType, .is_pure_ = true}},
 
@@ -2115,6 +2119,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"TOLOWER", func_info{.func_ = ToLower, .is_pure_ = true}},
     {"TOSTRING", func_info{.func_ = ToString, .is_pure_ = true}},
     {"TOSTRINGORNULL", func_info{.func_ = ToStringOrNull, .is_pure_ = true}},
+    {"TOSTRINGLIST", func_info{.func_ = ToStringList, .is_pure_ = true}},
     {"TOUPPER", func_info{.func_ = ToUpper, .is_pure_ = true}},
     {"TRIM", func_info{.func_ = Trim, .is_pure_ = true}},
 
