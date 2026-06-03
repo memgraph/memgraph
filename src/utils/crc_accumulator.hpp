@@ -31,6 +31,11 @@ class CrcAccumulator {
 
   static auto PatchByte(uint32_t crc, uint32_t t_delta, uint64_t bytes_after) -> uint32_t;
 
+  /// Self-checking CRC verification. `crc` is the running CRC accumulated over the whole input INCLUDING the stored CRC
+  /// trailer that follows it. An intact "input ++ crc" stream reduces to a fixed CRC-32 residue, so this just compares
+  /// against that residue. Returns true when the input verifies.
+  static auto Verify(uint32_t crc) -> bool;
+
  private:
   uint32_t value_;
 };

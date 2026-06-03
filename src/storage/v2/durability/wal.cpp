@@ -1236,12 +1236,11 @@ WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   // writing the transaction-end frame, so the stored value matches what the reader can recompute. The reader snapshots
   // its accumulator before consuming the transaction-end frame, hence the frame markers must be excluded here.
   auto const txn_end_wal_pos = encoder->GetPosition();  // end of the CRC-protected region
-  auto const txn_crc = encoder->CrcAccValue();
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_END);
   auto const crc_wal_pos = encoder->GetPosition();  // position where the CRC value is stored
-  encoder->WriteUint(txn_crc);
+  auto const txn_crc = encoder->WriteCrc();
   return {.txn_end_wal_pos_ = txn_end_wal_pos, .crc_wal_pos_ = crc_wal_pos, .stored_crc_ = txn_crc};
 }
 
@@ -1934,7 +1933,6 @@ std::optional<RecoveryInfo> LoadWal(
   };
 
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
-    auto const prev_crc_val = wal.CrcAccValue();
     // Read WAL delta header to find out the delta timestamp.
     if (auto delta_ts = ReadWalDeltaHeader(&wal);
         (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
@@ -1948,8 +1946,10 @@ std::optional<RecoveryInfo> LoadWal(
       }
 
       if (auto *txn_end = std::get_if<WalTransactionEnd>(&delta.data_)) {
-        if (txn_end->txn_crc.has_value() && *txn_end->txn_crc != prev_crc_val) {
-          LOG_FATAL("Durability Crcs don't match. Running: {} Wal: {}", prev_crc_val, *txn_end->txn_crc);
+        // The CRC trailer has just been consumed and folded into the accumulator, so an intact transaction now reduces
+        // to the fixed CRC residue.
+        if (txn_end->txn_crc.has_value() && !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+          LOG_FATAL("Durability CRC mismatch (stored {}, residue {}).", *txn_end->txn_crc, wal.CrcAccValue());
         }
         wal.ResetCrcAcc();
       }
@@ -2098,9 +2098,11 @@ void WalFile::UpdateCommitStatus(WalTxnDataPos const &wal_positions) {
   constexpr unsigned char zero = 0;
   const auto t_delta = static_cast<uint32_t>(crc32(0, &delta, 1) ^ crc32(0, &zero, 1));
 
-  // Marker::BOOL is before the actual value
-  auto const changed_byte_pos = wal_positions.commit_flag_wal_position_ + 1;
-  auto const bytes_after = wal_positions.txn_end_wal_pos_ - changed_byte_pos - 1;
+  // The TYPE_BOOL marker precedes the actual value byte, which is the only byte that changes.
+  auto const changed_byte_pos = wal_positions.commit_flag_wal_position_ + sizeof(Marker);
+  // The stored CRC covers everything up to and including the TYPE_INT marker that introduces the CRC trailer;
+  // crc_wal_pos_ points at that marker. bytes_after = bytes following the flipped value byte within that region.
+  auto const bytes_after = wal_positions.crc_wal_pos_ - changed_byte_pos;
   auto const new_crc = utils::CrcAccumulator::PatchByte(wal_positions.stored_crc_, t_delta, bytes_after);
 
   // Overwrite the stored CRC value in place.

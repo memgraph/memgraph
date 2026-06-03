@@ -28,6 +28,8 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteBool(bool value) override;
 
+  uint32_t WriteCrc() override;
+
   void WriteUint(uint64_t value) override;
 
   void WriteDouble(double value) override;

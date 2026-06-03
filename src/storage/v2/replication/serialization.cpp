@@ -22,6 +22,14 @@ void Encoder::WriteBool(bool value) {
   slk::Save(value, builder_);
 }
 
+uint32_t Encoder::WriteCrc() {
+  WriteMarker(durability::Marker::TYPE_INT);
+  auto const value = CrcAccValue();
+  // Saved as a uint64 to match the 8-byte ReadUint decode path (the 32-bit CRC sits in the low bytes).
+  slk::Save(static_cast<uint64_t>(value), builder_);
+  return value;
+}
+
 void Encoder::WriteUint(uint64_t value) {
   WriteMarker(durability::Marker::TYPE_INT);
   slk::Save(value, builder_);
