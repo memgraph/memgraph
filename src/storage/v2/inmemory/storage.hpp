@@ -21,6 +21,7 @@
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/edge_ref.hpp"
+#include "storage/v2/gc_status.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -754,6 +755,16 @@ class InMemoryStorage final : public Storage {
             .start_steady_ms = snapshot_progress_.start_steady_ms.load(std::memory_order_acquire)};
   }
 
+  bool IsGcRunning() const { return gc_running_.load(std::memory_order_acquire); }
+
+  GcRunInfoView GetGcRunInfo() const {
+    return {.phase = gc_phase_.load(std::memory_order_acquire),
+            .exclusive_lock = gc_exclusive_.load(std::memory_order_acquire),
+            .periodic = gc_periodic_.load(std::memory_order_acquire),
+            .start_time_us = gc_start_time_us_.load(std::memory_order_acquire),
+            .start_steady_ms = gc_start_steady_ms_.load(std::memory_order_acquire)};
+  }
+
   void CreateSnapshotHandler(
       std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb);
 
@@ -848,6 +859,15 @@ class InMemoryStorage final : public Storage {
 
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
+
+  // GC run-state exposed via SHOW TRANSACTIONS. Descriptive fields are written
+  // before gc_running_ is set, so a reader seeing "running" sees coherent data.
+  std::atomic_bool gc_running_{false};
+  std::atomic<GcPhase> gc_phase_{GcPhase::IDLE};
+  std::atomic_bool gc_exclusive_{false};
+  std::atomic_bool gc_periodic_{false};
+  std::atomic<int64_t> gc_start_time_us_{0};
+  std::atomic<int64_t> gc_start_steady_ms_{0};
 
   struct GCDeltas {
     GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<CommitInfo> commit_info,

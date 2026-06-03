@@ -79,6 +79,21 @@ class StorageV2GcMetricsTest : public testing::Test {
   std::string db_name_;
 };
 
+TEST(StorageV2GcStatus, PhaseToString) {
+  using ms::GcPhase;
+  EXPECT_STREQ(ms::GcPhaseToString(GcPhase::IDLE), "idle");
+  EXPECT_STREQ(ms::GcPhaseToString(GcPhase::UNLINK), "unlink");
+  EXPECT_STREQ(ms::GcPhaseToString(GcPhase::INDEX_CLEANUP), "index_cleanup");
+  EXPECT_STREQ(ms::GcPhaseToString(GcPhase::DELETE), "delete");
+}
+
+TEST(StorageV2GcStatus, NotRunningWhenIdle) {
+  // Long interval so the periodic runner never fires during the test.
+  auto storage = std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+  EXPECT_FALSE(storage->IsGcRunning());
+}
+
 // TODO: The point of these is not to test GC fully, these are just simple
 // sanity checks. These will be superseded by a more sophisticated stress test
 // which will verify that GC is working properly in a multithreaded environment.
