@@ -6672,8 +6672,8 @@ std::vector<TypedValue> BuildBackgroundTaskRow(std::string_view transaction_id, 
   std::vector<TypedValue> row;
   row.reserve(7);
   row.emplace_back("");
-  row.emplace_back(std::string{transaction_id});
-  row.emplace_back(std::vector<TypedValue>{TypedValue(std::string{query_text})});
+  row.emplace_back(transaction_id);
+  row.emplace_back(std::vector<TypedValue>{TypedValue(query_text)});
   row.emplace_back("running");
   row.emplace_back(std::move(metadata));
   row.emplace_back(std::move(start_tv));
