@@ -1154,8 +1154,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // We only need to update commit flag from false->true if we are running 2PC. In all other situations, the default
   // is fine.
   if (wal_txn_positions_.commit_flag_wal_position_ != 0 && needs_wal_update_) {
-    constexpr bool commit{true};
-    mem_storage->wal_file_->UpdateCommitStatus(wal_txn_positions_, commit);
+    mem_storage->wal_file_->UpdateCommitStatus(wal_txn_positions_);
   }
 
   MG_ASSERT(transaction_.commit_info != nullptr, "Invalid database state!");
@@ -3495,7 +3494,7 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Both main and replica append txn start delta and remember the position in the WAL file in which this delta is
   // saved.
-  wal_txn_positions_ = mem_storage->wal_file_->AppendTransactionStart(
+  wal_txn_positions_.commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(
       durability_commit_timestamp, !two_phase_commit, original_access_type_);
   // Send transaction start to replicas with the correct access type
   // It does not matter what we send in the `commit` argument as it always gets ignored
@@ -4006,6 +4005,7 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   auto const txn_end_positions = mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   wal_txn_positions_.txn_end_wal_pos_ = txn_end_positions.txn_end_wal_pos_;
   wal_txn_positions_.crc_wal_pos_ = txn_end_positions.crc_wal_pos_;
+  wal_txn_positions_.stored_crc_ = txn_end_positions.stored_crc_;
 
   // If main executes this and committing immediately we need to finalize wal file before sending deltas to replicas
   // If replica executes this and committing immediately, it is OK to finalize wal here

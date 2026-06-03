@@ -29,6 +29,8 @@ class CrcAccumulator {
   auto Value() const -> uint32_t;
   void Update(const unsigned char *bytes, uint32_t len);
 
+  static auto PatchByte(uint32_t crc, uint32_t t_delta, uint64_t bytes_after) -> uint32_t;
+
  private:
   uint32_t value_;
 };
