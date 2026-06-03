@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,13 +13,15 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "rpc/server.hpp"
+#include "utils/tls.hpp"
 
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 
 class CoordinatorInstanceManagementServer {
  public:
-  explicit CoordinatorInstanceManagementServer(const ManagementServerConfig &config);
+  explicit CoordinatorInstanceManagementServer(const ManagementServerConfig &config,
+                                               std::optional<utils::TlsConfig> const &tls_config);
   CoordinatorInstanceManagementServer(const CoordinatorInstanceManagementServer &) = delete;
   CoordinatorInstanceManagementServer(CoordinatorInstanceManagementServer &&) = delete;
   CoordinatorInstanceManagementServer &operator=(const CoordinatorInstanceManagementServer &) = delete;

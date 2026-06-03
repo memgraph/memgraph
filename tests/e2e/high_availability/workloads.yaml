@@ -54,3 +54,7 @@ workloads:
   - name: "HA instance metrics"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/instance_metrics.py"]
+    
+  - name: "HA TLS cluster"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/tls_cluster.py"]

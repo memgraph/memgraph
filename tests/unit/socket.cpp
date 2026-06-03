@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include "io/network/socket.hpp"
+#include "utils/logging.hpp"
 #include "utils/timer.hpp"
 
 TEST(Socket, WaitForReadyRead) {
@@ -33,7 +34,9 @@ TEST(Socket, WaitForReadyRead) {
   auto client = server.Accept();
   ASSERT_TRUE(client);
 
-  client->SetNonBlocking();
+  if (auto const val = client->SetNonBlocking(); !val.has_value()) {
+    LOG_FATAL(val.error());
+  }
 
   ASSERT_EQ(client->Read(buff, sizeof(buff)), -1);
   ASSERT_TRUE(errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR);
@@ -56,7 +59,9 @@ TEST(Socket, WaitForReadyWrite) {
     uint8_t buff[10'000];
     memgraph::io::network::Socket client;
     ASSERT_TRUE(client.Connect(server.endpoint()));
-    client.SetNonBlocking();
+    if (auto const val = client.SetNonBlocking(); !val.has_value()) {
+      LOG_FATAL(val.error());
+    }
 
     // Wait for server to fill its buffer and hence would WaitForReadyWrite
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
@@ -75,7 +80,9 @@ TEST(Socket, WaitForReadyWrite) {
   auto connection_with_client = server.Accept();
   ASSERT_TRUE(connection_with_client);
 
-  connection_with_client->SetNonBlocking();
+  if (auto const val = connection_with_client->SetNonBlocking(); !val.has_value()) {
+    LOG_FATAL(val.error());
+  }
 
   // Decrease the TCP write buffer.
   int len = 1024;

@@ -293,6 +293,7 @@ EXPECTED_EVENT_COUNTERS = {
     "ShowInstances",
     "ShowSchema",
     "ShowStorageInfoOnDatabase",
+    "ShowStorageInfo",
     "SkipOperator",
     "StateCheckRpcFail",
     "StateCheckRpcSuccess",

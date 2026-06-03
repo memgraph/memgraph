@@ -77,13 +77,6 @@ bool GetStorageGcAggressive();
 const std::chrono::time_zone *GetTimezone();
 
 /**
- * @brief Get the query log directory value
- *
- * @return std::string
- */
-std::string GetQueryLogDirectory();
-
-/**
  * @brief Get the also-log-to-stderr value
  * @return bool
  */

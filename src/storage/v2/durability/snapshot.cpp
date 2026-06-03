@@ -200,6 +200,44 @@ using task_results_t = std::vector<std::pair<SnapshotPartialRes, std::promise<bo
 
 namespace {
 
+// Rolls back partially-loaded recovery state on destruction unless Commit()
+// was called.
+class RecoveryRollbackGuard {
+ public:
+  RecoveryRollbackGuard(utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                        EdgeMetadataIndex *edges_metadata, std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                        EnumStore *enum_store = nullptr)
+      : vertices_(vertices),
+        edges_(edges),
+        edges_metadata_(edges_metadata),
+        epoch_history_(epoch_history),
+        enum_store_(enum_store) {}
+
+  ~RecoveryRollbackGuard() {
+    if (committed_) return;
+    edges_->clear();
+    vertices_->clear();
+    if (edges_metadata_) edges_metadata_->Clear();
+    epoch_history_->clear();
+    if (enum_store_) enum_store_->clear();
+  }
+
+  RecoveryRollbackGuard(RecoveryRollbackGuard const &) = delete;
+  RecoveryRollbackGuard &operator=(RecoveryRollbackGuard const &) = delete;
+  RecoveryRollbackGuard(RecoveryRollbackGuard &&) = delete;
+  RecoveryRollbackGuard &operator=(RecoveryRollbackGuard &&) = delete;
+
+  void Commit() noexcept { committed_ = true; }
+
+ private:
+  utils::SkipListDb<Vertex> *vertices_;
+  utils::SkipListDb<Edge> *edges_;
+  EdgeMetadataIndex *edges_metadata_;
+  std::deque<std::pair<std::string, uint64_t>> *epoch_history_;
+  EnumStore *enum_store_;
+  bool committed_ = false;
+};
+
 bool WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_encoder, uint64_t &element_count,
                     std::vector<BatchInfo> &batch_infos, std::unordered_set<uint64_t> &used_ids,
                     auto &&snapshot_aborted) {
@@ -932,9 +970,8 @@ struct LoadPartialConnectivityResult {
 template <typename TEdgeTypeFromIdFunc>
 LoadPartialConnectivityResult LoadPartialConnectivity(
     const std::filesystem::path &path, utils::SkipListDb<Vertex> &vertices, utils::SkipListDb<Edge> &edges,
-    utils::SkipListDb<EdgeMetadata> &edges_metadata, SharedSchemaTracking *schema_info, const uint64_t from_offset,
-    const uint64_t vertices_count, const SalientConfig::Items items, const bool snapshot_has_edges,
-    TEdgeTypeFromIdFunc get_edge_type_from_id,
+    SharedSchemaTracking *schema_info, const uint64_t from_offset, const uint64_t vertices_count,
+    const SalientConfig::Items items, const bool snapshot_has_edges, TEdgeTypeFromIdFunc get_edge_type_from_id,
     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
@@ -943,7 +980,6 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
 
   auto vertex_acc = vertices.access();
   auto edge_acc = edges.access();
-  auto edge_metadata_acc = edges_metadata.access();
 
   // Read the first gid to find the necessary iterator in vertices
   const auto first_vertex_gid = std::invoke([&]() mutable {
@@ -1090,9 +1126,6 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
             auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
             edge_ref = EdgeRef(&*edge);
           }
-          if (items.enable_edges_metadata) {
-            edge_metadata_acc.insert(EdgeMetadata{Gid::FromUint(*edge_gid), &vertex});
-          }
         }
         vertex.out_edges.emplace_back(get_edge_type_from_id(*edge_type), &*to_vertex, edge_ref);
         // Increment edge count. We only increment the count here because the
@@ -1149,23 +1182,14 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
 
 RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem::path &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, SalientConfig::Items items) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  // Cleanup of loaded data in case of failure.
-  bool success = false;
-  const utils::OnScopeExit cleanup([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -1627,31 +1651,21 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
   // Recover timestamp.
   ret.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {info, ret, std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem::path &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  // Cleanup of loaded data in case of failure.
-  bool success = false;
-  const utils::OnScopeExit cleanup([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -1772,7 +1786,6 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
         [path,
          vertices,
          edges,
-         edges_metadata,
          schema_info,
          edge_count,
          items = config.salient.items,
@@ -1783,7 +1796,6 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
-                                                      *edges_metadata,
                                                       schema_info,
                                                       batch.offset,
                                                       batch.count,
@@ -1939,31 +1951,21 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem::path &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  // Cleanup of loaded data in case of failure.
-  bool success = false;
-  const utils::OnScopeExit cleanup([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -2084,7 +2086,6 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
         [path,
          vertices,
          edges,
-         edges_metadata,
          schema_info,
          edge_count,
          items = config.salient.items,
@@ -2095,7 +2096,6 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
-                                                      *edges_metadata,
                                                       schema_info,
                                                       batch.offset,
                                                       batch.count,
@@ -2313,31 +2313,21 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem::path &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  // Cleanup of loaded data in case of failure.
-  bool success = false;
-  const utils::OnScopeExit cleanup([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -2458,7 +2448,6 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
         [path,
          vertices,
          edges,
-         edges_metadata,
          schema_info,
          edge_count,
          items = config.salient.items,
@@ -2469,7 +2458,6 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
-                                                      *edges_metadata,
                                                       schema_info,
                                                       batch.offset,
                                                       batch.count,
@@ -2732,8 +2720,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
@@ -2742,7 +2729,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
 /// hence same load for 18 will work for 19
 RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesystem::path &path,
                                             utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                            utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                            EdgeMetadataIndex *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             SharedSchemaTracking *schema_info, const Config &config,
@@ -2750,17 +2737,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  // Cleanup of loaded data in case of failure.
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -2919,7 +2896,6 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
         [path,
          vertices,
          edges,
-         edges_metadata,
          edge_count,
          items = config.salient.items,
          snapshot_has_edges,
@@ -2930,7 +2906,6 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
-                                                      *edges_metadata,
                                                       schema_info,
                                                       batch.offset,
                                                       batch.count,
@@ -3212,15 +3187,14 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesystem::path &path,
                                             utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                            utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                            EdgeMetadataIndex *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             SharedSchemaTracking *schema_info, const Config &config,
@@ -3228,17 +3202,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  // Cleanup of loaded data in case of failure.
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -3397,7 +3361,6 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
         [path,
          vertices,
          edges,
-         edges_metadata,
          schema_info,
          edge_count,
          items = config.salient.items,
@@ -3408,7 +3371,6 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
-                                                      *edges_metadata,
                                                       schema_info,
                                                       batch.offset,
                                                       batch.count,
@@ -3739,15 +3701,14 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesystem::path &path,
                                             utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                            utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                            EdgeMetadataIndex *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             const Config &config, memgraph::storage::EnumStore *enum_store,
@@ -3756,17 +3717,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  // Cleanup of loaded data in case of failure.
-  bool success = false;
-  const utils::OnScopeExit cleanup([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -3928,7 +3879,6 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
         [path,
          vertices,
          edges,
-         edges_metadata,
          schema_info,
          edge_count,
          items = config.salient.items,
@@ -3940,7 +3890,6 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
-                                                      *edges_metadata,
                                                       schema_info,
                                                       batch.offset,
                                                       batch.count,
@@ -4162,14 +4111,15 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -4318,15 +4268,14 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path const &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -4336,16 +4285,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -4512,7 +4452,6 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
           [path,
            vertices,
            edges,
-           edges_metadata,
            schema_info,
            edge_count,
            items = config.salient.items,
@@ -4524,7 +4463,6 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
-                                                        *edges_metadata,
                                                         schema_info,
                                                         batch.offset,
                                                         batch.count,
@@ -4791,14 +4729,15 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -4947,15 +4886,14 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path const &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -4965,16 +4903,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -5160,7 +5089,6 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
           [path,
            vertices,
            edges,
-           edges_metadata,
            schema_info,
            edge_count,
            items = config.salient.items,
@@ -5172,7 +5100,6 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
-                                                        *edges_metadata,
                                                         schema_info,
                                                         batch.offset,
                                                         batch.count,
@@ -5412,14 +5339,15 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = ScalarFromName(query::kDefaultScalarKind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -5568,15 +5496,14 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path const &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -5586,16 +5513,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -5781,7 +5699,6 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
           [path,
            vertices,
            edges,
-           edges_metadata,
            schema_info,
            edge_count,
            items = config.salient.items,
@@ -5793,7 +5710,6 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
-                                                        *edges_metadata,
                                                         schema_info,
                                                         batch.offset,
                                                         batch.count,
@@ -6035,14 +5951,15 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -6191,15 +6108,14 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::path const &path,
                                             utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                            utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                            EdgeMetadataIndex *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             Config const &config, EnumStore *enum_store,
@@ -6209,16 +6125,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -6404,7 +6311,6 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
           [path,
            vertices,
            edges,
-           edges_metadata,
            schema_info,
            edge_count,
            items = config.salient.items,
@@ -6416,7 +6322,6 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
-                                                        *edges_metadata,
                                                         schema_info,
                                                         batch.offset,
                                                         batch.count,
@@ -6660,14 +6565,15 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -6712,7 +6618,9 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
 
         indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
             .spec = VectorEdgeIndexSpec{.index_name = std::move(*index_name),
-                                        .edge_type_id = get_edge_type_from_id(*edge_type),
+                                        .edge_type_filter =
+                                            VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE,
+                                                                 .ids = {get_edge_type_from_id(*edge_type)}},
                                         .property = get_property_from_id(*property),
                                         .metric_kind = metric_kind,
                                         .dimension = static_cast<uint16_t>(*dimension),
@@ -6866,15 +6774,14 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path const &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -6884,16 +6791,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -7079,7 +6977,6 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
           [path,
            vertices,
            edges,
-           edges_metadata,
            schema_info,
            edge_count,
            items = config.salient.items,
@@ -7091,7 +6988,6 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
-                                                        *edges_metadata,
                                                         schema_info,
                                                         batch.offset,
                                                         batch.count,
@@ -7335,14 +7231,15 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -7387,7 +7284,9 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
 
         indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
             .spec = VectorEdgeIndexSpec{.index_name = std::move(*index_name),
-                                        .edge_type_id = get_edge_type_from_id(*edge_type),
+                                        .edge_type_filter =
+                                            VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE,
+                                                                 .ids = {get_edge_type_from_id(*edge_type)}},
                                         .property = get_property_from_id(*property),
                                         .metric_kind = metric_kind,
                                         .dimension = static_cast<uint16_t>(*dimension),
@@ -7551,15 +7450,14 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path const &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -7570,16 +7468,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -7765,7 +7654,6 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
           [path,
            vertices,
            edges,
-           edges_metadata,
            schema_info,
            edge_count,
            items = config.salient.items,
@@ -7777,7 +7665,6 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
-                                                        *edges_metadata,
                                                         schema_info,
                                                         batch.offset,
                                                         batch.count,
@@ -8021,14 +7908,15 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -8073,7 +7961,9 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
 
         indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
             .spec = VectorEdgeIndexSpec{.index_name = std::move(*index_name),
-                                        .edge_type_id = get_edge_type_from_id(*edge_type),
+                                        .edge_type_filter =
+                                            VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE,
+                                                                 .ids = {get_edge_type_from_id(*edge_type)}},
                                         .property = get_property_from_id(*property),
                                         .metric_kind = metric_kind,
                                         .dimension = static_cast<uint16_t>(*dimension),
@@ -8301,15 +8191,14 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path const &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -8320,16 +8209,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -8515,7 +8395,6 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
           [path,
            vertices,
            edges,
-           edges_metadata,
            schema_info,
            edge_count,
            items = config.salient.items,
@@ -8527,7 +8406,6 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
-                                                        *edges_metadata,
                                                         schema_info,
                                                         batch.offset,
                                                         batch.count,
@@ -8773,14 +8651,15 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        auto spec = VectorIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
         indices_constraints.indices.vector_indices.emplace_back(
             VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
@@ -8827,7 +8706,9 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
 
         indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
             .spec = VectorEdgeIndexSpec{.index_name = std::move(*index_name),
-                                        .edge_type_id = get_edge_type_from_id(*edge_type),
+                                        .edge_type_filter =
+                                            VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE,
+                                                                 .ids = {get_edge_type_from_id(*edge_type)}},
                                         .property = get_property_from_id(*property),
                                         .metric_kind = metric_kind,
                                         .dimension = static_cast<uint16_t>(*dimension),
@@ -9089,15 +8970,15 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
+// NOLINTNEXTLINE(readability-function-size)
 RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path const &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -9108,16 +8989,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -9303,7 +9175,6 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
           [path,
            vertices,
            edges,
-           edges_metadata,
            schema_info,
            edge_count,
            items = config.salient.items,
@@ -9315,7 +9186,6 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
-                                                        *edges_metadata,
                                                         schema_info,
                                                         batch.offset,
                                                         batch.count,
@@ -9540,8 +9410,9 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
           throw RecoveryFailure("The vector index with the same name already exists!");
         }
 
-        auto label = snapshot.ReadUint();
+        const auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
+        VectorLabelFilter label_filter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}};
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read vector index property!");
         auto metric = snapshot.ReadString();
@@ -9556,7 +9427,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector index scalar kind!");
 
         VectorIndexSpec spec{.index_name = std::move(*index_name),
-                             .label_id = get_label_from_id(*label),
+                             .label_filter = std::move(label_filter),
                              .property = get_property_from_id(*property),
                              .metric_kind = MetricFromName(*metric),
                              .dimension = static_cast<uint16_t>(*dimension),
@@ -9606,8 +9477,10 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
           throw RecoveryFailure("The vector index with the same name already exists!");
         }
 
-        auto edge_type = snapshot.ReadUint();
+        const auto edge_type = snapshot.ReadUint();
         if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
+        VectorEdgeTypeFilter edge_type_filter{.mode = VectorMatchMode::SINGLE,
+                                              .ids = {get_edge_type_from_id(*edge_type)}};
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read vector edge index property!");
         auto metric = snapshot.ReadString();
@@ -9623,7 +9496,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
 
         indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
             .spec = VectorEdgeIndexSpec{.index_name = std::move(*index_name),
-                                        .edge_type_id = get_edge_type_from_id(*edge_type),
+                                        .edge_type_filter = std::move(edge_type_filter),
                                         .property = get_property_from_id(*property),
                                         .metric_kind = MetricFromName(*metric),
                                         .dimension = static_cast<uint16_t>(*dimension),
@@ -9884,8 +9757,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
@@ -9978,30 +9850,19 @@ void RecoverDescriptionStore(Decoder &snapshot, SnapshotInfo const &info, NameId
 }
 
 // NOLINTNEXTLINE(readability-function-size)
-RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem::path const &path,
-                                             utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                             utils::SkipListDb<EdgeMetadata> *edges_metadata,
-                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                             Config const &config, EnumStore *enum_store,
-                                             SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
-                                             memgraph::storage::DescriptionStore *description_store,
-                                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
+RecoveredSnapshot LoadCurrentVersionSnapshot(
+    Decoder &snapshot, std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+    utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
+    std::deque<std::pair<std::string, uint64_t>> *epoch_history, NameIdMapper *name_id_mapper,
+    std::atomic<uint64_t> *edge_count, Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
+    std::optional<SnapshotObserverInfo> const &snapshot_info, uint64_t version) {
   // Cleanup of loaded data in case of failure.
 
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -10187,7 +10048,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           [path,
            vertices,
            edges,
-           edges_metadata,
            schema_info,
            edge_count,
            items = config.salient.items,
@@ -10199,7 +10059,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
-                                                        *edges_metadata,
                                                         schema_info,
                                                         batch.offset,
                                                         batch.count,
@@ -10440,8 +10299,24 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           throw RecoveryFailure("The vector index with the same name already exists!");
         }
 
-        auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Couldn't read vector index label!");
+        VectorLabelFilter label_filter{.mode = VectorMatchMode::SINGLE, .ids = {}};
+        if (version >= kVectorIndexMultiLabel) {
+          auto mode_raw = snapshot.ReadUint();
+          if (!mode_raw) throw RecoveryFailure("Couldn't read vector index label mode!");
+          auto label_count = snapshot.ReadUint();
+          if (!label_count) throw RecoveryFailure("Couldn't read vector index label count!");
+          label_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
+          label_filter.ids.reserve(*label_count);
+          for (uint64_t k = 0; k < *label_count; ++k) {
+            auto label = snapshot.ReadUint();
+            if (!label) throw RecoveryFailure("Couldn't read vector index label!");
+            label_filter.ids.push_back(get_label_from_id(*label));
+          }
+        } else {
+          auto label = snapshot.ReadUint();
+          if (!label) throw RecoveryFailure("Couldn't read vector index label!");
+          label_filter.ids.push_back(get_label_from_id(*label));
+        }
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read vector index property!");
         auto metric = snapshot.ReadString();
@@ -10456,7 +10331,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector index scalar kind!");
 
         VectorIndexSpec spec{.index_name = std::move(*index_name),
-                             .label_id = get_label_from_id(*label),
+                             .label_filter = std::move(label_filter),
                              .property = get_property_from_id(*property),
                              .metric_kind = MetricFromName(*metric),
                              .dimension = static_cast<uint16_t>(*dimension),
@@ -10506,8 +10381,24 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           throw RecoveryFailure("The vector index with the same name already exists!");
         }
 
-        auto edge_type = snapshot.ReadUint();
-        if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
+        VectorEdgeTypeFilter edge_type_filter{.mode = VectorMatchMode::SINGLE, .ids = {}};
+        if (version >= kVectorIndexMultiLabel) {
+          auto mode_raw = snapshot.ReadUint();
+          if (!mode_raw) throw RecoveryFailure("Couldn't read vector edge index edge type mode!");
+          auto edge_type_count = snapshot.ReadUint();
+          if (!edge_type_count) throw RecoveryFailure("Couldn't read vector edge index edge type count!");
+          edge_type_filter.mode = static_cast<VectorMatchMode>(*mode_raw);
+          edge_type_filter.ids.reserve(*edge_type_count);
+          for (uint64_t k = 0; k < *edge_type_count; ++k) {
+            auto edge_type = snapshot.ReadUint();
+            if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
+            edge_type_filter.ids.push_back(get_edge_type_from_id(*edge_type));
+          }
+        } else {
+          auto edge_type = snapshot.ReadUint();
+          if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
+          edge_type_filter.ids.push_back(get_edge_type_from_id(*edge_type));
+        }
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read vector edge index property!");
         auto metric = snapshot.ReadString();
@@ -10522,7 +10413,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector edge index scalar kind!");
 
         VectorEdgeIndexSpec spec{.index_name = std::move(*index_name),
-                                 .edge_type_id = get_edge_type_from_id(*edge_type),
+                                 .edge_type_filter = std::move(edge_type_filter),
                                  .property = get_property_from_id(*property),
                                  .metric_kind = MetricFromName(*metric),
                                  .dimension = static_cast<uint16_t>(*dimension),
@@ -10808,15 +10699,14 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path const &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                                        EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -10828,16 +10718,7 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  bool success = false;
-  auto const cleanup = utils::OnScopeExit([&] {
-    if (!success) {
-      edges->clear();
-      vertices->clear();
-      edges_metadata->clear();
-      epoch_history->clear();
-      enum_store->clear();
-    }
-  });
+  RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -11023,7 +10904,6 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
           [path,
            vertices,
            edges,
-           edges_metadata,
            schema_info,
            edge_count,
            items = config.salient.items,
@@ -11035,7 +10915,6 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
-                                                        *edges_metadata,
                                                         schema_info,
                                                         batch.offset,
                                                         batch.count,
@@ -11291,14 +11170,15 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
         auto scalar_kind = snapshot.ReadUint();
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector index scalar kind!");
 
-        VectorIndexSpec spec{.index_name = std::move(*index_name),
-                             .label_id = get_label_from_id(*label),
-                             .property = get_property_from_id(*property),
-                             .metric_kind = MetricFromName(*metric),
-                             .dimension = static_cast<uint16_t>(*dimension),
-                             .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                             .capacity = *capacity,
-                             .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        VectorIndexSpec spec{
+            .index_name = std::move(*index_name),
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {get_label_from_id(*label)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = MetricFromName(*metric),
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
 
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
@@ -11358,7 +11238,8 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector edge index scalar kind!");
 
         VectorEdgeIndexSpec spec{.index_name = std::move(*index_name),
-                                 .edge_type_id = get_edge_type_from_id(*edge_type),
+                                 .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE,
+                                                                          .ids = {get_edge_type_from_id(*edge_type)}},
                                  .property = get_property_from_id(*property),
                                  .metric_kind = MetricFromName(*metric),
                                  .dimension = static_cast<uint16_t>(*dimension),
@@ -11644,8 +11525,7 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
 
-  // Set success flag (to disable cleanup).
-  success = true;
+  rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
@@ -11653,7 +11533,7 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
 }  // namespace
 
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipListDb<Vertex> *vertices,
-                               utils::SkipListDb<Edge> *edges, utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                               utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -11909,7 +11789,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                         schema_info,
                                         ttl,
                                         description_store,
-                                        snapshot_info);
+                                        snapshot_info,
+                                        *version);
     }
     default: {
       // `IsVersionSupported` checks that the version is within the supported
@@ -11978,6 +11859,10 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
   // one WAL file that contains deltas before the snapshot, this correctly
   // handles the edge case when that one file is the current WAL file that
   if (it != wal_files.begin()) {
+    auto const num_to_delete = static_cast<size_t>(std::distance(wal_files.begin(), std::prev(it)));
+    spdlog::info("snapshot retention: deleting {} pre-snapshot WAL file(s) (oldest retained snapshot ts={})",
+                 num_to_delete,
+                 old_durable_ts);
     std::for_each(wal_files.begin(), std::prev(it), [file_retainer](auto const &wal_info) {
       file_retainer->DeleteFile(wal_info.path);
     });
@@ -12026,6 +11911,9 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
 
   // -1 because the current snapshot path has been skipped
   const uint32_t num_to_erase = old_snapshot_files.size() - (snapshot_retention_count - 1);
+  spdlog::info("snapshot retention: deleting {} old snapshot file(s), retention_count={}",
+               num_to_erase,
+               snapshot_retention_count);
   for (size_t i = 0; i < num_to_erase; ++i) {
     const auto &[_, snapshot_path] = old_snapshot_files[i];
     file_retainer->DeleteFile(snapshot_path);
@@ -12034,14 +11922,12 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
 }
 
-std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
-                                                    const std::filesystem::path &snapshot_directory,
-                                                    const std::filesystem::path &wal_directory,
-                                                    utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                                    utils::UUID const &uuid, std::string_view const epoch_id,
-                                                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
-                                                    utils::FileRetainer *file_retainer,
-                                                    std::atomic_bool *abort_snapshot, SnapshotProgress *progress) {
+std::optional<std::filesystem::path> CreateSnapshot(
+    Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
+    const std::filesystem::path &wal_directory, utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+    utils::UUID const &uuid, std::string_view const epoch_id,
+    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
+    std::atomic_bool *abort_snapshot, SnapshotProgress *progress, std::string_view trigger) {
   utils::Timer timer;
 
   // Ensure that the storage directory exists.
@@ -12059,10 +11945,11 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       return false;
     }
     file_retainer->DeleteFile(path);
+    spdlog::info("snapshot aborted");
     return true;
   };
 
-  spdlog::info("Starting snapshot creation to {}", path);
+  spdlog::info("snapshot starting: {} (trigger={})", path, trigger);
   SnapshotEncoder snapshot;
   if (!snapshot.Initialize(path, kSnapshotMagic, kVersion)) {
     spdlog::warn(
@@ -12355,6 +12242,8 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   std::vector<BatchInfo> vertex_batch_infos;
 
   if (storage->config_.durability.allow_parallel_snapshot_creation) {
+    spdlog::trace("snapshot writing edges and vertices (parallel, {} threads)",
+                  storage->config_.durability.snapshot_thread_count);
     auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
     if (!MultiThreadedWorkflow(edge_ptr,
                                vertices,
@@ -12383,6 +12272,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     }
   } else {
     if (storage->config_.salient.items.properties_on_edges) {
+      spdlog::trace("snapshot writing edges");
       if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
       offset_edges = snapshot.GetPosition();  // Global edge offset
       // Handle edges
@@ -12394,6 +12284,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     if (snapshot_aborted()) {
       return std::nullopt;
     }
+    spdlog::trace("snapshot writing vertices");
     if (progress) progress->SetPhase(SnapshotProgress::Phase::VERTICES, vertices->size());
     {
       offset_vertices = snapshot.GetPosition();  // Global vertex offset
@@ -12416,6 +12307,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write label indices.
     {
+      spdlog::trace("snapshot writing label indices");
       auto label = transaction->active_indices_->label_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(label.size());
       for (const auto &item : label) {
@@ -12517,6 +12409,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     auto asc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
     auto desc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
 
+    spdlog::trace("snapshot writing label-property indices");
     // Write ASC label+properties indices.
     {
       write_label_property_indices(asc_indices);
@@ -12539,6 +12432,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     offset_edge_indices = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_EDGE_INDICES);
     {
+      spdlog::trace("snapshot writing edge-type indices");
       auto edge_type = transaction->active_indices_->edge_type_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
@@ -12551,6 +12445,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write edge-type + property indices.
     {
+      spdlog::trace("snapshot writing edge-type-property indices");
       auto edge_type = transaction->active_indices_->edge_type_properties_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
@@ -12564,6 +12459,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write global edge property indices.
     {
+      spdlog::trace("snapshot writing edge-property indices");
       auto indices = transaction->active_indices_->edge_property_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(indices.size());
       for (const auto &property : indices) {
@@ -12573,6 +12469,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write point indices.
     {
+      spdlog::trace("snapshot writing point indices");
       auto point_keys = storage->indices_.point_index_.ListIndices();
       snapshot.WriteUint(point_keys.size());
       for (const auto &[label, property] : point_keys) {
@@ -12586,6 +12483,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write vector indices
     {
+      spdlog::trace("snapshot writing vector indices");
       storage->indices_.vector_index_.SerializeAllVectorIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {
         return std::nullopt;
@@ -12594,6 +12492,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write vector edge indices
     {
+      spdlog::trace("snapshot writing vector edge indices");
       storage->indices_.vector_edge_index_.SerializeAllVectorEdgeIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {
         return std::nullopt;
@@ -12604,6 +12503,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     {
       // Text indices on nodes
       {
+        spdlog::trace("snapshot writing text node indices");
         const auto text_indices = storage->indices_.text_index_.ListIndices();
         snapshot.WriteUint(text_indices.size());
         for (const auto &[index_name, label, properties] : text_indices) {
@@ -12620,6 +12520,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
       // Text indices on edges
       {
+        spdlog::trace("snapshot writing text edge indices");
         const auto text_edge_indices = storage->indices_.text_edge_index_.ListIndices();
         snapshot.WriteUint(text_edge_indices.size());
         for (const auto &[index_name, edge_type, properties] : text_edge_indices) {
@@ -12638,6 +12539,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   }
 
   // Write constraints.
+  spdlog::trace("snapshot writing constraints");
   if (progress) progress->SetPhase(SnapshotProgress::Phase::CONSTRAINTS, 0);
   {
     offset_constraints = snapshot.GetPosition();
@@ -12687,6 +12589,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   }
 
   // Write mapper data, enums, metadata, batch info, TTL.
+  spdlog::trace("snapshot finalizing");
   if (progress) progress->SetPhase(SnapshotProgress::Phase::FINALIZING, 0);
   {
     offset_mapper = snapshot.GetPosition();
@@ -12899,10 +12802,14 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     return std::nullopt;
   }
 
-  // Finalize snapshot file.
-  spdlog::trace("Finalizing snapshot file!");
   snapshot.Finalize();
-  spdlog::info("Snapshot creation successful!");
+  auto const snapshot_size = std::filesystem::file_size(path);
+  spdlog::info("snapshot complete: {} ({} vertices, {} edges, {:.1f} MiB, {:.2f}s)",
+               path,
+               vertices_count,
+               edges_count,
+               static_cast<double>(snapshot_size) / (1024.0 * 1024.0),
+               std::chrono::duration<double>(timer.Elapsed()).count());
 
   auto const old_snapshot_files =
       EnsureRetentionCountSnapshotsExist(snapshot_directory, uuid_str, path, file_retainer, storage);

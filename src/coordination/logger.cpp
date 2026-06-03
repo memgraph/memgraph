@@ -12,33 +12,29 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/logger.hpp"
+#include "flags/logging.hpp"
 
-#include <spdlog/logger.h>
-#include <spdlog/sinks/daily_file_sink.h>
+#include "spdlog/logger.h"
+#include "spdlog/sinks/daily_file_sink.h"
+
 #include <ctime>
 #include <utility>
 #include <vector>
-
-namespace {
-constexpr int log_retention_count = 35;
-
-}  // namespace
 
 namespace memgraph::coordination {
 
 Logger::Logger(std::string log_file) {
   std::vector<spdlog::sink_ptr> sinks;
   if (!log_file.empty()) {
-    time_t current_time{0};
-    struct tm *local_time{nullptr};
-
-    time(&current_time);  // NOLINT
-    local_time = localtime(&current_time);
-
+    auto const local_time = flags::GetSinkLocalTime();
     sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
-        std::move(log_file), local_time->tm_hour, local_time->tm_min, false, log_retention_count));
+        std::move(log_file),
+        local_time.tm_hour,
+        local_time.tm_min,
+        false,
+        flags::LogRetentionDays()));  // reuse log retention days from the gflags
   }
-  // If log file is empty, logger can be used but without sinks = no logging.
+  // empty sinks => usable logger that drops everything (file path not configured)
   logger_ = std::make_shared<spdlog::logger>("NuRaft", sinks.begin(), sinks.end());
   logger_->set_level(spdlog::level::trace);
   logger_->flush_on(spdlog::level::trace);

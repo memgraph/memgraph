@@ -60,6 +60,7 @@ target_sources(mg-utils
     small_vector.hpp
     static_vector.hpp
     logging.hpp
+    session_context.hpp
     string.hpp
     scheduler.hpp
     priority_thread_pool.hpp
@@ -69,6 +70,7 @@ target_sources(mg-utils
     resource_monitoring.hpp
     safe_string.hpp
     shared_quota.hpp
+    tls.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)

@@ -37,6 +37,8 @@
 
 namespace {
 constexpr auto kFirstShotAfter = std::chrono::seconds{60};
+constexpr auto kEventStartup = "startup";
+constexpr auto kEventShutdown = "shutdown";
 }  // namespace
 
 namespace memgraph::telemetry {
@@ -52,7 +54,7 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
       ssl_(ssl),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
-  StoreData("startup", utils::GetSystemInfo());
+  StoreData(kEventStartup, utils::GetSystemInfo());
   AddCollector("resources", [&, root_directory = std::move(root_directory)]() -> nlohmann::json {
     return GetResourceUsage(root_directory);
   });
@@ -89,9 +91,22 @@ void Telemetry::AddCollector(std::string name, FuncSig func) {
   collectors_.emplace_back(std::move(name), std::move(func));
 }
 
-Telemetry::~Telemetry() {
+void Telemetry::Stop() {
+  abort_.store(true, std::memory_order_relaxed);
   scheduler_.Stop();
-  CollectData("shutdown");
+}
+
+Telemetry::~Telemetry() noexcept {
+  try {
+    Stop();
+    // Clear the abort flag so the final shutdown collection can actually send
+    // data (with the 10s timeout). Without this, the in-flight curl transfer
+    // would be aborted immediately because the flag is still set.
+    abort_.store(false, std::memory_order_relaxed);
+    CollectData(kEventShutdown);
+  } catch (...) {
+    (void)0;  // clang-tidy
+  }
 }
 
 void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &data) {
@@ -106,7 +121,7 @@ void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &dat
   storage_.Put(fmt::format("{}:{}", uuid_, event.dump()), payload.dump());
 }
 
-void Telemetry::SendData() {
+void Telemetry::SendData(int timeout_seconds) {
   std::vector<std::string> keys;
   nlohmann::json payload = nlohmann::json::array();
 
@@ -122,7 +137,8 @@ void Telemetry::SendData() {
 
   if (requests::RequestPostJson(url_,
                                 payload,
-                                /* timeout_in_seconds = */ 2 * 60)) {
+                                /* timeout_in_seconds = */ timeout_seconds,
+                                &abort_)) {
     for (const auto &key : keys) {
       if (!storage_.Delete(key)) {
         SPDLOG_WARN(
@@ -155,8 +171,10 @@ void Telemetry::CollectData(const std::string &event) {
   } else {
     StoreData(event, data);
   }
-  if (num_ % send_every_n_ == 0 || event == "shutdown") {
-    SendData();
+  if (num_ % send_every_n_ == 0 || event == kEventShutdown) {
+    // Use shorter timeout for shutdown event
+    int const timeout = (event == kEventShutdown) ? 10 : (2 * 60);
+    SendData(timeout);
   }
 }
 

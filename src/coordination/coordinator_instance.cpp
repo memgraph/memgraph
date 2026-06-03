@@ -80,15 +80,17 @@ using nuraft::ptr;
 using namespace std::chrono_literals;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
-    : coordinator_management_server_{ManagementServerConfig{
-          io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}}} {
+    : tls_config_(config.tls_config),
+      coordinator_management_server_{ManagementServerConfig{io::network::Endpoint{
+                                         kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}},
+                                     config.tls_config} {
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
   // If something is not yet constructed in coordinator instance, we get UB
   raft_state_ = std::make_unique<RaftState>(
       config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(), CoordinationClusterChangeObserver{this});
   UpdateClientConnectors(raft_state_->GetCoordinatorInstancesAux());
-  raft_state_->InitRaftServer();
+  raft_state_->InitRaftServer(config.tls_config);
 
   // Last thing to contruct is the server and RPC handlers (that use instance and raft state)
   CoordinatorInstanceManagementServerHandlers::Register(coordinator_management_server_, *this);
@@ -213,7 +215,10 @@ void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstance
                   coordinator.management_server);
     auto mgmt_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator.management_server);
     MG_ASSERT(mgmt_endpoint.has_value(), "Failed to create management server when creating new coordinator connector.");
-    connectors->emplace(connectors->end(), coordinator.id, ManagementServerConfig{std::move(*mgmt_endpoint)});
+    connectors->emplace(connectors->end(),
+                        std::piecewise_construct,
+                        std::forward_as_tuple(coordinator.id),
+                        std::forward_as_tuple(ManagementServerConfig{std::move(*mgmt_endpoint)}, tls_config_));
   }
 }
 
@@ -469,7 +474,10 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     auto &instance = repl_instances_.emplace_back(data_instance.config,
                                                   this,
                                                   raft_state_->GetInstanceDownTimeoutSec(),
-                                                  raft_state_->GetInstanceHealthCheckFrequencySec());
+                                                  raft_state_->GetInstanceHealthCheckFrequencySec(),
+                                                  tls_config_
+
+    );
     instance.StartStateCheck();
   });
 
@@ -781,8 +789,11 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
-  auto *new_instance = &repl_instances_.emplace_back(
-      config, this, raft_state_->GetInstanceDownTimeoutSec(), raft_state_->GetInstanceHealthCheckFrequencySec());
+  auto *new_instance = &repl_instances_.emplace_back(config,
+                                                     this,
+                                                     raft_state_->GetInstanceDownTimeoutSec(),
+                                                     raft_state_->GetInstanceHealthCheckFrequencySec(),
+                                                     tls_config_);
 
   // Try sending RPC now but the failure is not fatal, we will try again in the reconciliation loop
   // From the user's perspective, as soon as the log is committed to Raft logs, the in-memory state will eventually
@@ -1100,8 +1111,6 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     return SetCoordinatorSettingStatus::RAFT_LOG_ERROR;
   }
 
-  {
-  }
   // Kinda like post-commit hooks/callbacks
   if (setting_name == kInstanceDownTimeoutSec) {
     auto guard = std::lock_guard{coord_instance_lock_};

@@ -491,7 +491,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   std::variant<TCPSocket, SSLSocket, WebSocket> CreateSocket(tcp::socket &&socket, ServerContext &context) {
     if (context.use_ssl()) {
-      ssl_context_.emplace(context.context_clone());
+      ssl_context_ = context.context_clone();
       return SSLSocket{std::move(socket), *ssl_context_};
     }
 
@@ -518,8 +518,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::visit(utils::Overloaded{std::forward<F>(fun)}, socket_);
   }
 
+  std::shared_ptr<boost::asio::ssl::context> ssl_context_;  // must be destroyed after socket_
   std::variant<TCPSocket, SSLSocket, WebSocket> socket_;
-  std::optional<std::reference_wrapper<boost::asio::ssl::context>> ssl_context_;
   boost::asio::strand<tcp::socket::executor_type> strand_;
 
   communication::Buffer input_buffer_;

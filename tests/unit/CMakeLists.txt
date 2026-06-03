@@ -171,11 +171,38 @@ add_unit_test(query_plan_read_write_typecheck
     LINK_TARGETS mg-query disk_test_utils
 )
 
-add_unit_test(query_plan_v2_create_set_remove_delete
-    SOURCES query_plan_v2_create_set_remove_delete.cpp
-    LINK_TARGETS mg-query mg-glue disk_test_utils
+# ============================================================================
+# plan_v2 unit tests - Layer 1: Pure algebra (no egraph, no planner)
+# ============================================================================
+add_unit_test(query_plan_v2_variable_set
+    SOURCES query_plan_v2_variable_set.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
 )
 
+add_unit_test(query_plan_v2_algebra
+    SOURCES query_plan_v2_algebra.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 2: egraph -> v1 reconstruction + resolver semantics
+# ============================================================================
+add_unit_test(query_plan_v2_converter
+    SOURCES query_plan_v2_converter.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 3: Cardinality estimation (no full pipeline)
+# ============================================================================
+add_unit_test(query_plan_v2_cardinality
+    SOURCES query_plan_v2_cardinality.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 3: Full extraction pipeline + rewrites
+# ============================================================================
 add_unit_test(query_plan_v2_rewrites
     SOURCES query_plan_v2_rewrites.cpp
     LINK_TARGETS mg-query mg-planner
@@ -184,6 +211,14 @@ add_unit_test(query_plan_v2_rewrites
 add_unit_test(query_plan_v2_pipeline
     SOURCES query_plan_v2_pipeline.cpp
     LINK_TARGETS mg-query mg-planner
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 4: End-to-end DML (CREATE/SET/REMOVE/DELETE)
+# ============================================================================
+add_unit_test(query_plan_v2_create_set_remove_delete
+    SOURCES query_plan_v2_create_set_remove_delete.cpp
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(query_pretty_print
@@ -251,6 +286,12 @@ add_unit_test(query_procedure_py_module
 add_unit_test(query_procedures_mgp_graph
     SOURCES query_procedures_mgp_graph.cpp
     LINK_TARGETS mg-query storage_test_utils disk_test_utils
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+)
+
+add_unit_test(query_virtual_graph
+    SOURCES query_virtual_graph.cpp
+    LINK_TARGETS mg-query
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
 
@@ -754,6 +795,35 @@ add_unit_test(storage_v2_schema_info
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(replication_server
+    SOURCES replication_server.cpp
+    LINK_TARGETS mg::storage Boost::filesystem
+)
+
+add_custom_target(memgraph__unit__tls_certs_dir ALL
+     COMMAND ${CMAKE_COMMAND} -E copy_directory
+     ${CMAKE_CURRENT_SOURCE_DIR}/tls_certs
+     ${CMAKE_CURRENT_BINARY_DIR}/tls_certs
+     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tls_certs)
+ add_dependencies(memgraph__unit memgraph__unit__tls_certs_dir)
+ add_dependencies(${test_unit_prefix}replication_server memgraph__unit__tls_certs_dir)
+
+add_unit_test(cluster_client_ssl
+    SOURCES cluster_client_ssl.cpp
+    LINK_TARGETS mg-communication mg::io mg::utils Boost::filesystem
+)
+add_dependencies(${test_unit_prefix}cluster_client_ssl memgraph__unit__tls_certs_dir)
+
+if (MG_ENTERPRISE)
+    add_unit_test(management_servers
+        SOURCES management_servers.cpp
+        LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc Boost::filesystem
+    )
+    add_dependencies(${test_unit_prefix}management_servers memgraph__unit__tls_certs_dir)
+endif ()
+
+
+
 add_unit_test(replication_persistence_helper
     SOURCES replication_persistence_helper.cpp
     LINK_TARGETS mg::storage mg-repl_coord_glue
@@ -810,11 +880,13 @@ if (MG_ENTERPRISE)
         LINK_TARGETS mg-auth mg-license Boost::filesystem
     )
 
-    add_custom_target(memgraph__unit__auth_kvstore_dir ALL
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore
-        ${CMAKE_CURRENT_BINARY_DIR}/auth_kvstore
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore)
+    file(GLOB _auth_kvstore_files "${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore/*")
+    mg_add_stamped_custom_target(memgraph__unit__auth_kvstore_dir ALL
+        STAMP_DIR ${CMAKE_CURRENT_BINARY_DIR}
+        COMMANDS COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore
+            ${CMAKE_CURRENT_BINARY_DIR}/auth_kvstore
+        DEPENDS ${_auth_kvstore_files})
     add_dependencies(memgraph__unit memgraph__unit__auth_kvstore_dir)
     add_dependencies(${test_unit_prefix}auth memgraph__unit__auth_kvstore_dir)
 endif ()
@@ -853,6 +925,7 @@ if (MG_ENTERPRISE)
         SOURCES rpc_timeouts.cpp
         LINK_TARGETS mg-rpc mg-coordination mg-replication mg-repl_coord_glue rpc_messages
     )
+    add_dependencies(${test_unit_prefix}rpc_timeouts memgraph__unit__tls_certs_dir)
 endif ()
 
 # Test rpc-in-progress

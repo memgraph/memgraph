@@ -186,7 +186,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_Enterprise) {
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_EQ(detailed_license_info.organization_name, "Memgraph");
   ASSERT_TRUE(detailed_license_info.is_valid);
-  ASSERT_EQ(detailed_license_info.license_type, "enterprise");
+  ASSERT_EQ(detailed_license_info.license_type, memgraph::license::kLicenseTypeEnterprise);
   ASSERT_EQ(detailed_license_info.valid_until, "FOREVER");
   ASSERT_EQ(detailed_license_info.memory_limit, 0);
   ASSERT_EQ(detailed_license_info.status, "You are running a valid Memgraph Enterprise License.");
@@ -211,7 +211,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_OemCommunityNonExpiredIsInvalid) {
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
-  ASSERT_EQ(detailed_license_info.license_type, "oem_community");
+  ASSERT_EQ(detailed_license_info.license_type, memgraph::license::kLicenseTypeOemCommunity);
   ASSERT_EQ(detailed_license_info.status,
             "You are running a valid Memgraph OEM Community License. Enterprise features are not enabled.");
 }
@@ -467,7 +467,7 @@ TEST_F(LicenseTest, AiPlatform_DetailedLicenseInfo) {
   license_checker->SetCliLicense(key, org, *settings);
   auto info = license_checker->GetDetailedLicenseInfo();
   ASSERT_TRUE(info.is_valid);
-  ASSERT_EQ(info.license_type, "ai_platform");
+  ASSERT_EQ(info.license_type, memgraph::license::kLicenseTypeAiPlatform);
   ASSERT_EQ(info.memory_limit, 512);
   ASSERT_EQ(info.status, "You are running a valid Memgraph AI Platform License.");
 }
@@ -539,7 +539,7 @@ TEST_F(LicenseTest, Oem_DetailedLicenseInfo) {
   license_checker->SetCliLicense(key, org, *settings);
   auto info = license_checker->GetDetailedLicenseInfo();
   ASSERT_TRUE(info.is_valid);
-  ASSERT_EQ(info.license_type, "oem");
+  ASSERT_EQ(info.license_type, memgraph::license::kLicenseTypeOem);
   ASSERT_EQ(info.valid_until, "FOREVER");
   ASSERT_EQ(info.status, "You are running a valid Memgraph OEM License.");
 }

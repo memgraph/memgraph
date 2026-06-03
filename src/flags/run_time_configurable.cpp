@@ -85,9 +85,6 @@ DEFINE_bool(debug_query_plans, false, "Enable DEBUG logging of potential query p
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA format).", { return ValidTimezone(value); });
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_string(storage_snapshot_interval, "",
               "Define periodic snapshot schedule via cron format or as a period in seconds.");
@@ -150,9 +147,6 @@ constexpr auto kDebugQueryPlansGFlagsKey = "debug-query-plans";
 
 constexpr auto kStorageGcAggressiveSettingKey = "storage-gc-aggressive";
 constexpr auto kStorageGcAggressiveGFlagsKey = "storage-gc-aggressive";
-
-constexpr auto kQueryLogDirectorySettingKey = "query-log-directory";
-constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
@@ -453,11 +447,6 @@ void Initialize(utils::Settings &settings) {
       });
 
   /*
-   * Register query log directory setting
-   */
-  register_flag(kQueryLogDirectoryGFlagsKey, kQueryLogDirectorySettingKey, kRestore);
-
-  /*
    * Register periodic snapshot setting. In the case both flags are defined, --storage-snapshot-interval flag will be
    * used. Ideally, we rely on just a single flag but --storage-snapshot-interval-sec is for community,
    * --storage-snapshot-interval for enterprise.
@@ -567,13 +556,6 @@ bool GetDebugQueryPlans() { return debug_query_plans_; }
 bool GetStorageGcAggressive() { return storage_gc_aggressive_; }
 
 const std::chrono::time_zone *GetTimezone() { return timezone_; }
-
-std::string GetQueryLogDirectory() {
-  std::string s;
-  // Thread safe read of gflag
-  gflags::GetCommandLineOption(kQueryLogDirectoryGFlagsKey, &s);
-  return s;
-}
 
 bool GetAlsoLogToStderr() {
   std::string v;

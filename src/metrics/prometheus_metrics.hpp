@@ -59,6 +59,21 @@ struct StorageSnapshot {
   int64_t db_query_memory_tracked;
 };
 
+struct string_hash {
+  using is_transparent = void;
+
+  [[nodiscard]] size_t operator()(const char *txt) const { return std::hash<std::string_view>{}(txt); }
+
+  [[nodiscard]] size_t operator()(std::string_view txt) const { return std::hash<std::string_view>{}(txt); }
+
+  [[nodiscard]] size_t operator()(std::string const &txt) const { return std::hash<std::string>{}(txt); }
+};
+
+struct DurabilityThroughput {
+  mutable std::mutex mutex;
+  std::unordered_map<std::string, prometheus::Histogram *, string_hash, std::equal_to<>> by_instance;
+};
+
 /// Retrieves `StorageSnapshot` for the given database UUID, or `std::nullopt`
 /// if there is no such database.
 using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(utils::UUID const &uuid)>;
@@ -240,7 +255,7 @@ struct DatabaseMetricHandles {
   // SchemaInfo
   CounterHandle show_schema;
 
-  // StorageInfo
+  // StorageInfo database specific
   CounterHandle show_storage_info;
 
   // Histograms
@@ -332,6 +347,9 @@ struct GlobalMetricHandles {
   prometheus::Histogram *system_recovery_rpc_seconds;
   prometheus::Histogram *update_data_instance_config_rpc_seconds;
   prometheus::Histogram *get_histories_seconds;
+
+  // StorageInfo global/system level
+  prometheus::Counter *show_storage_info;
 };
 
 class PrometheusMetrics {
@@ -346,7 +364,18 @@ class PrometheusMetrics {
 
   DatabaseMetricHandles AddDatabase(utils::UUID const &uuid, std::string_view name);
   void RemoveDatabase(utils::UUID const &uuid);
+  void RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
   void UpdateGauges();
+
+  /// Thread-safe update of the global peak_memory_res_bytes gauge.
+  /// Sets the gauge to max(current, previous) and returns the new peak.
+  uint64_t UpdateAndGetPeakMemoryRes(uint64_t current) const;
+  void ObserveSnapshotThroughput(std::string const &instance_name, double bytes_per_second);
+  void ObserveWalThroughput(std::string const &instance_name, double bytes_per_second);
+
+  // Drops the per-instance replication throughput series (snapshot + WAL) for `instance_name`. Call when a replica is
+  // unregistered so the throughput maps and the registry don't grow unbounded across the main's lifetime.
+  void RemoveReplicationThroughput(std::string_view instance_name);
 
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
 #ifdef MG_ENTERPRISE
@@ -595,6 +624,13 @@ class PrometheusMetrics {
   // Per-database metric families — GC histograms
   prometheus::Family<prometheus::Histogram> &gc_latency_family_;
   prometheus::Family<prometheus::Histogram> &gc_skiplist_cleanup_latency_family_;
+
+  // Global metric family — per-instance snapshot throughput (bytes/s)
+  prometheus::Family<prometheus::Histogram> &snapshot_throughput_family_;
+  prometheus::Family<prometheus::Histogram> &wal_throughput_family_;
+
+  DurabilityThroughput snapshot_throughput_;
+  DurabilityThroughput wal_throughput_;
 
 #ifdef MG_ENTERPRISE
   // Global metric families — HA instance status

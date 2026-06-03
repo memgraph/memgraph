@@ -65,6 +65,13 @@ startup_config_dict = {
         "Server name which the database should send to the client in the Bolt INIT message.",
     ),
     "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
+    "cluster_ca_file": (
+        "",
+        "",
+        "The file used for storing certificate of the Certificate Authority you trust for intra-cluster TLS communication.",
+    ),
+    "cluster_cert_file": ("", "", "Certificate file used for intra-cluster TLS communication."),
+    "cluster_key_file": ("", "", "Key file used for intra-cluster TLS communication."),
     "management_port": ("0", "0", "Port on which coordinator servers will be started."),
     "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
     "coordinator_id": ("0", "0", "Unique ID of the raft server."),
@@ -306,14 +313,13 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options []",
+        "Experimental features to be used, comma-separated. Options [planner-v2]",
     ),
     "experimental_config": (
         "",
         "",
         "Experimental features to be used, JSON object. Options []",
     ),
-    "query_log_directory": ("", "", "Path to directory where the query logs should be stored."),
     "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),
     "storage_rocksdb_enable_thread_tracking": (
         "false",

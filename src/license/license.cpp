@@ -90,16 +90,16 @@ LicenseCheckResult IsValidLicenseInternal(const License &license, std::string_vi
 std::string LicenseTypeToString(const LicenseType license_type) {
   switch (license_type) {
     case LicenseType::ENTERPRISE: {
-      return "enterprise";
+      return std::string{kLicenseTypeEnterprise};
     }
     case LicenseType::OEM_COMMUNITY: {
-      return "oem_community";
+      return std::string{kLicenseTypeOemCommunity};
     }
     case LicenseType::AI_PLATFORM: {
-      return "ai_platform";
+      return std::string{kLicenseTypeAiPlatform};
     }
     case LicenseType::OEM: {
-      return "oem";
+      return std::string{kLicenseTypeOem};
     }
   }
   std::unreachable();

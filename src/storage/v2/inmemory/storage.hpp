@@ -13,10 +13,13 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "storage/v2/commit_log.hpp"
+#include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
@@ -337,12 +340,12 @@ class InMemoryStorage final : public Storage {
       return transaction_.active_indices_->point_->ApproximatePointCount(label, property);
     }
 
-    std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {
-      return transaction_.active_indices_->vector_->ApproximateNodesVectorCount(label, property);
+    std::optional<uint64_t> ApproximateVerticesVectorCount(std::string_view index_name) const override {
+      return transaction_.active_indices_->vector_->ApproximateNodesVectorCount(index_name);
     }
 
-    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override {
-      return transaction_.active_indices_->vector_edge_->ApproximateEdgesVectorCount(edge_type, property);
+    std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const override {
+      return transaction_.active_indices_->vector_edge_->ApproximateEdgesVectorCount(index_name);
     }
 
     std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const override {
@@ -730,7 +733,8 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool force = false);
+  std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(
+      bool force = false, std::string_view trigger = "periodic");
 
   std::expected<void, InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
@@ -750,7 +754,8 @@ class InMemoryStorage final : public Storage {
             .start_steady_ms = snapshot_progress_.start_steady_ms.load(std::memory_order_acquire)};
   }
 
-  void CreateSnapshotHandler(std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb);
+  void CreateSnapshotHandler(
+      std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
@@ -794,13 +799,9 @@ class InMemoryStorage final : public Storage {
 
   void PrepareForNewEpoch() override;
 
-  void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
-
-  EdgeInfo FindEdge(Gid gid);
+  EdgeInfo FindEdge(Gid edge_gid);
 
   EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
-
-  EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
   // Database-owned arena pool for per-thread arena management.
   // Database must outlive Storage; Database member declaration order guarantees that.
@@ -811,7 +812,8 @@ class InMemoryStorage final : public Storage {
   // the appropriate execution boundary.
   utils::SkipListDb<Vertex> vertices_;
   utils::SkipListDb<Edge> edges_;
-  utils::SkipListDb<EdgeMetadata> edges_metadata_;
+  // Present iff salient.items.enable_edges_metadata && salient.items.properties_on_edges.
+  std::optional<EdgeMetadataIndex> edges_metadata_index_;
 
   // Durability
   durability::Recovery recovery_;
@@ -893,7 +895,7 @@ class InMemoryStorage final : public Storage {
   free_mem_fn free_memory_func_;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
-  std::function<void()> create_snapshot_handler{};
+  std::function<void(std::string_view)> create_snapshot_handler{};
 
   // Snapshot digest is the minimal meta info of a snapshot
   // Used to figure out if the current snapshot should be written or not

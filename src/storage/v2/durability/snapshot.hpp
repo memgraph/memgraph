@@ -20,6 +20,7 @@
 #include "storage/v2/description_store.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -80,7 +81,7 @@ bool OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const 
 /// Function used to load the snapshot data into the storage.
 /// @throw RecoveryFailure
 RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
-                               utils::SkipListDb<Edge> *edges, utils::SkipListDb<EdgeMetadata> *edges_metadata,
+                               utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config,
                                memgraph::storage::EnumStore *enum_store,
@@ -106,6 +107,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     const std::filesystem::path &wal_directory, utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
     utils::UUID const &uuid, std::string_view epoch_id,
     const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
-    std::atomic_bool *abort_snapshot = nullptr, SnapshotProgress *progress = nullptr);
+    std::atomic_bool *abort_snapshot = nullptr, SnapshotProgress *progress = nullptr,
+    std::string_view trigger = "periodic");
 
 }  // namespace memgraph::storage::durability

@@ -310,9 +310,7 @@ void InMemoryReplicationHandlers::Register(
 auto InMemoryReplicationHandlers::TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool {
   if (snapshot_guard.try_lock()) return true;
 
-  spdlog::trace(
-      "Couldn't obtain the snapshot lock because there is an ongoing snapshot creation. Trying to abort snapshot "
-      "creation.");
+  spdlog::info("snapshot lock contention: another snapshot is in progress, requesting abort");
 
   // abort_snapshot_ will be reset to false in CreateSnapshot in storage.cpp at the end of its execution with
   // OnScopeExit block
@@ -668,7 +666,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           dst_snapshot_file,
           &storage->vertices_,
           &storage->edges_,
-          &storage->edges_metadata_,
+          storage->edges_metadata_index_ ? &*storage->edges_metadata_index_ : nullptr,
           &storage->repl_storage_state_.history,
           storage->name_id_mapper_.get(),
           &storage->edge_count_,
@@ -693,16 +691,18 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       // We are the only active transaction, so mark everything up to the next timestamp
       if (storage->timestamp_ > 0) storage->commit_log_->MarkFinishedInRange(0, storage->timestamp_ - 1);
 
-      RecoverIndicesStatsAndConstraints(&storage->vertices_,
-                                        storage->name_id_mapper_.get(),
-                                        &storage->indices_,
-                                        &storage->constraints_,
-                                        storage->config_,
-                                        recovery_info,
-                                        storage->DbArenaPool(),
-                                        indices_constraints,
-                                        storage->config_.salient.items.properties_on_edges,
-                                        snapshot_observer_info);
+      RecoverDerivedState(&storage->vertices_,
+                          &storage->edges_,
+                          storage->name_id_mapper_.get(),
+                          &storage->indices_,
+                          &storage->constraints_,
+                          storage->config_,
+                          recovery_info,
+                          storage->DbArenaPool(),
+                          indices_constraints,
+                          storage->edges_metadata_index_ ? &*storage->edges_metadata_index_ : nullptr,
+                          storage->config_.salient.items.properties_on_edges,
+                          snapshot_observer_info);
     } catch (const storage::durability::RecoveryFailure &e) {
       spdlog::error(
           "Couldn't load the snapshot from {} because of: {}. Storage will be cleared. Snapshot and WAL files are "
@@ -1812,17 +1812,23 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalVectorIndexCreate const &data) {
-          spdlog::trace("   Delta {}. Create vector index on :{}({})", current_delta_idx, data.label, data.property);
+          spdlog::trace(
+              "   Delta {}. Create vector index {} on property {}", current_delta_idx, data.index_name, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
           auto metric_kind = storage::MetricFromName(data.metric_kind);
           auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                               : unum::usearch::scalar_kind_t::f32_k;
 
+          std::vector<storage::LabelId> label_ids;
+          label_ids.reserve(data.label_filter.ids.size());
+          for (const auto &name : data.label_filter.ids) label_ids.push_back(storage->NameToLabel(name));
+
           auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
               .index_name = data.index_name,
-              .label_id = labelId,
+              .label_filter =
+                  storage::VectorLabelFilter{.mode = static_cast<storage::VectorMatchMode>(data.label_filter.mode),
+                                             .ids = std::move(label_ids)},
               .property = propId,
               .metric_kind = metric_kind,
               .dimension = data.dimension,
@@ -1831,20 +1837,28 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               .scalar_kind = scalar_kind,
           });
           if (!res) {
-            throw utils::BasicException("Failed to create vector index on :{}({})", data.label, data.property);
+            throw utils::BasicException(
+                "Failed to create vector index {} on property {}", data.index_name, data.property);
           }
         },
         [&](WalVectorEdgeIndexCreate const &data) {
-          spdlog::trace(
-              "   Delta {}. Create vector index on :{}({})", current_delta_idx, data.edge_type, data.property);
+          spdlog::trace("   Delta {}. Create vector edge index {} on property {}",
+                        current_delta_idx,
+                        data.index_name,
+                        data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto edgeType = storage->NameToEdgeType(data.edge_type);
           auto propId = storage->NameToProperty(data.property);
           auto metric_kind = storage::MetricFromName(data.metric_kind);
 
+          std::vector<storage::EdgeTypeId> edge_type_ids;
+          edge_type_ids.reserve(data.edge_type_filter.ids.size());
+          for (const auto &name : data.edge_type_filter.ids) edge_type_ids.push_back(storage->NameToEdgeType(name));
+
           auto res = transaction->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
               .index_name = data.index_name,
-              .edge_type_id = edgeType,
+              .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = static_cast<storage::VectorMatchMode>(
+                                                                    data.edge_type_filter.mode),
+                                                                .ids = std::move(edge_type_ids)},
               .property = propId,
               .metric_kind = metric_kind,
               .dimension = data.dimension,
@@ -1853,7 +1867,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind),
           });
           if (!res) {
-            throw utils::BasicException("Failed to create vector index on :{}({})", data.edge_type, data.property);
+            throw utils::BasicException(
+                "Failed to create vector edge index {} on property {}", data.index_name, data.property);
           }
         },
         [&](WalVectorIndexDrop const &data) {

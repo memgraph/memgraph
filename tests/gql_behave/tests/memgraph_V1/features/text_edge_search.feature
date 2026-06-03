@@ -455,7 +455,7 @@ Feature: Text edge search related features
             """
         When executing query:
             """
-            CALL text_search.search_edges('limitTestEdgeIndex', 'data.content:test', 2) YIELD edge
+            CALL text_search.search_edges('limitTestEdgeIndex', 'data.content:test', {limit: 2}) YIELD edge
             RETURN count(edge) AS count
             """
         Then the result should be:
@@ -481,3 +481,26 @@ Feature: Text edge search related features
         Then the result should be:
             | type      | score |
             | 'primary' | 1.0   |
+
+    Scenario: Fuzzy edge search with distance 1 tolerates a single edit
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT EDGE INDEX fuzzyEdgeIndex ON :RELATES_TO
+            """
+        And having executed
+            """
+            CREATE (a:Document)-[:RELATES_TO {title: 'memgraph'}]->(b:Document)
+            CREATE (c:Document)-[:RELATES_TO {title: 'memgrap'}]->(d:Document)
+            CREATE (e:Document)-[:RELATES_TO {title: 'coffee'}]->(f:Document)
+            """
+        When executing query:
+            """
+            CALL text_search.search_edges('fuzzyEdgeIndex', 'data.title:memgraph', {fuzzy_distance: 1}) YIELD edge
+            RETURN edge.title AS title
+            ORDER BY title ASC
+            """
+        Then the result should be:
+            | title       |
+            | 'memgrap'   |
+            | 'memgraph'  |

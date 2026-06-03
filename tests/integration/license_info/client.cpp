@@ -29,16 +29,16 @@ DEFINE_int64(interval, 1, "Interval used for reporting telemetry in seconds.");
 DEFINE_int64(duration, 10, "Duration of the test in seconds.");
 
 memgraph::license::LicenseType StringToLicenseType(const std::string_view license_type) {
-  if (license_type == "enterprise") {
+  if (license_type == memgraph::license::kLicenseTypeEnterprise) {
     return memgraph::license::LicenseType::ENTERPRISE;
   }
-  if (license_type == "oem_community") {
+  if (license_type == memgraph::license::kLicenseTypeOemCommunity) {
     return memgraph::license::LicenseType::OEM_COMMUNITY;
   }
-  if (license_type == "ai_platform") {
+  if (license_type == memgraph::license::kLicenseTypeAiPlatform) {
     return memgraph::license::LicenseType::AI_PLATFORM;
   }
-  if (license_type == "oem") {
+  if (license_type == memgraph::license::kLicenseTypeOem) {
     return memgraph::license::LicenseType::OEM;
   }
   spdlog::critical("Invalid license type!");

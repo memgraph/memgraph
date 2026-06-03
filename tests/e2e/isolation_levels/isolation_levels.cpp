@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,7 +45,7 @@ auto GetVertexCount(std::unique_ptr<mg::Client> &client) {
 }
 
 bool IsDiskStorageMode(std::unique_ptr<mg::Client> &client) {
-  MG_ASSERT(client->Execute("SHOW STORAGE INFO"));
+  MG_ASSERT(client->Execute("SHOW STORAGE INFO ON CURRENT DATABASE"));
   auto maybe_rows = client->FetchAll();
   MG_ASSERT(maybe_rows, "Failed to fetch storage info");
 
@@ -115,7 +115,8 @@ void TestSnapshotIsolation(std::unique_ptr<mg::Client> &client) {
               "Invalid number of vertices found for SNAPSHOT ISOLATION (found {}, expected {}). Read vertices from a "
               "transaction which started "
               "at a later point.",
-              current_vertex_count, 0);
+              current_vertex_count,
+              0);
   }
 
   MG_ASSERT(creator->CommitTransaction());
@@ -125,7 +126,8 @@ void TestSnapshotIsolation(std::unique_ptr<mg::Client> &client) {
             "Invalid number of vertices found for SNAPSHOT ISOLATION (found {}, expected {}). Read vertices from a "
             "transaction which started "
             "at a later point.",
-            current_vertex_count, 0);
+            current_vertex_count,
+            0);
   MG_ASSERT(client->CommitTransaction());
   CleanDatabase(creator);
 }
@@ -149,7 +151,8 @@ void TestReadCommitted(std::unique_ptr<mg::Client> &client) {
               "Invalid number of vertices found for READ COMMITTED (found {}, expected {}. Read vertices from a "
               "transaction which is not "
               "committed.",
-              current_vertex_count, 0);
+              current_vertex_count,
+              0);
   }
 
   MG_ASSERT(creator->CommitTransaction());
@@ -158,7 +161,8 @@ void TestReadCommitted(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(current_vertex_count == vertex_count,
             "Invalid number of vertices found for READ COMMITTED (found {}, expected {}). Failed to read vertices "
             "from a committed transaction",
-            current_vertex_count, vertex_count);
+            current_vertex_count,
+            vertex_count);
   MG_ASSERT(client->CommitTransaction());
   CleanDatabase(creator);
 }
@@ -181,7 +185,8 @@ void TestReadUncommitted(std::unique_ptr<mg::Client> &client) {
     MG_ASSERT(current_vertex_count == i,
               "Invalid number of vertices found for READ UNCOMMITTED (found {}, expected {}). Failed to read vertices "
               "from a different transaction.",
-              current_vertex_count, i);
+              current_vertex_count,
+              i);
   }
 
   MG_ASSERT(creator->CommitTransaction());
@@ -190,7 +195,8 @@ void TestReadUncommitted(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(current_vertex_count == vertex_count,
             "Invalid number of vertices found for READ UNCOMMITTED (found {}, expected {}). Failed to read vertices "
             "from a different transaction",
-            current_vertex_count, vertex_count);
+            current_vertex_count,
+            vertex_count);
   MG_ASSERT(client->CommitTransaction());
   CleanDatabase(creator);
 }

@@ -272,6 +272,7 @@ EXPECTED_JSON_METRICS = {
     },
     "StorageInfo": {
         "ShowStorageInfoOnDatabase",
+        "ShowStorageInfo",
     },
 }
 

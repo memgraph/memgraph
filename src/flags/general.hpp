@@ -17,6 +17,8 @@
 
 #include "gflags/gflags.h"
 
+#include "utils/tls.hpp"
+
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(h);
@@ -141,3 +143,24 @@ auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
 DECLARE_string(license_key);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(organization_name);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(cluster_cert_file);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(cluster_key_file);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(cluster_ca_file);
+
+namespace memgraph::flags {
+auto IsIntraClusterTLSEnabled() -> bool;
+
+// Validates that --cluster-cert-file, --cluster-key-file, and --cluster-ca-file
+// are either all set or all empty. Calls LOG_FATAL on a partial configuration
+// (refuses to start in a half-configured TLS state). Emits an info banner when
+// intra-cluster TLS is fully configured. Should be called once at startup,
+// after the logger is initialized.
+void ValidateIntraClusterTLSFlags();
+
+auto TlsConfigFromClusterFlags() -> std::optional<utils::TlsConfig>;
+
+}  // namespace memgraph::flags

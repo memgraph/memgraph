@@ -36,7 +36,7 @@ void LogError(const boost::beast::error_code ec, const std::string_view what) {
 std::variant<Session::PlainWebSocket, Session::SSLWebSocket> Session::CreateWebSocket(tcp::socket &&socket,
                                                                                       ServerContext &context) {
   if (context.use_ssl()) {
-    ssl_context_.emplace(context.context_clone());
+    ssl_context_ = context.context_clone();
     return Session::SSLWebSocket{std::move(socket), *ssl_context_};
   }
 

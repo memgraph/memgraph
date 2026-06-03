@@ -9,5 +9,5 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// clangd companion — ensures correct module flags for planner/pattern/types.hpp
+// clangd companion: ensures correct module flags for planner/pattern/types.hpp
 #include "planner/pattern/types.hpp"

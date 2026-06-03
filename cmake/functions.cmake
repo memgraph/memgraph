@@ -55,6 +55,42 @@ function(join values sep result)
     set(${result} "${tmp}" PARENT_SCOPE)
 endfunction()
 
+# Defines a custom target driven by a stamp file, so Ninja only re-runs the
+# commands when DEPENDS change. Saves repeating the OUTPUT/touch/add_custom_target
+# trio for every file-copy step.
+#
+# Usage:
+#   mg_add_stamped_custom_target(name
+#       STAMP_DIR <dir>          # where the .<name>.stamp file lives
+#       [ALL]                    # build by default
+#       [COMMENT <text>]
+#       COMMANDS COMMAND ... [COMMAND ...]...
+#       DEPENDS  <files/targets>...
+#   )
+function(mg_add_stamped_custom_target name)
+    cmake_parse_arguments(ARG "ALL" "STAMP_DIR;COMMENT" "COMMANDS;DEPENDS" ${ARGN})
+    if(NOT ARG_STAMP_DIR)
+        message(FATAL_ERROR "mg_add_stamped_custom_target(${name}): STAMP_DIR is required")
+    endif()
+    if(NOT ARG_COMMANDS)
+        message(FATAL_ERROR "mg_add_stamped_custom_target(${name}): COMMANDS is required")
+    endif()
+    set(stamp "${ARG_STAMP_DIR}/.${name}.stamp")
+    add_custom_command(
+        OUTPUT ${stamp}
+        ${ARG_COMMANDS}
+        COMMAND ${CMAKE_COMMAND} -E touch ${stamp}
+        DEPENDS ${ARG_DEPENDS}
+        COMMENT "${ARG_COMMENT}"
+        VERBATIM
+    )
+    if(ARG_ALL)
+        add_custom_target(${name} ALL DEPENDS ${stamp})
+    else()
+        add_custom_target(${name} DEPENDS ${stamp})
+    endif()
+endfunction()
+
 # Returns a list of compile flags ready for gcc or clang.
 function(get_target_cxx_flags target result)
     # First set the CMAKE_CXX_FLAGS variables, then append directory and target

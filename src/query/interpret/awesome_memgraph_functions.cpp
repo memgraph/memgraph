@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
+#include <iterator>
 #include <random>
 #include <string_view>
 #include <type_traits>
@@ -165,9 +166,9 @@ bool ArgIsType(const TypedValue &arg) {
   } else if constexpr (std::is_same_v<ArgType, Map>) {
     return arg.IsMap();
   } else if constexpr (std::is_same_v<ArgType, Vertex>) {
-    return arg.IsVertex();
+    return arg.IsVertex() || arg.IsVirtualNode();
   } else if constexpr (std::is_same_v<ArgType, Edge>) {
-    return arg.IsEdge();
+    return arg.IsEdge() || arg.IsVirtualEdge();
   } else if constexpr (std::is_same_v<ArgType, Path>) {
     return arg.IsPath();
   } else if constexpr (std::is_same_v<ArgType, Date>) {
@@ -421,6 +422,7 @@ void FType(const char *name, const TypedValue *args, int64_t nargs, int64_t pos 
 TypedValue EndNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("endNode", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualEdge()) return TypedValue(args[0].ValueVirtualEdge().To(), ctx.memory);
   return TypedValue(args[0].ValueEdge().To(), ctx.memory);
 }
 
@@ -438,6 +440,10 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   const auto &list = args[0].ValueList();
   if (list.empty()) return TypedValue(ctx.memory);
   return TypedValue(list.back(), ctx.memory);
+}
+
+const auto &VirtualProperties(const TypedValue &value) {
+  return value.IsVirtualNode() ? value.ValueVirtualNode().Properties() : value.ValueVirtualEdge().Properties();
 }
 
 TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -468,6 +474,13 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
+  } else if (value.IsVirtualNode() || value.IsVirtualEdge()) {
+    TypedValue::TMap properties(ctx.memory);
+    for (const auto &[prop_id, prop_value] : VirtualProperties(value)) {
+      properties.emplace(TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory),
+                         TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+    }
+    return TypedValue(std::move(properties));
   } else if (value.IsVertex()) {
     return get_properties(value.ValueVertex());
   } else {
@@ -523,6 +536,7 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
 TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("startNode", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualEdge()) return TypedValue(args[0].ValueVirtualEdge().From(), ctx.memory);
   return TypedValue(args[0].ValueEdge().From(), ctx.memory);
 }
 
@@ -692,6 +706,7 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   FType<Or<Null, Edge>>("type", args, nargs);
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualEdge()) return {args[0].ValueVirtualEdge().EdgeTypeName(), ctx.memory};
   return TypedValue(dba->EdgeTypeToName(args[0].ValueEdge().EdgeType()), ctx.memory);
 }
 
@@ -736,6 +751,10 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("NODE", ctx.memory);
     case TypedValue::Type::Edge:
       return TypedValue("RELATIONSHIP", ctx.memory);
+    case TypedValue::Type::VirtualEdge:
+      return TypedValue("VIRTUAL_RELATIONSHIP", ctx.memory);
+    case TypedValue::Type::VirtualNode:
+      return TypedValue("VIRTUAL_NODE", ctx.memory);
     case TypedValue::Type::Path:
       return TypedValue("PATH", ctx.memory);
     case TypedValue::Type::Date:
@@ -755,6 +774,8 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("ZONED_DATE_TIME", ctx.memory);
     case TypedValue::Type::Graph:
       return TypedValue("GRAPH", ctx.memory);
+    case TypedValue::Type::VirtualGraph:
+      return TypedValue("VIRTUAL_GRAPH", ctx.memory);
     case TypedValue::Type::Function:
       throw QueryRuntimeException("Unknown value type! Please report an issue!");
   }
@@ -793,6 +814,15 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   }
   if (value.IsEdge()) {
     return get_keys(value.ValueEdge());
+  }
+  if (value.IsVirtualNode() || value.IsVirtualEdge()) {
+    const auto &props = VirtualProperties(value);
+    TypedValue::TVector keys(ctx.memory);
+    keys.reserve(props.size());
+    std::ranges::transform(props, std::back_inserter(keys), [&](const auto &kv) {
+      return TypedValue(dba->PropertyToName(kv.first), ctx.memory);
+    });
+    return TypedValue(std::move(keys));
   }
 
   // map
@@ -838,6 +868,16 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   if (value.IsEdge()) {
     return get_values(value.ValueEdge());
   }
+  if (value.IsVirtualNode() || value.IsVirtualEdge()) {
+    const auto &props = VirtualProperties(value);
+    TypedValue::TVector values(ctx.memory);
+    values.reserve(props.size());
+    for (const auto &[prop_id, prop_value] : props) {
+      auto typed_value = TypedValue(prop_value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+      values.emplace_back(std::move(typed_value));
+    }
+    return TypedValue(std::move(values));
+  }
 
   // map
   TypedValue::TVector values(ctx.memory);
@@ -852,6 +892,14 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
   FType<Or<Null, Vertex>>("labels", args, nargs);
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualNode()) {
+    const auto &node_labels = args[0].ValueVirtualNode().Labels();
+    TypedValue::TVector labels(ctx.memory);
+    labels.reserve(node_labels.size());
+    std::ranges::transform(
+        node_labels, std::back_inserter(labels), [&](const auto &label) { return TypedValue(label, ctx.memory); });
+    return TypedValue(std::move(labels));
+  }
   TypedValue::TVector labels(ctx.memory);
   auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
   if (!maybe_labels) {
@@ -1124,8 +1172,12 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
   const auto &arg = args[0];
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
+  } else if (arg.IsVirtualNode()) {
+    return TypedValue(arg.ValueVirtualNode().CypherId(), ctx.memory);
   } else if (arg.IsVertex()) {
     return TypedValue(arg.ValueVertex().CypherId(), ctx.memory);
+  } else if (arg.IsVirtualEdge()) {
+    return TypedValue(arg.ValueVirtualEdge().Gid().AsInt(), ctx.memory);
   } else {
     return TypedValue(arg.ValueEdge().CypherId(), ctx.memory);
   }
@@ -1189,8 +1241,11 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     case Map:
     case Vertex:
     case Edge:
+    case VirtualEdge:
+    case VirtualNode:
     case Path:
     case Graph:
+    case VirtualGraph:
     case Function:
     case Point2d:
     case Point3d: {
@@ -1255,8 +1310,11 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
     case Map:
     case Vertex:
     case Edge:
+    case VirtualEdge:
+    case VirtualNode:
     case Path:
     case Graph:
+    case VirtualGraph:
     case Function:
     case Point2d:
     case Point3d: {

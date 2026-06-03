@@ -41,6 +41,13 @@ struct ParsingContext {
   bool is_query_cached = false;
 };
 
+template <typename LabelOrEdgeTypeIx>
+struct VectorIndexLabelsInfo {
+  storage::VectorMatchMode mode;
+  std::vector<LabelOrEdgeTypeIx> ids;
+  PropertyIx property;
+};
+
 class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
  public:
   explicit CypherMainVisitor(ParsingContext context, AstStorage *storage, Parameters *parameters)
@@ -659,6 +666,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return CreateTextEdgeIndexQuery*
    */
   antlrcpp::Any visitCreateTextEdgeIndex(MemgraphCypher::CreateTextEdgeIndexContext *ctx) override;
+
+  template <typename LabelOrEdgeTypeIx>
+  VectorIndexLabelsInfo<LabelOrEdgeTypeIx> ParseVectorIndexLabels(MemgraphCypher::VectorIndexLabelsContext *ctx);
 
   /**
    * @return CreateVectorIndexQuery*

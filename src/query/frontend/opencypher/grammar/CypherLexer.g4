@@ -58,6 +58,7 @@ ASTERISK  : '*' ;
 SLASH     : '/' ;
 PERCENT   : '%' ;
 CARET     : '^' ;
+AMPERSAND : '&' ;
 PLUS_EQ   : '+=' ;
 
 /* Some random unicode characters that can be used to draw arrows. */

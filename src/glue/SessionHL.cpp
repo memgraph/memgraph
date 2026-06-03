@@ -29,6 +29,7 @@
 #include "license/license.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "query/discard_value_stream.hpp"
+#include "query/exceptions.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
@@ -153,6 +154,25 @@ std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
 }
 
 #endif
+
+// Rewrap a query-layer QueryException as the right Bolt error class.  Most
+// QueryExceptions are client-fixable (bad syntax, undefined variable, ...) and
+// surface as ClientError so the driver does not retry.  A PlannerBug is an
+// internal invariant violation - retry will fail the same way, and there is
+// nothing the client can do; surface as DatabaseError so the driver does not
+// suggest retrying and the classification reflects "server-side problem".
+[[noreturn]] void RewrapQueryException(memgraph::query::QueryException const &e) {
+  memgraph::metrics::IncrementCounter(GetExceptionName(e));
+  if (dynamic_cast<memgraph::query::PlannerBug const *>(&e) != nullptr) {
+    throw memgraph::communication::bolt::VerboseError{
+        memgraph::communication::bolt::VerboseError::Classification::DATABASE_ERROR,
+        "Planner",
+        "InternalBug",
+        e.what()};
+  }
+  throw memgraph::communication::bolt::ClientError(e.what());
+}
+
 }  // namespace
 
 namespace memgraph::glue {
@@ -335,11 +355,7 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
     memgraph::query::DiscardValueResultStream stream;
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
@@ -360,11 +376,7 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     TypedValueResultStream<TEncoder> stream(&encoder_, storage);
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
@@ -405,11 +417,7 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
     auto parsed_query = interpreter_.Parse(query, get_params_pv, query_extras);
     parsed_res_.emplace(std::move(parsed_query), std::move(get_params_pv), std::move(query_extras));
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -430,11 +438,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     interpreter_.CheckAuthorized(result.privileges, result.db);
     return {std::move(result.headers), result.qid};
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -489,11 +493,7 @@ void SessionHL::RollbackTransaction() {
   try {
     interpreter_.RollbackTransaction();
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -510,11 +510,7 @@ void SessionHL::CommitTransaction() {
   try {
     interpreter_.CommitTransaction();
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -531,11 +527,7 @@ void SessionHL::BeginTransaction(const bolt_map_t &extra) {
   try {
     interpreter_.BeginTransaction(ToQueryExtras(extra));
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));

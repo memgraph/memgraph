@@ -37,9 +37,48 @@ def subgraph_get_out_edges(ctx: mgp.ProcCtx, vertex: mgp.Vertex) -> mgp.Record(e
     return [mgp.Record(edge=edge) for edge in vertex.out_edges]
 
 
+# Used by virtual_graph.py e2e tests to verify that virtual edges
+# and virtual nodes created by derive() are visible through the MGP API.
+
+
+@mgp.read_proc
+def subgraph_vertex_info(
+    ctx: mgp.ProcCtx, vertex: mgp.Vertex
+) -> mgp.Record(labels=list, score=mgp.Nullable[mgp.Number]):
+    labels = [label.name for label in vertex.labels]
+    score = vertex.properties.get("score", None)
+    return mgp.Record(labels=labels, score=score)
+
+
+@mgp.read_proc
+def subgraph_edge_info(
+    ctx: mgp.ProcCtx, vertex: mgp.Vertex
+) -> mgp.Record(edge_type=str, weight=mgp.Nullable[mgp.Number]):
+    records = []
+    for edge in vertex.out_edges:
+        weight = edge.properties.get("weight", None)
+        records.append(mgp.Record(edge_type=edge.type.name, weight=weight))
+    return records
+
+
 @mgp.read_proc
 def subgraph_get_in_edges(ctx: mgp.ProcCtx, vertex: mgp.Vertex) -> mgp.Record(edge=mgp.Edge):
     return [mgp.Record(edge=edge) for edge in vertex.in_edges]
+
+
+# community_label mirrors the shape a graph-algorithm module would take when
+# rewritten to accept a subgraph: group vertices by a property and yield
+# (node, community_id) records. Used by the derive()-pipeline e2e test.
+@mgp.read_proc
+def community_label(ctx: mgp.ProcCtx, key: str) -> mgp.Record(node=mgp.Vertex, community_id=int):
+    group_to_id: dict = {}
+    records = []
+    for vertex in ctx.graph.vertices:
+        group = vertex.properties.get(key)
+        if group not in group_to_id:
+            group_to_id[group] = len(group_to_id)
+        records.append(mgp.Record(node=vertex, community_id=group_to_id[group]))
+    return records
 
 
 @mgp.read_proc

@@ -22,6 +22,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
+#include "text_search_config.hpp"
 
 namespace mgcxx::text_search {
 struct Context;
@@ -55,6 +56,14 @@ class TextSearchSession {
 inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 inline constexpr bool kDoSkipCommit = true;
 
+// Tantivy schema field names; must stay in sync across index creation, document construction and search.
+inline constexpr const char *kDataField = "data";  // per-property JSON values
+inline constexpr const char *kAllField = "all";    // space-joined values for full-text search
+inline constexpr const char *kGidField = "gid";    // node gid
+inline constexpr const char *kEdgeGidField = "edge_gid";
+inline constexpr const char *kFromVertexGidField = "from_vertex_gid";
+inline constexpr const char *kToVertexGidField = "to_vertex_gid";
+
 // Boolean operators that should be preserved in uppercase for Tantivy
 inline constexpr std::string_view kBooleanAnd = "AND";
 inline constexpr std::string_view kBooleanOr = "OR";
@@ -87,6 +96,8 @@ bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
 
 // Text index change tracking
 enum class TextIndexOp { ADD, UPDATE, REMOVE };
+
+using TextSearchConfig = mgp::TextSearchConfig;
 
 struct TextIndexSpec {
   bool operator==(const TextIndexSpec &other) const = default;

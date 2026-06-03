@@ -24,6 +24,7 @@
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
+#include "communication/cluster_tls.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -288,6 +289,23 @@ int main(int argc, char **argv) {
   // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
 
+  // Fail fast if --cluster-{cert,key,ca}-file are partially configured.
+  // Must run after logger init so the fatal message is delivered.
+  memgraph::flags::ValidateIntraClusterTLSFlags();
+
+  // Initialize the cluster TLS singletons from the cluster flags. Every
+  // ClusterView ServerContext/ClientContext below will atomic-load from
+  // these. A bad cert/key/CA path here surfaces at boot, not at first peer
+  // connection.
+  if (auto const cluster_tls = memgraph::flags::TlsConfigFromClusterFlags()) {
+    if (auto const r = memgraph::communication::ClusterServerSsl::Instance().Init(*cluster_tls); !r.has_value()) {
+      LOG_FATAL("Failed to initialize cluster server TLS: {}", r.error().msg);
+    }
+    if (auto const r = memgraph::communication::ClusterClientSsl::Instance().Init(*cluster_tls); !r.has_value()) {
+      LOG_FATAL("Failed to initialize cluster client TLS: {}", r.error().msg);
+    }
+  }
+
   // Block SIGTERM/SIGINT as early as possible so that every thread we spawn
   // inherits the blocked mask.  The main thread will consume them
   // synchronously via sigwait() later.
@@ -382,7 +400,7 @@ int main(int argc, char **argv) {
               "Running out of available RAM, only {} MB left.", *free_ram / 1024, "https://memgr.ph/ram"));
 
         auto memory_res = memgraph::utils::GetMemoryRES();
-        peak_gauge->Set(std::max(static_cast<double>(memory_res), peak_gauge->Value()));
+        memgraph::metrics::Metrics().UpdateAndGetPeakMemoryRes(memory_res);
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -568,6 +586,10 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
+  MG_ASSERT(!(coordination_setup.IsDataInstanceManagedByCoordinator() &&
+              db_config.salient.storage_mode == IN_MEMORY_ANALYTICAL),
+            "Data instances cannot use analytical mode!");
+
   if (coordination_setup.IsDataInstanceManagedByCoordinator() &&
       db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     MG_ASSERT(db_config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL,
@@ -583,6 +605,7 @@ int main(int argc, char **argv) {
     MG_ASSERT(FLAGS_init_data_file.empty(),
               "Coordinator instances don't support --init-data-file flag. Please restart the instance by removing this "
               "flag.");
+    spdlog::warn("All storage-related flags are ignored since coordinators don't have storage.");
   }
 
   if (coordination_setup.IsDataInstanceManagedByCoordinator()) {
@@ -702,10 +725,18 @@ int main(int argc, char **argv) {
           "started only with management port.");
     }
 
+    auto maybe_ssl = memgraph::flags::TlsConfigFromClusterFlags();
+    if (!maybe_ssl.has_value()) {
+      spdlog::warn(memgraph::utils::MessageWithLink(
+          "Running HA without intra-cluster TLS. Replication, coordinator, and management traffic is unencrypted.",
+          "https://memgr.ph/cluster-tls"));
+    }
+
     if (is_coordinator_instance) {
       constexpr auto kRaftDataDir = "/high_availability/raft_data";
       auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
+
       coordinator_state = std::make_shared<CoordinatorState>(
           CoordinatorInstanceInitConfig{.coordinator_id = coordination_setup.coordinator_id,
                                         .coordinator_port = coordination_setup.coordinator_port,
@@ -713,10 +744,11 @@ int main(int argc, char **argv) {
                                         .management_port = coordination_setup.management_port,
                                         .durability_dir = high_availability_data_dir,
                                         .coordinator_hostname = coordination_setup.coordinator_hostname,
-                                        .nuraft_log_file = coordination_setup.nuraft_log_file});
+                                        .nuraft_log_file = coordination_setup.nuraft_log_file,
+                                        .tls_config = std::move(maybe_ssl)});
     } else {
-      coordinator_state = std::make_shared<CoordinatorState>(
-          ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
+      coordinator_state = std::make_shared<CoordinatorState>(ReplicationInstanceInitConfig{
+          .management_port = coordination_setup.management_port, .tls_config = std::move(maybe_ssl)});
     }
   };
 
@@ -950,12 +982,11 @@ int main(int argc, char **argv) {
     telemetry->AddExceptionCollector();
     telemetry->Start();
   }
-  memgraph::license::LicenseInfoSender const license_info_sender(
-      telemetry_server,
-      memgraph::glue::run_id_,
-      machine_id,
-      memory_limit,
-      memgraph::license::global_license_checker.GetLicenseInfo());
+  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server,
+                                                           memgraph::glue::run_id_,
+                                                           machine_id,
+                                                           memory_limit,
+                                                           memgraph::license::global_license_checker.GetLicenseInfo());
 
   memgraph::communication::websocket::SafeAuth websocket_auth{auth_.get()};
   memgraph::communication::websocket::Server websocket_server{
@@ -998,10 +1029,23 @@ int main(int argc, char **argv) {
                       &interpreter_context_,
                       &dbms_handler,
                       &repl_state,
-                      &worker_pool_] {
+                      &worker_pool_,
+                      &license_info_sender,
+                      &telemetry] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     spdlog::trace("Shutting down handler!");
+
+    // STOP LICENSE SENDER IMMEDIATELY
+    // Prevents blocking on license HTTP requests during shutdown
+    license_info_sender.Stop();
+
+    // STOP TELEMETRY IMMEDIATELY
+    // Prevents blocking on telemetry HTTP requests during shutdown
+    if (telemetry) {
+      telemetry->Stop();
+    }
+
     spdlog::info("Workers shutting down.");
     if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server

@@ -398,7 +398,7 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
 
   auto operator[](uint32_t index) const -> const_reference { return begin()[index]; }
 
-  auto at(uint32_t index) -> reference {
+  [[nodiscard]] auto at(uint32_t index) -> reference {
     if (size_ <= index) {
       throw std::out_of_range("Index out of range");
     }
@@ -506,6 +506,21 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
 
   [[nodiscard]] auto empty() const -> bool { return size_ == 0; }
 
+  /// Return a span over [offset, offset+count) elements.  count == dynamic_extent means "to end".
+  [[nodiscard]] auto subspan(size_t offset, size_t count = std::dynamic_extent) const -> std::span<T const> {
+    assert(offset <= size_);
+    auto const n = (count == std::dynamic_extent) ? size_ - offset : count;
+    assert(offset + n <= size_);
+    return {data() + offset, n};
+  }
+
+  [[nodiscard]] auto subspan(size_t offset, size_t count = std::dynamic_extent) -> std::span<T> {
+    assert(offset <= size_);
+    auto const n = (count == std::dynamic_extent) ? size_ - offset : count;
+    assert(offset + n <= size_);
+    return {data() + offset, n};
+  }
+
   void clear() {
     std::destroy(begin(), end());
     size_ = 0;
@@ -568,7 +583,7 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
   // kSmallCapacity can be 0; in that case we disable the small buffer
   constexpr static std::uint32_t kSmallCapacity = sizeof(value_type *) / sizeof(value_type);
 
-  constexpr bool usingSmallBuffer() { return kSmallCapacity != 0 && capacity_ == kSmallCapacity; }
+  [[nodiscard]] constexpr bool usingSmallBuffer() const { return usingSmallBuffer(capacity_); }
 
  private:
   Alloc &get_alloc() noexcept { return static_cast<Alloc &>(*this); }

@@ -1026,8 +1026,6 @@ TYPED_TEST(DumpTest, PointIndices) {
 }
 
 TYPED_TEST(DumpTest, VectorIndices) {
-  static constexpr std::string_view test_index1 = "test_index1";
-  static constexpr std::string_view test_index2 = "test_index2";
   static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
   static constexpr uint16_t dimension = 2;
   static constexpr std::size_t capacity = 10;
@@ -1047,29 +1045,54 @@ TYPED_TEST(DumpTest, VectorIndices) {
     ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  {
-    const auto spec = memgraph::storage::VectorIndexSpec{test_index1.data(),
-                                                         this->db->storage()->NameToLabel("Label1"),
-                                                         this->db->storage()->NameToProperty("vector_property"),
-                                                         metric,
-                                                         dimension,
-                                                         resize_coefficient,
-                                                         capacity,
-                                                         scalar_kind};
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_TRUE(unique_acc->CreateVectorIndex(spec).has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
+  const auto property = this->db->storage()->NameToProperty("vector_property");
+  const auto property_backtick = this->db->storage()->NameToProperty("prop `");
+  const auto label1 = this->db->storage()->NameToLabel("Label1");
+  const auto label2 = this->db->storage()->NameToLabel("Label 2");
 
-  {
-    const auto spec = memgraph::storage::VectorIndexSpec{test_index2.data(),
-                                                         this->db->storage()->NameToLabel("Label 2"),
-                                                         this->db->storage()->NameToProperty("prop `"),
-                                                         metric,
-                                                         dimension,
-                                                         resize_coefficient,
-                                                         capacity,
-                                                         scalar_kind};
+  const std::vector<memgraph::storage::VectorIndexSpec> specs = {
+      {.index_name = "test_index1",
+       .label_filter = {memgraph::storage::VectorMatchMode::SINGLE, {label1}},
+       .property = property,
+       .metric_kind = metric,
+       .dimension = dimension,
+       .resize_coefficient = resize_coefficient,
+       .capacity = capacity,
+       .scalar_kind = scalar_kind},
+      {.index_name = "test_index2",
+       .label_filter = {memgraph::storage::VectorMatchMode::SINGLE, {label2}},
+       .property = property_backtick,
+       .metric_kind = metric,
+       .dimension = dimension,
+       .resize_coefficient = resize_coefficient,
+       .capacity = capacity,
+       .scalar_kind = scalar_kind},
+      {.index_name = "wildcard_idx",
+       .label_filter = {memgraph::storage::VectorMatchMode::WILDCARD, {}},
+       .property = property,
+       .metric_kind = metric,
+       .dimension = dimension,
+       .resize_coefficient = resize_coefficient,
+       .capacity = capacity,
+       .scalar_kind = scalar_kind},
+      {.index_name = "or_idx",
+       .label_filter = {memgraph::storage::VectorMatchMode::ANY_OF, {label1, label2}},
+       .property = property,
+       .metric_kind = metric,
+       .dimension = dimension,
+       .resize_coefficient = resize_coefficient,
+       .capacity = capacity,
+       .scalar_kind = scalar_kind},
+      {.index_name = "and_idx",
+       .label_filter = {memgraph::storage::VectorMatchMode::ALL_OF, {label1, label2}},
+       .property = property,
+       .metric_kind = metric,
+       .dimension = dimension,
+       .resize_coefficient = resize_coefficient,
+       .capacity = capacity,
+       .scalar_kind = scalar_kind},
+  };
+  for (const auto &spec : specs) {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_TRUE(unique_acc->CreateVectorIndex(spec).has_value());
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1087,6 +1110,9 @@ TYPED_TEST(DumpTest, VectorIndices) {
         stream.GetResults(),
         R"(CREATE VECTOR INDEX `test_index1` ON :`Label1`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         R"(CREATE VECTOR INDEX `test_index2` ON :`Label 2`(`prop ```) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        R"(CREATE VECTOR INDEX `wildcard_idx` ON (`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        R"(CREATE VECTOR INDEX `or_idx` ON :`Label1`|`Label 2`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        R"(CREATE VECTOR INDEX `and_idx` ON :`Label1`&`Label 2`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         kCreateInternalIndex,
         "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `vector_property`: [1, 1]});",
         kDropInternalIndex,
@@ -1095,7 +1121,6 @@ TYPED_TEST(DumpTest, VectorIndices) {
 }
 
 TYPED_TEST(DumpTest, VectorEdgeIndices) {
-  static constexpr std::string_view test_index1 = "test_index1";
   static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
   static constexpr uint16_t dimension = 2;
   static constexpr std::size_t capacity = 10;
@@ -1117,15 +1142,37 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
     ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  {
-    const auto spec = memgraph::storage::VectorEdgeIndexSpec{test_index1.data(),
-                                                             this->db->storage()->NameToEdgeType("EdgeType"),
-                                                             this->db->storage()->NameToProperty("vector_property"),
-                                                             metric,
-                                                             dimension,
-                                                             resize_coefficient,
-                                                             capacity,
-                                                             scalar_kind};
+  const auto property = this->db->storage()->NameToProperty("vector_property");
+  const auto et1 = this->db->storage()->NameToEdgeType("EdgeType");
+  const auto et2 = this->db->storage()->NameToEdgeType("Other");
+
+  const std::vector<memgraph::storage::VectorEdgeIndexSpec> specs = {
+      {.index_name = "test_index1",
+       .edge_type_filter = {memgraph::storage::VectorMatchMode::SINGLE, {et1}},
+       .property = property,
+       .metric_kind = metric,
+       .dimension = dimension,
+       .resize_coefficient = resize_coefficient,
+       .capacity = capacity,
+       .scalar_kind = scalar_kind},
+      {.index_name = "wildcard_edge",
+       .edge_type_filter = {memgraph::storage::VectorMatchMode::WILDCARD, {}},
+       .property = property,
+       .metric_kind = metric,
+       .dimension = dimension,
+       .resize_coefficient = resize_coefficient,
+       .capacity = capacity,
+       .scalar_kind = scalar_kind},
+      {.index_name = "or_edge",
+       .edge_type_filter = {memgraph::storage::VectorMatchMode::ANY_OF, {et1, et2}},
+       .property = property,
+       .metric_kind = metric,
+       .dimension = dimension,
+       .resize_coefficient = resize_coefficient,
+       .capacity = capacity,
+       .scalar_kind = scalar_kind},
+  };
+  for (const auto &spec : specs) {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_TRUE(unique_acc->CreateVectorEdgeIndex(spec).has_value());
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1142,6 +1189,8 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
     VerifyQueries(
         stream.GetResults(),
         R"(CREATE VECTOR EDGE INDEX `test_index1` ON :`EdgeType`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        R"(CREATE VECTOR EDGE INDEX `wildcard_edge` ON (`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        R"(CREATE VECTOR EDGE INDEX `or_edge` ON :`EdgeType`|`Other`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         kCreateInternalIndex,
         "CREATE (:__mg_vertex__ {__mg_id__: 0});",
         "CREATE (:__mg_vertex__ {__mg_id__: 1});",

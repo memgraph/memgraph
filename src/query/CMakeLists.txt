@@ -55,6 +55,7 @@ target_sources(mg-query
     frontend/semantic/symbol.cpp
     frontend/stripped.cpp
     graph.cpp
+    virtual_graph.cpp
     interpret/awesome_memgraph_functions.cpp
     interpret/eval.cpp
     interpret/frame.cpp
@@ -75,10 +76,14 @@ target_sources(mg-query
     plan/rule_based_planner.cpp
     plan/used_index_checker.cpp
     plan/variable_start_planner.cpp
-    plan_v2/egraph.cpp
-    plan_v2/ast_converter.cpp
-    plan_v2/egraph_converter.cpp
-    plan_v2/rewrites.cpp
+    plan_v2/egraph/egraph.cpp
+    plan_v2/frontend/ast_converter.cpp
+    plan_v2/cost/builtin_estimator.cpp
+    plan_v2/frontend/egraph_converter.cpp
+    plan_v2/frontend/builder.cpp
+    plan_v2/cost/cost_model.cpp
+    plan_v2/rewrite/rewrites.cpp
+    plan_v2/egraph/symbol_make_traits.cpp
     plan/parallel_checker.cpp
     procedure/mg_procedure_impl.cpp
     procedure/callable_alias_mapper.cpp
@@ -87,7 +92,6 @@ target_sources(mg-query
     procedure/mg_procedure_impl.cpp
     procedure/module.cpp
     procedure/py_module.cpp
-    query_logger.cpp
     query_user.cpp
     serialization/property_value.cpp
     stream/common.cpp
@@ -102,7 +106,7 @@ target_sources(mg-query
     FILE_SET HEADERS
     FILES
     dependant_symbol_visitor.hpp
-    plan_v2/rewrites.hpp
+    plan_v2/rewrite/rewrites.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp
     frontend/ast/query/aggregation.hpp
@@ -125,9 +129,9 @@ target_sources(mg-query
     plan/rewrite/order_by_elimination.hpp
     plan/rewrite/parallel_rewrite.hpp
     plan/used_index_checker.hpp
-    plan_v2/ast_converter.hpp
-    plan_v2/egraph.hpp
-    plan_v2/egraph_converter.hpp
+    plan_v2/frontend/ast_converter.hpp
+    plan_v2/egraph/egraph.hpp
+    plan_v2/frontend/egraph_converter.hpp
     procedure/cypher_types.hpp
     string_helpers.hpp
     vertex_accessor.hpp
@@ -136,8 +140,11 @@ target_sources(mg-query
     FILE_SET private_headers
     TYPE HEADERS
     FILES
-    plan_v2/private_analysis.hpp
-    plan_v2/private_symbol.hpp
+    plan_v2/frontend/builder.hpp
+    plan_v2/resolve/extraction_env.hpp
+    plan_v2/resolve/resolver.hpp
+    plan_v2/egraph/symbol.hpp
+    plan_v2/resolve/variable_index.hpp
 )
 
 # CXX_MODULES split into a separate target to avoid CMake 4.x CMP0189
@@ -233,3 +240,7 @@ target_include_directories(antlr_opencypher_parser_lib PUBLIC ${antlr4-runtime_I
 target_link_libraries(antlr_opencypher_parser_lib PRIVATE antlr4_static)
 
 target_link_libraries(mg-query PUBLIC antlr_opencypher_parser_lib)
+
+if(MG_ENABLE_TESTING)
+  add_subdirectory(plan_v2/test_support)
+endif()

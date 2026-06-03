@@ -16,7 +16,7 @@
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
 #include "test_matcher_fixture.hpp"
-#include "test_patterns.hpp"
+#include "test_support/patterns.hpp"
 
 import memgraph.planner.core.egraph;
 
@@ -263,7 +263,7 @@ auto const kMatchingCases = std::to_array<MatchingTestCase>({
   t.node(Op::Add, a, b);
   auto neg = t.node(Op::Neg, c);
   t.node(Op::Mul, neg, d);
-  // No merge — ?x from Add won't have a Neg in its e-class
+  // No merge - ?x from Add won't have a Neg in its e-class
   t.use_patterns(TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}),
                  TestPattern::build(Op::Mul, {BoundSym(kVarX, Op::Neg, Var{kVarZ}), Var{kVarW}}));
   return {};
@@ -689,10 +689,10 @@ auto const kMatchingCases = std::to_array<MatchingTestCase>({
   auto h_b = t.node(Op::H, b);       // H(B)
   t.merge(h_a, h_b);                        // merged eclass M_h has enodes H(A), H(B)
   auto g = t.node(Op::G, h_a);       // G(M_h)
-  t.node(Op::Bind, c, g, d);                // Bind(C, G(...), D) — pattern A root
-  t.node(Op::F, g);                         // F(G(...)) — pattern B root
-  // Pattern A: Bind(?w, ?x, ?y) — 3 vars, anchor
-  // Pattern B: F(?x=G(H(?z))) — 2 vars, enters at G via JoinVar
+  t.node(Op::Bind, c, g, d);                // Bind(C, G(...), D) - pattern A root
+  t.node(Op::F, g);                         // F(G(...)) - pattern B root
+  // Pattern A: Bind(?w, ?x, ?y) - 3 vars, anchor
+  // Pattern B: F(?x=G(H(?z))) - 2 vars, enters at G via JoinVar
   t.use_patterns(TestPattern::build(Op::Bind, {Var{kVarW}, Var{kVarX}, Var{kVarY}}),
                  TestPattern::build(Op::F, {BoundSym(kVarX, Op::G, Sym(Op::H, Var{kVarZ}))}));
   return {{{{kVarW, c}, {kVarX, g}, {kVarY, d}, {kVarZ, a}},
@@ -1038,7 +1038,7 @@ TEST_F(PatternVM_Matching, Dedup_WideEClass) {
 }
 
 TEST_F(PatternVM_Matching, SelfLoop_SharedVarExploresAllPaths) {
-  // Exact fuzzer structure — do not simplify.
+  // Exact fuzzer structure - do not simplify.
   auto n0 = leaf(Op::D, 1653159021);
   auto n1 = leaf(Op::D, 2573693081);
   [[maybe_unused]] auto n2 = node(Op::Mul, n1, n1);
@@ -1375,7 +1375,7 @@ TEST_F(PatternVM_Matching, Deep_VeryNestedPattern) {
 //
 //   E-graph:  Plus(H(a), p)   where p = {Plus(b,c), Plus(b,b)}
 //   Pattern:  Plus(H(?x), Plus(?y, ?z))
-//   Expected: 2 matches — one per Plus enode in p.
+//   Expected: 2 matches - one per Plus enode in p.
 TEST_F(PatternVM_Matching, ParentWalk_SymbolChildMultipleEnodes) {
   auto a = leaf(Op::A);
   auto b = leaf(Op::B);
@@ -1398,6 +1398,62 @@ TEST_F(PatternVM_Matching, ParentWalk_SymbolChildMultipleEnodes) {
       {{kVarX, f(a)}, {kVarY, f(b)}, {kVarZ, f(c)}},
       {{kVarX, f(a)}, {kVarY, f(b)}, {kVarZ, f(b)}},
   });
+}
+
+// Hoisted multi-pattern ?r=F(?x) + Mul(?r, ?y): match count must equal
+// kEclasses * enodes * parents across varied (enodes_per_class,
+// parents_per_class) ratios. Exercises the hoist that runs IterParents
+// once per eclass instead of once per enode.
+TEST_F(PatternVM_Matching, Hoist_VaryingEnodesAndParents) {
+  struct Case {
+    int enodes;
+    int parents;
+  };
+
+  constexpr int kEclasses = 10;
+  Case cases[] = {
+      {1, 1},
+      {1, 10},
+      {1, 50},
+      {10, 1},
+      {10, 10},
+      {10, 50},
+      {20, 1},
+      {20, 10},
+      {20, 50},
+  };
+
+  for (auto [enodes, parents] : cases) {
+    egraph = TestEGraph{};
+
+    for (int ec = 0; ec < kEclasses; ++ec) {
+      auto leaf0 = egraph.emplace(Op::Const, static_cast<uint64_t>(ec * 1000)).eclass_id;
+      auto first_f = egraph.emplace(Op::F, {leaf0}).eclass_id;
+      for (int e = 1; e < enodes; ++e) {
+        auto lf = egraph.emplace(Op::Const, static_cast<uint64_t>(ec * 1000 + e)).eclass_id;
+        auto f = egraph.emplace(Op::F, {lf}).eclass_id;
+        egraph.merge(first_f, f);
+      }
+      for (int p = 0; p < parents; ++p) {
+        auto unique = egraph.emplace(Op::Const, static_cast<uint64_t>(100000 + ec * 1000 + p)).eclass_id;
+        egraph.emplace(Op::Mul, {first_f, unique});
+      }
+    }
+    rebuild_egraph();
+
+    index = TestMatcherIndex{egraph};
+    vm_executor = TestVMExecutor{egraph};
+    rebuild_index();
+
+    constexpr PatternVar kR{30};
+    constexpr PatternVar kHX{0};
+    constexpr PatternVar kHY{31};
+    use_patterns(TestPattern::build(kR, Op::F, {Var{kHX}}), TestPattern::build(Op::Mul, {Var{kR}, Var{kHY}}));
+    run_compiled();
+
+    auto expected_matches = static_cast<std::size_t>(kEclasses * enodes * parents);
+    EXPECT_EQ(matches.size(), expected_matches) << "enodes=" << enodes << " parents=" << parents;
+  }
 }
 
 }  // namespace memgraph::planner::core

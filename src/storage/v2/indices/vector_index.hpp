@@ -11,9 +11,18 @@
 
 #pragma once
 
+#include <algorithm>
+#include <span>
+#include <string_view>
+
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/join.hpp>
+#include <range/v3/view/transform.hpp>
+
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
+#include "storage/v2/indices/vector_match_mode.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
@@ -24,18 +33,82 @@
 
 namespace memgraph::storage {
 
+namespace r = ranges;
+namespace rv = r::views;
+
 struct ActiveIndicesUpdater;
 struct Indices;
 class NameIdMapper;
 
+// Membership filter shared between node (LabelId) and edge (EdgeTypeId) vector indices.
+// SINGLE/ANY_OF/ALL_OF/WILDCARD semantics are id-type-agnostic; the only thing that varies
+// is the id payload.
+template <typename IdT>
+struct VectorMembershipFilter {
+  VectorMatchMode mode{VectorMatchMode::SINGLE};
+  std::vector<IdT> ids;
+
+  bool Matches(std::span<const IdT> entity_ids) const {
+    if (ids.empty() && mode != VectorMatchMode::WILDCARD) return false;
+    switch (mode) {
+      case VectorMatchMode::WILDCARD:
+        return true;
+      case VectorMatchMode::SINGLE:
+        return std::ranges::contains(entity_ids, ids[0]);
+      case VectorMatchMode::ANY_OF:
+        return std::ranges::any_of(ids, [&](auto id) { return std::ranges::contains(entity_ids, id); });
+      case VectorMatchMode::ALL_OF:
+        return std::ranges::all_of(ids, [&](auto id) { return std::ranges::contains(entity_ids, id); });
+    }
+    return false;
+  }
+
+  bool Matches(IdT entity_id) const { return Matches(std::span<const IdT>(&entity_id, 1)); }
+
+  bool IsAffectedBy(IdT id) const {
+    if (mode == VectorMatchMode::WILDCARD) return false;
+    return std::ranges::contains(ids, id);
+  }
+
+  friend bool operator==(VectorMembershipFilter const &lhs, VectorMembershipFilter const &rhs) {
+    if (lhs.mode != rhs.mode) return false;
+    if (lhs.ids.size() != rhs.ids.size()) return false;
+    if (lhs.mode == VectorMatchMode::SINGLE || lhs.mode == VectorMatchMode::WILDCARD) {
+      return lhs.ids == rhs.ids;
+    }
+    auto sa = lhs.ids;
+    auto sb = rhs.ids;
+    std::ranges::sort(sa);
+    std::ranges::sort(sb);
+    return sa == sb;
+  }
+
+  template <typename NameResolver>
+  std::string Format(NameResolver &&resolver) const {
+    if (ids.empty() && mode != VectorMatchMode::WILDCARD) return "";
+    auto join = [&](std::string_view sep) {
+      return ":" + (ids | rv::transform(resolver) | rv::join(sep) | r::to<std::string>());
+    };
+    switch (mode) {
+      case VectorMatchMode::WILDCARD:
+        return "*";
+      case VectorMatchMode::SINGLE:
+        return ":" + resolver(ids[0]);
+      case VectorMatchMode::ANY_OF:
+        return join("|");
+      case VectorMatchMode::ALL_OF:
+        return join("&");
+    }
+    return "";
+  }
+};
+
+using VectorLabelFilter = VectorMembershipFilter<LabelId>;
+
 /// @struct VectorIndexInfo
-/// @brief Represents information about a vector index in the system.
-///
-/// This structure includes the index name, the label and property on which the index is created,
-/// the dimension of the vectors in the index, and the size of the index.
 struct VectorIndexInfo {
   std::string index_name;
-  LabelId label_id;
+  VectorLabelFilter label_filter;
   PropertyId property;
   std::string metric;
   std::uint16_t dimension;
@@ -45,13 +118,9 @@ struct VectorIndexInfo {
 };
 
 /// @struct VectorIndexSpec
-/// @brief Represents a specification for creating a vector index in the system.
-///
-/// This structure includes the index name, the label and property on which the index is created,
-/// and the configuration options for the index in the form of a JSON object.
 struct VectorIndexSpec {
   std::string index_name;
-  LabelId label_id;
+  VectorLabelFilter label_filter;
   PropertyId property;
   unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
@@ -131,7 +200,7 @@ struct VectorIndexActiveIndices {
   virtual ~VectorIndexActiveIndices() = default;
   virtual std::vector<VectorIndexSpec> ListIndices() const = 0;
   virtual std::vector<VectorIndexInfo> ListVectorIndicesInfo() const = 0;
-  virtual std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const = 0;
+  virtual std::optional<uint64_t> ApproximateNodesVectorCount(std::string_view index_name) const = 0;
 };
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -164,6 +233,7 @@ class VectorIndex {
   struct AbortProcessor {
     std::map<LabelId, std::vector<PropertyId>> l2p;
     std::map<PropertyId, std::vector<LabelId>> p2l;
+    std::set<PropertyId> wildcard_properties;
 
     void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
     void CollectOnLabelAddition(LabelId label, Vertex *vertex);
@@ -176,6 +246,7 @@ class VectorIndex {
 
   explicit VectorIndex(utils::MemoryTracker *memory_tracker = nullptr);
   ~VectorIndex();
+
   /// Concrete ActiveIndices implementation holding a shared reference to the live index container.
   struct ActiveIndices : VectorIndexActiveIndices {
     ActiveIndices() = default;
@@ -185,7 +256,7 @@ class VectorIndex {
 
     std::vector<VectorIndexSpec> ListIndices() const override;
     std::vector<VectorIndexInfo> ListVectorIndicesInfo() const override;
-    std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const override;
+    std::optional<uint64_t> ApproximateNodesVectorCount(std::string_view index_name) const override;
 
    private:
     std::shared_ptr<VectorIndexContainer const> index_container_;
@@ -221,8 +292,7 @@ class VectorIndex {
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @param snapshot_info The snapshot information to use.
   void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
-                    Indices *indices, NameIdMapper *name_id_mapper,
-                    ActiveIndicesUpdater const &updater,
+                    Indices *indices, NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// Captured state from DropIndex. evicted_item keeps the usearch state alive;
@@ -288,11 +358,8 @@ class VectorIndex {
   /// @return A vector of specs representing vector indices configurations.
   std::vector<VectorIndexSpec> ListIndices() const;
 
-  /// @brief Returns number of vertices in the index.
-  /// @param label The label of the vertices in the index.
-  /// @param property The property of the vertices in the index.
-  /// @return The number of vertices in the index.
-  std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const;
+  /// @brief Returns number of vertices in the named index, or nullopt if no such index.
+  std::optional<uint64_t> ApproximateNodesVectorCount(std::string_view index_name) const;
 
   /// @brief Searches for nodes in the specified index using a query vector.
   /// @param index_name The name of the index to search.
@@ -327,15 +394,14 @@ class VectorIndex {
   /// @return Vector of index IDs.
   utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) const;
 
-  /// @brief Gets all properties that have vector indices for the given label.
-  /// @param label The label to get the properties for.
-  /// @return A map of property ids to index IDs.
-  std::unordered_map<PropertyId, uint64_t> GetIndicesByLabel(LabelId label) const;
+  /// @brief Gets all (property, index_id) pairs for indices whose filter is affected by the given label.
+  /// Multiple indices may overlap on the same property (e.g. ':A(p)' and ':A|B(p)'); all are returned.
+  std::vector<std::pair<PropertyId, uint64_t>> GetIndicesByLabel(LabelId label) const;
 
   /// @brief Gets all labels that have vector indices for the given property.
   /// @param property The property to get the labels for.
   /// @return A map of label ids to index IDs.
-  std::unordered_map<LabelId, uint64_t> GetIndicesByProperty(PropertyId property) const;
+  std::vector<std::pair<uint64_t, VectorLabelFilter const *>> GetIndicesByProperty(PropertyId property) const;
 
   /// @brief Serializes all vector indices to a durability encoder in one pass.
   /// @param encoder The durability encoder to serialize to.

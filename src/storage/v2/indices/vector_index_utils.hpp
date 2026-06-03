@@ -320,7 +320,8 @@ inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
 /// @return The float vector to insert into uSearch.
 inline utils::small_vector<float> RegisterIndexId(PropertyValue &property, uint64_t index_id) {
   if (property.IsVectorIndexId()) {
-    property.ValueVectorIndexIds().push_back(index_id);
+    auto &ids = property.ValueVectorIndexIds();
+    if (!std::ranges::contains(ids, index_id)) ids.push_back(index_id);
     return property.ValueVectorIndexList();
   }
   auto vector = ListToVector(property);

@@ -70,16 +70,25 @@
   ; On main detach-delete-all and create accounts.
   (setup! [this _test]
     (when (= (:replication-role this) :main)
-      (try
-        (utils/with-session (:conn this) session
-          (do
-            (mgquery/detach-delete-all session)
-            (info "Creating" account-num "accounts")
-            (dotimes [i account-num]
-              (info "Creating account:" i)
-              (mgquery/create-account session {:id i :balance starting-balance}))))
-        (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-          (info (utils/node-is-down (:node this)))))))
+      (loop [attempts 10]
+        (let [result (try
+                       (utils/with-session (:conn this) session
+                         (do
+                           (mgquery/detach-delete-all session)
+                           (info "Creating" account-num "accounts")
+                           (dotimes [i account-num]
+                             (info "Creating account:" i)
+                             (mgquery/create-account session {:id i :balance starting-balance}))))
+                       :done
+                       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                         (info (utils/node-is-down (:node this)))
+                         :retry)
+                       (catch Exception e
+                         (info "Fatal failure when trying to connect to instances" (:node this) e)
+                         (System/exit -1)))]
+          (when (and (= result :retry) (pos? attempts))
+            (Thread/sleep 3000)
+            (recur (dec attempts)))))))
   (invoke! [this _test op]
     (case (:f op)
       ; Create a map with the following structure: {:type :ok :value {:accounts [account1 account2 ...] :node node}}

@@ -439,7 +439,7 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search('limitTestIndex', 'data.content:test', 3) YIELD node
+            CALL text_search.search('limitTestIndex', 'data.content:test', {limit: 3}) YIELD node
             RETURN count(node) AS count
             """
         Then the result should be:
@@ -465,3 +465,224 @@ Feature: Text search related features
         Then the result should be:
             | title           | score  |
             | 'Test Document' | 1.0    |
+
+    Scenario: Fuzzy search with distance 1 tolerates a single edit
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph'})
+            CREATE (:Document {title: 'memgrap'})
+            CREATE (:Document {title: 'coffee'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('fuzzyIndex', 'data.title:memgraph', {fuzzy_distance: 1}) YIELD node
+            RETURN node.title AS title
+            ORDER BY title ASC
+            """
+        Then the result should be:
+            | title       |
+            | 'memgrap'   |
+            | 'memgraph'  |
+
+    Scenario: Fuzzy search with distance 2 tolerates two edits
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph'})
+            CREATE (:Document {title: 'memgrahps'})
+            CREATE (:Document {title: 'coffee'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('fuzzyIndex', 'data.title:memgraph', {fuzzy_distance: 2}) YIELD node
+            RETURN node.title AS title
+            ORDER BY title ASC
+            """
+        Then the result should be:
+            | title         |
+            | 'memgrahps'   |
+            | 'memgraph'    |
+
+    Scenario: Fuzzy search with transpositions disabled requires two edits for a swap
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgrahp'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('fuzzyIndex', 'data.title:memgraph', {fuzzy_distance: 1, fuzzy_transpositions: false}) YIELD node
+            RETURN node.title AS title
+            """
+        Then the result should be empty
+
+    Scenario: Fuzzy search with prefix matches indexed terms that start with the query
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph'})
+            CREATE (:Document {title: 'coffee'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('fuzzyIndex', 'data.title:mem', {fuzzy_distance: 1, fuzzy_prefix: true}) YIELD node
+            RETURN node.title AS title
+            """
+        Then the result should be:
+            | title       |
+            | 'memgraph'  |
+
+    Scenario: Fuzzy search_all combines fuzzy with all-properties mode
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyAllIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph', body: 'graph database'})
+            CREATE (:Document {title: 'unrelated', body: 'memgrap is close'})
+            """
+        When executing query:
+            """
+            CALL text_search.search_all('fuzzyAllIndex', 'memgraph', {fuzzy_distance: 1}) YIELD node
+            RETURN node.title AS title
+            ORDER BY title ASC
+            """
+        Then the result should be:
+            | title         |
+            | 'memgraph'    |
+            | 'unrelated'   |
+
+    Scenario: Empty config map preserves default behaviour
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX defaultIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph'})
+            CREATE (:Document {title: 'memgrap'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('defaultIndex', 'data.title:memgraph', {}) YIELD node
+            RETURN node.title AS title
+            """
+        Then the result should be:
+            | title       |
+            | 'memgraph'  |
+
+    Scenario: Fuzzy distance above 2 is rejected
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX rejectIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('rejectIndex', 'data.title:memgraph', {fuzzy_distance: 3}) YIELD node RETURN node
+            """
+        Then an error should be raised
+
+    Scenario: Unknown config key is rejected
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX unknownKeyIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('unknownKeyIndex', 'data.title:memgraph', {bogus: 1}) YIELD node RETURN node
+            """
+        Then an error should be raised
+
+    Scenario: Unqualified query without fuzzy still errors at parse time
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX unqualifiedIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('unqualifiedIndex', 'memgraph', {}) YIELD node RETURN node
+            """
+        Then an error should be raised
+
+    Scenario: Unqualified query with fuzzy errors at parse time
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX unqualifiedFuzzyIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('unqualifiedFuzzyIndex', 'memgrahp', {fuzzy_distance: 1}) YIELD node RETURN node
+            """
+        Then an error should be raised
+
+    Scenario: Nonexistent field prefix errors at parse time
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX wrongFieldIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'memgraph'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('wrongFieldIndex', 'nonexistent.foo:memgraph', {}) YIELD node RETURN node
+            """
+        Then an error should be raised
+
+    Scenario: Fuzzy distance on regex_search is rejected
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX regexRejectIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {fulltext: 'memgraph'})
+            """
+        When executing query:
+            """
+            CALL text_search.regex_search('regexRejectIndex', 'mem.*', {fuzzy_distance: 1}) YIELD node RETURN node
+            """
+        Then an error should be raised

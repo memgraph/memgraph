@@ -137,12 +137,21 @@
              :node node)))
   ; Use Bolt connection to set enterprise.license and organization.name.
   (setup! [this _test]
-    (try
-      (utils/with-session (:bolt-conn this) session
-        ((mgquery/set-db-setting "enterprise.license" license) session)
-        ((mgquery/set-db-setting "organization.name" organization) session))
-      (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-        (info (utils/node-is-down (:node this))))))
+    (loop [attempts 10]
+      (let [result (try
+                     (utils/with-session (:bolt-conn this) session
+                       ((mgquery/set-db-setting "enterprise.license" license) session)
+                       ((mgquery/set-db-setting "organization.name" organization) session))
+                     :done
+                     (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                       (info (utils/node-is-down (:node this)))
+                       :retry)
+                     (catch Exception e
+                       (info "Fatal failure when trying to connect to instances" (:node this) e)
+                       (System/exit -1)))]
+        (when (and (= result :retry) (pos? attempts))
+          (Thread/sleep 3000)
+          (recur (dec attempts))))))
 
   (invoke! [this _test op]
     (let [bolt-conn (:bolt-conn this)

@@ -102,7 +102,7 @@ namespace {
 bool g_verbose = false;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 // ============================================================================
-// ErrorCollectorReporter — collects validation errors for diagnostic output
+// ErrorCollectorReporter: collects validation errors for diagnostic output
 // ============================================================================
 
 class ErrorCollectorReporter {

@@ -41,7 +41,9 @@
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "communication/cluster_tls.hpp"
 #include "coordination/constants.hpp"
+#include "coordination/coordinator_cert_reloader.hpp"
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "db_accessor.hpp"
@@ -50,7 +52,10 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
+#include "flags/general.hpp"
+#include "flags/isolation_level.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "flags/storage_mode.hpp"
 #include "frontend/ast/query/tenant_profile.hpp"
 #include "frontend/ast/query/user_profile.hpp"
 #include "frontend/semantic/rw_checker.hpp"
@@ -125,6 +130,7 @@
 #include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/resource_monitoring.hpp"
+#include "utils/session_context.hpp"
 #include "utils/settings.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
@@ -148,6 +154,25 @@ namespace {
 using memgraph::query::Expression;
 using memgraph::query::ExpressionVisitor;
 using memgraph::query::TypedValue;
+
+struct InstanceStorageInfo {
+  uint64_t memory_res;
+  uint64_t peak_memory_res;
+  uint64_t disk_usage;
+  int64_t vm_max_map_count;
+};
+
+InstanceStorageInfo GetInstanceStorageInfo() {
+  const auto memory_res = memgraph::utils::GetMemoryRES();
+  const auto peak_memory_res = memgraph::metrics::Metrics().UpdateAndGetPeakMemoryRes(memory_res);
+  const int64_t vm_max_map_count =
+      memgraph::utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
+  const auto disk_usage = memgraph::utils::GetDirDiskUsage(FLAGS_data_directory);
+  return {.memory_res = memory_res,
+          .peak_memory_res = peak_memory_res,
+          .disk_usage = disk_usage,
+          .vm_max_map_count = vm_max_map_count};
+}
 
 auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
                     ExpressionVisitor<TypedValue> &evaluator)
@@ -413,10 +438,10 @@ class ReplQueryHandler {
       }
     } else {
       ValidatePort(port);
-
       auto const config = memgraph::replication::ReplicationServerConfig{
           .repl_server = memgraph::io::network::Endpoint(memgraph::replication::kDefaultReplicationServerIp,
-                                                         static_cast<uint16_t>(*port))};
+                                                         static_cast<uint16_t>(*port)),
+          .tls_config = flags::TlsConfigFromClusterFlags()};
 
       if (!handler_->TrySetReplicationRoleReplica(config)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
@@ -453,7 +478,7 @@ class ReplQueryHandler {
                                              .mode = repl_mode,
                                              .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
                                              .replica_check_frequency = replica_check_frequency,
-                                             .ssl = std::nullopt};
+                                             .tls_config = flags::TlsConfigFromClusterFlags()};
 
     const auto error = handler_->TryRegisterReplica(replication_config);
 
@@ -3030,8 +3055,7 @@ struct PullPlan {
   explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
-                    metrics::DatabaseMetricHandles &metric_handles,
+                    storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
                     std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
@@ -3053,8 +3077,6 @@ struct PullPlan {
   Frame frame_;
   ExecutionContext ctx_;
   std::optional<size_t> memory_limit_;
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
-  std::optional<QueryLogger> &query_logger_;
 #ifdef MG_ENTERPRISE
   std::shared_ptr<utils::UserResources> user_resource_{};
 #endif
@@ -3076,11 +3098,10 @@ struct PullPlan {
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                   storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
-                   metrics::DatabaseMetricHandles &metric_handles, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
-                   const std::optional<int64_t> hops_limit, utils::PriorityThreadPool *worker_pool,
-                   memory::ArenaPool *db_arena_pool
+                   storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
+                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
+                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
+                   utils::PriorityThreadPool *worker_pool, memory::ArenaPool *db_arena_pool
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
@@ -3089,8 +3110,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory, metric_handles)),
       frame_(plan->symbol_table().max_position(), execution_memory),
-      memory_limit_(memory_limit),
-      query_logger_(query_logger)
+      memory_limit_(memory_limit)
 #ifdef MG_ENTERPRISE
       ,
       user_resource_{std::move(user_resource)}
@@ -3220,9 +3240,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   summary->insert_or_assign("number_of_hops", ctx_.number_of_hops);
 
-  if (query_logger_) {
-    query_logger_->trace(fmt::format("Query execution time: {}", execution_time_.count()));
-  }
+  memgraph::logging::EmitSessionTraceEvent("Query execution time: {}", execution_time_.count());
 
   metric_handles_->query_execution_latency_seconds.Observe(execution_time_.count());
 
@@ -3235,9 +3253,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     for (size_t i = 0; i < ctx_.execution_stats.counters.size(); ++i) {
       auto key = ExecutionStatsKeyToString(ExecutionStats::Key(i));
       stats.emplace(key, ctx_.execution_stats.counters[i]);
-      if (query_logger_) {
-        query_logger_->trace(fmt::format("{}: {}", key, ctx_.execution_stats.counters[i]));
-      }
+      memgraph::logging::EmitSessionTraceEvent("{}: {}", key, ctx_.execution_stats.counters[i]);
     }
     summary->insert_or_assign("stats", std::move(stats));
   }
@@ -3251,8 +3267,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
   auto stats_and_total_time = GetStatsWithTotalTime(ctx_);
 
-  if (query_logger_) {
-    query_logger_->trace(fmt::format("Profile plan\n{}", ProfilingStatsToJson(stats_and_total_time).dump()));
+  if (memgraph::logging::IsSessionTraceEnabled()) {
+    memgraph::logging::EmitSessionTraceEvent("Profile plan\n{}", ProfilingStatsToJson(stats_and_total_time).dump());
   }
 
   return stats_and_total_time;
@@ -3487,25 +3503,26 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                 cypher_query,
                                 parsed_query.parameters,
                                 plan_cache,
-                                dba);
+                                dba,
+                                interpreter.query_planner_context());
 
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
-    interpreter.LogQueryMessage(hint);
+    memgraph::logging::EmitSessionTraceEvent(hint);
   }
 
-  if (interpreter.IsQueryLoggingActive()) {
+  if (memgraph::logging::IsSessionTraceEnabled()) {
     std::stringstream printed_plan;
     plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
-    interpreter.LogQueryMessage(fmt::format("Explain plan:\n{}", printed_plan.str()));
+    memgraph::logging::EmitSessionTraceEvent("Explain plan:\n{}", printed_plan.str());
   }
 
   PrepareCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
-  interpreter.LogQueryMessage(fmt::format("Plan cost: {}", plan->cost()));
+  memgraph::logging::EmitSessionTraceEvent("Plan cost: {}", plan->cost());
   bool is_profile_query = false;
-  if (interpreter.IsQueryLoggingActive()) {
+  if (memgraph::logging::IsSessionTraceEnabled()) {
     is_profile_query = true;
   }
   AccessorCompliance(*plan, *dba);
@@ -3540,7 +3557,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               std::move(user_or_role),
                                               std::move(stopping_context),
                                               dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
-                                              interpreter.query_logger_,
                                               *(*current_db.db_acc_)->metric_handles(),
                                               trigger_context_collector,
                                               memory_limit,
@@ -3605,17 +3621,21 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
                                              cypher_query,
                                              parsed_inner_query.parameters,
                                              plan_cache,
-                                             dba);
+                                             dba,
+                                             interpreter.query_planner_context());
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
-    interpreter.LogQueryMessage(hint);
+    memgraph::logging::EmitSessionTraceEvent(hint);
   }
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
-  interpreter.LogQueryMessage(fmt::format("Explain plan:\n{}", printed_plan.str()));
+  // PrettyPrint feeds the EXPLAIN result rows below; only the trace emit is gated.
+  if (memgraph::logging::IsSessionTraceEnabled()) {
+    memgraph::logging::EmitSessionTraceEvent("Explain plan:\n{}", printed_plan.str());
+  }
 
   std::vector<std::vector<TypedValue>> printed_plan_rows;
   for (const auto &row : utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
@@ -3711,7 +3731,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                              cypher_query,
                                              parsed_inner_query.parameters,
                                              plan_cache,
-                                             dba);
+                                             dba,
+                                             interpreter.query_planner_context());
 
 #ifdef MG_ENTERPRISE
   CheckParallelExecution(parallel_execution, cypher_query_plan->plan(), interpreter_context, notifications, dba);
@@ -3722,7 +3743,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
-    interpreter.LogQueryMessage(hint);
+    memgraph::logging::EmitSessionTraceEvent(hint);
   }
   AccessorCompliance(*cypher_query_plan, *dba);
   const auto rw_type = cypher_query_plan->rw_type();
@@ -3745,10 +3766,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          stopping_context = std::move(stopping_context),
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
-                                         db_arena_pool = &current_db.db_acc_->get()->Arena(),
-                                         &query_logger = interpreter.query_logger_
+                                         db_arena_pool = &current_db.db_acc_->get()->Arena()
 #ifdef MG_ENTERPRISE
-                                         ,
+                                             ,
                                          parallel_execution,
                                          user_resource = std::move(user_resource)
 #endif
@@ -3765,7 +3785,6 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         std::move(user_or_role),
                                         std::move(stopping_context),
                                         dbms::DatabaseProtector{db_acc}.clone(),
-                                        query_logger,
                                         *db_acc->metric_handles(),
                                         nullptr,
                                         memory_limit,
@@ -4002,7 +4021,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
   std::vector<LPIndex> label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
-  // Stats are keyed by (label, properties) only — `IndexOrder` does not affect
+  // Stats are keyed by (label, properties) only; `IndexOrder` does not affect
   // count/chi-squared/avg_degree. Collapse entries that differ only in order
   // so we don't perform a redundant full vertex scan when both ASC and DESC
   // indexes exist on the same key.
@@ -4117,7 +4136,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   auto label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
   // `DeleteLabelPropertyIndexStats` is keyed by label and wipes every
-  // (label, properties) entry in one call — collapse to unique labels so
+  // (label, properties) entry in one call; collapse to unique labels so
   // repeated entries (different property combos, or ASC/DESC pairs) don't
   // produce redundant replicated metadata deltas.
   auto unique_labels =
@@ -4637,7 +4656,10 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   };
 
   auto index_name = vector_index_query->index_name_;
-  auto label_name = vector_index_query->label_.name;
+  auto label_mode = vector_index_query->label_mode_;
+  std::vector<std::string> label_names;
+  label_names.reserve(vector_index_query->labels_.size());
+  for (const auto &label : vector_index_query->labels_) label_names.push_back(label.name);
   auto prop_name = vector_index_query->property_.name;
   auto *storage = db_acc->storage();
   const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
@@ -4665,16 +4687,18 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
                  invalidate_plan_cache = std::move(invalidate_plan_cache),
                  query_parameters = std::move(parsed_query.parameters),
                  index_name = std::move(index_name),
-                 label_name = std::move(label_name),
+                 label_mode,
+                 label_names = std::move(label_names),
                  prop_name = std::move(prop_name)]() {
         Notification index_notification(SeverityLevel::INFO);
         index_notification.code = NotificationCode::CREATE_INDEX;
-        index_notification.title = fmt::format("Created vector index on label {}, property {}.", label_name, prop_name);
-        auto label_id = storage->NameToLabel(label_name);
+        index_notification.title = fmt::format("Created vector index {}.", index_name);
+        std::vector<storage::LabelId> label_ids;
+        for (const auto &name : label_names) label_ids.push_back(storage->NameToLabel(name));
         auto prop_id = storage->NameToProperty(prop_name);
         auto maybe_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
             .index_name = index_name,
-            .label_id = label_id,
+            .label_filter = storage::VectorLabelFilter{.mode = label_mode, .ids = std::move(label_ids)},
             .property = prop_id,
             .metric_kind = vector_index_config.metric,
             .dimension = vector_index_config.dimension,
@@ -4684,10 +4708,8 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         });
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
         if (!maybe_error) {
-          index_notification.title = fmt::format(
-              "Error while creating vector index on label {}, property {}, for more information check the logs.",
-              label_name,
-              prop_name);
+          index_notification.title =
+              fmt::format("Error while creating vector index {}, for more information check the logs.", index_name);
         }
         return index_notification;
       };
@@ -4746,7 +4768,10 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
   };
 
   auto index_name = vector_index_query->index_name_;
-  auto edge_type = vector_index_query->edge_type_.name;
+  auto edge_type_mode = vector_index_query->edge_type_mode_;
+  std::vector<std::string> edge_type_names;
+  edge_type_names.reserve(vector_index_query->edge_types_.size());
+  for (const auto &et : vector_index_query->edge_types_) edge_type_names.push_back(et.name);
   auto prop_name = vector_index_query->property_.name;
   auto *storage = db_acc->storage();
 
@@ -4773,16 +4798,18 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
              invalidate_plan_cache = std::move(invalidate_plan_cache),
              query_parameters = std::move(parsed_query.parameters),
              index_name = std::move(index_name),
-             edge_type = std::move(edge_type),
+             edge_type_mode,
+             edge_type_names = std::move(edge_type_names),
              prop_name = std::move(prop_name)]() {
     Notification index_notification(SeverityLevel::INFO);
     index_notification.code = NotificationCode::CREATE_INDEX;
-    index_notification.title = fmt::format("Created vector index on edge type {}, property {}.", edge_type, prop_name);
-    auto edge_type_id = storage->NameToEdgeType(edge_type);
+    index_notification.title = fmt::format("Created vector edge index {}.", index_name);
+    std::vector<storage::EdgeTypeId> edge_type_ids;
+    for (const auto &name : edge_type_names) edge_type_ids.push_back(storage->NameToEdgeType(name));
     auto prop_id = storage->NameToProperty(prop_name);
     auto maybe_error = dba->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
         .index_name = index_name,
-        .edge_type_id = edge_type_id,
+        .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = edge_type_mode, .ids = std::move(edge_type_ids)},
         .property = prop_id,
         .metric_kind = vector_index_config.metric,
         .dimension = vector_index_config.dimension,
@@ -4792,10 +4819,8 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
     });
     utils::OnScopeExit const invalidator(invalidate_plan_cache);
     if (!maybe_error) {
-      index_notification.title = fmt::format(
-          "Error while creating vector index on edge type {}, property {}, for more information check the logs.",
-          edge_type,
-          prop_name);
+      index_notification.title =
+          fmt::format("Error while creating vector edge index {}, for more information check the logs.", index_name);
     }
     return index_notification;
   };
@@ -5030,16 +5055,70 @@ PreparedQuery PrepareReloadSSLQuery(ParsedQuery parsed_query, bool in_explicit_t
   if (in_explicit_transaction) {
     throw ReloadSSLMulticommandTxException();
   }
+
+  auto *reload_query = utils::Downcast<ReloadSSLQuery>(parsed_query.query);
+
   return PreparedQuery{
       .header = {},
       .privileges = std::move(parsed_query.required_privileges),
       .query_handler =
-          [interpreter_context, notifications](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
-            if (auto const res = interpreter_context->bolt_server_context_->reload(); !res.has_value()) {
-              throw QueryRuntimeException(res.error().msg);
+          [interpreter_context, notifications, action_type = reload_query->type_](
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+            if (action_type == ReloadSSLQuery::Type::BOLT_SERVER) {
+              if (auto const res = interpreter_context->bolt_server_context_->reload(); !res.has_value()) {
+                throw QueryRuntimeException(res.error().msg);
+              }
+              notifications->emplace_back(
+                  SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloaded TLS on Bolt server");
+            } else {
+#ifdef MG_ENTERPRISE
+              if (!license::global_license_checker.IsEnterpriseValidFast()) {
+                throw QueryRuntimeException(license::LicenseCheckErrorToString(
+                    license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "RELOAD TLS"));
+              }
+
+              // Two-phase commit across the three TLS "kingdoms" on this node:
+              //   1. ClusterServerSsl  — every Memgraph cluster-TLS server context (replication,
+              //      data-instance management, coordinator-instance management) reads through it.
+              //   2. ClusterClientSsl  — every Memgraph cluster-TLS client context (replication,
+              //      peer-coordinator, peer data-instance) reads through it.
+              //   3. CoordinatorCertReloader — NuRaft's server+client SSL_CTXs, whose cert
+              //      hot-swap is done via the SSL_CTX_set_cert_cb path because NuRaft owns the
+              //      contexts itself.
+              //
+              // Each Prepare() builds a candidate from disk into scratch space without touching
+              // live state. We only Commit (atomic-store) after every Prepare succeeds, so an
+              // unparseable cert/key/CA file leaves the cluster on the previous good state.
+              auto srv_prep = communication::ClusterServerSsl::Instance().Prepare();
+              if (!srv_prep.has_value()) {
+                throw QueryRuntimeException("cluster server TLS: " + srv_prep.error().msg);
+              }
+
+              auto cli_prep = communication::ClusterClientSsl::Instance().Prepare();
+              if (!cli_prep.has_value()) {
+                throw QueryRuntimeException("cluster client TLS: " + cli_prep.error().msg);
+              }
+
+              auto raft_prep = coordination::CoordinatorCertReloader::Instance().Prepare();
+              if (!raft_prep.has_value()) {
+                throw QueryRuntimeException("NuRaft TLS: " + raft_prep.error().msg);
+              }
+
+              // All prepares succeeded. Every Commit is now a pure atomic store of an
+              // already-built snapshot (NuRaft included — it applies cert+key+CA per-connection
+              // via SSL_set1_verify_cert_store, so it no longer mutates a shared SSL_CTX). None
+              // can fail, so commit order is irrelevant.
+              communication::ClusterServerSsl::Instance().Commit(std::move(*srv_prep));
+              communication::ClusterClientSsl::Instance().Commit(std::move(*cli_prep));
+              coordination::CoordinatorCertReloader::Instance().Commit(std::move(*raft_prep));
+              notifications->emplace_back(
+                  SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloaded TLS for intra-cluster communication");
+
+#else
+              throw QueryRuntimeException("RELOAD INTRA_CLUSTER TLS cannot be invoked in the community build");
+#endif
             }
-            notifications->emplace_back(
-                SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloading SSL for Bolt server");
+
             return QueryHandlerResult::COMMIT;
           },
       .rw_type = RWType::NONE};
@@ -5869,6 +5948,13 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 
   std::function<void()> callback;
 
+#ifdef MG_ENTERPRISE
+  if (interpreter_context->coordinator_state_ && interpreter_context->coordinator_state_->IsDataInstance() &&
+      requested_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    throw QueryRuntimeException("Data instances cannot use analytical mode");
+  }
+#endif
+
   if (current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
       requested_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     callback = SwitchMemoryDevice(current_mode, requested_mode, db_acc).fn;
@@ -5970,11 +6056,11 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
   callback.fn = [storage]() mutable -> std::vector<std::vector<TypedValue>> {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
     constexpr bool kForce = true;
-    const auto maybe_path = mem_storage->CreateSnapshot(kForce);
+    const auto maybe_path = mem_storage->CreateSnapshot(kForce, "manual");
     if (!maybe_path) {
       switch (maybe_path.error()) {
         case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. {}. Please contact support.",
+          spdlog::warn("snapshot failed: {}. Please contact support.",
                        storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
           break;
         case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
@@ -6493,7 +6579,7 @@ auto TransactionStatusToString(TransactionStatus status) -> char const * {
 
 // Glue: maps the runtime TransactionStatus to the grammar-level filter enum.
 // States that have no user-visible filter keyword (IDLE, VERIFYING, TERMINATED)
-// return nullopt — they are not selectable via SHOW … TRANSACTIONS.
+// return nullopt - they are not selectable via SHOW … TRANSACTIONS.
 auto ToStatusFilter(TransactionStatus status) -> std::optional<TransactionQueueQuery::StatusFilter> {
   using SF = TransactionQueueQuery::StatusFilter;
   switch (status) {
@@ -6553,7 +6639,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
            TypedValue(std::to_string(transaction_id.value())),
            TypedValue(typed_queries),
            TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
-      // metadata_ is safe to read — we hold CAS protection (status is VERIFYING,
+      // metadata_ is safe to read - we hold CAS protection (status is VERIFYING,
       // cleanup paths spin-wait before modifying fields)
       std::map<std::string, TypedValue> metadata_tv;
       if (interpreter->metadata_) {
@@ -6829,20 +6915,20 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
 
         for (const auto &spec : info.vector_indices_spec) {
+          const auto count = ai->vector_->ApproximateNodesVectorCount(spec.index_name).value_or(0);
           results.push_back({TypedValue(vector_label_property_index_mark),
-                             TypedValue(storage->LabelToName(spec.label_id)),
+                             TypedValue(spec.label_filter.Format([&](auto id) { return storage->LabelToName(id); })),
                              TypedValue(storage->PropertyToName(spec.property)),
-                             TypedValue(static_cast<int>(
-                                 ai->vector_->ApproximateNodesVectorCount(spec.label_id, spec.property).value_or(0)))});
+                             TypedValue(static_cast<int>(count))});
         }
 
         for (const auto &spec : info.vector_edge_indices_spec) {
+          const auto count = ai->vector_edge_->ApproximateEdgesVectorCount(spec.index_name).value_or(0);
           results.push_back(
               {TypedValue(vector_edge_property_index_mark),
-               TypedValue(storage->EdgeTypeToName(spec.edge_type_id)),
+               TypedValue(spec.edge_type_filter.Format([&](auto id) { return storage->EdgeTypeToName(id); })),
                TypedValue(storage->PropertyToName(spec.property)),
-               TypedValue(static_cast<int>(
-                   ai->vector_edge_->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)))});
+               TypedValue(static_cast<int>(count))});
         }
 
         std::ranges::sort(results, [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -7014,7 +7100,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
         for (const auto &spec : vector_indices) {
           results.push_back({TypedValue(spec.index_name),
-                             TypedValue(storage->LabelToName(spec.label_id)),
+                             TypedValue(spec.label_filter.Format([&](auto id) { return storage->LabelToName(id); })),
                              TypedValue(storage->PropertyToName(spec.property)),
                              TypedValue(static_cast<int64_t>(spec.capacity)),
                              TypedValue(spec.dimension),
@@ -7025,15 +7111,16 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
 
         for (const auto &spec : vector_edge_indices) {
-          results.push_back({TypedValue(spec.index_name),
-                             TypedValue(storage->EdgeTypeToName(spec.edge_type_id)),
-                             TypedValue(storage->PropertyToName(spec.property)),
-                             TypedValue(static_cast<int64_t>(spec.capacity)),
-                             TypedValue(spec.dimension),
-                             TypedValue(spec.metric),
-                             TypedValue(static_cast<int64_t>(spec.size)),
-                             TypedValue(spec.scalar_kind),
-                             TypedValue(VectorIndexTypeToString(storage::VectorIndexType::ON_EDGES))});
+          results.push_back(
+              {TypedValue(spec.index_name),
+               TypedValue(spec.edge_type_filter.Format([&](auto id) { return storage->EdgeTypeToName(id); })),
+               TypedValue(storage->PropertyToName(spec.property)),
+               TypedValue(static_cast<int64_t>(spec.capacity)),
+               TypedValue(spec.dimension),
+               TypedValue(spec.metric),
+               TypedValue(static_cast<int64_t>(spec.size)),
+               TypedValue(spec.scalar_kind),
+               TypedValue(VectorIndexTypeToString(storage::VectorIndexType::ON_EDGES))});
         }
 
         return std::pair{results, QueryHandlerResult::COMMIT};
@@ -7082,20 +7169,42 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         throw QueryRuntimeException("Coordinators don't have storage!");
       }
 #endif
-      if (info_query->database_) {
-#ifdef MG_ENTERPRISE
-        handler = [db_name = *info_query->database_, db_handler = interpreter_context->dbms_handler]
-            -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
-          if (!db_handler) {
-            throw QueryRuntimeException("Database handler is not available");
+      auto *dbms_handler = interpreter_context->dbms_handler;
+      auto resolve_database = [&]() -> std::optional<dbms::DatabaseAccess> {
+        if (info_query->database_) {
+          const auto &db_name = *info_query->database_;
+          if (!license::global_license_checker.IsEnterpriseValidFast() && db_name != dbms::kDefaultDB) {
+            throw QueryRuntimeException(license::LicenseCheckErrorToString(
+                license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
           }
-          auto db_acc = db_handler->Get(db_name);
+#ifdef MG_ENTERPRISE
+          auto db = dbms_handler->Get(db_name);
+#else
+          auto db = dbms_handler->Get();
+#endif
+          if (!db) {
+            throw QueryRuntimeException("Database '{}' was not found.", db_name);
+          }
+          return db;
+        }
+        if (info_query->is_current_database_) {
+          if (!current_db.db_acc_) {
+            throw QueryRuntimeException("No current database for the session.");
+          }
+          return current_db.db_acc_;
+        }
+        return std::nullopt;
+      };
+      auto database = resolve_database();
+
+      if (database) {
+        handler = [db_acc = std::move(
+                       *database)] mutable -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
           auto *db = db_acc.get();
-          if (!db) throw QueryRuntimeException("Database '{}' was dropped during query execution.", db_name);
+          if (!db) throw QueryRuntimeException("Database was dropped during query execution.");
           if (auto *mh = db->metric_handles()) mh->show_storage_info.Increment();
           auto *storage = db->storage();
           auto info = storage->GetBaseInfo();
-
           const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
           const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
           const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
@@ -7124,53 +7233,36 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
-#else
-        throw QueryRuntimeException("SHOW STORAGE INFO ON DATABASE is only available in the enterprise edition.");
-#endif
       } else {
-        MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
-        handler = [storage = current_db.db_acc_->get()->storage(),
-                   db = current_db.db_acc_->get(),
-                   interpreter_isolation_level,
-                   next_transaction_isolation_level] {
-          auto info = storage->GetBaseInfo();
-          const int64_t vm_max_map_count_storage_info =
-              utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
-          const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
-          const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
-          const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
+        handler = [interpreter_isolation_level, next_transaction_isolation_level] {
+          metrics::Metrics().global.show_storage_info->Increment();
+          const auto instance_info = GetInstanceStorageInfo();
           const std::vector<std::vector<TypedValue>> results{
-              {TypedValue("name"), TypedValue(storage->name())},
-              {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
-              {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
-              {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
-              {TypedValue("average_degree"), TypedValue(info.average_degree)},
-              {TypedValue("vm_max_map_count"), TypedValue(vm_max_map_count_storage_info)},
-              {TypedValue("memory_res"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_res)))},
+              {TypedValue("vm_max_map_count"), TypedValue(instance_info.vm_max_map_count)},
+              {TypedValue("memory_res"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.memory_res)))},
               {TypedValue("peak_memory_res"),
-               TypedValue(utils::GetReadableSize(static_cast<double>(info.peak_memory_res)))},
-              {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
-              {TypedValue("global_disk_usage"),
-               TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
-              {TypedValue("global_memory_tracked"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.peak_memory_res)))},
+              {TypedValue("disk_usage"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(instance_info.disk_usage)))},
+              {TypedValue("memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
-              {TypedValue("global_runtime_allocation_limit"),
+              {TypedValue("memory_limit"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.MaximumHardLimit())))},
-              {TypedValue("global_license_allocation_limit"), TypedValue(std::invoke([] {
+              {TypedValue("license_memory_limit"), TypedValue([] {
                  auto info = license::global_license_checker.GetLicenseInfo().Lock();
                  const int64_t limit = info->has_value() ? (*info)->license.memory_limit : 0;
                  return limit > 0 ? utils::GetReadableSize(static_cast<double>(limit)) : std::string("unlimited");
-               }))},
-              {TypedValue("db_memory_tracked"),
-               TypedValue(utils::GetReadableSize(db_storage_memory + db_embedding_memory + db_query_memory))},
-              {TypedValue("db_storage_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory))},
-              {TypedValue("db_embedding_memory_tracked"), TypedValue(utils::GetReadableSize(db_embedding_memory))},
-              {TypedValue("db_query_memory_tracked"), TypedValue(utils::GetReadableSize(db_query_memory))},
-              {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+               }())},
+              {TypedValue("query+graph_memory_tracked"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
+              {TypedValue("vector_index_memory_tracked"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(utils::vector_index_memory_tracker.Amount())))},
+              {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(flags::ParseIsolationLevel()))},
               {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
               {TypedValue("next_session_isolation_level"),
                TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
-              {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))}};
+              {TypedValue("global_storage_mode"), TypedValue(StorageModeToString(flags::ParseStorageMode()))}};
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
       }
@@ -7198,9 +7290,14 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       header = {"license info", "value"};
       handler = [] {
         const auto license_info = license::global_license_checker.GetDetailedLicenseInfo();
-        const auto memory_limit = license_info.memory_limit != 0
-                                      ? utils::GetReadableSize(static_cast<double>(license_info.memory_limit))
-                                      : "UNLIMITED";
+        std::string memory_limit = "UNLIMITED";
+        std::string memory_limit_policy = "Memory usage is not limited.";
+        if (license_info.memory_limit != 0) {
+          memory_limit = utils::GetReadableSize(static_cast<double>(license_info.memory_limit));
+          memory_limit_policy = license_info.license_type == license::kLicenseTypeAiPlatform
+                                    ? "Graph and query memory are limited. Vector index memory is not limited."
+                                    : "All memory usage is limited.";
+        }
 
         const std::vector<std::vector<TypedValue>> results{
             {TypedValue("organization_name"), TypedValue(license_info.organization_name)},
@@ -7210,6 +7307,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("valid_until"), TypedValue(license_info.valid_until)},
             {TypedValue("memory_limit"), TypedValue(memory_limit)},
             {TypedValue("status"), TypedValue(license_info.status)},
+            {TypedValue("memory_limit_policy"), TypedValue(memory_limit_policy)},
         };
 
         return std::pair{results, QueryHandlerResult::NOTHING};
@@ -8115,22 +8213,17 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
   MG_ASSERT(session_trace_query);
 
   std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
-  handler = [interpreter, enabled = session_trace_query->enabled_] {
+  handler = [interpreter, session_trace_enabled = session_trace_query->enabled_] {
     std::vector<std::vector<TypedValue>> results;
 
-    auto query_log_directory = flags::run_time::GetQueryLogDirectory();
-
-    if (query_log_directory.empty()) {
-      throw QueryException("The flag --query-log-directory has to be present in order to enable session trace.");
-    }
-
-    if (enabled) {
-      interpreter->query_logger_.emplace(fmt::format("{}/{}.log", query_log_directory, interpreter->session_info_.uuid),
-                                         interpreter->session_info_.uuid,
-                                         interpreter->session_info_.username);
-      interpreter->LogQueryMessage("Session initialized!");
-    } else {
-      interpreter->query_logger_.reset();
+    interpreter->GetLogContext()->SetTrace(session_trace_enabled);
+    if (session_trace_enabled) {
+      if (!spdlog::should_log(spdlog::level::info)) {
+        spdlog::warn(
+            "SET SESSION TRACE ON: trace events emit at INFO, but the current log level filters INFO out. "
+            "Lower it at runtime with SET DATABASE SETTING \"log.level\" TO \"INFO\" (or below).");
+      }
+      memgraph::logging::EmitSessionTraceEvent("Session initialized!");
     }
 
     results.emplace_back(std::vector<TypedValue>{TypedValue(interpreter->session_info_.uuid)});
@@ -8289,15 +8382,27 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label property_vector
       for (const auto &spec : index_info.vector_indices_spec) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker && !auth_checker->Has(std::span{&spec.label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
-          continue;
+        if (auth_checker) {
+          // Wildcard requires global READ on vertices; non-wildcard requires READ on every listed
+          // label (Has(span<...>) matches any one, which would leak the full label set).
+          const bool authorized =
+              spec.label_filter.ids.empty()
+                  ? auth_checker->HasGlobalPrivilegeOnVertices(AuthQuery::FineGrainedPrivilege::READ)
+                  : std::ranges::all_of(spec.label_filter.ids, [&](auto label) {
+                      return auth_checker->Has(std::span{&label, 1}, AuthQuery::FineGrainedPrivilege::READ);
+                    });
+          if (!authorized) continue;
         }
 #endif
-        node_indexes.push_back(nlohmann::json::object(
-            {{"labels", {storage->LabelToName(spec.label_id)}},
-             {"properties", {storage->PropertyToName(spec.property)}},
-             {"count", storage_acc->ApproximateVerticesVectorCount(spec.label_id, spec.property).value_or(0)},
-             {"type", "label+property_vector"}}));
+        auto label_names = nlohmann::json::array();
+        for (const auto &label : spec.label_filter.ids) {
+          label_names.push_back(storage->LabelToName(label));
+        }
+        const auto count = storage_acc->ApproximateVerticesVectorCount(spec.index_name).value_or(0);
+        node_indexes.push_back(nlohmann::json::object({{"labels", std::move(label_names)},
+                                                       {"properties", {storage->PropertyToName(spec.property)}},
+                                                       {"count", count},
+                                                       {"type", "label+property_vector"}}));
       }
 
       // Edge type indices
@@ -8339,15 +8444,25 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Edge type property_vector
       for (const auto &spec : index_info.vector_edge_indices_spec) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker && !auth_checker->Has(spec.edge_type_id, AuthQuery::FineGrainedPrivilege::READ)) {
-          continue;
+        if (auth_checker) {
+          // Wildcard requires global READ on edges; non-wildcard requires READ on every listed edge type.
+          const bool authorized = spec.edge_type_filter.ids.empty()
+                                      ? auth_checker->HasGlobalPrivilegeOnEdges(AuthQuery::FineGrainedPrivilege::READ)
+                                      : std::ranges::all_of(spec.edge_type_filter.ids, [&](auto et) {
+                                          return auth_checker->Has(et, AuthQuery::FineGrainedPrivilege::READ);
+                                        });
+          if (!authorized) continue;
         }
 #endif
-        node_indexes.push_back(nlohmann::json::object(
-            {{"edge_type", {storage->EdgeTypeToName(spec.edge_type_id)}},
-             {"properties", {storage->PropertyToName(spec.property)}},
-             {"count", storage_acc->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)},
-             {"type", "edge_type+property_vector"}}));
+        auto edge_type_names = nlohmann::json::array();
+        for (const auto &et : spec.edge_type_filter.ids) {
+          edge_type_names.push_back(storage->EdgeTypeToName(et));
+        }
+        const auto count = storage_acc->ApproximateEdgesVectorCount(spec.index_name).value_or(0);
+        edge_indexes.push_back(nlohmann::json::object({{"edge_type", std::move(edge_type_names)},
+                                                       {"properties", {storage->PropertyToName(spec.property)}},
+                                                       {"count", count},
+                                                       {"type", "edge_type+property_vector"}}));
       }
       // Edge type text
       for (const auto &[index_name, edge_type, properties] : index_info.text_edge_indices) {
@@ -9036,7 +9151,7 @@ void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_
 
 Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserParameters_fn params_getter,
                                          QueryExtras const &extras) {
-  LogQueryMessage(fmt::format("Accepted query: {}", query_string));
+  memgraph::logging::EmitSessionTraceEvent("Accepted query: {}", query_string);
 #ifdef MG_ENTERPRISE
   if (!flags::CoordinationSetupInstance().IsCoordinator()) {
     MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
@@ -9073,7 +9188,7 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     }
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     const utils::Timer parsing_timer;
-    LogQueryMessage("Query parsing started.");
+    memgraph::logging::EmitSessionTraceEvent("Query parsing started.");
     std::string database_uuid;
     if (current_db_.db_acc_) database_uuid = std::string{current_db_.db_acc_->get()->uuid()};
     ParsedQuery parsed_query = ParseQuery(query_string,
@@ -9083,10 +9198,10 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
                                           database_uuid,
                                           interpreter_context_->parameters);
     auto parsing_time = parsing_timer.Elapsed().count();
-    LogQueryMessage("Query parsing ended.");
+    memgraph::logging::EmitSessionTraceEvent("Query parsing ended.");
     return Interpreter::ParseInfo{.parsed_query = std::move(parsed_query), .parsing_time = parsing_time};
   } catch (const utils::BasicException &e) {
-    LogQueryMessage(fmt::format("Failed query: {}", e.what()));
+    memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
     // Trigger first failed query
     metrics::FirstFailedQuery();
     // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.
@@ -9348,8 +9463,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 
     SetupInterpreterTransaction(extras);
-    LogQueryMessage(fmt::format(
-        "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0)));
+    memgraph::logging::EmitSessionTraceEvent(
+        "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));
   }
 
   auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -9394,7 +9509,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
 
     query_execution->summary["parsing_time"] = parse_info.parsing_time;
-    LogQueryMessage(fmt::format("Query parsing time: {}", parse_info.parsing_time));
+    memgraph::logging::EmitSessionTraceEvent("Query parsing time: {}", parse_info.parsing_time);
 
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
@@ -9457,7 +9572,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 
     const utils::Timer planning_timer;  // TODO: Think about moving it to Parse()
-    LogQueryMessage("Query planning started!");
+    memgraph::logging::EmitSessionTraceEvent("Query planning started!");
     PreparedQuery prepared_query;
     utils::MemoryResource *memory_resource = query_execution->resource();
     frame_change_collector_.reset();
@@ -9748,8 +9863,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     auto planning_time = planning_timer.Elapsed().count();
     query_execution->summary["planning_time"] = planning_time;
     query_execution->prepared_query.emplace(std::move(prepared_query));
-    LogQueryMessage("Query planning ended.");
-    LogQueryMessage(fmt::format("Query planning time: {}", planning_time));
+    memgraph::logging::EmitSessionTraceEvent("Query planning ended.");
+    memgraph::logging::EmitSessionTraceEvent("Query planning time: {}", planning_time);
 
     const auto rw_type = query_execution->prepared_query->rw_type;
     query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
@@ -9812,7 +9927,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             .qid = qid,
             .db = query_execution->prepared_query->db};
   } catch (const utils::BasicException &e) {
-    LogQueryMessage(fmt::format("Failed query: {}", e.what()));
+    memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
     // Trigger first failed query
     metrics::FirstFailedQuery();
     // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.
@@ -9857,9 +9972,7 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   transaction_start_steady_ = std::chrono::steady_clock::now();
   // Release publishes the start-time writes above to verifier-holding readers.
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-  if (query_logger_) {
-    query_logger_->SetTransactionId(std::to_string(tx_id));
-  }
+  session_log_ctx_.SetTxId(tx_id);
   metadata_ = GenOptional(extras.metadata_pv);
 }
 
@@ -9883,12 +9996,10 @@ void Interpreter::Abort() {
   }
 #endif
 
-  LogQueryMessage("Query abort started.");
+  memgraph::logging::EmitSessionTraceEvent("Query abort started.");
   utils::OnScopeExit const abort_end([this]() {
-    this->LogQueryMessage("Query abort ended.");
-    if (query_logger_) {
-      query_logger_->ResetTransactionId();
-    }
+    memgraph::logging::EmitSessionTraceEvent("Query abort ended.");
+    this->session_log_ctx_.ClearTxId();
   });
 
   // System tx
@@ -9905,13 +10016,13 @@ void Interpreter::Abort() {
       // Retry CAS from the current expected value (compare_exchange_weak already updated expected)
       continue;
     }
-    // VERIFYING or other transient states — wait for ShowTransactions/TerminateTransactions to restore
+    // VERIFYING or other transient states - wait for ShowTransactions/TerminateTransactions to restore
     expected = TransactionStatus::ACTIVE;
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
   // Cleanup: transition to IDLE, then clear fields.
-  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_ROLLBACK
+  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING - it will restore STARTED_ROLLBACK
   // when done reading, allowing us to proceed.
   const utils::OnScopeExit clean_status([this]() {
     auto expected = TransactionStatus::STARTED_ROLLBACK;
@@ -9921,11 +10032,11 @@ void Interpreter::Abort() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         continue;
       }
-      // Unexpected state — force IDLE to avoid deadlock
+      // Unexpected state - force IDLE to avoid deadlock
       transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
       break;
     }
-    // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
+    // Status is now IDLE - no concurrent ShowTransactions reader will access our fields
     current_transaction_.reset();
     metadata_ = std::nullopt;
   });
@@ -10093,12 +10204,10 @@ void Interpreter::Commit() {
   }
 #endif
 
-  LogQueryMessage("Query commit started.");
+  memgraph::logging::EmitSessionTraceEvent("Query commit started.");
   utils::OnScopeExit const commit_end([this]() {
-    this->LogQueryMessage("Query commit ended.");
-    if (query_logger_) {
-      query_logger_->ResetTransactionId();
-    }
+    memgraph::logging::EmitSessionTraceEvent("Query commit ended.");
+    this->session_log_ctx_.ClearTxId();
   });
 
   // It's possible that some queries did not finish because the user did
@@ -10125,7 +10234,7 @@ void Interpreter::Commit() {
       // What we are trying to do is set the transaction back to IDLE
       // We cannot simply put it to IDLE, since the status is used as a synchronization method and we have to follow
       // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
-      // ShowTransactions may also CAS us to VERIFYING — the CAS loop naturally spin-waits on that.
+      // ShowTransactions may also CAS us to VERIFYING - the CAS loop naturally spin-waits on that.
       auto expected = TransactionStatus::ACTIVE;
       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
         if (expected == TransactionStatus::TERMINATED) {
@@ -10134,7 +10243,7 @@ void Interpreter::Commit() {
         expected = TransactionStatus::ACTIVE;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
-      // Status is now IDLE — safe to clear fields
+      // Status is now IDLE - safe to clear fields
       current_transaction_.reset();
     });
 
@@ -10182,7 +10291,7 @@ void Interpreter::Commit() {
   }
 
   // Clean transaction status on exit.
-  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_COMMITTING
+  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING - it will restore STARTED_COMMITTING
   // when done reading, allowing us to proceed.
   const utils::OnScopeExit clean_status([this]() {
     auto expected = TransactionStatus::STARTED_COMMITTING;
@@ -10192,11 +10301,11 @@ void Interpreter::Commit() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         continue;
       }
-      // Unexpected state — force IDLE to avoid deadlock
+      // Unexpected state - force IDLE to avoid deadlock
       transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
       break;
     }
-    // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
+    // Status is now IDLE - no concurrent ShowTransactions reader will access our fields
     current_transaction_.reset();
   });
 
@@ -10343,9 +10452,7 @@ void Interpreter::Commit() {
     throw ReplicationException(*replication_error_msg);
   }
 
-  if (IsQueryLoggingActive()) {
-    query_logger_->trace("Commit successfully finished!");
-  }
+  memgraph::logging::EmitSessionTraceEvent("Commit successfully finished!");
 }
 
 void Interpreter::AdvanceCommand() {
@@ -10386,13 +10493,8 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
                           std::shared_ptr<utils::UserResources> user_resource) {
   user_or_role_ = std::move(user_or_role);
-  if (query_logger_) {
-    std::string username;
-    if (user_or_role_ && user_or_role_->username()) {
-      username = user_or_role_->username().value();
-    }
-    query_logger_->SetUser(username);
-  }
+  session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
+                                                                        : std::string{});
   // Pre-existsing user resource; decrement session (since it is not being used anymore)
   if (user_resource_) {
     user_resource_->DecrementSessions();
@@ -10409,42 +10511,26 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
 #else
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   user_or_role_ = std::move(user_or_role);
-  if (query_logger_) {
-    std::string username;
-    if (user_or_role_ && user_or_role_->username()) {
-      username = user_or_role_->username().value();
-    }
-    query_logger_->SetUser(username);
-  }
+  session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
+                                                                        : std::string{});
 }
 #endif
 
 void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
-  session_info_ = {.uuid = uuid, .username = username, .login_timestamp = login_timestamp};
-  if (query_logger_) {
-    query_logger_->SetSessionId(uuid);
-  }
+  session_log_ctx_.SetSessionUuid(uuid);
+  session_info_ = {
+      .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
 }
 
 void Interpreter::ResetUser() {
   user_or_role_.reset();
-  if (query_logger_) {
-    query_logger_->ResetUser();
-  }
+  session_log_ctx_.ClearUser();
 #ifdef MG_ENTERPRISE
   if (user_resource_) {
     user_resource_->DecrementSessions();
     user_resource_.reset();
   }
 #endif
-}
-
-bool Interpreter::IsQueryLoggingActive() const { return query_logger_.has_value(); }
-
-void Interpreter::LogQueryMessage(std::string message) {
-  if (query_logger_) {
-    (*query_logger_).trace(message);
-  }
 }
 
 }  // namespace memgraph::query

@@ -35,8 +35,8 @@ file = "test_ssl_hot_reload_coordinator"
 COORD_CERT_FILES = {}
 COORD_KEY_FILES = {}
 for i in range(1, 4):
-    COORD_CERT_FILES[i] = os.path.join(interactive_mg_runner.BUILD_DIR, f"ssl_coordinator_{i}.crt")
-    COORD_KEY_FILES[i] = os.path.join(interactive_mg_runner.BUILD_DIR, f"ssl_coordinator_{i}.key")
+    COORD_CERT_FILES[i] = os.path.join(interactive_mg_runner.SCRIPT_DIR, "tls_certs", f"ssl_coordinator_{i}.crt")
+    COORD_KEY_FILES[i] = os.path.join(interactive_mg_runner.SCRIPT_DIR, "tls_certs", f"ssl_coordinator_{i}.key")
 
 COORD_PORTS = {1: 7690, 2: 7691, 3: 7692}
 

@@ -680,6 +680,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     rpcClient,
                     main_mem_storage->config_.durability.root_data_directory,
                     repl_mode,
+                    client_.name_,
                     main_uuid,
                     main_mem_storage->uuid());
                 // Error happened on our side when trying to load snapshot file
@@ -738,6 +739,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     rpcClient,
                     main_mem_storage->config_.durability.root_data_directory,
                     repl_mode,
+                    client_.name_,
                     wals.size(),
                     main_uuid,
                     main_mem_storage->uuid(),
@@ -794,6 +796,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                       rpcClient,
                       main_mem_storage->config_.durability.root_data_directory,
                       repl_mode,
+                      client_.name_,
                       main_uuid,
                       main_mem_storage->uuid(),
                       do_reset);

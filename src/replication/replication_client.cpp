@@ -11,20 +11,11 @@
 
 #include "replication/replication_client.hpp"
 
-namespace {
-auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &config)
-    -> memgraph::communication::ClientContext {
-  return (config.ssl) ? memgraph::communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
-                      : memgraph::communication::ClientContext{};
-}
-
-}  // namespace
-
 namespace memgraph::replication {
 
 ReplicationClient::ReplicationClient(const ReplicationClientConfig &config)
     : name_{config.name},
-      rpc_context_{CreateClientContext(config)},
+      rpc_context_{communication::CreateClientContext(config.tls_config)},
       rpc_client_{config.repl_server_endpoint, &rpc_context_},
       replica_check_frequency_{config.replica_check_frequency},
       mode_{config.mode} {}

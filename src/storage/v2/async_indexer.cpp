@@ -51,13 +51,6 @@ void AsyncIndexer::Clear() {
 }
 
 bool AsyncIndexer::IsIdle() const {
-  std::lock_guard const lock(mutex_);
-  // no work to pickup and not currently working
-  // OR we have stopped the worker thread
-  return IsIdle_();
-}
-
-bool AsyncIndexer::IsIdle_() const {
   return (request_queue_.size() == 0 && !is_processing_.load()) || HasThreadStopped();
 }
 
@@ -93,8 +86,8 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
           // Mark as processing when we have work to do
           is_processing_ = true;
           auto processing_exit = utils::OnScopeExit{[this] {
-            // Mark as not processing when done with current batch
             is_processing_ = false;
+            cv_.notify_all();  // wake CompleteRemaining waiters
           }};
 
           for (auto it = access.begin(); it != it_end;) {
@@ -121,7 +114,8 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
                     [[maybe_unused]] auto result = storage_acc->CreateIndex(edge_type, cancel_check);
                   },
                   [&](LabelProperties &lp) {
-                    [[maybe_unused]] auto result = storage_acc->CreateIndex(lp.label, lp.properties, IndexOrder::ASC, cancel_check);
+                    [[maybe_unused]] auto result =
+                        storage_acc->CreateIndex(lp.label, lp.properties, IndexOrder::ASC, cancel_check);
                   },
                   [&](PropertyId property) {
                     [[maybe_unused]] auto result = storage_acc->CreateGlobalEdgeIndex(property, cancel_check);
@@ -159,7 +153,7 @@ void AsyncIndexer::Shutdown() {
 
 void AsyncIndexer::CompleteRemaining() {
   auto guard = std::unique_lock{mutex_};
-  cv_.wait(guard, [this] { return IsIdle_(); });
+  cv_.wait(guard, [this] { return IsIdle(); });
 }
 
 }  // namespace memgraph::storage
