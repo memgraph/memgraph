@@ -3,9 +3,6 @@
 # We are not packaging log dir
 addFilter("E: logrotate-log-dir-not-packaged")
 
-# libstdc++ COPYING ships with the old FSF address
-addFilter("E: incorrect-fsf-address")
-
 # third-party LICENSE files may ship with CRLF line endings
 addFilter("W: wrong-file-end-of-line-encoding")
 
