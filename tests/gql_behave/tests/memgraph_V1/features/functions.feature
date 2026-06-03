@@ -151,6 +151,46 @@ Feature: Functions
             | 1.2   |
             | 1.9   |
 
+    Scenario: ToBooleanOrNull returns null for unconvertible values instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toBooleanOrNull('true') AS a, toBooleanOrNull('nope') AS b, toBooleanOrNull(null) AS c, toBooleanOrNull([1, 2]) AS d
+            """
+        Then the result should be:
+            | a    | b    | c    | d    |
+            | true | null | null | null |
+
+    Scenario: ToIntegerOrNull returns null for unconvertible values instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toIntegerOrNull('42') AS a, toIntegerOrNull('nope') AS b, toIntegerOrNull(null) AS c, toIntegerOrNull([1, 2]) AS d
+            """
+        Then the result should be:
+            | a  | b    | c    | d    |
+            | 42 | null | null | null |
+
+    Scenario: ToFloatOrNull returns null for unconvertible values instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toFloatOrNull('1.5') AS a, toFloatOrNull('nope') AS b, toFloatOrNull(null) AS c, toFloatOrNull([1, 2]) AS d
+            """
+        Then the result should be:
+            | a   | b    | c    | d    |
+            | 1.5 | null | null | null |
+
+    Scenario: ToStringList converts each element and nulls unconvertible ones:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toStringList([1, true, 'x', [2]]) AS n
+            """
+        Then the result should be:
+            | n                        |
+            | ['1', 'true', 'x', null] |
+
 
     Scenario: Abs test 01:
         Given an empty graph

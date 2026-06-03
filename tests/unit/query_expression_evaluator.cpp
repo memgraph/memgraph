@@ -1852,6 +1852,8 @@ static void CompareList(const TypedValue &lhs, const TypedValue &rhs) {
       ASSERT_EQ(l.ValueInt(), r.ValueInt());
     } else if (l.IsDouble()) {
       ASSERT_EQ(l.ValueDouble(), r.ValueDouble());
+    } else if (l.IsString()) {
+      ASSERT_EQ(l.ValueString(), r.ValueString());
     } else {
       ASSERT_TRUE(false);
     }
@@ -2072,6 +2074,42 @@ TYPED_TEST(FunctionTest, ToInteger) {
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", 3.5).ValueInt(), 3);
 }
 
+TYPED_TEST(FunctionTest, ToBooleanOrNull) {
+  ASSERT_THROW(this->EvaluateFunction("TOBOOLEANORNULL"), QueryRuntimeException);
+  ASSERT_TRUE(this->EvaluateFunction("TOBOOLEANORNULL", TypedValue()).IsNull());
+  ASSERT_EQ(this->EvaluateFunction("TOBOOLEANORNULL", 123).ValueBool(), true);
+  ASSERT_EQ(this->EvaluateFunction("TOBOOLEANORNULL", 0).ValueBool(), false);
+  ASSERT_EQ(this->EvaluateFunction("TOBOOLEANORNULL", " trUE \n\t").ValueBool(), true);
+  ASSERT_TRUE(this->EvaluateFunction("TOBOOLEANORNULL", "not a bool").IsNull());
+  ASSERT_EQ(this->EvaluateFunction("TOBOOLEANORNULL", true).ValueBool(), true);
+  // unsupported types -> null (strict TOBOOLEAN throws)
+  ASSERT_TRUE(this->EvaluateFunction("TOBOOLEANORNULL", 3.5).IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOBOOLEANORNULL", MakeTypedValueList(1, 2, 3)).IsNull());
+}
+
+TYPED_TEST(FunctionTest, ToFloatOrNull) {
+  ASSERT_THROW(this->EvaluateFunction("TOFLOATORNULL"), QueryRuntimeException);
+  ASSERT_TRUE(this->EvaluateFunction("TOFLOATORNULL", TypedValue()).IsNull());
+  ASSERT_EQ(this->EvaluateFunction("TOFLOATORNULL", " -3.5 \n\t").ValueDouble(), -3.5);
+  ASSERT_TRUE(this->EvaluateFunction("TOFLOATORNULL", "\n\t3.4e-3X ").IsNull());
+  ASSERT_EQ(this->EvaluateFunction("TOFLOATORNULL", -3).ValueDouble(), -3.0);
+  ASSERT_EQ(this->EvaluateFunction("TOFLOATORNULL", true).ValueDouble(), 1.0);
+  // unsupported types -> null (strict TOFLOAT throws)
+  ASSERT_TRUE(this->EvaluateFunction("TOFLOATORNULL", MakeTypedValueList(1, 2, 3)).IsNull());
+}
+
+TYPED_TEST(FunctionTest, ToIntegerOrNull) {
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGERORNULL"), QueryRuntimeException);
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", TypedValue()).IsNull());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGERORNULL", true).ValueInt(), 1);
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGERORNULL", "\n\t3").ValueInt(), 3);
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGERORNULL", " -3.5 \n\t").ValueInt(), -3);
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", "\n\t3X ").IsNull());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGERORNULL", 3.5).ValueInt(), 3);
+  // unsupported types -> null (strict TOINTEGER throws)
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", MakeTypedValueList(1, 2, 3)).IsNull());
+}
+
 TYPED_TEST(FunctionTest, ToBooleanList) {
   ASSERT_THROW(this->EvaluateFunction("TOBOOLEANLIST"), QueryRuntimeException);
   CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(TypedValue())),
@@ -2144,6 +2182,23 @@ TYPED_TEST(FunctionTest, ToIntegerList) {
   ASSERT_THROW(this->EvaluateFunction("TOINTEGERLIST", TypedValue("string")), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("TOINTEGERLIST", TypedValue(42)), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("TOINTEGERLIST", TypedValue(true)), QueryRuntimeException);
+}
+
+TYPED_TEST(FunctionTest, ToStringList) {
+  ASSERT_THROW(this->EvaluateFunction("TOSTRINGLIST"), QueryRuntimeException);
+  CompareList(this->EvaluateFunction("TOSTRINGLIST", MakeTypedValueList(TypedValue())),
+              MakeTypedValueList(TypedValue()));
+  CompareList(this->EvaluateFunction("TOSTRINGLIST", MakeTypedValueList(1, true, "x")),
+              MakeTypedValueList("1", "true", "x"));
+  // non-convertible element -> null, no throw (unlike the other *List functions)
+  CompareList(this->EvaluateFunction("TOSTRINGLIST", MakeTypedValueList(MakeTypedValueList(2))),
+              MakeTypedValueList(TypedValue()));
+  // Test empty list
+  auto empty_list = TypedValue(std::vector<TypedValue>{});
+  CompareList(this->EvaluateFunction("TOSTRINGLIST", empty_list), empty_list);
+  // Test non-list types
+  ASSERT_THROW(this->EvaluateFunction("TOSTRINGLIST", TypedValue("string")), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOSTRINGLIST", TypedValue(42)), QueryRuntimeException);
 }
 
 TYPED_TEST(FunctionTest, Type) {

@@ -663,6 +663,36 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
   }
 }
 
+TypedValue ToBooleanOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 1) throw QueryRuntimeException("'toBooleanOrNull' requires exactly 1 argument.");
+  const auto &value = args[0];
+  // keep in sync with ToBoolean's FType
+  if (!(value.IsNull() || value.IsBool() || value.IsInt() || value.IsString())) {
+    return TypedValue(ctx.memory);
+  }
+  return ToBoolean(args, nargs, ctx);
+}
+
+TypedValue ToFloatOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 1) throw QueryRuntimeException("'toFloatOrNull' requires exactly 1 argument.");
+  const auto &value = args[0];
+  // keep in sync with ToFloat's FType
+  if (!(value.IsNull() || value.IsBool() || value.IsInt() || value.IsDouble() || value.IsString())) {
+    return TypedValue(ctx.memory);
+  }
+  return ToFloat(args, nargs, ctx);
+}
+
+TypedValue ToIntegerOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 1) throw QueryRuntimeException("'toIntegerOrNull' requires exactly 1 argument.");
+  const auto &value = args[0];
+  // keep in sync with ToInteger's FType
+  if (!(value.IsNull() || value.IsBool() || value.IsInt() || value.IsDouble() || value.IsString())) {
+    return TypedValue(ctx.memory);
+  }
+  return ToInteger(args, nargs, ctx);
+}
+
 TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, List>>("toBooleanList", args, nargs);
   const auto &value = args[0];
@@ -699,6 +729,23 @@ TypedValue ToIntegerList(const TypedValue *args, int64_t nargs, const FunctionCo
   TypedValue::TVector values(ctx.memory);
   values.reserve(list.size());
   for (const auto &element : list) values.emplace_back(ToInteger(&element, 1, ctx));
+  return TypedValue(std::move(values));
+}
+
+// Defined below, used by ToStringList for per-element conversion.
+TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx);
+
+TypedValue ToStringList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>>("toStringList", args, nargs);
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+  const auto &list = value.ValueList();
+  TypedValue::TVector values(ctx.memory);
+  values.reserve(list.size());
+  // ToStringOrNull, not ToString: bad elements -> null; ToString aborts on non-stringifiable types.
+  for (const auto &element : list) values.emplace_back(ToStringOrNull(&element, 1, ctx));
   return TypedValue(std::move(values));
 }
 
@@ -1297,7 +1344,7 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
 
     case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      if (!opt_str) return TypedValue(ctx.memory);  // OrNull: unconvertible enum -> null
       return TypedValue(*opt_str, ctx.memory);
     }
 
@@ -2007,9 +2054,13 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"TOBOOLEAN", func_info{.func_ = ToBoolean, .is_pure_ = true}},
     {"TOFLOAT", func_info{.func_ = ToFloat, .is_pure_ = true}},
     {"TOINTEGER", func_info{.func_ = ToInteger, .is_pure_ = true}},
+    {"TOBOOLEANORNULL", func_info{.func_ = ToBooleanOrNull, .is_pure_ = true}},
+    {"TOFLOATORNULL", func_info{.func_ = ToFloatOrNull, .is_pure_ = true}},
+    {"TOINTEGERORNULL", func_info{.func_ = ToIntegerOrNull, .is_pure_ = true}},
     {"TOBOOLEANLIST", func_info{.func_ = ToBooleanList, .is_pure_ = true}},
     {"TOFLOATLIST", func_info{.func_ = ToFloatList, .is_pure_ = true}},
     {"TOINTEGERLIST", func_info{.func_ = ToIntegerList, .is_pure_ = true}},
+    {"TOSTRINGLIST", func_info{.func_ = ToStringList, .is_pure_ = true}},
     {"TYPE", func_info{.func_ = Type, .is_pure_ = true}},
     {"VALUETYPE", func_info{.func_ = ValueType, .is_pure_ = true}},
 
