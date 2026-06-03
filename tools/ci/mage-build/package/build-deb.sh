@@ -42,27 +42,30 @@ cp ../../../../mage/install_python_requirements.sh $SCRIPT_DIR/build/usr/lib/mem
 
 tar -xvzf $PACKAGE_DIR -C $SCRIPT_DIR/build/usr/lib/memgraph/
 
-# Split the .debug sidecars out of the main package and into a sibling
-# staging tree that the memgraph-mage-debuginfo deb's .install file picks up.
-# Match both `<name>.so.debug` (no SOVERSION) and `<name>.so.<N>.debug` (with
-# SOVERSION — what mage's add_query_module produces). After the move,
-# build/ holds the stripped .so files for the main package; build-debuginfo/
-# holds the corresponding .debug sidecars for the debuginfo package.
-DEBUGINFO_STAGE="$SCRIPT_DIR/build-debuginfo/usr/lib/memgraph/query_modules"
-mkdir -pv "$DEBUGINFO_STAGE"
-if find "$SCRIPT_DIR/build/usr/lib/memgraph/query_modules" -maxdepth 1 -name '*.so*.debug' -print -quit | grep -q .; then
+# memgraph-mage-debuginfo.install picks up .debug sidecars from build-debuginfo/.
+# Sidecars live in a sibling mage-debug.tar.gz produced alongside mage.tar.gz
+# by compress-query-modules.sh (mage.tar.gz itself is built with
+# --exclude='*.debug'). Extract it into build-debuginfo/usr/lib/memgraph/ so
+# the .install glob's relative paths line up.
+DEBUG_PACKAGE_DIR="$(dirname "$PACKAGE_DIR")/mage-debug.tar.gz"
+DEBUGINFO_STAGE_ROOT="$SCRIPT_DIR/build-debuginfo/usr/lib/memgraph"
+mkdir -pv "$DEBUGINFO_STAGE_ROOT/query_modules"
+if [[ -f "$DEBUG_PACKAGE_DIR" ]] && \
+   tar -tzf "$DEBUG_PACKAGE_DIR" | grep -q '\.debug$'; then
     HAS_DEBUGINFO=true
-    (cd "$SCRIPT_DIR/build/usr/lib/memgraph/query_modules" && \
-        find . -name '*.so*.debug' -print | while read -r f; do
-            mkdir -p "$DEBUGINFO_STAGE/$(dirname "$f")"
-            mv -v "$f" "$DEBUGINFO_STAGE/$f"
-        done)
+    tar -xvzf "$DEBUG_PACKAGE_DIR" -C "$DEBUGINFO_STAGE_ROOT"
 else
     HAS_DEBUGINFO=false
-    echo "::warning::No .debug sidecars in $SCRIPT_DIR/build/usr/lib/memgraph/query_modules — skipping memgraph-mage-debuginfo deb. Pass --split-debug to produce it."
+    echo "::warning::No .debug sidecars at $DEBUG_PACKAGE_DIR — skipping memgraph-mage-debuginfo deb. Pass --split-debug to produce it."
     awk 'BEGIN{RS=""; ORS="\n\n"} !/^Package: memgraph-mage-debuginfo$/' \
         "$SCRIPT_DIR/debian/control" > "$SCRIPT_DIR/debian/control.tmp"
     mv "$SCRIPT_DIR/debian/control.tmp" "$SCRIPT_DIR/debian/control"
+    # debhelper's dh_install processes every debian/<pkg>.install file it
+    # finds, independent of debian/control's package list — leaving the
+    # debuginfo .install in place makes it error out on the missing
+    # build-debuginfo/... glob. Remove it so dh_install ignores the
+    # (now-absent) debuginfo package.
+    rm -f "$SCRIPT_DIR/debian/memgraph-mage-debuginfo.install"
 fi
 
 # Replace template variables in Debian control files
