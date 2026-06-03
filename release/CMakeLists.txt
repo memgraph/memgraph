@@ -89,13 +89,11 @@ set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
 
 # Component-based packaging. Produces:
 #   * memgraph_<ver>_<arch>.deb / memgraph-<ver>-1.<arch>.rpm
-#       — main package: binary, libstdc++, query modules, configs, systemd unit
+#       main package: binary, libstdc++, query modules, configs, systemd unit
 #   * memgraph-debuginfo_<ver>_<arch>.deb / memgraph-debuginfo-<ver>-1.<arch>.rpm
-#       — companion: .debug sidecars for memgraph + query modules only
-# The debuginfo package Depends on / Requires the main package at the exact
-# matching version, so the two stay in lockstep. .debug files install
-# alongside their binaries; gdb finds them automatically via .gnu_debuglink
-# (no debuginfod required for local debugging).
+#       companion: .debug sidecars for memgraph + query modules. Depends on
+#       the main package at the exact matching version. .debug files install
+#       alongside their binaries; gdb resolves them via .gnu_debuglink.
 set(CPACK_COMPONENTS_ALL memgraph debuginfo)
 
 # --- DEB component config ---

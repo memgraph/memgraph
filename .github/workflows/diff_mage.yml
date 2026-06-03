@@ -90,8 +90,6 @@ jobs:
     with:
       arch: amd
       build_type: RelWithDebInfo
-      split_debug: true
-      package_flavour: prod
       push_to_github: false
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
@@ -107,8 +105,6 @@ jobs:
     with:
       arch: arm
       build_type: RelWithDebInfo
-      split_debug: true
-      package_flavour: prod
       push_to_github: false
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
@@ -124,8 +120,6 @@ jobs:
     with:
       arch: amd
       build_type: RelWithDebInfo
-      split_debug: true
-      package_flavour: prod
       push_to_github: false
       push_to_s3: false
       run_tests: true

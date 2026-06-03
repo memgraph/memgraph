@@ -155,38 +155,30 @@ jobs:
       matrix:
         os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04]
         arch: [amd]
-        package_flavour: [prod]
         additional_build_args: ['']
         include:
           - os: debian-12
-            package_flavour: prod
             arch: arm
             additional_build_args: ''
           - os: debian-13
-            package_flavour: prod
             arch: arm
             additional_build_args: ''
           - os: fedora-42
-            package_flavour: prod
             arch: arm
             additional_build_args: ''
           - os: ubuntu-24.04
-            package_flavour: prod
             arch: amd
             additional_build_args: ''
             build_docker_image: both
           - os: ubuntu-24.04
-            package_flavour: prod
             arch: arm
             additional_build_args: ''
             build_docker_image: both
           - os: ubuntu-24.04
-            package_flavour: prod
             arch: amd
             additional_build_args: '--disable-jemalloc'
             build_docker_image: debug
           - os: ubuntu-24.04
-            package_flavour: prod
             arch: arm
             additional_build_args: '--disable-jemalloc'
             build_docker_image: debug
@@ -195,8 +187,6 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: RelWithDebInfo
-      split_debug: ${{ matrix.package_flavour == 'prod' }}
-      package_flavour: ${{ matrix.package_flavour }}
       build_docker_image: ${{ matrix.build_docker_image || 'none' }}
       push_to_github: 'false'
       push_to_s3: 'true'
@@ -218,37 +208,31 @@ jobs:
       matrix:
         include:
           - build_arch: "amd"
-            package_flavour: "prod"
             build_docker_image: "both"
             malloc: false
             cuda: false
             cugraph: false
           - build_arch: "arm"
-            package_flavour: "prod"
             build_docker_image: "both"
             malloc: false
             cuda: false
             cugraph: false
           - build_arch: "amd"
-            package_flavour: "prod"
             build_docker_image: "both"
             malloc: true
             cuda: false
             cugraph: false
           - build_arch: "arm"
-            package_flavour: "debug"
             build_docker_image: "debug"
             malloc: true
             cuda: false
             cugraph: false
           - build_arch: "amd"
-            package_flavour: "debug"
             build_docker_image: "debug"
             cuda: true
             malloc: false
             cugraph: false
           - build_arch: "amd"
-            package_flavour: "debug"
             build_docker_image: "debug"
             cuda: false
             malloc: false
@@ -256,8 +240,6 @@ jobs:
     with:
       arch: ${{ matrix.build_arch }}
       build_type: RelWithDebInfo
-      split_debug: true
-      package_flavour: ${{ matrix.package_flavour }}
       build_docker_image: ${{ matrix.build_docker_image }}
       memgraph_download_link: >-
         ${{ format(
@@ -290,8 +272,8 @@ jobs:
       upload_debug_symbols: true
       run_tests: true
       package_deb: "default"
-      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.package_flavour == 'prod' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
-      build_offline_installer: ${{ matrix.build_arch == 'amd' && matrix.package_flavour == 'prod' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
       version: ${{ inputs.version }}
     secrets: inherit

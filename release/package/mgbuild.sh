@@ -1865,7 +1865,6 @@ package_mage_deb() {
   local version=""
   local malloc=false
   local cuda=false
-  local package_flavour="prod"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --version)
@@ -1880,10 +1879,6 @@ package_mage_deb() {
         cuda=true
         shift 1
       ;;
-      --package-flavour)
-        package_flavour=$2
-        shift 2
-      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -1892,20 +1887,6 @@ package_mage_deb() {
     esac
   done
 
-  case "$package_flavour" in
-    prod) ;;
-    debug)
-      if [[ "$build_type" != "RelWithDebInfo" ]]; then
-        echo "Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')" >&2
-        exit 1
-      fi
-    ;;
-    *)
-      echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')" >&2
-      exit 1
-    ;;
-  esac
-
   if [[ "$cugraph" = true ]]; then
     cuda=true
   fi
@@ -1913,7 +1894,7 @@ package_mage_deb() {
   echo -e "${GREEN_BOLD}Packaging MAGE DEB package${RESET}"
   docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y debhelper"
 
-  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && PACKAGE_FLAVOUR=$package_flavour ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda $cugraph"
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda $cugraph"
 
   mkdir -pv output
   for path in $(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb"); do

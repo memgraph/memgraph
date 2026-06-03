@@ -15,14 +15,6 @@ on:
         type: string
         description: "Memgraph Build type. Default value is Release."
         default: Release
-      split_debug:
-        type: boolean
-        description: "Extract debug info into sidecar .debug files (requires RelWithDebInfo or Debug build type)."
-        default: false
-      package_flavour:
-        type: string
-        description: "Package flavour for the deb/rpm: 'prod' (stripped binary, symbols archived separately) or 'debug' ('-relwithdebinfo' suffix, unstripped). Debug requires build_type=RelWithDebInfo. Docker image flavours are controlled separately via build_docker_image."
-        default: prod
       build_docker_image:
         type: string
         description: "Docker image(s) to produce alongside the deb: 'none' (default), 'prod', 'debug', or 'both'. Builds run from the same memgraph binary as the deb so the ELF build-id is shared between standalone-deb installs and container installs. Requires os=ubuntu-24.04."
@@ -69,8 +61,10 @@ env:
   GENERATE_SBOM: ${{ inputs.generate_sbom }}
   ARCH: ${{ inputs.arch }}
   BUILD_TYPE: ${{ inputs.build_type }}
-  SPLIT_DEBUG: ${{ inputs.split_debug }}
-  PACKAGE_FLAVOUR: ${{ inputs.package_flavour }}
+  # Split-debug is implicit: always on for RelWithDebInfo packaging, the only
+  # build type CI uses. SplitDebug.cmake itself errors out under Release, so
+  # passing the flag unconditionally is safe.
+  SPLIT_DEBUG: ${{ inputs.build_type == 'RelWithDebInfo' && 'true' || 'false' }}
   BUILD_DOCKER_IMAGE: ${{ inputs.build_docker_image }}
   OS: ${{ inputs.os }}
   ADDITIONAL_BUILD_ARGS: ${{ inputs.additional_build_args }}
@@ -113,9 +107,6 @@ jobs:
           if [[ "$ARCH" == 'arm' ]]; then
             pkg_artifact_name="${pkg_artifact_name}-aarch64"
           fi
-          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "$PACKAGE_FLAVOUR" == 'debug' ]]; then
-            pkg_artifact_name="${pkg_artifact_name}-relwithdebinfo"
-          fi
           echo "PKG_ARTIFACT_NAME=$pkg_artifact_name" >> $GITHUB_ENV
           echo "PACKAGE_ARTIFACT_DIR=${artifact_dir}/package" >> $GITHUB_ENV
 
@@ -150,13 +141,6 @@ jobs:
             if [[ "$BUILD_TYPE" != "RelWithDebInfo" ]]; then
               echo "Error: build_docker_image='$BUILD_DOCKER_IMAGE' requires build_type=RelWithDebInfo (got '$BUILD_TYPE')" >&2
               exit 1
-            fi
-            # Producing the debug docker image (or 'both') needs the
-            # memgraph-debuginfo deb to install on top of the main deb. CPack
-            # only emits that companion package when MG_SPLIT_DEBUG is on, so
-            # force split-debug here regardless of what the caller passed.
-            if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
-              echo "SPLIT_DEBUG=true" >> $GITHUB_ENV
             fi
           fi
 

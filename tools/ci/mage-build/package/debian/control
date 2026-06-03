@@ -23,6 +23,4 @@ Description: Debug symbols for memgraph-mage
  objcopy --only-keep-debug at build time. Install alongside
  memgraph-mage for symbolicated stack traces; gdb auto-locates
  each .debug file via .gnu_debuglink next to the corresponding
- .so. Only useful for prod-flavour packages — debug-flavour
- packages embed symbols in the .so files directly and don't
- produce a separate debuginfo deb.
+ .so.

@@ -14,18 +14,10 @@ on:
         type: string
         description: "Mage build type"
         default: 'Release'
-      split_debug:
-        type: boolean
-        description: "Extract debug info into sidecar .debug files (requires RelWithDebInfo or Debug build type)."
-        default: false
-      package_flavour:
-        type: string
-        description: "DEB shape: 'prod' (stripped main deb + memgraph-mage-debuginfo deb) or 'debug' (single deb with embedded symbols, '-relwithdebinfo' suffix). Docker image production is controlled separately via build_docker_image."
-        default: prod
       build_docker_image:
         type: string
-        description: "Docker image(s) to produce in this job: 'none', 'prod', 'debug', or 'both'. When unset, defaults to mirror package_flavour for backwards-compat (prod -> 'prod', debug -> 'debug'). Set to 'both' to produce prod + debug docker images from a single build — the debug image installs the memgraph-mage-debuginfo deb on top of the prod deb, matching memgraph's split-debug pattern."
-        default: ''
+        description: "Docker image(s) to produce in this job: 'none' (default), 'prod', 'debug', or 'both'. The debug image installs memgraph-mage-debuginfo on top of the prod image, matching memgraph's split-debug pattern."
+        default: 'none'
       push_to_github:
         type: boolean
         description: "Push the image, DEB and tar.gz to GitHub?"
@@ -89,7 +81,7 @@ on:
         default: ''
       memgraph_debuginfo_download_link:
         type: string
-        description: "Memgraph debuginfo (.deb sidecar) download URL. Required by the relwithdebinfo Dockerfile target for package_flavour=debug; ignored for prod. Set when memgraph_download_link points at a split-debug package so the MAGE debug image installs the same .debug sidecars."
+        description: "Memgraph debuginfo (.deb sidecar) download URL. Required by the relwithdebinfo Dockerfile target when build_docker_image is 'debug' or 'both'; ignored otherwise. Set when memgraph_download_link points at a split-debug package so the MAGE debug image installs the same .debug sidecars."
         default: ''
       version:
         type: string
@@ -103,10 +95,11 @@ env:
   ARCH: "${{ inputs.arch }}"
   DOCKER_REPOSITORY_NAME: memgraph/memgraph-mage
   BUILD_TYPE: "${{ inputs.build_type }}"
-  SPLIT_DEBUG: "${{ inputs.split_debug }}"
-  PACKAGE_FLAVOUR: "${{ inputs.package_flavour }}"
-  # Effective docker variant: caller's explicit value, else mirror the deb flavour.
-  BUILD_DOCKER_IMAGE: "${{ inputs.build_docker_image != '' && inputs.build_docker_image || inputs.package_flavour }}"
+  # Split-debug is implicit: always on for RelWithDebInfo packaging, the only
+  # build type CI uses. The MAGE deb build now requires the .debug sidecars
+  # the split produces; build-deb.sh errors out if they're missing.
+  SPLIT_DEBUG: "${{ inputs.build_type == 'RelWithDebInfo' && 'true' || 'false' }}"
+  BUILD_DOCKER_IMAGE: "${{ inputs.build_docker_image }}"
   MALLOC: "${{ inputs.malloc }}"
   CUDA: "${{ inputs.cuda }}"
   CUGRAPH: "${{ inputs.cugraph }}"  # This image cannot be tested in CI, needs an Nvidia GPU
@@ -228,7 +221,7 @@ jobs:
 
       - name: Set image tag and artifact name
         run: |
-          echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA, CUGRAPH=$CUGRAPH, PACKAGE_FLAVOUR=$PACKAGE_FLAVOUR, BUILD_DOCKER_IMAGE=$BUILD_DOCKER_IMAGE"
+          echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA, CUGRAPH=$CUGRAPH, BUILD_DOCKER_IMAGE=$BUILD_DOCKER_IMAGE"
           read PROD_IMAGE_TAG PROD_ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA" "$CUGRAPH" "prod")
           read DEBUG_IMAGE_TAG DEBUG_ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA" "$CUGRAPH" "debug")
           echo "PROD_IMAGE_TAG=${PROD_IMAGE_TAG}" >> $GITHUB_ENV
@@ -271,9 +264,6 @@ jobs:
           fi
           if [[ "$ARCH" == 'arm' ]]; then
             artifact_name="${artifact_name}-aarch64"
-          fi
-          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "$PACKAGE_FLAVOUR" == 'debug' ]]; then
-            artifact_name="${artifact_name}-relwithdebinfo"
           fi
           echo "MG_ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
           echo "MG_PACKAGE_ARTIFACT_DIR=${artifact_dir}/package" >> $GITHUB_ENV
@@ -345,11 +335,15 @@ jobs:
           --dest-dir $MG_PACKAGE_ARTIFACT_DIR
 
           mv -v "$MG_PACKAGE_ARTIFACT_DIR"/memgraph_*.deb mage/memgraph.deb
-          if [[ "$PACKAGE_FLAVOUR" == "debug" ]]; then
+          # Debug-flavoured docker images install memgraph-debuginfo on top
+          # of the prod deb. Stage the companion sidecar deb when either
+          # docker variant needs it; the relwithdebinfo Dockerfile target
+          # consumes it from mage/memgraph-debuginfo.deb.
+          if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
             debuginfo_deb=$(ls -1 "$MG_PACKAGE_ARTIFACT_DIR"/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)
             if [[ -z "$debuginfo_deb" ]]; then
-              echo "Error: package_flavour=debug requires a memgraph-debuginfo deb in $MG_PACKAGE_ARTIFACT_DIR" >&2
-              echo "       (build memgraph with --split-debug so the debuginfo component package is produced)" >&2
+              echo "Error: building the relwithdebinfo MAGE docker image requires a memgraph-debuginfo deb in $MG_PACKAGE_ARTIFACT_DIR" >&2
+              echo "       (memgraph must build with --split-debug — should always be true under RelWithDebInfo)" >&2
               exit 1
             fi
             mv -v "$debuginfo_deb" mage/memgraph-debuginfo.deb
@@ -438,7 +432,7 @@ jobs:
           build-mage $SPLIT_DEBUG_ARG
 
       - name: Upload debug symbols
-        if: ${{ inputs.upload_debug_symbols && inputs.split_debug }}
+        if: ${{ inputs.upload_debug_symbols && env.SPLIT_DEBUG == 'true' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
@@ -488,7 +482,6 @@ jobs:
             --cugraph $CUGRAPH \
             package-mage-deb \
             --version $MEMGRAPH_VERSION \
-            --package-flavour "$PACKAGE_FLAVOUR" \
             $PACKAGE_ARGS
 
           DEB_PACKAGE="$(ls output/memgraph-mage_*.deb | head -n 1)"
@@ -500,7 +493,6 @@ jobs:
         if: ${{ inputs.build_offline_installer && env.PACKAGE_DEB == 'true' }}
         run: |
           SUFFIX=""
-          [[ "$BUILD_TYPE" == "RelWithDebInfo" ]] && SUFFIX="${SUFFIX}-relwithdebinfo"
           [[ "$MALLOC" == "true" ]]               && SUFFIX="${SUFFIX}-malloc"
           if [[ "$CUGRAPH" == "true" ]]; then
             SUFFIX="${SUFFIX}-cugraph"
