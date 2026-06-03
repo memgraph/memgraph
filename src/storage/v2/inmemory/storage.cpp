@@ -3997,8 +3997,9 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   }
   snapshot_progress_.Start();
   auto const clear_snapshot_running_on_exit = utils::OnScopeExit{[&] {
-    snapshot_progress_.Reset();
+    // Clear `running` first so readers stop trusting the fields before they are wiped.
     snapshot_running_.store(false, std::memory_order_release);
+    snapshot_progress_.Reset();
   }};
 
   // This is to make sure SHOW SNAPSHOTS, CREATE SNAPSHOT, and some replication

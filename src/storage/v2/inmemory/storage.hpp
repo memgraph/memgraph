@@ -755,6 +755,16 @@ class InMemoryStorage final : public Storage {
             .start_steady_ms = snapshot_progress_.start_steady_ms.load(std::memory_order_acquire)};
   }
 
+  // Coherent read for display: nullopt when no snapshot is running. snapshot_running_
+  // is re-checked after the fields are read, so a snapshot that ends mid-read is
+  // reported as not-running rather than as a torn / half-reset row.
+  std::optional<SnapshotProgressView> TryGetSnapshotProgress() const {
+    if (!snapshot_running_.load(std::memory_order_acquire)) return std::nullopt;
+    SnapshotProgressView progress = GetSnapshotProgress();
+    if (!snapshot_running_.load(std::memory_order_acquire)) return std::nullopt;
+    return progress;
+  }
+
   bool IsGcRunning() const { return gc_progress_.IsRunning(); }
 
   std::optional<GcRunInfoView> TryGetGcRunInfo() const { return gc_progress_.TryGetRunInfo(); }

@@ -6734,8 +6734,8 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
             auto *storage = db_acc->storage();
             if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
             auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-            if (mem_storage->IsSnapshotRunning()) {
-              results.emplace_back(BuildSnapshotTransactionRow(mem_storage->GetSnapshotProgress(), db_acc->name()));
+            if (auto snapshot_progress = mem_storage->TryGetSnapshotProgress()) {
+              results.emplace_back(BuildSnapshotTransactionRow(*snapshot_progress, db_acc->name()));
             }
             if (auto gc_info = mem_storage->TryGetGcRunInfo()) {
               results.emplace_back(BuildGcTransactionRow(*gc_info, db_acc->name()));
