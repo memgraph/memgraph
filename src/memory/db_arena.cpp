@@ -54,25 +54,27 @@ bool ConsumeFailureInjection(testing::ArenaPoolFailureInjection failure) {
 void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t alignment, bool *zero, bool *commit,
                      unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  // tracker is null only for a hooks struct leaked on the (unreachable in
+  // practice) hook-restore-failure path; in that case skip tracking but still
+  // proxy to the base jemalloc hooks.
+  auto *tracker = dh->tracker;
   const bool requested_commit = *commit;
-  // tracker may be null on an abandoned arena whose ArenaPool failed to restore default hooks;
-  // in that case we skip tracking but still proxy to the base jemalloc hooks.
   // Pre-track if commit was requested (mandatory — base hook must return committed or fail).
   if (requested_commit) {
-    if (dh->tracker && !dh->tracker->Alloc(static_cast<int64_t>(size))) {
+    if (tracker && !tracker->Alloc(static_cast<int64_t>(size))) {
       return nullptr;
     }
   }
   void *ptr = dh->base_hooks->alloc(dh->base_hooks, new_addr, size, alignment, zero, commit, arena_ind);
   if (ptr == nullptr) {
-    if (requested_commit && dh->tracker) dh->tracker->Free(static_cast<int64_t>(size));
+    if (requested_commit && tracker) tracker->Free(static_cast<int64_t>(size));
     return nullptr;
   }
   // *commit is an out-parameter: the base hook may have committed pages even if we didn't ask.
   if (*commit && !requested_commit) {
-    if (dh->tracker) {
+    if (tracker) {
       const utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
-      dh->tracker->Alloc(static_cast<int64_t>(size));
+      tracker->Alloc(static_cast<int64_t>(size));
     }
   }
   return ptr;
@@ -80,32 +82,35 @@ void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t 
 
 bool db_arena_dalloc(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  auto *tracker = dh->tracker;
   const bool err = dh->base_hooks->dalloc(dh->base_hooks, addr, size, committed, arena_ind);
   if (!err && committed) {
-    if (dh->tracker) dh->tracker->Free(static_cast<int64_t>(size));
+    if (tracker) tracker->Free(static_cast<int64_t>(size));
   }
   return err;
 }
 
 void db_arena_destroy(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  auto *tracker = dh->tracker;
   if (committed) {
-    if (dh->tracker) dh->tracker->Free(static_cast<int64_t>(size));
+    if (tracker) tracker->Free(static_cast<int64_t>(size));
   }
   dh->base_hooks->destroy(dh->base_hooks, addr, size, committed, arena_ind);
 }
 
 bool db_arena_commit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  auto *tracker = dh->tracker;
   const bool err = dh->base_hooks->commit(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
-    if (dh->tracker) {
+    if (tracker) {
       // Pages are already committed by the OS — we cannot undo the commit here.
       // OutOfMemoryExceptionBlocker makes MemoryTrackerCanThrow() return false on this thread,
       // which means Alloc() will never enter its rollback path: the fetch_add is permanent and
       // the entire tracker chain returns true unconditionally. Tracking is therefore guaranteed.
       const utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
-      dh->tracker->Alloc(static_cast<int64_t>(length));
+      tracker->Alloc(static_cast<int64_t>(length));
     }
   }
   return err;
@@ -114,9 +119,10 @@ bool db_arena_commit(extent_hooks_t *hooks, void *addr, size_t size, size_t offs
 bool db_arena_decommit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
                        unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  auto *tracker = dh->tracker;
   const bool err = dh->base_hooks->decommit(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
-    if (dh->tracker) dh->tracker->Free(static_cast<int64_t>(length));
+    if (tracker) tracker->Free(static_cast<int64_t>(length));
   }
   return err;
 }
@@ -124,10 +130,11 @@ bool db_arena_decommit(extent_hooks_t *hooks, void *addr, size_t size, size_t of
 bool db_arena_purge_forced(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
                            unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  auto *tracker = dh->tracker;
   if (dh->base_hooks->purge_forced == nullptr) return true;
   const bool err = dh->base_hooks->purge_forced(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
-    if (dh->tracker) dh->tracker->Free(static_cast<int64_t>(length));
+    if (tracker) tracker->Free(static_cast<int64_t>(length));
   }
   return err;
 }
@@ -135,6 +142,8 @@ bool db_arena_purge_forced(extent_hooks_t *hooks, void *addr, size_t size, size_
 }  // namespace
 
 void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hooks_t *base_hooks) {
+  // Runs before the hooks are installed (published) via je_mallctl, whose arena
+  // mutexes order this write before any callback can read it.
   h.tracker = tracker;
   h.base_hooks = base_hooks;
   h.hooks = extent_hooks_t{
@@ -195,31 +204,18 @@ bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_vi
   return true;
 }
 
-// RAII helper to ensure arena release and hook restoration on failure.
+// RAII guard: returns the arena index to the GlobalArenaPool unless Commit()ed.
+// Note this guard never needs to restore extent hooks: both call sites are
+// structured so that no statement between a successful hook install and
+// Commit() can throw (vector capacity is reserved up front), and a failed
+// install mallctl never publishes the hooks to jemalloc in the first place.
 class PendingArena {
  public:
   explicit PendingArena(unsigned arena_idx) noexcept : arena_idx_(arena_idx) {}
 
   ~PendingArena() noexcept {
+    if (arena_idx_ == 0) return;
     try {
-      if (arena_idx_ == 0) return;
-
-      if (hooks_installed_ && base_hooks_) {
-        const std::string hooks_key = "arena." + std::to_string(arena_idx_) + ".extent_hooks";
-        const extent_hooks_t *base = base_hooks_;
-        const int err = je_mallctl(hooks_key.c_str(),
-                                   nullptr,
-                                   nullptr,
-                                   static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
-                                   sizeof(extent_hooks_t *));
-        if (err != 0) {
-          LogDestructorCleanupFailure("PendingArena",
-                                      arena_idx_,
-                                      "restore hooks",
-                                      fmt::format("err={} (arena leaked from GlobalArenaPool reuse)", err));
-          return;
-        }
-      }
       GlobalArenaPool::Instance().Release(arena_idx_);
     } catch (const std::exception &e) {
       LogDestructorCleanupFailure("PendingArena", arena_idx_, "release", e.what());
@@ -228,17 +224,10 @@ class PendingArena {
     }
   }
 
-  void MarkHooksInstalled(extent_hooks_t *base) noexcept {
-    hooks_installed_ = true;
-    base_hooks_ = base;
-  }
-
   void Commit() noexcept { arena_idx_ = 0; }
 
  private:
   unsigned arena_idx_{0};
-  extent_hooks_t *base_hooks_{nullptr};
-  bool hooks_installed_{false};
 };
 
 }  // namespace
@@ -248,6 +237,14 @@ ArenaPool::ArenaPool(utils::MemoryTracker *tracker) {
 
   first_arena_idx_ = GlobalArenaPool::Instance().Acquire();
   PendingArena pending(first_arena_idx_);
+
+  // Everything that can throw must happen BEFORE the hook install below, so a
+  // constructor failure never has to un-install hooks (see PendingArena).
+  arenas_.reserve(1);
+
+  if (ConsumeFailureInjection(testing::ArenaPoolFailureInjection::ConstructorPublish)) {
+    throw std::runtime_error("Injected ArenaPool constructor publish failure");
+  }
 
   const std::string arena_key = "arena." + std::to_string(first_arena_idx_);
   const std::string hooks_key = arena_key + ".extent_hooks";
@@ -268,15 +265,12 @@ ArenaPool::ArenaPool(utils::MemoryTracker *tracker) {
                            static_cast<void *>(const_cast<extent_hooks_t **>(&new_hooks)),
                            sizeof(extent_hooks_t *));
       err != 0) {
+    // A failed mallctl write never installs the hooks, so letting hooks_ die
+    // during unwinding is safe — jemalloc holds no reference to it.
     throw std::runtime_error(fmt::format("Failed to install hooks for arena {} (err={})", first_arena_idx_, err));
   }
 
-  pending.MarkHooksInstalled(base_hooks);
-
-  if (ConsumeFailureInjection(testing::ArenaPoolFailureInjection::ConstructorPublish)) {
-    throw std::runtime_error("Injected ArenaPool constructor publish failure");
-  }
-
+  // No-throw from here on (capacity reserved above).
   arenas_.push_back(first_arena_idx_);
   free_count_ = arenas_.size();
   pending.Commit();
@@ -290,6 +284,12 @@ ArenaPool::~ArenaPool() noexcept {
     // First release all the tcached memory back to the arenas, then purge them
     DestroyAllTcaches();
 
+    // All arenas in the pool share the single `hooks_` struct. If restoring the
+    // default hooks fails for ANY arena, that arena keeps these hooks installed,
+    // so the struct must outlive the pool. Defer the leak until AFTER the loop:
+    // releasing `hooks_` mid-loop would null it and crash the next iteration's
+    // `hooks_->base_hooks` read.
+    bool restore_failed = false;
     for (const auto arena_idx : arenas_) {
       const std::string arena_key = "arena." + std::to_string(arena_idx);
 
@@ -309,12 +309,13 @@ ArenaPool::~ArenaPool() noexcept {
                            sizeof(extent_hooks_t *));
       if (err != 0) {
         spdlog::error(
-            "ArenaPool {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx, err);
-        spdlog::error("ArenaPool {}: leaking arena from GlobalArenaPool reuse after failed hook restore", arena_idx);
-        hooks_->tracker = nullptr;
-        // Intentional leak: keep hooks alive so the orphaned arena (which we failed to restore to
-        // default hooks) does not call back into freed memory on subsequent allocations.
-        (void)hooks_.release();  // NOLINT(bugprone-unused-return-value)
+            "ArenaPool {}: failed to restore default hooks (err={}); leaking hooks_ and the arena to "
+            "avoid a use-after-free on this orphaned arena",
+            arena_idx,
+            err);
+        restore_failed = true;
+        // Do NOT release the arena back to GlobalArenaPool: it still has our hooks
+        // installed, so reusing the index would install a second hooks struct on top.
         continue;
       }
 
@@ -324,6 +325,20 @@ ArenaPool::~ArenaPool() noexcept {
         LogDestructorCleanupFailure("ArenaPool", arena_idx, "release", e.what());
       } catch (...) {
         LogDestructorCleanupFailure("ArenaPool", arena_idx, "release", "unknown exception");
+      }
+    }
+
+    if (restore_failed) {
+      // Defense in depth for a path that cannot occur in practice: restoring
+      // hooks is a mallctl write on a live arena index, which jemalloc only
+      // rejects for an invalid/unknown index. If it ever does fail, the arena
+      // keeps these hooks installed, so keep the struct alive (intentional
+      // leak) and null the tracker best-effort so late background-thread
+      // callbacks become no-ops instead of touching the tracker after the
+      // Database (which owns it) is destroyed.
+      if (hooks_) {
+        hooks_->tracker = nullptr;
+        (void)hooks_.release();  // NOLINT(bugprone-unused-return-value)
       }
     }
   } catch (const std::exception &e) {
@@ -363,7 +378,7 @@ unsigned ArenaPool::Acquire() {
     return first_arena_idx_;
   }
 
-  // 4. Install hooks with RAII protection
+  // 4. Install hooks; pending releases new_idx if the install fails
   PendingArena pending(new_idx);
   if (!InstallDbArenaHooks(new_idx, *hooks_, "per-thread")) {
     spdlog::trace("Failed to install hooks on arena. Fallback to first arena...");
@@ -371,7 +386,7 @@ unsigned ArenaPool::Acquire() {
     return first_arena_idx_;  // pending dtor releases new_idx
   }
 
-  pending.MarkHooksInstalled(hooks_->base_hooks);
+  // No-throw from here on (capacity reserved above).
   arenas_.push_back(new_idx);
   pending.Commit();
   return new_idx;

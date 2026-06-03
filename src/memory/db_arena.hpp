@@ -32,10 +32,16 @@ namespace memgraph::memory {
 // Internal layout for per-DB extent hooks. The `hooks` field MUST be first so
 // that extent hook callbacks can cast `extent_hooks_t *` → `DbArenaHooks *`.
 struct DbArenaHooks {
-  extent_hooks_t hooks;           // must be first
-  utils::MemoryTracker *tracker;  // per-DB tracker, fed by extent events
-  extent_hooks_t *base_hooks;     // default jemalloc hooks (called through)
-  // TODO: Think about a failsafe in case unhooking failed
+  extent_hooks_t hooks;  // must be first
+  // Per-DB tracker, fed by extent events. A plain pointer is sufficient: it is
+  // written exactly once (InitDbArenaHooks) before the hooks are published to
+  // jemalloc via mallctl, and is only read from extent callbacks while the
+  // hooks are installed on some arena. Teardown is serialised by jemalloc
+  // itself: extent_hooks_set swaps hooks under the arena's background-thread
+  // mutex — the same mutex the background thread holds while invoking hooks —
+  // so after a successful restore no thread can be executing these callbacks.
+  utils::MemoryTracker *tracker;
+  extent_hooks_t *base_hooks;  // default jemalloc hooks (called through)
 };
 
 #endif
