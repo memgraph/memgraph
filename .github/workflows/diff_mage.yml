@@ -90,10 +90,12 @@ jobs:
     with:
       arch: amd
       build_type: RelWithDebInfo
+      build_docker_image: prod
       push_to_github: false
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
       run_tests: true
+      run_smoke_tests: true
       print_output_url: ${{ github.event_name == 'merge_group' }}
     secrets: inherit
 
@@ -105,10 +107,12 @@ jobs:
     with:
       arch: arm
       build_type: RelWithDebInfo
+      build_docker_image: prod
       push_to_github: false
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
       run_tests: true
+      run_smoke_tests: true
       print_output_url: ${{ github.event_name == 'merge_group' }}
     secrets: inherit
 
