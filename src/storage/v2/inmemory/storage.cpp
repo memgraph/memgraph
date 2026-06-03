@@ -2826,8 +2826,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     return;
   }
 
-  // Publish run-state for SHOW TRANSACTIONS; Start() releases `running` last and
-  // Reset() clears every field on exit (see GcProgress).
+  // Publish run-state for SHOW TRANSACTIONS; cleared on scope exit (see GcProgress).
   gc_progress_.Start(periodic, main_guard.owns_lock());
   utils::OnScopeExit gc_run_state_reset{[&] { gc_progress_.Reset(); }};
 

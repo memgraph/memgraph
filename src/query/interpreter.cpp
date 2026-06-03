@@ -6657,9 +6657,8 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
   return results;
 }
 
-// Builds a synthetic SHOW TRANSACTIONS row for a running background task
-// (snapshot, GC). They share the same 7-column shape and "running" status;
-// only the transaction_id, the query text, and the metadata differ.
+// Synthetic SHOW TRANSACTIONS row for a background task (snapshot, GC): same
+// 7-column "running" shape, differing only in id, query text, and metadata.
 std::vector<TypedValue> BuildBackgroundTaskRow(std::string_view transaction_id, std::string_view query_text,
                                                std::map<std::string, TypedValue> metadata, int64_t start_time_us,
                                                int64_t start_steady_ms) {
@@ -6721,14 +6720,13 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
         return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
       };
       callback.header = {"username", "transaction_id", "query", "status", "metadata", "start_time", "elapsed_ms"};
-      // Background-task rows (snapshot, GC) always have status "running"; skip them
-      // entirely if the filter is active and RUNNING is not among the requested statuses.
+      // Background-task rows are always "running"; skip them when a status filter
+      // excludes RUNNING.
       const bool include_background_tasks =
           transaction_query->status_filter_.empty() ||
           std::ranges::contains(transaction_query->status_filter_, TransactionQueueQuery::StatusFilter::RUNNING);
       callback.fn = [interpreter_context, show_transactions = std::move(show_transactions), include_background_tasks] {
         auto results = interpreter_context->interpreters.WithLock(show_transactions);
-        // Append synthetic rows for running background tasks (snapshot, GC).
         if (include_background_tasks && interpreter_context->dbms_handler) {
           interpreter_context->dbms_handler->ForEach([&results](auto db_acc) {
             auto *storage = db_acc->storage();

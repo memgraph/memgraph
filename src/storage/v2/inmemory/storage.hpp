@@ -755,9 +755,8 @@ class InMemoryStorage final : public Storage {
             .start_steady_ms = snapshot_progress_.start_steady_ms.load(std::memory_order_acquire)};
   }
 
-  // Coherent read for display: nullopt when no snapshot is running. snapshot_running_
-  // is re-checked after the fields are read, so a snapshot that ends mid-read is
-  // reported as not-running rather than as a torn / half-reset row.
+  // Coherent read: nullopt unless a snapshot is running. Re-checks the flag after
+  // the fields so a snapshot ending mid-read reads as not-running, never a torn row.
   std::optional<SnapshotProgressView> TryGetSnapshotProgress() const {
     if (!snapshot_running_.load(std::memory_order_acquire)) return std::nullopt;
     SnapshotProgressView progress = GetSnapshotProgress();
@@ -864,8 +863,7 @@ class InMemoryStorage final : public Storage {
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
-  // GC run-state exposed via SHOW TRANSACTIONS. Written only by the GC thread
-  // (which holds gc_lock_); see GcProgress for the publication protocol.
+  // GC run-state for SHOW TRANSACTIONS; see GcProgress.
   GcProgress gc_progress_;
 
   struct GCDeltas {

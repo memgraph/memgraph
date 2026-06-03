@@ -20,7 +20,7 @@ namespace memgraph::storage {
 
 enum class GcPhase : uint8_t { IDLE, UNLINK, INDEX_CLEANUP, DELETE };
 
-// Plain-value snapshot of a running GC for display in SHOW TRANSACTIONS.
+// Point-in-time copy of GC run-state, for SHOW TRANSACTIONS.
 struct GcRunInfoView {
   GcPhase phase;
   bool exclusive_lock;  // GC holds main_lock_ exclusively (blocks all transactions)
@@ -29,30 +29,22 @@ struct GcRunInfoView {
   int64_t start_steady_ms;
 };
 
-// Run-state of the storage garbage collector, published for SHOW TRANSACTIONS.
-//
-// There is a single writer (the GC thread, which holds gc_lock_) and many
-// readers. Publication is a release/acquire handshake on `running`: Start()
-// writes the descriptive fields with relaxed stores and releases `running`
-// last, so any reader that acquire-observes running == true is guaranteed to
-// also observe coherent descriptive fields. This guarantee holds on every
-// architecture by the C++ memory model — it does not rely on x86 store
-// ordering. The descriptive loads can therefore stay relaxed; only `running`
-// (the handshake) and `phase` (advanced mid-run) carry ordering.
+// GC run-state for SHOW TRANSACTIONS. One writer (the GC thread, under gc_lock_),
+// many readers. `running` is the publish handshake: Start() fills the fields
+// (relaxed) then releases `running` last, so a reader seeing running == true also
+// sees coherent fields. This holds on any architecture, so the field loads stay
+// relaxed; only `running` and `phase` (advanced mid-run) carry ordering.
 struct GcProgress {
   std::atomic_bool running{false};
   std::atomic<GcPhase> phase{GcPhase::IDLE};
   std::atomic_bool exclusive_lock{false};
   std::atomic_bool periodic{false};
-  // system_clock us since epoch (display); 0 means "not started". steady_clock ms
-  // since epoch (for elapsed_ms) is only meaningful when start_time_us != 0.
+  // Epoch us / ms; start_time_us == 0 means "not started".
   std::atomic<int64_t> start_time_us{0};
   std::atomic<int64_t> start_steady_ms{0};
 
   bool IsRunning() const { return running.load(std::memory_order_acquire); }
 
-  // Begin a run. Descriptive fields are relaxed; `running` is released last and
-  // is the single synchronization point that publishes them to readers.
   void Start(bool is_periodic, bool is_exclusive) {
     start_steady_ms.store(
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
@@ -68,11 +60,9 @@ struct GcProgress {
     running.store(true, std::memory_order_release);
   }
 
-  // Advance the phase mid-run (release-stored so a reader re-reading sees it).
   void SetPhase(GcPhase p) { phase.store(p, std::memory_order_release); }
 
-  // End a run. `running` is cleared first (and seen first by readers) so the
-  // rest is wiped only after readers have stopped trusting the fields.
+  // Clears `running` first, then the rest, so readers never see half-reset fields.
   void Reset() {
     running.store(false, std::memory_order_release);
     phase.store(GcPhase::IDLE, std::memory_order_relaxed);
@@ -82,9 +72,8 @@ struct GcProgress {
     start_steady_ms.store(0, std::memory_order_relaxed);
   }
 
-  // Coherent read for display: nullopt when no GC is running. `running` is
-  // re-checked after the fields are read, so a run that ends mid-read is
-  // reported as "not running" rather than as a torn / half-reset row.
+  // Coherent read: nullopt unless running. Re-checks `running` after the fields
+  // so a run ending mid-read reads as not-running, never a torn row.
   std::optional<GcRunInfoView> TryGetRunInfo() const {
     if (!running.load(std::memory_order_acquire)) return std::nullopt;
     GcRunInfoView info{.phase = phase.load(std::memory_order_acquire),

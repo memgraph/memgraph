@@ -147,8 +147,7 @@ TEST(StorageV2GcStatus, ResetClearsAllFields) {
 
   EXPECT_FALSE(gc.IsRunning());
   EXPECT_FALSE(gc.TryGetRunInfo().has_value());
-  // Every field is cleared, not just `running` — a subsequent run must not
-  // inherit stale phase/trigger/exclusive/timing values.
+  // All fields cleared, not just `running`, so the next run can't inherit stale state.
   EXPECT_EQ(gc.phase.load(), ms::GcPhase::IDLE);
   EXPECT_FALSE(gc.exclusive_lock.load());
   EXPECT_FALSE(gc.periodic.load());
