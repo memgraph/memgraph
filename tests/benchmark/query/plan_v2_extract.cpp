@@ -86,36 +86,6 @@ static void BM_PlanV2_BindChain(benchmark::State &state) {
 
 BENCHMARK(BM_PlanV2_BindChain)->RangeMultiplier(2)->Range(4, 256)->Unit(benchmark::kMicrosecond);
 
-// Multi-arg function: surface the sequential-pairwise CombineAlts chain
-// over function arguments (egraph_converter.cpp Function case).  Each arg
-// is a Range function whose own arg shape adds intermediate frontier
-// width.  Use this shape to detect any future regression in n-arg
-// composition cost without speculating about its asymptotic shape.
-static void BM_PlanV2_MultiArgFunction(benchmark::State &state) {
-  egraph eg;
-  auto once = eg.MakeOnce();
-  auto const num_args = state.range(0);
-  std::vector<eclass> args;
-  args.reserve(num_args);
-  for (int64_t i = 0; i < num_args; ++i) {
-    auto a = eg.MakeLiteral(ExternalPropertyValue{i});
-    auto b = eg.MakeLiteral(ExternalPropertyValue{i + 5});
-    args.push_back(eg.MakeFunction("range", {a, b}));
-  }
-  auto fn = eg.MakeFunction("coalesce", std::move(args));
-  auto sym = eg.MakeSymbol(0, "r");
-  auto named = eg.MakeNamedOutput("r", sym, fn);
-  auto root = eg.MakeOutput(once, {named});
-
-  QueryPlannerContext planner_context;
-  for (auto _ : state) {
-    benchmark::DoNotOptimize(ConvertToLogicalOperator(eg, root, planner_context));
-  }
-  state.SetItemsProcessed(state.iterations() * num_args);
-}
-
-BENCHMARK(BM_PlanV2_MultiArgFunction)->RangeMultiplier(2)->Range(2, 16)->Unit(benchmark::kMicrosecond);
-
 }  // namespace
 
 BENCHMARK_MAIN();
