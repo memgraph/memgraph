@@ -183,6 +183,9 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (agg_elem.arg2 != nullptr) {
         agg_elem.arg2->Accept(symbol_visitor);
       }
+      if (agg_elem.arg3 != nullptr) {
+        agg_elem.arg3->Accept(symbol_visitor);
+      }
     }
 
     // Use the generic parallel rewrite logic

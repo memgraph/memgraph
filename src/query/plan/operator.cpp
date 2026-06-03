@@ -6163,6 +6163,7 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
     case Aggregation::Op::PROJECT_LISTS:
       return TypedValue(query::Graph(memory));
     case Aggregation::Op::DERIVE:
+    case Aggregation::Op::DERIVE_LISTS:
       return TypedValue(query::VirtualGraph(memory));
   }
 }
@@ -6452,6 +6453,7 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::PROJECT_PATH:
         case Aggregation::Op::PROJECT_LISTS:
         case Aggregation::Op::DERIVE:
+        case Aggregation::Op::DERIVE_LISTS:
           break;
       }
     }
@@ -6565,6 +6567,14 @@ class AggregateCursor : public Cursor {
                                    agg_value->derive_dedup_[pos]);
             break;
           }
+          case Aggregation::Op::DERIVE_LISTS: {
+            DeriveListsWithOptions(input_value,
+                                   agg_elem.arg2->Accept(*evaluator),
+                                   agg_elem.arg3->Accept(*evaluator),
+                                   agg_value->values_[pos].ValueVirtualGraph(),
+                                   agg_value->derive_dedup_[pos]);
+            break;
+          }
           case Aggregation::Op::COLLECT_MAP:
             auto key = agg_elem.arg2->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
@@ -6632,6 +6642,14 @@ class AggregateCursor : public Cursor {
                                  agg_value->derive_dedup_[pos]);
           break;
         }
+        case Aggregation::Op::DERIVE_LISTS: {
+          DeriveListsWithOptions(input_value,
+                                 agg_elem.arg2->Accept(*evaluator),
+                                 agg_elem.arg3->Accept(*evaluator),
+                                 agg_value->values_[pos].ValueVirtualGraph(),
+                                 agg_value->derive_dedup_[pos]);
+          break;
+        }
         case Aggregation::Op::COLLECT_MAP:
           auto key = agg_elem.arg2->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
@@ -6675,7 +6693,7 @@ class AggregateCursor : public Cursor {
 
   VirtualNode BuildDerivedNode(const VertexAccessor &real_vertex, std::string_view labels_key,
                                std::string_view props_key, const TypedValue::TMap &options,
-                               VirtualNode::allocator_type alloc) const {
+                               VirtualNode::allocator_type alloc, bool preserve_gid) const {
     VirtualNode::label_list labels{alloc};
     if (const auto labels_it = options.find(labels_key); labels_it != options.end()) {
       if (labels_it->second.type() != TypedValue::Type::List) {
@@ -6710,7 +6728,20 @@ class AggregateCursor : public Cursor {
         properties.insert_or_assign(id, std::move(pv));
       }
     }
+    if (preserve_gid) return {real_vertex.Gid(), std::move(labels), std::move(properties), alloc};
     return {std::move(labels), std::move(properties), alloc};
+  }
+
+  // Reads the optional boolean 'preserveNodeGids' option. When true, derived VirtualNodes keep the gid of their
+  // originating real vertex instead of receiving a fresh synthetic (descending) gid.
+  bool ReadPreserveNodeGids(const TypedValue::TMap &options) const {
+    static constexpr auto kPreserveNodeGids = "preserveNodeGids";
+    const auto it = options.find(kPreserveNodeGids);
+    if (it == options.end()) return false;
+    if (it->second.type() != TypedValue::Type::Bool) {
+      throw QueryRuntimeException("derive() option '{}' must be a boolean.", kPreserveNodeGids);
+    }
+    return it->second.ValueBool();
   }
 
   // Collapses the path to a single synthetic edge between its endpoints. Intermediate vertices
@@ -6760,6 +6791,7 @@ class AggregateCursor : public Cursor {
     const auto &path_vertices = path_value.ValuePath().vertices();
     if (path_vertices.empty()) return;
 
+    const bool preserve_gids = ReadPreserveNodeGids(options);
     const auto alloc = projected_graph.get_allocator();
     auto canonical = [&](const VertexAccessor &real_vertex,
                          std::string_view labels_key,
@@ -6768,7 +6800,7 @@ class AggregateCursor : public Cursor {
       if (const auto it = dedup.find(real_gid); it != dedup.end()) {
         return projected_graph.FindNode(it->second);
       }
-      auto new_node = BuildDerivedNode(real_vertex, labels_key, props_key, options, alloc);
+      auto new_node = BuildDerivedNode(real_vertex, labels_key, props_key, options, alloc, preserve_gids);
       const auto synth_gid = new_node.Gid();
       dedup[real_gid] = synth_gid;
       projected_graph.InsertNode(std::move(new_node));
@@ -6792,6 +6824,159 @@ class AggregateCursor : public Cursor {
     projected_graph.InsertEdgeIfNew(build_edge(stored_from, stored_to));
     if (type_is_undirected && stored_from.get() != stored_to.get()) {
       projected_graph.InsertEdgeIfNew(build_edge(std::move(stored_to), std::move(stored_from)));
+    }
+  }
+
+  // Builds a virtual overlay graph from explicit lists of nodes and relationships (the three-argument
+  // derive(nodes, edges, options)). Each list may mix real graph elements and pre-built virtual ones:
+  //   * a real vertex   -> a VirtualNode is derived from it (labels/properties inherited unless overridden by the
+  //                        nodeLabels / nodeProperties options);
+  //   * a VirtualNode    -> ingested as-is (deduplicated by its own gid, first occurrence wins);
+  //   * a real relationship -> a VirtualEdge between the corresponding endpoints, retyped to options.virtualEdgeType
+  //                        (real props inherited unless overridden by relationshipProperties);
+  //   * a VirtualEdge    -> ingested as-is, keeping its gid/type/properties, with its endpoints re-pointed at the
+  //                        canonical nodes in the graph.
+  // virtualEdgeType is therefore only required when a real relationship is present. Nulls in either list are ignored.
+  //
+  // `dedup` is the real-vertex-gid → canonical-synthetic-gid map owned by the aggregation slot, shared with the
+  // path form so the two never produce divergent VirtualNodes for the same real vertex within a group. Pre-built
+  // virtual nodes are not routed through it — they already carry stable gids.
+  void DeriveListsWithOptions(TypedValue const &nodes_value, TypedValue const &edges_value,
+                              TypedValue const &options_value, VirtualGraph &projected_graph,
+                              CompactAggregationValue::DeriveDedup &dedup) {
+    static constexpr auto kVirtualEdgeType = "virtualEdgeType";
+    static constexpr auto kNodeLabels = "nodeLabels";
+    static constexpr auto kNodeProperties = "nodeProperties";
+    static constexpr auto kRelationshipProperties = "relationshipProperties";
+    static constexpr auto kUndirectedEdgeTypes = "undirectedEdgeTypes";
+
+    if (nodes_value.type() != TypedValue::Type::List ||
+        !std::ranges::all_of(nodes_value.ValueList(), [](TypedValue const &each) {
+          return each.type() == TypedValue::Type::Vertex || each.type() == TypedValue::Type::VirtualNode ||
+                 each.type() == TypedValue::Type::Null;
+        })) {
+      throw QueryRuntimeException("derive() argument 1 must be a list of nodes (real or virtual) or nulls.");
+    }
+    if (edges_value.type() != TypedValue::Type::List ||
+        !std::ranges::all_of(edges_value.ValueList(), [](TypedValue const &each) {
+          return each.type() == TypedValue::Type::Edge || each.type() == TypedValue::Type::VirtualEdge ||
+                 each.type() == TypedValue::Type::Null;
+        })) {
+      throw QueryRuntimeException("derive() argument 2 must be a list of relationships (real or virtual) or nulls.");
+    }
+    if (options_value.type() != TypedValue::Type::Map) {
+      throw QueryRuntimeException("derive() argument 3 must be a map of options (e.g. {virtualEdgeType: 'TYPE'}).");
+    }
+    const auto &options = options_value.ValueMap();
+
+    // virtualEdgeType is only needed to (re)type *real* relationships; virtual relationships keep their own type, so
+    // the option is optional and only enforced when a real relationship is actually encountered below.
+    std::optional<std::string_view> type_name;
+    if (const auto type_it = options.find(kVirtualEdgeType); type_it != options.end()) {
+      if (type_it->second.type() != TypedValue::Type::String) {
+        throw QueryRuntimeException("derive() option '{}' must be a string.", kVirtualEdgeType);
+      }
+      type_name = type_it->second.ValueString();
+    }
+
+    const bool type_is_undirected = [&] {
+      const auto it = options.find(kUndirectedEdgeTypes);
+      if (it == options.end()) return false;
+      if (it->second.type() != TypedValue::Type::List) {
+        throw QueryRuntimeException("derive() option '{}' must be a list of edge-type strings.", kUndirectedEdgeTypes);
+      }
+      const auto &list = it->second.ValueList();
+      if (std::ranges::any_of(list, [](const auto &e) { return e.type() != TypedValue::Type::String; })) {
+        throw QueryRuntimeException("derive() option '{}' entries must be strings.", kUndirectedEdgeTypes);
+      }
+      return std::ranges::any_of(
+          list, [&](const auto &e) { return e.ValueString() == "*" || (type_name && e.ValueString() == *type_name); });
+    }();
+
+    const bool preserve_gids = ReadPreserveNodeGids(options);
+    const auto alloc = projected_graph.get_allocator();
+
+    // Canonical VirtualNode for a *real* vertex: derived once per real gid and remembered in the shared dedup map.
+    auto canonical = [&](const VertexAccessor &real_vertex) -> std::shared_ptr<const VirtualNode> {
+      const auto real_gid = real_vertex.Gid();
+      if (const auto it = dedup.find(real_gid); it != dedup.end()) {
+        return projected_graph.FindNode(it->second);
+      }
+      auto new_node = BuildDerivedNode(real_vertex, kNodeLabels, kNodeProperties, options, alloc, preserve_gids);
+      const auto synth_gid = new_node.Gid();
+      dedup[real_gid] = synth_gid;
+      projected_graph.InsertNode(std::move(new_node));
+      return projected_graph.FindNode(synth_gid);
+    };
+
+    // Ingest a pre-built VirtualNode as-is, deduplicated by its own gid (first occurrence wins).
+    auto ingest_virtual_node = [&](const VirtualNode &vn) -> std::shared_ptr<const VirtualNode> {
+      if (auto existing = projected_graph.FindNode(vn.Gid())) return existing;
+      projected_graph.InsertNode(VirtualNode{vn, alloc});
+      return projected_graph.FindNode(vn.Gid());
+    };
+
+    for (const auto &node : nodes_value.ValueList()) {
+      switch (node.type()) {
+        case TypedValue::Type::Vertex:
+          canonical(node.ValueVertex());
+          break;
+        case TypedValue::Type::VirtualNode:
+          ingest_virtual_node(node.ValueVirtualNode());
+          break;
+        default:  // Null (already validated)
+          break;
+      }
+    }
+
+    auto build_real_edge = [&](std::shared_ptr<const VirtualNode> from,
+                               std::shared_ptr<const VirtualNode>
+                                   to,
+                               const EdgeAccessor &real_edge,
+                               std::string_view edge_type) {
+      VirtualEdge e(std::move(from), std::move(to), utils::pmr::string{edge_type, alloc}, alloc);
+      // Inherit the real relationship's properties, then layer the optional overrides on top.
+      auto maybe_props = real_edge.Properties(storage::View::NEW);
+      if (!maybe_props) throw QueryRuntimeException("derive() could not read properties of a relationship.");
+      for (auto &[id, pv] : *maybe_props) {
+        e.SetProperty(id, std::move(pv));
+      }
+      ApplyPropertyMap(options, kRelationshipProperties, [&](storage::PropertyId id, storage::PropertyValue pv) {
+        e.SetProperty(id, std::move(pv));
+      });
+      return e;
+    };
+
+    const VirtualEdge::allocator_type edge_alloc(alloc.resource());
+
+    for (const auto &edge : edges_value.ValueList()) {
+      if (edge.type() == TypedValue::Type::VirtualEdge) {
+        // Pre-built virtual relationship: re-point its endpoints at the canonical nodes already in the graph
+        // (ingesting the edge's own embedded endpoints if they were not provided in the node list), preserving its
+        // gid, type and properties.
+        const auto &ve = edge.ValueVirtualEdge();
+        auto from_shared = projected_graph.FindNode(ve.FromGid());
+        if (!from_shared) from_shared = ingest_virtual_node(ve.From());
+        auto to_shared = projected_graph.FindNode(ve.ToGid());
+        if (!to_shared) to_shared = ingest_virtual_node(ve.To());
+        projected_graph.InsertEdgeIfNew(VirtualEdge(ve, std::move(from_shared), std::move(to_shared), edge_alloc));
+        continue;
+      }
+      if (edge.type() == TypedValue::Type::Null) continue;
+
+      // Real relationship: requires a virtualEdgeType to retype it.
+      if (!type_name) {
+        throw QueryRuntimeException(
+            "derive() requires a 'virtualEdgeType' string option to project real relationships.");
+      }
+      const auto &real_edge = edge.ValueEdge();
+      auto stored_from = canonical(real_edge.From());
+      auto stored_to = canonical(real_edge.To());
+      projected_graph.InsertEdgeIfNew(build_real_edge(stored_from, stored_to, real_edge, *type_name));
+      if (type_is_undirected && stored_from.get() != stored_to.get()) {
+        projected_graph.InsertEdgeIfNew(
+            build_real_edge(std::move(stored_to), std::move(stored_from), real_edge, *type_name));
+      }
     }
   }
 
@@ -9619,6 +9804,7 @@ query::plan::Aggregate::Element query::plan::Aggregate::Element::Clone(query::As
   Element object;
   object.arg1 = arg1 ? arg1->Clone(storage) : nullptr;
   object.arg2 = arg2 ? arg2->Clone(storage) : nullptr;
+  object.arg3 = arg3 ? arg3->Clone(storage) : nullptr;
   object.op = op;
   object.output_sym = output_sym;
   object.distinct = distinct;
@@ -10859,7 +11045,8 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             }
             break;
           }
-          case Aggregation::Op::DERIVE: {
+          case Aggregation::Op::DERIVE:
+          case Aggregation::Op::DERIVE_LISTS: {
             MergeDeriveSlot(main_value.ValueVirtualGraph(),
                             main_agg_value.derive_dedup_[pos],
                             other_value.ValueVirtualGraph(),
@@ -10948,7 +11135,8 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           }
           break;
         }
-        case Aggregation::Op::DERIVE: {
+        case Aggregation::Op::DERIVE:
+        case Aggregation::Op::DERIVE_LISTS: {
           MergeDeriveSlot(main_value.ValueVirtualGraph(),
                           main_agg_value.derive_dedup_[pos],
                           other_value.ValueVirtualGraph(),

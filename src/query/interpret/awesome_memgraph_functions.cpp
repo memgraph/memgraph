@@ -18,6 +18,8 @@
 #include <cstdlib>
 #include <functional>
 #include <iterator>
+#include <memory>
+#include <memory_resource>
 #include <random>
 #include <string_view>
 #include <type_traits>
@@ -30,6 +32,8 @@
 #include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_edge.hpp"
+#include "query/virtual_node.hpp"
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
 #include "utils/pmr/string.hpp"
@@ -1985,6 +1989,69 @@ TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &c
   return TypedValue(std::move(roles_list));
 }
 
+// virtualNode(gid, labels, properties) -> constructs a standalone VirtualNode with an explicit gid, the given
+// label(s) (a single string or a list of strings) and a map of properties. Useful for hand-building the bones of
+// an overlay graph without going through derive().
+TypedValue VirtualNodeFunction(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<NonNegativeInteger, Or<String, List>, Map>("virtualNode", args, nargs);
+
+  VirtualNode::label_list labels{ctx.memory};
+  if (args[1].IsString()) {
+    labels.emplace_back(args[1].ValueString());
+  } else {
+    for (const auto &label : args[1].ValueList()) {
+      if (!label.IsString()) {
+        throw QueryRuntimeException("virtualNode() labels list must contain only strings.");
+      }
+      labels.emplace_back(label.ValueString());
+    }
+  }
+
+  VirtualNode::property_map properties{ctx.memory};
+  auto *name_id_mapper = ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper();
+  for (const auto &[name, value] : args[2].ValueMap()) {
+    properties.insert_or_assign(ctx.db_accessor->NameToProperty(name), value.ToPropertyValue(name_id_mapper));
+  }
+
+  const auto gid = storage::Gid::FromUint(static_cast<uint64_t>(args[0].ValueInt()));
+  return TypedValue(VirtualNode{gid, std::move(labels), std::move(properties), ctx.memory}, ctx.memory);
+}
+
+// virtualEdge(from, to, type) -> constructs a standalone VirtualEdge of the given type between two endpoints. Each
+// endpoint may be a VirtualNode (see virtualNode()) or a raw gid (non-negative integer), in which case a minimal
+// endpoint node carrying just that gid is synthesized. The endpoints are owned by the edge, so it keeps them alive
+// independently of any source graph.
+TypedValue VirtualEdgeFunction(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 3) {
+    throw QueryRuntimeException("virtualEdge() requires exactly 3 arguments: from, to and a type string.");
+  }
+  if (!args[2].IsString()) {
+    throw QueryRuntimeException("virtualEdge() argument 3 must be a string edge type.");
+  }
+
+  const auto endpoint = [&](const TypedValue &arg, int position) -> std::shared_ptr<const VirtualNode> {
+    // allocate_shared with a polymorphic_allocator appends the allocator to the VirtualNode constructor arguments
+    // via the uses-allocator protocol, so we must not pass ctx.memory as a trailing argument ourselves.
+    const std::pmr::polymorphic_allocator<VirtualNode> node_alloc{ctx.memory};
+    if (arg.IsVirtualNode()) {
+      return std::allocate_shared<VirtualNode>(node_alloc, arg.ValueVirtualNode());
+    }
+    if (arg.IsInt() && arg.ValueInt() >= 0) {
+      // Only the gid matters for the edge's identity; synthesize a bare endpoint node carrying it.
+      const auto gid = storage::Gid::FromUint(static_cast<uint64_t>(arg.ValueInt()));
+      return std::allocate_shared<VirtualNode>(
+          node_alloc, gid, VirtualNode::label_list{ctx.memory}, VirtualNode::property_map{ctx.memory});
+    }
+    throw QueryRuntimeException(
+        "virtualEdge() argument {} must be a virtual node (see virtualNode()) or a non-negative integer gid.",
+        position);
+  };
+
+  VirtualEdge edge{
+      endpoint(args[0], 1), endpoint(args[1], 2), utils::pmr::string{args[2].ValueString(), ctx.memory}, ctx.memory};
+  return TypedValue(std::move(edge), ctx.memory);
+}
+
 auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     // Predicate functions
     {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
@@ -2088,6 +2155,11 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
 
     // Functions for internal objects
     {"GETHOPSCOUNTER", func_info{.func_ = GetHopsCounter, .is_pure_ = false}},
+
+    // Virtual graph construction functions
+    {"VIRTUALNODE", func_info{.func_ = VirtualNodeFunction, .is_pure_ = true}},
+    // VirtualEdge mints a fresh synthetic gid on each construction, so the result is not stable across evaluations.
+    {"VIRTUALEDGE", func_info{.func_ = VirtualEdgeFunction, .is_pure_ = false}},
 
     // User and role functions
     {"USERNAME", func_info{.func_ = Username, .is_pure_ = false}},

@@ -1876,7 +1876,8 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   /// An aggregation element, contains:
-  ///        (input data expression, secondary data expression - only used in COLLECT_MAP and PROJECT_LISTS,
+  ///        (input data expression, secondary data expression - used in COLLECT_MAP, PROJECT_LISTS and DERIVE,
+  ///        tertiary data expression - the options map of the three-argument DERIVE (DERIVE_LISTS),
   ///        type of aggregation, output symbol, distinct)
   struct Element {
     static const utils::TypeInfo kType;
@@ -1885,6 +1886,7 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
 
     Expression *arg1;
     Expression *arg2;
+    Expression *arg3;
     Aggregation::Op op;
     Symbol output_sym;
     bool distinct{false};

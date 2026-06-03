@@ -438,12 +438,17 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Aggregation contains a virtual symbol, where the result will be stored.
     const auto &symbol = symbol_table_.at(aggr);
     aggregations_.emplace_back(
-        Aggregate::Element{aggr.expression1_, aggr.expression2_, aggr.op_, symbol, aggr.distinct_});
-    // Aggregation expression1_ is optional in COUNT(*), and COLLECT_MAP and PROJECT_LISTS use two expressions, so we
-    // can have 0, 1 or 2 elements on the has_aggregation_stack for this Aggregation expression.
-    if (aggr.op_ == Aggregation::Op::COLLECT_MAP || aggr.op_ == Aggregation::Op::PROJECT_LISTS ||
-        aggr.op_ == Aggregation::Op::DERIVE)
+        Aggregate::Element{aggr.expression1_, aggr.expression2_, aggr.expression3_, aggr.op_, symbol, aggr.distinct_});
+    // Aggregation expression1_ is optional in COUNT(*); COLLECT_MAP/PROJECT_LISTS/DERIVE use two expressions and
+    // DERIVE_LISTS uses three, so each secondary/tertiary expression leaves an extra entry on has_aggregation_ that
+    // must be popped to collapse this Aggregation back to a single stack entry.
+    if (aggr.op_ == Aggregation::Op::DERIVE_LISTS) {
       has_aggregation_.pop_back();
+      has_aggregation_.pop_back();
+    } else if (aggr.op_ == Aggregation::Op::COLLECT_MAP || aggr.op_ == Aggregation::Op::PROJECT_LISTS ||
+               aggr.op_ == Aggregation::Op::DERIVE) {
+      has_aggregation_.pop_back();
+    }
     if (aggr.expression1_)
       has_aggregation_.back() = true;
     else
@@ -460,6 +465,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     }
     if (aggr.expression2_) {
       aggr.expression2_->Accept(collector);
+    }
+    if (aggr.expression3_) {
+      aggr.expression3_->Accept(collector);
     }
 
     return true;
