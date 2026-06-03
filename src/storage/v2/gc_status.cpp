@@ -11,7 +11,48 @@
 
 #include "storage/v2/gc_status.hpp"
 
+#include <chrono>
+
 namespace memgraph::storage {
+
+bool GcProgress::IsRunning() const { return running.load(std::memory_order_acquire); }
+
+void GcProgress::Start(bool is_periodic, bool is_exclusive) {
+  start_steady_ms.store(
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+          .count(),
+      std::memory_order_relaxed);
+  start_time_us.store(
+      std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count(),
+      std::memory_order_relaxed);
+  periodic.store(is_periodic, std::memory_order_relaxed);
+  exclusive_lock.store(is_exclusive, std::memory_order_relaxed);
+  phase.store(GcPhase::UNLINK, std::memory_order_release);
+  running.store(true, std::memory_order_release);
+}
+
+void GcProgress::SetPhase(GcPhase p) { phase.store(p, std::memory_order_release); }
+
+void GcProgress::Reset() {
+  running.store(false, std::memory_order_release);
+  phase.store(GcPhase::IDLE, std::memory_order_relaxed);
+  exclusive_lock.store(false, std::memory_order_relaxed);
+  periodic.store(false, std::memory_order_relaxed);
+  start_time_us.store(0, std::memory_order_relaxed);
+  start_steady_ms.store(0, std::memory_order_relaxed);
+}
+
+std::optional<GcRunInfoView> GcProgress::TryGetRunInfo() const {
+  if (!running.load(std::memory_order_acquire)) return std::nullopt;
+  GcRunInfoView info{.phase = phase.load(std::memory_order_acquire),
+                     .exclusive_lock = exclusive_lock.load(std::memory_order_relaxed),
+                     .periodic = periodic.load(std::memory_order_relaxed),
+                     .start_time_us = start_time_us.load(std::memory_order_relaxed),
+                     .start_steady_ms = start_steady_ms.load(std::memory_order_relaxed)};
+  if (!running.load(std::memory_order_acquire)) return std::nullopt;
+  return info;
+}
 
 std::string_view GcProgress::PhaseToString(GcPhase phase) {
   using namespace std::string_view_literals;

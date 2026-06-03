@@ -12,7 +12,6 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string_view>
@@ -44,47 +43,16 @@ struct GcProgress {
   std::atomic<int64_t> start_time_us{0};
   std::atomic<int64_t> start_steady_ms{0};
 
-  bool IsRunning() const { return running.load(std::memory_order_acquire); }
-
-  void Start(bool is_periodic, bool is_exclusive) {
-    start_steady_ms.store(
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
-            .count(),
-        std::memory_order_relaxed);
-    start_time_us.store(
-        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
-            .count(),
-        std::memory_order_relaxed);
-    periodic.store(is_periodic, std::memory_order_relaxed);
-    exclusive_lock.store(is_exclusive, std::memory_order_relaxed);
-    phase.store(GcPhase::UNLINK, std::memory_order_release);
-    running.store(true, std::memory_order_release);
-  }
-
-  void SetPhase(GcPhase p) { phase.store(p, std::memory_order_release); }
+  bool IsRunning() const;
+  void Start(bool is_periodic, bool is_exclusive);
+  void SetPhase(GcPhase p);
 
   // Clears `running` first, then the rest, so readers never see half-reset fields.
-  void Reset() {
-    running.store(false, std::memory_order_release);
-    phase.store(GcPhase::IDLE, std::memory_order_relaxed);
-    exclusive_lock.store(false, std::memory_order_relaxed);
-    periodic.store(false, std::memory_order_relaxed);
-    start_time_us.store(0, std::memory_order_relaxed);
-    start_steady_ms.store(0, std::memory_order_relaxed);
-  }
+  void Reset();
 
   // Coherent read: nullopt unless running. Re-checks `running` after the fields
   // so a run ending mid-read reads as not-running, never a torn row.
-  std::optional<GcRunInfoView> TryGetRunInfo() const {
-    if (!running.load(std::memory_order_acquire)) return std::nullopt;
-    GcRunInfoView info{.phase = phase.load(std::memory_order_acquire),
-                       .exclusive_lock = exclusive_lock.load(std::memory_order_relaxed),
-                       .periodic = periodic.load(std::memory_order_relaxed),
-                       .start_time_us = start_time_us.load(std::memory_order_relaxed),
-                       .start_steady_ms = start_steady_ms.load(std::memory_order_relaxed)};
-    if (!running.load(std::memory_order_acquire)) return std::nullopt;
-    return info;
-  }
+  std::optional<GcRunInfoView> TryGetRunInfo() const;
 
   static std::string_view PhaseToString(GcPhase phase);
 };
