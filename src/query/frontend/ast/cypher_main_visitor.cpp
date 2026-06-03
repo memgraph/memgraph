@@ -4314,6 +4314,12 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
     }
   }
 
+  // `CALL { USE <var> ... }`: the subquery runs over the in-memory VirtualGraph bound to <var> in the outer scope.
+  if (auto *use_graph = ctx->useGraph()) {
+    auto name = std::any_cast<std::string>(use_graph->variable()->accept(this));
+    call_subquery->use_graph_ = storage_->Create<Identifier>(name);
+  }
+
   call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
 
   PreQueryDirectives pre_query_directives;

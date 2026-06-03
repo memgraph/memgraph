@@ -347,6 +347,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // should be the last thing ScanAll::Accept does, so it should be safe.
   bool PostVisit(ScanAll &scan) override {
     prev_ops_.pop_back();
+    // A ScanAll over an in-memory VirtualGraph (USE <graph>) has no indices to exploit; leave it as a plain scan so
+    // any label/property predicates are applied by the downstream Filter.
+    if (scan.graph_symbol_) {
+      return true;
+    }
     auto [indexed_scan, has_in_filter] = GenScanByIndex(scan);
 
     using ProvidedScan = OrderByEliminator<TDbAccessor>::ProvidedScan;
@@ -383,6 +388,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // then do ExpandVariable to existing.
   bool PostVisit(ExpandVariable &expand) override {
     prev_ops_.pop_back();
+    // A VirtualGraph (USE <graph>) has no indices; never rewrite a virtual expansion into an indexed destination scan.
+    if (expand.graph_symbol_) {
+      return true;
+    }
     if (expand.common_.existing_node) {
       return true;
     }

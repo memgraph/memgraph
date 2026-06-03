@@ -34,6 +34,7 @@
 #include "query/typed_value.hpp"
 #include "query/virtual_edge.hpp"
 #include "query/virtual_node.hpp"
+#include "query/virtual_path.hpp"
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
 #include "utils/pmr/string.hpp"
@@ -174,7 +175,7 @@ bool ArgIsType(const TypedValue &arg) {
   } else if constexpr (std::is_same_v<ArgType, Edge>) {
     return arg.IsEdge() || arg.IsVirtualEdge();
   } else if constexpr (std::is_same_v<ArgType, Path>) {
-    return arg.IsPath();
+    return arg.IsPath() || arg.IsVirtualPath();
   } else if constexpr (std::is_same_v<ArgType, Date>) {
     return arg.IsDate();
   } else if constexpr (std::is_same_v<ArgType, LocalTime>) {
@@ -509,6 +510,8 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
     // neo4j doesn't implement size for map, but I don't see a good reason not
     // to do it.
     return TypedValue(static_cast<int64_t>(value.ValueMap().size()), ctx.memory);
+  } else if (value.IsVirtualPath()) {
+    return TypedValue(static_cast<int64_t>(value.ValueVirtualPath().edges().size()), ctx.memory);
   } else {
     return TypedValue(static_cast<int64_t>(value.ValuePath().edges().size()), ctx.memory);
   }
@@ -581,9 +584,23 @@ TypedValue IsEmpty(const TypedValue *args, int64_t nargs, const FunctionContext 
   }
 }
 
+// The degree builtins operate on a real graph vertex via storage. A VirtualNode (from derive()/USE <graph>) carries
+// no adjacency and a scalar function has no handle to the VirtualGraph it belongs to, so degree cannot be computed
+// here. Surface a clear, actionable error instead of failing on ValueVertex(), pointing to the pattern-based form
+// which is planned with the virtual-graph-aware Expand.
+namespace {
+[[noreturn]] void ThrowVirtualNodeDegreeUnsupported(std::string_view function_name) {
+  throw QueryRuntimeException(
+      "{}() cannot be evaluated on a virtual node — a scalar function has no access to the virtual graph. Inside "
+      "`USE <graph>`, compute degree with a pattern instead, e.g. `MATCH (u)-[r]-() RETURN u, count(r) AS degree`.",
+      function_name);
+}
+}  // namespace
+
 TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualNode()) ThrowVirtualNodeDegreeUnsupported("degree");
   const auto &vertex = args[0].ValueVertex();
   size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
   size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
@@ -593,6 +610,7 @@ TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &
 TypedValue InDegree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("inDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualNode()) ThrowVirtualNodeDegreeUnsupported("inDegree");
   const auto &vertex = args[0].ValueVertex();
   size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
   return TypedValue(static_cast<int64_t>(in_degree), ctx.memory);
@@ -601,6 +619,7 @@ TypedValue InDegree(const TypedValue *args, int64_t nargs, const FunctionContext
 TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("outDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualNode()) ThrowVirtualNodeDegreeUnsupported("outDegree");
   const auto &vertex = args[0].ValueVertex();
   size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
   return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
@@ -759,6 +778,8 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("VIRTUAL_RELATIONSHIP", ctx.memory);
     case TypedValue::Type::VirtualNode:
       return TypedValue("VIRTUAL_NODE", ctx.memory);
+    case TypedValue::Type::VirtualPath:
+      return TypedValue("VIRTUAL_PATH", ctx.memory);
     case TypedValue::Type::Path:
       return TypedValue("PATH", ctx.memory);
     case TypedValue::Type::Date:
@@ -927,20 +948,32 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
 TypedValue Nodes(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Path>>("nodes", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  const auto &vertices = args[0].ValuePath().vertices();
   TypedValue::TVector values(ctx.memory);
-  values.reserve(vertices.size());
-  for (const auto &v : vertices) values.emplace_back(v);
+  if (args[0].IsVirtualPath()) {
+    const auto &vertices = args[0].ValueVirtualPath().vertices();
+    values.reserve(vertices.size());
+    for (const auto &v : vertices) values.emplace_back(v);
+  } else {
+    const auto &vertices = args[0].ValuePath().vertices();
+    values.reserve(vertices.size());
+    for (const auto &v : vertices) values.emplace_back(v);
+  }
   return TypedValue(std::move(values));
 }
 
 TypedValue Relationships(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Path>>("relationships", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  const auto &edges = args[0].ValuePath().edges();
   TypedValue::TVector values(ctx.memory);
-  values.reserve(edges.size());
-  for (const auto &e : edges) values.emplace_back(e);
+  if (args[0].IsVirtualPath()) {
+    const auto &edges = args[0].ValueVirtualPath().edges();
+    values.reserve(edges.size());
+    for (const auto &e : edges) values.emplace_back(e);
+  } else {
+    const auto &edges = args[0].ValuePath().edges();
+    values.reserve(edges.size());
+    for (const auto &e : edges) values.emplace_back(e);
+  }
   return TypedValue(std::move(values));
 }
 
@@ -1247,6 +1280,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     case Edge:
     case VirtualEdge:
     case VirtualNode:
+    case VirtualPath:
     case Path:
     case Graph:
     case VirtualGraph:
@@ -1316,6 +1350,7 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
     case Edge:
     case VirtualEdge:
     case VirtualNode:
+    case VirtualPath:
     case Path:
     case Graph:
     case VirtualGraph:

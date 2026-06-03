@@ -270,6 +270,18 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
 }
 
 bool SymbolGenerator::PreVisit(CallSubquery &call_sub) {
+  // `CALL { USE <graph> ... }`: resolve the graph variable against the outer scope (that's where the VirtualGraph
+  // value is bound). It is used by the planner to route the subquery's scans to that virtual graph; it is not
+  // imported as a usable variable inside the subquery body.
+  if (call_sub.use_graph_ != nullptr) {
+    auto const &outer_scope = scopes_.back();
+    auto found = FindSymbolInScope(call_sub.use_graph_->name_, outer_scope, Symbol::Type::ANY);
+    if (!found) {
+      throw UnboundVariableError(call_sub.use_graph_->name_);
+    }
+    call_sub.use_graph_->MapTo(*found);
+  }
+
   Scope new_scope{.in_call_subquery = true};
 
   if (call_sub.has_variable_scope_) {

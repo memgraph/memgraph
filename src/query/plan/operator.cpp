@@ -54,6 +54,7 @@
 #include "query/procedure/module.hpp"
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_path.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
@@ -1002,6 +1003,60 @@ class ScanAllByEdgeCursor : public Cursor {
   bool do_reverse_output_{false};
 };
 
+// Cursor for ScanAll over a VirtualGraph value bound to self_.graph_symbol_ on the frame. Iterates every node of
+// that virtual graph, binding each to the output symbol. There are no indices on a VirtualGraph, so this is the only
+// scan flavour used for virtual scopes (label/property predicates are applied by a downstream Filter).
+class VirtualScanAllCursor : public Cursor {
+ public:
+  VirtualScanAllCursor(const ScanAll &self, Symbol output_symbol, Symbol graph_symbol, UniqueCursorPtr input_cursor)
+      : self_(self),
+        output_symbol_(std::move(output_symbol)),
+        graph_symbol_(std::move(graph_symbol)),
+        input_cursor_(std::move(input_cursor)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    AbortCheck(context);
+
+    while (!graph_ || it_.value() == end_.value()) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      const auto &graph_value = frame[graph_symbol_];
+      if (graph_value.type() != TypedValue::Type::VirtualGraph) {
+        throw QueryRuntimeException("USE target '{}' is not a graph.", graph_symbol_.name());
+      }
+      graph_ = &graph_value.ValueVirtualGraph();
+      it_.emplace(graph_->nodes().begin());
+      end_.emplace(graph_->nodes().end());
+    }
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    // node_map entries are (gid -> shared_ptr<const VirtualNode>); copy the node into a TypedValue on the frame.
+    frame_writer.Write(output_symbol_, *it_.value()->second);
+    ++it_.value();
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    graph_ = nullptr;
+    it_ = std::nullopt;
+    end_ = std::nullopt;
+  }
+
+ private:
+  const ScanAll &self_;
+  const Symbol output_symbol_;
+  const Symbol graph_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const VirtualGraph *graph_{nullptr};
+  std::optional<VirtualGraph::node_map::const_iterator> it_;
+  std::optional<VirtualGraph::node_map::const_iterator> end_;
+};
+
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(std::move(output_symbol)), view_(view) {}
 
@@ -1009,6 +1064,11 @@ ACCEPT_WITH_INPUT(ScanAll)
 
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_operator.Increment();
+
+  if (graph_symbol_) {
+    return MakeUniqueCursorPtr<VirtualScanAllCursor>(
+        mem, *this, output_symbol_, *graph_symbol_, input_->MakeCursor(mem, metric_handles));
+  }
 
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
@@ -1031,6 +1091,7 @@ std::unique_ptr<LogicalOperator> ScanAll::Clone(AstStorage *storage) const {
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
   object->view_ = view_;
+  object->graph_symbol_ = graph_symbol_;
   return object;
 }
 
@@ -1784,8 +1845,132 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
 
 ACCEPT_WITH_INPUT(Expand)
 
+namespace {
+// Cursor for single-hop Expand over a VirtualGraph (Expand::graph_symbol_ set). The input node is a VirtualNode;
+// neighbours are reached through the virtual graph's adjacency index (OutEdges/InEdges by gid). Edge-type filtering
+// compares the requested storage edge-type names against the virtual edge's type name; existing_node restricts
+// expansions to the already-bound destination. There are no indices, so this is always a full adjacency walk.
+class VirtualExpandCursor : public Cursor {
+ public:
+  VirtualExpandCursor(const Expand &self, Symbol graph_symbol, utils::MemoryResource *mem,
+                      metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self),
+        graph_symbol_(std::move(graph_symbol)),
+        input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    while (true) {
+      AbortCheck(context);
+      if (idx_ < expansions_.size()) {
+        const auto &exp = expansions_[idx_++];
+        frame_writer.Write(self_.common_.edge_symbol, *exp.edge);
+        if (!self_.common_.existing_node && exp.neighbor != nullptr) {
+          frame_writer.Write(self_.common_.node_symbol, *exp.neighbor);
+        }
+        return true;
+      }
+      if (!InitEdges(frame, context)) return false;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    graph_ = nullptr;
+    expansions_.clear();
+    idx_ = 0;
+  }
+
+ private:
+  struct Expansion {
+    const VirtualEdge *edge;
+    const VirtualNode *neighbor;
+  };
+
+  bool InitEdges(Frame &frame, ExecutionContext &context) {
+    expansions_.clear();
+    idx_ = 0;
+    while (true) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+
+      const auto &src_value = frame[self_.input_symbol_];
+      if (src_value.IsNull()) continue;  // e.g. failed optional match
+      if (src_value.type() != TypedValue::Type::VirtualNode) {
+        throw QueryRuntimeException("Expand over a virtual graph expects a virtual node at '{}'.",
+                                    self_.input_symbol_.name());
+      }
+      const auto &graph_value = frame[graph_symbol_];
+      if (graph_value.type() != TypedValue::Type::VirtualGraph) {
+        throw QueryRuntimeException("USE target '{}' is not a graph.", graph_symbol_.name());
+      }
+      graph_ = &graph_value.ValueVirtualGraph();
+      const auto src_gid = src_value.ValueVirtualNode().Gid();
+
+      std::optional<storage::Gid> existing_gid;
+      if (self_.common_.existing_node) {
+        const auto &existing = frame[self_.common_.node_symbol];
+        if (existing.IsNull()) continue;
+        if (existing.type() != TypedValue::Type::VirtualNode) {
+          throw QueryRuntimeException("Expand over a virtual graph expects a virtual node at '{}'.",
+                                      self_.common_.node_symbol.name());
+        }
+        existing_gid = existing.ValueVirtualNode().Gid();
+      }
+
+      const auto type_allowed = [&](const VirtualEdge &edge) {
+        if (self_.common_.edge_types.empty()) return true;
+        const std::string_view edge_type = edge.EdgeTypeName();
+        return std::ranges::any_of(self_.common_.edge_types, [&](const auto id) {
+          return std::string_view{context.db_accessor->EdgeTypeToName(id)} == edge_type;
+        });
+      };
+      const auto add = [&](const VirtualEdge *edge, storage::Gid neighbor_gid) {
+        if (!type_allowed(*edge)) return;
+        if (existing_gid && neighbor_gid != *existing_gid) return;
+        const VirtualNode *neighbor = nullptr;
+        if (auto canonical = graph_->FindNode(neighbor_gid)) {
+          neighbor = canonical.get();  // owned by graph_->nodes(), valid while graph_ lives
+        } else {
+          neighbor = neighbor_gid == edge->ToGid() ? &edge->To() : &edge->From();
+        }
+        expansions_.push_back(Expansion{.edge = edge, .neighbor = neighbor});
+      };
+
+      const auto direction = self_.common_.direction;
+      if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
+        for (const VirtualEdge *edge : graph_->InEdges(src_gid)) add(edge, edge->FromGid());
+      }
+      if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
+        for (const VirtualEdge *edge : graph_->OutEdges(src_gid)) {
+          // In BOTH a self-loop is already produced by the IN pass; emit it only once.
+          if (direction == EdgeAtom::Direction::BOTH && edge->FromGid() == edge->ToGid()) continue;
+          add(edge, edge->ToGid());
+        }
+      }
+      return true;
+    }
+  }
+
+  const Expand &self_;
+  const Symbol graph_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const VirtualGraph *graph_{nullptr};
+  std::vector<Expansion> expansions_;
+  size_t idx_{0};
+};
+}  // namespace
+
 UniqueCursorPtr Expand::MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.expand_operator.Increment();
+
+  if (graph_symbol_) {
+    return MakeUniqueCursorPtr<VirtualExpandCursor>(mem, *this, *graph_symbol_, mem, metric_handles);
+  }
 
   return MakeUniqueCursorPtr<ExpandCursor>(mem, *this, mem, metric_handles);
 }
@@ -1815,6 +2000,7 @@ std::unique_ptr<LogicalOperator> Expand::Clone(AstStorage *storage) const {
   object->input_symbol_ = input_symbol_;
   object->common_ = common_;
   object->view_ = view_;
+  object->graph_symbol_ = graph_symbol_;
   return object;
 }
 
@@ -2395,6 +2581,235 @@ class ExpandVariableCursor : public Cursor {
   }
 };
 
+// DEPTH_FIRST variable-length expansion over a VirtualGraph (ExpandVariable::graph_symbol_ set). Mirrors
+// ExpandVariableCursor's depth-first stack walk, but over the virtual adjacency index. Supports direction, edge
+// types, [lower..upper] bounds, per-path edge uniqueness, existing_node, is_reverse, and the (inner edge/node)
+// filter lambda. The accumulated-path lambda variable is unsupported (Path cannot hold virtual elements).
+class VirtualExpandVariableCursor : public Cursor {
+ public:
+  VirtualExpandVariableCursor(const ExpandVariable &self, Symbol graph_symbol, utils::MemoryResource *mem,
+                              metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self),
+        graph_symbol_(std::move(graph_symbol)),
+        input_cursor_(self.input_->MakeCursor(mem, metric_handles)),
+        levels_(mem) {
+    if (self_.filter_lambda_.accumulated_path_symbol) {
+      throw QueryRuntimeException(
+          "Accumulated-path filtering is not supported for variable-length expansion over a virtual graph (USE).");
+    }
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+    AbortCheck(context);
+
+    while (true) {
+      if (Expand(frame, context)) return true;
+      if (!PullInput(frame, context)) return false;
+      // A zero lower bound also yields the (empty-path) start node itself.
+      if (lower_bound_ == 0) {
+        const auto &start = frame[self_.input_symbol_].ValueVirtualNode();
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        if (!self_.common_.existing_node) {
+          frame_writer.Write(self_.common_.node_symbol, start);
+          return true;
+        }
+        const auto &existing = frame[self_.common_.node_symbol];
+        if (existing.type() == TypedValue::Type::VirtualNode && existing.ValueVirtualNode().Gid() == start.Gid()) {
+          return true;
+        }
+      }
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    graph_ = nullptr;
+    levels_.clear();
+  }
+
+ private:
+  struct Candidate {
+    const VirtualEdge *edge;
+    const VirtualNode *neighbor;
+  };
+
+  struct Level {
+    std::vector<Candidate> candidates;
+    size_t idx{0};
+  };
+
+  // Adjacency of `node` honoring direction and edge-type filters; resolves each neighbour to the canonical graph node.
+  void GatherCandidates(const VirtualNode &node, ExecutionContext &context, std::vector<Candidate> &out) {
+    out.clear();
+    const auto type_allowed = [&](const VirtualEdge &edge) {
+      if (self_.common_.edge_types.empty()) return true;
+      const std::string_view edge_type = edge.EdgeTypeName();
+      return std::ranges::any_of(self_.common_.edge_types, [&](const auto id) {
+        return std::string_view{context.db_accessor->EdgeTypeToName(id)} == edge_type;
+      });
+    };
+    const auto resolve = [&](storage::Gid gid, const VirtualNode &fallback) -> const VirtualNode * {
+      if (auto canonical = graph_->FindNode(gid)) return canonical.get();
+      return &fallback;
+    };
+    const auto direction = self_.common_.direction;
+    if (direction != EdgeAtom::Direction::OUT) {
+      for (const VirtualEdge *edge : graph_->InEdges(node.Gid())) {
+        if (type_allowed(*edge)) out.push_back({edge, resolve(edge->FromGid(), edge->From())});
+      }
+    }
+    if (direction != EdgeAtom::Direction::IN) {
+      for (const VirtualEdge *edge : graph_->OutEdges(node.Gid())) {
+        if (direction == EdgeAtom::Direction::BOTH && edge->FromGid() == edge->ToGid()) continue;  // self-loop once
+        if (type_allowed(*edge)) out.push_back({edge, resolve(edge->ToGid(), edge->To())});
+      }
+    }
+  }
+
+  bool PullInput(Frame &frame, ExecutionContext &context) {
+    while (true) {
+      AbortCheck(context);
+      if (!input_cursor_->Pull(frame, context)) return false;
+
+      const auto &start_value = frame[self_.input_symbol_];
+      if (start_value.IsNull()) continue;  // failed optional match
+      if (start_value.type() != TypedValue::Type::VirtualNode) {
+        throw QueryRuntimeException("Expand over a virtual graph expects a virtual node at '{}'.",
+                                    self_.input_symbol_.name());
+      }
+      const auto &graph_value = frame[graph_symbol_];
+      if (graph_value.type() != TypedValue::Type::VirtualGraph) {
+        throw QueryRuntimeException("USE target '{}' is not a graph.", graph_symbol_.name());
+      }
+      graph_ = &graph_value.ValueVirtualGraph();
+
+      ExpressionEvaluator evaluator(&frame,
+                                    context.symbol_table,
+                                    context.evaluation_context,
+                                    context.db_accessor,
+                                    storage::View::OLD,
+                                    nullptr,
+                                    &context.number_of_hops,
+                                    context.user_or_role,
+                                    context.triggering_user);
+      const auto calc_bound = [&evaluator](auto *bound) {
+        auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
+        if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
+        return value;
+      };
+      lower_bound_ = self_.lower_bound_ ? calc_bound(self_.lower_bound_) : 1;
+      upper_bound_ = self_.upper_bound_ ? calc_bound(self_.upper_bound_) : std::numeric_limits<int64_t>::max();
+
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      if (frame[self_.common_.edge_symbol].IsList()) {
+        frame_writer.Modify(self_.common_.edge_symbol, [](TypedValue &value) { value.ValueList().clear(); });
+      } else {
+        frame_writer.Write(self_.common_.edge_symbol, TypedValue::TVector(context.evaluation_context.memory));
+      }
+
+      levels_.clear();
+      if (upper_bound_ > 0) {
+        levels_.emplace_back();
+        GatherCandidates(start_value.ValueVirtualNode(), context, levels_.back().candidates);
+      }
+      return true;
+    }
+  }
+
+  bool Expand(Frame &frame, ExecutionContext &context) {
+    if (!graph_) return false;
+
+    ExpressionEvaluator evaluator(&frame,
+                                  context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor,
+                                  storage::View::OLD,
+                                  nullptr,
+                                  &context.number_of_hops,
+                                  context.user_or_role,
+                                  context.triggering_user);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+    auto try_expand = [&](TypedValue &edge_list_value) -> bool {
+      auto &edges_on_frame = edge_list_value.ValueList();
+      const size_t depth = levels_.size();  // candidate being taken sits at this depth (1-based)
+
+      // Keep only the prefix path (depth-1 edges) before appending the current edge.
+      if (self_.is_reverse_) {
+        const size_t diff = edges_on_frame.size() - std::min(edges_on_frame.size(), depth - 1U);
+        if (diff > 0U) edges_on_frame.erase(edges_on_frame.begin(), edges_on_frame.begin() + diff);
+      } else {
+        edges_on_frame.resize(std::min(edges_on_frame.size(), depth - 1U));
+      }
+
+      const Candidate candidate = levels_.back().candidates[levels_.back().idx++];
+
+      // Edge uniqueness within the path (cyphermorphism), compared by synthetic gid.
+      if (std::ranges::any_of(edges_on_frame, [&](const TypedValue &edge) {
+            return edge.ValueVirtualEdge().Gid() == candidate.edge->Gid();
+          })) {
+        return false;
+      }
+      if (self_.is_reverse_) {
+        edges_on_frame.emplace(edges_on_frame.begin(), *candidate.edge);
+      } else {
+        edges_on_frame.emplace_back(*candidate.edge);
+      }
+
+      if (!self_.common_.existing_node) {
+        frame_writer.Write(self_.common_.node_symbol, *candidate.neighbor);
+      }
+
+      if (self_.filter_lambda_.expression) {
+        frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, *candidate.edge);
+        frame_writer.Write(self_.filter_lambda_.inner_node_symbol, *candidate.neighbor);
+        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return false;
+      }
+
+      // Depth-first: push the next level if we may still go deeper.
+      if (upper_bound_ > static_cast<int64_t>(levels_.size())) {
+        levels_.emplace_back();
+        GatherCandidates(*candidate.neighbor, context, levels_.back().candidates);
+      }
+
+      if (self_.common_.existing_node) {
+        const auto &existing = frame[self_.common_.node_symbol];
+        if (existing.type() != TypedValue::Type::VirtualNode ||
+            existing.ValueVirtualNode().Gid() != candidate.neighbor->Gid()) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+    while (true) {
+      AbortCheck(context);
+      while (!levels_.empty() && levels_.back().idx >= levels_.back().candidates.size()) {
+        levels_.pop_back();
+      }
+      if (levels_.empty()) return false;
+
+      const bool expand_is_valid = frame_writer.Modify(self_.common_.edge_symbol, try_expand);
+      const auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
+      if (expand_is_valid && static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_) {
+        return true;
+      }
+    }
+  }
+
+  const ExpandVariable &self_;
+  const Symbol graph_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const VirtualGraph *graph_{nullptr};
+  int64_t lower_bound_{-1};
+  int64_t upper_bound_{-1};
+  utils::pmr::vector<Level> levels_;  // DFS stack; current depth == levels_.size()
+};
+
 class STShortestPathCursor : public query::plan::Cursor {
  public:
   STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem,
@@ -2893,6 +3308,176 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   // edge, vertex we have yet to visit, for current and next depth and their accumulated paths
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
+};
+
+// Breadth-first single-source expansion over a VirtualGraph (BREADTH_FIRST, no existing_node). Mirrors
+// SingleSourceShortestPathCursor over the virtual adjacency index: for each reachable node it yields the edge list of
+// a shortest (fewest-hops) path from the source. Supports direction, edge types, [lower..upper] depth bounds and the
+// (inner edge/node) filter lambda. Accumulated-path filtering is unsupported (Path can't hold virtual elements).
+class VirtualSingleSourceShortestPathCursor : public query::plan::Cursor {
+ public:
+  VirtualSingleSourceShortestPathCursor(const ExpandVariable &self, Symbol graph_symbol, utils::MemoryResource *mem,
+                                        metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self),
+        graph_symbol_(std::move(graph_symbol)),
+        input_cursor_(self_.input()->MakeCursor(mem, metric_handles)),
+        processed_(mem),
+        to_visit_next_(mem),
+        to_visit_current_(mem) {
+    if (self_.filter_lambda_.accumulated_path_symbol) {
+      throw QueryRuntimeException("Accumulated-path filtering is not supported for BFS over a virtual graph (USE).");
+    }
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("VirtualSingleSourceShortestPath");
+
+    ExpressionEvaluator evaluator(&frame,
+                                  context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor,
+                                  storage::View::OLD,
+                                  nullptr,
+                                  &context.number_of_hops,
+                                  context.user_or_role,
+                                  context.triggering_user);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+    const auto type_allowed = [&](const VirtualEdge &edge) {
+      if (self_.common_.edge_types.empty()) return true;
+      const std::string_view edge_type = edge.EdgeTypeName();
+      return std::ranges::any_of(self_.common_.edge_types, [&](const auto id) {
+        return std::string_view{context.db_accessor->EdgeTypeToName(id)} == edge_type;
+      });
+    };
+    const auto resolve = [&](storage::Gid gid, const VirtualNode &fallback) -> const VirtualNode * {
+      if (auto canonical = graph_->FindNode(gid)) return canonical.get();
+      return &fallback;
+    };
+
+    // Queue (edge, reached node) for the next BFS level if not already processed and the filter passes.
+    auto expand_pair = [&](const VirtualEdge *edge, const VirtualNode *node) {
+      if (processed_.contains(node->Gid())) return;
+      if (self_.filter_lambda_.expression) {
+        frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, *edge);
+        frame_writer.Write(self_.filter_lambda_.inner_node_symbol, *node);
+        TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
+        switch (result.type()) {
+          case TypedValue::Type::Null:
+            return;
+          case TypedValue::Type::Bool:
+            if (!result.ValueBool()) return;
+            break;
+          default:
+            throw QueryRuntimeException("Expansion condition must evaluate to boolean or null.");
+        }
+      }
+      to_visit_next_.emplace_back(edge, node);
+      processed_.emplace(node->Gid(), edge);
+    };
+
+    auto expand_from_vertex = [&](const VirtualNode *vertex) {
+      if (self_.common_.direction != EdgeAtom::Direction::IN) {
+        for (const VirtualEdge *edge : graph_->OutEdges(vertex->Gid())) {
+          if (type_allowed(*edge)) expand_pair(edge, resolve(edge->ToGid(), edge->To()));
+        }
+      }
+      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+        for (const VirtualEdge *edge : graph_->InEdges(vertex->Gid())) {
+          if (type_allowed(*edge)) expand_pair(edge, resolve(edge->FromGid(), edge->From()));
+        }
+      }
+    };
+
+    while (true) {
+      AbortCheck(context);
+      if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
+
+      if (to_visit_current_.empty()) {
+        if (!input_cursor_->Pull(frame, context)) return false;
+        if (context.hops_limit.IsLimitReached()) return false;
+
+        to_visit_current_.clear();
+        to_visit_next_.clear();
+        processed_.clear();
+
+        const auto &vertex_value = frame[self_.input_symbol_];
+        if (vertex_value.IsNull()) continue;  // failed optional match
+        if (vertex_value.type() != TypedValue::Type::VirtualNode) {
+          throw QueryRuntimeException("Expand over a virtual graph expects a virtual node at '{}'.",
+                                      self_.input_symbol_.name());
+        }
+        const auto &graph_value = frame[graph_symbol_];
+        if (graph_value.type() != TypedValue::Type::VirtualGraph) {
+          throw QueryRuntimeException("USE target '{}' is not a graph.", graph_symbol_.name());
+        }
+        graph_ = &graph_value.ValueVirtualGraph();
+
+        lower_bound_ =
+            self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in breadth-first expansion") : 1;
+        upper_bound_ = self_.upper_bound_
+                           ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
+                           : std::numeric_limits<int64_t>::max();
+        if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
+
+        const VirtualNode *source = resolve(vertex_value.ValueVirtualNode().Gid(), vertex_value.ValueVirtualNode());
+        processed_.emplace(source->Gid(), std::optional<const VirtualEdge *>{std::nullopt});
+        expand_from_vertex(source);
+        continue;
+      }
+
+      const auto [curr_edge, curr_vertex] = to_visit_current_.back();
+      to_visit_current_.pop_back();
+
+      // Reconstruct the shortest-path edge list by walking parent edges back to the source.
+      utils::pmr::vector<TypedValue> edge_list(context.evaluation_context.memory);
+      edge_list.emplace_back(*curr_edge);
+      auto last_vertex_gid = curr_vertex->Gid();
+      while (true) {
+        const VirtualEdge &last_edge = edge_list.back().ValueVirtualEdge();
+        last_vertex_gid = last_edge.FromGid() == last_vertex_gid ? last_edge.ToGid() : last_edge.FromGid();
+        const auto &previous_edge = processed_.find(last_vertex_gid)->second;
+        if (!previous_edge) break;
+        edge_list.emplace_back(*previous_edge.value());
+      }
+
+      // Expand further only while below the maximum depth.
+      if (static_cast<int64_t>(edge_list.size()) < upper_bound_ && !context.hops_limit.IsLimitReached()) {
+        expand_from_vertex(curr_vertex);
+      }
+
+      if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
+
+      frame_writer.Write(self_.common_.node_symbol, *curr_vertex);
+      // Reverse to source-to-destination order unless the pattern was planned reversed.
+      if (!self_.is_reverse_) std::ranges::reverse(edge_list);
+      frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
+      return true;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    graph_ = nullptr;
+    processed_.clear();
+    to_visit_next_.clear();
+    to_visit_current_.clear();
+  }
+
+ private:
+  const ExpandVariable &self_;
+  const Symbol graph_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const VirtualGraph *graph_{nullptr};
+  int64_t lower_bound_{-1};
+  int64_t upper_bound_{-1};
+  // reached-node gid -> the edge it was first reached from (nullopt for the source).
+  utils::pmr::unordered_map<storage::Gid, std::optional<const VirtualEdge *>> processed_;
+  utils::pmr::vector<std::pair<const VirtualEdge *, const VirtualNode *>> to_visit_next_;
+  utils::pmr::vector<std::pair<const VirtualEdge *, const VirtualNode *>> to_visit_current_;
 };
 
 namespace {
@@ -4216,13 +4801,30 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem,
                                            metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.expand_variable_operator.Increment();
 
+  // Over a virtual graph (USE <graph>) only DEPTH_FIRST and single-source BREADTH_FIRST are supported; the planner
+  // already rejects the rest, but guard defensively here too.
+  if (graph_symbol_ && type_ != EdgeAtom::Type::DEPTH_FIRST && type_ != EdgeAtom::Type::BREADTH_FIRST) {
+    throw QueryRuntimeException(
+        "Only variable-length (DFS) and breadth-first expansion are supported over a virtual graph (USE).");
+  }
+
   switch (type_) {
     case EdgeAtom::Type::BREADTH_FIRST: {
+      if (graph_symbol_) {
+        if (common_.existing_node) {
+          throw QueryRuntimeException("s-t shortest path is not yet supported over a virtual graph (USE).");
+        }
+        return MakeUniqueCursorPtr<VirtualSingleSourceShortestPathCursor>(
+            mem, *this, *graph_symbol_, mem, metric_handles);
+      }
       return common_.existing_node
                  ? MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem, metric_handles)
                  : MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem, metric_handles);
     }
     case EdgeAtom::Type::DEPTH_FIRST: {
+      if (graph_symbol_) {
+        return MakeUniqueCursorPtr<VirtualExpandVariableCursor>(mem, *this, *graph_symbol_, mem, metric_handles);
+      }
       return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem, metric_handles);
     }
     case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH: {
@@ -4274,6 +4876,7 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
   }
   object->total_weight_ = total_weight_;
   object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
+  object->graph_symbol_ = graph_symbol_;
   return object;
 }
 
@@ -4322,6 +4925,42 @@ class ConstructNamedPathCursor : public Cursor {
     // In an OPTIONAL MATCH everything could be Null.
     if (start_vertex.IsNull()) {
       frame_writer.Write(self_.path_symbol_, TypedValue(pull_memory));
+      return true;
+    }
+
+    // Named paths over a VirtualGraph (USE <graph>) are built from virtual elements into a VirtualPath, mirroring
+    // the real-path construction below.
+    if (start_vertex.type() == TypedValue::Type::VirtualNode) {
+      query::VirtualPath vpath(start_vertex.ValueVirtualNode(), pull_memory);
+      bool last_was_edge_list = false;
+      for (; symbol_it != self_.path_elements_.end(); symbol_it++) {
+        const auto &expansion = frame[*symbol_it];
+        switch (expansion.type()) {
+          case TypedValue::Type::Null:
+            frame_writer.Write(self_.path_symbol_, TypedValue(pull_memory));
+            return true;
+          case TypedValue::Type::VirtualNode:
+            if (!last_was_edge_list) vpath.Expand(expansion.ValueVirtualNode());
+            last_was_edge_list = false;
+            break;
+          case TypedValue::Type::VirtualEdge:
+            vpath.Expand(expansion.ValueVirtualEdge());
+            break;
+          case TypedValue::Type::List: {
+            last_was_edge_list = true;
+            for (const auto &edge_value : expansion.ValueList()) {
+              const auto &edge = edge_value.ValueVirtualEdge();
+              const auto last_gid = vpath.vertices().back().Gid();
+              vpath.Expand(edge);
+              vpath.Expand(edge.FromGid() == last_gid ? edge.To() : edge.From());
+            }
+            break;
+          }
+          default:
+            LOG_FATAL("Unsupported type in virtual named path construction");
+        }
+      }
+      frame_writer.Write(self_.path_symbol_, std::move(vpath));
       return true;
     }
 
@@ -5965,6 +6604,12 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
 
   if (a.type() == TypedValue::Type::List) return compare_to_list(a, b);
   if (b.type() == TypedValue::Type::List) return compare_to_list(b, a);
+
+  // Virtual edges (from derive()/USE <graph>) compare by synthetic gid; a real and a virtual edge are never equal.
+  if (a.type() == TypedValue::Type::VirtualEdge || b.type() == TypedValue::Type::VirtualEdge) {
+    return a.type() == TypedValue::Type::VirtualEdge && b.type() == TypedValue::Type::VirtualEdge &&
+           a.ValueVirtualEdge().Gid() == b.ValueVirtualEdge().Gid();
+  }
 
   return a.ValueEdge() == b.ValueEdge();
 }

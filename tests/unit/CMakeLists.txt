@@ -141,6 +141,11 @@ add_unit_test(query_plan_accumulate_aggregate
     LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
+add_unit_test(query_plan_virtual_graph
+    SOURCES query_plan_virtual_graph.cpp
+    LINK_TARGETS mg-query mg-glue disk_test_utils
+)
+
 add_unit_test(query_plan_bag_semantics
     SOURCES query_plan_bag_semantics.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils

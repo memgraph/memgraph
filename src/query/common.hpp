@@ -76,6 +76,7 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case TypedValue::Type::Edge:
       case TypedValue::Type::VirtualEdge:
       case TypedValue::Type::VirtualNode:
+      case TypedValue::Type::VirtualPath:
       case TypedValue::Type::Path:
       case TypedValue::Type::Graph:
       case TypedValue::Type::VirtualGraph:
@@ -110,6 +111,7 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case TypedValue::Type::Edge:
       case TypedValue::Type::VirtualEdge:
       case TypedValue::Type::VirtualNode:
+      case TypedValue::Type::VirtualPath:
       case TypedValue::Type::Path:
       case TypedValue::Type::Date:
       case TypedValue::Type::LocalTime:
