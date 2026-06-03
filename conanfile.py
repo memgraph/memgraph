@@ -65,7 +65,15 @@ class Memgraph(ConanFile):
         "jemalloc/*:enable_fill": False,
         "jemalloc/*:lg_page": "12",
         "jemalloc/*:lg_hugepage": "21",
-        "jemalloc/*:malloc_conf": "retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
+        # NOTE: percpu_arena is intentionally DISABLED (not :percpu). With percpu_arena,
+        # jemalloc picks a thread's arena from sched_getcpu() with no clamp
+        # (percpu_arena_choose, jemalloc_internal_inlines_a.h); on hosts where a CPU id
+        # can exceed jemalloc's ncpus (offline/sparse online CPU sets, cgroups, NUMA -- see
+        # jemalloc#2054), a thread binds its tcache to a per-DB arena created via
+        # arenas.create, causing a shutdown use-after-free (tantivy worker threads vs the
+        # per-DB MemoryTracker). With percpu disabled, arena_choose() ranges only over the
+        # auto arenas and never selects a created arena. See tantivy_arena_uaf_*.md.
+        "jemalloc/*:malloc_conf": "retain:false,percpu_arena:disabled,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
         "rapidcheck/*:enable_gtest": True,
         "rapidcheck/*:enable_gmock": True,
         "gflags/*:nothreads": False,
