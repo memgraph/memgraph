@@ -37,8 +37,8 @@ class EdgeMetadataIndex;
 namespace memgraph::storage::durability {
 
 /// Verifies that the owner of the storage directory is the same user that
-/// started the current process. If the verification fails, the process is
-/// killed (`CHECK` failure).
+/// started the current process. On mismatch, fails startup with an actionable
+/// message and `utils::ExitCode::StorageDirectoryOwnerMismatch`.
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path &storage_directory);
 
 // Used to capture the snapshot's data related to durability

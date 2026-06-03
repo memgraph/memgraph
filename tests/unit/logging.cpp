@@ -10,11 +10,13 @@
 // licenses/APL.txt.
 
 #include "flags/logging.hpp"
+#include "utils/exit_codes.hpp"
 #include "utils/session_context.hpp"
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 #include <spdlog/sinks/base_sink.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
@@ -156,6 +158,24 @@ TEST_F(CleanLogsDirTest, NonExistentDirectory) {
   FLAGS_log_file = "/tmp/mg_nonexistent_dir_test/memgraph.log";
   FLAGS_log_retention_days = 2;
   EXPECT_NO_THROW(memgraph::flags::CleanLogsDir());
+}
+
+TEST(InitializeLoggerDeathTest, UnwritableLogFileExitsCleanlyWithActionableMessage) {
+  if (geteuid() == 0) GTEST_SKIP() << "permission checks do not apply to root";
+
+  auto const dir = fs::temp_directory_path() / "mg_unit_logging_unwritable";
+  fs::create_directories(dir);
+  fs::permissions(dir, fs::perms::owner_read | fs::perms::owner_exec);
+
+  auto const original_log_file = FLAGS_log_file;
+  FLAGS_log_file = (dir / "memgraph.log").string();
+  EXPECT_EXIT(memgraph::flags::InitializeLogger(),
+              testing::ExitedWithCode(memgraph::utils::AsExitStatus(memgraph::utils::ExitCode::LogFileNotWritable)),
+              "Failed to open log file");
+  FLAGS_log_file = original_log_file;
+
+  fs::permissions(dir, fs::perms::owner_all);
+  fs::remove_all(dir);
 }
 
 using memgraph::logging::EmitSessionTraceEvent;

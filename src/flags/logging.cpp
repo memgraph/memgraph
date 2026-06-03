@@ -10,16 +10,21 @@
 // licenses/APL.txt.
 #include "flags/logging.hpp"
 
+#include <unistd.h>
+
 #include <array>
 #include <cstdint>
 #include <ctime>
 #include <expected>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 #include <limits>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#include <fmt/format.h>
 
 #include "gflags/gflags.h"
 #include "spdlog/async.h"
@@ -32,9 +37,12 @@
 
 #include "flags/run_time_configurable.hpp"
 #include "utils/enum.hpp"
+#include "utils/exit_codes.hpp"
 #include "utils/file.hpp"
+#include "utils/file_owner.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
+#include "utils/startup_failure.hpp"
 #include "utils/string.hpp"
 
 using namespace std::string_view_literals;
@@ -50,6 +58,27 @@ spdlog::level::level_enum ParseLogLevel() {
   const auto log_level = memgraph::flags::LogLevelToEnum(ll);
   MG_ASSERT(log_level, "Invalid log level");
   return *log_level;
+}
+
+// Owner diagnosis for a failed log-file open: stat the file itself, falling
+// back to its parent directory (the file usually doesn't exist yet).  The log
+// path needs write access, not ownership, so the advice is the loose variant.
+std::optional<std::string> LogFileOwnerHint(std::filesystem::path const &log_file) {
+  namespace mu = memgraph::utils;
+  auto checked = log_file;
+  auto owner = mu::OwnerOf(checked);
+  if (!owner) {
+    checked = log_file.parent_path();
+    owner = mu::OwnerOf(checked);
+    if (!owner) return std::nullopt;
+  }
+  auto const process_euid = geteuid();
+  auto const fact = mu::OwnerMismatchFact(checked, process_euid, *owner);
+  if (!fact) return std::nullopt;
+  return fmt::format("{} Make it writable for {} (chown/chmod), or run the process as {}.",
+                     *fact,
+                     mu::UsernameFor(process_euid),
+                     mu::UsernameFor(*owner));
 }
 }  // namespace
 
@@ -131,8 +160,17 @@ void InitializeLogger() {
 
   if (!FLAGS_log_file.empty()) {
     auto const local_time = GetSinkLocalTime();
-    sub_sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_st>(
-        FLAGS_log_file, local_time.tm_hour, local_time.tm_min, false, LogRetentionDays()));
+    try {
+      sub_sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_st>(
+          FLAGS_log_file, local_time.tm_hour, local_time.tm_min, false, LogRetentionDays()));
+    } catch (spdlog::spdlog_ex const &e) {
+      auto message = fmt::format("Failed to open log file '{}': {}.", FLAGS_log_file, e.what());
+      if (auto const hint = LogFileOwnerHint(FLAGS_log_file)) {
+        message += ' ';
+        message += *hint;
+      }
+      utils::FailStartup(utils::ExitCode::LogFileNotWritable, message);
+    }
   }
 
   auto dist_sink = std::make_shared<spdlog::sinks::dist_sink_mt>(std::move(sub_sinks));

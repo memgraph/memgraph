@@ -9,13 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <range/v3/all.hpp>
 
 #include <cerrno>
 #include <cstring>
+
+#include <fmt/format.h>
 
 #include <algorithm>
 #include <optional>
@@ -40,9 +41,12 @@
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "utils/exit_codes.hpp"
+#include "utils/file_owner.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+#include "utils/startup_failure.hpp"
 
 #include "fmt/format.h"
 
@@ -94,20 +98,14 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path 
   MG_ASSERT(ret == 0, "Couldn't get stat for '{}' because of: {} ({})", storage_directory, strerror(errno), errno);
   auto directory_owner = statbuf.st_uid;
 
-  auto get_username = [](auto uid) {
-    auto info = getpwuid(uid);
-    if (!info) return std::to_string(uid);
-    return std::string(info->pw_name);
-  };
+  auto fact = utils::OwnerMismatchFact(storage_directory, process_euid, directory_owner);
+  if (!fact) return;
 
-  auto user_process = get_username(process_euid);
-  auto user_directory = get_username(directory_owner);
-  MG_ASSERT(process_euid == directory_owner,
-            "The process is running as user {}, but the data directory is "
-            "owned by user {}. Please start the process as user {}!",
-            user_process,
-            user_directory,
-            user_directory);
+  // The storage layer writes throughout the data directory, so ownership is
+  // required (not just write access): the advice is the strict variant.
+  utils::FailStartup(
+      utils::ExitCode::StorageDirectoryOwnerMismatch,
+      fmt::format("{} Please start the process as user {}!", *fact, utils::UsernameFor(directory_owner)));
 }
 
 bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry) {
