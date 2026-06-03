@@ -124,6 +124,16 @@ class InMemoryStorage final : public Storage {
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
+
+  /// Light-weight wrapper around DbAwareAllocator<Edge> for light-edge
+  /// allocation and destruction. DbAwareAllocator is stateless (reads the
+  /// thread-local arena at each call), so Create/Destroy are safe to call
+  /// from any thread with an active DbArenaScope.
+  struct LightEdgePool {
+    static Edge *Create(Gid gid, Delta *delta) noexcept;
+    static void Destroy(Edge *p) noexcept;
+  };
+
   enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
 
   static const char *CreateSnapshotErrorToString(CreateSnapshotError error) {
@@ -187,6 +197,12 @@ class InMemoryStorage final : public Storage {
     std::expected<void, ConstraintViolation> UniqueConstraintsViolation() const;
 
     void CheckForFastDiscardOfDeltas();
+
+    std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
+                                                   DeltaChainState from_state, DeltaChainState to_state,
+                                                   storage::Gid gid,
+                                                   std::optional<SchemaInfo::ModifyingAccessor> &schema_acc,
+                                                   std::optional<utils::SkipListDb<Edge>::Accessor> &edge_acc);
 
     [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,
@@ -804,6 +820,16 @@ class InMemoryStorage final : public Storage {
 
   EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
 
+  // Light-edge find helpers (gated by salient.items.storage_light_edge). The
+  // heavy path remains FindHeavyEdge (== prior FindEdge(Gid) body).
+  EdgeInfo FindLightEdgeFromMetadata(Gid edge_gid);
+  EdgeInfo FindLightEdgeByScan(Gid edge_gid);
+  EdgeInfo FindHeavyEdge(Gid edge_gid);
+
+  // Light-edge teardown (frees pool-allocated Edge* still live in vertex
+  // adjacency). Gated at every call site by salient.items.storage_light_edge.
+  void ClearLightEdges();
+
   // Database-owned arena pool for per-thread arena management.
   // Database must outlive Storage; Database member declaration order guarantees that.
   memgraph::memory::ArenaPool *db_arena_{nullptr};
@@ -976,6 +1002,13 @@ class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {
 };
 
 static_assert(std::is_move_constructible_v<ReplicationAccessor>, "Replication accessor isn't move constructible");
+
+// Free-function shims so translation units that only need light-edge alloc do
+// not depend on the full InMemoryStorage definition. Each call constructs a
+// stateless LightEdgePool (reads the TLS arena).
+inline Edge *CreateLightEdge(Gid gid, Delta *delta) { return InMemoryStorage::LightEdgePool::Create(gid, delta); }
+
+inline void DestroyLightEdge(Edge *p) noexcept { InMemoryStorage::LightEdgePool::Destroy(p); }
 
 struct SingleTxnDeltasProcessingResult {
   std::unique_ptr<ReplicationAccessor> commit_acc;

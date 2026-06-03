@@ -69,6 +69,15 @@ class EdgeMetadataIndex {
     return it->from_vertex;
   }
 
+  // Soft-miss variant of FromVertexOf used by the gated light-edge find path:
+  // returns nullptr when no metadata entry exists for edge_gid (a light edge
+  // deleted from adjacency has no entry) instead of hard-asserting.
+  Vertex *TryFromVertexOf(Gid edge_gid) const {
+    auto acc = data_.access();
+    auto it = acc.find(edge_gid);
+    return it == acc.end() ? nullptr : it->from_vertex;
+  }
+
   // The only path that populates the index during recovery.
   void RebuildFrom(utils::SkipListDb<Vertex> &vertices,
                    std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info);

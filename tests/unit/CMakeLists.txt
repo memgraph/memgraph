@@ -719,6 +719,11 @@ add_unit_test(storage_v2_edge_inmemory
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_light_edges
+    SOURCES storage_v2_light_edges.cpp
+    LINK_TARGETS mg::storage mg-dbms
+)
+
 add_unit_test(storage_v2_edge_ondisk
     SOURCES storage_v2_edge_ondisk.cpp
     LINK_TARGETS mg::storage disk_test_utils
