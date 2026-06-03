@@ -33,10 +33,6 @@ endif()
 # memgraph-debuginfo_*.deb / memgraph-debuginfo*.rpm next to the matching
 # binary so gdb resolves it via .gnu_debuglink.
 #
-# For symbol-server prep, run `tools/ci/prepare-symbol-archive.sh` against the
-# build tree; it does its own `cmake --install --component debuginfo` into a
-# staging dir, then lays the files out by build-id.
-#
 # No-op when MG_SPLIT_DEBUG is OFF, so callers don't need to guard.
 function(mg_split_debug target)
     if(NOT MG_SPLIT_DEBUG)

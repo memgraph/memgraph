@@ -745,20 +745,22 @@ jobs:
         id: collect
         run: |
           # Walk both the memgraph and MAGE RC subtrees and pull every
-          # debug-symbols-manifest*.txt. memgraph emits one per package
+          # debug-symbols-manifest*.tsv. memgraph emits one per package
           # subdir (PKG_ARTIFACT_NAME); MAGE emits one per artifact (flat
-          # dest_dir, so the ARTIFACT_NAME suffix prevents collisions).
+          # dest_dir, so the ARTIFACT_NAME suffix in the filename prevents
+          # collisions).
           mkdir -p manifests
           for src in "s3://${rc_bucket}/${rc_dir}/" "s3://${rc_bucket}/${mage_rc_dir}/"; do
             echo "Pulling manifests from $src ..."
             aws s3 cp "$src" manifests/ --recursive \
-              --exclude '*' --include 'debug-symbols-manifest*.txt' || true
+              --exclude '*' --include 'debug-symbols-manifest*.tsv' || true
           done
-          # Aggregate + dedupe — overlap is expected (e.g. memgraph and
-          # MAGE jobs share the memgraph binary's build-id) and harmless.
-          find manifests -name 'debug-symbols-manifest*.txt' -print0 \
+          # Manifest format is "<build-id>\t<basename>" — extract column 1
+          # and dedupe. Cross-job overlap (e.g. memgraph and MAGE jobs sharing
+          # the memgraph binary's build-id) is expected and harmless.
+          find manifests -name 'debug-symbols-manifest*.tsv' -print0 \
             | xargs -0 cat 2>/dev/null \
-            | grep -E '^[0-9a-fA-F]{4,}$' \
+            | awk -F '\t' 'NF >= 1 && $1 ~ /^[0-9a-fA-F]{4,}$/ { print $1 }' \
             | sort -u > build_ids.txt
           count=$(wc -l < build_ids.txt | tr -d ' ')
           echo "Collected $count unique build-ids"

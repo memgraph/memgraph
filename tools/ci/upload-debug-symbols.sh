@@ -3,7 +3,7 @@
 #
 # Usage: upload-debug-symbols.sh <source-dir> [--bucket <bucket>] [--prefix <prefix>]
 #                                              [--endpoint-url <url>] [--region <region>]
-#                                              [--dry-run] [--manifest-s3-url <url>]
+#                                              [--manifest-s3-url <url>] [--dry-run]
 #
 # Each .debug file is uploaded to
 #   s3://<bucket>/<prefix>/<aa>/<rest>.debug
@@ -16,10 +16,13 @@
 # (use this for MinIO and other S3-compatible servers; AWS CLI v1 ignores
 # the AWS_ENDPOINT_URL env var, so passing it explicitly is the safe path).
 # --region sets --region on the cp; some SDK versions error without one.
-# --manifest-s3-url is used by promotion scripts to write out the list of
-# build-ids that were uploaded, so they can be copied from the staging bucket
-# to the production bucket. This is optional so that daily / PR runs don't leave
-# any trace in the release symbol server.
+# --manifest-s3-url, when set, uploads a TSV manifest of what this run
+# produced — one "<build-id>\t<source-basename>" line per uploaded file.
+# Promotion (rc -> release) reads these manifests to know which build-ids
+# to copy from the staging bucket into the production debuginfod bucket;
+# daily / PR runs leave it unset so they leave no trace in the release
+# symbol server. The basename column is for human forensics ("which binary
+# had this build-id") — column 1 is the only field promotion parses.
 
 set -euo pipefail
 
@@ -29,12 +32,6 @@ PREFIX="debug-symbols"
 ENDPOINT_URL=""
 REGION=""
 DRY_RUN=false
-# When set, after uploading each .debug we write the build-id list out to a
-# local temp file and `aws s3 cp` it to this URL. Promotion (rc -> release)
-# reads these manifests to know which build-ids to copy from the staging
-# bucket (deps.memgraph.io) into the production debuginfod bucket
-# (memgraph-debugsym), so daily / PR runs (which don't pass this flag) leave
-# no trace in the release symbol server.
 MANIFEST_S3_URL=""
 
 while [[ $# -gt 0 ]]; do
@@ -73,7 +70,7 @@ fi
 
 if [[ -z "$SRC_DIR" || ! -d "$SRC_DIR" ]]; then
   echo "Error: source directory required" >&2
-  echo "Usage: $0 <source-dir> [--bucket <bucket>] [--prefix <prefix>] [--dry-run]" >&2
+  echo "Usage: $0 <source-dir> [--bucket <bucket>] [--prefix <prefix>] [--manifest-s3-url <url>] [--dry-run]" >&2
   exit 1
 fi
 
@@ -110,7 +107,7 @@ while IFS= read -r -d '' f; do
     aws s3 cp "${aws_extra_args[@]}" --only-show-errors "$f" "$target"
   fi
   if [[ -n "$manifest_tmp" ]]; then
-    echo "$build_id" >> "$manifest_tmp"
+    printf "%s\t%s\n" "$build_id" "$(basename "$f")" >> "$manifest_tmp"
   fi
   uploaded=$((uploaded + 1))
 done < <(find "$SRC_DIR" -name '*.debug' -type f -print0)
@@ -122,13 +119,15 @@ if [[ "$uploaded" -eq 0 ]]; then
 fi
 
 if [[ -n "$MANIFEST_S3_URL" ]]; then
-  # One build-id per line, sorted+unique so retries don't bloat the file.
+  # Sort + dedupe on the (build-id, basename) pair so retries don't bloat
+  # the file. Two binaries with the same build-id (statically identical)
+  # but different filenames still get one row each — that's intentional.
   sort -u "$manifest_tmp" -o "$manifest_tmp"
   if [[ "$DRY_RUN" == "true" ]]; then
     echo "[dry-run] manifest -> $MANIFEST_S3_URL"
     cat "$manifest_tmp"
   else
-    echo "Uploading manifest ($(wc -l < "$manifest_tmp") build-ids) -> $MANIFEST_S3_URL"
+    echo "Uploading manifest ($(wc -l < "$manifest_tmp") rows) -> $MANIFEST_S3_URL"
     aws s3 cp "${aws_extra_args[@]}" --only-show-errors "$manifest_tmp" "$MANIFEST_S3_URL"
   fi
 fi

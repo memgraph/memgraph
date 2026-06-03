@@ -438,16 +438,16 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: eu-west-1
         run: |
-          # Stage all .debug sidecars from this job into a single dir, then
-          # upload by ELF build-id. We collect from two sources:
-          #   1. memgraph's binary + query_modules built earlier in this job.
-          #      Those binaries get baked into the MAGE Docker image and have
-          #      a different build-id than the standalone memgraph package job.
-          #      Skip when an external memgraph package was downloaded — those
-          #      symbols are uploaded by the job that produced that package.
-          #   2. MAGE's own modules — sidecars live in mage-debug.tar.gz
-          #      after the compress-query-modules.sh split (mage.tar.gz is
-          #      modules only, no .debug files).
+          # Stage all .debug sidecars from this job into a single dir.
+          # Two sources feed staging:
+          #   1. memgraph's binary + query_modules built earlier in this job
+          #      (skipped when an external memgraph package was downloaded —
+          #      those symbols belong to the job that produced that package);
+          #   2. MAGE's own modules from mage-debug.tar.gz (mage.tar.gz is
+          #      modules only after the compress-query-modules.sh split).
+          # All MAGE jobs share one s3_dest_dir, so the manifest filename
+          # includes ARTIFACT_NAME to avoid collisions between
+          # amd/arm/cugraph/malloc jobs.
           DBG_DIR=build/debug-symbols
           mkdir -p "$DBG_DIR"
 
@@ -465,7 +465,7 @@ jobs:
             tar -xzf mage/mage-debug.tar.gz -C "$DBG_DIR"
           fi
 
-          manifest_url="s3://deps.memgraph.io/${S3_DEST_DIR}/debug-symbols-manifest-${ARTIFACT_NAME}.txt"
+          manifest_url="s3://deps.memgraph.io/${{ inputs.s3_dest_dir }}/debug-symbols-manifest-${ARTIFACT_NAME}.tsv"
           bash tools/ci/upload-debug-symbols.sh "$DBG_DIR" \
             --manifest-s3-url "$manifest_url"
           rm -rf "$DBG_DIR"

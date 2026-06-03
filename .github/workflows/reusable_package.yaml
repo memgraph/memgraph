@@ -215,7 +215,9 @@ jobs:
           --arch $ARCH \
           copy-debug-symbols \
           --dest-dir build/debug-symbols
-          manifest_url="s3://${S3_BUCKET}/${S3_DEST_DIR}/${PKG_ARTIFACT_NAME}/debug-symbols-manifest.txt"
+          # PKG_ARTIFACT_NAME is unique per (os, arch, malloc, flavour) so
+          # no two memgraph package jobs collide on the same manifest path.
+          manifest_url="s3://${S3_BUCKET}/${S3_DEST_DIR}/${PKG_ARTIFACT_NAME}/debug-symbols-manifest.tsv"
           bash tools/ci/upload-debug-symbols.sh build/debug-symbols \
             --manifest-s3-url "$manifest_url"
 

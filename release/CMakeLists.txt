@@ -94,10 +94,6 @@ set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
 #       companion: .debug sidecars for memgraph + query modules. Depends on
 #       the main package at the exact matching version. .debug files install
 #       alongside their binaries; gdb resolves them via .gnu_debuglink.
-#
-# Symbol-server prep is a CI concern, not a CPack one: see
-# tools/ci/prepare-symbol-archive.sh, which performs its own component
-# install and lays the sidecars out by build-id.
 set(CPACK_COMPONENTS_ALL memgraph debuginfo)
 
 # --- DEB component config ---
