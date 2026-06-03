@@ -13,19 +13,20 @@
 
 namespace memgraph::storage {
 
-const char *GcProgress::PhaseToString(GcPhase phase) {
+std::string_view GcProgress::PhaseToString(GcPhase phase) {
+  using namespace std::string_view_literals;
   switch (phase) {
     using enum GcPhase;
     case IDLE:
-      return "idle";
+      return "idle"sv;
     case UNLINK:
-      return "unlink";
+      return "unlink"sv;
     case INDEX_CLEANUP:
-      return "index_cleanup";
+      return "index_cleanup"sv;
     case DELETE:
-      return "delete";
+      return "delete"sv;
   }
-  return "unknown";
+  return "unknown"sv;
 }
 
 }  // namespace memgraph::storage

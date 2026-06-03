@@ -82,10 +82,10 @@ class StorageV2GcMetricsTest : public testing::Test {
 
 TEST(StorageV2GcStatus, PhaseToString) {
   using ms::GcPhase;
-  EXPECT_STREQ(ms::GcProgress::PhaseToString(GcPhase::IDLE), "idle");
-  EXPECT_STREQ(ms::GcProgress::PhaseToString(GcPhase::UNLINK), "unlink");
-  EXPECT_STREQ(ms::GcProgress::PhaseToString(GcPhase::INDEX_CLEANUP), "index_cleanup");
-  EXPECT_STREQ(ms::GcProgress::PhaseToString(GcPhase::DELETE), "delete");
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::IDLE), "idle");
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::UNLINK), "unlink");
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::INDEX_CLEANUP), "index_cleanup");
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::DELETE), "delete");
 }
 
 TEST(StorageV2GcStatus, NotRunningWhenIdle) {

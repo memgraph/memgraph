@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 namespace memgraph::storage {
 
@@ -85,7 +86,7 @@ struct GcProgress {
     return info;
   }
 
-  static const char *PhaseToString(GcPhase phase);
+  static std::string_view PhaseToString(GcPhase phase);
 };
 
 }  // namespace memgraph::storage
