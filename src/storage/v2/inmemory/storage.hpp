@@ -755,15 +755,9 @@ class InMemoryStorage final : public Storage {
             .start_steady_ms = snapshot_progress_.start_steady_ms.load(std::memory_order_acquire)};
   }
 
-  bool IsGcRunning() const { return gc_running_.load(std::memory_order_acquire); }
+  bool IsGcRunning() const { return gc_progress_.IsRunning(); }
 
-  GcRunInfoView GetGcRunInfo() const {
-    return {.phase = gc_phase_.load(std::memory_order_acquire),
-            .exclusive_lock = gc_exclusive_.load(std::memory_order_acquire),
-            .periodic = gc_periodic_.load(std::memory_order_acquire),
-            .start_time_us = gc_start_time_us_.load(std::memory_order_acquire),
-            .start_steady_ms = gc_start_steady_ms_.load(std::memory_order_acquire)};
-  }
+  std::optional<GcRunInfoView> TryGetGcRunInfo() const { return gc_progress_.TryGetRunInfo(); }
 
   void CreateSnapshotHandler(
       std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb);
@@ -860,14 +854,9 @@ class InMemoryStorage final : public Storage {
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
-  // GC run-state exposed via SHOW TRANSACTIONS. Descriptive fields are written
-  // before gc_running_ is set, so a reader seeing "running" sees coherent data.
-  std::atomic_bool gc_running_{false};
-  std::atomic<GcPhase> gc_phase_{GcPhase::IDLE};
-  std::atomic_bool gc_exclusive_{false};
-  std::atomic_bool gc_periodic_{false};
-  std::atomic<int64_t> gc_start_time_us_{0};
-  std::atomic<int64_t> gc_start_steady_ms_{0};
+  // GC run-state exposed via SHOW TRANSACTIONS. Written only by the GC thread
+  // (which holds gc_lock_); see GcProgress for the publication protocol.
+  GcProgress gc_progress_;
 
   struct GCDeltas {
     GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<CommitInfo> commit_info,

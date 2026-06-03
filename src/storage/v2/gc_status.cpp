@@ -13,7 +13,7 @@
 
 namespace memgraph::storage {
 
-const char *GcPhaseToString(GcPhase phase) {
+const char *GcProgress::PhaseToString(GcPhase phase) {
   switch (phase) {
     using enum GcPhase;
     case IDLE:

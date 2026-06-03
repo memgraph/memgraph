@@ -2826,25 +2826,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     return;
   }
 
-  // Publish run-state for SHOW TRANSACTIONS; gc_running_ set last, reset on exit.
-  gc_start_steady_ms_.store(
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
-          .count(),
-      std::memory_order_release);
-  gc_start_time_us_.store(
-      std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count(),
-      std::memory_order_release);
-  gc_periodic_.store(periodic, std::memory_order_release);
-  gc_exclusive_.store(main_guard.owns_lock(), std::memory_order_release);
-  gc_phase_.store(GcPhase::UNLINK, std::memory_order_release);
-  gc_running_.store(true, std::memory_order_release);
-  utils::OnScopeExit gc_run_state_reset{[&] {
-    gc_running_.store(false, std::memory_order_release);
-    gc_phase_.store(GcPhase::IDLE, std::memory_order_release);
-    gc_start_time_us_.store(0, std::memory_order_release);
-    gc_start_steady_ms_.store(0, std::memory_order_release);
-  }};
+  // Publish run-state for SHOW TRANSACTIONS; Start() releases `running` last and
+  // Reset() clears every field on exit (see GcProgress).
+  gc_progress_.Start(periodic, main_guard.owns_lock());
+  utils::OnScopeExit gc_run_state_reset{[&] { gc_progress_.Reset(); }};
 
   // Diagnostic trace
   const utils::Timer timer;
@@ -3190,7 +3175,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // after the last currently active transaction is finished.
   // This operation is very expensive as it traverses through all of the items
   // in every index every time.
-  gc_phase_.store(GcPhase::INDEX_CLEANUP, std::memory_order_release);
+  gc_progress_.SetPhase(GcPhase::INDEX_CLEANUP);
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
       indices_.RemoveObsoleteVertexEntries(oldest_active_start_timestamp, token);
@@ -3206,7 +3191,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     metric_handles_.gc_skiplist_cleanup_latency_seconds.Observe(skiplist_elapsed.count());
   }
 
-  gc_phase_.store(GcPhase::DELETE, std::memory_order_release);
+  gc_progress_.SetPhase(GcPhase::DELETE);
 
   {
     auto guard = std::unique_lock{engine_lock_};

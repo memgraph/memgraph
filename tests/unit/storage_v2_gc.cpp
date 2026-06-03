@@ -17,6 +17,7 @@
 
 #include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "storage/v2/gc_status.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
@@ -81,10 +82,10 @@ class StorageV2GcMetricsTest : public testing::Test {
 
 TEST(StorageV2GcStatus, PhaseToString) {
   using ms::GcPhase;
-  EXPECT_STREQ(ms::GcPhaseToString(GcPhase::IDLE), "idle");
-  EXPECT_STREQ(ms::GcPhaseToString(GcPhase::UNLINK), "unlink");
-  EXPECT_STREQ(ms::GcPhaseToString(GcPhase::INDEX_CLEANUP), "index_cleanup");
-  EXPECT_STREQ(ms::GcPhaseToString(GcPhase::DELETE), "delete");
+  EXPECT_STREQ(ms::GcProgress::PhaseToString(GcPhase::IDLE), "idle");
+  EXPECT_STREQ(ms::GcProgress::PhaseToString(GcPhase::UNLINK), "unlink");
+  EXPECT_STREQ(ms::GcProgress::PhaseToString(GcPhase::INDEX_CLEANUP), "index_cleanup");
+  EXPECT_STREQ(ms::GcProgress::PhaseToString(GcPhase::DELETE), "delete");
 }
 
 TEST(StorageV2GcStatus, NotRunningWhenIdle) {
@@ -92,6 +93,67 @@ TEST(StorageV2GcStatus, NotRunningWhenIdle) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
   EXPECT_FALSE(storage->IsGcRunning());
+}
+
+TEST(StorageV2GcStatus, TryGetRunInfoEmptyWhenNotRunning) {
+  ms::GcProgress gc;
+  EXPECT_FALSE(gc.IsRunning());
+  EXPECT_FALSE(gc.TryGetRunInfo().has_value());
+}
+
+TEST(StorageV2GcStatus, PublishesPeriodicRunInfo) {
+  ms::GcProgress gc;
+  gc.Start(/*is_periodic=*/true, /*is_exclusive=*/false);
+
+  EXPECT_TRUE(gc.IsRunning());
+  auto info = gc.TryGetRunInfo();
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->phase, ms::GcPhase::UNLINK);
+  EXPECT_TRUE(info->periodic);
+  EXPECT_FALSE(info->exclusive_lock);
+  EXPECT_GT(info->start_time_us, 0);
+  EXPECT_GT(info->start_steady_ms, 0);
+}
+
+TEST(StorageV2GcStatus, PublishesForcedExclusiveRunInfo) {
+  ms::GcProgress gc;
+  gc.Start(/*is_periodic=*/false, /*is_exclusive=*/true);
+
+  auto info = gc.TryGetRunInfo();
+  ASSERT_TRUE(info.has_value());
+  EXPECT_FALSE(info->periodic);
+  EXPECT_TRUE(info->exclusive_lock);
+}
+
+TEST(StorageV2GcStatus, PhaseAdvancesWhileRunning) {
+  ms::GcProgress gc;
+  gc.Start(/*is_periodic=*/true, /*is_exclusive=*/false);
+  EXPECT_EQ(gc.TryGetRunInfo()->phase, ms::GcPhase::UNLINK);
+
+  gc.SetPhase(ms::GcPhase::INDEX_CLEANUP);
+  EXPECT_EQ(gc.TryGetRunInfo()->phase, ms::GcPhase::INDEX_CLEANUP);
+
+  gc.SetPhase(ms::GcPhase::DELETE);
+  EXPECT_EQ(gc.TryGetRunInfo()->phase, ms::GcPhase::DELETE);
+}
+
+TEST(StorageV2GcStatus, ResetClearsAllFields) {
+  ms::GcProgress gc;
+  gc.Start(/*is_periodic=*/true, /*is_exclusive=*/true);
+  gc.SetPhase(ms::GcPhase::INDEX_CLEANUP);
+  ASSERT_TRUE(gc.IsRunning());
+
+  gc.Reset();
+
+  EXPECT_FALSE(gc.IsRunning());
+  EXPECT_FALSE(gc.TryGetRunInfo().has_value());
+  // Every field is cleared, not just `running` — a subsequent run must not
+  // inherit stale phase/trigger/exclusive/timing values.
+  EXPECT_EQ(gc.phase.load(), ms::GcPhase::IDLE);
+  EXPECT_FALSE(gc.exclusive_lock.load());
+  EXPECT_FALSE(gc.periodic.load());
+  EXPECT_EQ(gc.start_time_us.load(), 0);
+  EXPECT_EQ(gc.start_steady_ms.load(), 0);
 }
 
 // TODO: The point of these is not to test GC fully, these are just simple
