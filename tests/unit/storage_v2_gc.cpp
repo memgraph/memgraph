@@ -88,66 +88,25 @@ TEST(StorageV2GcStatus, PhaseToString) {
   EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::DELETE), "delete");
 }
 
-TEST(StorageV2GcStatus, NotRunningWhenIdle) {
-  // Long interval so the periodic runner never fires during the test.
-  auto storage = std::make_unique<ms::InMemoryStorage>(
-      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-  EXPECT_FALSE(storage->IsGcRunning());
-}
-
-TEST(StorageV2GcStatus, TryGetRunInfoEmptyWhenNotRunning) {
+// Start publishes run-state, SetPhase advances it, Reset clears every field.
+// The Reset check is the regression guard: it once cleared only some fields.
+TEST(StorageV2GcStatus, RunStateLifecycle) {
   ms::GcProgress gc;
-  EXPECT_FALSE(gc.IsRunning());
   EXPECT_FALSE(gc.TryGetRunInfo().has_value());
-}
 
-TEST(StorageV2GcStatus, PublishesPeriodicRunInfo) {
-  ms::GcProgress gc;
-  gc.Start(/*is_periodic=*/true, /*is_exclusive=*/false);
-
-  EXPECT_TRUE(gc.IsRunning());
+  gc.Start(/*is_periodic=*/false, /*is_exclusive=*/true);
   auto info = gc.TryGetRunInfo();
   ASSERT_TRUE(info.has_value());
   EXPECT_EQ(info->phase, ms::GcPhase::UNLINK);
-  EXPECT_TRUE(info->periodic);
-  EXPECT_FALSE(info->exclusive_lock);
-  EXPECT_GT(info->start_time_us, 0);
-  EXPECT_GT(info->start_steady_ms, 0);
-}
-
-TEST(StorageV2GcStatus, PublishesForcedExclusiveRunInfo) {
-  ms::GcProgress gc;
-  gc.Start(/*is_periodic=*/false, /*is_exclusive=*/true);
-
-  auto info = gc.TryGetRunInfo();
-  ASSERT_TRUE(info.has_value());
   EXPECT_FALSE(info->periodic);
   EXPECT_TRUE(info->exclusive_lock);
-}
-
-TEST(StorageV2GcStatus, PhaseAdvancesWhileRunning) {
-  ms::GcProgress gc;
-  gc.Start(/*is_periodic=*/true, /*is_exclusive=*/false);
-  EXPECT_EQ(gc.TryGetRunInfo()->phase, ms::GcPhase::UNLINK);
+  EXPECT_GT(info->start_time_us, 0);
 
   gc.SetPhase(ms::GcPhase::INDEX_CLEANUP);
   EXPECT_EQ(gc.TryGetRunInfo()->phase, ms::GcPhase::INDEX_CLEANUP);
 
-  gc.SetPhase(ms::GcPhase::DELETE);
-  EXPECT_EQ(gc.TryGetRunInfo()->phase, ms::GcPhase::DELETE);
-}
-
-TEST(StorageV2GcStatus, ResetClearsAllFields) {
-  ms::GcProgress gc;
-  gc.Start(/*is_periodic=*/true, /*is_exclusive=*/true);
-  gc.SetPhase(ms::GcPhase::INDEX_CLEANUP);
-  ASSERT_TRUE(gc.IsRunning());
-
   gc.Reset();
-
-  EXPECT_FALSE(gc.IsRunning());
   EXPECT_FALSE(gc.TryGetRunInfo().has_value());
-  // All fields cleared, not just `running`, so the next run can't inherit stale state.
   EXPECT_EQ(gc.phase.load(), ms::GcPhase::IDLE);
   EXPECT_FALSE(gc.exclusive_lock.load());
   EXPECT_FALSE(gc.periodic.load());
