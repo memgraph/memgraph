@@ -22,6 +22,8 @@ target_sources(mg-utils
     base64.cpp
     file.cpp
     file_locker.cpp
+    file_owner.cpp
+    startup_failure.cpp
     memory.cpp
     memory_tracker.cpp
     readable_size.cpp
