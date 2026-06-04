@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <variant>
 
@@ -24,6 +25,8 @@ namespace memgraph::query::plan::v2 {
 /// bug (sound rewrites cannot equate two different constants).
 struct ExpressionAnalysis {
   std::optional<storage::ExternalPropertyValue> known_constant_value;
+  std::optional<storage::ExternalPropertyValue::Type> known_type;
+  std::optional<std::size_t> known_list_length;
 
   void merge(ExpressionAnalysis const &other);
 };
