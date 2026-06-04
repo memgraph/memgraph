@@ -219,7 +219,10 @@ class PlannerV2PipelineTest : public ::testing::TestWithParam<PipelineTestCase> 
     EXPECT_NE(cypher_query, nullptr);
 
     symbol_table_ = MakeSymbolTable(cypher_query);
-    auto [eg, root] = ConvertToEgraph(*cypher_query, symbol_table_);
+    // Raw parse keeps literals as PrimitiveLiterals, so there are no parameters
+    // to fold here.
+    Parameters parameters;
+    auto [eg, root] = ConvertToEgraph(*cypher_query, symbol_table_, parameters);
 
     auto result = ApplyAllRewrites(eg);
     rewrite_result_ = result;
@@ -373,7 +376,8 @@ TEST_F(PlannerV2PipelineTest, OptionalCallSubqueryIsRejected) {
   auto optional_symbols = MakeSymbolTable(optional_call);
   // The same body without OPTIONAL lowers fine - see the MinimalCallReturn pipeline case - so the guard keys on
   // the flag alone.
-  EXPECT_THROW(ConvertToEgraph(*optional_call, optional_symbols), NotYetImplemented);
+  Parameters parameters;
+  EXPECT_THROW(ConvertToEgraph(*optional_call, optional_symbols, parameters), NotYetImplemented);
 }
 
 TEST_F(PlannerV2PipelineTest, ExtractedSymbolPositionsResolveInCompactTable) {
