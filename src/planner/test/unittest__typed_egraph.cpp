@@ -50,12 +50,12 @@ struct toy_traits<ToyOp::Symbol> {
     std::uint64_t next_id = 0;
   };
 
-  static auto make(storage_type &s, std::string_view name) -> LoweredNode {
+  static auto make(storage_type &s, std::string_view name) -> MakeResult<ToyAnalysis> {
     auto [it, inserted] = s.by_name.try_emplace(std::string{name}, s.next_id);
     if (inserted) {
       ++s.next_id;
     }
-    return {.children = {}, .disambiguator = it->second};
+    return {.lowered = {.children = {}, .disambiguator = it->second}};
   }
 };
 
@@ -123,8 +123,8 @@ TEST(TypedEGraph, StorageReflectsInternedEntries) {
 
 // === SymbolMakeTraits: trait protocol enforcement (S5) ===
 
-static_assert(SymbolMakeTraits<toy_traits<ToyOp::Symbol>, std::string_view>,
+static_assert(SymbolMakeTraits<toy_traits<ToyOp::Symbol>, ToyAnalysis, std::string_view>,
               "a well-formed interning trait satisfies the protocol");
-static_assert(!SymbolMakeTraits<BadTraits>, "make() returning non-LoweredNode is rejected");
+static_assert(!SymbolMakeTraits<BadTraits, ToyAnalysis>, "make() not returning a MakeResult is rejected");
 
 }  // namespace memgraph::planner::core

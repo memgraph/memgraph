@@ -14,6 +14,7 @@ module;
 #include <concepts>
 #include <cstdint>
 #include <optional>
+#include <type_traits>
 #include <utility>
 
 #include "utils/small_vector.hpp"
@@ -25,28 +26,36 @@ import memgraph.planner.core.egraph;
 export namespace memgraph::planner::core {
 
 /// One emplace operation lowered to the core e-graph's contract: a child
-/// list plus an optional disambiguator. Trait specialisations return this
-/// from `make()`; `TypedEGraph::Make<S>` shuttles it into
-/// `EGraph<Symbol, Analysis>::emplace`.
+/// list plus an optional disambiguator.
 struct LoweredNode {
   utils::small_vector<EClassId> children;
   std::optional<std::uint64_t> disambiguator;
 };
 
+/// What `make()` returns: the lowered e-node plus the analysis seed for the
+/// e-class it lands in (the make half of e-class analysis). `seed` is
+/// default-constructed when a symbol attaches no facts; for `NoAnalysis` it is
+/// empty. `TypedEGraph::Make<S>` shuttles both into `EGraph::emplace`.
+template <typename Analysis>
+struct MakeResult {
+  LoweredNode lowered;
+  Analysis seed{};
+};
+
 /// Per-symbol trait contract. A `Traits<S>` specialisation must expose:
 ///   - `storage_type`: per-symbol side-data (interning maps, counters,
 ///     etc.). Empty struct if none.
-///   - `static auto make(storage_type&, Args...) -> LoweredNode`: maps the
-///     user's per-symbol arguments to (children, optional disambiguator),
-///     updating storage as needed.
+///   - `static auto make(storage_type&, Args...) -> MakeResult<Analysis>`:
+///     lowers the user's per-symbol arguments and seeds the new e-class's
+///     analysis, updating storage as needed.
 ///
 /// The concept is parameterised on `Args` so that calls with the wrong
 /// arity or wrong types fail at the constraint with a clear message
 /// rather than deep inside `TypedEGraph::Make`.
-template <typename T, typename... Args>
+template <typename T, typename Analysis, typename... Args>
 concept SymbolMakeTraits =
     std::is_default_constructible_v<typename T::storage_type> && requires(typename T::storage_type &s, Args &&...args) {
-      { T::make(s, std::forward<Args>(args)...) } -> std::same_as<LoweredNode>;
+      { T::make(s, std::forward<Args>(args)...) } -> std::same_as<MakeResult<Analysis>>;
     };
 
 /// Compile-time list of Symbol values. Used to derive the combined storage
@@ -94,15 +103,14 @@ class TypedEGraph {
   TypedEGraph &operator=(TypedEGraph &&) noexcept = default;
 
   /// Construct (or find) the e-class for the enode `S(args...)`. Dispatches
-  /// to `Traits<S>::make` to lower user args into a `LoweredNode`, then
-  /// emplaces into the core e-graph.
+  /// to `Traits<S>::make` to lower user args and seed the e-class's analysis,
+  /// then emplaces into the core e-graph.
   template <Symbol S, typename... Args>
-    requires SymbolMakeTraits<Traits<S>, Args...>
+    requires SymbolMakeTraits<Traits<S>, Analysis, Args...>
   auto Make(Args &&...args) -> EClassId {
-    auto lowered = Traits<S>::make(storage<S>(), std::forward<Args>(args)...);
-    auto const res = lowered.disambiguator ? core_.emplace(S, std::move(lowered.children), *lowered.disambiguator)
-                                           : core_.emplace(S, std::move(lowered.children));
-    return res.eclass_id;
+    auto made = Traits<S>::make(storage<S>(), std::forward<Args>(args)...);
+    auto const disambiguator = made.lowered.disambiguator.value_or(0);
+    return core_.emplace(S, std::move(made.lowered.children), disambiguator, std::move(made.seed)).eclass_id;
   }
 
   /// Typed read/write access to one symbol's side-data. Callers use this
