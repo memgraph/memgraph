@@ -250,11 +250,31 @@ struct symbol_build_traits<symbol::Unwind> {
     using list = ChildSlot<child::unwind::list, Expression *>;
   };
 
-  static auto build(BuildState & /*state*/, ENodeRef /*node*/, Children children) -> result_type {
-    auto const &input = children.get<slots::input>();
-    auto const &sym = children.get<slots::sym>();
-    auto const &list_expr = children.get<slots::list>();
+  // Dead Unwind's resolved children are the densely-packed [input, list]; the
+  // sym leaf is elided, so the list shifts down one slot.
+  struct dead_slots {
+    using input = ChildSlot<child::unwind_dead::input, LogicalOperatorPtr>;
+    using list = ChildSlot<child::unwind_dead::list, Expression *>;
+  };
+
+  static auto build(BuildState & /*state*/, ENodeRef node, Children children) -> result_type {
+    if (children.size() == node.children().size()) {
+      return build_alive(children.get<slots::input>(), children.get<slots::sym>(), children.get<slots::list>());
+    }
+    DMG_ASSERT(children.size() == 2, "dead Unwind must emit exactly the input and list children");
+    return build_dead(children.get<dead_slots::input>(), children.get<dead_slots::list>());
+  }
+
+ private:
+  // Alive Unwind: bind each list element to the sym, one output row per element.
+  static auto build_alive(LogicalOperatorPtr const &input, Symbol const &sym, Expression *list_expr) -> result_type {
     return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::Unwind>(input, list_expr, sym));
+  }
+
+  // Dead Unwind: the sym is unused, so emit a CardinalityScale that yields one
+  // row per list element without binding anything.
+  static auto build_dead(LogicalOperatorPtr const &input, Expression *list_expr) -> result_type {
+    return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::CardinalityScale>(input, list_expr));
   }
 };
 
