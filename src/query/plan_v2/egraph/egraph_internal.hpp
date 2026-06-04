@@ -34,8 +34,13 @@ namespace memgraph::query::plan::v2 {
 // specialisations.
 // ========================================================================
 
+/// The concrete TypedEGraph plan_v2 builds on. Rewrite rules whose apply mints
+/// interned nodes (`ctx.Make<S>`) are parameterised on this so the rule context
+/// can reach the per-symbol trait interners; rules that only merge need not be.
+using typed_egraph = planner::core::TypedEGraph<symbol, analysis, AllSymbols, symbol_make_traits>;
+
 struct egraph::impl {
-  planner::core::TypedEGraph<symbol, analysis, AllSymbols, symbol_make_traits> graph;
+  typed_egraph graph;
 };
 
 /// Pimpl back-door for plan_v2-internal TUs (converter, rewriter, estimator).
