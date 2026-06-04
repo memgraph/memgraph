@@ -37,25 +37,16 @@ namespace memgraph::query::plan::v2 {
 /// default-constructed one.
 using seeded_node = planner::core::MakeResult<analysis>;
 
-/// Whether `S` is a row-stream (operator) symbol, per the `EGRAPH_OPERATOR_SYMBOLS`
-/// taxonomy. Selects the analysis arm.
-template <symbol S>
-inline constexpr bool is_operator_symbol_v =
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define X(NAME) S == symbol::NAME ||
-    EGRAPH_OPERATOR_SYMBOLS(X)
-#undef X
-        false;
-
-/// The empty analysis seed for `S`: the variant arm matching its kind. Facts
-/// (e.g. a Literal's value) are layered on by the symbol's own `make`.
+/// The empty analysis seed for `S`: the variant arm matching its e-class kind.
+/// Facts (e.g. a Literal's value) are layered on by the symbol's own `make`.
 template <symbol S>
 auto default_analysis_seed() -> analysis {
-  if constexpr (S == symbol::Symbol) {
+  if constexpr (is_symbol_kind_v<S>) {
     return analysis{SymbolAnalysis{}};
-  } else if constexpr (is_operator_symbol_v<S>) {
+  } else if constexpr (is_operator_kind_v<S>) {
     return analysis{OperatorAnalysis{}};
   } else {
+    static_assert(is_expression_kind_v<S>);
     return analysis{ExpressionAnalysis{}};
   }
 }
