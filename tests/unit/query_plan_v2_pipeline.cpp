@@ -843,7 +843,9 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "TwoOutputsFromUnwindVar",
             .query = "UNWIND range(0, 5) AS x RETURN x AS a, x + 1 AS b;",
-            .expected_details = {"Produce {a`1:x, b`3:(x + 1)}", "Unwind {x:RANGE(0, 5)}", "Once"},
+            // x reconstructs to a single symbol shared by both NamedOutputs, so
+            // b takes position 2 (not 3, which would mean x was built twice).
+            .expected_details = {"Produce {a`1:x, b`2:(x + 1)}", "Unwind {x:RANGE(0, 5)}", "Once"},
             .expected_rewrites = 0,
         },
         // Scalar alive Bind for `a` (evaluated once before Unwind) combined

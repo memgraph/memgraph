@@ -206,6 +206,17 @@ TEST_F(PlannerV2InterpreterTest, ElidedUnwindExecutesToScaledRows) {
   }
 }
 
+TEST_F(PlannerV2InterpreterTest, ReturningBoundVariableYieldsItsValues) {
+  // The bound variable is reachable both as the Unwind binder and as the RETURN
+  // reference; it must reconstruct to one symbol (one frame slot) so the rows
+  // carry x's values rather than reading an unpopulated slot.
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 3);
+}
+
 TEST_F(PlannerV2InterpreterTest, UserParameterRangeLengthEnablesElision) {
   // A user parameter's value is known for this execution and plan_v2 is
   // uncached, so range($lo, $hi) folds to a provable length: the unused binding
