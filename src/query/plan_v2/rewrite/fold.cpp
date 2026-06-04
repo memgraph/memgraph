@@ -13,11 +13,10 @@
 
 #include <string_view>
 
+#include "query/plan_v2/egraph/op_ast_lists.hpp"
 #include "query/typed_value.hpp"
 
 namespace memgraph::query::plan::v2 {
-
-using enum symbol;
 
 namespace {
 
@@ -43,55 +42,35 @@ auto ToConstant(TypedValue const &v) -> std::optional<ExternalPropertyValue> {
   }
 }
 
-auto EvalBinary(symbol op, TypedValue const &a, TypedValue const &b) -> std::optional<TypedValue> {
+// The binary/unary switch arms are generated from the operator registry's fold
+// column (op_ast_lists.hpp), so an operator's evaluation and its fold rule come
+// from the same row and cannot drift. The AST-node column is unused here.
+// NOLINTBEGIN(cppcoreguidelines-macro-usage)
+auto EvalBinary(symbol op, TypedValue const &lhs, TypedValue const &rhs) -> std::optional<TypedValue> {
   switch (op) {
-    case Add:
-      return a + b;
-    case Sub:
-      return a - b;
-    case Mul:
-      return a * b;
-    case Div:
-      return a / b;
-    case Mod:
-      return a % b;
-    case Exp:
-      return pow(a, b);
-    case Eq:
-      return a == b;
-    case Neq:
-      return a != b;
-    case Lt:
-      return a < b;
-    case Lte:
-      return a <= b;
-    case Gt:
-      return a > b;
-    case Gte:
-      return a >= b;
-    case And:
-      return a && b;
-    case Or:
-      return a || b;
-    case Xor:
-      return a ^ b;
+#define MG_FOLD_BINARY(Name, AstOp, Expr) \
+  case symbol::Name:                      \
+    return (Expr);
+    EGRAPH_BINARY_OPS(MG_FOLD_BINARY)
+#undef MG_FOLD_BINARY
     default:
       return std::nullopt;
   }
 }
 
-auto EvalUnary(symbol op, TypedValue const &a) -> std::optional<TypedValue> {
+auto EvalUnary(symbol op, TypedValue const &operand) -> std::optional<TypedValue> {
   switch (op) {
-    case Not:
-      return !a;
-    case UnaryMinus:
-      return -a;
-    case UnaryPlus:
-      return +a;
+#define MG_FOLD_UNARY(Name, AstOp, Expr) \
+  case symbol::Name:                     \
+    return (Expr);
+    EGRAPH_UNARY_OPS(MG_FOLD_UNARY)
+#undef MG_FOLD_UNARY
     default:
       return std::nullopt;
   }
 }
+
+// NOLINTEND(cppcoreguidelines-macro-usage)
 
 }  // namespace
 
