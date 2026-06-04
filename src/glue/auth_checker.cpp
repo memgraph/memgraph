@@ -136,11 +136,11 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
     auto glue_user = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
     DMG_ASSERT(dba, "DbAccessor must be non-null for fine-grained auth checking");
     if (glue_user.user_) {
-      return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba, FLAGS_property_fga_enabled);
+      return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba);
     }
     if (glue_user.roles_) {
       return std::make_unique<glue::FineGrainedAuthChecker>(
-          auth::RoleWUsername{glue_user.username().value(), glue_user.roles_.value()}, dba, FLAGS_property_fga_enabled);
+          auth::RoleWUsername{glue_user.username().value(), glue_user.roles_.value()}, dba);
     }
     DMG_ASSERT(false, "Glue user has neither user not role");
   } catch (std::bad_cast &) {
@@ -210,12 +210,8 @@ bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgr
 #endif
 
 #ifdef MG_ENTERPRISE
-FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba,
-                                               bool property_fga_enabled)
-    : user_or_role_{std::move(user_or_role)},
-      dba_(dba),
-      property_fga_enabled_{property_fga_enabled},
-      db_name_{dba_->DatabaseName()} {};
+FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba)
+    : user_or_role_{std::move(user_or_role)}, dba_(dba), db_name_{dba_->DatabaseName()} {};
 
 auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedLabelPermissions() const {
   if (!cached_label_permissions_) {
@@ -322,9 +318,6 @@ bool FineGrainedAuthChecker::NeedsFineGrainedAuthChecker() const {
   if (!HasUnrestrictedAccessToVertices() || !HasUnrestrictedAccessToEdges()) {
     return true;
   }
-  if (!property_fga_enabled_) {
-    return false;
-  }
   return !GetCachedPropertyLabelPermissions().GetRules().empty() ||
          !GetCachedPropertyEdgeTypePermissions().GetRules().empty();
 }
@@ -352,7 +345,6 @@ auth::PropertyAccessPermissions const &FineGrainedAuthChecker::GetCachedProperty
 bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId const> labels,
                                                    storage::PropertyId property,
                                                    query::AuthQuery::PropertyPermissionType type) const {
-  if (!property_fga_enabled_) return true;
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
@@ -362,22 +354,18 @@ bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId co
   auto const &rules = permissions.GetRules();
   auto const &prop_name = dba_->PropertyToName(property);
   bool any_grant = false;
-  bool any_rules = false;
   for (auto label : labels) {
     auto const &label_name = dba_->LabelToName(label);
     if (!rules.contains(label_name)) continue;
     auto level = permissions.Has(label_name, prop_name, perm_type);
     if (level == auth::PermissionLevel::DENY) return false;
     if (level == auth::PermissionLevel::GRANT) any_grant = true;
-    if (level != auth::PermissionLevel::NEUTRAL) any_rules = true;
   }
-  if (!any_rules) return true;
   return any_grant;
 }
 
 bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &edge_type, storage::PropertyId property,
                                                    query::AuthQuery::PropertyPermissionType type) const {
-  if (!property_fga_enabled_) return true;
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
@@ -385,7 +373,7 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
                                                                                  : auth::PropertyPermissionType::READ;
   auto const &permissions = GetCachedPropertyEdgeTypePermissions();
   auto const &edge_type_name = dba_->EdgeTypeToName(edge_type);
-  if (!permissions.GetRules().contains(edge_type_name)) return true;
+  if (!permissions.GetRules().contains(edge_type_name)) return false;
   auto const &prop_name = dba_->PropertyToName(property);
   auto level = permissions.Has(edge_type_name, prop_name, perm_type);
   return level != auth::PermissionLevel::DENY;
@@ -393,7 +381,6 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
 
 bool FineGrainedAuthChecker::IsPropertyVisible(std::string const &property_name,
                                                query::AuthQuery::PropertyPermissionType type) const {
-  if (!property_fga_enabled_) return true;
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return true;
 
   auto check_permissions = [&](auth::PropertyAccessPermissions const &permissions) {
