@@ -11,22 +11,37 @@
 
 #include "query/plan_v2/resolve/analysis.hpp"
 
+#include <functional>
+#include <optional>
+
 #include "query/exceptions.hpp"
 #include "query/plan_v2/resolve/constant_identity.hpp"
 
 namespace memgraph::query::plan::v2 {
 
-void ExpressionAnalysis::merge(ExpressionAnalysis const &other) {
-  if (!other.known_constant_value) return;
-  if (!known_constant_value) {
-    known_constant_value = other.known_constant_value;
+namespace {
+/// Merge one optional fact field with the agree-or-bug rule: a one-sided fact
+/// is taken, an agreeing fact is kept, and a genuine disagreement is a planner
+/// bug (sound rewrites cannot equate two e-classes whose facts contradict).
+template <typename T, typename Eq>
+void MergeField(std::optional<T> &lhs, std::optional<T> const &rhs, Eq eq) {
+  if (!rhs) return;
+  if (!lhs) {
+    lhs = rhs;
     return;
   }
-  if (!ConstantIdentityEq{}(*known_constant_value, *other.known_constant_value)) {
+  if (!eq(*lhs, *rhs)) {
     throw PlannerBug{
-        "analysis merge: two e-classes proven equivalent carry different constant values; this is a planner "
+        "analysis merge: two e-classes proven equivalent carry contradictory facts; this is a planner "
         "bug - please report it at https://github.com/memgraph/memgraph/issues"};
   }
+}
+}  // namespace
+
+void ExpressionAnalysis::merge(ExpressionAnalysis const &other) {
+  MergeField(known_constant_value, other.known_constant_value, ConstantIdentityEq{});
+  MergeField(known_type, other.known_type, std::equal_to<>{});
+  MergeField(known_list_length, other.known_list_length, std::equal_to<>{});
 }
 
 void analysis::merge(analysis const &other) {

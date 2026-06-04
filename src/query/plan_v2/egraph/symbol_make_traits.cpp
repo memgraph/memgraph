@@ -28,8 +28,13 @@ auto symbol_make_traits<Symbol>::make(storage_type &s, int32_t pos, std::string_
 auto symbol_make_traits<Literal>::make(storage_type &s, storage::ExternalPropertyValue const &value) -> seeded_node {
   auto [it, inserted] = s.store.try_emplace(value, s.info.size());
   if (inserted) s.info.push_back(&it->first);
+
+  auto const is_list = value.IsList() || value.IsIntList() || value.IsDoubleList() || value.IsNumericList();
   return {.lowered = {.children = {}, .disambiguator = it->second},
-          .seed = analysis{ExpressionAnalysis{.known_constant_value = value}}};
+          .seed = analysis{
+              ExpressionAnalysis{.known_constant_value = value,
+                                 .known_type = value.type(),
+                                 .known_list_length = is_list ? std::optional{GetListSize(value)} : std::nullopt}}};
 }
 
 auto symbol_make_traits<ParamLookup>::make(storage_type & /*s*/, int32_t pos) -> seeded_node {
