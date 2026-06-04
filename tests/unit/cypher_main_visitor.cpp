@@ -924,6 +924,84 @@ TEST_P(CypherMainVisitorTest, IsNotNull) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, IsNullBindsLooserThanArithmetic) {
+  // `IS NULL` applies to the whole arithmetic expression, not just its
+  // right-most operand. `(null + 1) * 1 IS NULL` parses as
+  // `((null + 1) * 1) IS NULL`, i.e. IsNullOperator wrapping the
+  // MultiplicationOperator, not MultiplicationOperator wrapping IsNullOperator.
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN (null + 1) * 1 IS NULL"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  auto *is_null = dynamic_cast<IsNullOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(is_null);
+  auto *mult = dynamic_cast<MultiplicationOperator *>(is_null->expression_);
+  ASSERT_TRUE(mult);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, IsNullBindsLooserThanAddition) {
+  // `1 + 2 IS NULL` must parse as `(1 + 2) IS NULL`.
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 1 + 2 IS NULL"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  auto *is_null = dynamic_cast<IsNullOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(is_null);
+  auto *add = dynamic_cast<AdditionOperator *>(is_null->expression_);
+  ASSERT_TRUE(add);
+  ast_generator.CheckLiteral(add->expression1_, 1);
+  ast_generator.CheckLiteral(add->expression2_, 2);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, ComparisonBindsLooserThanIsNull) {
+  // Comparison is looser than IS NULL: `1 = 2 IS NULL` parses as
+  // `1 = (2 IS NULL)`, so EqualOperator wraps IsNullOperator on its right side.
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 1 = 2 IS NULL"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  auto *eq = dynamic_cast<EqualOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(eq);
+  ast_generator.CheckLiteral(eq->expression1_, 1);
+  auto *is_null = dynamic_cast<IsNullOperator *>(eq->expression2_);
+  ASSERT_TRUE(is_null);
+  ast_generator.CheckLiteral(is_null->expression_, 2);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, StringPredicateOperandsBindArithmetic) {
+  // Both sides of STARTS WITH bind the full arithmetic expression:
+  // `'a' + 'b' STARTS WITH 'a' + 'c'` -> startsWith(('a'+'b'), ('a'+'c')).
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 'a' + 'b' STARTS WITH 'a' + 'c'"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  auto *function = dynamic_cast<Function *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(function);
+  ASSERT_EQ(function->arguments_.size(), 2U);
+  ASSERT_TRUE(dynamic_cast<AdditionOperator *>(function->arguments_[0]));
+  ASSERT_TRUE(dynamic_cast<AdditionOperator *>(function->arguments_[1]));
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, InRightOperandBindsArithmetic) {
+  // The right operand of IN binds the full arithmetic expression:
+  // `1 IN [2] + [1]` -> 1 IN ([2] + [1]).
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 1 IN [2] + [1]"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  auto *in_list = dynamic_cast<InListOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(in_list);
+  ast_generator.CheckLiteral(in_list->expression1_, 1);
+  ASSERT_TRUE(dynamic_cast<AdditionOperator *>(in_list->expression2_));
+  CheckRWType(query, kRead);
+}
+
 TEST_P(CypherMainVisitorTest, NotOperator) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN not true"));
