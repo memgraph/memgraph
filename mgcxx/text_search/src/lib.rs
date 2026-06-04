@@ -211,12 +211,14 @@ mod tests {
     }
 }
 
+// Field order is load-bearing: Rust drops fields in declaration order;
+// index_reader must drop before index.
 pub struct TantivyContext {
     pub index_path: std::path::PathBuf,
     pub schema: Schema,
-    pub index: Index,
     pub index_writer: Option<IndexWriter>,
     pub index_reader: IndexReader,
+    pub index: Index,
 }
 
 impl Drop for TantivyContext {
