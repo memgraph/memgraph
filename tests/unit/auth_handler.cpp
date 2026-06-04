@@ -3130,6 +3130,7 @@ TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnUser) {
                                        "Employee",
                                        memgraph::query::AuthQuery::PropertyEntityType::NODE,
                                        memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
                                        nullptr);
 
   auto user = auth->ReadLock()->GetUser(user_name);
@@ -3148,6 +3149,7 @@ TEST_F(AuthQueryHandlerFixture, DenyPropertyPermissionOnUser) {
                                       "Employee",
                                       memgraph::query::AuthQuery::PropertyEntityType::NODE,
                                       memgraph::auth::UserOrRoleType::USER,
+                                      memgraph::auth::PropertyPermissionType::READ,
                                       nullptr);
 
   auto user = auth->ReadLock()->GetUser(user_name);
@@ -3164,12 +3166,14 @@ TEST_F(AuthQueryHandlerFixture, RevokePropertyPermissionOnUser) {
                                        "Employee",
                                        memgraph::query::AuthQuery::PropertyEntityType::NODE,
                                        memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
                                        nullptr);
   auth_handler.RevokePropertyPermission(user_name,
                                         {"ssn"},
                                         "Employee",
                                         memgraph::query::AuthQuery::PropertyEntityType::NODE,
                                         memgraph::auth::UserOrRoleType::USER,
+                                        memgraph::auth::PropertyPermissionType::READ,
                                         nullptr);
 
   auto user = auth->ReadLock()->GetUser(user_name);
@@ -3186,6 +3190,7 @@ TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnRole) {
                                        "PAID",
                                        memgraph::query::AuthQuery::PropertyEntityType::RELATIONSHIP,
                                        memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
                                        nullptr);
 
   auto role = auth->ReadLock()->GetRole("analyst");
@@ -3203,6 +3208,7 @@ TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionWildcard) {
                                        "Employee",
                                        memgraph::query::AuthQuery::PropertyEntityType::NODE,
                                        memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
                                        nullptr);
 
   auto user = auth->ReadLock()->GetUser(user_name);
@@ -3219,12 +3225,14 @@ TEST_F(AuthQueryHandlerFixture, DenyOverridesGrantPropertyPermission) {
                                        "Employee",
                                        memgraph::query::AuthQuery::PropertyEntityType::NODE,
                                        memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
                                        nullptr);
   auth_handler.DenyPropertyPermission(user_name,
                                       {"ssn"},
                                       "Employee",
                                       memgraph::query::AuthQuery::PropertyEntityType::NODE,
                                       memgraph::auth::UserOrRoleType::USER,
+                                      memgraph::auth::PropertyPermissionType::READ,
                                       nullptr);
 
   auto user = auth->ReadLock()->GetUser(user_name);
@@ -3240,6 +3248,7 @@ TEST_F(AuthQueryHandlerFixture, PropertyPermissionOnNonexistentUserThrows) {
                                                     "Employee",
                                                     memgraph::query::AuthQuery::PropertyEntityType::NODE,
                                                     memgraph::auth::UserOrRoleType::USER,
+                                                    memgraph::auth::PropertyPermissionType::READ,
                                                     nullptr),
                memgraph::query::QueryRuntimeException);
 }
@@ -3252,12 +3261,14 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForUser
                                        "Employee",
                                        memgraph::query::AuthQuery::PropertyEntityType::NODE,
                                        memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
                                        nullptr);
   auth_handler.DenyPropertyPermission(user_name,
                                       {"dob"},
                                       "Employee",
                                       memgraph::query::AuthQuery::PropertyEntityType::NODE,
                                       memgraph::auth::UserOrRoleType::USER,
+                                      memgraph::auth::PropertyPermissionType::READ,
                                       nullptr);
 
   auto privileges =
@@ -3297,6 +3308,7 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForRole
                                        "PAID",
                                        memgraph::query::AuthQuery::PropertyEntityType::RELATIONSHIP,
                                        memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
                                        nullptr);
 
   auto privileges = auth_handler.GetPrivileges("analyst",
@@ -3324,6 +3336,7 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesWildcardPropertyPermission) {
                                        "Employee",
                                        memgraph::query::AuthQuery::PropertyEntityType::NODE,
                                        memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
                                        nullptr);
 
   auto privileges =
