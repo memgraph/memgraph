@@ -21,6 +21,8 @@
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan_v2/egraph/egraph.hpp"
+#include "query/plan_v2/frontend/egraph_converter.hpp"
 #include "query_plan_common.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -690,6 +692,41 @@ TYPED_TEST(QueryPlanTest, CardinalityScaleLargeListCount) {
 
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(PullAll(*card_scale, &context), kSize);
+}
+
+TYPED_TEST(QueryPlanTest, DeadUnwindPlanExecutesToScaledRows) {
+  // Full vertical slice: a plan_v2 e-graph for `UNWIND [1, 2, 3] AS x RETURN 2`
+  // (x unused, list length known) extracts to a CardinalityScale plan that
+  // executes to three rows, each yielding 2.
+  namespace v2 = memgraph::query::plan::v2;
+  v2::egraph eg;
+  auto once = eg.MakeOnce();
+  auto x_sym = eg.MakeSymbol(0, "x");
+  auto list = eg.MakeLiteral(memgraph::storage::ExternalPropertyValue(
+      std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(1),
+                                                            memgraph::storage::ExternalPropertyValue(2),
+                                                            memgraph::storage::ExternalPropertyValue(3)}));
+  auto unwind = eg.MakeUnwind(once, x_sym, list);
+  auto r_sym = eg.MakeSymbol(1, "r");
+  auto two = eg.MakeLiteral(memgraph::storage::ExternalPropertyValue(int64_t{2}));
+  auto named_output = eg.MakeNamedOutput("r", r_sym, two);
+  auto root = eg.MakeOutput(unwind, {named_output});
+
+  v2::QueryPlannerContext planner_context;
+  auto result = v2::ConvertToLogicalOperator(eg, root, planner_context);
+  ASSERT_NE(result.plan, nullptr);
+  auto const &produce = dynamic_cast<plan::Produce const &>(*result.plan);
+  ASSERT_NE(dynamic_cast<plan::CardinalityScale const *>(produce.input().get()), nullptr);
+
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto context = MakeContext(result.ast_storage, result.symbol_table, &dba);
+  auto rows = CollectProduce(produce, &context);
+  ASSERT_EQ(rows.size(), 3);
+  for (auto const &row : rows) {
+    ASSERT_EQ(row.size(), 1);
+    EXPECT_EQ(row[0].ValueInt(), 2);
+  }
 }
 
 TYPED_TEST(QueryPlanAggregateOps, WithDataDistinct) {
