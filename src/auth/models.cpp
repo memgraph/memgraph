@@ -958,6 +958,15 @@ nlohmann::json Role::Serialize() const {
   return data;
 }
 
+namespace {
+void MigratePropertyAccessDefaults(PropertyAccessHandler &handler) {
+  handler.label_properties().GrantGlobal("*", PropertyPermissionType::READ);
+  handler.label_properties().GrantGlobal("*", PropertyPermissionType::WRITE);
+  handler.edge_type_properties().GrantGlobal("*", PropertyPermissionType::READ);
+  handler.edge_type_properties().GrantGlobal("*", PropertyPermissionType::WRITE);
+}
+}  // namespace
+
 Role Role::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load role data!");
@@ -1003,8 +1012,11 @@ Role Role::Deserialize(const nlohmann::json &data) {
     spdlog::warn("Role without impersonation information; defaulting to no impersonation ability.");
   }
   PropertyAccessHandler property_access_handler{};
-  if (auto it = data.find(kPropertyAccessPermissions); it != data.end() && it->is_object()) {
-    property_access_handler = PropertyAccessHandler::Deserialize(*it);
+  auto property_it = data.find(kPropertyAccessPermissions);
+  if (property_it != data.end() && property_it->is_object()) {
+    property_access_handler = PropertyAccessHandler::Deserialize(*property_it);
+  } else {
+    MigratePropertyAccessDefaults(property_access_handler);
   }
 
   auto role = Role{
@@ -1472,8 +1484,11 @@ User User::Deserialize(const nlohmann::json &data) {
   }
 
   PropertyAccessHandler property_access_handler{};
-  if (auto it = data.find(kPropertyAccessPermissions); it != data.end() && it->is_object()) {
-    property_access_handler = PropertyAccessHandler::Deserialize(*it);
+  auto property_it = data.find(kPropertyAccessPermissions);
+  if (property_it != data.end() && property_it->is_object()) {
+    property_access_handler = PropertyAccessHandler::Deserialize(*property_it);
+  } else {
+    MigratePropertyAccessDefaults(property_access_handler);
   }
 
   auto user = User{*username_it,

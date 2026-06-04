@@ -2252,6 +2252,67 @@ TEST(AuthWithoutStorage, RoleSerializeDeserialize) {
   ASSERT_EQ(role, output);
 }
 
+#ifdef MG_ENTERPRISE
+TEST(AuthWithoutStorage, UserDeserializeMigrationAddsGlobalPropertyGrants) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyPermissionType;
+
+  // Simulate a pre-PBAC user: has permissions but no property_access_permissions key
+  auto user = User("migrated_user");
+  user.permissions().Grant(Permission::MATCH);
+  auto data = user.Serialize();
+  data.erase("property_access_permissions");
+
+  auto output = User::Deserialize(data);
+
+  // Should have global {*} READ+WRITE on both label and edge properties
+  auto const &label_props = output.property_access_handler().label_properties();
+  EXPECT_EQ(label_props.HasGlobal("anything", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(label_props.HasGlobal("anything", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+
+  auto const &edge_props = output.property_access_handler().edge_type_properties();
+  EXPECT_EQ(edge_props.HasGlobal("anything", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(edge_props.HasGlobal("anything", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+}
+
+TEST(AuthWithoutStorage, UserDeserializeNoMigrationWhenPropertyRulesExist) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyPermissionType;
+
+  // User with explicit property rules should not get migration
+  auto user = User("existing_user");
+  user.permissions().Grant(Permission::MATCH);
+  user.property_access_handler().label_properties().Grant("Employee", "name");
+
+  auto data = user.Serialize();
+  auto output = User::Deserialize(data);
+
+  // Should have the explicit rule, no global grants
+  EXPECT_EQ(output.property_access_handler().label_properties().Has("Employee", "name"), PermissionLevel::GRANT);
+  EXPECT_EQ(output.property_access_handler().label_properties().HasGlobal("name"), PermissionLevel::NEUTRAL);
+}
+
+TEST(AuthWithoutStorage, RoleDeserializeMigrationAddsGlobalPropertyGrants) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyPermissionType;
+
+  auto role = Role("migrated_role");
+  role.permissions().Grant(Permission::MATCH);
+  auto data = role.Serialize();
+  data.erase("property_access_permissions");
+
+  auto output = Role::Deserialize(data);
+
+  auto const &label_props = output.property_access_handler().label_properties();
+  EXPECT_EQ(label_props.HasGlobal("anything", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(label_props.HasGlobal("anything", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+
+  auto const &edge_props = output.property_access_handler().edge_type_properties();
+  EXPECT_EQ(edge_props.HasGlobal("anything", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(edge_props.HasGlobal("anything", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+}
+#endif
+
 TEST_F(AuthWithStorage, FineGrainedPermissionsGrantDenyRevoke) {
   std::string const label = "Person";
 
