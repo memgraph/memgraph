@@ -47,6 +47,12 @@ struct analysis : analysis_variant {
   using analysis_variant::analysis_variant;
 
   void merge(analysis const &other);
+
+  /// The ExpressionAnalysis arm, or nullptr if this e-class is not an
+  /// Expression. The single place a fact-gated read recovers expression facts -
+  /// callers ask for the arm rather than open-coding a `std::get_if` on the
+  /// variant, so the kind check lives here once.
+  [[nodiscard]] auto expression() const -> ExpressionAnalysis const * { return std::get_if<ExpressionAnalysis>(this); }
 };
 
 }  // namespace memgraph::query::plan::v2

@@ -28,8 +28,7 @@ namespace {
 /// fires for any constant-valued e-class (a literal, or a folded expression),
 /// not just one still carrying a `Literal` e-node.
 auto TryReadIntLiteral(EGraph const &eg, planner::core::EClassId eclass_id) -> std::optional<int64_t> {
-  auto const &an = eg.eclass(eg.find(eclass_id)).analysis();
-  auto const *expr = std::get_if<ExpressionAnalysis>(&an);
+  auto const *expr = eg.eclass(eg.find(eclass_id)).analysis().expression();
   if (expr == nullptr || !expr->known_constant_value) return std::nullopt;
 
   auto const &val = *expr->known_constant_value;
