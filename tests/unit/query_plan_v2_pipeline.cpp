@@ -174,6 +174,11 @@ class SimplePlanChecker : public plan::HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(plan::CardinalityScale &op) override {
+    operator_details.push_back("CardinalityScale {" + DescribeExpression(op.list_expression_) + "}");
+    return true;
+  }
+
   bool PreVisit(plan::Apply &) override {
     operator_details.push_back("Apply");
     return true;
@@ -685,15 +690,17 @@ INSTANTIATE_TEST_SUITE_P(
     UnwindClauses,
     PlannerV2PipelineTest,
     ::testing::Values(
+        // The bound x is unused and range's length is provable from its
+        // int-literal bounds, so the binding elides to a CardinalityScale.
         PipelineTestCase{
             .name = "UnwindRangeReturnLiteral",
             .query = "UNWIND range(0, 5) AS x RETURN 1 AS r;",
-            .expected_details = {"Produce {r`1:1}", "Unwind {x:RANGE(0, 5)}", "Once"},
+            .expected_details = {"Produce {r`0:1}", "CardinalityScale {RANGE(0, 5)}", "Once"},
             .expected_rewrites = 0,
         },
         // The introduces-axis lets Output's NamedOutput see symbols the
         // input row pipe binds.  RETURN x resolves to a per-row Identifier
-        // reference, which is what we want when x is the row-pipe variable.
+        // reference, which keeps x referenced - so the Unwind binding stays.
         PipelineTestCase{
             .name = "UnwindRangeReturnSymbol",
             .query = "UNWIND range(0, 5) AS x RETURN x;",
@@ -712,8 +719,8 @@ INSTANTIATE_TEST_SUITE_P(
             .name = "WithUnwindPrefersNonInlined",
             .query = "WITH $p+$p+$p+$p+$p+$p AS a UNWIND range(0, 100) AS X RETURN a;",
             .expected_details =
-                {"Produce {a`2:a}",
-                 "Unwind {X:RANGE(0, 100)}",
+                {"Produce {a`1:a}",
+                 "CardinalityScale {RANGE(0, 100)}",
                  "Produce {a`0:(((((ParameterLookup + ParameterLookup) + ParameterLookup) + ParameterLookup) + "
                  "ParameterLookup) + ParameterLookup)}",
                  "Once"},

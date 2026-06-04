@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <cstddef>
+#include <optional>
+#include <span>
+
 #include "query/plan_v2/cost/cardinality_estimator.hpp"
 #include "query/plan_v2/egraph/builtin_functions.hpp"
 
@@ -22,6 +26,13 @@ struct egraph;  // public e-graph facade
 /// statically.  A small guess on purpose: an unknown list is assumed short so
 /// it doesn't dominate the row cardinality an Unwind later derives from it.
 inline constexpr double kDefaultListSize = 12.0;
+
+/// The provably-exact length of `range(start, end)` when both bounds are
+/// statically-known integers (`nullopt` otherwise). Cypher range is inclusive
+/// on both ends; reversed bounds give an empty list. Shared by the cardinality
+/// estimator and the make-time analysis seed so the two never drift.
+[[nodiscard]] auto ProvableRangeLength(EGraph const &eg, std::span<planner::core::EClassId const> args)
+    -> std::optional<std::size_t>;
 
 /// Computes the statically-known list size produced by a built-in Cypher
 /// function.  This is type/size analysis, not cardinality (rows): a known size

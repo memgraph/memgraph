@@ -103,6 +103,8 @@ TEST(BuiltinEstimator, UnknownFunctionFallsBackToDefault) {
 // ============================================================================
 
 TEST(UnwindCostShape, ProducesUnwindOperator) {
+  // UNWIND range(0, 5) AS x RETURN x : x is referenced, so the binding is kept
+  // and the row pipe is a v1 Unwind with cardinality 6 (the range length).
   egraph eg;
   auto once = eg.MakeOnce();
   auto x_sym = eg.MakeSymbol(0, "x");
@@ -111,12 +113,11 @@ TEST(UnwindCostShape, ProducesUnwindOperator) {
   auto range = eg.MakeFunction("range", {a, b});
   auto unwind = eg.MakeUnwind(once, x_sym, range);
 
-  auto r_sym = eg.MakeSymbol(1, "r");
-  auto one = eg.MakeLiteral(storage::ExternalPropertyValue{int64_t{1}});
-  auto named_output = eg.MakeNamedOutput("r", r_sym, one);
+  auto out_sym = eg.MakeSymbol(1, "x");
+  auto x_ref = eg.MakeIdentifier(x_sym);
+  auto named_output = eg.MakeNamedOutput("x", out_sym, x_ref);
   auto root = eg.MakeOutput(unwind, {named_output});
 
-  // BuiltinEstimator computes range(0, 5) cardinality as 6 from the int-literal args.
   auto ctx = QueryPlannerContext{};
   auto result = ConvertToLogicalOperator(eg, root, ctx);
 
@@ -171,6 +172,33 @@ TEST(DeadUnwind, UnreferencedSymOverConstListBuildsCardinalityScale) {
   ASSERT_NE(card_scale, nullptr) << "Unreferenced sym over a known-length list must build CardinalityScale";
   EXPECT_NE(dynamic_cast<plan::Once const *>(card_scale->input().get()), nullptr);
   EXPECT_DOUBLE_EQ(result.cardinality, 3.0);
+}
+
+TEST(DeadUnwind, UnreferencedSymOverRangeBuildsCardinalityScale) {
+  // UNWIND range(0, 5) AS x RETURN 1 : x is unused and range's length is
+  // provable from its int-literal bounds, so the binding elides to a
+  // CardinalityScale of cardinality 6.
+  egraph eg;
+  auto once = eg.MakeOnce();
+  auto x_sym = eg.MakeSymbol(0, "x");
+  auto a = eg.MakeLiteral(storage::ExternalPropertyValue{int64_t{0}});
+  auto b = eg.MakeLiteral(storage::ExternalPropertyValue{int64_t{5}});
+  auto range = eg.MakeFunction("range", {a, b});
+  auto unwind = eg.MakeUnwind(once, x_sym, range);
+
+  auto r_sym = eg.MakeSymbol(1, "r");
+  auto one = eg.MakeLiteral(storage::ExternalPropertyValue{int64_t{1}});
+  auto named_output = eg.MakeNamedOutput("r", r_sym, one);
+  auto root = eg.MakeOutput(unwind, {named_output});
+
+  auto ctx = QueryPlannerContext{};
+  auto result = ConvertToLogicalOperator(eg, root, ctx);
+
+  ASSERT_NE(result.plan, nullptr);
+  auto const &produce = dynamic_cast<plan::Produce const &>(*result.plan);
+  ASSERT_NE(dynamic_cast<plan::CardinalityScale const *>(produce.input().get()), nullptr)
+      << "Unreferenced sym over a provable-length range must build CardinalityScale";
+  EXPECT_DOUBLE_EQ(result.cardinality, 6.0);
 }
 
 TEST(DeadUnwind, ReferencedSymStaysUnwind) {
