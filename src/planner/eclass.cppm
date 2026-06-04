@@ -15,6 +15,7 @@ module;
 #include <cassert>
 #include <span>
 #include <type_traits>
+#include <utility>
 
 #include <boost/container/small_vector.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
@@ -75,6 +76,14 @@ struct EClassBase {
 template <typename Analysis>
 struct EClass : private detail::EClassBase {
   explicit EClass(ENodeId initial_enode_id) : EClassBase(initial_enode_id) {}
+
+  EClass(ENodeId initial_enode_id, Analysis analysis)
+      : EClassBase(initial_enode_id), analysis_data(std::move(analysis)) {}
+
+  /// The e-class's analysis facts. Set once at construction (the make half) and
+  /// thereafter only by merge; there is deliberately no mutable accessor, so
+  /// the variant arm cannot be changed out from under the merge soundness guard.
+  [[nodiscard]] auto analysis() const -> Analysis const & { return analysis_data; }
 
   using EClassBase::add_parent;
   using EClassBase::nodes;

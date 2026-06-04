@@ -60,4 +60,14 @@
   EGRAPH_BINARY_SYMBOLS(X)    \
   EGRAPH_SPECIAL_SYMBOLS(X)
 
+// Kind partition, orthogonal to the arity lists above: symbols whose e-class
+// denotes a row stream rather than a value or a binding. Selects the analysis
+// arm (OperatorAnalysis). Append new pipeline operators here as they land.
+#define EGRAPH_OPERATOR_SYMBOLS(X) \
+  X(Once)                          \
+  X(Bind)                          \
+  X(Output)                        \
+  X(Unwind)                        \
+  X(Subquery)
+
 // NOLINTEND(cppcoreguidelines-macro-usage)
