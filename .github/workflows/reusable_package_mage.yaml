@@ -465,7 +465,7 @@ jobs:
             tar -xzf mage/mage-debug.tar.gz -C "$DBG_DIR"
           fi
 
-          manifest_url="s3://deps.memgraph.io/${{ inputs.s3_dest_dir }}/debug-symbols-manifest-${ARTIFACT_NAME}.tsv"
+          manifest_url="s3://deps.memgraph.io/${S3_DEST_DIR}/debug-symbols-manifest-${ARTIFACT_NAME}.tsv"
           bash tools/ci/upload-debug-symbols.sh "$DBG_DIR" \
             --manifest-s3-url "$manifest_url"
           rm -rf "$DBG_DIR"
