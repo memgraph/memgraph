@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <utility>
 
 #include "query/plan_v2/egraph/symbol_lists.hpp"
@@ -21,6 +22,14 @@
 import memgraph.planner.core.typed_egraph;
 
 namespace memgraph::query::plan::v2 {
+
+/// Side-data for a Symbol e-node: the variable's name and its source
+/// `token_position` (-1 when absent). The token position lets the result-header
+/// path recover an unaliased column's source text from the stripped query.
+struct SymbolInfo {
+  std::string name;
+  int64_t token_position{-1};
+};
 
 /// The `symbol` enum: one entry per X-list row in symbol_lists.hpp.
 /// Adding a symbol = adding an X-list entry; arity, descriptor, and

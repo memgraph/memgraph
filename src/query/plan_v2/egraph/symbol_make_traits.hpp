@@ -91,10 +91,10 @@ struct symbol_make_traits<symbol::Once> {
 template <>
 struct symbol_make_traits<symbol::Symbol> {
   struct storage_type {
-    std::map<int32_t, std::string> store;
+    std::map<int32_t, SymbolInfo> store;
   };
 
-  static auto make(storage_type &s, int32_t pos, std::string_view name) -> seeded_node;
+  static auto make(storage_type &s, int32_t pos, std::string_view name, int64_t token_position = -1) -> seeded_node;
 };
 
 /// Literal: the value is interned and its id is the disambiguator; the Builder
