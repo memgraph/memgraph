@@ -179,7 +179,7 @@ class ExprLowering : public ExpressionVisitor<void> {
   }
 
   // NOLINTBEGIN(cppcoreguidelines-macro-usage, bugprone-macro-parentheses)
-#define MG_VISIT_BINARY(Name, AstOp)          \
+#define MG_VISIT_BINARY(Name, AstOp, ...)     \
   void Visit(AstOp &op) override {            \
     auto lhs = Lower(ctx_, *op.expression1_); \
     auto rhs = Lower(ctx_, *op.expression2_); \
@@ -188,7 +188,7 @@ class ExprLowering : public ExpressionVisitor<void> {
   EGRAPH_BINARY_OPS(MG_VISIT_BINARY)
 #undef MG_VISIT_BINARY
 
-#define MG_VISIT_UNARY(Name, AstOp)              \
+#define MG_VISIT_UNARY(Name, AstOp, ...)         \
   void Visit(AstOp &op) override {               \
     auto operand = Lower(ctx_, *op.expression_); \
     result_ = ctx_.g.Make##Name(operand);        \
