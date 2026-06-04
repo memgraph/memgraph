@@ -28,6 +28,13 @@ namespace unwind {
 inline constexpr std::size_t input = 0, sym = 1, list = 2;
 }
 
+// Dead Unwind elides the sym binding but still evaluates the list (for its
+// length), so its resolved children are the densely-packed [input, list] -
+// distinct from the alive [input, sym, list] above.
+namespace unwind_dead {
+inline constexpr std::size_t input = 0, list = 1;
+}
+
 namespace identifier {
 inline constexpr std::size_t sym = 0;
 }
