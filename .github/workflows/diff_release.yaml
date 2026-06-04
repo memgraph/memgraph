@@ -43,7 +43,7 @@ on:
 
 env:
   ARCH: ${{ inputs.arch }}
-  BUILD_TYPE: 'Release'
+  BUILD_TYPE: 'RelWithDebInfo'
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
@@ -99,6 +99,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph \
+          --split-debug \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -243,6 +244,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph \
+          --split-debug \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -481,6 +483,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph \
+          --split-debug \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -611,6 +614,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph \
+          --split-debug \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -762,6 +766,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph \
+          --split-debug \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD

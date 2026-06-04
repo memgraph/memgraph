@@ -45,7 +45,8 @@ docker exec -i -u root $CONTAINER_NAME bash -c "apt-get update && apt-get instal
 
 docker exec -i -u mg $CONTAINER_NAME bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-deb.sh $ARCH $BUILD_TYPE $VERSION $MALLOC $CUDA"
 
-package_name="$(docker exec -i -u mg $CONTAINER_NAME bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb")"
 mkdir -pv output
-docker cp $CONTAINER_NAME:$package_name output/
-echo "Package: $package_name"
+for path in $(docker exec -i -u mg $CONTAINER_NAME bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb"); do
+  docker cp $CONTAINER_NAME:$path output/
+  echo "Package: $path"
+done

@@ -41,7 +41,6 @@ class PackageSetup:
         return self._package_suite
 
     def _get_default_package_suite(self, value: bool) -> None:
-        # Define all the package targets that can be controlled via PR labels
         self._package_suite = {
             "centos-9": value,
             "centos-10": value,
@@ -49,8 +48,6 @@ class PackageSetup:
             "debian-12-arm": value,
             "debian-13": value,
             "debian-13-arm": value,
-            "docker": value,
-            "docker-arm": value,
             "fedora-42": value,
             "fedora-42-arm": value,
             "rocky-10": value,
@@ -59,6 +56,9 @@ class PackageSetup:
             "ubuntu-24.04-arm": value,
             "ubuntu-24.04-malloc": value,
         }
+        self._build_docker_image_amd = "none"
+        self._build_docker_image_arm = "none"
+        self._build_docker_image_malloc = "none"
 
     def _check_pr_label(self, package: str, pr_labels: list) -> bool:
         if f"CI -package={package}" in pr_labels:
@@ -70,6 +70,12 @@ class PackageSetup:
         print(f"PR labels: {pr_labels}")
         for package in self._package_suite.keys():
             self._package_suite[package] = self._check_pr_label(package, pr_labels)
+        if self._check_pr_label("docker", pr_labels):
+            self._package_suite["ubuntu-24.04"] = True
+            self._build_docker_image_amd = "prod"
+        if self._check_pr_label("docker-arm", pr_labels):
+            self._package_suite["ubuntu-24.04-arm"] = True
+            self._build_docker_image_arm = "prod"
 
     def _check_workflow_input(self, package: str, workflow_dispatch_inputs: dict) -> bool:
         # For workflow_dispatch, check if the OS input matches the package
@@ -81,12 +87,10 @@ class PackageSetup:
     def get_workflow_inputs(self) -> dict:
         """Get the workflow inputs for passing to reusable workflows"""
         if self._get_event_name() == "workflow_dispatch":
-            inputs = self._get_workflow_dispatch_inputs()
-            return inputs
+            inputs = dict(self._get_workflow_dispatch_inputs())
         else:
             # For pull_request events, return default values
-            return {
-                "build_type": "Release",
+            inputs = {
                 "push_to_s3": "false",
                 "s3_dest_dir": "",
                 "push_to_github": "false",
@@ -94,12 +98,21 @@ class PackageSetup:
                 "generate_sbom": "false",
                 "run_smoke_tests": "true",
             }
+        inputs.pop("build_docker_image", None)
+        inputs["build_docker_image_amd"] = self._build_docker_image_amd
+        inputs["build_docker_image_arm"] = self._build_docker_image_arm
+        inputs["build_docker_image_malloc"] = self._build_docker_image_malloc
+        return inputs
 
     def _setup_workflow_dispatch(self) -> None:
         workflow_dispatch_inputs = self._get_workflow_dispatch_inputs()
         print(f"Workflow dispatch inputs: {workflow_dispatch_inputs}")
         for package in self._package_suite.keys():
             self._package_suite[package] = self._check_workflow_input(package, workflow_dispatch_inputs)
+        build_docker_image = workflow_dispatch_inputs.get("build_docker_image") or "none"
+        self._build_docker_image_amd = build_docker_image
+        self._build_docker_image_arm = build_docker_image
+        self._build_docker_image_malloc = build_docker_image
 
     def setup_package_workflow(self) -> None:
         event_name = self._get_event_name()

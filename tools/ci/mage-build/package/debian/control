@@ -12,3 +12,15 @@ Depends: ${misc:Depends}, memgraph, libcurl4, libpython3.12, openssl, python3, p
 Description: Extra query modules for Memgraph
  Additional query modules for Memgraph, installed under
  /usr/lib/memgraph/query_modules/.
+
+Package: memgraph-mage-debuginfo
+Architecture: @ARCH@
+Section: debug
+Priority: optional
+Depends: ${misc:Depends}, memgraph-mage (= ${binary:Version})
+Description: Debug symbols for memgraph-mage
+ Sidecar .debug files for the MAGE query modules, produced by
+ objcopy --only-keep-debug at build time. Install alongside
+ memgraph-mage for symbolicated stack traces; gdb auto-locates
+ each .debug file via .gnu_debuglink next to the corresponding
+ .so.

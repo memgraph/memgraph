@@ -9,8 +9,6 @@ disallow_in_source_build()
 find_package(fmt REQUIRED)
 find_package(Boost REQUIRED CONFIG)
 
-# Everything that is installed here, should be under the "query_modules" component.
-set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "query_modules")
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 function(add_post_build_strip_in_release target build_type_var)
@@ -35,6 +33,7 @@ function(add_custom_library NAME SRC)
 
     # Apply post-build strip in release mode
     add_post_build_strip_in_release(${NAME} CMAKE_BUILD_TYPE)
+    mg_split_debug(${NAME} INSTALL_DESTINATION lib/memgraph/query_modules)
 
     set_target_properties(${NAME} PROPERTIES
         PREFIX ""
@@ -69,6 +68,7 @@ function(add_query_module target_name version src)
   target_compile_options(${target_name} PRIVATE -Wall)
 
   add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
+  mg_split_debug(${target_name} INSTALL_DESTINATION lib/memgraph/query_modules)
 
   set_target_properties(${target_name} PROPERTIES
       PREFIX "" # remove "lib" prefix
@@ -125,7 +125,9 @@ mg_add_stamped_custom_target(copy_mage_python_query_modules ALL
 )
 
 # Install C++ query modules
-install(TARGETS convert convert_c example_c example_cpp schema mgps_cpp text_search vector_search pagerank_online
+install(TARGETS
+    convert convert_c example_c example_cpp schema mgps_cpp
+    text_search vector_search pagerank_online
     community_detection_online katz_centrality_online
     DESTINATION lib/memgraph/query_modules
 )

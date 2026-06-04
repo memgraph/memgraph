@@ -90,7 +90,6 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 
 ENV LD_LIBRARY_PATH=/usr/lib/memgraph/query_modules
 
-# Copy modules
 RUN mkdir -p /usr/lib/memgraph/query_modules/
 RUN --mount=type=bind,source="./mage.tar.gz",target=/mage.tar.gz,ro \
   tar -xzvf /mage.tar.gz -C /usr/lib/memgraph/
@@ -109,6 +108,11 @@ ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR
 
 COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
+
+# Stable telemetry ID for containers — see release/docker/v7_deb.dockerfile
+# for the why. Resolved at runtime by GetMachineId() in
+# src/utils/system_info.cpp so the same memgraph build serves deb and image.
+ENV MEMGRAPH_TELEMETRY_ID=DOCKER
 
 USER memgraph
 EXPOSE 7687
@@ -148,6 +152,18 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
   fi
+
+RUN --mount=type=bind,source="./memgraph-debuginfo.deb",target=/memgraph-debuginfo.deb,ro \
+  dpkg -i /memgraph-debuginfo.deb
+
+# Extract the MAGE .debug sidecars next to their .so files.
+# mage-debug.tar.gz is always produced by compress-query-modules.sh — when
+# there are no sidecars it's a near-empty tarball containing only the
+# query_modules dir entry, so this extract is a no-op in that case.
+# (type=bind requires the file to exist; type=secret would support
+# required=false but bind is correct for the build context here.)
+RUN --mount=type=bind,source="./mage-debug.tar.gz",target=/mage-debug.tar.gz,ro \
+  tar -xzvf /mage-debug.tar.gz -C /usr/lib/memgraph/
 
 # Copy entire mage repo
 COPY --chown=memgraph:memgraph ./ /mage/
