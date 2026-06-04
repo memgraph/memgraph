@@ -237,13 +237,14 @@ struct EGraph : private detail::EGraphBase {
    * @brief Emplace an e-node directly with canonical children
    * @return EmplaceResult - (eclass_id, enode_id, did_insert)
    */
-  auto emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator = 0) -> EmplaceResult;
+  auto emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator = 0,
+               Analysis seed = Analysis{}) -> EmplaceResult;
 
   /**
    * @brief Emplace leaf nodes with optional disambiguator
    * @return EmplaceResult - (eclass_id, enode_id, did_insert)
    */
-  auto emplace(Symbol symbol, uint64_t disambiguator = 0) -> EmplaceResult;
+  auto emplace(Symbol symbol, uint64_t disambiguator = 0, Analysis seed = Analysis{}) -> EmplaceResult;
 
   /**
    * @brief Convenience overload accepting initializer list for children
@@ -252,8 +253,9 @@ struct EGraph : private detail::EGraphBase {
    * Example: egraph.emplace(Symbol::Plus, {a, b})
    * @return EmplaceResult - (eclass_id, enode_id, did_insert)
    */
-  auto emplace(Symbol symbol, std::initializer_list<EClassId> children, uint64_t disambiguator = 0) -> EmplaceResult {
-    return emplace(std::move(symbol), utils::small_vector(children), disambiguator);
+  auto emplace(Symbol symbol, std::initializer_list<EClassId> children, uint64_t disambiguator = 0,
+               Analysis seed = Analysis{}) -> EmplaceResult {
+    return emplace(std::move(symbol), utils::small_vector(children), disambiguator, std::move(seed));
   }
 
   /**
@@ -414,7 +416,7 @@ struct EGraph : private detail::EGraphBase {
 // ========================================================================
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) -> EmplaceResult {
+auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator, Analysis seed) -> EmplaceResult {
   // construct leaf e-node with disambiguator
   auto canonical_node = ENode{std::move(symbol), {}, disambiguator};
 
@@ -430,15 +432,15 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) ->
 
   auto enode_ref = intern_enode(std::move(canonical_node));
   hashcons_[enode_ref] = ENodeInfo{.current_eclassid = new_eclass_id, .enode_id = new_enode_id};
-  classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id));
+  classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id, std::move(seed)));
   canonical_eclasses_.add(new_eclass_id);
 
   return {.eclass_id = new_eclass_id, .enode_id = new_enode_id, .did_insert = true};
 }
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator)
-    -> EmplaceResult {
+auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator,
+                                       Analysis seed) -> EmplaceResult {
   for (auto &child_id : children) {
     child_id = canonical_eclass(union_find_, child_id);
   }
@@ -456,7 +458,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
 
   auto enode_ref = intern_enode(std::move(canonical_node));
   hashcons_[enode_ref] = ENodeInfo{.current_eclassid = new_eclass_id, .enode_id = new_enode_id};
-  classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id));
+  classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id, std::move(seed)));
 
   // Update parent lists for children - ESSENTIAL for congruence closure
   for (EClassId child_id : enode_ref.value().children()) {

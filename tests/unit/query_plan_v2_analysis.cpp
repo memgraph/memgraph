@@ -9,17 +9,23 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Unit tests for the plan_v2 analysis framework: constant-identity equality
-// and the ExpressionAnalysis lattice merge.
+// Unit tests for the plan_v2 analysis framework: constant-identity equality,
+// the ExpressionAnalysis lattice merge, that merge through the real EGraph, and
+// the make half that seeds a new e-class's analysis arm and facts.
 
 #include <gtest/gtest.h>
 
 #include <limits>
 
 #include "query/exceptions.hpp"
+#include "query/plan_v2/egraph/egraph.hpp"
+#include "query/plan_v2/egraph/egraph_internal.hpp"
+#include "query/plan_v2/egraph/symbol.hpp"
 #include "query/plan_v2/resolve/analysis.hpp"
 #include "query/plan_v2/resolve/constant_identity.hpp"
 #include "storage/v2/property_value.hpp"
+
+import memgraph.planner.core.egraph;
 
 namespace memgraph::query::plan::v2 {
 namespace {
@@ -105,6 +111,75 @@ TEST(AnalysisMerge, AgreeingConstantsAreKept) {
   auto const &e = std::get<ExpressionAnalysis>(lhs);
   ASSERT_TRUE(e.known_constant_value.has_value());
   EXPECT_TRUE(ConstantIdentityEq{}(*e.known_constant_value, ExternalPropertyValue{int64_t{42}}));
+}
+
+// --- Merge through the real EGraph ------------------------------------------
+// The seam between core::EClass and the analysis lattice: a seeded e-class
+// carries its arm and facts into the e-graph, and EGraph::merge combines them.
+
+using planner::core::EClassId;
+using planner::core::EGraph;
+
+TEST(EGraphAnalysisMerge, CrossKindThrowsThroughMerge) {
+  EGraph<symbol, analysis> g;
+  auto const expr = g.emplace(symbol::Literal, 0, analysis{ExpressionAnalysis{}});
+  auto const op = g.emplace(symbol::Once, 0, analysis{OperatorAnalysis{}});
+  EXPECT_THROW(g.merge(expr.eclass_id, op.eclass_id), PlannerBug);
+}
+
+TEST(EGraphAnalysisMerge, ConflictingConstantsThrowThroughMerge) {
+  EGraph<symbol, analysis> g;
+  auto const a = g.emplace(
+      symbol::Literal, 0, analysis{ExpressionAnalysis{.known_constant_value = ExternalPropertyValue{int64_t{5}}}});
+  auto const b = g.emplace(
+      symbol::Literal, 1, analysis{ExpressionAnalysis{.known_constant_value = ExternalPropertyValue{int64_t{6}}}});
+  EXPECT_THROW(g.merge(a.eclass_id, b.eclass_id), PlannerBug);
+}
+
+TEST(EGraphAnalysisMerge, AgreeingConstantSurvivesMerge) {
+  EGraph<symbol, analysis> g;
+  auto const a = g.emplace(
+      symbol::Literal, 0, analysis{ExpressionAnalysis{.known_constant_value = ExternalPropertyValue{int64_t{42}}}});
+  auto const b = g.emplace(
+      symbol::Literal, 1, analysis{ExpressionAnalysis{.known_constant_value = ExternalPropertyValue{int64_t{42}}}});
+  auto const merged = g.merge(a.eclass_id, b.eclass_id);
+  auto const &e = std::get<ExpressionAnalysis>(g.eclass(merged.eclass_id).analysis());
+  ASSERT_TRUE(e.known_constant_value.has_value());
+  EXPECT_TRUE(ConstantIdentityEq{}(*e.known_constant_value, ExternalPropertyValue{int64_t{42}}));
+}
+
+// --- Make seeds the analysis arm (and Literal's constant) -------------------
+// The make half: each symbol's make() attaches the arm for its kind, and
+// Literal additionally carries its value as known_constant_value.
+
+auto AnalysisOf(egraph const &eg, eclass e) -> analysis const & {
+  auto const &core = impl_of(eg).graph.core();
+  return core.eclass(core.find(EClassId{e.value_of()})).analysis();
+}
+
+TEST(MakeSeedsAnalysis, LiteralCarriesConstant) {
+  egraph eg;
+  auto const lit = eg.MakeLiteral(ExternalPropertyValue{int64_t{7}});
+  auto const &e = std::get<ExpressionAnalysis>(AnalysisOf(eg, lit));
+  ASSERT_TRUE(e.known_constant_value.has_value());
+  EXPECT_TRUE(ConstantIdentityEq{}(*e.known_constant_value, ExternalPropertyValue{int64_t{7}}));
+}
+
+TEST(MakeSeedsAnalysis, OperatorSymbolGetsOperatorArm) {
+  egraph eg;
+  EXPECT_TRUE(std::holds_alternative<OperatorAnalysis>(AnalysisOf(eg, eg.MakeOnce())));
+}
+
+TEST(MakeSeedsAnalysis, SymbolGetsSymbolArm) {
+  egraph eg;
+  EXPECT_TRUE(std::holds_alternative<SymbolAnalysis>(AnalysisOf(eg, eg.MakeSymbol(0, "x"))));
+}
+
+TEST(MakeSeedsAnalysis, NamedOutputIsExpressionArm) {
+  egraph eg;
+  auto const sym = eg.MakeSymbol(0, "x");
+  auto const expr = eg.MakeLiteral(ExternalPropertyValue{int64_t{1}});
+  EXPECT_TRUE(std::holds_alternative<ExpressionAnalysis>(AnalysisOf(eg, eg.MakeNamedOutput("x", sym, expr))));
 }
 
 }  // namespace
