@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -33,14 +34,12 @@ namespace memgraph::memory {
 // that extent hook callbacks can cast `extent_hooks_t *` → `DbArenaHooks *`.
 struct DbArenaHooks {
   extent_hooks_t hooks;  // must be first
-  // Per-DB tracker, fed by extent events. A plain pointer is sufficient: it is
-  // written exactly once (InitDbArenaHooks) before the hooks are published to
-  // jemalloc via mallctl, and is only read from extent callbacks while the
-  // hooks are installed on some arena. Teardown is serialised by jemalloc
-  // itself: extent_hooks_set swaps hooks under the arena's background-thread
-  // mutex — the same mutex the background thread holds while invoking hooks —
-  // so after a successful restore no thread can be executing these callbacks.
-  utils::MemoryTracker *tracker;
+  // Written once (relaxed) before hooks are published via mallctl; jemalloc's
+  // RELEASE store of extent_hooks orders it against callback loads, so relaxed
+  // suffices for the success path. Nulled (relaxed) only on the hook-restore-
+  // failure path in ~ArenaPool where no jemalloc mutex serialises — atomic only
+  // to keep that defensive store race-free, never a synchronisation point.
+  std::atomic<utils::MemoryTracker *> tracker;
   extent_hooks_t *base_hooks;  // default jemalloc hooks (called through)
 };
 
@@ -88,18 +87,9 @@ class ArenaPool {
 
  private:
 #if USE_JEMALLOC
-  // Heap-allocated so its address is stable for jemalloc and, critically,
-  // so that it can outlive ~ArenaPool() on the unhook-failure path. We
-  // install `&hooks_->hooks` on each jemalloc arena via mallctl; jemalloc
-  // can still invoke this hook from tcache flush / decay long after
-  // ~ArenaPool() returns. On the happy path the unique_ptr destructs
-  // normally — by then we've already restored the default extent hooks on
-  // every arena, so no callback can reach this struct. On the failure path
-  // (mallctl fails to swap hooks back), ~ArenaPool() calls
-  // `(void)hooks_.release()` to intentionally leak this struct (~64 B per
-  // failed restore) so any retained jemalloc reference stays valid for the
-  // process lifetime. The arena is also abandoned (not returned to
-  // GlobalArenaPool), so this leak is bounded.
+  // Heap-allocated for stable address; &hooks_->hooks is installed on jemalloc arenas via mallctl.
+  // On failed hook restore, ~ArenaPool leaks this struct (~64 B) so any retained jemalloc reference
+  // stays valid for the process lifetime. The arena is abandoned, so the leak is bounded.
   std::unique_ptr<DbArenaHooks> hooks_;
 
   // Protects arenas_, free_count_, and first_arena_use_count_.
@@ -124,26 +114,12 @@ class ArenaPool {
 
 #if USE_JEMALLOC
 
-// Ensure every CPU id that sched_getcpu() can return resolves to an arena that
-// is NOT a per-DB arena.
-//
-// Under percpu_arena, jemalloc binds a thread to arenas[sched_getcpu()] with no
-// clamp (percpu_arena_choose). jemalloc sizes the automatic range from the
-// number of ONLINE CPUs, but sched_getcpu() can return any id below the number
-// of POSSIBLE CPUs (sparse online sets: offlined cores, cgroups, NUMA, VM
-// hotplug headroom; cf. jemalloc#2054). A thread on such an overflow CPU would
-// bind to whatever arena owns that index — which is exactly where per-DB
-// arenas (arenas.create) live — and later free through the per-DB extent hooks
-// after the owning Database is destroyed (shutdown use-after-free).
-//
-// Fix: before any per-DB arena is created, append plain "sacrificial" arenas
-// (default hooks, never destroyed, process lifetime) until the arena index
-// space covers every possible CPU id. Overflow CPUs then get a dedicated
-// 1:1 arena, and per-DB arenas land at indices no CPU id can ever reach.
-//
-// Returns the indices of the sacrificial arenas created (empty when the
-// automatic range already covers all possible CPU ids, or percpu_arena is
-// disabled). Thread-safe and idempotent; the first caller does the work.
+// Ensure every CPU id sched_getcpu() can return resolves to an arena that is NOT a per-DB arena.
+// percpu_arena binds threads to arenas[sched_getcpu()] with no clamp; sched_getcpu can return ids
+// above the online-CPU-derived automatic range (jemalloc#2054). A thread on an overflow CPU would
+// bind a per-DB arena → shutdown UAF. Fix: create sacrificial arenas (default hooks, process
+// lifetime) until per-DB indices exceed every possible CPU id. Idempotent, thread-safe.
+// Returns the sacrificial arena indices created (empty if percpu_arena is disabled or already covered).
 const std::vector<unsigned> &EnsureCpuArenaCoverage();
 
 // Populate a DbArenaHooks struct so it can be installed on any jemalloc arena.

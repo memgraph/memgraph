@@ -57,10 +57,8 @@ bool ConsumeFailureInjection(testing::ArenaPoolFailureInjection failure) {
 void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t alignment, bool *zero, bool *commit,
                      unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
-  // tracker is null only for a hooks struct leaked on the (unreachable in
-  // practice) hook-restore-failure path; in that case skip tracking but still
-  // proxy to the base jemalloc hooks.
-  auto *tracker = dh->tracker;
+  // null only if hooks_ was leaked on the hook-restore-failure path; skip tracking, still proxy to base hooks.
+  auto *tracker = dh->tracker.load(std::memory_order_relaxed);
   const bool requested_commit = *commit;
   // Pre-track if commit was requested (mandatory — base hook must return committed or fail).
   if (requested_commit) {
@@ -85,7 +83,7 @@ void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t 
 
 bool db_arena_dalloc(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
-  auto *tracker = dh->tracker;
+  auto *tracker = dh->tracker.load(std::memory_order_relaxed);
   const bool err = dh->base_hooks->dalloc(dh->base_hooks, addr, size, committed, arena_ind);
   if (!err && committed) {
     if (tracker) tracker->Free(static_cast<int64_t>(size));
@@ -95,7 +93,7 @@ bool db_arena_dalloc(extent_hooks_t *hooks, void *addr, size_t size, bool commit
 
 void db_arena_destroy(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
-  auto *tracker = dh->tracker;
+  auto *tracker = dh->tracker.load(std::memory_order_relaxed);
   if (committed) {
     if (tracker) tracker->Free(static_cast<int64_t>(size));
   }
@@ -104,7 +102,7 @@ void db_arena_destroy(extent_hooks_t *hooks, void *addr, size_t size, bool commi
 
 bool db_arena_commit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
-  auto *tracker = dh->tracker;
+  auto *tracker = dh->tracker.load(std::memory_order_relaxed);
   const bool err = dh->base_hooks->commit(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
     if (tracker) {
@@ -122,7 +120,7 @@ bool db_arena_commit(extent_hooks_t *hooks, void *addr, size_t size, size_t offs
 bool db_arena_decommit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
                        unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
-  auto *tracker = dh->tracker;
+  auto *tracker = dh->tracker.load(std::memory_order_relaxed);
   const bool err = dh->base_hooks->decommit(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
     if (tracker) tracker->Free(static_cast<int64_t>(length));
@@ -133,7 +131,7 @@ bool db_arena_decommit(extent_hooks_t *hooks, void *addr, size_t size, size_t of
 bool db_arena_purge_forced(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
                            unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
-  auto *tracker = dh->tracker;
+  auto *tracker = dh->tracker.load(std::memory_order_relaxed);
   if (dh->base_hooks->purge_forced == nullptr) return true;
   const bool err = dh->base_hooks->purge_forced(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
@@ -210,9 +208,8 @@ const std::vector<unsigned> &EnsureCpuArenaCoverage() {
 }
 
 void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hooks_t *base_hooks) {
-  // Runs before the hooks are installed (published) via je_mallctl, whose arena
-  // mutexes order this write before any callback can read it.
-  h.tracker = tracker;
+  // Publish ordering comes from jemalloc's RELEASE store of extent_hooks at mallctl install time.
+  h.tracker.store(tracker, std::memory_order_relaxed);
   h.base_hooks = base_hooks;
   h.hooks = extent_hooks_t{
       .alloc = &db_arena_alloc,
@@ -244,8 +241,7 @@ void LogDestructorCleanupFailure(std::string_view owner, unsigned arena_idx, std
 }
 
 bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_view error_context) {
-  const std::string arena_key = "arena." + std::to_string(arena_idx);
-  const std::string hooks_key = arena_key + ".extent_hooks";
+  const std::string hooks_key = fmt::format("arena.{}.extent_hooks", arena_idx);
 
   extent_hooks_t *base_hooks = nullptr;
   size_t hooks_sz = sizeof(extent_hooks_t *);
@@ -314,8 +310,7 @@ ArenaPool::ArenaPool(utils::MemoryTracker *tracker) {
     throw std::runtime_error("Injected ArenaPool constructor publish failure");
   }
 
-  const std::string arena_key = "arena." + std::to_string(first_arena_idx_);
-  const std::string hooks_key = arena_key + ".extent_hooks";
+  const std::string hooks_key = fmt::format("arena.{}.extent_hooks", first_arena_idx_);
 
   extent_hooks_t *base_hooks = nullptr;
   size_t hooks_sz = sizeof(extent_hooks_t *);
@@ -359,18 +354,17 @@ ArenaPool::~ArenaPool() noexcept {
     // `hooks_->base_hooks` read.
     bool restore_failed = false;
     for (const auto arena_idx : arenas_) {
-      const std::string arena_key = "arena." + std::to_string(arena_idx);
-
       // Purge all dirty/muzzy pages back to the OS FIRST, while our custom hooks are
       // still installed.
-      if (int perr = je_mallctl((arena_key + ".purge").c_str(), nullptr, nullptr, nullptr, 0); perr != 0) {
+      if (int perr = je_mallctl(fmt::format("arena.{}.purge", arena_idx).c_str(), nullptr, nullptr, nullptr, 0);
+          perr != 0) {
         spdlog::error(
             "ArenaPool {}: purge failed (err={}); MemoryTracker may drift before hook restore", arena_idx, perr);
       }
 
       // Restore the default hooks AFTER purging
       const extent_hooks_t *base = hooks_->base_hooks;
-      int err = je_mallctl((arena_key + ".extent_hooks").c_str(),
+      int err = je_mallctl(fmt::format("arena.{}.extent_hooks", arena_idx).c_str(),
                            nullptr,
                            nullptr,
                            static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
@@ -397,16 +391,14 @@ ArenaPool::~ArenaPool() noexcept {
     }
 
     if (restore_failed) {
-      // Defense in depth for a path that cannot occur in practice: restoring
-      // hooks is a mallctl write on a live arena index, which jemalloc only
-      // rejects for an invalid/unknown index. If it ever does fail, the arena
-      // keeps these hooks installed, so keep the struct alive (intentional
-      // leak) and null the tracker best-effort so late background-thread
-      // callbacks become no-ops instead of touching the tracker after the
-      // Database (which owns it) is destroyed.
+      // Defense in depth: the only realistic trigger is arenas[ind] nulled by arena.<i>.destroy
+      // (jemalloc 5.2.1 ctl.c) — Memgraph never calls it. If it ever fires, the arena keeps our
+      // hooks, so leak
+      // hooks_ (~64 B) and null the tracker so late background-thread callbacks no-op instead of
+      // touching the destroyed Database's tracker.
       if (hooks_) {
-        hooks_->tracker = nullptr;
-        (void)hooks_.release();  // NOLINT(bugprone-unused-return-value)
+        hooks_->tracker.store(nullptr, std::memory_order_relaxed);
+        [[maybe_unused]] auto *leaked = hooks_.release();
       }
     }
   } catch (const std::exception &e) {
@@ -497,13 +489,12 @@ void ArenaPool::PurgeAllArenas() const {
   std::vector<unsigned> arena_indices;
   {
     const std::lock_guard<std::mutex> lock(arena_mux_);
-    arena_indices.reserve(arenas_.size());
     arena_indices = arenas_;
   }
 
   for (const auto arena_idx : arena_indices) {
     if (arena_idx == 0) continue;
-    je_mallctl(("arena." + std::to_string(arena_idx) + ".purge").c_str(), nullptr, nullptr, nullptr, 0);
+    je_mallctl(fmt::format("arena.{}.purge", arena_idx).c_str(), nullptr, nullptr, nullptr, 0);
   }
 }
 
