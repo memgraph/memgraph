@@ -11,10 +11,17 @@
 
 #include "query/plan_v2/rewrite/rewrites.hpp"
 
+#include <array>
+#include <span>
+#include <string>
+
 #include "planner/rewrite/rewriter.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
+#include "query/plan_v2/rewrite/fold.hpp"
 
 namespace memgraph::query::plan::v2 {
+
+using planner::core::EClassId;
 
 // Pattern types
 using planner::core::pattern::Match;
@@ -38,39 +45,94 @@ struct InlineRule {
   static constexpr PatternVar kExpr{1};   // ?expr in Bind(_, ?sym, ?expr)
   static constexpr PatternVar kIdent{2};  // Binding for Identifier root e-class
 
-  static auto Make() -> RewriteRule<symbol, analysis> {
+  static auto Make() -> RewriteRule<symbol, analysis, typed_egraph> {
     auto bind_pattern = Pattern<symbol>::build(Bind, {Wildcard{}, Var{kSym}, Var{kExpr}});
     auto ident_pattern = Pattern<symbol>::build(kIdent, Identifier, {BoundSym(kSym, Symbol)});
 
-    return RewriteRule<symbol, analysis>::Builder{"inline"}
+    return RewriteRule<symbol, analysis, typed_egraph>::Builder{"inline"}
         .pattern(std::move(bind_pattern), "Bind")
         .pattern(std::move(ident_pattern), "Identifier")
-        .apply([](RuleContext<symbol, analysis> &ctx, Match const &match) { ctx.merge(match[kIdent], match[kExpr]); });
+        .apply([](RuleContext<symbol, analysis, typed_egraph> &ctx, Match const &match) {
+          ctx.merge(match[kIdent], match[kExpr]);
+        });
   }
 };
 
+/// Constant-fold rule: for an operator e-node whose operand e-classes all carry
+/// a `known_constant_value`, evaluate it and merge the e-class with a freshly
+/// interned result Literal. Fact-gated per ADR-0018 - constant-ness is read
+/// from analysis, never sniffed off a `Literal` e-node - so it composes under
+/// saturation: a folded operand seeds its e-class's constant, which lets the
+/// enclosing operator fold on the next pass.
 namespace {
+
+using FoldCtx = RuleContext<symbol, analysis, typed_egraph>;
+
+constexpr PatternVar kFoldRoot{0};
+constexpr PatternVar kFoldArg0{1};
+constexpr PatternVar kFoldArg1{2};
+
+/// If every operand e-class is a known constant, evaluate `op` over them and
+/// merge `root` with the interned result. A non-constant operand or an
+/// evaluation that declines (runtime error, non-scalar) leaves `root` alone.
+void TryFold(FoldCtx &ctx, symbol op, EClassId root, std::span<EClassId const> operand_classes) {
+  std::array<storage::ExternalPropertyValue, 2> operands;
+  std::size_t n = 0;
+  for (auto cls : operand_classes) {
+    auto const *expr = std::get_if<ExpressionAnalysis>(&ctx.analysis(cls));
+    if (expr == nullptr || !expr->known_constant_value) return;
+    operands[n++] = *expr->known_constant_value;
+  }
+  auto const result = FoldConstant(op, std::span{operands.data(), n});
+  if (!result) return;
+  ctx.merge(root, ctx.Make<Literal>(*result));
+}
+
+template <symbol Op>
+auto MakeBinaryFoldRule() -> RewriteRule<symbol, analysis, typed_egraph> {
+  return RewriteRule<symbol, analysis, typed_egraph>::Builder{"fold"}
+      .pattern(Pattern<symbol>::build(kFoldRoot, Op, {Var{kFoldArg0}, Var{kFoldArg1}}))
+      .apply([](FoldCtx &ctx, Match const &match) {
+        EClassId const operands[] = {match[kFoldArg0], match[kFoldArg1]};
+        TryFold(ctx, Op, match[kFoldRoot], operands);
+      });
+}
+
+template <symbol Op>
+auto MakeUnaryFoldRule() -> RewriteRule<symbol, analysis, typed_egraph> {
+  return RewriteRule<symbol, analysis, typed_egraph>::Builder{"fold"}
+      .pattern(Pattern<symbol>::build(kFoldRoot, Op, {Var{kFoldArg0}}))
+      .apply([](FoldCtx &ctx, Match const &match) {
+        EClassId const operands[] = {match[kFoldArg0]};
+        TryFold(ctx, Op, match[kFoldRoot], operands);
+      });
+}
+
 /// Singleton for default plan_v2 rewrite rules
-auto DefaultRules() -> RuleSet<symbol, analysis> const & {
-  static auto const rules = RuleSet<symbol, analysis>::Build(InlineRule::Make());
+auto DefaultRules() -> RuleSet<symbol, analysis, typed_egraph> const & {
+  static auto const rules = [] {
+    RuleSet<symbol, analysis, typed_egraph>::Builder builder;
+    builder.add_rule(InlineRule::Make());
+#define MG_ADD_BINARY_FOLD(Name, ...) builder.add_rule(MakeBinaryFoldRule<symbol::Name>());
+    EGRAPH_BINARY_OPS(MG_ADD_BINARY_FOLD)
+#undef MG_ADD_BINARY_FOLD
+#define MG_ADD_UNARY_FOLD(Name, ...) builder.add_rule(MakeUnaryFoldRule<symbol::Name>());
+    EGRAPH_UNARY_OPS(MG_ADD_UNARY_FOLD)
+#undef MG_ADD_UNARY_FOLD
+    return builder.build();
+  }();
   return rules;
 }
 }  // namespace
 
 // Public API: creates its own rewriter for standalone use
 auto ApplyInlineRewrite(egraph &eg) -> std::size_t {
-  auto &impl = impl_of(eg);
-  auto &core_egraph = impl.graph.core();
-
   // Single iteration - not full saturation
-  return Rewriter(core_egraph, DefaultRules()).iterate_once();
+  return Rewriter(impl_of(eg).graph, DefaultRules()).iterate_once();
 }
 
 auto ApplyAllRewrites(egraph &eg, RewriteConfig const &config) -> RewriteResult {
-  auto &impl = impl_of(eg);
-  auto &core_egraph = impl.graph.core();
-
-  return Rewriter(core_egraph, DefaultRules()).saturate(config);
+  return Rewriter(impl_of(eg).graph, DefaultRules()).saturate(config);
 }
 
 }  // namespace memgraph::query::plan::v2
