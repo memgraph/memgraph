@@ -11,6 +11,7 @@
 
 #include "query/plan_v2/frontend/ast_converter.hpp"
 
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -128,7 +129,6 @@ auto SymEclassFor(LoweringCtx &ctx, AstNode &node) -> eclass {
   X(ListSlicingOperator)     \
   X(IfOperator)              \
   X(IsNullOperator)          \
-  X(ListLiteral)             \
   X(MapLiteral)              \
   X(MapProjectionLiteral)    \
   X(PropertyLookup)          \
@@ -153,6 +153,25 @@ auto SymEclassFor(LoweringCtx &ctx, AstNode &node) -> eclass {
 
 auto Lower(LoweringCtx &ctx, Expression &expr) -> eclass;
 
+// The constant value an expression denotes, or nullopt if any part is not a
+// compile-time constant. A `PrimitiveLiteral` carries its value directly; a
+// `ListLiteral` is constant exactly when every element is, so this recurses and
+// nested constant lists fold too.
+auto ConstantValueOf(Expression &expr) -> std::optional<storage::ExternalPropertyValue> {
+  if (auto *primitive = utils::Downcast<PrimitiveLiteral>(&expr)) return primitive->value_;
+  if (auto *list = utils::Downcast<ListLiteral>(&expr)) {
+    std::vector<storage::ExternalPropertyValue> values;
+    values.reserve(list->elements_.size());
+    for (auto *element : list->elements_) {
+      auto value = ConstantValueOf(*element);
+      if (!value) return std::nullopt;
+      values.push_back(std::move(*value));
+    }
+    return storage::ExternalPropertyValue{std::move(values)};
+  }
+  return std::nullopt;
+}
+
 // Slot-pattern visitor over ExpressionVisitor<void>: each Visit override
 // assigns result_, which the free Lower() reads after Accept returns.
 class ExprLowering : public ExpressionVisitor<void> {
@@ -169,6 +188,15 @@ class ExprLowering : public ExpressionVisitor<void> {
     auto frame = ctx_.OpenScratch();
     for (auto *arg : function.arguments_) frame.push(Lower(ctx_, *arg));
     result_ = ctx_.g.MakeFunction(function.function_name_, frame.as_span());
+  }
+
+  // A list whose elements are all (recursively) constant has a value known at
+  // lowering time, so it lowers to a single folded list Literal. A non-constant
+  // element needs the runtime list-construction node we don't model yet.
+  void Visit(ListLiteral &list) override {
+    auto value = ConstantValueOf(list);
+    if (!value) ThrowNotImplementedYet("ListLiteral with a non-constant element");
+    result_ = ctx_.g.MakeLiteral(*value);
   }
 
   void Visit(NamedExpression & /*unused*/) override {
