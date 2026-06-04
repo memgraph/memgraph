@@ -82,6 +82,7 @@ bool ReadWriteTypeChecker::PreVisit(Union &op) {
 }
 
 PRE_VISIT(Unwind, RWType::NONE, true)
+PRE_VISIT(CardinalityScale, RWType::NONE, true)
 
 bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
   if (op.is_write_) {

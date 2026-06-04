@@ -92,6 +92,7 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   bool PreVisit(Union &) override;
 
   bool PreVisit(Unwind &) override;
+  bool PreVisit(CardinalityScale &) override;
   bool PreVisit(CallProcedure &) override;
   bool PreVisit(Foreach &) override;
 

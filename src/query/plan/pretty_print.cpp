@@ -323,6 +323,7 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Union & /*unused*/) override;
 
   bool PreVisit(Unwind & /*unused*/) override;
+  bool PreVisit(CardinalityScale & /*unused*/) override;
   bool PreVisit(Foreach & /*unused*/) override;
   bool PreVisit(CallProcedure & /*unused*/) override;
   bool PreVisit(LoadCsv & /*unused*/) override;
@@ -492,6 +493,7 @@ bool PlanPrinter::PreVisit(query::plan::Optional &op) {
 }
 
 PRE_VISIT(Unwind);
+PRE_VISIT(CardinalityScale);
 PRE_VISIT(Distinct);
 
 bool PlanPrinter::PreVisit(query::plan::Union &op) {
@@ -1395,6 +1397,18 @@ bool PlanToJsonVisitor::PreVisit(Unwind &op) {
   self["name"] = "Unwind";
   self["output_symbol"] = ToJson(op.output_symbol_);
   self["input_expression"] = ToJson(op.input_expression_, *dba_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(CardinalityScale &op) {
+  json self;
+  self["name"] = "CardinalityScale";
+  self["list_expression"] = ToJson(op.list_expression_, *dba_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

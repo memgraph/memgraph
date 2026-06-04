@@ -155,6 +155,7 @@ class OrderBy;
 class Merge;
 class Optional;
 class Unwind;
+class CardinalityScale;
 class Distinct;
 class Union;
 class Cartesian;
@@ -196,11 +197,11 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     ScanAllByEdgeProperty, ScanAllByEdgePropertyValue, ScanAllByEdgePropertyRange, ScanAllByEdgeId,
     ScanAllByPointDistance, ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce,
     Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
-    Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-    Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
-    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel,
-    OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType,
-    ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeTypePropertyValue,
+    Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, CardinalityScale, Distinct, Union, Cartesian,
+    CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply,
+    PeriodicCommit, PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl,
+    AggregateParallel, OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties,
+    ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeTypePropertyValue,
     ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue,
     ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge>;
 
@@ -2654,6 +2655,38 @@ class Unwind : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *input_expression_;
   Symbol output_symbol_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+};
+
+/// Emits one row per element of a list expression without binding the elements.
+/// The planner picks this over Unwind when the bound symbol is referenced
+/// nowhere and the list's length is statically known, so iterating the list to
+/// bind each value would be wasted work. The cursor evaluates the list once per
+/// input row, takes its size, discards the values, and yields that many rows;
+/// steady-state memory is a single counter.
+class CardinalityScale : public memgraph::query::plan::LogicalOperator {
+ public:
+  static constexpr utils::TypeInfo kType{
+      utils::TypeId::CARDINALITY_SCALE, "CardinalityScale", &query::plan::LogicalOperator::kType};
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  CardinalityScale() = default;
+
+  CardinalityScale(const std::shared_ptr<LogicalOperator> &input, Expression *list_expression);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  Expression *list_expression_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };

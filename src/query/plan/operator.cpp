@@ -7346,6 +7346,83 @@ std::unique_ptr<LogicalOperator> Unwind::Clone(AstStorage *storage) const {
   return object;
 }
 
+CardinalityScale::CardinalityScale(const std::shared_ptr<LogicalOperator> &input, Expression *list_expression)
+    : input_(input ? input : std::make_shared<Once>()), list_expression_(list_expression) {}
+
+ACCEPT_WITH_INPUT(CardinalityScale)
+
+std::vector<Symbol> CardinalityScale::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+class CardinalityScaleCursor : public Cursor {
+ public:
+  CardinalityScaleCursor(const CardinalityScale &self, utils::MemoryResource *mem,
+                         metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("CardinalityScale");
+
+    while (true) {
+      AbortCheck(context);
+      // Exhausted the current input row's count: pull the next input row and
+      // re-derive how many rows it scales to.
+      if (remaining_ == 0) {
+        if (!input_cursor_->Pull(frame, context)) return false;
+
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::OLD,
+                                      nullptr,
+                                      nullptr,
+                                      context.user_or_role,
+                                      context.triggering_user);
+        TypedValue list_value = self_.list_expression_->Accept(evaluator);
+        if (list_value.type() != TypedValue::Type::List)
+          throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", list_value.type());
+        // Count-only: keep the size, drop the values immediately.
+        remaining_ = list_value.ValueList().size();
+      }
+
+      if (remaining_ == 0) continue;
+
+      --remaining_;
+      return true;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    remaining_ = 0;
+  }
+
+ private:
+  const CardinalityScale &self_;
+  const UniqueCursorPtr input_cursor_;
+  // rows still owed for the current input row; 0 means "pull the next input row"
+  size_t remaining_ = 0;
+};
+
+UniqueCursorPtr CardinalityScale::MakeCursor(utils::MemoryResource *mem,
+                                             metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.cardinality_scale_operator.Increment();
+
+  return MakeUniqueCursorPtr<CardinalityScaleCursor>(mem, *this, mem, metric_handles);
+}
+
+std::unique_ptr<LogicalOperator> CardinalityScale::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<CardinalityScale>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->list_expression_ = list_expression_ ? list_expression_->Clone(storage) : nullptr;
+  return object;
+}
+
 class DistinctCursor : public Cursor {
  public:
   DistinctCursor(const Distinct &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)

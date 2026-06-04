@@ -191,6 +191,7 @@ struct DatabaseMetricHandles {
   CounterHandle merge_operator;
   CounterHandle optional_operator;
   CounterHandle unwind_operator;
+  CounterHandle cardinality_scale_operator;
   CounterHandle distinct_operator;
   CounterHandle union_operator;
   CounterHandle cartesian_operator;
@@ -496,6 +497,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &merge_operator_family_;
   prometheus::Family<prometheus::Counter> &optional_operator_family_;
   prometheus::Family<prometheus::Counter> &unwind_operator_family_;
+  prometheus::Family<prometheus::Counter> &cardinality_scale_operator_family_;
   prometheus::Family<prometheus::Counter> &distinct_operator_family_;
   prometheus::Family<prometheus::Counter> &union_operator_family_;
   prometheus::Family<prometheus::Counter> &cartesian_operator_family_;
