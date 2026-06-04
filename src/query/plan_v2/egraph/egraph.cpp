@@ -11,6 +11,10 @@
 
 #include "query/plan_v2/egraph/egraph.hpp"
 
+#include <optional>
+
+#include "query/plan_v2/cost/builtin_estimator.hpp"
+#include "query/plan_v2/egraph/builtin_functions.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 
 namespace memgraph::query::plan::v2 {
@@ -66,7 +70,15 @@ auto egraph::MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> 
 }
 
 auto egraph::MakeFunction(std::string_view name, std::span<eclass const> args) -> eclass {
-  return from_core(pimpl_->graph.Make<Function>(name, to_core(args)));
+  auto core_args = to_core(args);
+  // For builtins whose semantics fix the produced list's length over constant
+  // args (range), seed it as an analysis fact so a later Unwind can elide an
+  // unused binding into a CardinalityScale.
+  std::optional<std::size_t> known_list_length;
+  if (BuiltinKindFor(name) == BuiltinKind::Range) {
+    known_list_length = ProvableRangeLength(pimpl_->graph.core(), core_args);
+  }
+  return from_core(pimpl_->graph.Make<Function>(name, std::move(core_args), known_list_length));
 }
 
 auto egraph::MakeUnwind(eclass input, eclass sym, eclass list_expr) -> eclass {
