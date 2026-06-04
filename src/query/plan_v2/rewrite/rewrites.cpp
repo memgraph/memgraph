@@ -77,7 +77,7 @@ void TryFold(FoldCtx &ctx, symbol op, EClassId root, std::span<EClassId const> o
   std::array<storage::ExternalPropertyValue, 2> operands;
   std::size_t n = 0;
   for (auto cls : operand_classes) {
-    auto const *expr = std::get_if<ExpressionAnalysis>(&ctx.analysis(cls));
+    auto const *expr = ctx.analysis(cls).expression();
     if (expr == nullptr || !expr->known_constant_value) return;
     operands[n++] = *expr->known_constant_value;
   }
