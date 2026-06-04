@@ -407,6 +407,20 @@ TEST_F(PlannerV2PipelineTest, ExtractedSymbolPositionsResolveInCompactTable) {
                                    }();
 }
 
+TEST_F(PlannerV2PipelineTest, NestedConstantListLiteralLowers) {
+  // A list of constant lists is itself constant, so it lowers to a single list
+  // Literal and flows through Produce.
+  auto plan = PlanQuery("RETURN [[1, 2], [3, 4]] AS l;");
+  ASSERT_NE(plan, nullptr);
+  EXPECT_EQ(GetOperatorDetails(plan.get()), (std::vector<std::string>{"Produce {l`0:literal}", "Once"}));
+}
+
+TEST_F(PlannerV2PipelineTest, ListLiteralWithNonConstantElementIsUnsupported) {
+  // The constant-list shortcut stops at the first non-constant element; building
+  // such a list needs a runtime list-construction node we don't model yet.
+  EXPECT_THROW(PlanQuery("UNWIND [1, $p, 3] AS x RETURN 42;"), NotYetImplemented);
+}
+
 // clang-format off
 INSTANTIATE_TEST_SUITE_P(
     InlineRewrites,
@@ -725,6 +739,21 @@ INSTANTIATE_TEST_SUITE_P(
                  "ParameterLookup) + ParameterLookup)}",
                  "Once"},
             .expected_rewrites = 1,
+        },
+        // A constant list literal has a known length, so an unused binding over
+        // it elides to a CardinalityScale just like range does.
+        PipelineTestCase{
+            .name = "UnwindConstListReturnLiteral",
+            .query = "UNWIND [1, 2, 3] AS x RETURN 42;",
+            .expected_details = {"Produce {42`0:42}", "CardinalityScale {literal}", "Once"},
+            .expected_rewrites = 0,
+        },
+        // A referenced sym keeps the Unwind binding even over a constant list.
+        PipelineTestCase{
+            .name = "UnwindConstListReturnSymbol",
+            .query = "UNWIND [1, 2, 3] AS x RETURN x;",
+            .expected_details = {"Produce {x`1:x}", "Unwind {x:literal}", "Once"},
+            .expected_rewrites = 0,
         }
     ),
     TestCaseName
