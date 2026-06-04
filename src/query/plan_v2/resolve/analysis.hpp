@@ -11,13 +11,39 @@
 
 #pragma once
 
+#include <optional>
+#include <variant>
+
+#include "storage/v2/property_value.hpp"
+
 namespace memgraph::query::plan::v2 {
 
-/// Empty analysis marker passed to core::EGraph<symbol, analysis> through
-/// TypedEGraph. plan_v2 currently runs no e-class analysis; the type only
-/// exists to satisfy the EGraph's Analysis template parameter. Kept in
-/// plan_v2's namespace (rather than reusing core::NoAnalysis) so the
-/// inheritance line `TypedEGraph<symbol, analysis, ...>` reads in one style.
-struct analysis {};
+/// Per-e-class analysis facts about an expression's output. Each fact is
+/// `nullopt` when unknown. Merged field-wise on e-class union: agreeing facts
+/// are kept, a one-sided fact is taken, and a genuine disagreement is a planner
+/// bug (sound rewrites cannot equate two different constants).
+struct ExpressionAnalysis {
+  std::optional<storage::ExternalPropertyValue> known_constant_value;
+
+  void merge(ExpressionAnalysis const &other);
+};
+
+/// Analysis facts about an operator's output. Empty for now; future facts
+/// (distinctness, ordering, cardinality bounds, ...) land here.
+struct OperatorAnalysis {};
+
+/// Symbol e-classes are singletons by invariant and carry no analysis facts.
+struct SymbolAnalysis {};
+
+using analysis_variant = std::variant<ExpressionAnalysis, OperatorAnalysis, SymbolAnalysis>;
+
+/// The per-e-class analysis slot. The variant arm is the e-class kind
+/// (Expression / Operator / Symbol); merging two e-classes of different kinds
+/// is a planner bug.
+struct analysis : analysis_variant {
+  using analysis_variant::analysis_variant;
+
+  void merge(analysis const &other);
+};
 
 }  // namespace memgraph::query::plan::v2
