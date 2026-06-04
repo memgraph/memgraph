@@ -117,7 +117,7 @@ template <typename AstNode>
 auto SymEclassFor(LoweringCtx &ctx, AstNode &node) -> eclass {
   DMG_ASSERT(node.symbol_pos_ != -1, "AST symbol should have already been mapped into the frame");
   auto const &sym = ctx.symbol_table.at(node);
-  return ctx.g.MakeSymbol(node.symbol_pos_, sym.name());
+  return ctx.g.MakeSymbol(node.symbol_pos_, sym.name(), sym.token_position());
 }
 
 // Expression AST nodes not yet lowered. Each entry expands to a

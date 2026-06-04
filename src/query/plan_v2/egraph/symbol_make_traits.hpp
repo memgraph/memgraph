@@ -82,10 +82,10 @@ struct symbol_make_traits<symbol::Once> {
 template <>
 struct symbol_make_traits<symbol::Symbol> {
   struct storage_type {
-    std::map<int32_t, std::string> store;
+    std::map<int32_t, SymbolInfo> store;
   };
 
-  static auto make(storage_type &s, int32_t pos, std::string_view name) -> seeded_node;
+  static auto make(storage_type &s, int32_t pos, std::string_view name, int64_t token_position = -1) -> seeded_node;
 };
 
 /// Literal: value <-> id mapping.  `store` (value -> id) is the hash-consing

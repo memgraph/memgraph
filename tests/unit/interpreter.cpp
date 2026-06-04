@@ -217,6 +217,25 @@ TEST_F(PlannerV2InterpreterTest, ReturningBoundVariableYieldsItsValues) {
   EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 3);
 }
 
+TEST_F(PlannerV2InterpreterTest, UnaliasedColumnHeaderIsSourceText) {
+  // An unaliased column's header is its source text, recovered via the symbol's
+  // token_position; without it the header falls back to the stripped placeholder.
+  auto stream = Interpret("RETURN 42;");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader()[0], "42");
+}
+
+TEST_F(PlannerV2InterpreterTest, UnaliasedColumnHeaderIsSourceTextNotFoldedValue) {
+  // The header is the column's source text - carried on the symbol's
+  // token_position - independent of expression folding. `1 + 1` folds to the
+  // value 2, but the column is still named "1 + 1".
+  auto stream = Interpret("RETURN 1 + 1;");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader()[0], "1 + 1");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+}
+
 TEST_F(PlannerV2InterpreterTest, UserParameterRangeLengthEnablesElision) {
   // A user parameter's value is known for this execution and plan_v2 is
   // uncached, so range($lo, $hi) folds to a provable length: the unused binding
