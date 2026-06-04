@@ -85,6 +85,16 @@ inline void ResolveBindDead(planner::core::ENode<symbol> const &enode, ResolverK
   visit(ResolverKey{enode.children()[child::bind::input], parent_key.in_scope, parent_key.must_introduce});
 }
 
+// Dead Unwind keeps the list child (CardinalityScale evaluates it for its
+// length) but elides the sym binding. Pipe carries the parent's demand
+// through; the list is an expression read in the parent's scope.
+inline void ResolveUnwindDead(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key, auto visit) {
+  using namespace child::unwind;
+  auto const &children = enode.children();
+  visit(ResolverKey{children[input], parent_key.in_scope, parent_key.must_introduce});
+  visit(ResolverKey{children[list], parent_key.in_scope, {}});
+}
+
 // A row-pipe binder (Bind / Unwind) is "alive" when the chosen alt introduces
 // its sym, and "dead" when the bound value is unused downstream.
 inline bool BinderIsAlive(planner::core::ENode<symbol> const &enode, VariableSet const &chosen_introduces,
@@ -111,12 +121,17 @@ struct symbol_resolve_traits<symbol::Bind> {
 
 template <>
 struct symbol_resolve_traits<symbol::Unwind> {
+  // Alive vs dead derived from `sym ∈ chosen.introduces`, mirroring Bind. The
+  // dead alt (sym unreferenced, list length known) elides the binding into a
+  // CardinalityScale; the alive alt is the row-generative bind.
   static void resolve_children(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key,
                                VariableSet const &chosen_introduces, SymbolContext const &syms,
                                planner::core::extract::ChildSink<ResolverKey> auto visit) {
-    DMG_ASSERT(BinderIsAlive(enode, chosen_introduces, syms),
-               "Unwind alt must always be alive (Unwind always binds its sym)");
-    ResolveBindUnwindAlive(enode, parent_key, chosen_introduces, syms, visit);
+    if (BinderIsAlive(enode, chosen_introduces, syms)) {
+      ResolveBindUnwindAlive(enode, parent_key, chosen_introduces, syms, visit);
+    } else {
+      ResolveUnwindDead(enode, parent_key, visit);
+    }
   }
 };
 

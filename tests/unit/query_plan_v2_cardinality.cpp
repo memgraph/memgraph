@@ -136,6 +136,68 @@ TEST(UnwindCostShape, ProducesUnwindOperator) {
 }
 
 // ============================================================================
+// Dead-Unwind: elide the binding when the sym is unused and the list length
+// is statically known.
+// ============================================================================
+
+// Build a constant list literal e-class; its known_list_length seeds the
+// dead-Unwind gate.
+auto ListLit(egraph &eg, std::initializer_list<int64_t> values) -> eclass {
+  std::vector<storage::ExternalPropertyValue> elements;
+  for (auto v : values) elements.emplace_back(int64_t{v});
+  return eg.MakeLiteral(storage::ExternalPropertyValue(std::move(elements)));
+}
+
+TEST(DeadUnwind, UnreferencedSymOverConstListBuildsCardinalityScale) {
+  // UNWIND [1, 2, 3] AS x RETURN 2 : x is referenced nowhere and the list
+  // length is known, so the binding is wasted work.
+  egraph eg;
+  auto once = eg.MakeOnce();
+  auto x_sym = eg.MakeSymbol(0, "x");
+  auto list = ListLit(eg, {1, 2, 3});
+  auto unwind = eg.MakeUnwind(once, x_sym, list);
+
+  auto r_sym = eg.MakeSymbol(1, "r");
+  auto two = eg.MakeLiteral(storage::ExternalPropertyValue{int64_t{2}});
+  auto named_output = eg.MakeNamedOutput("r", r_sym, two);
+  auto root = eg.MakeOutput(unwind, {named_output});
+
+  auto ctx = QueryPlannerContext{};
+  auto result = ConvertToLogicalOperator(eg, root, ctx);
+
+  ASSERT_NE(result.plan, nullptr);
+  auto const &produce = dynamic_cast<plan::Produce const &>(*result.plan);
+  auto const *card_scale = dynamic_cast<plan::CardinalityScale const *>(produce.input().get());
+  ASSERT_NE(card_scale, nullptr) << "Unreferenced sym over a known-length list must build CardinalityScale";
+  EXPECT_NE(dynamic_cast<plan::Once const *>(card_scale->input().get()), nullptr);
+  EXPECT_DOUBLE_EQ(result.cardinality, 3.0);
+}
+
+TEST(DeadUnwind, ReferencedSymStaysUnwind) {
+  // UNWIND [1, 2, 3] AS x RETURN x : x is referenced, so the binding is needed
+  // and the dead alt is not eligible even though the list length is known.
+  egraph eg;
+  auto once = eg.MakeOnce();
+  auto x_sym = eg.MakeSymbol(0, "x");
+  auto list = ListLit(eg, {1, 2, 3});
+  auto unwind = eg.MakeUnwind(once, x_sym, list);
+
+  auto out_sym = eg.MakeSymbol(1, "x");
+  auto x_ref = eg.MakeIdentifier(x_sym);
+  auto named_output = eg.MakeNamedOutput("x", out_sym, x_ref);
+  auto root = eg.MakeOutput(unwind, {named_output});
+
+  auto ctx = QueryPlannerContext{};
+  auto result = ConvertToLogicalOperator(eg, root, ctx);
+
+  ASSERT_NE(result.plan, nullptr);
+  auto const &produce = dynamic_cast<plan::Produce const &>(*result.plan);
+  EXPECT_NE(dynamic_cast<plan::Unwind const *>(produce.input().get()), nullptr)
+      << "A referenced sym must keep the Unwind binding";
+  EXPECT_EQ(dynamic_cast<plan::CardinalityScale const *>(produce.input().get()), nullptr);
+}
+
+// ============================================================================
 // Output cardinality contract
 // ============================================================================
 

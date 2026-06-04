@@ -12,6 +12,8 @@
 #include "query/plan_v2/cost/cost_model.hpp"
 
 #include <cassert>
+#include <cstddef>
+#include <optional>
 #include <utility>
 
 #include "query/exceptions.hpp"
@@ -193,27 +195,46 @@ auto BindFlatMap(CostFrontier const &input, CostFrontier const &expr, planner::c
   });
 }
 
-/// Unwind flat-map: row-generative.  Output cardinality is the product of
-/// input's and list's cardinalities; cost is input's pipeline plus per-row
-/// evaluation of the list expression with a structural overhead.  Always
-/// emits Alive because Unwind always introduces sym.  Operator-Alt dichotomy
-/// applies: emitted `required = ∅`.  (input, list)
-/// combinations whose list-expression demand isn't satisfied by `input.introduces`
-/// are skipped (see BindFlatMap header for rationale).
+/// Unwind flat-map: row-generative.  For each (input, list) pair it always
+/// emits an alive alt (cardinality = input × list, sym introduced).  When the
+/// bound sym is referenced nowhere AND the list length is statically known it
+/// additionally emits a dead alt that elides the binding: a CardinalityScale
+/// that evaluates the list for its size and discards the values.  The dead alt
+/// drops the per-output-row binding work and the sym leaf cost, so it is
+/// strictly cheaper; its cardinality is `input × known_length` (the known
+/// length, not the list's default estimate) and it introduces nothing new.
+/// Alive vs dead is derived at read sites from `sym ∈ chosen.introduces`,
+/// mirroring Bind.  Operator-Alt dichotomy applies: emitted `required = ∅`.
+/// (input, list) combinations whose list-expression demand isn't satisfied by
+/// `input.introduces` are skipped (see BindFlatMap header for rationale).
 auto UnwindFlatMap(CostFrontier const &input, CostFrontier const &list, planner::core::EClassId sym_eclass,
-                   double sym_cost, VariableIndex const &idx, planner::core::ENodeId enode_id) -> CostFrontier {
+                   double sym_cost, std::optional<std::size_t> known_length, VariableSet const &referenced_syms,
+                   VariableIndex const &idx, planner::core::ENodeId enode_id) -> CostFrontier {
   auto const sym_bit = idx.bit_of(sym_eclass);
+  bool const emit_dead = known_length.has_value() && !referenced_syms.test(sym_bit);
   return CostFrontier::flat_map(input, [&, enode_id, sym_bit](Alternative const &input_alt, auto emit) {
     DMG_ASSERT(input_alt.required.empty(), "operator Alt must have empty required");
     for (Alternative const &list_alt : list.alts()) {
       if (!DemandMet(input_alt, list_alt)) continue;  // demand unsatisfiable by this input
+      // List length drives the row multiplier: the statically-known length when
+      // we have it (constant lists), otherwise the estimator's per-expression
+      // cardinality (e.g. range(0, n) -> n+1).
+      auto const list_length = known_length.has_value() ? static_cast<double>(*known_length) : list_alt.cardinality;
       auto const cost = input_alt.cost + ((list_alt.cost + kUnwindPerRowOverhead) * input_alt.cardinality) + sym_cost;
-      auto const cardinality = input_alt.cardinality * list_alt.cardinality;
       emit({.cost = cost,
-            .cardinality = cardinality,
+            .cardinality = input_alt.cardinality * list_length,
             .required = {},
             .introduces = input_alt.introduces.union_bit(sym_bit),
             .enode_id = enode_id});
+      if (emit_dead) {
+        // Same row count, but the binding work and sym leaf are gone, so the
+        // dead alt is strictly cheaper.
+        emit({.cost = input_alt.cost + (list_alt.cost * input_alt.cardinality),
+              .cardinality = input_alt.cardinality * list_length,
+              .required = {},
+              .introduces = input_alt.introduces,
+              .enode_id = enode_id});
+      }
     }
   });
 }
@@ -344,13 +365,24 @@ struct symbol_cost_traits<Bind> {
 template <>
 struct symbol_cost_traits<Unwind> {
   // Row-generative.  Cardinality is input × list; cost mirrors per-row
-  // evaluation of the list expression.  Always Alive (Unwind always
-  // introduces sym), so ResolveChildren dispatches like alive Bind.
+  // evaluation of the list expression.  Emits an alive alt (sym introduced)
+  // and, when the sym is unreferenced and the list length is statically known,
+  // a cheaper dead alt that elides the binding.
   static auto cost(ENodeT const &n, ENodeId id, CostChildren children, CostCtx const &ctx) -> CostFrontier {
     using namespace child::unwind;
     auto const sym_eclass = n.children()[sym];
     auto const &[_, sym_cost] = children[sym]->resolve();
-    return UnwindFlatMap(*children[input], *children[list], sym_eclass, sym_cost, ctx.syms.variable_index, id);
+    auto const list_eclass = n.children()[list];
+    auto const *list_expr = ctx.syms.egraph.eclass(ctx.syms.egraph.find(list_eclass)).analysis().expression();
+    auto const known_length = list_expr != nullptr ? list_expr->known_list_length : std::nullopt;
+    return UnwindFlatMap(*children[input],
+                         *children[list],
+                         sym_eclass,
+                         sym_cost,
+                         known_length,
+                         ctx.syms.referenced_syms,
+                         ctx.syms.variable_index,
+                         id);
   }
 };
 
