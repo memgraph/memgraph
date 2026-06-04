@@ -33,7 +33,6 @@ auto symbol_make_traits<Literal>::make(storage_type &s, storage::ExternalPropert
   return {.lowered = {.children = {}, .disambiguator = it->second},
           .seed = analysis{
               ExpressionAnalysis{.known_constant_value = value,
-                                 .known_type = value.type(),
                                  .known_list_length = is_list ? std::optional{GetListSize(value)} : std::nullopt}}};
 }
 
