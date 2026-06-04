@@ -92,8 +92,7 @@ class EgraphTestBase : public ::testing::Test {
   }
 
   auto ConstantOf(eclass e) -> std::optional<storage::ExternalPropertyValue> {
-    auto const &an = Core().eclass(Find(e)).analysis();
-    if (auto const *expr = std::get_if<ExpressionAnalysis>(&an)) return expr->known_constant_value;
+    if (auto const *expr = Core().eclass(Find(e)).analysis().expression()) return expr->known_constant_value;
     return std::nullopt;
   }
 };
