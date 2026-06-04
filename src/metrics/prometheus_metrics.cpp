@@ -329,6 +329,10 @@ PrometheusMetrics::PrometheusMetrics()
                                   .Name("memgraph_unwind_operator_total")
                                   .Help("Number of times Unwind operator was used")
                                   .Register(registry_)},
+      cardinality_scale_operator_family_{prometheus::BuildCounter()
+                                             .Name("memgraph_cardinality_scale_operator_total")
+                                             .Help("Number of times CardinalityScale operator was used")
+                                             .Register(registry_)},
       distinct_operator_family_{prometheus::BuildCounter()
                                     .Name("memgraph_distinct_operator_total")
                                     .Help("Number of times Distinct operator was used")
@@ -976,6 +980,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .merge_operator = {&merge_operator_family_.Add(labels)},
                   .optional_operator = {&optional_operator_family_.Add(labels)},
                   .unwind_operator = {&unwind_operator_family_.Add(labels)},
+                  .cardinality_scale_operator = {&cardinality_scale_operator_family_.Add(labels)},
                   .distinct_operator = {&distinct_operator_family_.Add(labels)},
                   .union_operator = {&union_operator_family_.Add(labels)},
                   .cartesian_operator = {&cartesian_operator_family_.Add(labels)},
@@ -1089,6 +1094,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   merge_operator_family_.Remove(h.merge_operator.get());
   optional_operator_family_.Remove(h.optional_operator.get());
   unwind_operator_family_.Remove(h.unwind_operator.get());
+  cardinality_scale_operator_family_.Remove(h.cardinality_scale_operator.get());
   distinct_operator_family_.Remove(h.distinct_operator.get());
   union_operator_family_.Remove(h.union_operator.get());
   cartesian_operator_family_.Remove(h.cartesian_operator.get());
@@ -1485,6 +1491,8 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back({"MergeOperator", "Operator", "Counter", static_cast<int64_t>(h.merge_operator.Value())});
   out.push_back({"OptionalOperator", "Operator", "Counter", static_cast<int64_t>(h.optional_operator.Value())});
   out.push_back({"UnwindOperator", "Operator", "Counter", static_cast<int64_t>(h.unwind_operator.Value())});
+  out.push_back(
+      {"CardinalityScaleOperator", "Operator", "Counter", static_cast<int64_t>(h.cardinality_scale_operator.Value())});
   out.push_back({"DistinctOperator", "Operator", "Counter", static_cast<int64_t>(h.distinct_operator.Value())});
   out.push_back({"UnionOperator", "Operator", "Counter", static_cast<int64_t>(h.union_operator.Value())});
   out.push_back({"CartesianOperator", "Operator", "Counter", static_cast<int64_t>(h.cartesian_operator.Value())});
@@ -1650,6 +1658,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_merge_operator = 0;
   int64_t total_optional_operator = 0;
   int64_t total_unwind_operator = 0;
+  int64_t total_cardinality_scale_operator = 0;
   int64_t total_distinct_operator = 0;
   int64_t total_union_operator = 0;
   int64_t total_cartesian_operator = 0;
@@ -1754,6 +1763,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_merge_operator += static_cast<int64_t>(h.merge_operator.Value());
       total_optional_operator += static_cast<int64_t>(h.optional_operator.Value());
       total_unwind_operator += static_cast<int64_t>(h.unwind_operator.Value());
+      total_cardinality_scale_operator += static_cast<int64_t>(h.cardinality_scale_operator.Value());
       total_distinct_operator += static_cast<int64_t>(h.distinct_operator.Value());
       total_union_operator += static_cast<int64_t>(h.union_operator.Value());
       total_cartesian_operator += static_cast<int64_t>(h.cartesian_operator.Value());
@@ -1865,6 +1875,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"MergeOperator", "Operator", "Counter", total_merge_operator});
   out.push_back({"OptionalOperator", "Operator", "Counter", total_optional_operator});
   out.push_back({"UnwindOperator", "Operator", "Counter", total_unwind_operator});
+  out.push_back({"CardinalityScaleOperator", "Operator", "Counter", total_cardinality_scale_operator});
   out.push_back({"DistinctOperator", "Operator", "Counter", total_distinct_operator});
   out.push_back({"UnionOperator", "Operator", "Counter", total_union_operator});
   out.push_back({"CartesianOperator", "Operator", "Counter", total_cartesian_operator});
@@ -2210,6 +2221,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
   int64_t merge_op = 0;
   int64_t optional_op = 0;
   int64_t unwind_op = 0;
+  int64_t cardinality_scale_op = 0;
   int64_t distinct_op = 0;
   int64_t union_op = 0;
   int64_t cartesian_op = 0;
@@ -2308,6 +2320,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
       merge_op += static_cast<int64_t>(h.merge_operator.Value());
       optional_op += static_cast<int64_t>(h.optional_operator.Value());
       unwind_op += static_cast<int64_t>(h.unwind_operator.Value());
+      cardinality_scale_op += static_cast<int64_t>(h.cardinality_scale_operator.Value());
       distinct_op += static_cast<int64_t>(h.distinct_operator.Value());
       union_op += static_cast<int64_t>(h.union_operator.Value());
       cartesian_op += static_cast<int64_t>(h.cartesian_operator.Value());
@@ -2408,6 +2421,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
     {"MergeOperator", merge_op},
     {"OptionalOperator", optional_op},
     {"UnwindOperator", unwind_op},
+    {"CardinalityScaleOperator", cardinality_scale_op},
     {"DistinctOperator", distinct_op},
     {"UnionOperator", union_op},
     {"CartesianOperator", cartesian_op},
