@@ -442,25 +442,49 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     ttl_.SetUserCheck([]() -> bool { return false; });
     // Recover data
     utils::Timer const recovery_timer;
-    auto info = recovery_.RecoverData(
-        uuid(),
-        repl_storage_state_,
-        &vertices_,
-        &edges_,
-        edges_metadata_index_ ? &*edges_metadata_index_ : nullptr,
-        &edge_count_,
-        name_id_mapper_.get(),
-        &indices_,
-        &constraints_,
-        config_,
-        db_arena_,
-        &wal_seq_num_,
-        &enum_store_,
-        config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-        [this](Gid edge_gid) { return FindEdge(edge_gid); },
-        name(),
-        &ttl_,
-        &description_store_);
+    // Exception-safety for light edges: if RecoverData throws after wiring one
+    // or more pool-allocated light Edge* into vertex adjacency, the exception
+    // escapes the InMemoryStorage constructor.  C++ runs member destructors but
+    // never the ~InMemoryStorage body, so the ClearLightEdges() teardown in the
+    // dtor would be skipped — orphaning every live light Edge* (the vertices_
+    // SkipList dtor frees its Vertex nodes without touching the adjacency
+    // Edge*).  Heavy edges are unaffected (freed by the edges_ SkipList dtor).
+    // The catch below gates on the flag so the heavy path remains byte-identical
+    // and delegates to ClearLightEdges() which is noexcept-safe (LightEdgePool::
+    // Destroy is noexcept; deleted_edges_/graveyard are empty at recovery time
+    // because the WAL edge-delete replay arm calls LightEdgePool::Destroy
+    // directly without queuing).
+    auto info = std::invoke([&] {
+      try {
+        return recovery_.RecoverData(
+            uuid(),
+            repl_storage_state_,
+            &vertices_,
+            &edges_,
+            edges_metadata_index_ ? &*edges_metadata_index_ : nullptr,
+            &edge_count_,
+            name_id_mapper_.get(),
+            &indices_,
+            &constraints_,
+            config_,
+            db_arena_,
+            &wal_seq_num_,
+            &enum_store_,
+            config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
+            [this](Gid edge_gid) { return FindEdge(edge_gid); },
+            name(),
+            &ttl_,
+            &description_store_);
+      } catch (...) {
+        // Free any pool-allocated light Edge* already wired into vertex
+        // adjacency before the exception propagates out of the constructor.
+        // Heavy mode: no-op (edges_ SkipList dtor handles cleanup).
+        if (config_.salient.items.storage_light_edge) {
+          ClearLightEdges();
+        }
+        throw;
+      }
+    });
     metric_handles_.snapshot_recovery_latency_seconds.Observe(
         std::chrono::duration<double>(recovery_timer.Elapsed()).count());
     if (info) {
