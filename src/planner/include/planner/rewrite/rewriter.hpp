@@ -95,11 +95,11 @@ struct RewriteResult {
 };
 
 /// Reusable buffers for the rewrite process.
-template <typename Symbol, typename Analysis>
+template <typename Symbol, typename Analysis, typename Graph = EGraph<Symbol, Analysis>>
   requires ENodeSymbol<Symbol>
 class RewriteContext {
  public:
-  explicit RewriteContext(EGraph<Symbol, Analysis> &egraph) : rule_ctx_(egraph, new_eclasses_) {}
+  explicit RewriteContext(Graph &graph) : rule_ctx_(graph, new_eclasses_) {}
 
   [[nodiscard]] auto matcher_ctx() -> MatcherContext & { return matcher_ctx_; }
 
@@ -113,7 +113,7 @@ class RewriteContext {
 
   /// Get rule context, resetting the rewrite counter.
   /// Call this once per rule application to get accurate per-rule statistics.
-  auto rule_ctx() -> RuleContext<Symbol, Analysis> & {
+  auto rule_ctx() -> RuleContext<Symbol, Analysis, Graph> & {
     rule_ctx_.reset_rewrites();
     return rule_ctx_;
   }
@@ -121,7 +121,7 @@ class RewriteContext {
  private:
   MatcherContext matcher_ctx_;
   std::vector<EClassId> new_eclasses_;
-  RuleContext<Symbol, Analysis> rule_ctx_;
+  RuleContext<Symbol, Analysis, Graph> rule_ctx_;
 };
 
 /**
@@ -153,7 +153,7 @@ class RewriteContext {
  * @tparam Symbol Must satisfy ENodeSymbol concept
  * @tparam Analysis E-graph analysis type (can be NoAnalysis)
  */
-template <typename Symbol, typename Analysis>
+template <typename Symbol, typename Analysis, typename Graph = EGraph<Symbol, Analysis>>
   requires ENodeSymbol<Symbol>
 class Rewriter {
  public:
@@ -162,10 +162,13 @@ class Rewriter {
    *
    * Use set_rules() to configure rules before calling saturate().
    *
-   * @param egraph Reference to the e-graph to rewrite (must remain valid)
+   * @param graph The graph to rewrite (a bare EGraph or a TypedEGraph); must remain valid
    */
-  explicit Rewriter(EGraph<Symbol, Analysis> &egraph)
-      : egraph_(&egraph), matcher_(egraph), vm_executor_(egraph), ctx_(egraph) {}
+  explicit Rewriter(Graph &graph)
+      : egraph_(&rule_core<Symbol, Analysis>(graph)),
+        matcher_(rule_core<Symbol, Analysis>(graph)),
+        vm_executor_(rule_core<Symbol, Analysis>(graph)),
+        ctx_(graph) {}
 
   /**
    * @brief Construct a rewriter with a shared rule set
@@ -173,18 +176,22 @@ class Rewriter {
    * The RuleSet is copied (cheap - just shared_ptr increment), allowing
    * multiple rewriters to share the same rules efficiently.
    *
-   * @param egraph Reference to the e-graph to rewrite (must remain valid)
+   * @param graph The graph to rewrite (a bare EGraph or a TypedEGraph); must remain valid
    * @param rules Shared rule set to use
    */
-  Rewriter(EGraph<Symbol, Analysis> &egraph, RuleSet<Symbol, Analysis> rules)
-      : egraph_(&egraph), rules_(std::move(rules)), matcher_(egraph), vm_executor_(egraph), ctx_(egraph) {}
+  Rewriter(Graph &graph, RuleSet<Symbol, Analysis, Graph> rules)
+      : egraph_(&rule_core<Symbol, Analysis>(graph)),
+        rules_(std::move(rules)),
+        matcher_(rule_core<Symbol, Analysis>(graph)),
+        vm_executor_(rule_core<Symbol, Analysis>(graph)),
+        ctx_(graph) {}
 
   /**
    * @brief Set or replace the rule set
    *
    * @param rules New rule set to use
    */
-  void set_rules(RuleSet<Symbol, Analysis> rules) { rules_ = std::move(rules); }
+  void set_rules(RuleSet<Symbol, Analysis, Graph> rules) { rules_ = std::move(rules); }
 
   /**
    * @brief Run equality saturation with the configured rules
@@ -315,11 +322,11 @@ class Rewriter {
 
  private:
   EGraph<Symbol, Analysis> *egraph_;
-  RuleSet<Symbol, Analysis> rules_;  ///< Shared rules (cheap to copy)
+  RuleSet<Symbol, Analysis, Graph> rules_;  ///< Shared rules (cheap to copy)
   MatcherIndex<Symbol, Analysis> matcher_;
   pattern::vm::VMExecutor<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher
   ProcessingContext<Symbol> proc_ctx_;
-  RewriteContext<Symbol, Analysis> ctx_;
+  RewriteContext<Symbol, Analysis, Graph> ctx_;
 };
 
 }  // namespace memgraph::planner::core::rewrite

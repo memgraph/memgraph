@@ -40,11 +40,13 @@ using pattern::SymbolWithChildren;
 namespace detail {
 
 /// Wrap user's per-match apply function into bulk apply function.
-template <typename Symbol, typename Analysis, typename F>
+template <typename Symbol, typename Analysis, typename Graph, typename F>
 auto make_apply_fn(F &&fn) {
-  using ApplyFn = std::function<void(
-      RuleContext<Symbol, Analysis> & ctx, std::span<PatternMatch const> matches, MatchBindings const &bindings)>;
-  return ApplyFn{[fn = std::forward<F>(fn)](RuleContext<Symbol, Analysis> &ctx,
+  using ApplyFn = std::function<void(RuleContext<Symbol, Analysis, Graph> & ctx,
+                                     std::span<PatternMatch const>
+                                         matches,
+                                     MatchBindings const &bindings)>;
+  return ApplyFn{[fn = std::forward<F>(fn)](RuleContext<Symbol, Analysis, Graph> &ctx,
                                             std::span<PatternMatch const>
                                                 matches,
                                             MatchBindings const &bindings) mutable {
@@ -57,11 +59,15 @@ auto make_apply_fn(F &&fn) {
 }  // namespace detail
 
 /// A rewrite rule: patterns + apply function. Use Builder to construct.
-template <typename Symbol, typename Analysis>
+///
+/// `Graph` is the graph the rule's apply runs over: a bare `EGraph` (the
+/// default) for rules that only merge/emplace, or a `TypedEGraph` for rules
+/// whose apply mints interned nodes via `ctx.Make<S>`.
+template <typename Symbol, typename Analysis, typename Graph = EGraph<Symbol, Analysis>>
   requires ENodeSymbol<Symbol>
 class RewriteRule {
   /// Internal storage type - receives match buffer and bindings for iteration
-  using ApplyFn = std::function<void(RuleContext<Symbol, Analysis> &ctx, std::span<PatternMatch const> matches,
+  using ApplyFn = std::function<void(RuleContext<Symbol, Analysis, Graph> &ctx, std::span<PatternMatch const> matches,
                                      MatchBindings const &bindings)>;
 
  public:
@@ -83,7 +89,7 @@ class RewriteRule {
       auto compiled = compiler.compile(patterns_);
       return RewriteRule{std::move(patterns_),
                          std::move(pattern_names_),
-                         detail::make_apply_fn<Symbol, Analysis>(std::forward<F>(fn)),
+                         detail::make_apply_fn<Symbol, Analysis, Graph>(std::forward<F>(fn)),
                          std::move(name_),
                          std::move(compiled)};
     }
@@ -118,7 +124,7 @@ class RewriteRule {
   }
 
   /// Apply matches from buffer to egraph. Returns number of rewrites.
-  auto apply(RuleContext<Symbol, Analysis> &rule_ctx, MatcherContext const &matcher_ctx) const -> std::size_t {
+  auto apply(RuleContext<Symbol, Analysis, Graph> &rule_ctx, MatcherContext const &matcher_ctx) const -> std::size_t {
     if (matcher_ctx.match_buffer.empty()) [[unlikely]] {
       return 0;
     }
