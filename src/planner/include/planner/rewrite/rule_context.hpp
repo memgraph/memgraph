@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <utility>
 #include <vector>
@@ -21,29 +22,25 @@ import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::rewrite {
 
-/// A graph the rewrite engine can drive. A bare `EGraph` is its own core; a
-/// `TypedEGraph` wraps one and exposes `core()` plus typed `Make<S>` for
-/// interning. The engine talks to either through this concept, so a rule that
-/// only merges runs over a bare e-graph while a rule that mints interned nodes
-/// runs over a typed one - without the engine knowing the domain's symbols.
+/// A graph the rewrite engine can drive. It exposes its symbol and analysis
+/// types and a `core()` returning the underlying `EGraph`. A bare `EGraph` is
+/// its own core; a `TypedEGraph` returns the `EGraph` it wraps and additionally
+/// offers typed `Make<S>` interning. The engine drives either through this one
+/// concept, deriving `Symbol`/`Analysis` from the graph - it never names the
+/// domain's symbols itself.
 template <typename G>
-concept TypedGraph = requires(G &g) { g.core(); };
-
-/// The core `EGraph` underlying any graph the engine drives: itself for a bare
-/// e-graph, `core()` for a typed one.
-template <typename Symbol, typename Analysis, typename Graph>
-auto rule_core(Graph &g) -> EGraph<Symbol, Analysis> & {
-  if constexpr (TypedGraph<Graph>) {
-    return g.core();
-  } else {
-    return g;
-  }
-}
+concept RewritableGraph = ENodeSymbol<typename G::symbol_type> && requires(G &g) {
+  typename G::symbol_type;
+  typename G::analysis_type;
+  { g.core() } -> std::same_as<EGraph<typename G::symbol_type, typename G::analysis_type> &>;
+};
 
 /// Safe context for rule apply functions. Auto-tracks new e-classes and counts rewrites.
-template <typename Symbol, typename Analysis, typename Graph = EGraph<Symbol, Analysis>>
-  requires ENodeSymbol<Symbol>
+template <RewritableGraph Graph>
 class RuleContext {
+  using Symbol = typename Graph::symbol_type;
+  using Analysis = typename Graph::analysis_type;
+
  public:
   RuleContext(Graph &graph, std::vector<EClassId> &new_eclasses) : graph_(graph), new_eclasses_(new_eclasses) {}
 
@@ -74,12 +71,13 @@ class RuleContext {
     return result;
   }
 
-  /// Construct (or find) the e-class for `S(args...)` through the typed graph's
+  /// Construct (or find) the e-class for `S(args...)` through the graph's typed
   /// `Make<S>`, so the new node is interned and its analysis seeded by the
   /// symbol's own trait. The resulting e-class is tracked for matcher reindex.
-  /// Available only when the graph is typed.
+  /// Available only over a graph that actually interns; on a bare `EGraph` the
+  /// constraint removes it from overload resolution.
   template <Symbol S, typename... Args>
-    requires TypedGraph<Graph>
+    requires requires(Graph &g, Args &&...args) { g.template Make<S>(std::forward<Args>(args)...); }
   auto Make(Args &&...args) -> EClassId {
     auto id = graph_.template Make<S>(std::forward<Args>(args)...);
     new_eclasses_.push_back(id);
@@ -105,7 +103,7 @@ class RuleContext {
   }
 
  private:
-  auto core() const -> EGraph<Symbol, Analysis> & { return rule_core<Symbol, Analysis>(graph_); }
+  auto core() const -> EGraph<Symbol, Analysis> & { return graph_.core(); }
 
   Graph &graph_;
   std::vector<EClassId> &new_eclasses_;

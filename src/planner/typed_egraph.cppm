@@ -105,6 +105,11 @@ using SymbolStorageFor = typename detail::CombinedStorageFor<Seq, Traits>::type;
 template <typename Symbol, typename Analysis, typename SymbolSeq, template <auto> class Traits>
 class TypedEGraph {
  public:
+  /// Mirror EGraph's aliases so a TypedEGraph models the same graph concept the
+  /// rewrite engine drives.
+  using symbol_type = Symbol;
+  using analysis_type = Analysis;
+
   TypedEGraph() = default;
   TypedEGraph(TypedEGraph &&) noexcept = default;
   TypedEGraph &operator=(TypedEGraph &&) noexcept = default;

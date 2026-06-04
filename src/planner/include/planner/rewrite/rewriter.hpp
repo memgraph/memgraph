@@ -95,8 +95,7 @@ struct RewriteResult {
 };
 
 /// Reusable buffers for the rewrite process.
-template <typename Symbol, typename Analysis, typename Graph = EGraph<Symbol, Analysis>>
-  requires ENodeSymbol<Symbol>
+template <RewritableGraph Graph>
 class RewriteContext {
  public:
   explicit RewriteContext(Graph &graph) : rule_ctx_(graph, new_eclasses_) {}
@@ -113,7 +112,7 @@ class RewriteContext {
 
   /// Get rule context, resetting the rewrite counter.
   /// Call this once per rule application to get accurate per-rule statistics.
-  auto rule_ctx() -> RuleContext<Symbol, Analysis, Graph> & {
+  auto rule_ctx() -> RuleContext<Graph> & {
     rule_ctx_.reset_rewrites();
     return rule_ctx_;
   }
@@ -121,7 +120,7 @@ class RewriteContext {
  private:
   MatcherContext matcher_ctx_;
   std::vector<EClassId> new_eclasses_;
-  RuleContext<Symbol, Analysis, Graph> rule_ctx_;
+  RuleContext<Graph> rule_ctx_;
 };
 
 /**
@@ -136,13 +135,13 @@ class RewriteContext {
  *   EGraph<Op, NoAnalysis> egraph;
  *   // ... populate egraph ...
  *
- *   auto ruleset = RuleSet<Op, NoAnalysis>::Builder{}
+ *   auto ruleset = RuleSet<EGraph<Op, NoAnalysis>>::Builder{}
  *       .add_rule(double_negation_rule)
  *       .add_rule(commutativity_rule)
  *       .build();
  *
- *   // RuleSet copy is cheap (shared_ptr increment)
- *   Rewriter<Op, NoAnalysis> rewriter(egraph, ruleset);
+ *   // RuleSet copy is cheap (shared_ptr increment); the graph type is deduced
+ *   Rewriter rewriter(egraph, ruleset);
  *
  *   auto result = rewriter.saturate(RewriteConfig::Default());
  *   if (result.saturated()) {
@@ -150,12 +149,13 @@ class RewriteContext {
  *   }
  * @endcode
  *
- * @tparam Symbol Must satisfy ENodeSymbol concept
- * @tparam Analysis E-graph analysis type (can be NoAnalysis)
+ * @tparam Graph A RewritableGraph; Symbol and Analysis are derived from it
  */
-template <typename Symbol, typename Analysis, typename Graph = EGraph<Symbol, Analysis>>
-  requires ENodeSymbol<Symbol>
+template <RewritableGraph Graph>
 class Rewriter {
+  using Symbol = typename Graph::symbol_type;
+  using Analysis = typename Graph::analysis_type;
+
  public:
   /**
    * @brief Construct a rewriter with no rules
@@ -165,10 +165,7 @@ class Rewriter {
    * @param graph The graph to rewrite (a bare EGraph or a TypedEGraph); must remain valid
    */
   explicit Rewriter(Graph &graph)
-      : egraph_(&rule_core<Symbol, Analysis>(graph)),
-        matcher_(rule_core<Symbol, Analysis>(graph)),
-        vm_executor_(rule_core<Symbol, Analysis>(graph)),
-        ctx_(graph) {}
+      : egraph_(&graph.core()), matcher_(graph.core()), vm_executor_(graph.core()), ctx_(graph) {}
 
   /**
    * @brief Construct a rewriter with a shared rule set
@@ -179,11 +176,11 @@ class Rewriter {
    * @param graph The graph to rewrite (a bare EGraph or a TypedEGraph); must remain valid
    * @param rules Shared rule set to use
    */
-  Rewriter(Graph &graph, RuleSet<Symbol, Analysis, Graph> rules)
-      : egraph_(&rule_core<Symbol, Analysis>(graph)),
+  Rewriter(Graph &graph, RuleSet<Graph> rules)
+      : egraph_(&graph.core()),
         rules_(std::move(rules)),
-        matcher_(rule_core<Symbol, Analysis>(graph)),
-        vm_executor_(rule_core<Symbol, Analysis>(graph)),
+        matcher_(graph.core()),
+        vm_executor_(graph.core()),
         ctx_(graph) {}
 
   /**
@@ -191,7 +188,7 @@ class Rewriter {
    *
    * @param rules New rule set to use
    */
-  void set_rules(RuleSet<Symbol, Analysis, Graph> rules) { rules_ = std::move(rules); }
+  void set_rules(RuleSet<Graph> rules) { rules_ = std::move(rules); }
 
   /**
    * @brief Run equality saturation with the configured rules
@@ -322,11 +319,18 @@ class Rewriter {
 
  private:
   EGraph<Symbol, Analysis> *egraph_;
-  RuleSet<Symbol, Analysis, Graph> rules_;  ///< Shared rules (cheap to copy)
+  RuleSet<Graph> rules_;  ///< Shared rules (cheap to copy)
   MatcherIndex<Symbol, Analysis> matcher_;
   pattern::vm::VMExecutor<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher
   ProcessingContext<Symbol> proc_ctx_;
-  RewriteContext<Symbol, Analysis, Graph> ctx_;
+  RewriteContext<Graph> ctx_;
 };
+
+/// Deduce the graph type at the construction site, so callers write
+/// `Rewriter{graph}` / `Rewriter{graph, rules}` without spelling the graph type.
+template <RewritableGraph Graph>
+Rewriter(Graph &) -> Rewriter<Graph>;
+template <RewritableGraph Graph>
+Rewriter(Graph &, RuleSet<Graph>) -> Rewriter<Graph>;
 
 }  // namespace memgraph::planner::core::rewrite

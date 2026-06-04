@@ -91,12 +91,12 @@ class ProfileRunner {
       patterns_copy.push_back(pattern_to_memgraph(ast));
     }
 
-    auto rule_builder = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("profile_vm");
+    auto rule_builder = RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>::Builder("profile_vm");
     for (auto &p : patterns_copy) {
       rule_builder = std::move(rule_builder).pattern(std::move(p));
     }
-    vm_rule_ = std::make_unique<RewriteRule<FuzzSymbol, FuzzAnalysis>>(
-        std::move(rule_builder).apply([this](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) {
+    vm_rule_ = std::make_unique<RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>>(
+        std::move(rule_builder).apply([this](RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> &, Match const &) {
           ++match_count_;
         }));
 
@@ -200,7 +200,7 @@ class ProfileRunner {
   MultiPatternGenerator pattern_gen_;
   std::vector<PatternASTPtr> current_patterns_ast_;
   std::vector<Pattern<FuzzSymbol>> patterns_;
-  std::unique_ptr<RewriteRule<FuzzSymbol, FuzzAnalysis>> vm_rule_;
+  std::unique_ptr<RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>> vm_rule_;
   std::size_t match_count_ = 0;
 };
 

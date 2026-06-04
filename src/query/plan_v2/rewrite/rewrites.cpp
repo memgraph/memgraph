@@ -45,16 +45,14 @@ struct InlineRule {
   static constexpr PatternVar kExpr{1};   // ?expr in Bind(_, ?sym, ?expr)
   static constexpr PatternVar kIdent{2};  // Binding for Identifier root e-class
 
-  static auto Make() -> RewriteRule<symbol, analysis, typed_egraph> {
+  static auto Make() -> RewriteRule<typed_egraph> {
     auto bind_pattern = Pattern<symbol>::build(Bind, {Wildcard{}, Var{kSym}, Var{kExpr}});
     auto ident_pattern = Pattern<symbol>::build(kIdent, Identifier, {BoundSym(kSym, Symbol)});
 
-    return RewriteRule<symbol, analysis, typed_egraph>::Builder{"inline"}
+    return RewriteRule<typed_egraph>::Builder{"inline"}
         .pattern(std::move(bind_pattern), "Bind")
         .pattern(std::move(ident_pattern), "Identifier")
-        .apply([](RuleContext<symbol, analysis, typed_egraph> &ctx, Match const &match) {
-          ctx.merge(match[kIdent], match[kExpr]);
-        });
+        .apply([](RuleContext<typed_egraph> &ctx, Match const &match) { ctx.merge(match[kIdent], match[kExpr]); });
   }
 };
 
@@ -66,7 +64,7 @@ struct InlineRule {
 /// enclosing operator fold on the next pass.
 namespace {
 
-using FoldCtx = RuleContext<symbol, analysis, typed_egraph>;
+using FoldCtx = RuleContext<typed_egraph>;
 
 constexpr PatternVar kFoldRoot{0};
 constexpr PatternVar kFoldArg0{1};
@@ -89,8 +87,8 @@ void TryFold(FoldCtx &ctx, symbol op, EClassId root, std::span<EClassId const> o
 }
 
 template <symbol Op>
-auto MakeBinaryFoldRule() -> RewriteRule<symbol, analysis, typed_egraph> {
-  return RewriteRule<symbol, analysis, typed_egraph>::Builder{"fold"}
+auto MakeBinaryFoldRule() -> RewriteRule<typed_egraph> {
+  return RewriteRule<typed_egraph>::Builder{"fold"}
       .pattern(Pattern<symbol>::build(kFoldRoot, Op, {Var{kFoldArg0}, Var{kFoldArg1}}))
       .apply([](FoldCtx &ctx, Match const &match) {
         EClassId const operands[] = {match[kFoldArg0], match[kFoldArg1]};
@@ -99,8 +97,8 @@ auto MakeBinaryFoldRule() -> RewriteRule<symbol, analysis, typed_egraph> {
 }
 
 template <symbol Op>
-auto MakeUnaryFoldRule() -> RewriteRule<symbol, analysis, typed_egraph> {
-  return RewriteRule<symbol, analysis, typed_egraph>::Builder{"fold"}
+auto MakeUnaryFoldRule() -> RewriteRule<typed_egraph> {
+  return RewriteRule<typed_egraph>::Builder{"fold"}
       .pattern(Pattern<symbol>::build(kFoldRoot, Op, {Var{kFoldArg0}}))
       .apply([](FoldCtx &ctx, Match const &match) {
         EClassId const operands[] = {match[kFoldArg0]};
@@ -109,9 +107,9 @@ auto MakeUnaryFoldRule() -> RewriteRule<symbol, analysis, typed_egraph> {
 }
 
 /// Singleton for default plan_v2 rewrite rules
-auto DefaultRules() -> RuleSet<symbol, analysis, typed_egraph> const & {
+auto DefaultRules() -> RuleSet<typed_egraph> const & {
   static auto const rules = [] {
-    RuleSet<symbol, analysis, typed_egraph>::Builder builder;
+    RuleSet<typed_egraph>::Builder builder;
     builder.add_rule(InlineRule::Make());
 #define MG_ADD_BINARY_FOLD(Name, ...) builder.add_rule(MakeBinaryFoldRule<symbol::Name>());
     EGRAPH_BINARY_OPS(MG_ADD_BINARY_FOLD)

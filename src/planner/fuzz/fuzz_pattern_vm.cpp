@@ -497,23 +497,23 @@ class FuzzerState {
         patterns.push_back(pattern_to_memgraph(ast));
       }
 
-      auto vm_rule_builder = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_vm");
+      auto vm_rule_builder = RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>::Builder("fuzz_vm");
       for (auto &p : patterns) {
         vm_rule_builder = std::move(vm_rule_builder).pattern(std::move(p));
       }
       try {
-        auto vm_rule =
-            std::move(vm_rule_builder)
-                .apply([this, &vm_raw, &vm_unique, &var_ids](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &m) {
-                  ++vm_raw;
-                  BindingTuple tuple;
-                  tuple.reserve(var_ids.size());
-                  for (auto id : var_ids) {
-                    auto eclass_id = m[PatternVar{id}];
-                    tuple.push_back(egraph_.find(eclass_id));
-                  }
-                  vm_unique.insert(std::move(tuple));
-                });
+        auto vm_rule = std::move(vm_rule_builder)
+                           .apply([this, &vm_raw, &vm_unique, &var_ids](RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> &,
+                                                                        Match const &m) {
+                             ++vm_raw;
+                             BindingTuple tuple;
+                             tuple.reserve(var_ids.size());
+                             for (auto id : var_ids) {
+                               auto eclass_id = m[PatternVar{id}];
+                               tuple.push_back(egraph_.find(eclass_id));
+                             }
+                             vm_unique.insert(std::move(tuple));
+                           });
 
         vm_compilation_succeeded = true;
         compiled_matcher_copy = vm_rule.compiled();  // Copy for diagnostics
@@ -697,19 +697,19 @@ class FuzzerState {
       MatcherContext matcher_ctx;
       std::vector<EClassId> new_eclasses;
 
-      auto rule_builder = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_rewrite");
+      auto rule_builder = RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>::Builder("fuzz_rewrite");
       for (auto &p : patterns) {
         rule_builder = std::move(rule_builder).pattern(std::move(p));
       }
       try {
-        auto rule =
-            std::move(rule_builder).apply([&match_roots](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &m) {
-              // Limit to 8 rewrites to keep the e-graph from blowing up
-              if (match_roots.size() < 8) {
-                match_roots.push_back(m[PatternVar{0}]);
-              }
-            });
-        RuleContext<FuzzSymbol, FuzzAnalysis> rule_ctx(egraph_, new_eclasses);
+        auto rule = std::move(rule_builder)
+                        .apply([&match_roots](RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> &, Match const &m) {
+                          // Limit to 8 rewrites to keep the e-graph from blowing up
+                          if (match_roots.size() < 8) {
+                            match_roots.push_back(m[PatternVar{0}]);
+                          }
+                        });
+        RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> rule_ctx(egraph_, new_eclasses);
         rule.match(matcher, vm_executor, matcher_ctx);
         rule.apply(rule_ctx, matcher_ctx);
       } catch (std::overflow_error const &) {
@@ -852,11 +852,12 @@ class FuzzerState {
       std::vector<EClassId> new_eclasses;
 
       try {
-        auto rule =
-            RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_absent")
-                .pattern(std::move(pattern))
-                .apply([&match_count](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) { ++match_count; });
-        RuleContext<FuzzSymbol, FuzzAnalysis> rule_ctx(egraph_, new_eclasses);
+        auto rule = RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>::Builder("fuzz_absent")
+                        .pattern(std::move(pattern))
+                        .apply([&match_count](RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> &, Match const &) {
+                          ++match_count;
+                        });
+        RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> rule_ctx(egraph_, new_eclasses);
         rule.match(matcher, vm_executor, matcher_ctx);
         rule.apply(rule_ctx, matcher_ctx);
       } catch (std::overflow_error const &) {
