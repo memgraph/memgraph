@@ -47,6 +47,13 @@ struct Parameters {
     return found->second;
   }
 
+  /// The value at `position`, or nullptr if none is bound there. The non-throwing
+  /// counterpart of AtTokenPosition, for callers that tolerate a missing entry.
+  const storage::ExternalPropertyValue *MaybeAtTokenPosition(int position) const {
+    auto found = std::ranges::find_if(storage_, [&](const auto &a) { return a.first == position; });
+    return found != storage_.end() ? &found->second : nullptr;
+  }
+
   /**
    * Returns the position-th stripped value. Asserts that this
    * container has at least (position + 1) elements.
