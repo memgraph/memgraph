@@ -162,6 +162,7 @@ bool PlanPrinter::PreVisit(query::plan::Optional &op) {
 }
 
 PRE_VISIT(Unwind);
+PRE_VISIT(CardinalityScale);
 PRE_VISIT(Distinct);
 
 bool PlanPrinter::PreVisit(query::plan::Union &op) {
