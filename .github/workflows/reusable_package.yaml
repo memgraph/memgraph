@@ -418,12 +418,12 @@ jobs:
           fi
           ./tools/ci/smoke_test_docker_image.sh "$image"
 
-      - name: "Telemetry shutdown smoke test"
-        if: ${{ env.FOR_DOCKER == 'true' }}
+      - name: "Telemetry shutdown smoke test (prod)"
+        if: ${{ inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both' }}
         run: |
           # The image is already loaded by the bolt smoke test step above.
           # Fail if shutdown blocks > 20s on an unreachable telemetry server.
-          ./tools/ci/smoke_test_shutdown.sh "memgraph/memgraph:${IMAGE_TAG}" 20
+          ./tools/ci/smoke_test_shutdown.sh "memgraph/memgraph:${PROD_IMAGE_TAG}" 20
 
       - name: "Generate Build SBOM"
         if: ${{ env.GENERATE_SBOM == 'true'  && env.BUILD_DOCKER_IMAGE == 'none' }}
