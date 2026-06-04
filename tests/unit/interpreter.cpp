@@ -176,6 +176,25 @@ TEST_F(PlannerV2InterpreterTest, UnwindOverProvableLengthRangeElidesUnusedBindin
   EXPECT_EQ(plan.find("Unwind"), std::string::npos) << plan;
 }
 
+TEST_F(PlannerV2InterpreterTest, UnwindOverConstantListElidesUnusedBinding) {
+  // A list literal's elements are stripped to parameters, so the converter must
+  // resolve them back to constants to know the list's length; with x unused the
+  // binding elides to a CardinalityScale.
+  auto stream = Interpret("EXPLAIN UNWIND [1, 2, 3] AS x RETURN 42;");
+  auto const plan = PlanText(stream);
+  EXPECT_NE(plan.find("CardinalityScale"), std::string::npos) << plan;
+  EXPECT_EQ(plan.find("Unwind"), std::string::npos) << plan;
+}
+
+TEST_F(PlannerV2InterpreterTest, ConstantListUnwindExecutesToScaledRows) {
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x RETURN 42;");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  for (auto const &row : stream.GetResults()) {
+    ASSERT_EQ(row.size(), 1U);
+    EXPECT_EQ(row[0].ValueInt(), 42);
+  }
+}
+
 TEST_F(PlannerV2InterpreterTest, ElidedUnwindExecutesToScaledRows) {
   // The CardinalityScale plan executes: one row per range element, each the
   // scalar 42.
