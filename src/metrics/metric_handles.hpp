@@ -129,6 +129,7 @@ struct DatabaseMetricHandles {
   CounterHandle merge_operator;
   CounterHandle optional_operator;
   CounterHandle unwind_operator;
+  CounterHandle cardinality_scale_operator;
   CounterHandle distinct_operator;
   CounterHandle union_operator;
   CounterHandle cartesian_operator;
