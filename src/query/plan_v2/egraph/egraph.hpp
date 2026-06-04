@@ -38,7 +38,7 @@ struct egraph {
 
   // Public API for creating egraph nodes
   auto MakeOnce() -> eclass;
-  auto MakeSymbol(int32_t position, std::string_view name) -> eclass;
+  auto MakeSymbol(int32_t position, std::string_view name, int64_t token_position = -1) -> eclass;
   auto MakeLiteral(storage::ExternalPropertyValue const &value) -> eclass;
   auto MakeParameterLookup(int32_t position) -> eclass;
   auto MakeBind(eclass input, eclass sym, eclass expr) -> eclass;
