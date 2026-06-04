@@ -467,7 +467,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, RequiresFgDuringExec_WildcardVertexEdg
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
   user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
-  user.property_access_handler().label_properties().Deny("l1", "ssn");
+  user.property_access_handler().label_properties().Deny({"l1"}, "ssn");
   memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
   ASSERT_TRUE(auth_checker.NeedsFineGrainedAuthChecker());
 }
@@ -487,8 +487,8 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAMultiLabelDenyWins) {
 
   memgraph::auth::User user{"test"};
   // GRANT all properties on l1, DENY ssn on l2
-  user.property_access_handler().label_properties().Grant("l1", "*");
-  user.property_access_handler().label_properties().Deny("l2", "ssn");
+  user.property_access_handler().label_properties().Grant({"l1"}, "*");
+  user.property_access_handler().label_properties().Deny({"l2"}, "ssn");
 
   memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
@@ -524,7 +524,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGANoRulesDenied) {
 TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGARulesExistButNoGrant) {
   memgraph::auth::User user{"test"};
   // Rules exist for l1 (grant "name" only), so "ssn" has no grant → denied
-  user.property_access_handler().label_properties().Grant("l1", "name");
+  user.property_access_handler().label_properties().Grant({"l1"}, "name");
 
   memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
@@ -543,7 +543,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGARulesExistButNoGrant) {
 TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAEdgeTypeUnmentionedPropertyDenied) {
   memgraph::auth::User user{"test"};
   // Grant only "secret_code" on edge_type_1 — no wildcard, no rule for "amount"
-  user.property_access_handler().edge_type_properties().Grant("edge_type_1", "secret_code");
+  user.property_access_handler().edge_type_properties().Grant({"edge_type_1"}, "secret_code");
 
   memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
@@ -560,8 +560,8 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAEdgeTypeUnmentionedProperty
 TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAEdgeTypeDenyOverridesGrant) {
   memgraph::auth::User user{"test"};
   // Grant all edge properties, deny "secret_code" on edge_type_1
-  user.property_access_handler().edge_type_properties().Grant("edge_type_1", "*");
-  user.property_access_handler().edge_type_properties().Deny("edge_type_1", "secret_code");
+  user.property_access_handler().edge_type_properties().Grant({"edge_type_1"}, "*");
+  user.property_access_handler().edge_type_properties().Deny({"edge_type_1"}, "secret_code");
 
   memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 

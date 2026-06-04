@@ -203,7 +203,7 @@ def find_property_privilege(rows, substring):
 
 def test_grant_set_property_shows_in_privileges():
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {salary} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee TO user;")
     rows = show_privileges_for(admin, "user")
     matches = find_property_privilege(rows, "SET PROPERTY")
     assert len(matches) > 0
@@ -211,25 +211,25 @@ def test_grant_set_property_shows_in_privileges():
     assert len(salary_rows) == 1
     assert salary_rows[0][1] == "GRANT"
     # Clean up
-    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {salary} ON NODES Employee FROM user;")
+    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee FROM user;")
 
 
 def test_deny_set_property_shows_in_privileges():
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {name} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {name} ON NODES CONTAINING LABELS :Employee TO user;")
     rows = show_privileges_for(admin, "user")
     matches = find_property_privilege(rows, "SET PROPERTY")
     name_rows = [r for r in matches if "name" in r[0] and "Employee" in r[0]]
     assert len(name_rows) == 1
     assert name_rows[0][1] == "DENY"
     # Clean up
-    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {name} ON NODES Employee FROM user;")
+    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {name} ON NODES CONTAINING LABELS :Employee FROM user;")
 
 
 def test_revoke_set_property_removes_from_privileges():
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {salary} ON NODES Employee TO user;")
-    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {salary} ON NODES Employee FROM user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee TO user;")
+    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee FROM user;")
     rows = show_privileges_for(admin, "user")
     matches = find_property_privilege(rows, "SET PROPERTY")
     salary_rows = [r for r in matches if "salary" in r[0] and "Employee" in r[0]]
@@ -238,7 +238,7 @@ def test_revoke_set_property_removes_from_privileges():
 
 def test_grant_set_property_independent_of_read():
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {salary} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee TO user;")
     rows = show_privileges_for(admin, "user")
     # READ {*} grant on Employee should still be present
     read_rows = find_property_privilege(rows, "READ")
@@ -248,19 +248,19 @@ def test_grant_set_property_independent_of_read():
     write_rows = find_property_privilege(rows, "SET PROPERTY")
     assert len(write_rows) > 0
     # Clean up
-    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {salary} ON NODES Employee FROM user;")
+    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee FROM user;")
 
 
 def test_grant_set_property_on_edge_type():
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {start_date} ON RELATIONSHIPS WORKS_AT TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {start_date} ON EDGES OF TYPE :WORKS_AT TO user;")
     rows = show_privileges_for(admin, "user")
     matches = find_property_privilege(rows, "SET PROPERTY")
     edge_rows = [r for r in matches if "start_date" in r[0] and "WORKS_AT" in r[0]]
     assert len(edge_rows) == 1
     assert edge_rows[0][1] == "GRANT"
     # Clean up
-    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {start_date} ON RELATIONSHIPS WORKS_AT FROM user;")
+    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {start_date} ON EDGES OF TYPE :WORKS_AT FROM user;")
 
 
 # --- Write-path enforcement tests ---
@@ -269,20 +269,20 @@ def test_grant_set_property_on_edge_type():
 def test_set_property_denied_throws():
     """SET n.prop fails when user lacks SET PROPERTY permission on that property."""
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES Employee TO user;")
-    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee TO user;")
     try:
         with pytest.raises(Exception, match="(?i)property"):
             common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) SET n.ssn = 'new-ssn';")
     finally:
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES Employee FROM user;")
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee FROM user;")
 
 
 def test_set_property_allowed_succeeds():
     """SET n.prop succeeds when user has SET PROPERTY permission."""
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {name} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {name} ON NODES CONTAINING LABELS :Employee TO user;")
     try:
         common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) SET n.name = 'Bob';")
         result = common.execute_and_fetch_all(admin_cursor(), "MATCH (n:Employee) RETURN n.name;")
@@ -290,7 +290,9 @@ def test_set_property_allowed_succeeds():
     finally:
         # Restore original value
         common.execute_and_fetch_all(admin, "MATCH (n:Employee) SET n.name = 'Alice';")
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {name} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(
+            admin, "REVOKE SET PROPERTY {name} ON NODES CONTAINING LABELS :Employee FROM user;"
+        )
 
 
 def test_set_property_no_write_rules_denied():
@@ -302,63 +304,63 @@ def test_set_property_no_write_rules_denied():
 def test_remove_property_denied_throws():
     """REMOVE n.prop fails when user lacks SET PROPERTY permission."""
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES Employee TO user;")
-    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee TO user;")
     try:
         with pytest.raises(Exception, match="(?i)property"):
             common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) REMOVE n.ssn;")
     finally:
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES Employee FROM user;")
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee FROM user;")
 
 
 def test_set_properties_update_denied_property_throws():
     """SET n += {prop: val} fails if any property in the map is denied."""
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES Employee TO user;")
-    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee TO user;")
     try:
         with pytest.raises(Exception, match="(?i)property"):
             common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) SET n += {ssn: '000', name: 'Bob'};")
     finally:
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES Employee FROM user;")
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee FROM user;")
 
 
 def test_set_properties_replace_denied_property_throws():
     """SET n = {prop: val} fails if any property being set or removed is denied."""
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES Employee TO user;")
-    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee TO user;")
     try:
         # This replaces all properties. Even though ssn isn't in the new map,
         # it would be removed, which requires write permission.
         with pytest.raises(Exception, match="(?i)property"):
             common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) SET n = {name: 'Bob'};")
     finally:
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES Employee FROM user;")
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee FROM user;")
 
 
 def test_create_node_denied_property_throws():
     """CREATE with a denied property fails."""
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES Employee TO user;")
-    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee TO user;")
     try:
         with pytest.raises(Exception, match="(?i)property"):
             common.execute_and_fetch_all(user_cursor(), "CREATE (:Employee {name: 'Eve', ssn: '999'});")
     finally:
         # Clean up in case it did get created
         common.execute_and_fetch_all(admin, "MATCH (n:Employee {name: 'Eve'}) DETACH DELETE n;")
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES Employee FROM user;")
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee FROM user;")
 
 
 def test_create_node_allowed_succeeds():
     """CREATE with only allowed properties succeeds."""
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {name} ON NODES Employee TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {name} ON NODES CONTAINING LABELS :Employee TO user;")
     try:
         common.execute_and_fetch_all(user_cursor(), "CREATE (:Employee {name: 'Eve'});")
         result = common.execute_and_fetch_all(admin_cursor(), "MATCH (n:Employee {name: 'Eve'}) RETURN n.name;")
@@ -366,14 +368,16 @@ def test_create_node_allowed_succeeds():
         assert result[0][0] == "Eve"
     finally:
         common.execute_and_fetch_all(admin, "MATCH (n:Employee {name: 'Eve'}) DETACH DELETE n;")
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {name} ON NODES Employee FROM user;")
+        common.execute_and_fetch_all(
+            admin, "REVOKE SET PROPERTY {name} ON NODES CONTAINING LABELS :Employee FROM user;"
+        )
 
 
 def test_create_edge_denied_property_throws():
     """CREATE edge with a denied property fails."""
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON RELATIONSHIPS WORKS_AT TO user;")
-    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {secret_code} ON RELATIONSHIPS WORKS_AT TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON EDGES OF TYPE :WORKS_AT TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {secret_code} ON EDGES OF TYPE :WORKS_AT TO user;")
     try:
         with pytest.raises(Exception, match="(?i)property"):
             common.execute_and_fetch_all(
@@ -382,21 +386,21 @@ def test_create_edge_denied_property_throws():
                 "CREATE (e)-[:WORKS_AT {secret_code: 'Y99'}]->(c);",
             )
     finally:
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON RELATIONSHIPS WORKS_AT FROM user;")
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {secret_code} ON RELATIONSHIPS WORKS_AT FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON EDGES OF TYPE :WORKS_AT FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {secret_code} ON EDGES OF TYPE :WORKS_AT FROM user;")
 
 
 def test_set_edge_property_denied_throws():
     """SET on edge property fails when denied."""
     admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON RELATIONSHIPS WORKS_AT TO user;")
-    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {secret_code} ON RELATIONSHIPS WORKS_AT TO user;")
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON EDGES OF TYPE :WORKS_AT TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {secret_code} ON EDGES OF TYPE :WORKS_AT TO user;")
     try:
         with pytest.raises(Exception, match="(?i)property"):
             common.execute_and_fetch_all(user_cursor(), "MATCH ()-[r:WORKS_AT]->() SET r.secret_code = 'hacked';")
     finally:
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON RELATIONSHIPS WORKS_AT FROM user;")
-        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {secret_code} ON RELATIONSHIPS WORKS_AT FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON EDGES OF TYPE :WORKS_AT FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {secret_code} ON EDGES OF TYPE :WORKS_AT FROM user;")
 
 
 if __name__ == "__main__":

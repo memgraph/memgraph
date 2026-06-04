@@ -58,7 +58,6 @@ class AuthQuery : public memgraph::query::Query {
     REVOKE_PROPERTY_PERMISSION,
   };
 
-  enum class PropertyEntityType : uint8_t { NODE, RELATIONSHIP };
   enum class PropertyPermissionType : uint8_t { READ, WRITE };
 
   enum class Privilege {
@@ -147,8 +146,9 @@ class AuthQuery : public memgraph::query::Query {
       edge_type_privileges_;
   std::vector<std::string> impersonation_targets_;
   std::vector<std::string> property_permissions_;
-  std::string property_entity_name_;
-  PropertyEntityType property_entity_type_{PropertyEntityType::NODE};
+  std::vector<std::string> property_entity_names_;
+  bool property_entity_is_node_{true};
+  LabelMatchingMode property_matching_mode_{LabelMatchingMode::ANY};
   PropertyPermissionType property_permission_type_{PropertyPermissionType::READ};
 
   // Database specification for SHOW PRIVILEGES query
@@ -173,8 +173,9 @@ class AuthQuery : public memgraph::query::Query {
     object->edge_type_privileges_ = edge_type_privileges_;
     object->impersonation_targets_ = impersonation_targets_;
     object->property_permissions_ = property_permissions_;
-    object->property_entity_name_ = property_entity_name_;
-    object->property_entity_type_ = property_entity_type_;
+    object->property_entity_names_ = property_entity_names_;
+    object->property_entity_is_node_ = property_entity_is_node_;
+    object->property_matching_mode_ = property_matching_mode_;
     object->property_permission_type_ = property_permission_type_;
     object->database_specification_ = database_specification_;
     object->entity_type_ = entity_type_;

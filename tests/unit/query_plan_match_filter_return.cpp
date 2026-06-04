@@ -4412,8 +4412,8 @@ TYPED_TEST(MatchReturnFixture, PropertyFGARedactsDeniedProperty) {
 
   auto user = memgraph::auth::User{"test_user"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Grant("Employee", "name");
-  user.property_access_handler().label_properties().Deny("Employee", "ssn");
+  user.property_access_handler().label_properties().Grant({"Employee"}, "name");
+  user.property_access_handler().label_properties().Deny({"Employee"}, "ssn");
 
   auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
   auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "ssn");
@@ -4437,7 +4437,7 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAAllowsGrantedProperty) {
 
   auto user = memgraph::auth::User{"test_user"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Grant("Employee", "name");
+  user.property_access_handler().label_properties().Grant({"Employee"}, "name");
 
   auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
   auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "name");
@@ -4484,8 +4484,8 @@ TYPED_TEST(MatchReturnFixture, PropertyFGADenyOnAnyLabelDenies) {
 
   auto user = memgraph::auth::User{"test_user"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Grant("Employee", "ssn");
-  user.property_access_handler().label_properties().Deny("Manager", "ssn");
+  user.property_access_handler().label_properties().Grant({"Employee"}, "ssn");
+  user.property_access_handler().label_properties().Deny({"Manager"}, "ssn");
 
   auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
   auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "ssn");
@@ -4510,7 +4510,7 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAFlagDisabledMeansNoRestriction) {
 
   auto user = memgraph::auth::User{"test_user"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Deny("Employee", "ssn");
+  user.property_access_handler().label_properties().Deny({"Employee"}, "ssn");
 
   auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
   auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "ssn");
@@ -4540,7 +4540,7 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAEdgeRedaction) {
   auto user = memgraph::auth::User{"test_user"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
   user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().edge_type_properties().Deny("PAID", "amount");
+  user.property_access_handler().edge_type_properties().Deny({"PAID"}, "amount");
 
   auto n = MakeScanAll(this->storage, this->symbol_table, "n");
   auto r_m = MakeExpand(this->storage,
@@ -4577,8 +4577,8 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAKeysOmitsDeniedKey) {
 
   auto user = memgraph::auth::User{"test_user"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Grant("Employee", "name");
-  user.property_access_handler().label_properties().Deny("Employee", "ssn");
+  user.property_access_handler().label_properties().Grant({"Employee"}, "name");
+  user.property_access_handler().label_properties().Deny({"Employee"}, "ssn");
 
   auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
   auto *fn_keys = FN("keys", IDENT("n")->MapTo(scan_all.sym_));
@@ -4607,8 +4607,8 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAValuesOmitsDeniedKey) {
 
   auto user = memgraph::auth::User{"test_user"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Grant("Employee", "name");
-  user.property_access_handler().label_properties().Deny("Employee", "ssn");
+  user.property_access_handler().label_properties().Grant({"Employee"}, "name");
+  user.property_access_handler().label_properties().Deny({"Employee"}, "ssn");
 
   auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
   auto *fn_values = FN("values", IDENT("n")->MapTo(scan_all.sym_));

@@ -674,35 +674,46 @@ PermissionLevel CheckBit(PropertyPermission const &perm, uint8_t bit) {
 }
 }  // namespace
 
-void PropertyAccessPermissions::Grant(std::string const &entity, std::string const &property,
-                                      PropertyPermissionType type) {
+PropertyAccessRule &PropertyAccessPermissions::FindOrCreateRule(std::unordered_set<std::string> const &entities,
+                                                                MatchingMode matching_mode) {
+  auto it = r::find_if(
+      rules_, [&](auto const &rule) { return rule.entities == entities && rule.matching_mode == matching_mode; });
+  if (it != rules_.end()) return *it;
+  return rules_.emplace_back(PropertyAccessRule{entities, matching_mode, {}});
+}
+
+void PropertyAccessPermissions::Grant(std::unordered_set<std::string> const &entities, std::string const &property,
+                                      PropertyPermissionType type, MatchingMode matching_mode) {
   auto const bit = static_cast<uint8_t>(type);
-  auto &perm = rules_[entity][property];
+  auto &rule = FindOrCreateRule(entities, matching_mode);
+  auto &perm = rule.properties[property];
   perm.grants |= bit;
   perm.denies &= ~bit;
 }
 
-void PropertyAccessPermissions::Deny(std::string const &entity, std::string const &property,
-                                     PropertyPermissionType type) {
+void PropertyAccessPermissions::Deny(std::unordered_set<std::string> const &entities, std::string const &property,
+                                     PropertyPermissionType type, MatchingMode matching_mode) {
   auto const bit = static_cast<uint8_t>(type);
-  auto &perm = rules_[entity][property];
+  auto &rule = FindOrCreateRule(entities, matching_mode);
+  auto &perm = rule.properties[property];
   perm.denies |= bit;
   perm.grants &= ~bit;
 }
 
-void PropertyAccessPermissions::Revoke(std::string const &entity, std::string const &property,
-                                       PropertyPermissionType type) {
-  auto entity_it = rules_.find(entity);
-  if (entity_it == rules_.end()) return;
-  auto prop_it = entity_it->second.find(property);
-  if (prop_it == entity_it->second.end()) return;
+void PropertyAccessPermissions::Revoke(std::unordered_set<std::string> const &entities, std::string const &property,
+                                       PropertyPermissionType type, MatchingMode matching_mode) {
+  auto it = r::find_if(
+      rules_, [&](auto const &rule) { return rule.entities == entities && rule.matching_mode == matching_mode; });
+  if (it == rules_.end()) return;
+  auto prop_it = it->properties.find(property);
+  if (prop_it == it->properties.end()) return;
   auto const bit = static_cast<uint8_t>(type);
   prop_it->second.grants &= ~bit;
   prop_it->second.denies &= ~bit;
   if (prop_it->second.grants == 0 && prop_it->second.denies == 0) {
-    entity_it->second.erase(prop_it);
-    if (entity_it->second.empty()) {
-      rules_.erase(entity_it);
+    it->properties.erase(prop_it);
+    if (it->properties.empty()) {
+      rules_.erase(it);
     }
   }
 }
@@ -748,18 +759,32 @@ PermissionLevel CheckPropertyMap(std::unordered_map<std::string, PropertyPermiss
 }
 }  // namespace
 
-PermissionLevel PropertyAccessPermissions::Has(std::string const &entity, std::string const &property,
+PermissionLevel PropertyAccessPermissions::Has(std::span<std::string const> entities, std::string const &property,
                                                PropertyPermissionType type) const {
   auto const bit = static_cast<uint8_t>(type);
 
-  // Per-entity rules take precedence
-  auto entity_it = rules_.find(entity);
-  if (entity_it != rules_.end()) {
-    auto level = CheckPropertyMap(entity_it->second, property, bit);
-    if (level != PermissionLevel::NEUTRAL) return level;
+  auto const rule_matches = [&](auto const &rule) -> bool {
+    if (rule.matching_mode == MatchingMode::EXACTLY) {
+      return rule.entities.size() == entities.size() &&
+             r::all_of(entities, [&](auto const &e) { return rule.entities.contains(e); });
+    }
+    return r::any_of(entities, [&](auto const &e) { return rule.entities.contains(e); });
+  };
+
+  bool any_rule_matched = false;
+  bool any_grant = false;
+
+  for (auto const &rule : rules_) {
+    if (rule_matches(rule)) {
+      any_rule_matched = true;
+      auto level = CheckPropertyMap(rule.properties, property, bit);
+      if (level == PermissionLevel::DENY) return PermissionLevel::DENY;
+      if (level == PermissionLevel::GRANT) any_grant = true;
+    }
   }
 
-  // Fall back to global rules
+  if (any_grant) return PermissionLevel::GRANT;
+
   if (!global_.empty()) {
     return CheckPropertyMap(global_, property, bit);
   }
@@ -807,8 +832,19 @@ nlohmann::json PropertyAccessPermissions::Serialize() const {
   if (!global_.empty()) {
     data["global"] = SerializePropertyMap(global_);
   }
-  for (auto const &[entity, props] : rules_) {
-    data[entity] = SerializePropertyMap(props);
+  if (!rules_.empty()) {
+    nlohmann::json rules_json = nlohmann::json::array();
+    for (auto const &rule : rules_) {
+      nlohmann::json rule_json;
+      rule_json[kSymbols] = nlohmann::json::array();
+      for (auto const &e : rule.entities) {
+        rule_json[kSymbols].push_back(e);
+      }
+      rule_json[kMatching] = rule.matching_mode == MatchingMode::EXACTLY ? "EXACTLY" : "ANY";
+      rule_json["properties"] = SerializePropertyMap(rule.properties);
+      rules_json.push_back(std::move(rule_json));
+    }
+    data["rules"] = std::move(rules_json);
   }
   return data;
 }
@@ -816,12 +852,37 @@ nlohmann::json PropertyAccessPermissions::Serialize() const {
 PropertyAccessPermissions PropertyAccessPermissions::Deserialize(nlohmann::json const &data) {
   PropertyAccessPermissions result;
   if (!data.is_object()) return result;
-  for (auto const &[key, props_json] : data.items()) {
-    if (!props_json.is_object()) continue;
-    if (key == "global") {
-      DeserializePropertyMap(props_json, result.global_);
-    } else {
-      DeserializePropertyMap(props_json, result.rules_[key]);
+
+  if (data.contains("global") && data["global"].is_object()) {
+    DeserializePropertyMap(data["global"], result.global_);
+  }
+
+  if (data.contains("rules") && data["rules"].is_array()) {
+    for (auto const &rule_json : data["rules"]) {
+      PropertyAccessRule rule;
+      if (rule_json.contains(kSymbols)) {
+        for (auto const &e : rule_json[kSymbols]) {
+          rule.entities.insert(e.get<std::string>());
+        }
+      }
+      if (rule_json.contains(kMatching)) {
+        rule.matching_mode = rule_json[kMatching] == "EXACTLY" ? MatchingMode::EXACTLY : MatchingMode::ANY;
+      }
+      if (rule_json.contains("properties") && rule_json["properties"].is_object()) {
+        DeserializePropertyMap(rule_json["properties"], rule.properties);
+      }
+      result.rules_.push_back(std::move(rule));
+    }
+  } else {
+    // Migration: old format was {entity: {prop: {grants, denies}}, ...}
+    for (auto const &[key, props_json] : data.items()) {
+      if (key == "global") continue;
+      if (!props_json.is_object()) continue;
+      PropertyAccessRule rule;
+      rule.entities.insert(key);
+      rule.matching_mode = MatchingMode::ANY;
+      DeserializePropertyMap(props_json, rule.properties);
+      result.rules_.push_back(std::move(rule));
     }
   }
   return result;
@@ -858,15 +919,16 @@ PropertyAccessHandler PropertyAccessHandler::Deserialize(nlohmann::json const &d
 
 PropertyAccessPermissions Merge(PropertyAccessPermissions const &first, PropertyAccessPermissions const &second) {
   PropertyAccessPermissions result = first;
-  for (auto const &[entity, props] : second.GetRules()) {
-    for (auto const &[prop, perm] : props) {
+  for (auto const &rule : second.GetRules()) {
+    for (auto const &[prop, perm] : rule.properties) {
       for (auto type : {PropertyPermissionType::READ, PropertyPermissionType::WRITE}) {
         auto second_level = CheckBit(perm, static_cast<uint8_t>(type));
+        std::vector<std::string> entities_vec(rule.entities.begin(), rule.entities.end());
         if (second_level == PermissionLevel::DENY) {
-          result.Deny(entity, prop, type);
+          result.Deny(rule.entities, prop, type, rule.matching_mode);
         } else if (second_level == PermissionLevel::GRANT &&
-                   result.Has(entity, prop, type) == PermissionLevel::NEUTRAL) {
-          result.Grant(entity, prop, type);
+                   result.Has(entities_vec, prop, type) == PermissionLevel::NEUTRAL) {
+          result.Grant(rule.entities, prop, type, rule.matching_mode);
         }
       }
     }

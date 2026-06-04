@@ -219,17 +219,17 @@ class AuthQueryHandler {
                                    auth::UserOrRoleType type, system::Transaction *system_tx) = 0;
 
   virtual void GrantPropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
-                                       const std::string &entity_name, AuthQuery::PropertyEntityType entity_type,
-                                       auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
-                                       system::Transaction *system_tx) = 0;
+                                       const std::vector<std::string> &entity_names, bool is_node,
+                                       auth::MatchingMode matching_mode, auth::UserOrRoleType type,
+                                       auth::PropertyPermissionType perm_type, system::Transaction *system_tx) = 0;
   virtual void DenyPropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
-                                      const std::string &entity_name, AuthQuery::PropertyEntityType entity_type,
-                                      auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
-                                      system::Transaction *system_tx) = 0;
+                                      const std::vector<std::string> &entity_names, bool is_node,
+                                      auth::MatchingMode matching_mode, auth::UserOrRoleType type,
+                                      auth::PropertyPermissionType perm_type, system::Transaction *system_tx) = 0;
   virtual void RevokePropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
-                                        const std::string &entity_name, AuthQuery::PropertyEntityType entity_type,
-                                        auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
-                                        system::Transaction *system_tx) = 0;
+                                        const std::vector<std::string> &entity_names, bool is_node,
+                                        auth::MatchingMode matching_mode, auth::UserOrRoleType type,
+                                        auth::PropertyPermissionType perm_type, system::Transaction *system_tx) = 0;
 #endif
 
 // User profiles

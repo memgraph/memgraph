@@ -2595,7 +2595,7 @@ namespace {
 AuthQuery *BuildPropertyPermissionQuery(AstStorage *storage, AuthQuery::Action action,
                                         MemgraphCypher::PropertyPermissionTypeContext *perm_type,
                                         MemgraphCypher::PropertyPermissionListContext *props,
-                                        MemgraphCypher::PropertyScopeContext *scope,
+                                        MemgraphCypher::EntityTypeSpecContext *type_spec,
                                         MemgraphCypher::UserOrRoleContext *target, CypherMainVisitor *visitor) {
   auto *auth = storage->Create<AuthQuery>();
   auth->action_ = action;
@@ -2610,10 +2610,25 @@ AuthQuery *BuildPropertyPermissionQuery(AstStorage *storage, AuthQuery::Action a
         std::any_cast<std::vector<std::string>>(props->listOfSymbolicNames()->accept(visitor));
   }
 
-  auto *entity_target = scope->propertyEntityTarget();
-  auth->property_entity_type_ =
-      entity_target->NODES() ? AuthQuery::PropertyEntityType::NODE : AuthQuery::PropertyEntityType::RELATIONSHIP;
-  auth->property_entity_name_ = std::any_cast<std::string>(entity_target->entity->accept(visitor));
+  if (type_spec->labelEntitiesList()) {
+    auth->property_entity_is_node_ = true;
+    auth->property_entity_names_ =
+        std::any_cast<std::vector<std::string>>(type_spec->labelEntitiesList()->accept(visitor));
+
+    if (auth->property_entity_names_.size() == 1 && auth->property_entity_names_[0] == "*" &&
+        type_spec->matchingClause()) {
+      throw SemanticException("Cannot use MATCHING clause with wildcard '*'");
+    }
+
+    if (type_spec->matchingClause() && type_spec->matchingClause()->EXACTLY()) {
+      auth->property_matching_mode_ = AuthQuery::LabelMatchingMode::EXACTLY;
+    } else {
+      auth->property_matching_mode_ = AuthQuery::LabelMatchingMode::ANY;
+    }
+  } else {
+    auth->property_entity_is_node_ = false;
+    auth->property_entity_names_ = std::any_cast<std::vector<std::string>>(type_spec->edgeType->accept(visitor));
+  }
 
   std::tie(auth->user_or_role_, auth->entity_type_) =
       std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(target->accept(visitor));
@@ -2627,7 +2642,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantPropertyPermission(MemgraphCypher::Gr
                                       AuthQuery::Action::GRANT_PROPERTY_PERMISSION,
                                       ctx->permType,
                                       ctx->propList,
-                                      ctx->propertyScope(),
+                                      ctx->entityTypeSpec(),
                                       ctx->target,
                                       this);
 }
@@ -2637,7 +2652,7 @@ antlrcpp::Any CypherMainVisitor::visitDenyPropertyPermission(MemgraphCypher::Den
                                       AuthQuery::Action::DENY_PROPERTY_PERMISSION,
                                       ctx->permType,
                                       ctx->propList,
-                                      ctx->propertyScope(),
+                                      ctx->entityTypeSpec(),
                                       ctx->target,
                                       this);
 }
@@ -2647,7 +2662,7 @@ antlrcpp::Any CypherMainVisitor::visitRevokePropertyPermission(MemgraphCypher::R
                                       AuthQuery::Action::REVOKE_PROPERTY_PERMISSION,
                                       ctx->permType,
                                       ctx->propList,
-                                      ctx->propertyScope(),
+                                      ctx->entityTypeSpec(),
                                       ctx->target,
                                       this);
 }

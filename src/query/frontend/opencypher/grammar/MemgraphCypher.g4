@@ -536,21 +536,11 @@ propertyPermissionList : '{' ( ASTERISK | listOfSymbolicNames ) '}' ;
 
 propertyPermissionType : READ | SET PROPERTY ;
 
-propertyEntityTarget
-    : NODES entity=wildcardName
-    | RELATIONSHIPS entity=wildcardName
-    ;
+grantPropertyPermission : GRANT permType=propertyPermissionType propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
 
-propertyScope
-    : ON GRAPH graph=symbolicName propertyEntityTarget
-    | ON propertyEntityTarget
-    ;
+denyPropertyPermission : DENY permType=propertyPermissionType propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
 
-grantPropertyPermission : GRANT permType=propertyPermissionType propList=propertyPermissionList propertyScope TO target=userOrRole ;
-
-denyPropertyPermission : DENY permType=propertyPermissionType propList=propertyPermissionList propertyScope TO target=userOrRole ;
-
-revokePropertyPermission : REVOKE permType=propertyPermissionType propList=propertyPermissionList propertyScope FROM target=userOrRole ;
+revokePropertyPermission : REVOKE permType=propertyPermissionType propList=propertyPermissionList ON entityTypeSpec FROM target=userOrRole ;
 
 grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO target=userOrRole ;
 

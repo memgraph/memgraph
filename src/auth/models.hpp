@@ -420,22 +420,31 @@ struct PropertyPermission {
   bool operator==(PropertyPermission const &) const = default;
 };
 
+struct PropertyAccessRule {
+  std::unordered_set<std::string> entities;
+  MatchingMode matching_mode{MatchingMode::ANY};
+  std::unordered_map<std::string, PropertyPermission> properties;
+  bool operator==(PropertyAccessRule const &) const = default;
+};
+
 class PropertyAccessPermissions final {
  public:
   PropertyAccessPermissions() = default;
 
-  void Grant(std::string const &entity, std::string const &property,
-             PropertyPermissionType type = PropertyPermissionType::READ);
-  void Deny(std::string const &entity, std::string const &property,
-            PropertyPermissionType type = PropertyPermissionType::READ);
-  void Revoke(std::string const &entity, std::string const &property,
-              PropertyPermissionType type = PropertyPermissionType::READ);
+  void Grant(std::unordered_set<std::string> const &entities, std::string const &property,
+             PropertyPermissionType type = PropertyPermissionType::READ,
+             MatchingMode matching_mode = MatchingMode::ANY);
+  void Deny(std::unordered_set<std::string> const &entities, std::string const &property,
+            PropertyPermissionType type = PropertyPermissionType::READ, MatchingMode matching_mode = MatchingMode::ANY);
+  void Revoke(std::unordered_set<std::string> const &entities, std::string const &property,
+              PropertyPermissionType type = PropertyPermissionType::READ,
+              MatchingMode matching_mode = MatchingMode::ANY);
 
   void GrantGlobal(std::string const &property, PropertyPermissionType type = PropertyPermissionType::READ);
   void DenyGlobal(std::string const &property, PropertyPermissionType type = PropertyPermissionType::READ);
   void RevokeGlobal(std::string const &property, PropertyPermissionType type = PropertyPermissionType::READ);
 
-  PermissionLevel Has(std::string const &entity, std::string const &property,
+  PermissionLevel Has(std::span<std::string const> entities, std::string const &property,
                       PropertyPermissionType type = PropertyPermissionType::READ) const;
   PermissionLevel HasGlobal(std::string const &property,
                             PropertyPermissionType type = PropertyPermissionType::READ) const;
@@ -450,9 +459,9 @@ class PropertyAccessPermissions final {
   auto const &GetGlobalRules() const { return global_; }
 
  private:
-  // entity -> (property -> permission). "*" as property key means wildcard.
-  std::unordered_map<std::string, std::unordered_map<std::string, PropertyPermission>> rules_;
-  // property -> permission (entity-agnostic). Falls back here when entity not in rules_.
+  PropertyAccessRule &FindOrCreateRule(std::unordered_set<std::string> const &entities, MatchingMode matching_mode);
+
+  std::vector<PropertyAccessRule> rules_;
   std::unordered_map<std::string, PropertyPermission> global_;
 };
 

@@ -356,14 +356,13 @@ bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId co
   if (labels.empty()) {
     return permissions.HasGlobal(prop_name, perm_type) == auth::PermissionLevel::GRANT;
   }
-  bool any_grant = false;
+  std::vector<std::string> label_names;
+  label_names.reserve(labels.size());
   for (auto label : labels) {
-    auto const &label_name = dba_->LabelToName(label);
-    auto level = permissions.Has(label_name, prop_name, perm_type);
-    if (level == auth::PermissionLevel::DENY) return false;
-    if (level == auth::PermissionLevel::GRANT) any_grant = true;
+    label_names.push_back(dba_->LabelToName(label));
   }
-  return any_grant;
+  auto level = permissions.Has(label_names, prop_name, perm_type);
+  return level == auth::PermissionLevel::GRANT;
 }
 
 bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &edge_type, storage::PropertyId property,
@@ -376,7 +375,8 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
   auto const &permissions = GetCachedPropertyEdgeTypePermissions();
   auto const &edge_type_name = dba_->EdgeTypeToName(edge_type);
   auto const &prop_name = dba_->PropertyToName(property);
-  auto level = permissions.Has(edge_type_name, prop_name, perm_type);
+  std::vector<std::string> entities = {edge_type_name};
+  auto level = permissions.Has(entities, prop_name, perm_type);
   return level == auth::PermissionLevel::GRANT;
 }
 
@@ -386,8 +386,9 @@ bool FineGrainedAuthChecker::IsPropertyVisible(std::string const &property_name,
 
   auto check_permissions = [&](auth::PropertyAccessPermissions const &permissions) {
     if (permissions.HasGlobal(property_name) == auth::PermissionLevel::DENY) return false;
-    for (auto const &[entity, _] : permissions.GetRules()) {
-      if (permissions.Has(entity, property_name) == auth::PermissionLevel::DENY) return false;
+    for (auto const &rule : permissions.GetRules()) {
+      std::vector<std::string> entities(rule.entities.begin(), rule.entities.end());
+      if (permissions.Has(entities, property_name) == auth::PermissionLevel::DENY) return false;
     }
     return true;
   };

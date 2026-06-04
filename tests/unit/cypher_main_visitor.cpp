@@ -2885,13 +2885,18 @@ struct AuthQueryChecker {
     return *this;
   }
 
-  AuthQueryChecker &WithPropertyEntityName(std::string name) {
-    property_entity_name_ = std::move(name);
+  AuthQueryChecker &WithPropertyEntityNames(std::vector<std::string> names) {
+    property_entity_names_ = std::move(names);
     return *this;
   }
 
-  AuthQueryChecker &WithPropertyEntityType(AuthQuery::PropertyEntityType type) {
-    property_entity_type_ = type;
+  AuthQueryChecker &WithPropertyEntityIsNode(bool v) {
+    property_entity_is_node_ = v;
+    return *this;
+  }
+
+  AuthQueryChecker &WithPropertyMatchingMode(AuthQuery::LabelMatchingMode m) {
+    property_matching_mode_ = m;
     return *this;
   }
 
@@ -2919,8 +2924,9 @@ struct AuthQueryChecker {
       EXPECT_EQ(q->role_databases_, *role_databases_);
     }
     EXPECT_EQ(q->property_permissions_, property_permissions_);
-    EXPECT_EQ(q->property_entity_name_, property_entity_name_);
-    EXPECT_EQ(q->property_entity_type_, property_entity_type_);
+    EXPECT_EQ(q->property_entity_names_, property_entity_names_);
+    EXPECT_EQ(q->property_entity_is_node_, property_entity_is_node_);
+    EXPECT_EQ(q->property_matching_mode_, property_matching_mode_);
     EXPECT_EQ(q->property_permission_type_, property_permission_type_);
   }
 
@@ -2938,8 +2944,9 @@ struct AuthQueryChecker {
   std::vector<AuthQuery::LabelMatchingMode> label_matching_modes_;
   std::optional<std::unordered_set<std::string>> role_databases_;
   std::vector<std::string> property_permissions_;
-  std::string property_entity_name_;
-  AuthQuery::PropertyEntityType property_entity_type_{AuthQuery::PropertyEntityType::NODE};
+  std::vector<std::string> property_entity_names_;
+  bool property_entity_is_node_{true};
+  AuthQuery::LabelMatchingMode property_matching_mode_{AuthQuery::LabelMatchingMode::ANY};
   AuthQuery::PropertyPermissionType property_permission_type_{AuthQuery::PropertyPermissionType::READ};
 };
 
@@ -4520,92 +4527,86 @@ TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
   auto &ast_generator = *GetParam();
 
   // GRANT READ with single property on nodes
-  AuthQueryChecker(
-      &ast_generator, "GRANT READ {ssn} ON NODES Employee TO user", AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {ssn} ON NODES CONTAINING LABELS :Employee TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"ssn"})
-      .WithPropertyEntityName("Employee")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityIsNode(true)
       .Check();
 
   // GRANT READ with multiple properties on nodes
   AuthQueryChecker(&ast_generator,
-                   "GRANT READ {ssn, salary, dob} ON NODES Employee TO user",
+                   "GRANT READ {ssn, salary, dob} ON NODES CONTAINING LABELS :Employee TO user",
                    AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"ssn", "salary", "dob"})
-      .WithPropertyEntityName("Employee")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityIsNode(true)
       .Check();
 
   // GRANT READ with wildcard properties on nodes
-  AuthQueryChecker(
-      &ast_generator, "GRANT READ {*} ON NODES Employee TO user", AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {*} ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"*"})
-      .WithPropertyEntityName("Employee")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyEntityNames({"*"})
+      .WithPropertyEntityIsNode(true)
       .Check();
 
-  // GRANT READ with properties on relationships
+  // GRANT READ with properties on edges
   AuthQueryChecker(&ast_generator,
-                   "GRANT READ {amount, currency} ON RELATIONSHIPS PAID TO user",
+                   "GRANT READ {amount, currency} ON EDGES OF TYPE :PAID TO user",
                    AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"amount", "currency"})
-      .WithPropertyEntityName("PAID")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::RELATIONSHIP)
-      .Check();
-
-  // GRANT READ with ON GRAPH (graph name parsed but ignored)
-  AuthQueryChecker(&ast_generator,
-                   "GRANT READ {ssn} ON GRAPH mydb NODES Employee TO user",
-                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
-      .WithUserOrRole("user")
-      .WithPropertyPermissions({"ssn"})
-      .WithPropertyEntityName("Employee")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyEntityNames({"PAID"})
+      .WithPropertyEntityIsNode(false)
       .Check();
 }
 
 TEST_P(CypherMainVisitorTest, DenyPropertyReadPrivilege) {
   auto &ast_generator = *GetParam();
 
-  AuthQueryChecker(
-      &ast_generator, "DENY READ {ssn} ON NODES Employee TO user", AuthQuery::Action::DENY_PROPERTY_PERMISSION)
+  AuthQueryChecker(&ast_generator,
+                   "DENY READ {ssn} ON NODES CONTAINING LABELS :Employee TO user",
+                   AuthQuery::Action::DENY_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"ssn"})
-      .WithPropertyEntityName("Employee")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityIsNode(true)
       .Check();
 
   AuthQueryChecker(
-      &ast_generator, "DENY READ {amount} ON RELATIONSHIPS PAID TO user", AuthQuery::Action::DENY_PROPERTY_PERMISSION)
+      &ast_generator, "DENY READ {amount} ON EDGES OF TYPE :PAID TO user", AuthQuery::Action::DENY_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"amount"})
-      .WithPropertyEntityName("PAID")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::RELATIONSHIP)
+      .WithPropertyEntityNames({"PAID"})
+      .WithPropertyEntityIsNode(false)
       .Check();
 }
 
 TEST_P(CypherMainVisitorTest, RevokePropertyReadPrivilege) {
   auto &ast_generator = *GetParam();
 
-  AuthQueryChecker(
-      &ast_generator, "REVOKE READ {ssn} ON NODES Employee FROM user", AuthQuery::Action::REVOKE_PROPERTY_PERMISSION)
+  AuthQueryChecker(&ast_generator,
+                   "REVOKE READ {ssn} ON NODES CONTAINING LABELS :Employee FROM user",
+                   AuthQuery::Action::REVOKE_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"ssn"})
-      .WithPropertyEntityName("Employee")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityIsNode(true)
       .Check();
 
   AuthQueryChecker(&ast_generator,
-                   "REVOKE READ {amount} ON RELATIONSHIPS PAID FROM user",
+                   "REVOKE READ {amount} ON EDGES OF TYPE :PAID FROM user",
                    AuthQuery::Action::REVOKE_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"amount"})
-      .WithPropertyEntityName("PAID")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::RELATIONSHIP)
+      .WithPropertyEntityNames({"PAID"})
+      .WithPropertyEntityIsNode(false)
       .Check();
 }
 
@@ -4613,38 +4614,41 @@ TEST_P(CypherMainVisitorTest, PropertyReadPrivilegeSyntaxErrors) {
   auto &ast_generator = *GetParam();
 
   // Empty braces
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {} ON NODES Employee TO user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {} ON NODES CONTAINING LABELS :Employee TO user"), SyntaxException);
 
   // Trailing comma in property list
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn,} ON NODES Employee TO user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn,} ON NODES CONTAINING LABELS :Employee TO user"),
+               SyntaxException);
 
   // Missing closing brace
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn ON NODES Employee TO user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn ON NODES CONTAINING LABELS :Employee TO user"),
+               SyntaxException);
 
   // Missing opening brace
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ssn} ON NODES Employee TO user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ssn} ON NODES CONTAINING LABELS :Employee TO user"),
+               SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, GrantSetPropertyPermission) {
   auto &ast_generator = *GetParam();
 
   AuthQueryChecker(&ast_generator,
-                   "GRANT SET PROPERTY {department, title} ON NODES Employee TO user",
+                   "GRANT SET PROPERTY {department, title} ON NODES CONTAINING LABELS :Employee TO user",
                    AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"department", "title"})
-      .WithPropertyEntityName("Employee")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityIsNode(true)
       .WithPropertyPermissionType(AuthQuery::PropertyPermissionType::WRITE)
       .Check();
 
   AuthQueryChecker(&ast_generator,
-                   "GRANT SET PROPERTY {*} ON RELATIONSHIPS PAID TO user",
+                   "GRANT SET PROPERTY {*} ON EDGES OF TYPE :PAID TO user",
                    AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"*"})
-      .WithPropertyEntityName("PAID")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::RELATIONSHIP)
+      .WithPropertyEntityNames({"PAID"})
+      .WithPropertyEntityIsNode(false)
       .WithPropertyPermissionType(AuthQuery::PropertyPermissionType::WRITE)
       .Check();
 }
@@ -4653,12 +4657,12 @@ TEST_P(CypherMainVisitorTest, DenySetPropertyPermission) {
   auto &ast_generator = *GetParam();
 
   AuthQueryChecker(&ast_generator,
-                   "DENY SET PROPERTY {salary, ssn} ON NODES Employee TO user",
+                   "DENY SET PROPERTY {salary, ssn} ON NODES CONTAINING LABELS :Employee TO user",
                    AuthQuery::Action::DENY_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"salary", "ssn"})
-      .WithPropertyEntityName("Employee")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityIsNode(true)
       .WithPropertyPermissionType(AuthQuery::PropertyPermissionType::WRITE)
       .Check();
 }
@@ -4667,12 +4671,12 @@ TEST_P(CypherMainVisitorTest, RevokeSetPropertyPermission) {
   auto &ast_generator = *GetParam();
 
   AuthQueryChecker(&ast_generator,
-                   "REVOKE SET PROPERTY {salary} ON NODES Employee FROM user",
+                   "REVOKE SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee FROM user",
                    AuthQuery::Action::REVOKE_PROPERTY_PERMISSION)
       .WithUserOrRole("user")
       .WithPropertyPermissions({"salary"})
-      .WithPropertyEntityName("Employee")
-      .WithPropertyEntityType(AuthQuery::PropertyEntityType::NODE)
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityIsNode(true)
       .WithPropertyPermissionType(AuthQuery::PropertyPermissionType::WRITE)
       .Check();
 }
