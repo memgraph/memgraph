@@ -156,17 +156,24 @@ auto SymEclassFor(LoweringCtx &ctx, AstNode &node) -> eclass {
 
 auto Lower(LoweringCtx &ctx, Expression &expr) -> eclass;
 
-// The constant value an expression denotes, or nullopt if any part is not a
-// compile-time constant. A `PrimitiveLiteral` carries its value directly; a
-// `ListLiteral` is constant exactly when every element is, so this recurses and
-// nested constant lists fold too.
-auto ConstantValueOf(Expression &expr) -> std::optional<storage::ExternalPropertyValue> {
+// The constant value an expression denotes for this execution, or nullopt if
+// any part is not constant. A `PrimitiveLiteral` carries its value directly; a
+// `ParameterLookup` is constant when its value is known in `parameters` (a
+// stripped literal or a bound user parameter), which is why a list literal -
+// whose elements are stripped to parameters - can still be recognised as
+// constant; a `ListLiteral` is constant exactly when every element is, so this
+// recurses and nested constant lists fold too.
+auto ConstantValueOf(Expression &expr, Parameters const &parameters) -> std::optional<storage::ExternalPropertyValue> {
   if (auto *primitive = utils::Downcast<PrimitiveLiteral>(&expr)) return primitive->value_;
+  if (auto *param = utils::Downcast<ParameterLookup>(&expr)) {
+    if (auto const *value = parameters.MaybeAtTokenPosition(param->token_position_)) return *value;
+    return std::nullopt;
+  }
   if (auto *list = utils::Downcast<ListLiteral>(&expr)) {
     std::vector<storage::ExternalPropertyValue> values;
     values.reserve(list->elements_.size());
     for (auto *element : list->elements_) {
-      auto value = ConstantValueOf(*element);
+      auto value = ConstantValueOf(*element, parameters);
       if (!value) return std::nullopt;
       values.push_back(std::move(*value));
     }
@@ -207,7 +214,7 @@ class ExprLowering : public ExpressionVisitor<void> {
   // lowering time, so it lowers to a single folded list Literal. A non-constant
   // element needs the runtime list-construction node we don't model yet.
   void Visit(ListLiteral &list) override {
-    auto value = ConstantValueOf(list);
+    auto value = ConstantValueOf(list, ctx_.parameters);
     if (!value) ThrowNotImplementedYet("ListLiteral with a non-constant element");
     result_ = ctx_.g.MakeLiteral(*value);
   }
