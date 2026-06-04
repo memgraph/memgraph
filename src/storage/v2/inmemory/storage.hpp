@@ -828,7 +828,19 @@ class InMemoryStorage final : public Storage {
 
   // Light-edge teardown (frees pool-allocated Edge* still live in vertex
   // adjacency). Gated at every call site by salient.items.storage_light_edge.
-  void ClearLightEdges();
+  // noexcept: body only calls DestroyLightEdge (noexcept), SpinLock acquire
+  // (noexcept via MG_ASSERT), std::list::swap (noexcept), and clear(); the
+  // vertices_.access() ctor calls SkipList::gc_.AllocateId() which is a plain
+  // atomic fetch_add — no heap allocation, no throw.
+  void ClearLightEdges() noexcept;
+  // PR7b-ii: free deleted light Edge* referenced ONLY by un-GC'd RECREATE_OBJECT
+  // deltas in committed_transactions_/waiting_gc_deltas_ at teardown (GC never
+  // unlinked them because an older txn was active at delete time). noexcept: the
+  // walk only reads lock-free delta prev pointers and calls the noexcept
+  // DestroyLightEdge; no allocation. Disjoint from adjacency/deleted_edges_/
+  // graveyard by construction, so each edge is freed exactly once. Gated by the
+  // caller on salient.items.storage_light_edge.
+  void HarvestDeltaChainOnlyLightEdges() noexcept;
   // Drain the light-edge graveyard: free queued Edge* (PR7b-i frees
   // unconditionally — no reader pins light edges yet; epoch gating arrives in
   // PR7b-ii). Called from FreeMemory after edges_.run_gc(); early-returns when
@@ -857,6 +869,7 @@ class InMemoryStorage final : public Storage {
     std::vector<Edge *, memory::DbAwareAllocator<Edge *>> edges;
   };
 
+ public:
   // Test helper: number of entries currently sitting in the light-edge graveyard.
   std::size_t LightEdgeGraveyardSizeForTest() {
     std::size_t n = 0;
@@ -864,14 +877,29 @@ class InMemoryStorage final : public Storage {
     return n;
   }
 
+ private:
   // Returns a pin that keeps edge-index iterables' underlying Edge memory alive
   // for the lifetime of the iterable. Heavy mode pins the edges_ skip-list
-  // ConstAccessor (the first alternative of the EdgePin variant).
-  [[nodiscard]] EdgePin MakeEdgePin() const { return edges_.access(); }
+  // ConstAccessor (the first alternative of the EdgePin variant). Light mode
+  // acquires an epoch from light_edge_iterable_tracker_ so the graveyard drain
+  // can determine when it is safe to free deleted Edge objects.
+  [[nodiscard]] EdgePin MakeEdgePin() const {
+    if (config_.salient.items.storage_light_edge) [[unlikely]] {
+      return LightEdgeIterableGuard{&light_edge_iterable_tracker_};
+    }
+    return edges_.access();
+  }
 
   utils::SkipListDb<Edge> edges_;
   // Present iff salient.items.enable_edges_metadata && salient.items.properties_on_edges.
   std::optional<EdgeMetadataIndex> edges_metadata_index_;
+
+  // Epoch tracker for light-edge edge-index iterables. Readers (edge-index
+  // iterables) Acquire an epoch ID via MakeEdgePin()->LightEdgeIterableGuard;
+  // the graveyard drain frees a deleted light Edge* only once IsSafeToFree(guard_epoch)
+  // confirms every reader that existed before the delete has Released. mutable
+  // because MakeEdgePin() const calls Acquire() (mutating) on it.
+  mutable utils::EpochTracker light_edge_iterable_tracker_;
 
   // Durability
   durability::Recovery recovery_;
