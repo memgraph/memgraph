@@ -4976,8 +4976,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
               "Setting node property failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
         auto maybe_labels = lhs.ValueVertex().Labels(storage::View::NEW);
-        if (maybe_labels && !context.auth_checker->HasPropertyPermission(
-                                *maybe_labels, self_.property_, AuthQuery::PropertyPermissionType::WRITE)) {
+        if (!maybe_labels) {
+          ThrowVertexLabelsReadFailure(maybe_labels.error());
+        }
+        if (!context.auth_checker->HasPropertyPermission(
+                *maybe_labels, self_.property_, AuthQuery::PropertyPermissionType::WRITE)) {
           throw QueryRuntimeException("Setting node property failed: missing SET PROPERTY permission on property.");
         }
       }
@@ -5192,8 +5195,11 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
               "Setting node property failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
         auto maybe_labels = lhs.ValueVertex().Labels(storage::View::NEW);
-        if (maybe_labels && !context.auth_checker->HasPropertyPermission(
-                                *maybe_labels, self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) {
+        if (!maybe_labels) {
+          ThrowVertexLabelsReadFailure(maybe_labels.error());
+        }
+        if (!context.auth_checker->HasPropertyPermission(
+                *maybe_labels, self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) {
           throw QueryRuntimeException("Setting node property failed: missing SET PROPERTY permission on property.");
         }
       }
@@ -5490,17 +5496,17 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
               "Setting node properties failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
         auto maybe_labels = lhs.ValueVertex().Labels(storage::View::NEW);
-        if (maybe_labels) {
-          auto check_prop = [&](storage::PropertyId prop) {
-            if (!context.auth_checker->HasPropertyPermission(
-                    *maybe_labels, prop, AuthQuery::PropertyPermissionType::WRITE)) {
-              throw QueryRuntimeException(
-                  "Setting node properties failed: missing SET PROPERTY permission on property.");
-            }
-          };
-          CheckPropertyPermissionsForSetProperties(
-              rhs, self_.op_, lhs.ValueVertex(), context, cached_name_id_, check_prop);
+        if (!maybe_labels) {
+          ThrowVertexLabelsReadFailure(maybe_labels.error());
         }
+        auto check_prop = [&](storage::PropertyId prop) {
+          if (!context.auth_checker->HasPropertyPermission(
+                  *maybe_labels, prop, AuthQuery::PropertyPermissionType::WRITE)) {
+            throw QueryRuntimeException("Setting node properties failed: missing SET PROPERTY permission on property.");
+          }
+        };
+        CheckPropertyPermissionsForSetProperties(
+            rhs, self_.op_, lhs.ValueVertex(), context, cached_name_id_, check_prop);
       }
 #endif
       auto set_properties_on_record = [&](TypedValue &vertex) {
@@ -5725,8 +5731,11 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
               "Removing node property failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
         auto maybe_labels = lhs.ValueVertex().Labels(storage::View::NEW);
-        if (maybe_labels && !context.auth_checker->HasPropertyPermission(
-                                *maybe_labels, self_.property_, AuthQuery::PropertyPermissionType::WRITE)) {
+        if (!maybe_labels) {
+          ThrowVertexLabelsReadFailure(maybe_labels.error());
+        }
+        if (!context.auth_checker->HasPropertyPermission(
+                *maybe_labels, self_.property_, AuthQuery::PropertyPermissionType::WRITE)) {
           throw QueryRuntimeException("Removing node property failed: missing SET PROPERTY permission on property.");
         }
       }
