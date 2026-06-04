@@ -18,6 +18,7 @@
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "disk_test_utils.hpp"
+#include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
@@ -142,6 +143,65 @@ class InterpreterTest : public ::testing::Test {
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
+
+// Interpreter under the experimental plan_v2 planner. plan_v2 does not cache
+// plans, so a query's stripped literals and user parameters - whose values are
+// known for this execution - are folded to constants during lowering. These
+// tests exercise that the constant-dependent optimisations reach the runtime
+// plan through the real interpreter path.
+class PlannerV2InterpreterTest : public InterpreterTest<memgraph::storage::InMemoryStorage> {
+ protected:
+  void SetUp() override { memgraph::flags::SetExperimental(memgraph::flags::Experiments::PLANNER_V2); }
+
+  void TearDown() override {
+    memgraph::flags::SetExperimental(memgraph::flags::Experiments{});
+    InterpreterTest<memgraph::storage::InMemoryStorage>::TearDown();
+  }
+
+  // Collect the plan operator names from an EXPLAIN result stream.
+  static auto PlanText(ResultStreamFaker const &stream) -> std::string {
+    std::string out;
+    for (auto const &row : stream.GetResults()) out += row[0].ValueString() + "\n";
+    return out;
+  }
+};
+
+TEST_F(PlannerV2InterpreterTest, UnwindOverProvableLengthRangeElidesUnusedBinding) {
+  // range(0, 100) has a provable length and x is unused, so the binding elides
+  // to a CardinalityScale. The int literals reach the planner as constants
+  // because plan_v2 folds the (stripped) literal parameters during lowering.
+  auto stream = Interpret("EXPLAIN UNWIND range(0, 100) AS x RETURN 42;");
+  auto const plan = PlanText(stream);
+  EXPECT_NE(plan.find("CardinalityScale"), std::string::npos) << plan;
+  EXPECT_EQ(plan.find("Unwind"), std::string::npos) << plan;
+}
+
+TEST_F(PlannerV2InterpreterTest, ElidedUnwindExecutesToScaledRows) {
+  // The CardinalityScale plan executes: one row per range element, each the
+  // scalar 42.
+  auto stream = Interpret("UNWIND range(1, 3) AS x RETURN 42;");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  for (auto const &row : stream.GetResults()) {
+    ASSERT_EQ(row.size(), 1U);
+    EXPECT_EQ(row[0].ValueInt(), 42);
+  }
+}
+
+TEST_F(PlannerV2InterpreterTest, UserParameterRangeLengthEnablesElision) {
+  // A user parameter's value is known for this execution and plan_v2 is
+  // uncached, so range($lo, $hi) folds to a provable length: the unused binding
+  // elides to a CardinalityScale and executes to the scaled row count.
+  auto stream = Interpret(
+      "EXPLAIN UNWIND range($lo, $hi) AS x RETURN 42;",
+      {{"lo", memgraph::storage::ExternalPropertyValue(0)}, {"hi", memgraph::storage::ExternalPropertyValue(2)}});
+  EXPECT_NE(PlanText(stream).find("CardinalityScale"), std::string::npos) << PlanText(stream);
+
+  auto exec = Interpret(
+      "UNWIND range($lo, $hi) AS x RETURN 42;",
+      {{"lo", memgraph::storage::ExternalPropertyValue(0)}, {"hi", memgraph::storage::ExternalPropertyValue(2)}});
+  ASSERT_EQ(exec.GetResults().size(), 3U);
+  for (auto const &row : exec.GetResults()) EXPECT_EQ(row[0].ValueInt(), 42);
+}
 
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {

@@ -219,7 +219,10 @@ class PlannerV2PipelineTest : public ::testing::TestWithParam<PipelineTestCase> 
     EXPECT_NE(cypher_query, nullptr);
 
     symbol_table_ = MakeSymbolTable(cypher_query);
-    auto [eg, root] = ConvertToEgraph(*cypher_query, symbol_table_);
+    // Raw parse keeps literals as PrimitiveLiterals, so there are no parameters
+    // to fold here.
+    Parameters parameters;
+    auto [eg, root] = ConvertToEgraph(*cypher_query, symbol_table_, parameters);
 
     auto result = ApplyAllRewrites(eg);
     rewrite_result_ = result;

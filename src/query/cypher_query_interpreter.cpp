@@ -193,7 +193,7 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
     if (flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2)) {
       // WITH 1 AS tmp RETURN tmp AS result;
       //  SymTbl: tmp result
-      auto [egraph, root] = plan::v2::ConvertToEgraph(*query, symbol_table);
+      auto [egraph, root] = plan::v2::ConvertToEgraph(*query, symbol_table, parameters);
 
       // Apply e-graph rewrites (inline identifiers, etc.)
       plan::v2::ApplyAllRewrites(egraph);
