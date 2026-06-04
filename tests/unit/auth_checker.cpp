@@ -12,6 +12,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <span>
+
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "disk_test_utils.hpp"
@@ -570,5 +572,29 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAEdgeTypeDenyOverridesGrant)
       this->edge_type_one, secret_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
   EXPECT_TRUE(auth_checker.HasPropertyPermission(
       this->edge_type_one, amount_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAGlobalGrantDeniedOnUnlabeledVertex) {
+  memgraph::auth::User user{"test"};
+  user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
+
+  auto unlabeled = this->dba.InsertVertex();
+  auto name_id = this->dba.NameToProperty("name");
+  ASSERT_TRUE(unlabeled.SetProperty(name_id, memgraph::storage::PropertyValue("value")).has_value());
+  this->dba.AdvanceCommand();
+
+  auto labels = unlabeled.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels.has_value());
+  ASSERT_TRUE(labels->empty());
+
+  EXPECT_EQ(
+      user.property_access_handler().label_properties().HasGlobal("name", memgraph::auth::PropertyPermissionType::READ),
+      memgraph::auth::PermissionLevel::GRANT);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  // Global READ {*} should apply even when the vertex has no labels (issue #1).
+  EXPECT_TRUE(auth_checker.HasPropertyPermission(std::span<memgraph::storage::LabelId const>{},
+                                                 name_id,
+                                                 memgraph::query::AuthQuery::PropertyPermissionType::READ));
 }
 #endif

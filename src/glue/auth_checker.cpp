@@ -353,6 +353,9 @@ bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId co
                                                                                  : auth::PropertyPermissionType::READ;
   auto const &permissions = GetCachedPropertyLabelPermissions();
   auto const &prop_name = dba_->PropertyToName(property);
+  if (labels.empty()) {
+    return permissions.HasGlobal(prop_name, perm_type) == auth::PermissionLevel::GRANT;
+  }
   bool any_grant = false;
   for (auto label : labels) {
     auto const &label_name = dba_->LabelToName(label);
