@@ -21,7 +21,7 @@ struct egraph;  // public e-graph facade
 /// Default list size when a built-in's produced size can't be deduced
 /// statically.  A small guess on purpose: an unknown list is assumed short so
 /// it doesn't dominate the row cardinality an Unwind later derives from it.
-inline constexpr double kDefaultListSize = 10.0;
+inline constexpr double kDefaultListSize = 12.0;
 
 /// Computes the statically-known list size produced by a built-in Cypher
 /// function.  This is type/size analysis, not cardinality (rows): a known size
