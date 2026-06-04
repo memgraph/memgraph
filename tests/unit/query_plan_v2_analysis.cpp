@@ -113,21 +113,6 @@ TEST(AnalysisMerge, AgreeingConstantsAreKept) {
   EXPECT_TRUE(ConstantIdentityEq{}(*e.known_constant_value, ExternalPropertyValue{int64_t{42}}));
 }
 
-TEST(AnalysisMerge, OneSidedTypeIsTaken) {
-  analysis lhs{ExpressionAnalysis{}};
-  analysis rhs{ExpressionAnalysis{.known_type = ExternalPropertyValue::Type::Int}};
-  lhs.merge(rhs);
-  auto const &e = std::get<ExpressionAnalysis>(lhs);
-  ASSERT_TRUE(e.known_type.has_value());
-  EXPECT_EQ(*e.known_type, ExternalPropertyValue::Type::Int);
-}
-
-TEST(AnalysisMerge, ConflictingTypesThrow) {
-  analysis lhs{ExpressionAnalysis{.known_type = ExternalPropertyValue::Type::Int}};
-  analysis rhs{ExpressionAnalysis{.known_type = ExternalPropertyValue::Type::String}};
-  EXPECT_THROW(lhs.merge(rhs), PlannerBug);
-}
-
 TEST(AnalysisMerge, OneSidedListLengthIsTaken) {
   analysis lhs{ExpressionAnalysis{}};
   analysis rhs{ExpressionAnalysis{.known_list_length = std::size_t{3}}};
@@ -195,23 +180,19 @@ TEST(MakeSeedsAnalysis, LiteralCarriesConstant) {
   EXPECT_TRUE(ConstantIdentityEq{}(*e.known_constant_value, ExternalPropertyValue{int64_t{7}}));
 }
 
-TEST(MakeSeedsAnalysis, LiteralCarriesType) {
+TEST(MakeSeedsAnalysis, ScalarLiteralHasNoListLength) {
   egraph eg;
   auto const lit = eg.MakeLiteral(ExternalPropertyValue{int64_t{7}});
   auto const &e = std::get<ExpressionAnalysis>(AnalysisOf(eg, lit));
-  ASSERT_TRUE(e.known_type.has_value());
-  EXPECT_EQ(*e.known_type, ExternalPropertyValue::Type::Int);
   EXPECT_FALSE(e.known_list_length.has_value());
 }
 
-TEST(MakeSeedsAnalysis, ListLiteralCarriesTypeAndLength) {
+TEST(MakeSeedsAnalysis, ListLiteralCarriesLength) {
   egraph eg;
   auto const list = ExternalPropertyValue{ExternalPropertyValue::list_t{
       ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{2}}, ExternalPropertyValue{int64_t{3}}}};
   auto const lit = eg.MakeLiteral(list);
   auto const &e = std::get<ExpressionAnalysis>(AnalysisOf(eg, lit));
-  ASSERT_TRUE(e.known_type.has_value());
-  EXPECT_EQ(*e.known_type, ExternalPropertyValue::Type::List);
   ASSERT_TRUE(e.known_list_length.has_value());
   EXPECT_EQ(*e.known_list_length, 3U);
 }
