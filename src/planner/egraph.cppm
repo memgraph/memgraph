@@ -233,6 +233,17 @@ struct EGraph : private detail::EGraphBase {
   using EGraphBase::num_nodes;
   using EGraphBase::worklist_size;
 
+  /// Symbol and analysis recovered from the graph type alone, so generic engine
+  /// code (the rewrite engine) needs only a single graph type parameter.
+  using symbol_type = Symbol;
+  using analysis_type = Analysis;
+
+  /// The underlying core e-graph. A bare e-graph is its own core; a wrapping
+  /// TypedEGraph returns the EGraph it owns. One concept covers both.
+  auto core() -> EGraph & { return *this; }
+
+  auto core() const -> EGraph const & { return *this; }
+
   /**
    * @brief Emplace an e-node directly with canonical children
    * @return EmplaceResult - (eclass_id, enode_id, did_insert)

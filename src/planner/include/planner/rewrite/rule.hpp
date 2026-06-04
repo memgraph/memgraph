@@ -40,34 +40,33 @@ using pattern::SymbolWithChildren;
 namespace detail {
 
 /// Wrap user's per-match apply function into bulk apply function.
-template <typename Symbol, typename Analysis, typename Graph, typename F>
+template <RewritableGraph Graph, typename F>
 auto make_apply_fn(F &&fn) {
-  using ApplyFn = std::function<void(RuleContext<Symbol, Analysis, Graph> & ctx,
-                                     std::span<PatternMatch const>
-                                         matches,
-                                     MatchBindings const &bindings)>;
-  return ApplyFn{[fn = std::forward<F>(fn)](RuleContext<Symbol, Analysis, Graph> &ctx,
-                                            std::span<PatternMatch const>
-                                                matches,
-                                            MatchBindings const &bindings) mutable {
-    for (auto const &pattern_match : matches) {
-      fn(ctx, bindings.match(pattern_match));
-    }
-  }};
+  using ApplyFn = std::function<void(
+      RuleContext<Graph> & ctx, std::span<PatternMatch const> matches, MatchBindings const &bindings)>;
+  return ApplyFn{
+      [fn = std::forward<F>(fn)](
+          RuleContext<Graph> &ctx, std::span<PatternMatch const> matches, MatchBindings const &bindings) mutable {
+        for (auto const &pattern_match : matches) {
+          fn(ctx, bindings.match(pattern_match));
+        }
+      }};
 }
 
 }  // namespace detail
 
 /// A rewrite rule: patterns + apply function. Use Builder to construct.
 ///
-/// `Graph` is the graph the rule's apply runs over: a bare `EGraph` (the
-/// default) for rules that only merge/emplace, or a `TypedEGraph` for rules
-/// whose apply mints interned nodes via `ctx.Make<S>`.
-template <typename Symbol, typename Analysis, typename Graph = EGraph<Symbol, Analysis>>
-  requires ENodeSymbol<Symbol>
+/// `Graph` is the graph the rule's apply runs over: a bare `EGraph` for rules
+/// that only merge/emplace, or a `TypedEGraph` for rules whose apply mints
+/// interned nodes via `ctx.Make<S>`. `Symbol` and `Analysis` are derived from it.
+template <RewritableGraph Graph>
 class RewriteRule {
+  using Symbol = typename Graph::symbol_type;
+  using Analysis = typename Graph::analysis_type;
+
   /// Internal storage type - receives match buffer and bindings for iteration
-  using ApplyFn = std::function<void(RuleContext<Symbol, Analysis, Graph> &ctx, std::span<PatternMatch const> matches,
+  using ApplyFn = std::function<void(RuleContext<Graph> &ctx, std::span<PatternMatch const> matches,
                                      MatchBindings const &bindings)>;
 
  public:
@@ -89,7 +88,7 @@ class RewriteRule {
       auto compiled = compiler.compile(patterns_);
       return RewriteRule{std::move(patterns_),
                          std::move(pattern_names_),
-                         detail::make_apply_fn<Symbol, Analysis, Graph>(std::forward<F>(fn)),
+                         detail::make_apply_fn<Graph>(std::forward<F>(fn)),
                          std::move(name_),
                          std::move(compiled)};
     }
@@ -124,7 +123,7 @@ class RewriteRule {
   }
 
   /// Apply matches from buffer to egraph. Returns number of rewrites.
-  auto apply(RuleContext<Symbol, Analysis, Graph> &rule_ctx, MatcherContext const &matcher_ctx) const -> std::size_t {
+  auto apply(RuleContext<Graph> &rule_ctx, MatcherContext const &matcher_ctx) const -> std::size_t {
     if (matcher_ctx.match_buffer.empty()) [[unlikely]] {
       return 0;
     }

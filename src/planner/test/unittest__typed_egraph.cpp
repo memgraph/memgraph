@@ -26,6 +26,7 @@
 
 #include <gtest/gtest.h>
 
+#include "planner/rewrite/rule_context.hpp"
 #include "test_support/op_make_traits.hpp"
 #include "utils/small_vector.hpp"
 
@@ -126,5 +127,20 @@ TEST(TypedEGraph, StorageReflectsInternedEntries) {
 static_assert(SymbolMakeTraits<toy_traits<ToyOp::Symbol>, ToyAnalysis, std::string_view>,
               "a well-formed interning trait satisfies the protocol");
 static_assert(!SymbolMakeTraits<BadTraits, ToyAnalysis>, "make() not returning a MakeResult is rejected");
+
+// === RewritableGraph: one concept covers both adapters; Make<S> follows interning ===
+
+// A bare EGraph is its own core, and a TypedEGraph returns the EGraph it wraps;
+// both therefore model the single concept the rewrite engine drives.
+static_assert(rewrite::RewritableGraph<EGraph<test::Op, test::NoAnalysis>>);
+static_assert(rewrite::RewritableGraph<test::TypedTestEGraph>);
+
+template <typename Ctx>
+concept CtxCanMakeVar = requires(Ctx ctx) { ctx.template Make<test::Op::Var>(); };
+
+// Make<S> is offered over a graph that interns (TypedEGraph) and removed from
+// overload resolution over a bare EGraph, which has no Make.
+static_assert(!CtxCanMakeVar<rewrite::RuleContext<EGraph<test::Op, test::NoAnalysis>>>);
+static_assert(CtxCanMakeVar<rewrite::RuleContext<test::TypedTestEGraph>>);
 
 }  // namespace memgraph::planner::core
