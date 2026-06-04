@@ -106,14 +106,6 @@ jobs:
             arch: amd
             malloc: true
             build_type: Release
-          - os: ubuntu-24.04
-            arch: arm
-            malloc: false
-            build_type: RelWithDebInfo
-          - os: ubuntu-24.04
-            arch: amd
-            malloc: false
-            build_type: RelWithDebInfo
     steps:
       - name: Validate “use_test_rc” only with test
         if: inputs.use_test_rc && ! inputs.test
