@@ -209,6 +209,7 @@ enum class ArenaPoolFailureInjection {
   None,
   ConstructorPublish,
   AcquireArenaCreate,
+  DestructorRestore,
 };
 
 void SetArenaPoolFailureInjection(ArenaPoolFailureInjection failure);

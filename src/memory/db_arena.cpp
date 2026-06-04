@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <exception>
 #include <mutex>
 #include <stdexcept>
@@ -364,11 +365,16 @@ ArenaPool::~ArenaPool() noexcept {
 
       // Restore the default hooks AFTER purging
       const extent_hooks_t *base = hooks_->base_hooks;
-      int err = je_mallctl(fmt::format("arena.{}.extent_hooks", arena_idx).c_str(),
-                           nullptr,
-                           nullptr,
-                           static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
-                           sizeof(extent_hooks_t *));
+      int err = 0;
+      if (ConsumeFailureInjection(testing::ArenaPoolFailureInjection::DestructorRestore)) {
+        err = EFAULT;  // simulate arenas[ind] nulled by arena.<i>.destroy
+      } else {
+        err = je_mallctl(fmt::format("arena.{}.extent_hooks", arena_idx).c_str(),
+                         nullptr,
+                         nullptr,
+                         static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
+                         sizeof(extent_hooks_t *));
+      }
       if (err != 0) {
         spdlog::error(
             "ArenaPool {}: failed to restore default hooks (err={}); leaking hooks_ and the arena to "
