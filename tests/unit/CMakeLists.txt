@@ -201,6 +201,14 @@ add_unit_test(query_plan_v2_cardinality
 )
 
 # ============================================================================
+# plan_v2 unit tests - Layer 3: Analysis framework (constant identity + lattice)
+# ============================================================================
+add_unit_test(query_plan_v2_analysis
+    SOURCES query_plan_v2_analysis.cpp
+    LINK_TARGETS mg-query mg-planner
+)
+
+# ============================================================================
 # plan_v2 unit tests - Layer 3: Full extraction pipeline + rewrites
 # ============================================================================
 add_unit_test(query_plan_v2_rewrites
