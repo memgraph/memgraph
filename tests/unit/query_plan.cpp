@@ -3849,8 +3849,9 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWithMultipleLabels) {
   // expect union of union and scan all by label
   std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
   std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part),
-                                                 new ExpectDistinct()};
+  // Single deduplicating Distinct sits at the top of the whole Union tree; the
+  // intermediate Union has no Distinct of its own.
+  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
   std::list<BaseOpChecker *> second_subquery_plan{new ExpectScanAllByLabel()};
 
   CheckPlan(planner.plan(),
@@ -3922,8 +3923,9 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabels) {
 
   std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
   std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part),
-                                                 new ExpectDistinct()};
+  // Single deduplicating Distinct sits at the top of the whole Union tree; the
+  // intermediate Union has no Distinct of its own.
+  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
   std::list<BaseOpChecker *> second_subquery_plan{new ExpectScanAllByLabel()};
 
   CheckPlan(planner.plan(),
@@ -3936,6 +3938,62 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabels) {
   DeleteListContent(&second_subquery_plan);
   DeleteListContent(&left_subquery_part);
   DeleteListContent(&right_subquery_part);
+}
+
+// Collects the shape of an index-disjunction plan: how many Distinct operators
+// it contains and the maximum nesting depth of Union operators along any path.
+struct UnionPlanShape : public memgraph::query::plan::HierarchicalLogicalOperatorVisitor {
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  int distinct_count = 0;
+  int cur_union_depth = 0;
+  int max_union_depth = 0;
+
+  bool PreVisit(memgraph::query::plan::Distinct & /*unused*/) override {
+    ++distinct_count;
+    return true;
+  }
+
+  bool PreVisit(memgraph::query::plan::Union & /*unused*/) override {
+    ++cur_union_depth;
+    max_union_depth = std::max(max_union_depth, cur_union_depth);
+    return true;
+  }
+
+  bool PostVisit(memgraph::query::plan::Union & /*unused*/) override {
+    --cur_union_depth;
+    return true;
+  }
+
+  bool Visit(memgraph::query::plan::Once & /*unused*/) override { return true; }
+};
+
+TYPED_TEST(TestPlanner, ORLabelExpressionBalancedUnionTree) {
+  // MATCH (n) WHERE n:L0 OR n:L1 OR ... OR n:L7 RETURN n, all labels indexed.
+  // The disjunction compiles to a single Distinct over a balanced Union tree,
+  // so its depth is O(log N) (ceil(log2(8)) == 3), not the N-1 == 7 of a
+  // left-deep chain. Deep left-deep trees overflow the executor stack.
+  FakeDbAccessor dba;
+  constexpr int kLabels = 8;
+  auto node_identifier = IDENT("n");
+  memgraph::query::Expression *or_expr = nullptr;
+  for (int i = 0; i < kLabels; ++i) {
+    const auto name = "L" + std::to_string(i);
+    dba.SetIndexCount(dba.Label(name), 1);
+    auto label_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx(name)};
+    memgraph::query::Expression *test = LABELS_TEST(node_identifier, label_ix);
+    or_expr = or_expr ? static_cast<memgraph::query::Expression *>(OR(or_expr, test)) : test;
+  }
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(or_expr), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  UnionPlanShape shape;
+  planner.plan().Accept(shape);
+  EXPECT_EQ(shape.distinct_count, 1);
+  EXPECT_EQ(shape.max_union_depth, 3);
 }
 
 TYPED_TEST(TestPlanner, ORLabelExpressionMatchWhereCombination) {
