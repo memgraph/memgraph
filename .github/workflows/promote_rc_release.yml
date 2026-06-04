@@ -53,7 +53,8 @@ env:
   docker_repo_release: memgraph/memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
   docker_repo_rc_mage: memgraph/memgraph-mage
   docker_repo_release_mage: memgraph/memgraph-mage${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
-  debugsym_bucket: memgraph-debugsym${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
+  debugsym_bucket: ${{ github.event.inputs.test == 'true' && 'deps.memgraph.io' || 'memgraph-debugsym' }}
+  debugsym_prefix: ${{ github.event.inputs.test == 'true' && 'debugsym-release-test/' || '' }}
 
 jobs:
   PromotePackage:
@@ -770,7 +771,7 @@ jobs:
           while IFS= read -r build_id; do
             [[ -z "$build_id" ]] && continue
             key="debug-symbols/${build_id:0:2}/${build_id:2}.debug"
-            dst_key="${build_id:0:2}/${build_id:2}.debug"
+            dst_key="${debugsym_prefix}${build_id:0:2}/${build_id:2}.debug"
             src="s3://${rc_bucket}/${key}"
             dst="s3://${debugsym_bucket}/${dst_key}"
             if ! aws s3 ls "$src" &> /dev/null; then
