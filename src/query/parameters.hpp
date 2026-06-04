@@ -44,6 +44,13 @@ struct Parameters {
     return found->second;
   }
 
+  /// The value at `position`, or nullptr if none is bound there. The non-throwing
+  /// counterpart of AtTokenPosition, for callers that tolerate a missing entry.
+  const storage::ExternalPropertyValue *MaybeAtTokenPosition(int position) const {
+    const auto found = storage_.find(position);
+    return found != storage_.end() ? &found->second : nullptr;
+  }
+
   auto size() const { return storage_.size(); }
 
   auto begin() const { return storage_.begin(); }

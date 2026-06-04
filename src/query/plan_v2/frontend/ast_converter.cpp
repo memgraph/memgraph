@@ -19,6 +19,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/parameters.hpp"
 
 using memgraph::query::plan::v2::eclass;
 using memgraph::query::plan::v2::egraph;
@@ -71,8 +72,10 @@ class LoweringCtx {
  public:
   egraph &g;
   SymbolTable const &symbol_table;
+  Parameters const &parameters;
 
-  LoweringCtx(egraph &eg, SymbolTable const &st) : g(eg), symbol_table(st) {}
+  LoweringCtx(egraph &eg, SymbolTable const &st, Parameters const &params)
+      : g(eg), symbol_table(st), parameters(params) {}
 
   auto OpenScratch() -> ScratchFrame { return ScratchFrame{*this}; }
 
@@ -178,7 +181,17 @@ class ExprLowering : public ExpressionVisitor<void> {
  public:
   explicit ExprLowering(LoweringCtx &ctx) : ctx_(ctx) {}
 
-  void Visit(ParameterLookup &expr) override { result_ = ctx_.g.MakeParameterLookup(expr.token_position_); }
+  void Visit(ParameterLookup &expr) override {
+    // plan_v2 is uncached, so the plan may be specialised to this execution's
+    // values: when the parameter's value is known (a stripped literal, or a
+    // user parameter), fold it to a constant so the analysis sees it. An
+    // unknown position stays an opaque lookup.
+    if (auto const *value = ctx_.parameters.MaybeAtTokenPosition(expr.token_position_)) {
+      result_ = ctx_.g.MakeLiteral(*value);
+    } else {
+      result_ = ctx_.g.MakeParameterLookup(expr.token_position_);
+    }
+  }
 
   void Visit(PrimitiveLiteral &expr) override { result_ = ctx_.g.MakeLiteral(expr.value_); }
 
@@ -349,9 +362,10 @@ auto LowerCypherQuery(CypherQuery &cq, LoweringCtx &ctx) -> eclass {
 
 namespace memgraph::query::plan::v2 {
 
-auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table) -> std::tuple<egraph, eclass> {
+auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table, Parameters const &parameters)
+    -> std::tuple<egraph, eclass> {
   auto eg = egraph{};
-  auto ctx = LoweringCtx{eg, symbol_table};
+  auto ctx = LoweringCtx{eg, symbol_table, parameters};
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   auto root = LowerCypherQuery(const_cast<CypherQuery &>(query), ctx);
   return {std::move(eg), root};
