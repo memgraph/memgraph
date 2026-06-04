@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 
 # Smoke test: Memgraph must shut down promptly even when the telemetry server
-# is unreachable.
+# does not respond.
 #
 # Background: on graceful shutdown Memgraph (with telemetry enabled, which is
 # the image default) sends a final telemetry/license request to
 # telemetry.memgraph.com. A regression once made the shutdown path BLOCK on
-# that request until its connection timed out (~2 minutes) when the telemetry
-# server was down, so `docker stop` / SIGTERM took ~2 minutes instead of
-# seconds. This test guards against that regression.
+# that request until it timed out (~2 minutes) when the telemetry server was
+# unresponsive, so `docker stop` / SIGTERM took ~2 minutes instead of seconds.
+# This test guards against that regression.
 #
 # How it works: we point telemetry.memgraph.com (via --add-host) at a "stall"
-# sidecar that completes the TCP handshake on :443 but never responds, so the
-# telemetry request hangs exactly like an unreachable server. We then send
+# sidecar that completes the TCP handshake on :443 but then never responds, so
+# the telemetry request hangs like a connected-but-unresponsive server (a
+# stuck/overloaded endpoint or a silently dropped connection). We then send
 # SIGTERM and measure how long the container takes to exit. A healthy build
 # bounds the wait (its telemetry request times out quickly); a regressed build
 # blocks well past the threshold.
@@ -46,7 +47,7 @@ STALL_IMAGE="alpine/socat:1.8.0.3"
 NETWORK="mg-shutdown-net-$$"
 STALL_NAME="mg-telemetry-stall-$$"
 CONTAINER_NAME="mg-shutdown-smoke-$$"
-STALL_IP="172.31.252.10"
+STALL_IP=""  # assigned by Docker; resolved below once the sidecar is up
 
 cleanup() {
   docker rm -f "$CONTAINER_NAME" "$STALL_NAME" >/dev/null 2>&1 || true
@@ -59,14 +60,24 @@ elapsed_since() {
   awk "BEGIN{printf \"%.1f\", $(date +%s.%N) - $1}"
 }
 
+# Let Docker pick a free subnet/IP rather than hardcoding a CIDR, which could
+# collide with an existing Docker network or a corporate/VPN route on the host.
 echo "Creating isolated network $NETWORK..."
-docker network create --subnet 172.31.252.0/24 "$NETWORK" >/dev/null
+docker network create "$NETWORK" >/dev/null
 
-echo "Starting telemetry stall sidecar ($STALL_IP)..."
+echo "Starting telemetry stall sidecar..."
 # Accepts the TCP connection on :443 then sleeps, so the telemetry request
-# hangs without ever being refused -- mimicking an unreachable/dead server.
-docker run -d --name "$STALL_NAME" --network "$NETWORK" --ip "$STALL_IP" \
+# connects but never gets a response -- mimicking an unresponsive server.
+docker run -d --name "$STALL_NAME" --network "$NETWORK" \
   "$STALL_IMAGE" TCP-LISTEN:443,fork,reuseaddr SYSTEM:'sleep 3600' >/dev/null
+
+# Discover the address Docker assigned to the sidecar on this network.
+STALL_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NETWORK\").IPAddress}}" "$STALL_NAME")"
+if [[ -z "$STALL_IP" ]]; then
+  echo "Error: could not determine stall sidecar IP address." >&2
+  exit 1
+fi
+echo "Telemetry stall sidecar is at $STALL_IP."
 
 echo "Starting container $CONTAINER_NAME from $IMAGE (telemetry -> stall sidecar)..."
 # --telemetry-enabled=true is the image default, but we set it explicitly so the
