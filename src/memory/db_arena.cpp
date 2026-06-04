@@ -11,12 +11,15 @@
 
 #include "db_arena.hpp"
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <atomic>
 #include <exception>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "utils/logging.hpp"
@@ -140,6 +143,71 @@ bool db_arena_purge_forced(extent_hooks_t *hooks, void *addr, size_t size, size_
 }
 
 }  // namespace
+
+const std::vector<unsigned> &EnsureCpuArenaCoverage() {
+  // Magic static: thread-safe, the first caller does the work, later callers
+  // (and re-entrant ones) just get the cached result.
+  static const std::vector<unsigned> coverage = [] {
+    std::vector<unsigned> created;
+
+    // Only relevant under percpu_arena: without it arena_choose() never ranges
+    // past the automatic arenas, so no CPU id can select a per-DB arena.
+    const char *percpu_mode = nullptr;
+    size_t sz = sizeof(percpu_mode);
+    if (je_mallctl("opt.percpu_arena", static_cast<void *>(&percpu_mode), &sz, nullptr, 0) != 0 ||
+        percpu_mode == nullptr || std::string_view{percpu_mode} == "disabled") {
+      return created;
+    }
+
+    // Possible (boot-time configured) CPUs bound every id sched_getcpu() can
+    // return, including CPUs that are currently offline or may be hotplugged.
+    const long n_conf = sysconf(_SC_NPROCESSORS_CONF);
+    if (n_conf <= 0) {
+      spdlog::warn("CPU arena coverage: sysconf(_SC_NPROCESSORS_CONF) failed; skipping");
+      return created;
+    }
+    const auto max_cpu_id = static_cast<unsigned>(n_conf) - 1;
+
+    unsigned narenas = 0;
+    sz = sizeof(narenas);
+    if (je_mallctl("arenas.narenas", &narenas, &sz, nullptr, 0) != 0) {
+      spdlog::warn("CPU arena coverage: failed to read arenas.narenas; skipping");
+      return created;
+    }
+
+    // arenas.create appends at the previous total, so indices come back
+    // strictly increasing; stop once the index space covers max_cpu_id (or on
+    // error, e.g. at MALLOCX_ARENA_LIMIT).
+    while (narenas <= max_cpu_id) {
+      unsigned idx = 0;
+      size_t isz = sizeof(idx);
+      if (const int err = je_mallctl("arenas.create", &idx, &isz, nullptr, 0); err != 0) {
+        spdlog::error("CPU arena coverage: arenas.create failed (err={}) at {} arenas; CPU ids {}..{} stay uncovered",
+                      err,
+                      narenas,
+                      narenas,
+                      max_cpu_id);
+        break;
+      }
+      created.push_back(idx);
+      narenas = idx + 1;
+    }
+
+    if (!created.empty()) {
+      spdlog::info(
+          "Created {} sacrificial jemalloc arenas ({}..{}) so threads on CPU ids up to {} can never bind a per-DB "
+          "arena (online CPU count {} < possible CPU count {})",
+          created.size(),
+          created.front(),
+          created.back(),
+          max_cpu_id,
+          sysconf(_SC_NPROCESSORS_ONLN),
+          n_conf);
+    }
+    return created;
+  }();
+  return coverage;
+}
 
 void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hooks_t *base_hooks) {
   // Runs before the hooks are installed (published) via je_mallctl, whose arena

@@ -12,7 +12,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <numeric>
 #include <string>
+#include <vector>
 
 #include "db_arena.hpp"
 #include "global_memory_control.hpp"
@@ -44,6 +46,23 @@ namespace {
 DbArenaHooks global_graph_arena_hooks{};
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extent_hooks_t *old_hooks = nullptr;
+
+// All arenas the global graph hooks are (to be) installed on: the automatic
+// arenas [0, opt.narenas) plus the sacrificial CPU-coverage arenas. Threads on
+// overflow CPU ids (sched_getcpu() >= narenas_auto) bind to the coverage
+// arenas, so those must be tracked exactly like the automatic ones.
+std::vector<unsigned> GlobalHookArenaIds() {
+  unsigned n_arenas = 0;
+  size_t sz = sizeof(n_arenas);
+  if (je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0)) {
+    LOG_FATAL("Error getting number of jemalloc arenas");
+  }
+  std::vector<unsigned> ids(n_arenas);
+  std::iota(ids.begin(), ids.end(), 0U);
+  const auto &coverage = EnsureCpuArenaCoverage();
+  ids.insert(ids.end(), coverage.begin(), coverage.end());
+  return ids;
+}
 }  // namespace
 
 #endif
@@ -55,14 +74,10 @@ void SetHooks() {
     return;
   }
 
-  unsigned n_arenas = 0;
-  size_t sz = sizeof(n_arenas);
-  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
-  if (err) {
-    LOG_FATAL("Error getting number of jemalloc arenas");
-  }
-
-  for (unsigned i = 0; i < n_arenas; i++) {
+  int err = 0;
+  // Create the sacrificial CPU-coverage arenas BEFORE installing the global
+  // tracking hooks so they are covered too (see GlobalHookArenaIds).
+  for (const unsigned i : GlobalHookArenaIds()) {
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
 
     extent_hooks_t *current_old_hooks = nullptr;
@@ -126,16 +141,9 @@ void UnsetHooks() {
   MG_ASSERT(old_hooks->split);
   MG_ASSERT(old_hooks->merge);
 
-  unsigned n_arenas{0};
-  size_t sz = sizeof(n_arenas);
-  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
-  if (err) {
-    LOG_FATAL("Error getting number of jemalloc arenas");
-  }
-
-  for (unsigned i = 0; i < n_arenas; i++) {
+  for (const unsigned i : GlobalHookArenaIds()) {
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(extent_hooks_t *));
+    const int err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting default hooks for jemalloc arena {}", i);
     }

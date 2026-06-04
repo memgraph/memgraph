@@ -124,6 +124,28 @@ class ArenaPool {
 
 #if USE_JEMALLOC
 
+// Ensure every CPU id that sched_getcpu() can return resolves to an arena that
+// is NOT a per-DB arena.
+//
+// Under percpu_arena, jemalloc binds a thread to arenas[sched_getcpu()] with no
+// clamp (percpu_arena_choose). jemalloc sizes the automatic range from the
+// number of ONLINE CPUs, but sched_getcpu() can return any id below the number
+// of POSSIBLE CPUs (sparse online sets: offlined cores, cgroups, NUMA, VM
+// hotplug headroom; cf. jemalloc#2054). A thread on such an overflow CPU would
+// bind to whatever arena owns that index — which is exactly where per-DB
+// arenas (arenas.create) live — and later free through the per-DB extent hooks
+// after the owning Database is destroyed (shutdown use-after-free).
+//
+// Fix: before any per-DB arena is created, append plain "sacrificial" arenas
+// (default hooks, never destroyed, process lifetime) until the arena index
+// space covers every possible CPU id. Overflow CPUs then get a dedicated
+// 1:1 arena, and per-DB arenas land at indices no CPU id can ever reach.
+//
+// Returns the indices of the sacrificial arenas created (empty when the
+// automatic range already covers all possible CPU ids, or percpu_arena is
+// disabled). Thread-safe and idempotent; the first caller does the work.
+const std::vector<unsigned> &EnsureCpuArenaCoverage();
+
 // Populate a DbArenaHooks struct so it can be installed on any jemalloc arena.
 // `tracker`    – receives Alloc/Free calls for that arena.
 // `base_hooks` – jemalloc's default hooks; the callbacks call through to these.
@@ -164,6 +186,10 @@ class GlobalArenaPool {
         return idx;
       }
     }
+    // Safety net: per-DB arena indices must stay above every reachable CPU id,
+    // so the sacrificial coverage arenas (normally created at startup by
+    // SetHooks) must exist before we append the first per-DB arena.
+    EnsureCpuArenaCoverage();
     unsigned arena_idx = 0;
     size_t sz = sizeof(arena_idx);
     const int err = je_mallctl("arenas.create", &arena_idx, &sz, nullptr, 0);
