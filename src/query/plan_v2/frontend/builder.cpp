@@ -150,13 +150,19 @@ struct symbol_build_traits<symbol::Symbol> {
 
   static auto build(BuildState &state, ENodeRef node, Children /*children*/) -> result_type {
     auto const sym_pos = static_cast<std::int32_t>(node.disambiguator());
+    // A symbol is identity: every build of the same logical symbol must yield
+    // the same compact position, so a binder and its references share a frame
+    // slot. The build runs once per resolver entry, so memoise here.
+    if (auto const cached = state.symbol_cache.find(sym_pos); cached != state.symbol_cache.end()) {
+      return cached->second;
+    }
     auto const it = state.symbol_store.find(sym_pos);
     if (it == state.symbol_store.end()) [[unlikely]] {
       ThrowPlannerBug("symbol not found in store");
     }
-    // Diagnostics-only loss: rebuilt Symbol carries no user_declared_/type_/
-    // token_position_. Plan semantics unaffected.
-    return state.symbol_table.CreateSymbol(it->second, false /*TODO*/);
+    // Diagnostics-only loss: rebuilt Symbol carries no user_declared_/type_.
+    auto const &symbol = state.symbol_table.CreateSymbol(it->second, false /*TODO*/);
+    return state.symbol_cache.emplace(sym_pos, symbol).first->second;
   }
 };
 
