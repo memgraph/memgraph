@@ -745,8 +745,15 @@ jobs:
           mkdir -p manifests
           for src in "s3://${rc_bucket}/${rc_dir}/" "s3://${rc_bucket}/${mage_rc_dir}/"; do
             echo "Pulling manifests from $src ..."
+            # Leading `*` is load-bearing: aws s3 cp's filter rules treat
+            # the pattern as a glob against the full relative key, so a bare
+            # `debug-symbols-manifest*.tsv` only matches files at the
+            # immediate root of the recursion. MAGE manifests live flat at
+            # the RC root, but memgraph manifests sit one level deep at
+            # <PKG_ARTIFACT_NAME>/debug-symbols-manifest.tsv and were
+            # being silently skipped.
             aws s3 cp "$src" manifests/ --recursive \
-              --exclude '*' --include 'debug-symbols-manifest*.tsv' || true
+              --exclude '*' --include '*debug-symbols-manifest*.tsv' || true
           done
           # Manifest format is "<build-id>\t<basename>" — extract column 1
           # and dedupe. Cross-job overlap (e.g. memgraph and MAGE jobs sharing
