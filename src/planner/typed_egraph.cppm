@@ -49,6 +49,13 @@ struct MakeResult {
 ///     lowers the user's per-symbol arguments and seeds the new e-class's
 ///     analysis, updating storage as needed.
 ///
+/// The `seed` must be a pure function of the lowered e-node's identity (its
+/// symbol, children, and disambiguator). When `make` hits an existing e-node,
+/// the new seed is discarded and the existing e-class keeps its own; equal
+/// identity must therefore imply an equal seed, or the kept fact goes stale. A
+/// fact derived from anything outside that identity (insertion order, mutable
+/// counters, ambient state) breaks this.
+///
 /// The concept is parameterised on `Args` so that calls with the wrong
 /// arity or wrong types fail at the constraint with a clear message
 /// rather than deep inside `TypedEGraph::Make`.

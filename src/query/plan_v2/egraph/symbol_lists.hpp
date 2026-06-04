@@ -60,14 +60,31 @@
   EGRAPH_BINARY_SYMBOLS(X)    \
   EGRAPH_SPECIAL_SYMBOLS(X)
 
-// Kind partition, orthogonal to the arity lists above: symbols whose e-class
-// denotes a row stream rather than a value or a binding. Selects the analysis
-// arm (OperatorAnalysis). Append new pipeline operators here as they land.
+// Kind partition, orthogonal to the arity lists above. Every symbol belongs to
+// exactly one kind; the partition selects the analysis arm and is checked
+// exhaustive against EGRAPH_ALL_SYMBOLS in symbol.hpp, so a new symbol left out
+// of all three is a compile error rather than a silent wrong arm.
+
+// Operator: e-class denotes a row stream. Append new pipeline operators here.
 #define EGRAPH_OPERATOR_SYMBOLS(X) \
   X(Once)                          \
   X(Bind)                          \
   X(Output)                        \
   X(Unwind)                        \
   X(Subquery)
+
+// Symbol: e-class denotes a binding. Singleton by invariant.
+#define EGRAPH_SYMBOL_KIND_SYMBOLS(X) X(Symbol)
+
+// Expression: e-class denotes a value. The arity unary/binary lists are all
+// expressions, so they compose in directly; only the leaf and special-arity
+// expressions are named explicitly.
+#define EGRAPH_EXPRESSION_SYMBOLS(X) \
+  X(Literal)                         \
+  X(ParamLookup)                     \
+  EGRAPH_UNARY_SYMBOLS(X)            \
+  EGRAPH_BINARY_SYMBOLS(X)           \
+  X(NamedOutput)                     \
+  X(Function)
 
 // NOLINTEND(cppcoreguidelines-macro-usage)
