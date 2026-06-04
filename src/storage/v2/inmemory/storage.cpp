@@ -157,6 +157,86 @@ DeltaChainState ComputeDeltaChainState(bool has_blocker, WriteResult result) {
   return DeltaChainState::SEQUENTIAL;
 }
 
+// Flattens a vertex skip-list accessor into a range of Edge references
+// by walking every vertex's out_edges. Only safe while the vertex
+// accessor (and therefore all vertices) remain alive. Used by the light-edge
+// analytical full-scan paths to enumerate deleted light edges.
+class LightEdgeIterable {
+ public:
+  using VertexIterator = utils::SkipListDb<Vertex>::Accessor::iterator;
+
+  class Iterator {
+   public:
+    using value_type = Edge;
+    using reference = Edge &;
+    using pointer = Edge *;
+    using difference_type = std::ptrdiff_t;
+    using iterator_category = std::forward_iterator_tag;
+
+    Iterator() = default;
+
+    Iterator(VertexIterator vertex_it, VertexIterator vertex_end) : vertex_it_(vertex_it), vertex_end_(vertex_end) {
+      AdvanceToNextEdge();
+    }
+
+    reference operator*() const { return *std::get<2>(*edge_it_).ptr; }
+
+    pointer operator->() const { return std::get<2>(*edge_it_).ptr; }
+
+    Iterator &operator++() {
+      ++edge_it_;
+      if (edge_it_ == edge_end_) {
+        ++vertex_it_;
+        AdvanceToNextEdge();
+      }
+      return *this;
+    }
+
+    friend bool operator==(Iterator const &lhs, Iterator const &rhs) {
+      // Both iterators are at end when their vertex_it_ values agree AND one of
+      // them is at its own vertex_end_ (past-the-end iterators compare equal
+      // regardless of edge_it_, which is default-initialised for end()). When
+      // neither is at end, edge_it_ must also agree for equality.
+      if (lhs.vertex_it_ != rhs.vertex_it_) return false;
+      if (lhs.vertex_it_ == lhs.vertex_end_ || rhs.vertex_it_ == rhs.vertex_end_) return true;
+      return lhs.edge_it_ == rhs.edge_it_;
+    }
+
+   private:
+    void AdvanceToNextEdge() {
+      for (; vertex_it_ != vertex_end_; ++vertex_it_) {
+        auto &out_edges = vertex_it_->out_edges;
+        if (!out_edges.empty()) {
+          edge_it_ = out_edges.begin();
+          edge_end_ = out_edges.end();
+          return;
+        }
+      }
+    }
+
+    VertexIterator vertex_it_{};
+    VertexIterator vertex_end_{};
+    Edges::iterator edge_it_{};
+    Edges::iterator edge_end_{};
+  };
+
+  explicit LightEdgeIterable(utils::SkipListDb<Vertex>::Accessor &vertex_acc) {
+    // Cache end() once: the accessor is valid for the lifetime of this
+    // iterable, and repeated calls to end() are O(1) but redundant.
+    auto end_it = vertex_acc.end();
+    begin_ = Iterator{vertex_acc.begin(), end_it};
+    end_ = Iterator{end_it, end_it};
+  }
+
+  Iterator begin() const { return begin_; }
+
+  Iterator end() const { return end_; }
+
+ private:
+  Iterator begin_;
+  Iterator end_;
+};
+
 class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::utils::SchedulerInterval> {
  public:
   explicit PeriodicSnapshotObserver(memgraph::utils::Scheduler &scheduler) : scheduler_{&scheduler} {}
@@ -526,6 +606,19 @@ InMemoryStorage::~InMemoryStorage() {
   if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
     create_snapshot_handler("exit");
   }
+  // Leak fix: a deleted light edge whose delta chain was never GC-unlinked
+  // (an older txn was active at delete time) is referenced ONLY by an un-GC'd
+  // RECREATE_OBJECT delta in committed_transactions_/waiting_gc_deltas_. The
+  // clear() below frees those deltas but NOT the pool-allocated Edge*, and
+  // ClearLightEdges only drains {adjacency, graveyard, deleted_edges_} -> the
+  // Edge* would leak. A forced CollectGarbage here would work but is NOT noexcept
+  // (allocations, logging) and a throw in a dtor calls std::terminate. Instead
+  // run a noexcept harvester that frees exactly those delta-chain-only light
+  // edges (disjoint from the three sets ClearLightEdges drains, so no double
+  // free). Gated: heavy Edge* live in edges_ and are freed by the skiplist.
+  if (config_.salient.items.storage_light_edge) {
+    HarvestDeltaChainOnlyLightEdges();
+  }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
   // Free live light edges (pool-allocated Edge*) before teardown. Gated: heavy
   // edges live in edges_ and are freed by the skip-list, not here.
@@ -673,20 +766,25 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
 
       // Analytical-mode leak fix: in analytical mode the edge is pop_back'd from
       // vertex adjacency at delete time, so the GC full-scan light arm (which
-      // iterates over LIVE adjacency) can never find these light Edge* -> they
-      // would be unreachable and leak (heavy works because its node persists in
-      // the edges_ skip-list scanned by the heavy full-scan arm). Route the
-      // deleted LIGHT Edge* into deleted_edges_, exactly like the transactional
+      // iterates LightEdgeIterable over LIVE adjacency) can never find these light
+      // Edge* -> they would be unreachable and leak (heavy works because its node
+      // persists in the edges_ skip-list scanned by the heavy full-scan arm). Route
+      // the deleted LIGHT Edge* into deleted_edges_, exactly like the transactional
       // FastDiscard path. CollectGarbage swaps deleted_edges_ into
       // current_deleted_edges and the light arm pushes them to the graveyard with
-      // guard_epoch snapped at collection time. The full-scan light arm then finds
-      // nothing for these (not in adjacency) -> no double-push. Heavy mode keeps
-      // the skip-list full-scan path byte-identical.
+      // guard_epoch snapped at COLLECTION time, preserving the epoch-gated drain
+      // invariant. The full-scan light arm then finds nothing for these (not in
+      // adjacency) -> no double-push. Heavy mode keeps the skip-list full-scan path
+      // byte-identical.
       if (config_.storage_light_edge) {
+        // Collect the Edge* off-lock, then splice in O(1) under the SpinLock — the
+        // critical section must not do O(batch) node allocation while locked.
+        std::list<Edge *, memory::DbAwareAllocator<Edge *>> light_edges;
+        for (auto const &edge : deleted_edges) {
+          light_edges.push_back(edge.edge_.ptr);
+        }
         mem_storage->deleted_edges_.WithLock([&](auto &storage_deleted_edges) {
-          for (auto const &edge : deleted_edges) {
-            storage_deleted_edges.push_back(edge.edge_.ptr);
-          }
+          storage_deleted_edges.splice(storage_deleted_edges.end(), light_edges);
         });
       }
     }
@@ -1332,13 +1430,8 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
         [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.end(), current_deleted_vertices); });
   }
   if (!current_deleted_edges.empty()) {
-    // Both heavy and light edges defer to deleted_edges_ here. Light edges must
-    // NOT be pushed to the light_edge_graveyard_ at commit time: the graveyard
-    // watermark (guard_epoch) is snapped at GC-COLLECTION time so that any
-    // post-commit reader is ordered before it. Riding deleted_edges_ into
-    // CollectGarbage also runs the index cleanup (OnEdgesDeleted +
-    // RemoveEdgesFromVectorEdgeIndices) before the graveyard push, exactly like
-    // heavy. Heavy behaviour is unchanged.
+    // Both heavy and light edges defer to deleted_edges_ here; light edges are
+    // pushed to the graveyard later, at GC-collection time.
     // O(1) splice under the SpinLock — never an O(batch) copy while locked.
     mem_storage->deleted_edges_.WithLock(
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), current_deleted_edges); });
@@ -1725,8 +1818,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // Heavy behaviour is unchanged.
     if (!my_deleted_edges.empty()) {
       if (mem_storage->config_.salient.items.storage_light_edge) {
-        // Watermark snapped at GC-collection time; index cleanup runs in
-        // CollectGarbage before the graveyard push — see FastDiscard above.
+        // Do NOT push to light_edge_graveyard_ here: snapping guard_epoch at abort
+        // time, before any post-commit index iterable opens, would let
+        // DrainLightEdgeGraveyard free the Edge* under a live iterable (UAF). Mirror
+        // the heavy deferral (the skiplist GC frees a marked node only once its
+        // accessor watermark clears) by routing light edges through deleted_edges_
+        // into CollectGarbage, which snaps the graveyard watermark at GC-collection
+        // time.
         // O(1) splice under the SpinLock — never an O(batch) copy while locked.
         mem_storage->deleted_edges_.WithLock(
             [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), my_deleted_edges); });
@@ -3255,11 +3353,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         std::vector<Edge *> const edges_to_remove(current_deleted_edges.begin(), current_deleted_edges.end());
         indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
       }
+      auto const guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
       light_edge_graveyard_.WithLock([&](auto &graveyard) {
-        // guard_epoch defaults to 0 (epoch gating snapped at drain time in 7b-ii)
         // std::move is an O(1) list move (entry.edges is a std::list) under the lock.
-        LightEdgeGraveyardEntry entry{.edges = std::move(current_deleted_edges)};
-        graveyard.push_back(std::move(entry));
+        graveyard.emplace_back(guard_epoch, std::move(current_deleted_edges));
       });
     } else {
       auto edge_acc = edges_.access();
@@ -3297,9 +3394,16 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // Remove edges from vector edge index BEFORE vertex skip-list removal.
     if (!indices_.vector_edge_index_.Empty()) {
       auto edge_acc = edges_.access();
-      auto const analytical_deleted_edges =
+      auto analytical_deleted_edges =
           edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
           std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
+
+      // Light edges live in vertices_ adjacency, not edges_; collect deleted ones too.
+      if (config_.salient.items.storage_light_edge) {
+        for (auto &e : LightEdgeIterable{vertex_acc}) {
+          if (e.delta() == nullptr && e.deleted()) analytical_deleted_edges.push_back(&e);
+        }
+      }
 
       if (!analytical_deleted_edges.empty()) {
         indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
@@ -3318,9 +3422,16 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto edge_acc = edges_.access();
 
     if (!need_full_scan_vertices && !indices_.vector_edge_index_.Empty()) {
-      auto const analytical_deleted_edges =
+      auto analytical_deleted_edges =
           edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
           std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
+
+      if (config_.salient.items.storage_light_edge) {
+        auto vertex_acc = vertices_.access();
+        for (auto &e : LightEdgeIterable{vertex_acc}) {
+          if (e.delta() == nullptr && e.deleted()) analytical_deleted_edges.push_back(&e);
+        }
+      }
 
       if (!analytical_deleted_edges.empty()) {
         indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
@@ -3335,40 +3446,67 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       }
     }
 
-    // Light-edge analytical arm: analytically-deleted light edges do NOT appear
-    // in the edges_ skip-list (they live in vertex adjacency and are removed at
-    // delete time), so there are no entries to find here via edge_acc. Instead,
-    // inform_gc_edge_deletion routes deleted light Edge* directly into
-    // deleted_edges_ so they arrive in current_deleted_edges and are handled by
-    // the transactional light arm above (OnEdgesDeleted + graveyard push).
+    if (config_.salient.items.storage_light_edge) {
+      auto vertex_acc = vertices_.access();
+      // std::list (not vector): it is std::move'd into the graveyard entry under
+      // the lock below (O(1)), matching LightEdgeGraveyardEntry::edges.
+      std::list<Edge *, memory::DbAwareAllocator<Edge *>> analytical_deleted_light_edges;
+      for (auto &e : LightEdgeIterable{vertex_acc}) {
+        if (e.delta() == nullptr && e.deleted()) {
+          if (idx) idx->OnEdgeDeleted(e.gid);
+          analytical_deleted_light_edges.push_back(&e);
+        }
+      }
+      if (!analytical_deleted_light_edges.empty()) {
+        auto const guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
+        light_edge_graveyard_.WithLock(
+            [&](auto &graveyard) { graveyard.emplace_back(guard_epoch, std::move(analytical_deleted_light_edges)); });
+      }
+    }
   }
 }
 
 void InMemoryStorage::DrainLightEdgeGraveyard() {
   if (!config_.salient.items.storage_light_edge) return;
-  // No edge-index iterable pins light edges yet (MakeEdgePin is still the
-  // heavy-only form), so no reader can race the free and we drain the whole
-  // graveyard unconditionally here.
+  // Light edges may be pinned by edge-index iterables (MakeEdgePin now returns a
+  // LightEdgeIterableGuard that Acquires an epoch). A graveyard entry recorded
+  // guard_epoch = CurrentEpoch() at delete time; we may only free its edges once
+  // IsSafeToFree(guard_epoch) confirms every reader that existed before the delete
+  // has Released. Swap the graveyard out under the lock, free the safe entries
+  // lock-free, and splice the not-yet-safe survivors back for a later drain.
   //
-  // The ONLY push site for this graveyard is CollectGarbage at GC-collection
-  // time. Both the commit (FastDiscard) and abort light arms route deleted Edge*
-  // through deleted_edges_ so that CollectGarbage snaps the guard_epoch watermark
-  // AFTER all readers are ordered. Invariant: metadata + vector-index entries are
-  // already removed at GC-collect time before the push happens.
+  // Pushes happen ONLY at GC-collection time (CollectGarbage transactional arm and
+  // the analytical arm) — commit (FastDiscard) and abort route deleted Edge*
+  // through deleted_edges_ first, so guard_epoch is snapped AFTER index cleanup and
+  // after all pre-existing readers are ordered.
   std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>> local_graveyard;
   light_edge_graveyard_.WithLock([&](auto &graveyard) { local_graveyard.swap(graveyard); });
   if (local_graveyard.empty()) return;
 
-  // The edge-metadata entry for every graveyarded edge was already removed at
-  // GC-collection time (CollectGarbage OnEdgesDeleted and
-  // RemoveEdgesFromVectorEdgeIndices) BEFORE the Edge* was routed here. The
-  // graveyard exists solely to defer the *memory free*; it must NOT touch
-  // edges_metadata_index_ again, otherwise it would double-remove the entry and
-  // trip the `acc.remove` assert in OnEdgeDeleted.
-  for (auto &entry : local_graveyard) {
-    for (auto *edge : entry.edges) {
-      InMemoryStorage::LightEdgePool::Destroy(edge);
+  // GC-collection time (CollectGarbage transactional arm OnEdgesDeleted, and the
+  // analytical arm OnEdgeDeleted) BEFORE the Edge* was routed here. The graveyard
+  // exists solely to defer the *memory free* until live edge-index iterables have
+  // drained; it must NOT touch edges_metadata_index_ again, otherwise it would
+  // double-remove the entry and trip the `acc.remove` assert in OnEdgeDeleted.
+  // Snapshot the dead-prefix watermark once for the whole sweep: the dead prefix
+  // is monotonic, so a single O(blocks) scan plus an O(1) check per entry beats
+  // re-scanning the tracker for every entry. An entry not yet freeable under this
+  // snapshot is simply spliced back and retried on the next drain, never freed early.
+  const uint64_t watermark = light_edge_iterable_tracker_.DeadPrefixWatermark();
+  for (auto it = local_graveyard.begin(); it != local_graveyard.end();) {
+    if (light_edge_iterable_tracker_.IsSafeToFree(it->guard_epoch, watermark)) {
+      for (auto *edge : it->edges) {
+        InMemoryStorage::LightEdgePool::Destroy(edge);
+      }
+      it = local_graveyard.erase(it);
+    } else {
+      ++it;
     }
+  }
+  // Splice the not-yet-safe survivors back for a future drain (skip the lock
+  // acquisition entirely when all entries were freed this pass).
+  if (!local_graveyard.empty()) {
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { graveyard.splice(graveyard.end(), local_graveyard); });
   }
 }
 
@@ -4639,7 +4777,30 @@ void InMemoryStorage::LightEdgePool::Destroy(Edge *p) noexcept {
   std::allocator_traits<decltype(alloc)>::deallocate(alloc, p, 1);
 }
 
-void InMemoryStorage::ClearLightEdges() {
+void InMemoryStorage::HarvestDeltaChainOnlyLightEdges() noexcept {
+  // Walk both containers under their respective locks. All background tasks are
+  // stopped before this runs (single-threaded dtor path), so no concurrency on
+  // the delta chains — atomic reads of prev/delta/deleted suffice; no edge lock
+  // needed. The edge->delta()==&delta guard is the chain-head dedup used by the
+  // GC loop (storage.cpp:3135) and UnlinkAndRemoveDeltas (:303-310): it ensures
+  // each deleted light Edge* is freed EXACTLY ONCE across the whole walk.
+  auto harvest = [](auto &transactions) noexcept {
+    for (auto &entry : transactions) {
+      for (Delta &delta : entry.deltas_) {
+        auto prev = delta.prev.Get();
+        if (prev.type != PreviousPtr::Type::EDGE) continue;
+        Edge *edge = prev.edge;
+        if (!edge->deleted()) continue;
+        if (edge->delta() != &delta) continue;
+        InMemoryStorage::LightEdgePool::Destroy(edge);
+      }
+    }
+  };
+  committed_transactions_.WithLock(harvest);
+  waiting_gc_deltas_.WithLock(harvest);
+}
+
+void InMemoryStorage::ClearLightEdges() noexcept {
   // Free ONLY live light edges held in vertex adjacency. Each edge appears
   // exactly once across all out_edges (a self-loop has a single source-vertex
   // entry), so no deduplication is needed. Deleted light edges still queued in
@@ -4699,6 +4860,17 @@ void InMemoryStorage::Clear() {
     last_processed_commit_ts_ = kTimestampInitialId;
   }
   schema_info_.Clear();
+  // Leak fix (mirrors dtor ordering): a deleted light edge whose delta chain was
+  // never GC-unlinked is referenced ONLY by a RECREATE_OBJECT delta in
+  // committed_transactions_/waiting_gc_deltas_. The clear() below frees those
+  // deltas but NOT the pool-allocated Edge*, and ClearLightEdges only drains
+  // {adjacency, graveyard, deleted_edges_} -> the Edge* would leak. Harvest BEFORE
+  // ClearLightEdges (and before committed_transactions_ is cleared) so the delta
+  // chains are still reachable. Gated: heavy Edge* live in edges_ and are freed by
+  // the skip-list, not here.
+  if (config_.salient.items.storage_light_edge) {
+    HarvestDeltaChainOnlyLightEdges();
+  }
   // Free live light edges before clearing vertices (their adjacency lists are
   // the only handle to the pool-allocated Edge*).
   if (config_.salient.items.storage_light_edge) {
@@ -4879,6 +5051,14 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   // we take the control from the GC to clear any deltas
   auto gc_guard = std::unique_lock{mem_storage->gc_lock_};
   mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
+  // Free deleted light Edge* referenced only by un-GC'd RECREATE_OBJECT
+  // deltas before clearing committed_transactions_/waiting_gc_deltas_ (which hold
+  // those delta chains). Mirrors Clear()'s harvest call; ClearLightEdges below
+  // only drains {adjacency, graveyard, deleted_edges_} — delta-chain-only edges
+  // are disjoint from those three sets and would leak without this harvest.
+  if (mem_storage->config_.salient.items.storage_light_edge) {
+    mem_storage->HarvestDeltaChainOnlyLightEdges();
+  }
   mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) { committed_transactions.clear(); });
 
   mem_storage->async_indexer_.Clear();

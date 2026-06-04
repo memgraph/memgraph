@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <optional>
+#include <set>
 #include <string_view>
 
 #include "flags/general.hpp"
@@ -1608,6 +1609,56 @@ TEST(StorageV2GcLightEdge, ConcurrentEdgeOperationsAbortDeleteRepeat) {
       ASSERT_TRUE(edges.has_value());
       ASSERT_EQ(edges->edges.size(), 0U);
     }
+  }
+}
+
+// Mirrors StorageV2Gc/Indices: index GC correctness with light edges.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2GcLightEdge, Indices) {
+  auto storage = MakeLightEdgeGcStorage();
+
+  {
+    auto unique_acc = storage->UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(storage->NameToLabel("label")).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    ASSERT_TRUE(*v1.AddLabel(acc->NameToLabel("label")));
+    ASSERT_TRUE(*v2.AddLabel(acc->NameToLabel("label")));
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("e")).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto acc1 = storage->Access(memgraph::storage::WRITE);
+
+    auto acc2 = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc2->FindVertex(v1_gid, ms::View::OLD).value();
+    auto v2 = acc2->FindVertex(v2_gid, ms::View::OLD).value();
+    auto edges = v1.OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+    auto edge = edges->edges[0];
+    ASSERT_TRUE(acc2->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(*v1.RemoveLabel(acc2->NameToLabel("label")));
+    ASSERT_TRUE(*v2.RemoveLabel(acc2->NameToLabel("label")));
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+
+    // GC runs while acc1 still holds a snapshot — must not collect index entries visible to acc1.
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    std::set<ms::Gid> gids;
+    for (auto vertex : acc1->Vertices(acc1->NameToLabel("label"), ms::View::OLD)) {
+      gids.insert(vertex.Gid());
+    }
+    EXPECT_EQ(gids.size(), 2U);
   }
 }
 
