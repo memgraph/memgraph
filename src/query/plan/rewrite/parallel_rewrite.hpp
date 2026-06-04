@@ -354,7 +354,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       } else if (dynamic_cast<OutputTableStream *>(scan_parent) != nullptr) {
         return failure("OutputTableStream operator cannot be a parent of a scan");
       } else {
-        return failure("Unsupported operator in parallel chain" + scan_parent->ToString());
+        return failure("Unsupported operator in parallel chain" + scan_parent->ToString({}));
       }
     }
 
@@ -370,7 +370,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       } else if (auto *distinct_op = dynamic_cast<Distinct *>(update_op)) {
         distinct_op->parallel_execution_.emplace(num_threads_);
       } else {
-        return failure("Unsupported operator in parallel chain " + update_op->ToString());
+        return failure("Unsupported operator in parallel chain " + update_op->ToString({}));
       }
     }
 
@@ -427,7 +427,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         } else if (cartesian_op->right_op_.get() == original_op) {
           cartesian_op->right_op_ = create_parallel_op(cartesian_op->right_op_);
         } else {
-          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString({}));
         }
       } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current)) {
         if (hash_join_op->left_op_.get() == original_op) {
@@ -435,7 +435,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         } else if (hash_join_op->right_op_.get() == original_op) {
           hash_join_op->right_op_ = create_parallel_op(hash_join_op->right_op_);
         } else {
-          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString({}));
         }
       } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current)) {
         if (indexed_join_op->main_branch_.get() == original_op) {
@@ -443,7 +443,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         } else if (indexed_join_op->sub_branch_.get() == original_op) {
           indexed_join_op->sub_branch_ = create_parallel_op(indexed_join_op->sub_branch_);
         } else {
-          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString({}));
         }
       } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current)) {
         if (rollup_apply_op->input_.get() == original_op) {
@@ -451,10 +451,10 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         } else if (rollup_apply_op->list_collection_branch_.get() == original_op) {
           rollup_apply_op->list_collection_branch_ = create_parallel_op(rollup_apply_op->list_collection_branch_);
         } else {
-          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString({}));
         }
       } else {
-        throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+        throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString({}));
       }
     }
   }
@@ -725,7 +725,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         spdlog::error(
             "Unsupported operator in operator chain: {}. Please contact Memgraph support as this scenario should not "
             "happen!",
-            current->ToString());
+            current->ToString({}));
         return false;
       }
     }
@@ -868,7 +868,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
           spdlog::error(
               "Unsupported operator in operator chain: {}. Please contact Memgraph support as this scenario should not "
               "happen!",
-              current->ToString());
+              current->ToString({}));
           return false;
         }
 

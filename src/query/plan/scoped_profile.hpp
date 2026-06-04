@@ -14,6 +14,7 @@
 #include <cstdint>
 
 #include "query/context.hpp"
+#include "query/plan/operator.hpp"
 #include "query/plan/profile.hpp"
 #include "utils/likely.hpp"
 #include "utils/tsc.hpp"
@@ -36,11 +37,8 @@ class ScopedProfile {
     if (!root_) {
       stats_ = &context_->stats;
       stats_->key = key;
-      op.dba_ = context->db_accessor;
-      op.property_visible_ = context->property_visible_;
-      stats_->name = op.ToString();
-      op.property_visible_ = nullptr;
-      op.dba_ = nullptr;
+      PlanStringContext ctx{.dba = context->db_accessor, .property_visible = context->property_visible_};
+      stats_->name = op.ToString(ctx);
     } else {
       stats_ = nullptr;
 
@@ -52,11 +50,8 @@ class ScopedProfile {
         root_->children.emplace_back();
         stats_ = &root_->children.back();
         stats_->key = key;
-        op.dba_ = context->db_accessor;
-        op.property_visible_ = context->property_visible_;
-        stats_->name = op.ToString();
-        op.property_visible_ = nullptr;
-        op.dba_ = nullptr;
+        PlanStringContext ctx{.dba = context->db_accessor, .property_visible = context->property_visible_};
+        stats_->name = op.ToString(ctx);
       } else {
         stats_ = &(*it);
       }

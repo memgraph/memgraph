@@ -383,20 +383,11 @@ PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out,
     return true;                                                             \
   }
 
-#define PRE_VISIT_TS(TOp)                                                                  \
-  bool PlanPrinter::PreVisit(TOp &op) {                                                    \
-    WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); }); \
-    return true;                                                                           \
-  }
-
-#define PRE_VISIT_DBA_TS(TOp)                                                              \
-  bool PlanPrinter::PreVisit(TOp &op) {                                                    \
-    op.dba_ = dba_;                                                                        \
-    op.property_visible_ = property_visible_;                                              \
-    WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); }); \
-    op.property_visible_ = nullptr;                                                        \
-    op.dba_ = nullptr;                                                                     \
-    return true;                                                                           \
+#define PRE_VISIT_TS(TOp)                                                                          \
+  bool PlanPrinter::PreVisit(TOp &op) {                                                            \
+    PlanStringContext ctx{.dba = dba_, .property_visible = property_visible_};                     \
+    WithPrintLn([this, &op, ctx](auto &out) { out << StartSymbol() << " " << op.ToString(ctx); }); \
+    return true;                                                                                   \
   }
 
 #define PRE_VISIT_IGNORE(TOp) \
@@ -404,24 +395,24 @@ PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out,
 // NOLINTEND(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
 
 PRE_VISIT(CreateNode);
-PRE_VISIT_DBA_TS(CreateExpand);
+PRE_VISIT_TS(CreateExpand);
 PRE_VISIT(Delete);
 
 PRE_VISIT_TS(ScanAll);
-PRE_VISIT_DBA_TS(ScanAllByLabel);
-PRE_VISIT_DBA_TS(ScanAllByLabelProperties);
+PRE_VISIT_TS(ScanAllByLabel);
+PRE_VISIT_TS(ScanAllByLabelProperties);
 PRE_VISIT_TS(ScanAllById);
-PRE_VISIT_DBA_TS(ScanAllByEdge);
-PRE_VISIT_DBA_TS(ScanAllByEdgeType);
-PRE_VISIT_DBA_TS(ScanAllByEdgeTypeProperty);
-PRE_VISIT_DBA_TS(ScanAllByEdgeTypePropertyValue);
-PRE_VISIT_DBA_TS(ScanAllByEdgeTypePropertyRange);
-PRE_VISIT_DBA_TS(ScanAllByEdgeProperty);
-PRE_VISIT_DBA_TS(ScanAllByEdgePropertyValue);
-PRE_VISIT_DBA_TS(ScanAllByEdgePropertyRange);
-PRE_VISIT_DBA_TS(ScanAllByEdgeId);
-PRE_VISIT_DBA_TS(ScanAllByPointDistance);
-PRE_VISIT_DBA_TS(ScanAllByPointWithinbbox);
+PRE_VISIT_TS(ScanAllByEdge);
+PRE_VISIT_TS(ScanAllByEdgeType);
+PRE_VISIT_TS(ScanAllByEdgeTypeProperty);
+PRE_VISIT_TS(ScanAllByEdgeTypePropertyValue);
+PRE_VISIT_TS(ScanAllByEdgeTypePropertyRange);
+PRE_VISIT_TS(ScanAllByEdgeProperty);
+PRE_VISIT_TS(ScanAllByEdgePropertyValue);
+PRE_VISIT_TS(ScanAllByEdgePropertyRange);
+PRE_VISIT_TS(ScanAllByEdgeId);
+PRE_VISIT_TS(ScanAllByPointDistance);
+PRE_VISIT_TS(ScanAllByPointWithinbbox);
 
 namespace {
 std::string ScanChunkToString(const auto &op, const DbAccessor *dba,
@@ -432,11 +423,8 @@ std::string ScanChunkToString(const auto &op, const DbAccessor *dba,
   if (!node) {
     throw std::runtime_error("ScanChunk must be connected to a ScanParallel variant");
   }
-  node->dba_ = dba;
-  node->property_visible_ = property_visible;
-  auto name = node->ToString();
-  node->property_visible_ = nullptr;
-  node->dba_ = nullptr;
+  PlanStringContext ctx{.dba = dba, .property_visible = property_visible};
+  auto name = node->ToString(ctx);
   name.replace(name.find("Parallel"), strlen("Parallel"), "All");
   name.insert(name.find('(') + 1, op.output_symbol_.name() + ", ");
   return name;
@@ -487,8 +475,8 @@ bool PlanPrinter::PreVisit(ParallelMerge & /*unused*/) {
   return true;
 }
 
-PRE_VISIT_DBA_TS(Expand);
-PRE_VISIT_DBA_TS(ExpandVariable);
+PRE_VISIT_TS(Expand);
+PRE_VISIT_TS(ExpandVariable);
 PRE_VISIT_TS(Produce);
 
 PRE_VISIT(ConstructNamedPath);
@@ -529,14 +517,16 @@ PRE_VISIT(Unwind);
 PRE_VISIT(Distinct);
 
 bool PlanPrinter::PreVisit(query::plan::Union &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
+  PlanStringContext ctx{.dba = dba_, .property_visible = property_visible_};
+  WithPrintLn([this, &op, ctx](auto &out) { out << StartSymbol() << " " << op.ToString(ctx); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::RollUpApply &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
+  PlanStringContext ctx{.dba = dba_, .property_visible = property_visible_};
+  WithPrintLn([this, &op, ctx](auto &out) { out << StartSymbol() << " " << op.ToString(ctx); });
   Branch(*op.list_collection_branch_);
   op.input_->Accept(*this);
   return false;
@@ -551,7 +541,7 @@ PRE_VISIT_TS(LoadCsv);
 PRE_VISIT_TS(LoadParquet);
 
 bool PlanPrinter::PreVisit(query::plan::LoadJsonl &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString({}); });
   return true;
 }
 
@@ -574,7 +564,8 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::HashJoin &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
+  PlanStringContext ctx{.dba = dba_, .property_visible = property_visible_};
+  WithPrintLn([this, &op, ctx](auto &out) { out << StartSymbol() << " " << op.ToString(ctx); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
   return false;
@@ -588,9 +579,8 @@ bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::Filter &op) {
-  op.property_visible_ = property_visible_;
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
-  op.property_visible_ = nullptr;
+  PlanStringContext ctx{.dba = dba_, .property_visible = property_visible_};
+  WithPrintLn([this, &op, ctx](auto &out) { out << StartSymbol() << " " << op.ToString(ctx); });
   for (const auto &pattern_filter : op.pattern_filters_) {
     Branch(*pattern_filter);
   }
@@ -623,7 +613,6 @@ bool PlanPrinter::PreVisit(query::plan::IndexedJoin &op) {
 
 #undef PRE_VISIT
 #undef PRE_VISIT_TS
-#undef PRE_VISIT_DBA_TS
 #undef PRE_VISIT_IGNORE
 
 bool PlanPrinter::DefaultPreVisit() {
