@@ -318,8 +318,10 @@ bool FineGrainedAuthChecker::NeedsFineGrainedAuthChecker() const {
   if (!HasUnrestrictedAccessToVertices() || !HasUnrestrictedAccessToEdges()) {
     return true;
   }
-  return !GetCachedPropertyLabelPermissions().GetRules().empty() ||
-         !GetCachedPropertyEdgeTypePermissions().GetRules().empty();
+  auto const &label_props = GetCachedPropertyLabelPermissions();
+  auto const &edge_props = GetCachedPropertyEdgeTypePermissions();
+  return !label_props.GetRules().empty() || !label_props.GetGlobalRules().empty() || !edge_props.GetRules().empty() ||
+         !edge_props.GetGlobalRules().empty();
 }
 
 auth::PropertyAccessPermissions const &FineGrainedAuthChecker::GetCachedPropertyLabelPermissions() const {
@@ -351,12 +353,10 @@ bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId co
   auto const perm_type = type == query::AuthQuery::PropertyPermissionType::WRITE ? auth::PropertyPermissionType::WRITE
                                                                                  : auth::PropertyPermissionType::READ;
   auto const &permissions = GetCachedPropertyLabelPermissions();
-  auto const &rules = permissions.GetRules();
   auto const &prop_name = dba_->PropertyToName(property);
   bool any_grant = false;
   for (auto label : labels) {
     auto const &label_name = dba_->LabelToName(label);
-    if (!rules.contains(label_name)) continue;
     auto level = permissions.Has(label_name, prop_name, perm_type);
     if (level == auth::PermissionLevel::DENY) return false;
     if (level == auth::PermissionLevel::GRANT) any_grant = true;
@@ -373,10 +373,9 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
                                                                                  : auth::PropertyPermissionType::READ;
   auto const &permissions = GetCachedPropertyEdgeTypePermissions();
   auto const &edge_type_name = dba_->EdgeTypeToName(edge_type);
-  if (!permissions.GetRules().contains(edge_type_name)) return false;
   auto const &prop_name = dba_->PropertyToName(property);
   auto level = permissions.Has(edge_type_name, prop_name, perm_type);
-  return level != auth::PermissionLevel::DENY;
+  return level == auth::PermissionLevel::GRANT;
 }
 
 bool FineGrainedAuthChecker::IsPropertyVisible(std::string const &property_name,
@@ -384,6 +383,7 @@ bool FineGrainedAuthChecker::IsPropertyVisible(std::string const &property_name,
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return true;
 
   auto check_permissions = [&](auth::PropertyAccessPermissions const &permissions) {
+    if (permissions.HasGlobal(property_name) == auth::PermissionLevel::DENY) return false;
     for (auto const &[entity, _] : permissions.GetRules()) {
       if (permissions.Has(entity, property_name) == auth::PermissionLevel::DENY) return false;
     }

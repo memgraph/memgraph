@@ -293,15 +293,10 @@ def test_set_property_allowed_succeeds():
         common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {name} ON NODES Employee FROM user;")
 
 
-def test_set_property_no_write_rules_allows():
-    """SET n.prop succeeds when no SET PROPERTY rules exist (no rules = no restriction)."""
-    admin = admin_cursor()
-    try:
+def test_set_property_no_write_rules_denied():
+    """SET n.prop fails when no SET PROPERTY rules exist (no rules = no access)."""
+    with pytest.raises(Exception, match="(?i)property"):
         common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) SET n.name = 'Bob';")
-        result = common.execute_and_fetch_all(admin, "MATCH (n:Employee) RETURN n.name;")
-        assert result[0][0] == "Bob"
-    finally:
-        common.execute_and_fetch_all(admin, "MATCH (n:Employee) SET n.name = 'Alice';")
 
 
 def test_remove_property_denied_throws():

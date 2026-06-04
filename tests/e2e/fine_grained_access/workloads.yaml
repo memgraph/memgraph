@@ -7,7 +7,6 @@ property_fga_args: &property_fga_args
   - "--bolt-port"
   - "7687"
   - "--log-level=TRACE"
-  - "--property-fga-enabled=true"
   - "--storage-properties-on-edges=true"
   - "--schema-info-enabled=true"
 
@@ -65,6 +64,8 @@ path_filtering_setup_queries: &path_filtering_setup_queries
   - "GRANT DATABASE * TO user;"
   - "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;"
   - "GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;"
+  - "GRANT READ {*} ON NODES * TO user;"
+  - "GRANT READ {*} ON RELATIONSHIPS * TO user;"
   - "MERGE (a:label0 {id: 0}) MERGE (b:label1 {id: 1}) CREATE (a)-[:edge_type_1 {weight: 6}]->(b);"
   - "MERGE (a:label0 {id: 0}) MERGE (b:label2 {id: 2}) CREATE (a)-[:edge_type_1 {weight: 14}]->(b);"
   - "MERGE (a:label1 {id: 1}) MERGE (b:label2 {id: 2}) CREATE (a)-[:edge_type_2 {weight: 1}]->(b);"
@@ -134,25 +135,11 @@ property_fga_setup_queries: &property_fga_setup_queries
   - "CREATE (:Person {name: 'End'});"
   - "MATCH (s:Person {name: 'Start'}), (e:Employee {name: 'Alice'}) CREATE (s)-[:KNOWS]->(e);"
   - "MATCH (e:Employee {name: 'Alice'}), (p:Person {name: 'End'}) CREATE (e)-[:KNOWS]->(p);"
-  # Property FGA: grant all then deny specific properties
-  - "GRANT READ {*} ON NODES Employee TO user;"
+  # Property FGA: grant global read, then deny specific properties
+  - "GRANT READ {*} ON NODES * TO user;"
   - "DENY READ {ssn} ON NODES Employee TO user;"
-  - "GRANT READ {*} ON RELATIONSHIPS WORKS_AT TO user;"
+  - "GRANT READ {*} ON RELATIONSHIPS * TO user;"
   - "DENY READ {secret_code} ON RELATIONSHIPS WORKS_AT TO user;"
-
-property_fga_disabled_args: &property_fga_disabled_args
-  - "--bolt-port"
-  - "7687"
-  - "--log-level=TRACE"
-  - "--storage-properties-on-edges=true"
-
-property_fga_disabled_cluster: &property_fga_disabled_cluster
-  cluster:
-    main:
-      args: *property_fga_disabled_args
-      log_file: "fine_grained_access.log"
-      setup_queries: *property_fga_setup_queries
-      validation_queries: []
 
 property_fga_cluster: &property_fga_cluster
   cluster:
@@ -213,11 +200,6 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/property_fga_tests.py"]
     <<: *property_fga_cluster
-
-  - name: "Property FGA disabled"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["fine_grained_access/property_fga_disabled_tests.py"]
-    <<: *property_fga_disabled_cluster
 
   - name: "Show databases with users"
     binary: "tests/e2e/pytest_runner.sh"

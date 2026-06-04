@@ -537,8 +537,8 @@ propertyPermissionList : '{' ( ASTERISK | listOfSymbolicNames ) '}' ;
 propertyPermissionType : READ | SET PROPERTY ;
 
 propertyEntityTarget
-    : NODES entity=symbolicName
-    | RELATIONSHIPS entity=symbolicName
+    : NODES entity=wildcardName
+    | RELATIONSHIPS entity=wildcardName
     ;
 
 propertyScope
