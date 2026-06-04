@@ -40,7 +40,6 @@ void MergeField(std::optional<T> &lhs, std::optional<T> const &rhs, Eq eq) {
 
 void ExpressionAnalysis::merge(ExpressionAnalysis const &other) {
   MergeField(known_constant_value, other.known_constant_value, ConstantIdentityEq{});
-  MergeField(known_type, other.known_type, std::equal_to<>{});
   MergeField(known_list_length, other.known_list_length, std::equal_to<>{});
 }
 
