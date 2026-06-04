@@ -62,7 +62,7 @@ TEST(ConverterRoundTrip, BinaryOperatorsReconstructToExpectedAst) {
   egraph eg;
   auto a = IntLit(eg, 1);
   auto b = IntLit(eg, 2);
-#define MG_CHECK_BINARY(Name, AstType)                                                        \
+#define MG_CHECK_BINARY(Name, AstType, ...)                                                   \
   EXPECT_EQ(ReconstructedExprType(eg, eg.Make##Name(a, b)), std::type_index(typeid(AstType))) \
       << "Make" #Name " did not reconstruct to " #AstType;
   EGRAPH_BINARY_OPS(MG_CHECK_BINARY)
@@ -73,7 +73,7 @@ TEST(ConverterRoundTrip, BinaryOperatorsReconstructToExpectedAst) {
 TEST(ConverterRoundTrip, UnaryOperatorsReconstructToExpectedAst) {
   egraph eg;
   auto a = IntLit(eg, 1);
-#define MG_CHECK_UNARY(Name, AstType)                                                      \
+#define MG_CHECK_UNARY(Name, AstType, ...)                                                 \
   EXPECT_EQ(ReconstructedExprType(eg, eg.Make##Name(a)), std::type_index(typeid(AstType))) \
       << "Make" #Name " did not reconstruct to " #AstType;
   EGRAPH_UNARY_OPS(MG_CHECK_UNARY)
