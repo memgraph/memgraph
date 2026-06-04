@@ -1847,6 +1847,145 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsReadWriteMerge) {
   }
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntity) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+
+  // Global grant applies to any entity
+  {
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("name");
+    EXPECT_EQ(perms.Has("Employee", "name"), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Person", "name"), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::NEUTRAL);
+  }
+
+  // Global wildcard grant: all properties on all entities
+  {
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("*");
+    EXPECT_EQ(perms.Has("Employee", "name"), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Person", "ssn"), PermissionLevel::GRANT);
+  }
+
+  // Global deny overrides global grant (specific property beats wildcard)
+  {
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("*");
+    perms.DenyGlobal("ssn");
+    EXPECT_EQ(perms.Has("Employee", "name"), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has("Person", "ssn"), PermissionLevel::DENY);
+  }
+
+  // Per-entity rules override global rules
+  {
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("*");
+    perms.Deny("Employee", "ssn");
+    EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has("Employee", "name"), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Person", "ssn"), PermissionLevel::GRANT);
+  }
+
+  // Per-entity rules take precedence: entity grant overrides global deny
+  {
+    PropertyAccessPermissions perms;
+    perms.DenyGlobal("ssn");
+    perms.Grant("Employee", "ssn");
+    EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Person", "ssn"), PermissionLevel::DENY);
+  }
+
+  // No entity rules and no global rules → NEUTRAL
+  {
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("name");
+    EXPECT_EQ(perms.Has("Employee", "ssn"), PermissionLevel::NEUTRAL);
+  }
+
+  // Revoke global
+  {
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("*");
+    perms.RevokeGlobal("*");
+    EXPECT_EQ(perms.Has("Employee", "name"), PermissionLevel::NEUTRAL);
+  }
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntityReadWrite) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  using memgraph::auth::PropertyPermissionType;
+
+  // Global grant READ, check WRITE is independent
+  {
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("name", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
+  }
+
+  // Global grant both READ and WRITE
+  {
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("*", PropertyPermissionType::READ);
+    perms.GrantGlobal("*", PropertyPermissionType::WRITE);
+    EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has("Employee", "name", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  }
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntitySerializeRoundtrip) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  using memgraph::auth::PropertyPermissionType;
+
+  PropertyAccessPermissions perms;
+  perms.GrantGlobal("*", PropertyPermissionType::READ);
+  perms.GrantGlobal("*", PropertyPermissionType::WRITE);
+  perms.DenyGlobal("ssn", PropertyPermissionType::READ);
+  perms.Grant("Employee", "salary");
+
+  auto json = perms.Serialize();
+  auto deserialized = PropertyAccessPermissions::Deserialize(json);
+
+  EXPECT_EQ(deserialized.Has("Employee", "salary"), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.Has("Employee", "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(deserialized.Has("Person", "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.Has("Person", "name", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.Has("Person", "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(perms, deserialized);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntityMerge) {
+  using memgraph::auth::Merge;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+
+  // First has global grant, second has global deny on specific property
+  {
+    PropertyAccessPermissions first;
+    first.GrantGlobal("*");
+    PropertyAccessPermissions second;
+    second.DenyGlobal("ssn");
+    auto merged = Merge(first, second);
+    EXPECT_EQ(merged.Has("Employee", "name"), PermissionLevel::GRANT);
+    EXPECT_EQ(merged.Has("Employee", "ssn"), PermissionLevel::DENY);
+  }
+
+  // Merge global with per-entity
+  {
+    PropertyAccessPermissions first;
+    first.GrantGlobal("*");
+    PropertyAccessPermissions second;
+    second.Deny("Employee", "ssn");
+    auto merged = Merge(first, second);
+    EXPECT_EQ(merged.Has("Employee", "ssn"), PermissionLevel::DENY);
+    EXPECT_EQ(merged.Has("Person", "name"), PermissionLevel::GRANT);
+  }
+}
+
 TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
   const std::string any_label = "AnyString";
   const std::string check_label = "Label";

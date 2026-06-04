@@ -707,38 +707,108 @@ void PropertyAccessPermissions::Revoke(std::string const &entity, std::string co
   }
 }
 
-PermissionLevel PropertyAccessPermissions::Has(std::string const &entity, std::string const &property,
-                                               PropertyPermissionType type) const {
+void PropertyAccessPermissions::GrantGlobal(std::string const &property, PropertyPermissionType type) {
   auto const bit = static_cast<uint8_t>(type);
-  auto entity_it = rules_.find(entity);
-  if (entity_it == rules_.end()) return PermissionLevel::NEUTRAL;
+  auto &perm = global_[property];
+  perm.grants |= bit;
+  perm.denies &= ~bit;
+}
 
-  auto const &props = entity_it->second;
+void PropertyAccessPermissions::DenyGlobal(std::string const &property, PropertyPermissionType type) {
+  auto const bit = static_cast<uint8_t>(type);
+  auto &perm = global_[property];
+  perm.denies |= bit;
+  perm.grants &= ~bit;
+}
 
-  // Check explicit property rule first
+void PropertyAccessPermissions::RevokeGlobal(std::string const &property, PropertyPermissionType type) {
+  auto prop_it = global_.find(property);
+  if (prop_it == global_.end()) return;
+  auto const bit = static_cast<uint8_t>(type);
+  prop_it->second.grants &= ~bit;
+  prop_it->second.denies &= ~bit;
+  if (prop_it->second.grants == 0 && prop_it->second.denies == 0) {
+    global_.erase(prop_it);
+  }
+}
+
+namespace {
+PermissionLevel CheckPropertyMap(std::unordered_map<std::string, PropertyPermission> const &props,
+                                 std::string const &property, uint8_t bit) {
   auto prop_it = props.find(property);
   if (prop_it != props.end()) {
     auto level = CheckBit(prop_it->second, bit);
     if (level != PermissionLevel::NEUTRAL) return level;
   }
-
-  // Check wildcard
   auto wildcard_it = props.find("*");
   if (wildcard_it != props.end()) {
     return CheckBit(wildcard_it->second, bit);
+  }
+  return PermissionLevel::NEUTRAL;
+}
+}  // namespace
+
+PermissionLevel PropertyAccessPermissions::Has(std::string const &entity, std::string const &property,
+                                               PropertyPermissionType type) const {
+  auto const bit = static_cast<uint8_t>(type);
+
+  // Per-entity rules take precedence
+  auto entity_it = rules_.find(entity);
+  if (entity_it != rules_.end()) {
+    auto level = CheckPropertyMap(entity_it->second, property, bit);
+    if (level != PermissionLevel::NEUTRAL) return level;
+  }
+
+  // Fall back to global rules
+  if (!global_.empty()) {
+    return CheckPropertyMap(global_, property, bit);
   }
 
   return PermissionLevel::NEUTRAL;
 }
 
+PermissionLevel PropertyAccessPermissions::HasGlobal(std::string const &property, PropertyPermissionType type) const {
+  if (global_.empty()) return PermissionLevel::NEUTRAL;
+  return CheckPropertyMap(global_, property, static_cast<uint8_t>(type));
+}
+
+namespace {
+nlohmann::json SerializePropertyMap(std::unordered_map<std::string, PropertyPermission> const &props) {
+  nlohmann::json props_json = nlohmann::json::object();
+  for (auto const &[prop, perm] : props) {
+    props_json[prop] = {{"grants", perm.grants}, {"denies", perm.denies}};
+  }
+  return props_json;
+}
+
+void DeserializePropertyMap(nlohmann::json const &props_json,
+                            std::unordered_map<std::string, PropertyPermission> &out) {
+  for (auto const &[prop, perm_json] : props_json.items()) {
+    if (perm_json.is_string()) {
+      auto const &perm_str = perm_json.get_ref<nlohmann::json::string_t const &>();
+      auto const type = PropertyPermissionType::READ;
+      auto const bit = static_cast<uint8_t>(type);
+      if (perm_str == "GRANT") {
+        out[prop].grants |= bit;
+      } else if (perm_str == "DENY") {
+        out[prop].denies |= bit;
+      }
+    } else if (perm_json.is_object()) {
+      auto &perm = out[prop];
+      perm.grants = perm_json.value("grants", uint8_t{0});
+      perm.denies = perm_json.value("denies", uint8_t{0});
+    }
+  }
+}
+}  // namespace
+
 nlohmann::json PropertyAccessPermissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
+  if (!global_.empty()) {
+    data["global"] = SerializePropertyMap(global_);
+  }
   for (auto const &[entity, props] : rules_) {
-    nlohmann::json props_json = nlohmann::json::object();
-    for (auto const &[prop, perm] : props) {
-      props_json[prop] = {{"grants", perm.grants}, {"denies", perm.denies}};
-    }
-    data[entity] = props_json;
+    data[entity] = SerializePropertyMap(props);
   }
   return data;
 }
@@ -746,23 +816,12 @@ nlohmann::json PropertyAccessPermissions::Serialize() const {
 PropertyAccessPermissions PropertyAccessPermissions::Deserialize(nlohmann::json const &data) {
   PropertyAccessPermissions result;
   if (!data.is_object()) return result;
-  for (auto const &[entity, props_json] : data.items()) {
+  for (auto const &[key, props_json] : data.items()) {
     if (!props_json.is_object()) continue;
-    for (auto const &[prop, perm_json] : props_json.items()) {
-      if (perm_json.is_string()) {
-        // Old format: "GRANT" / "DENY" → interpret as READ only
-        auto const &perm_str = perm_json.get_ref<nlohmann::json::string_t const &>();
-        if (perm_str == "GRANT") {
-          result.Grant(entity, prop, PropertyPermissionType::READ);
-        } else if (perm_str == "DENY") {
-          result.Deny(entity, prop, PropertyPermissionType::READ);
-        }
-      } else if (perm_json.is_object()) {
-        // New format: {"grants": N, "denies": N}
-        auto &perm = result.rules_[entity][prop];
-        perm.grants = perm_json.value("grants", uint8_t{0});
-        perm.denies = perm_json.value("denies", uint8_t{0});
-      }
+    if (key == "global") {
+      DeserializePropertyMap(props_json, result.global_);
+    } else {
+      DeserializePropertyMap(props_json, result.rules_[key]);
     }
   }
   return result;
@@ -809,6 +868,16 @@ PropertyAccessPermissions Merge(PropertyAccessPermissions const &first, Property
                    result.Has(entity, prop, type) == PermissionLevel::NEUTRAL) {
           result.Grant(entity, prop, type);
         }
+      }
+    }
+  }
+  for (auto const &[prop, perm] : second.GetGlobalRules()) {
+    for (auto type : {PropertyPermissionType::READ, PropertyPermissionType::WRITE}) {
+      auto second_level = CheckBit(perm, static_cast<uint8_t>(type));
+      if (second_level == PermissionLevel::DENY) {
+        result.DenyGlobal(prop, type);
+      } else if (second_level == PermissionLevel::GRANT && result.HasGlobal(prop, type) == PermissionLevel::NEUTRAL) {
+        result.GrantGlobal(prop, type);
       }
     }
   }

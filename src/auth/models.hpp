@@ -431,8 +431,14 @@ class PropertyAccessPermissions final {
   void Revoke(std::string const &entity, std::string const &property,
               PropertyPermissionType type = PropertyPermissionType::READ);
 
+  void GrantGlobal(std::string const &property, PropertyPermissionType type = PropertyPermissionType::READ);
+  void DenyGlobal(std::string const &property, PropertyPermissionType type = PropertyPermissionType::READ);
+  void RevokeGlobal(std::string const &property, PropertyPermissionType type = PropertyPermissionType::READ);
+
   PermissionLevel Has(std::string const &entity, std::string const &property,
                       PropertyPermissionType type = PropertyPermissionType::READ) const;
+  PermissionLevel HasGlobal(std::string const &property,
+                            PropertyPermissionType type = PropertyPermissionType::READ) const;
 
   nlohmann::json Serialize() const;
   static PropertyAccessPermissions Deserialize(nlohmann::json const &data);
@@ -441,9 +447,13 @@ class PropertyAccessPermissions final {
 
   auto const &GetRules() const { return rules_; }
 
+  auto const &GetGlobalRules() const { return global_; }
+
  private:
   // entity -> (property -> permission). "*" as property key means wildcard.
   std::unordered_map<std::string, std::unordered_map<std::string, PropertyPermission>> rules_;
+  // property -> permission (entity-agnostic). Falls back here when entity not in rules_.
+  std::unordered_map<std::string, PropertyPermission> global_;
 };
 
 class PropertyAccessHandler final {
