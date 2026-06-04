@@ -48,8 +48,8 @@ DbArenaHooks global_graph_arena_hooks{};
 extent_hooks_t *old_hooks = nullptr;
 
 // Arenas for global graph hooks: automatic arenas [0, opt.narenas) plus the
-// sacrificial CPU-coverage arenas (overflow CPUs bind to these and must be
-// tracked identically). Invariant after startup — cached as magic static.
+// sacrificial CPU-coverage arenas lazily created by EnsureCpuArenaCoverage().
+// Invariant after startup — cached as magic static.
 const std::vector<unsigned> &GlobalHookArenaIds() {
   static const std::vector<unsigned> ids = [] {
     unsigned n_arenas = 0;
@@ -58,7 +58,7 @@ const std::vector<unsigned> &GlobalHookArenaIds() {
       LOG_FATAL("Error getting number of jemalloc arenas");
     }
     std::vector<unsigned> result(n_arenas);
-    std::iota(result.begin(), result.end(), 0U);
+    std::ranges::iota(result, 0U);
     const auto &coverage = EnsureCpuArenaCoverage();
     result.insert(result.end(), coverage.begin(), coverage.end());
     return result;
@@ -79,6 +79,7 @@ void SetHooks() {
   int err = 0;
   // Create the sacrificial CPU-coverage arenas BEFORE installing the global
   // tracking hooks so they are covered too (see GlobalHookArenaIds).
+  EnsureCpuArenaCoverage();
   for (const unsigned i : GlobalHookArenaIds()) {
     const auto func_name = fmt::format("arena.{}.extent_hooks", i);
 

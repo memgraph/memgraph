@@ -307,7 +307,7 @@ ArenaPool::ArenaPool(utils::MemoryTracker *tracker) {
   // constructor failure never has to un-install hooks (see PendingArena).
   arenas_.reserve(1);
 
-  if (ConsumeFailureInjection(testing::ArenaPoolFailureInjection::ConstructorPublish)) {
+  if (ConsumeFailureInjection(testing::ArenaPoolFailureInjection::ConstructorThrow)) {
     throw std::runtime_error("Injected ArenaPool constructor publish failure");
   }
 

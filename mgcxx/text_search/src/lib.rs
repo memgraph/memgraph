@@ -478,9 +478,9 @@ fn create_index(path: &String, config: &ffi::IndexConfig) -> Result<ffi::Context
         tantivyContext: Box::new(TantivyContext {
             index_path: path,
             schema,
-            index,
             index_writer: Some(index_writer),
             index_reader,
+            index,
         }),
     })
 }

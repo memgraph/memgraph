@@ -207,7 +207,7 @@ namespace testing {
 
 enum class ArenaPoolFailureInjection {
   None,
-  ConstructorPublish,
+  ConstructorThrow,
   AcquireArenaCreate,
   DestructorRestore,
 };

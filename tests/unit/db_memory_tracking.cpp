@@ -799,13 +799,15 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_BaseArenaVsAcquireRelease) {
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, ArenaPool_ConstructorFailureReleasesPendingArena) {
   memgraph::memory::GlobalArenaPool::Instance().Drain();
+  // Pre-warm CPU coverage so Acquire() below creates exactly one arena.
+  memgraph::memory::EnsureCpuArenaCoverage();
 
   memgraph::utils::MemoryTracker tracker1;
   memgraph::utils::MemoryTracker tracker2;
 
   const auto arena_count_before = JemallocArenaCount();
   memgraph::memory::testing::SetArenaPoolFailureInjection(
-      memgraph::memory::testing::ArenaPoolFailureInjection::ConstructorPublish);
+      memgraph::memory::testing::ArenaPoolFailureInjection::ConstructorThrow);
   EXPECT_THROW((memgraph::memory::ArenaPool{&tracker1}), std::runtime_error);
 
   const auto arena_count_after_failure = JemallocArenaCount();
