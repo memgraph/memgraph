@@ -566,4 +566,5 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
           "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
   }
 }
+
 }  // namespace memgraph::query

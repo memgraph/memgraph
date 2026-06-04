@@ -18,7 +18,6 @@
 #include <string_view>
 
 #include <range/v3/view/zip.hpp>
-#include <utility>
 
 #include "metrics/prometheus_metrics.hpp"
 #include "query/exceptions.hpp"
@@ -196,8 +195,6 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
     case storage::Error::PROPERTIES_DISABLED:
       throw QueryRuntimeException("Unexpected error when getting labels.");
   }
-
-  std::unreachable();
 }
 
 inline void ProcessError(const storage::Error error, metrics::DatabaseMetricHandles &metric_handles) {

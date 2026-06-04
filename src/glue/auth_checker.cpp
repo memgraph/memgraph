@@ -14,7 +14,6 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
-#include "flags/auth.hpp"
 #include "glue/auth.hpp"
 #include "glue/query_user.hpp"
 #include "license/license.hpp"
