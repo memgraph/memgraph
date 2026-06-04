@@ -21,11 +21,11 @@ namespace rewrite = core::rewrite;
 using rewrite::Match;
 using rewrite::RewriteConfig;
 
-using TestRewriteRule = rewrite::RewriteRule<Op, NoAnalysis>;
-using TestRuleSet = rewrite::RuleSet<Op, NoAnalysis>;
-using TestRewriter = rewrite::Rewriter<Op, NoAnalysis>;
-using TestRuleContext = rewrite::RuleContext<Op, NoAnalysis>;
-using TestRewriteContext = rewrite::RewriteContext<Op, NoAnalysis>;
+using TestRewriteRule = rewrite::RewriteRule<core::EGraph<Op, NoAnalysis>>;
+using TestRuleSet = rewrite::RuleSet<core::EGraph<Op, NoAnalysis>>;
+using TestRewriter = rewrite::Rewriter<core::EGraph<Op, NoAnalysis>>;
+using TestRuleContext = rewrite::RuleContext<core::EGraph<Op, NoAnalysis>>;
+using TestRewriteContext = rewrite::RewriteContext<core::EGraph<Op, NoAnalysis>>;
 
 using pattern::dsl::Var;
 
