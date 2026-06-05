@@ -50,10 +50,13 @@ struct egraph {
   }
 
   auto MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> eclass;
-  auto MakeFunction(std::string_view name, std::span<eclass const> args) -> eclass;
+  /// `is_pure` is the function's purity, resolved by the caller from the
+  /// executor's authoritative table; it gates seeding the call's output as a
+  /// statically-known fact and is cached on the FunctionInfo.
+  auto MakeFunction(std::string_view name, std::span<eclass const> args, bool is_pure) -> eclass;
 
-  auto MakeFunction(std::string_view name, std::initializer_list<eclass> args) -> eclass {
-    return MakeFunction(name, std::span<eclass const>{args});
+  auto MakeFunction(std::string_view name, std::initializer_list<eclass> args, bool is_pure) -> eclass {
+    return MakeFunction(name, std::span<eclass const>{args}, is_pure);
   }
 
   auto MakeUnwind(eclass input, eclass sym, eclass list_expr) -> eclass;
