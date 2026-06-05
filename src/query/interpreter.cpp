@@ -15,6 +15,7 @@
 #include "memory/db_arena_fwd.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -5606,40 +5607,48 @@ Callback DropTrigger(TriggerQuery *trigger_query, TriggerStore *trigger_store) {
 }
 
 Callback ShowTriggers(TriggerStore *trigger_store) {
-  return {.header = {"trigger name",
-                     "statement",
-                     "privilege context",
-                     "event type",
-                     "phase",
-                     "owner",
-                     "last attempted",
-                     "failure count",
-                     "last error"},
-          .fn = [trigger_store] {
+  using Info = TriggerStore::TriggerInfo;
+
+  // One descriptor per column drives both the header and each row, so a column's
+  // name and its cell cannot drift and there is no row-length count to maintain.
+  struct Column {
+    std::string_view name;
+    TypedValue (*project)(const Info &);
+  };
+
+  static const std::array<Column, 9> columns{{
+      {"trigger name", [](const Info &i) { return TypedValue{i.name}; }},
+      {"statement", [](const Info &i) { return TypedValue{i.statement}; }},
+      {"privilege context",
+       [](const Info &i) {
+         return TypedValue{i.privilege_context == TriggerPrivilegeContext::INVOKER ? "INVOKER" : "DEFINER"};
+       }},
+      {"event type", [](const Info &i) { return TypedValue{TriggerEventTypeToString(i.event_type)}; }},
+      {"phase",
+       [](const Info &i) {
+         return TypedValue{i.phase == TriggerPhase::BEFORE_COMMIT ? "BEFORE COMMIT" : "AFTER COMMIT"};
+       }},
+      {"owner", [](const Info &i) { return i.owner.has_value() ? TypedValue{*i.owner} : TypedValue{}; }},
+      {"last attempted",
+       [](const Info &i) { return i.last_attempted.has_value() ? TypedValue{*i.last_attempted} : TypedValue{}; }},
+      {"failure count", [](const Info &i) { return TypedValue{static_cast<int64_t>(i.failure_count)}; }},
+      {"last error", [](const Info &i) { return i.last_error.has_value() ? TypedValue{*i.last_error} : TypedValue{}; }},
+  }};
+
+  std::vector<std::string> header;
+  header.reserve(columns.size());
+  for (const auto &column : columns) header.emplace_back(column.name);
+
+  return {.header = std::move(header), .fn = [trigger_store] {
             std::vector<std::vector<TypedValue>> results;
             auto trigger_infos = trigger_store->GetTriggerInfo();
             results.reserve(trigger_infos.size());
-            for (auto &trigger_info : trigger_infos) {
-              std::vector<TypedValue> typed_trigger_info;
-              typed_trigger_info.reserve(9);
-              typed_trigger_info.emplace_back(std::move(trigger_info.name));
-              typed_trigger_info.emplace_back(std::move(trigger_info.statement));
-              typed_trigger_info.emplace_back(
-                  trigger_info.privilege_context == TriggerPrivilegeContext::INVOKER ? "INVOKER" : "DEFINER");
-              typed_trigger_info.emplace_back(TriggerEventTypeToString(trigger_info.event_type));
-              typed_trigger_info.emplace_back(trigger_info.phase == TriggerPhase::BEFORE_COMMIT ? "BEFORE COMMIT"
-                                                                                                : "AFTER COMMIT");
-              typed_trigger_info.emplace_back(trigger_info.owner.has_value() ? TypedValue{*trigger_info.owner}
-                                                                             : TypedValue{});
-              typed_trigger_info.emplace_back(
-                  trigger_info.last_attempted.has_value() ? TypedValue{*trigger_info.last_attempted} : TypedValue{});
-              typed_trigger_info.emplace_back(static_cast<int64_t>(trigger_info.failure_count));
-              typed_trigger_info.emplace_back(trigger_info.last_error.has_value() ? TypedValue{*trigger_info.last_error}
-                                                                                  : TypedValue{});
-
-              results.push_back(std::move(typed_trigger_info));
+            for (const auto &trigger_info : trigger_infos) {
+              std::vector<TypedValue> row;
+              row.reserve(columns.size());
+              for (const auto &column : columns) row.emplace_back(column.project(trigger_info));
+              results.push_back(std::move(row));
             }
-
             return results;
           }};
 }
