@@ -1500,32 +1500,6 @@ TypedValue FromByteString(const TypedValue *args, int64_t nargs, const FunctionC
 template <typename T>
 concept IsNumberOrInteger = utils::SameAsAnyOf<T, Number, Integer>;
 
-template <IsNumberOrInteger ArgType>
-bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters) {
-  bool has_mapped_any_field{false};
-  std::unordered_set<const void *> assigned_units;
-  for (const auto &[key, value] : input_parameters) {
-    if (auto it = parameter_mappings.find(key); it != parameter_mappings.end()) {
-      if (!assigned_units.insert(static_cast<const void *>(it->second)).second) {
-        throw QueryRuntimeException("The same temporal unit is set more than once, including by key '{}'.", key);
-      }
-      has_mapped_any_field = true;
-      if (value.IsInt()) {
-        *it->second = value.ValueInt();
-      } else if (std::is_same_v<ArgType, Number> && value.IsDouble()) {
-        *it->second = value.ValueDouble();
-      } else {
-        std::string_view error = std::is_same_v<ArgType, Integer> ? "an integer." : "a numeric value.";
-        throw QueryRuntimeException("Invalid value for key '{}'. Expected {}", key, error);
-      }
-    } else {
-      throw QueryRuntimeException("Unknown key '{}'.", key);
-    }
-  }
-
-  return has_mapped_any_field;
-}
-
 // Single source of truth for the temporal builders' map keys. Each table maps a
 // recognised key to the parameter-struct field it binds, so the builders below
 // and the create-time validator (IsRecognisedTemporalKey) read the same keys -
@@ -1577,7 +1551,8 @@ constexpr auto kDurationUnits = std::to_array<TemporalUnit<utils::DurationParame
 
 constexpr bool IsTemporalBuilderName(std::string_view upper_function_name) {
   return upper_function_name == "DATE" || upper_function_name == "LOCALTIME" ||
-         upper_function_name == "LOCALDATETIME" || upper_function_name == "DURATION";
+         upper_function_name == "LOCALDATETIME" || upper_function_name == "DURATION" ||
+         upper_function_name == "DATETIME";
 }
 
 template <typename Params, typename Field, size_t N>
@@ -1827,24 +1802,15 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
 
   utils::DateParameters date_parameters{};
   utils::LocalTimeParameters time_parameters{};
-  using namespace std::literals;
-  std::unordered_map date_parameter_mappings{
-      std::pair{"year"sv, &date_parameters.year},
-      std::pair{"month"sv, &date_parameters.month},
-      std::pair{"day"sv, &date_parameters.day},
-      std::pair{"hour"sv, &time_parameters.hour},
-      std::pair{"minute"sv, &time_parameters.minute},
-      std::pair{"second"sv, &time_parameters.second},
-      std::pair{"millisecond"sv, &time_parameters.millisecond},
-      std::pair{"microsecond"sv, &time_parameters.microsecond},
-  };
 
   auto fields = args[0].ValueMap();
   const auto timezone = GetTimezone(fields, ctx);
   const utils::pmr::string timezone_key("timezone", ctx.memory);
   fields.erase(timezone_key);
 
-  bool const has_mapped_numeric_fields = MapNumericParameters<Integer>(date_parameter_mappings, fields);
+  // datetime binds the same date and time units as localdatetime (singular and
+  // plural alike) once the timezone key is removed.
+  bool const has_mapped_numeric_fields = ApplyDateAndTimeMap(date_parameters, time_parameters, fields);
   if (!has_mapped_numeric_fields) {
     return TypedValue(utils::ZonedDateTime(utils::AsSysTime(ctx.timestamp), timezone), ctx.memory);
   }
@@ -2285,6 +2251,9 @@ bool IsRecognisedTemporalKey(std::string_view upper_function_name, std::string_v
   if (upper_function_name == "LOCALDATETIME")
     return TableContainsKey(kDateUnits, key) || TableContainsKey(kTimeUnits, key);
   if (upper_function_name == "DURATION") return TableContainsKey(kDurationUnits, key);
+  // datetime accepts the date and time units plus a timezone key.
+  if (upper_function_name == "DATETIME")
+    return key == "timezone" || TableContainsKey(kDateUnits, key) || TableContainsKey(kTimeUnits, key);
   return false;
 }
 

@@ -3047,7 +3047,7 @@ TYPED_TEST(FunctionTest, TemporalValidatorKeySetsMatchBuilders) {
     }
   };
 
-  for (const auto *fn : {"DATE", "LOCALTIME", "LOCALDATETIME", "DURATION"}) {
+  for (const auto *fn : {"DATE", "LOCALTIME", "LOCALDATETIME", "DURATION", "DATETIME"}) {
     ASSERT_TRUE(IsTemporalMapBuilder(fn)) << fn << " should be a temporal map builder";
     std::set<std::string> builder_keys;
     std::set<std::string> validator_keys;
@@ -3093,13 +3093,24 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
   // No parameters
   EXPECT_THROW(this->EvaluateFunction("DATETIME", "{}"), memgraph::utils::BasicException);
 
-  // Nonexistent fields
+  // A genuinely unrecognised field throws.
   EXPECT_THROW(
-      this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1970)}})),
+      this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"yir", TypedValue(1970)}})),
       QueryRuntimeException);
-  EXPECT_THROW(
-      this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
-      QueryRuntimeException);
+
+  // Plural unit keys are accepted, consistent with localdatetime.
+  auto plural_date = memgraph::utils::DateParameters{};
+  plural_date.year = 2024;
+  EXPECT_EQ(
+      this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"years", TypedValue(2024)}}))
+          .ValueZonedDateTime(),
+      memgraph::utils::ZonedDateTime({plural_date, {}, memgraph::utils::DefaultTimezone()}));
+  auto plural_time = memgraph::utils::LocalTimeParameters{};
+  plural_time.second = 3;
+  EXPECT_EQ(
+      this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(3)}}))
+          .ValueZonedDateTime(),
+      memgraph::utils::ZonedDateTime({{}, plural_time, memgraph::utils::DefaultTimezone()}));
 
   // Only some fields
   auto date_params = memgraph::utils::DateParameters{};
