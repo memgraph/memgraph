@@ -11,6 +11,7 @@
 
 #include "query_plan_checker.hpp"
 
+#include <cmath>
 #include <iostream>
 #include <list>
 #include <memory>
@@ -32,6 +33,8 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
+#include "query/plan/rewrite/balanced_union.hpp"
+#include "query/plan/used_index_checker.hpp"
 
 #include "query_common.hpp"
 #include "utils/bound.hpp"
@@ -3948,6 +3951,8 @@ struct UnionPlanShape : public memgraph::query::plan::HierarchicalLogicalOperato
   using HierarchicalLogicalOperatorVisitor::Visit;
 
   int distinct_count = 0;
+  int union_count = 0;
+  int once_count = 0;
   int cur_union_depth = 0;
   int max_union_depth = 0;
 
@@ -3957,6 +3962,7 @@ struct UnionPlanShape : public memgraph::query::plan::HierarchicalLogicalOperato
   }
 
   bool PreVisit(memgraph::query::plan::Union & /*unused*/) override {
+    ++union_count;
     ++cur_union_depth;
     max_union_depth = std::max(max_union_depth, cur_union_depth);
     return true;
@@ -3967,7 +3973,10 @@ struct UnionPlanShape : public memgraph::query::plan::HierarchicalLogicalOperato
     return true;
   }
 
-  bool Visit(memgraph::query::plan::Once & /*unused*/) override { return true; }
+  bool Visit(memgraph::query::plan::Once & /*unused*/) override {
+    ++once_count;
+    return true;
+  }
 };
 
 TYPED_TEST(TestPlanner, ORLabelExpressionBalancedUnionTree) {
@@ -3994,6 +4003,83 @@ TYPED_TEST(TestPlanner, ORLabelExpressionBalancedUnionTree) {
   planner.plan().Accept(shape);
   EXPECT_EQ(shape.distinct_count, 1);
   EXPECT_EQ(shape.max_union_depth, 3);
+}
+
+// Direct unit test of the disjunction-lowering fold, independent of the planner:
+// feed it N synthetic leaf scans and assert the shape of the tree it builds.
+TEST(BalancedDisjunctionUnion, ShapeByScanCount) {
+  using memgraph::query::plan::BalancedDisjunctionUnion;
+  using memgraph::query::plan::LogicalOperator;
+  using memgraph::query::plan::Once;
+  const memgraph::query::Symbol node_symbol{"n", 0, /*user_declared=*/false};
+
+  auto make_scans = [](int n) {
+    std::vector<std::unique_ptr<LogicalOperator>> scans;
+    scans.reserve(n);
+    for (int i = 0; i < n; ++i) scans.push_back(std::make_unique<Once>());
+    return scans;
+  };
+
+  // A single scan is returned unchanged: no Union, no Distinct.
+  {
+    auto root = BalancedDisjunctionUnion(make_scans(1), node_symbol);
+    UnionPlanShape shape;
+    root->Accept(shape);
+    EXPECT_EQ(shape.distinct_count, 0);
+    EXPECT_EQ(shape.union_count, 0);
+    EXPECT_EQ(shape.max_union_depth, 0);
+    EXPECT_EQ(shape.once_count, 1);
+  }
+
+  // For N > 1: exactly one top Distinct, N-1 Unions, N leaves preserved, and the
+  // tree is balanced so its Union-nesting depth is ceil(log2(N)) rather than the
+  // N-1 of a left-deep chain (the property that keeps the executor stack safe).
+  for (int n : {2, 3, 4, 5, 8, 13, 36}) {
+    auto root = BalancedDisjunctionUnion(make_scans(n), node_symbol);
+    UnionPlanShape shape;
+    root->Accept(shape);
+    EXPECT_EQ(shape.distinct_count, 1) << "n=" << n;
+    EXPECT_EQ(shape.union_count, n - 1) << "n=" << n;
+    EXPECT_EQ(shape.once_count, n) << "n=" << n;
+    const int expected_depth = static_cast<int>(std::ceil(std::log2(n)));
+    EXPECT_EQ(shape.max_union_depth, expected_depth) << "n=" << n;
+  }
+}
+
+// UsedIndexChecker validates a cached plan by collecting the indices it relies
+// on, then checking they are all still ready. For composite operators it relies
+// on Accept to descend into every branch (it must not traverse manually). This
+// asserts that contract holds across a balanced Union tree: every label scan, on
+// both sides at every level, must be collected. A skipped branch would drop a
+// label, letting a stale plan that references a since-dropped index survive
+// validation -- the crash this guards against.
+TEST(UsedIndexChecker, CollectsEveryBranchOfDisjunctionUnion) {
+  using memgraph::query::plan::BalancedDisjunctionUnion;
+  using memgraph::query::plan::LogicalOperator;
+  using memgraph::query::plan::Once;
+  using memgraph::query::plan::ScanAllByLabel;
+  using memgraph::query::plan::UsedIndexChecker;
+
+  FakeDbAccessor dba;
+  const memgraph::query::Symbol node_symbol{"n", 0, /*user_declared=*/false};
+  const std::shared_ptr<LogicalOperator> input = std::make_shared<Once>();
+
+  // Four labels => a depth-2 balanced Union tree, so both branches at both
+  // levels must be traversed for all labels to be collected.
+  std::vector<memgraph::storage::LabelId> labels;
+  std::vector<std::unique_ptr<LogicalOperator>> scans;
+  for (const auto *name : {"L0", "L1", "L2", "L3"}) {
+    auto label = dba.Label(name);
+    labels.push_back(label);
+    scans.push_back(std::make_unique<ScanAllByLabel>(input, node_symbol, label));
+  }
+
+  auto root = BalancedDisjunctionUnion(std::move(scans), node_symbol);
+
+  UsedIndexChecker checker;
+  root->Accept(checker);
+
+  EXPECT_THAT(checker.required_indices_.label_, ::testing::UnorderedElementsAreArray(labels));
 }
 
 TYPED_TEST(TestPlanner, ORLabelExpressionMatchWhereCombination) {

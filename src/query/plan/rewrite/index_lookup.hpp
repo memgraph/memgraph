@@ -36,6 +36,7 @@
 #include "frontend/ast/ast_storage.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/balanced_union.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "query/plan/rewrite/order_by_elimination.hpp"
 #include "storage/v2/id_types.hpp"
@@ -1786,35 +1787,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             scans.push_back(std::move(label_property_index_scan));
           }
         }
-        // Fold the per-label scans into a balanced binary Union tree by combining
-        // adjacent pairs each round. This keeps the operator-tree depth at
-        // O(log N) in the number of labels instead of the O(N) of a left-deep
-        // chain, which otherwise overflows the executor thread stack (#4238).
-        while (scans.size() > 1) {
-          std::vector<std::unique_ptr<LogicalOperator>> combined;
-          combined.reserve((scans.size() + 1) / 2);
-          for (std::size_t i = 0; i < scans.size(); i += 2) {
-            if (i + 1 < scans.size()) {
-              combined.push_back(std::make_unique<Union>(std::move(scans[i]),
-                                                         std::move(scans[i + 1]),
-                                                         std::vector<Symbol>{node_symbol},
-                                                         std::vector<Symbol>{node_symbol},
-                                                         std::vector<Symbol>{node_symbol}));
-            } else {
-              // Odd one out this round is carried over unchanged.
-              combined.push_back(std::move(scans[i]));
-            }
-          }
-          scans = std::move(combined);
-        }
-        auto prev = std::move(scans.front());
-        // Deduplicate the combined disjunction exactly once at the top (a vertex
-        // matching several of the labels would otherwise appear multiple times).
-        if (best_group.indices.size() > 1) {
-          prev = std::make_unique<Distinct>(std::move(prev), std::vector<Symbol>{node_symbol});
-        }
         metadata.is_or_label_filter = true;
-        return ScanByIndexResult{std::move(prev), std::move(metadata)};
+        return ScanByIndexResult{BalancedDisjunctionUnion(std::move(scans), node_symbol), std::move(metadata)};
       }
     }
     return std::nullopt;
