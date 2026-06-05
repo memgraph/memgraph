@@ -177,6 +177,30 @@ TEST_F(PlannerV2InterpreterTest, UnwindOverProvableLengthRangeElidesUnusedBindin
   EXPECT_EQ(plan.find("Unwind"), std::string::npos) << plan;
 }
 
+TEST_F(PlannerV2InterpreterTest, SingletonUnwindIsIdentityAndDropsTheOperator) {
+  // A length-1 list scales each input row to exactly one row, so the elided
+  // Unwind is identity and no operator is emitted at all.
+  auto stream = Interpret("EXPLAIN UNWIND [10] AS x RETURN 1 AS r;");
+  auto const plan = PlanText(stream);
+  EXPECT_EQ(plan.find("CardinalityScale"), std::string::npos) << plan;
+  EXPECT_EQ(plan.find("Unwind"), std::string::npos) << plan;
+
+  auto exec = Interpret("UNWIND [10] AS x RETURN 1;");
+  EXPECT_EQ(exec.GetResults().size(), 1U);
+}
+
+TEST_F(PlannerV2InterpreterTest, EmptyUnwindProducesNoRows) {
+  // A length-0 list scales every input row to zero rows, so the plan is empty:
+  // an EmptyResult, never a CardinalityScale.
+  auto stream = Interpret("EXPLAIN UNWIND [] AS x RETURN 1 AS r;");
+  auto const plan = PlanText(stream);
+  EXPECT_NE(plan.find("EmptyResult"), std::string::npos) << plan;
+  EXPECT_EQ(plan.find("CardinalityScale"), std::string::npos) << plan;
+
+  auto exec = Interpret("UNWIND [] AS x RETURN 1;");
+  EXPECT_EQ(exec.GetResults().size(), 0U);
+}
+
 TEST_F(PlannerV2InterpreterTest, UnwindOverConstantListElidesUnusedBinding) {
   // A list literal's elements are stripped to parameters, so the converter must
   // resolve them back to constants to know the list's length; with x unused the

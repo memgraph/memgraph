@@ -288,8 +288,12 @@ struct symbol_build_traits<symbol::Unwind> {
     auto const *expr = state.egraph.eclass(state.egraph.find(list_eclass)).analysis().expression();
     DMG_ASSERT(expr != nullptr && expr->known_list_length.has_value(),
                "dead Unwind requires a statically known list length");
-    return std::static_pointer_cast<LogicalOperator>(
-        std::make_shared<query::plan::CardinalityScale>(input, *expr->known_list_length));
+    auto const scale = *expr->known_list_length;
+    // n=1 scales each input row to one row: the operator is identity, so drop it.
+    if (scale == 1) return input;
+    // n=0 scales every input row to zero rows: the result is empty.
+    if (scale == 0) return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::EmptyResult>(input));
+    return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::CardinalityScale>(input, scale));
   }
 };
 
