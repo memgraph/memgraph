@@ -231,13 +231,10 @@ def test_show_triggers_before_commit_failure_health(connect):
     assert row[7] == 1  # failure count incremented
     assert row[8] is not None  # last error populated
 
-    # A second failing fire increments the count further.
-    execute_and_fetch_all(cursor, "CREATE (:Node)")
-    deadline = time.time() + 15
+    # A second failing fire increments the count further, again synchronously.
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "CREATE (:Node)")
     row = get_failing()
-    while row[7] < 2 and time.time() < deadline:
-        time.sleep(0.1)
-        row = get_failing()
     assert row[7] == 2
 
 
