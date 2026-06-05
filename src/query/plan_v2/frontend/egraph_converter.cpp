@@ -151,6 +151,7 @@ auto BuildOperatorTree(auto const &impl, QueryPlannerContext::Impl &ctx) -> Buil
       .named_output_info = impl.graph.template storage<NamedOutput>().info,
       .symbol_store = impl.graph.template storage<Symbol>().store,
       .function_info = impl.graph.template storage<Function>().info,
+      .egraph = impl.graph.core(),
   };
   auto const resolved_entries = ctx.build.resolved_entries();
   auto built = std::vector<BuildResult>{};
