@@ -6,7 +6,7 @@ cd "$DIR"
 binary_dir="$DIR/../../../build"
 
 # Start the memgraph process.
-$binary_dir/memgraph &
+$binary_dir/memgraph --metrics-format=OpenMetrics &
 pid=$!
 
 # Wait for the database to start up.
