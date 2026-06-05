@@ -274,6 +274,9 @@ bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_vi
 // structured so that no statement between a successful hook install and
 // Commit() can throw (vector capacity is reserved up front), and a failed
 // install mallctl never publishes the hooks to jemalloc in the first place.
+// INVARIANT for future edits: do NOT insert any allocating/throwing statement
+// between the hook-install mallctl write and Commit() at either call site —
+// that would release an arena with live custom hooks into the global pool.
 class PendingArena {
  public:
   explicit PendingArena(unsigned arena_idx) noexcept : arena_idx_(arena_idx) {}
