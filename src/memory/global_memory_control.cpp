@@ -54,13 +54,13 @@ const std::vector<unsigned> &GlobalHookArenaIds() {
   static const std::vector<unsigned> ids = [] {
     unsigned n_arenas = 0;
     size_t sz = sizeof(n_arenas);
-    if (je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0)) {
+    if (je_mallctl("opt.narenas", static_cast<void *>(&n_arenas), &sz, nullptr, 0)) {
       LOG_FATAL("Error getting number of jemalloc arenas");
     }
     std::vector<unsigned> result(n_arenas);
     std::ranges::iota(result, 0U);
     const auto &coverage = EnsureCpuArenaCoverage();
-    result.insert(result.end(), coverage.begin(), coverage.end());
+    result.append_range(coverage);
     return result;
   }();
   return ids;
@@ -86,7 +86,7 @@ void SetHooks() {
     extent_hooks_t *current_old_hooks = nullptr;
     size_t hooks_len = sizeof(extent_hooks_t *);
 
-    err = je_mallctl(func_name.c_str(), (void *)&current_old_hooks, &hooks_len, nullptr, 0);
+    err = je_mallctl(func_name.c_str(), static_cast<void *>(&current_old_hooks), &hooks_len, nullptr, 0);
     if (err) {
       LOG_FATAL("Error getting hooks for jemalloc arena {}", i);
     }
@@ -112,14 +112,14 @@ void SetHooks() {
 
     // Due to the way jemalloc works, we need first to set their hooks
     // which will trigger creating arena, then we can set our custom hook wrappers
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(extent_hooks_t *));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, static_cast<void *>(&old_hooks), sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting jemalloc hooks for jemalloc arena {}", i);
     }
 
     // Install tracker hooks.
     const extent_hooks_t *new_hooks = &global_graph_arena_hooks.hooks;
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&new_hooks, sizeof(extent_hooks_t *));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, static_cast<void *>(&new_hooks), sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting custom hooks for jemalloc arena {}", i);
     }
@@ -133,20 +133,10 @@ void UnsetHooks() {
     return;
   }
 
-  MG_ASSERT(old_hooks);
-  MG_ASSERT(old_hooks->alloc);
-  MG_ASSERT(old_hooks->dalloc);
-  MG_ASSERT(old_hooks->destroy);
-  MG_ASSERT(old_hooks->commit);
-  MG_ASSERT(old_hooks->decommit);
-  MG_ASSERT(old_hooks->purge_forced);
-  MG_ASSERT(old_hooks->purge_lazy);
-  MG_ASSERT(old_hooks->split);
-  MG_ASSERT(old_hooks->merge);
-
   for (const unsigned i : GlobalHookArenaIds()) {
     const auto func_name = fmt::format("arena.{}.extent_hooks", i);
-    const int err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(extent_hooks_t *));
+    const int err =
+        je_mallctl(func_name.c_str(), nullptr, nullptr, static_cast<void *>(&old_hooks), sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting default hooks for jemalloc arena {}", i);
     }

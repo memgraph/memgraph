@@ -144,8 +144,7 @@ bool db_arena_purge_forced(extent_hooks_t *hooks, void *addr, size_t size, size_
 }  // namespace
 
 const std::vector<unsigned> &EnsureCpuArenaCoverage() {
-  // Magic static: thread-safe, the first caller does the work, later callers
-  // (and re-entrant ones) just get the cached result.
+  // Magic static: thread-safe; the first caller does the work, later callers get the cached result.
   static const std::vector<unsigned> coverage = [] {
     std::vector<unsigned> created;
 

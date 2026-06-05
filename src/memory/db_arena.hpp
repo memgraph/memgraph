@@ -64,7 +64,7 @@ class ArenaPool {
   unsigned idx() const noexcept;
 
   // Acquire an arena for DB-owned thread work.
-  unsigned Acquire();
+  [[nodiscard]] unsigned Acquire();
 
   // Return an arena acquired from this pool so a future Acquire() can reuse it.
   void Release(unsigned arena_idx) noexcept;
@@ -77,7 +77,7 @@ class ArenaPool {
   void PurgeAllArenas() const;
 
   // Acquire an explicit tcache for DB-owned thread work.
-  unsigned AcquireTcache();
+  [[nodiscard]] unsigned AcquireTcache();
 
   // Return a tcache acquired from this pool so a future AcquireTcache() can reuse it.
   void ReleaseTcache(unsigned tcache_id) noexcept;
@@ -153,7 +153,7 @@ class GlobalArenaPool {
   // concurrently; each gets a distinct valid index. This is benign: je_mallctl is
   // thread-safe and neither index is lost. At most N-1 extra arenas are created versus
   // serialising the slow path, which is acceptable for an infrequent operation.
-  unsigned Acquire() {
+  [[nodiscard]] unsigned Acquire() {
     {
       std::lock_guard<std::mutex> lock(mux_);
       if (!pool_.empty()) {
