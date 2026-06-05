@@ -2088,6 +2088,9 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
   const memgraph::storage::PropertyId entity_prop{dba.NameToProperty(entity_prop_name)};
   const memgraph::storage::PropertyValue entity_prop_value{1};
 
+  std::string const entity_prop_2_name = "prop2";
+  memgraph::storage::PropertyId const entity_prop_2{dba.NameToProperty(entity_prop_2_name)};
+
   const std::string label_name_1 = "l1";
   const memgraph::storage::LabelId label_1{dba.NameToLabel(label_name_1)};
   const std::string label_name_2 = "l1";
@@ -2174,6 +2177,29 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
     auto *rhs = this->storage.template Create<MapLiteral>(prop_map);
     auto set_properties =
         std::make_shared<plan::SetProperties>(scan_all.op_, scan_all.sym_, rhs, plan::SetProperties::Op::UPDATE);
+
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce(set_properties, output);
+
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
+
+    PullAll(*produce, &context);
+    dba.AdvanceCommand();
+  };
+
+  void ExecuteReplacePropertiesOnVertex(memgraph::auth::User user, std::string const &prop_name,
+                                        int new_property_value) {
+    // MATCH (n) SET n = {<prop_name>: <value>};
+    auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
+
+    auto prop = PROPERTY_PAIR(dba, prop_name);
+    std::unordered_map<PropertyIx, Expression *> prop_map;
+    prop_map.emplace(this->storage.GetPropertyIx(prop.first), LITERAL(new_property_value));
+    auto *rhs = this->storage.template Create<MapLiteral>(prop_map);
+    auto set_properties =
+        std::make_shared<plan::SetProperties>(scan_all.op_, scan_all.sym_, rhs, plan::SetProperties::Op::REPLACE);
 
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
@@ -2749,6 +2775,113 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
+  }
+}
+
+TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyPbacOnVertex) {
+  auto v = this->dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(this->vertex_label).has_value());
+  ASSERT_TRUE(v.SetProperty(this->entity_prop, this->entity_prop_value).has_value());
+  this->dba.AdvanceCommand();
+
+  auto test_hypothesis = [&](int expected_property_value) {
+    auto vertex = *this->dba.Vertices(memgraph::storage::View::NEW).begin();
+    auto maybe_prop = vertex.GetProperty(memgraph::storage::View::NEW, this->entity_prop);
+    ASSERT_TRUE(maybe_prop.has_value());
+    ASSERT_EQ(maybe_prop->ValueInt(), expected_property_value);
+  };
+
+  auto test_remove_hypothesis = [&](int properties_size) {
+    auto vertex = *this->dba.Vertices(memgraph::storage::View::NEW).begin();
+    auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
+    ASSERT_TRUE(maybe_properties.has_value());
+    EXPECT_EQ(maybe_properties->size(), properties_size);
+  };
+
+  auto make_user_with_lbac = [&]() {
+    memgraph::auth::User user{"pbac_test"};
+    user.fine_grained_access_handler().label_permissions().GrantGlobal(
+        static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::kVertexLabelUpdatePermissions |
+                                                           memgraph::auth::FineGrainedPermission::READ));
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
+    return user;
+  };
+
+  // No PBAC WRITE on prop — SET, UPDATE, REMOVE all throw
+  {
+    auto user = make_user_with_lbac();
+
+    this->SetVertexProperty(v);
+    ASSERT_THROW(this->ExecuteSetPropertyOnVertex(user, 2), QueryRuntimeException);
+    test_hypothesis(1);
+
+    this->SetVertexProperty(v);
+    ASSERT_THROW(this->ExecuteSetPropertiesOnVertex(user, 2), QueryRuntimeException);
+    test_hypothesis(1);
+
+    this->SetVertexProperty(v);
+    ASSERT_THROW(this->ExecuteRemovePropertyOnVertex(user), QueryRuntimeException);
+    test_remove_hypothesis(1);
+  }
+
+  // PBAC WRITE granted on prop — SET, UPDATE, REMOVE all succeed
+  {
+    auto user = make_user_with_lbac();
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);
+
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertyOnVertex(user, 2);
+    test_hypothesis(2);
+
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertiesOnVertex(user, 2);
+    test_hypothesis(2);
+
+    this->SetVertexProperty(v);
+    this->ExecuteRemovePropertyOnVertex(user);
+    test_remove_hypothesis(0);
+
+    // Restore prop for subsequent tests
+    ASSERT_TRUE(v.SetProperty(this->entity_prop, this->entity_prop_value).has_value());
+    this->dba.AdvanceCommand();
+  }
+
+  // REPLACE: node has "prop", setting "prop2". WRITE only on prop2 — throw (existing prop not writable)
+  {
+    auto user = make_user_with_lbac();
+    user.property_access_handler().label_properties().Grant(
+        {"*"}, this->entity_prop_2_name, memgraph::auth::PropertyPermissionType::WRITE);
+
+    this->SetVertexProperty(v);
+    ASSERT_THROW(this->ExecuteReplacePropertiesOnVertex(user, this->entity_prop_2_name, 42), QueryRuntimeException);
+    test_hypothesis(1);
+  }
+
+  // REPLACE: node has "prop", setting "prop2". WRITE only on prop — throw (new prop not writable)
+  {
+    auto user = make_user_with_lbac();
+    user.property_access_handler().label_properties().Grant(
+        {"*"}, this->entity_prop_name, memgraph::auth::PropertyPermissionType::WRITE);
+
+    this->SetVertexProperty(v);
+    ASSERT_THROW(this->ExecuteReplacePropertiesOnVertex(user, this->entity_prop_2_name, 42), QueryRuntimeException);
+    test_hypothesis(1);
+  }
+
+  // REPLACE: WRITE on both props — succeeds, node now has only prop2
+  {
+    auto user = make_user_with_lbac();
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);
+
+    this->SetVertexProperty(v);
+    this->ExecuteReplacePropertiesOnVertex(user, this->entity_prop_2_name, 42);
+    auto vertex = *this->dba.Vertices(memgraph::storage::View::NEW).begin();
+    auto maybe_prop = vertex.GetProperty(memgraph::storage::View::NEW, this->entity_prop_2);
+    ASSERT_TRUE(maybe_prop.has_value());
+    ASSERT_EQ(maybe_prop->ValueInt(), 42);
+    auto maybe_old = vertex.GetProperty(memgraph::storage::View::NEW, this->entity_prop);
+    ASSERT_TRUE(maybe_old.has_value());
+    ASSERT_TRUE(maybe_old->IsNull());
   }
 }
 #endif
