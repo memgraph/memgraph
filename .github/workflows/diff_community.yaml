@@ -76,6 +76,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph --community \
+          --split-debug \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD

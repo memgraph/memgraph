@@ -18,6 +18,7 @@ OPTIONS:
     --dev                   Developer mode: enables --skip-os-deps --keep-build
     --update-lockfile       Update conan.lock before installing dependencies
     --graph-info            Generate dependency graph as graph.html and exit
+    --split-debug           Extract debug info into sidecar .debug files (requires RelWithDebInfo/Debug)
     --help                  Show this help message
 
 ENVIRONMENT VARIABLES:
@@ -65,6 +66,7 @@ offline=false
 update_lockfile=false
 graph_info=false
 RESERVE_CORES=0
+SPLIT_DEBUG=off
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -111,6 +113,10 @@ while [[ $# -gt 0 ]]; do
             RESERVE_CORES="$2"
             shift 2
             ;;
+        --split-debug)
+            SPLIT_DEBUG=on
+            shift
+            ;;
         --help|-h)
             show_help
             ;;
@@ -121,6 +127,10 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ "$SPLIT_DEBUG" == "on" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_SPLIT_DEBUG=ON"
+fi
 
 # Detect distro
 source environment/util.sh

@@ -42,5 +42,6 @@ docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/ci/
 docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/ci/openssl/build-libssl3-deb.sh $VERSION"
 
 ARCH="$(dpkg --print-architecture)"
+mkdir -p build
 docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/openssl_${VERSION}-0ubuntu0custom1_${ARCH}.deb" build/openssl_${VERSION}-0ubuntu0custom1_${ARCH}.deb
 docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/libssl3t64_${VERSION}-0ubuntu0custom1_${ARCH}.deb" build/libssl3t64_${VERSION}-0ubuntu0custom1_${ARCH}.deb

@@ -19,7 +19,7 @@ jobs:
       OS: ubuntu-24.04
       TOOLCHAIN: v7
       ARCH: amd
-      BUILD_TYPE: Release
+      BUILD_TYPE: RelWithDebInfo
 
     steps:
         - name: Set up repository
@@ -56,7 +56,7 @@ jobs:
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             --threads $THREADS \
-            build-memgraph
+            build-memgraph --split-debug
 
         - name: Get branch name (merge)
           if: github.event_name != 'pull_request'

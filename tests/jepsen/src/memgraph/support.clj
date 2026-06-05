@@ -48,6 +48,7 @@
            (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
            (str "--storage-wal-file-flush-every-n-tx=" @sync-after-n-txn)
            "--telemetry-enabled=false"
+           "--metrics-format=OpenMetrics"
            :--storage-properties-on-edges]
           (tls-flags))))
 
@@ -66,6 +67,7 @@
            :--storage-properties-on-edges
            "--storage-snapshot-interval-sec=300"
            "--telemetry-enabled=false"
+           "--metrics-format=OpenMetrics"
            "--log-level=TRACE"
            (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
            :--coordinator-id (get node-config :coordinator-id)
@@ -88,6 +90,7 @@
            "--log-level=TRACE"
            (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
            "--telemetry-enabled=false"
+           "--metrics-format=OpenMetrics"
            :--replication-restore-state-on-startup
            :--data-recovery-on-startup
            :--storage-properties-on-edges

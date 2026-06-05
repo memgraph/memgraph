@@ -52,6 +52,7 @@ mg_binary_dir="$DIR/../../build"
 # Start instance_1
 check_ports_unused 7687 10011
 $mg_binary_dir/memgraph \
+    --metrics-format=OpenMetrics \
     --bolt-port=7687 \
     --data-directory=$tmpdir/instance_1/ \
     --bolt-server-name-for-init="Neo4j/1.1" \
@@ -69,6 +70,7 @@ pids+=($pid_instance_1)
 # Start instance_2
 check_ports_unused 7688 10012
 $mg_binary_dir/memgraph \
+    --metrics-format=OpenMetrics \
     --bolt-port=7688 \
     --data-directory=$tmpdir/instance_2 \
     --bolt-server-name-for-init="Neo4j/1.1" \
@@ -86,6 +88,7 @@ pids+=($pid_instance_2)
 # Start instance_3
 check_ports_unused 7689 10013
 $mg_binary_dir/memgraph \
+    --metrics-format=OpenMetrics \
     --bolt-port=7689 \
     --data-directory=$tmpdir/instance_3 \
     --bolt-server-name-for-init="Neo4j/1.1" \
@@ -104,6 +107,7 @@ pids+=($pid_instance_3)
 # Start coordinator_1
 check_ports_unused 7690 10121 10111
 $mg_binary_dir/memgraph \
+    --metrics-format=OpenMetrics \
     --bolt-port=7690 \
     --data-directory=$tmpdir/coordinator_1 \
     --bolt-server-name-for-init="Neo4j/1.1" \
@@ -123,6 +127,7 @@ pids+=($pid_coordinator_1)
 # Start coordinator_2
 check_ports_unused 7691 10122 10112
 $mg_binary_dir/memgraph \
+    --metrics-format=OpenMetrics \
     --bolt-port=7691 \
     --data-directory=$tmpdir/coordinator_2 \
     --bolt-server-name-for-init="Neo4j/1.1" \
@@ -142,6 +147,7 @@ pids+=($pid_coordinator_2)
 # Start coordinator_3
 check_ports_unused 7692 10123 10113
 $mg_binary_dir/memgraph \
+    --metrics-format=OpenMetrics \
     --bolt-port=7692 \
     --data-directory=$tmpdir/coordinator_3 \
     --bolt-server-name-for-init="Neo4j/1.1" \

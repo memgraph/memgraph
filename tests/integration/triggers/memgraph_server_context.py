@@ -50,6 +50,7 @@ def memgraph_server(memgraph, data_dir: Path, port, logger, extra_args=None, tim
         "--also-log-to-stderr",
         f"--bolt-port={port}",
         f"--data-directory={data_dir.resolve()}",
+        "--metrics-format=OpenMetrics",
     ] + (extra_args if extra_args else [])
 
     logger.info("Starting Memgraph server...")

@@ -47,6 +47,7 @@ DEFAULT_DATA_FLAGS=(
     "--storage-snapshot-on-exit=false"
     "--telemetry-enabled=false"
     "--query-execution-timeout-sec=1200"
+    "--metrics-format=OpenMetrics"
 )
 
 # Default flags for Memgraph Coordinator Nodes
@@ -56,6 +57,7 @@ DEFAULT_COORD_FLAGS=(
     "--log-file="
     "--log-level=TRACE"
     "--telemetry-enabled=false"
+    "--metrics-format=OpenMetrics"
 )
 
 # Configuration for Data Nodes

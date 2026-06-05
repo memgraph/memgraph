@@ -86,6 +86,8 @@ if(lower_build_type STREQUAL "release")
                 COMMENT "Stripping symbols and sections from memgraph")
 endif()
 
+mg_split_debug(memgraph INSTALL_DESTINATION lib/memgraph)
+
 # Generate the configuration file under the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py
@@ -98,9 +100,6 @@ add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_SOURCE_DIR}/config/mappings.json
         ${CMAKE_BINARY_DIR}/config/apoc_compatibility_mappings.json)
-
-# Everything here is under "memgraph" install component.
-set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 
 # TODO: Default directory permissions to 755
 # NOTE: This is added in CMake 3.11, so enable it then

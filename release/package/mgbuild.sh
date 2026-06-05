@@ -89,6 +89,7 @@ print_help () {
   echo -e "  build-memgraph [OPTIONS]           Build memgraph binary inside mgbuild container"
   echo -e "  init-tests                         Initialize tests inside mgbuild container"
   echo -e "  copy [OPTIONS]                     Copy an artifact from mgbuild container to host"
+  echo -e "  copy-debug-symbols [OPTIONS]       Copy all .debug sidecars from build tree to host (requires split-debug build)"
   echo -e "  package-memgraph                   Create memgraph package from built binary inside mgbuild container"
   echo -e "  package-docker [OPTIONS]           Create memgraph docker image and pack it as .tar.gz"
   echo -e "  package-smoke-image [OPTIONS]      Build a Docker image with the .deb/.rpm package installed (for smoke tests)"
@@ -140,7 +141,6 @@ print_help () {
   echo -e "  --cmake-only                  Only run cmake configure command"
   echo -e "  --community                   Build community version"
   echo -e "  --coverage                    Build with code coverage"
-  echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
   echo -e "  --init-only                   Only run init script"
   echo -e "  --no-copy                     Don't copy the memgraph repo from host."
   echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
@@ -148,6 +148,7 @@ print_help () {
   echo -e "  --disable-jemalloc            Build without jemalloc"
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
   echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
+  echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
   echo -e "  --conan-username string       Specify conan username (default \"\")"
   echo -e "  --conan-password string       Specify conan password (default \"\")"
@@ -172,6 +173,16 @@ print_help () {
   echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
   echo -e "                                This directory should contain the memgraph package."
   echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
+  echo -e "  --package-flavour string        Docker package flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling."
+
+  echo -e "\npackage-mage-docker options:"
+  echo -e "  --docker-repository-name str  Docker repository name (default \"memgraph/memgraph-mage\")"
+  echo -e "  --image-tag string            Image tag (required)"
+  echo -e "  --memgraph-ref string         Memgraph git ref (required)"
+  echo -e "  --cache-present bool          Whether build cache is present (default false)"
+  echo -e "  --custom-mirror bool          Use custom APT mirror (default false)"
+  echo -e "  --cuda bool                   CUDA variant (default false)"
+  echo -e "  --package-flavour string        Docker package flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and uses the relwithdebinfo dockerfile target."
 
   echo -e "\npackage-smoke-image options:"
   echo -e "  --src-dir string              Relative path inside memgraph directory containing the .deb/.rpm package."
@@ -460,7 +471,6 @@ build_memgraph () {
     arm_flag="-DMG_ARCH="ARM64""
   fi
   local build_type_flag="-DCMAKE_BUILD_TYPE=$build_type"
-  local telemetry_id_override_flag=""
   local community_flag=""
   local coverage_flag=""
   local asan_flag=""
@@ -469,13 +479,13 @@ build_memgraph () {
   local disable_testing_flag=""
   local init_only=false
   local cmake_only=false
-  local for_docker=false
   local copy_from_host=true
   local conan_remote=""
   local conan_username=""
   local conan_password=""
   local build_dependency=""
   local link_threads=0
+  local split_debug=false
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -488,11 +498,6 @@ build_memgraph () {
       ;;
       --cmake-only)
         cmake_only=true
-        shift 1
-      ;;
-      --for-docker)
-        for_docker=true
-        telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER "
         shift 1
       ;;
       --coverage)
@@ -538,6 +543,10 @@ build_memgraph () {
       --link-threads)
         link_threads=$2
         shift 2
+      ;;
+      --split-debug)
+        split_debug=true
+        shift 1
       ;;
       *)
         echo "Error: Unknown flag '$1'"
@@ -701,7 +710,7 @@ build_memgraph () {
 
   # Add additional CMake options if any are specified
   local additional_options=""
-  local flags=("$arm_flag" "$community_flag" "$telemetry_id_override_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag")
+  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag")
 
   for flag in "${flags[@]}"; do
     if [[ -n "$flag" ]]; then
@@ -712,6 +721,15 @@ build_memgraph () {
   # Cap link concurrency via Ninja job pools, leaving compile parallelism untouched.
   if [[ "$link_threads" -gt 0 ]]; then
     additional_options="$additional_options -DCMAKE_JOB_POOLS=link=$link_threads -DCMAKE_JOB_POOL_LINK=link"
+  fi
+
+  # Extract debug info into sidecar .debug files post-link (requires RWD/Debug).
+  if [[ "$split_debug" = true ]]; then
+    if [[ "$build_type" != "RelWithDebInfo" && "$build_type" != "Debug" ]]; then
+      echo "Error: --split-debug requires --build-type RelWithDebInfo or Debug (got '$build_type')" >&2
+      exit 1
+    fi
+    additional_options="$additional_options -DMG_SPLIT_DEBUG=ON"
   fi
 
   if [[ -n "$additional_options" ]]; then
@@ -787,11 +805,11 @@ package_memgraph() {
       docker exec -u root "$build_container" bash -c "pip install rpmlint==2.8.0 --user"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake"
   elif [[ "$os" =~ ^"fedora".* ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph-[0-9]*.rpm"
   elif [[ "$os" == "rocky-10" ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph-[0-9]*.rpm"
   elif [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"amzn".* ]] || [[ "$os" =~ ^"rocky".* ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph-[0-9]*.rpm"
   fi
 
   if [[ "$os" =~ ^"debian".* ]]; then
@@ -804,15 +822,16 @@ package_memgraph() {
   fi
   docker exec -u root "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
   if [[ "$os" == "centos-10" ]]; then
-    docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
+    docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph-[0-9]*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
   fi
 
   # check for mgconsole inside package
   if [[ "$os" =~ ^"ubuntu".* || "$os" =~ ^"debian".* ]]; then
-    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.deb")"
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph_*.deb")"
     check_output="$(docker exec -u mg $build_container bash -c "dpkg -c $package_name")"
   else
-    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.rpm")"
+    # memgraph-[0-9]*.rpm matches the main package; excludes memgraph-debuginfo-*.rpm.
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph-[0-9]*.rpm")"
     check_output="$(docker exec -u mg $build_container bash -c "rpm -ql $package_name")"
   fi
   if ! grep -q "mgconsole" <<< "$check_output"; then
@@ -862,6 +881,7 @@ package_docker() {
   local malloc=false
   local custom_mirror=false
   local keep_image_loaded=false
+  local package_flavour="prod"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
@@ -888,25 +908,49 @@ package_docker() {
         keep_image_loaded=$2
         shift 2
       ;;
+      --package-flavour)
+        package_flavour=$2
+        shift 2
+      ;;
       *)
-        echo "Error: Unknown flag '$1'"
+        echo "Error: Unknown flag '$1'" >&2
         print_help
         exit 1
       ;;
     esac
   done
+
+  case "$package_flavour" in
+    prod) ;;
+    debug)
+      if [[ "$build_type" != "RelWithDebInfo" ]]; then
+        echo "Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')" >&2
+        exit 1
+      fi
+    ;;
+    *)
+      echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')" >&2
+      exit 1
+    ;;
+  esac
+
   # shellcheck disable=SC2012
-  local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
+  local last_package_name=$(cd $package_dir && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1)
+  if [[ -z "$last_package_name" ]]; then
+    echo "Error: no main memgraph package found in $package_dir" >&2
+    echo "       (expected memgraph_*.deb or memgraph-<version>*.rpm)" >&2
+    exit 1
+  fi
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
   echo "Using custom mirror: $custom_mirror"
 
-  if [[ "$build_type" == "Release" ]]; then
-    echo "Package release"
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+  if [[ "$package_flavour" == "prod" ]]; then
+    echo "Package prod flavour"
+    ./package_docker --latest --package-flavour prod --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   else
-    echo "Package other"
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+    echo "Package debug flavour"
+    ./package_docker --package-flavour debug --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
@@ -949,8 +993,7 @@ package_smoke_image() {
     exit 1
   fi
 
-  local package_name
-  package_name=$(cd "$package_dir" && ls -t memgraph* 2>/dev/null | head -1)
+  local package_name=$(cd "$package_dir" && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1)
   if [[ -z "$package_name" ]]; then
     echo "Error: No memgraph package found in $package_dir" >&2
     exit 1
@@ -1122,7 +1165,7 @@ copy_memgraph() {
         artifact="package"
         local container_package_dir="$MGBUILD_BUILD_DIR/output"
         host_dir="$PROJECT_BUILD_DIR/output/$os"
-        artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph* | head -1")
+        artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1")
         container_artifact_path="$container_package_dir/$artifact_name"
         shift 1
       ;;
@@ -1196,7 +1239,10 @@ copy_memgraph() {
     #   - /lib/systemd/system (release/CMakeLists.txt)
     #   - /etc/memgraph/auth_module/ldap.example.yaml (src/auth/CMakeLists.txt)
     echo "Installing Memgraph using cmake --install with DESTDIR=$staging_dir..."
-    docker exec -u mg "$build_container" bash -c "$ACTIVATE_CONAN_BUILDENV && DESTDIR=$staging_dir cmake --install $MGBUILD_BUILD_DIR"
+    # --component memgraph skips the debuginfo + symbol-archive components,
+    # which would otherwise drop .debug sidecars into lib/memgraph/ (bloating
+    # the docker image) and flat at the prefix root (pollution).
+    docker exec -u mg "$build_container" bash -c "$ACTIVATE_CONAN_BUILDENV && DESTDIR=$staging_dir cmake --install $MGBUILD_BUILD_DIR --component memgraph"
 
     # Copy the staged installation from container to host
     # DESTDIR prepends to the install prefix (/usr/local), so files are at $staging_dir/usr/local/lib/memgraph/
@@ -1230,11 +1276,53 @@ copy_memgraph() {
     docker exec -u mg "$build_container" bash -c "rm -rf $temp_log_dir"
     echo -e "Log files copied to $host_dir!"
   elif [[ "$artifact" == "package" ]]; then
-    docker cp $build_container:$container_artifact_path $host_artifact_path
+    for pkg_name in $(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls memgraph_*.deb memgraph-debuginfo_*.deb memgraph-[0-9]*.rpm memgraph-debuginfo-*.rpm 2>/dev/null"); do
+      docker cp "$build_container:$container_package_dir/$pkg_name" "$host_dir/$pkg_name"
+      echo -e "Copied $pkg_name to $host_dir/"
+    done
   else
     docker cp -L $build_container:$container_artifact_path $host_artifact_path
   fi
   echo -e "Memgraph $artifact saved to $host_artifact_path!"
+}
+
+copy_debug_symbols() {
+  # Extract all *.debug sidecars from the build tree and copy them to the host
+  # as a flat directory (tarball preserves subdir structure for readelf).
+  # Only meaningful after a build with --split-debug (MG_SPLIT_DEBUG=ON).
+  local PROJECT_BUILD_DIR="$PROJECT_ROOT/build"
+  local MGBUILD_BUILD_DIR="$MGBUILD_ROOT_DIR/build"
+  local host_dir="$PROJECT_BUILD_DIR/debug-symbols"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-dir)
+        host_dir="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'" >&2
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  mkdir -p "$host_dir"
+  local container_tarball="/tmp/debug-symbols-$$.tar.gz"
+  echo "Archiving .debug sidecars from $build_container..."
+  # Exclude _CPack_Packages — CPack stages an install copy of every .debug
+  # there during package generation, which would double every upload (same
+  # build-id, same destination). Each unique sidecar lives at its build
+  # location once.
+  docker exec -u mg "$build_container" bash -c \
+    "cd $MGBUILD_BUILD_DIR && find . -path './_CPack_Packages' -prune -o -name '*.debug' -type f -print0 | tar --null -czf $container_tarball -T -"
+  docker cp "$build_container:$container_tarball" "$host_dir/debug-symbols.tar.gz"
+  docker exec -u mg "$build_container" rm -f "$container_tarball"
+  # Extract for easy per-file access (e.g. readelf + upload step).
+  tar -xzf "$host_dir/debug-symbols.tar.gz" -C "$host_dir"
+  local count
+  count=$(find "$host_dir" -name '*.debug' -type f | wc -l)
+  echo "Copied $count debug symbol files to $host_dir"
 }
 
 
@@ -1708,6 +1796,7 @@ build_mage() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local rust_version=$DEFAULT_RUST_VERSION
   local config_only=false
+  local split_debug=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --rust-version)
@@ -1718,8 +1807,17 @@ build_mage() {
         config_only=true
         shift 1
       ;;
+      --split-debug)
+        split_debug=true
+        shift 1
+      ;;
     esac
   done
+
+  if [[ "$split_debug" = true && "$build_type" != "RelWithDebInfo" && "$build_type" != "Debug" ]]; then
+    echo "Error: --split-debug requires --build-type RelWithDebInfo or Debug (got '$build_type')"
+    exit 1
+  fi
 
   # check if the repo has already been copied
   if ! docker exec -u mg $build_container ls /home/mg/memgraph > /dev/null 2>&1; then
@@ -1742,6 +1840,9 @@ build_mage() {
   if [[ "$cugraph" = true ]]; then
     build_args+=("--cugraph")
   fi
+  if [[ "$split_debug" = true ]]; then
+    build_args+=("--split-debug")
+  fi
 
   docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
   if [[ "$config_only" = true ]]; then
@@ -1754,6 +1855,12 @@ build_mage() {
 
   echo -e "${GREEN_BOLD}Copying compressed query modules to host${RESET}"
   docker cp $build_container:/home/mg/mage.tar.gz ./mage/mage.tar.gz
+
+  if docker exec -i $build_container test -f /home/mg/mage-debug.tar.gz; then
+    docker cp $build_container:/home/mg/mage-debug.tar.gz ./mage/mage-debug.tar.gz
+  else
+    rm -f ./mage/mage-debug.tar.gz
+  fi
 }
 
 package_mage_deb() {
@@ -1792,10 +1899,11 @@ package_mage_deb() {
 
   docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda $cugraph"
 
-  package_name="$(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb")"
   mkdir -pv output
-  docker cp $build_container:$package_name output/
-  echo "Package: $package_name"
+  for path in $(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb"); do
+    docker cp $build_container:$path output/
+    echo "Package: $path"
+  done
 }
 
 
@@ -1809,6 +1917,7 @@ package_mage_docker() {
   local cache_present=false
   local custom_mirror=false
   local cuda=false
+  local package_flavour="prod"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --docker-repository-name)
@@ -1835,6 +1944,10 @@ package_mage_docker() {
         [[ "$2" == "true" ]] && cuda=true
         shift 2
       ;;
+      --package-flavour)
+        package_flavour=$2
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         exit 1
@@ -1842,11 +1955,20 @@ package_mage_docker() {
     esac
   done
 
-  if [[ "$build_type" = "RelWithDebInfo" && "$cugraph" = "false" ]]; then
-    docker_target="relwithdebinfo"
-  else
-    docker_target="prod"
-  fi
+  case "$package_flavour" in
+    prod) docker_target="prod" ;;
+    debug)
+      if [[ "$build_type" != "RelWithDebInfo" ]]; then
+        echo -e "${RED_BOLD}Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')${RESET}" >&2
+        exit 1
+      fi
+      docker_target="relwithdebinfo"
+    ;;
+    *)
+      echo -e "${RED_BOLD}Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')${RESET}" >&2
+      exit 1
+    ;;
+  esac
 
   if [[ "$cugraph" = "true" ]]; then
     dockerfile="Dockerfile.cugraph"
@@ -2302,9 +2424,21 @@ build_gssapi() {
 
 generate_memgraph_build_sbom() {
   local conan_remote=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --conan-remote)
+        conan_remote=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1' for generate-memgraph-build-sbom" >&2
+        exit 1
+      ;;
+    esac
+  done
 
   if [[ -z "$conan_remote" ]]; then
-    echo -e "${YELLOW_BOLD}CONAN_REMOTE not set${RESET}"
+    echo -e "${YELLOW_BOLD}Warning: --conan-remote not provided; build-sbom.sh will fail if no local build is present${RESET}"
   fi
 
   if [[ -d sbom ]]; then
@@ -2854,6 +2988,9 @@ case $command in
     ;;
     copy)
       copy_memgraph $@
+    ;;
+    copy-debug-symbols)
+      copy_debug_symbols $@
     ;;
     package-docker)
       package_docker $@

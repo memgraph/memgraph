@@ -1,22 +1,9 @@
 services:
-  mg-exporter:
-    image: memgraph/prometheus-exporter:0.2.3
-    container_name: ${COMPOSE_PROJECT_NAME}-mg-exporter
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - ./generated/mg-exporter.yaml:/etc/mg-exporter/config.yaml:ro
-    environment:
-      - DEPLOYMENT_TYPE=${MG_EXPORTER_DEPLOYMENT_TYPE}
-      - CONFIG_FILE=/etc/mg-exporter/config.yaml
-
   vmagent:
     image: victoriametrics/vmagent:v1.139.0
     container_name: ${COMPOSE_PROJECT_NAME}-vmagent
     restart: unless-stopped
     network_mode: host
-    depends_on:
-      - mg-exporter
     volumes:
       - ./generated/vmagent-scrape.yml:/etc/vmagent/scrape.yml:ro
       - vmagent_tmp:/tmpData
