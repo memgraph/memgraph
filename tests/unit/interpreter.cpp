@@ -218,6 +218,14 @@ TEST_F(PlannerV2InterpreterTest, ReturningBoundVariableYieldsItsValues) {
   EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 3);
 }
 
+TEST_F(PlannerV2InterpreterTest, ExplainProduceShowsUnaliasedColumnSourceText) {
+  // The EXPLAIN plan dump names an unaliased column by its source text, not the
+  // stripped placeholder.
+  auto stream = Interpret("EXPLAIN RETURN 1 + 2;");
+  auto const plan = PlanText(stream);
+  EXPECT_NE(plan.find("Produce {1 + 2}"), std::string::npos) << plan;
+}
+
 TEST_F(PlannerV2InterpreterTest, UnaliasedColumnHeaderIsSourceText) {
   // An unaliased column's header is its source text, recovered via the symbol's
   // token_position; without it the header falls back to the stripped placeholder.

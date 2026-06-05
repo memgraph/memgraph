@@ -180,7 +180,8 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
 
 auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
                      const std::vector<Identifier *> &predefined_identifiers,
-                     plan::v2::QueryPlannerContext &planner_context) -> std::unique_ptr<LogicalPlan> {
+                     plan::v2::QueryPlannerContext &planner_context,
+                     const std::unordered_map<int, std::string> &output_names) -> std::unique_ptr<LogicalPlan> {
   // TODO: we need to make sure we decouple symbol position from frame position
   //       symbols are needed for debugging (a semantic name)
   //       during evaluation frame slots are dumping ground for temporary evaluation results
@@ -193,7 +194,7 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
     if (flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2)) {
       // WITH 1 AS tmp RETURN tmp AS result;
       //  SymTbl: tmp result
-      auto [egraph, root] = plan::v2::ConvertToEgraph(*query, symbol_table, parameters);
+      auto [egraph, root] = plan::v2::ConvertToEgraph(*query, symbol_table, parameters, output_names);
 
       // Apply e-graph rewrites (inline identifiers, etc.)
       plan::v2::ApplyAllRewrites(egraph);
@@ -256,8 +257,13 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
     }
   }
 
-  auto logical_plan =
-      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers, planner_context);
+  auto logical_plan = MakeLogicalPlan(std::move(ast_storage),
+                                      query,
+                                      parameters,
+                                      db_accessor,
+                                      predefined_identifiers,
+                                      planner_context,
+                                      stripped_query.named_expressions());
   auto plan = std::make_shared<PlanWrapper>(std::move(logical_plan));
 
   if (use_plan_cache) {
