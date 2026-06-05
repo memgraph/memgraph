@@ -58,6 +58,8 @@ auto EstimateFunction(EGraph const &eg, egraph const &facade, planner::core::ENo
       // back to the default guess.
       if (auto const len = ProvableRangeLength(eg, arg_eclasses)) return static_cast<double>(*len);
       return kDefaultListSize;
+    case BuiltinKind::Size:
+      // size() produces a scalar, not a list, so it has no list-size estimate.
     case BuiltinKind::Unknown:
       return kDefaultListSize;
   }
