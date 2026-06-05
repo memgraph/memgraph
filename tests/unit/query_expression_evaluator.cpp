@@ -3014,14 +3014,13 @@ TYPED_TEST(FunctionTest, Duration) {
   EXPECT_TRUE(this->EvaluateFunction("DURATION", TypedValue()).IsNull());
 }
 
-// The create-time trigger check rejects unrecognised temporal map keys using
-// the validator key sets behind IsRecognisedTemporalKey. Those sets are
-// hand-maintained copies of the builders' parameter_mappings, with nothing
-// structurally linking the two. If a unit key is added to a builder mapping but
-// not the validator (or removed from one side only), a previously-valid trigger
-// would be wrongly rejected at CREATE. For each builder, derive the keys it
-// actually accepts from the builder itself and require it to equal the
-// validator's recognised set.
+// The create-time trigger check rejects unrecognised temporal map keys via
+// IsRecognisedTemporalKey. The builder (which throws "Unknown key" at runtime)
+// and the validator now read the same per-builder unit tables, but through
+// different code paths. This test pins the behavioural invariant the create-time
+// check depends on: the validator recognises exactly the keys the builder
+// accepts. For each builder, derive the keys it actually accepts by probing the
+// real builder and require it to equal the validator's recognised set.
 TYPED_TEST(FunctionTest, TemporalValidatorKeySetsMatchBuilders) {
   using memgraph::query::IsRecognisedTemporalKey;
   using memgraph::query::IsTemporalMapBuilder;

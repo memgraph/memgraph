@@ -12,6 +12,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -1525,55 +1526,142 @@ bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
   return has_mapped_any_field;
 }
 
-// The recognised map keys for each temporal builder, mirroring the
-// parameter_mappings the builders below construct. Each unit accepts both its
-// singular and plural spelling.
-const std::unordered_set<std::string_view> kDateMapKeys{"year", "years", "month", "months", "day", "days"};
-const std::unordered_set<std::string_view> kLocalTimeMapKeys{"hour",
-                                                             "hours",
-                                                             "minute",
-                                                             "minutes",
-                                                             "second",
-                                                             "seconds",
-                                                             "millisecond",
-                                                             "milliseconds",
-                                                             "microsecond",
-                                                             "microseconds"};
-const std::unordered_set<std::string_view> kLocalDateTimeMapKeys{"year",
-                                                                 "years",
-                                                                 "month",
-                                                                 "months",
-                                                                 "day",
-                                                                 "days",
-                                                                 "hour",
-                                                                 "hours",
-                                                                 "minute",
-                                                                 "minutes",
-                                                                 "second",
-                                                                 "seconds",
-                                                                 "millisecond",
-                                                                 "milliseconds",
-                                                                 "microsecond",
-                                                                 "microseconds"};
-const std::unordered_set<std::string_view> kDurationMapKeys{"day",
-                                                            "days",
-                                                            "hour",
-                                                            "hours",
-                                                            "minute",
-                                                            "minutes",
-                                                            "second",
-                                                            "seconds",
-                                                            "millisecond",
-                                                            "milliseconds",
-                                                            "microsecond",
-                                                            "microseconds"};
+// Single source of truth for the temporal builders' map keys. Each table maps a
+// recognised key to the parameter-struct field it binds, so the builders below
+// and the create-time validator (IsRecognisedTemporalKey) read the same keys -
+// there is no second hand-maintained copy to drift. Each unit lists both its
+// singular and plural spelling, pointing at the same field; localdatetime
+// composes the date and time tables rather than repeating their keys.
+template <typename Params, typename Field>
+struct TemporalUnit {
+  std::string_view key;
+  Field Params::*field;
+};
 
-const std::unordered_set<std::string_view> *TemporalMapKeySet(std::string_view upper_function_name) {
-  if (upper_function_name == "DATE") return &kDateMapKeys;
-  if (upper_function_name == "LOCALTIME") return &kLocalTimeMapKeys;
-  if (upper_function_name == "LOCALDATETIME") return &kLocalDateTimeMapKeys;
-  if (upper_function_name == "DURATION") return &kDurationMapKeys;
+constexpr auto kDateUnits = std::to_array<TemporalUnit<utils::DateParameters, int64_t>>({
+    {"year", &utils::DateParameters::year},
+    {"years", &utils::DateParameters::year},
+    {"month", &utils::DateParameters::month},
+    {"months", &utils::DateParameters::month},
+    {"day", &utils::DateParameters::day},
+    {"days", &utils::DateParameters::day},
+});
+
+constexpr auto kTimeUnits = std::to_array<TemporalUnit<utils::LocalTimeParameters, int64_t>>({
+    {"hour", &utils::LocalTimeParameters::hour},
+    {"hours", &utils::LocalTimeParameters::hour},
+    {"minute", &utils::LocalTimeParameters::minute},
+    {"minutes", &utils::LocalTimeParameters::minute},
+    {"second", &utils::LocalTimeParameters::second},
+    {"seconds", &utils::LocalTimeParameters::second},
+    {"millisecond", &utils::LocalTimeParameters::millisecond},
+    {"milliseconds", &utils::LocalTimeParameters::millisecond},
+    {"microsecond", &utils::LocalTimeParameters::microsecond},
+    {"microseconds", &utils::LocalTimeParameters::microsecond},
+});
+
+constexpr auto kDurationUnits = std::to_array<TemporalUnit<utils::DurationParameters, double>>({
+    {"day", &utils::DurationParameters::day},
+    {"days", &utils::DurationParameters::day},
+    {"hour", &utils::DurationParameters::hour},
+    {"hours", &utils::DurationParameters::hour},
+    {"minute", &utils::DurationParameters::minute},
+    {"minutes", &utils::DurationParameters::minute},
+    {"second", &utils::DurationParameters::second},
+    {"seconds", &utils::DurationParameters::second},
+    {"millisecond", &utils::DurationParameters::millisecond},
+    {"milliseconds", &utils::DurationParameters::millisecond},
+    {"microsecond", &utils::DurationParameters::microsecond},
+    {"microseconds", &utils::DurationParameters::microsecond},
+});
+
+constexpr bool IsTemporalBuilderName(std::string_view upper_function_name) {
+  return upper_function_name == "DATE" || upper_function_name == "LOCALTIME" ||
+         upper_function_name == "LOCALDATETIME" || upper_function_name == "DURATION";
+}
+
+template <typename Params, typename Field, size_t N>
+constexpr bool TableContainsKey(const std::array<TemporalUnit<Params, Field>, N> &table, std::string_view key) {
+  return std::ranges::any_of(table, [key](const auto &unit) { return unit.key == key; });
+}
+
+template <typename Params, typename Field, size_t N>
+Field *ResolveTemporalField(const std::array<TemporalUnit<Params, Field>, N> &table, Params &out,
+                            std::string_view key) {
+  for (const auto &unit : table) {
+    if (unit.key == key) return &(out.*(unit.field));
+  }
   return nullptr;
+}
+
+// Heap-free record of fields already assigned in one builder call, so a unit set
+// twice (e.g. via both "second" and "seconds") is rejected. A builder has at
+// most a handful of distinct fields, so the inline buffer never overflows.
+class AssignedFields {
+ public:
+  bool insert(const void *field) {
+    for (size_t i = 0; i < count_; ++i) {
+      if (slots_[i] == field) return false;
+    }
+    slots_[count_++] = field;
+    return true;
+  }
+
+ private:
+  std::array<const void *, 16> slots_{};
+  size_t count_{0};
+};
+
+template <IsNumberOrInteger ArgType, typename Field>
+void AssignTemporalField(Field &field, const TypedValue &value, std::string_view key) {
+  if (value.IsInt()) {
+    field = value.ValueInt();
+  } else if constexpr (std::is_same_v<ArgType, Number>) {
+    if (!value.IsDouble()) {
+      throw QueryRuntimeException("Invalid value for key '{}'. Expected a numeric value.", key);
+    }
+    field = value.ValueDouble();
+  } else {
+    throw QueryRuntimeException("Invalid value for key '{}'. Expected an integer.", key);
+  }
+}
+
+// Binds a map literal's entries into a single parameter struct via its unit
+// table. Returns whether any field was set.
+template <IsNumberOrInteger ArgType, typename Params, typename Field, size_t N>
+bool ApplyTemporalMap(const std::array<TemporalUnit<Params, Field>, N> &table, Params &out,
+                      const auto &input_parameters) {
+  AssignedFields assigned;
+  bool mapped_any = false;
+  for (const auto &[key, value] : input_parameters) {
+    auto *field = ResolveTemporalField(table, out, key);
+    if (!field) throw QueryRuntimeException("Unknown key '{}'.", key);
+    if (!assigned.insert(field)) {
+      throw QueryRuntimeException("The same temporal unit is set more than once, including by key '{}'.", key);
+    }
+    AssignTemporalField<ArgType>(*field, value, key);
+    mapped_any = true;
+  }
+  return mapped_any;
+}
+
+// localdatetime spans both a date and a time struct; its recognised keys are
+// exactly the union of the date and time tables, with no third literal.
+inline bool ApplyDateAndTimeMap(utils::DateParameters &date, utils::LocalTimeParameters &time,
+                                const auto &input_parameters) {
+  AssignedFields assigned;
+  bool mapped_any = false;
+  for (const auto &[key, value] : input_parameters) {
+    int64_t *field = ResolveTemporalField(kDateUnits, date, key);
+    if (!field) field = ResolveTemporalField(kTimeUnits, time, key);
+    if (!field) throw QueryRuntimeException("Unknown key '{}'.", key);
+    if (!assigned.insert(field)) {
+      throw QueryRuntimeException("The same temporal unit is set more than once, including by key '{}'.", key);
+    }
+    AssignTemporalField<Integer>(*field, value, key);
+    mapped_any = true;
+  }
+  return mapped_any;
 }
 
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1607,16 +1695,7 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   }
 
   utils::DateParameters date_parameters;
-
-  using namespace std::literals;
-  std::unordered_map parameter_mappings = {std::pair{"year"sv, &date_parameters.year},
-                                           std::pair{"years"sv, &date_parameters.year},
-                                           std::pair{"month"sv, &date_parameters.month},
-                                           std::pair{"months"sv, &date_parameters.month},
-                                           std::pair{"day"sv, &date_parameters.day},
-                                           std::pair{"days"sv, &date_parameters.day}};
-
-  MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
+  ApplyTemporalMap<Integer>(kDateUnits, date_parameters, args[0].ValueMap());
   return TypedValue(utils::Date(date_parameters), ctx.memory);
 }
 
@@ -1655,22 +1734,7 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
   }
 
   utils::LocalTimeParameters local_time_parameters;
-
-  using namespace std::literals;
-  std::unordered_map parameter_mappings{
-      std::pair{"hour"sv, &local_time_parameters.hour},
-      std::pair{"hours"sv, &local_time_parameters.hour},
-      std::pair{"minute"sv, &local_time_parameters.minute},
-      std::pair{"minutes"sv, &local_time_parameters.minute},
-      std::pair{"second"sv, &local_time_parameters.second},
-      std::pair{"seconds"sv, &local_time_parameters.second},
-      std::pair{"millisecond"sv, &local_time_parameters.millisecond},
-      std::pair{"milliseconds"sv, &local_time_parameters.millisecond},
-      std::pair{"microsecond"sv, &local_time_parameters.microsecond},
-      std::pair{"microseconds"sv, &local_time_parameters.microsecond},
-  };
-
-  MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
+  ApplyTemporalMap<Integer>(kTimeUnits, local_time_parameters, args[0].ValueMap());
   return TypedValue(utils::LocalTime(local_time_parameters), ctx.memory);
 }
 
@@ -1705,27 +1769,7 @@ TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionCo
 
   utils::DateParameters date_parameters;
   utils::LocalTimeParameters local_time_parameters;
-  using namespace std::literals;
-  std::unordered_map parameter_mappings{
-      std::pair{"year"sv, &date_parameters.year},
-      std::pair{"years"sv, &date_parameters.year},
-      std::pair{"month"sv, &date_parameters.month},
-      std::pair{"months"sv, &date_parameters.month},
-      std::pair{"day"sv, &date_parameters.day},
-      std::pair{"days"sv, &date_parameters.day},
-      std::pair{"hour"sv, &local_time_parameters.hour},
-      std::pair{"hours"sv, &local_time_parameters.hour},
-      std::pair{"minute"sv, &local_time_parameters.minute},
-      std::pair{"minutes"sv, &local_time_parameters.minute},
-      std::pair{"second"sv, &local_time_parameters.second},
-      std::pair{"seconds"sv, &local_time_parameters.second},
-      std::pair{"millisecond"sv, &local_time_parameters.millisecond},
-      std::pair{"milliseconds"sv, &local_time_parameters.millisecond},
-      std::pair{"microsecond"sv, &local_time_parameters.microsecond},
-      std::pair{"microseconds"sv, &local_time_parameters.microsecond},
-  };
-
-  MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
+  ApplyDateAndTimeMap(date_parameters, local_time_parameters, args[0].ValueMap());
   return TypedValue(utils::LocalDateTime(date_parameters, local_time_parameters), ctx.memory);
 }
 
@@ -1741,20 +1785,7 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   }
 
   utils::DurationParameters duration_parameters;
-  using namespace std::literals;
-  std::unordered_map parameter_mappings{std::pair{"day"sv, &duration_parameters.day},
-                                        std::pair{"days"sv, &duration_parameters.day},
-                                        std::pair{"hour"sv, &duration_parameters.hour},
-                                        std::pair{"hours"sv, &duration_parameters.hour},
-                                        std::pair{"minute"sv, &duration_parameters.minute},
-                                        std::pair{"minutes"sv, &duration_parameters.minute},
-                                        std::pair{"second"sv, &duration_parameters.second},
-                                        std::pair{"seconds"sv, &duration_parameters.second},
-                                        std::pair{"millisecond"sv, &duration_parameters.millisecond},
-                                        std::pair{"milliseconds"sv, &duration_parameters.millisecond},
-                                        std::pair{"microsecond"sv, &duration_parameters.microsecond},
-                                        std::pair{"microseconds"sv, &duration_parameters.microsecond}};
-  MapNumericParameters<Number>(parameter_mappings, args[0].ValueMap());
+  ApplyTemporalMap<Number>(kDurationUnits, duration_parameters, args[0].ValueMap());
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
 
@@ -2246,13 +2277,15 @@ bool IsFunctionPure(std::string_view function_name) {
   return false;
 }
 
-bool IsTemporalMapBuilder(std::string_view upper_function_name) {
-  return TemporalMapKeySet(upper_function_name) != nullptr;
-}
+bool IsTemporalMapBuilder(std::string_view upper_function_name) { return IsTemporalBuilderName(upper_function_name); }
 
 bool IsRecognisedTemporalKey(std::string_view upper_function_name, std::string_view key) {
-  const auto *keys = TemporalMapKeySet(upper_function_name);
-  return keys != nullptr && keys->contains(key);
+  if (upper_function_name == "DATE") return TableContainsKey(kDateUnits, key);
+  if (upper_function_name == "LOCALTIME") return TableContainsKey(kTimeUnits, key);
+  if (upper_function_name == "LOCALDATETIME")
+    return TableContainsKey(kDateUnits, key) || TableContainsKey(kTimeUnits, key);
+  if (upper_function_name == "DURATION") return TableContainsKey(kDurationUnits, key);
+  return false;
 }
 
 }  // namespace memgraph::query
