@@ -13,7 +13,8 @@ set -euo pipefail
 variant="${1:-binary}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tag="$("$here/get_latest_tag.sh")"
-pr="$(git log --pretty=%B | grep -oP '(?<=\(#)\d+(?=\))' | head -n 1)"
+commit_log="$(git log --pretty=%B)"
+pr="$(grep -oPm1 '(?<=\(#)\d+(?=\))' <<<"$commit_log" || true)"
 commit="$(git rev-parse HEAD | cut -c1-12)"
 case "$variant" in
   rpm)    printf '%s_0.pr%s.%s' "$tag" "$pr" "$commit" ;;
