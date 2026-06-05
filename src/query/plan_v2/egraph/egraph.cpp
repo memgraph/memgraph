@@ -101,10 +101,38 @@ auto egraph::FunctionInfoById(std::uint64_t id) const -> FunctionInfo const * {
 }
 
 // Binary / unary public-API definitions - generated from EGRAPH_*_OPS.
+namespace {
+/// Length a binary operator's result is statically known to have, or nullopt.
+/// Most operators contribute none; the primary template is that default.
+template <symbol S>
+auto BinaryKnownListLength(EGraph const & /*eg*/, planner::core::EClassId /*lhs*/, planner::core::EClassId /*rhs*/)
+    -> std::optional<std::size_t> {
+  return std::nullopt;
+}
+
+/// List concatenation of two known-length lists has a known length: their sum.
+/// `known_list_length` is set only for lists, so both operands carrying it means
+/// list + list (Cypher concatenation), not numeric addition.
+template <>
+auto BinaryKnownListLength<symbol::Add>(EGraph const &eg, planner::core::EClassId lhs, planner::core::EClassId rhs)
+    -> std::optional<std::size_t> {
+  auto length_of = [&](planner::core::EClassId c) -> std::optional<std::size_t> {
+    auto const *expr = eg.eclass(eg.find(c)).analysis().expression();
+    return expr != nullptr ? expr->known_list_length : std::nullopt;
+  };
+  auto const l = length_of(lhs);
+  auto const r = length_of(rhs);
+  if (l && r) return *l + *r;
+  return std::nullopt;
+}
+}  // namespace
+
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
-#define MG_DEFN_MAKE_BINARY(Name, ...)                                      \
-  auto egraph::Make##Name(eclass lhs, eclass rhs)->eclass {                 \
-    return from_core(pimpl_->graph.Make<Name>(to_core(lhs), to_core(rhs))); \
+#define MG_DEFN_MAKE_BINARY(Name, ...)                                                                         \
+  auto egraph::Make##Name(eclass lhs, eclass rhs)->eclass {                                                    \
+    auto const l = to_core(lhs);                                                                               \
+    auto const r = to_core(rhs);                                                                               \
+    return from_core(pimpl_->graph.Make<Name>(l, r, BinaryKnownListLength<Name>(pimpl_->graph.core(), l, r))); \
   }
 EGRAPH_BINARY_OPS(MG_DEFN_MAKE_BINARY)
 #undef MG_DEFN_MAKE_BINARY
