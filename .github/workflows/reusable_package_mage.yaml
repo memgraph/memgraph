@@ -676,7 +676,8 @@ jobs:
             -e OPENAI_API_KEY=$OPENAI_API_KEY \
             ${DOCKER_REPOSITORY_NAME}:$PROD_IMAGE_TAG \
             --telemetry-enabled=False \
-            --log-level=INFO
+            --log-level=INFO \
+            --metrics-format=OpenMetrics
 
       - name: Run end-to-end tests (prod)
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}

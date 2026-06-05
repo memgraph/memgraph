@@ -112,6 +112,7 @@ class Memgraph:
             self._binary,
             "--data-directory",
             self._storage_directory.name,
+            "--metrics-format=OpenMetrics",
         ]
         module_path = kwargs.pop("module_executable", self._auth_module)
         if module_path:

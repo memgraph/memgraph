@@ -112,7 +112,7 @@ def test_with_passfile_env_variable(storage_directory: tempfile.TemporaryDirecto
 
 def execute_test(memgraph_binary: str, tester_binary: str) -> None:
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name]
+    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name, "--metrics-format=OpenMetrics"]
 
     return_to_prev_state = {}
     if "MEMGRAPH_USER" in os.environ:

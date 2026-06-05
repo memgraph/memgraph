@@ -26,6 +26,11 @@ on:
         required: false
         type: string
         default: ''
+      helm_charts_branch:
+        description: 'helm-charts repo branch to install the HA chart from (enables direct OpenMetrics scraping). Empty = pinned published chart version (default).'
+        required: false
+        type: string
+        default: ''
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -115,6 +120,8 @@ jobs:
           echo "MEMGRAPH_NEXT_TAG=${NEXT_TAG}" >> $GITHUB_ENV
 
       - name: Run ISSU Test
+        env:
+          HELM_CHARTS_BRANCH: ${{ inputs.helm_charts_branch }}
         run: |
           cd tests/issu
           ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing=false --debug=false
