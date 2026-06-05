@@ -2860,6 +2860,154 @@ TEST_F(AuthQueryHandlerFixture, FirstUserWhenNonBuiltinAdminExistsGetsPermission
   ASSERT_TRUE(admin_role.has_value());
   EXPECT_FALSE(admin_role->IsBuiltIn());
 }
+
+TEST_F(AuthQueryHandlerFixture, FirstUserFallbackHasFullGrants) {
+  using memgraph::auth::FineGrainedPermission;
+  using memgraph::auth::kAllEdgeTypePermissions;
+  using memgraph::auth::kAllLabelPermissions;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyPermissionType;
+
+  // Pre-existing role prevents builtin role creation; first user gets direct grants
+  ASSERT_TRUE(auth_handler.CreateRole("somerole", nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
+
+  auto locked = auth->ReadLock();
+  auto user = locked->GetUser("alice");
+  ASSERT_TRUE(user.has_value());
+  EXPECT_TRUE(user->roles().GetRoles().empty());
+
+  for (auto perm : memgraph::auth::kPermissionsAll) {
+    EXPECT_EQ(user->permissions().Has(perm), PermissionLevel::GRANT);
+  }
+
+  EXPECT_EQ(user->fine_grained_access_handler().label_permissions().HasGlobal(kAllLabelPermissions),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->fine_grained_access_handler().edge_type_permissions().HasGlobal(kAllEdgeTypePermissions),
+            PermissionLevel::GRANT);
+
+  EXPECT_EQ(user->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+            PermissionLevel::GRANT);
+
+  EXPECT_TRUE(user->db_access().GetAllowAll());
+}
+
+TEST_F(AuthQueryHandlerFixture, BuiltinRolesHaveCorrectGrants) {
+  using memgraph::auth::FineGrainedPermission;
+  using memgraph::auth::kAllEdgeTypePermissions;
+  using memgraph::auth::kAllLabelPermissions;
+  using memgraph::auth::Permission;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyPermissionType;
+
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
+  auto locked = auth->ReadLock();
+
+  // admin
+  {
+    auto role = locked->GetRole("admin");
+    ASSERT_TRUE(role.has_value());
+    EXPECT_TRUE(role->IsBuiltIn());
+
+    for (auto perm : memgraph::auth::kPermissionsAll) {
+      EXPECT_EQ(role->permissions().Has(perm), PermissionLevel::GRANT);
+    }
+
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(kAllLabelPermissions),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(kAllEdgeTypePermissions),
+              PermissionLevel::GRANT);
+
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+
+    EXPECT_TRUE(role->db_access().GetAllowAll());
+  }
+
+  // readwrite
+  {
+    auto role = locked->GetRole("readwrite");
+    ASSERT_TRUE(role.has_value());
+    EXPECT_TRUE(role->IsBuiltIn());
+
+    for (auto perm : {Permission::CREATE,
+                      Permission::DELETE,
+                      Permission::MERGE,
+                      Permission::SET,
+                      Permission::REMOVE,
+                      Permission::INDEX,
+                      Permission::MATCH}) {
+      EXPECT_EQ(role->permissions().Has(perm), PermissionLevel::GRANT);
+    }
+    for (auto perm : {Permission::AUTH,
+                      Permission::REPLICATION,
+                      Permission::DUMP,
+                      Permission::CONFIG,
+                      Permission::MULTI_DATABASE_EDIT}) {
+      EXPECT_EQ(role->permissions().Has(perm), PermissionLevel::NEUTRAL);
+    }
+
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(kAllLabelPermissions),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(kAllEdgeTypePermissions),
+              PermissionLevel::GRANT);
+
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+
+    EXPECT_FALSE(role->db_access().GetAllowAll());
+  }
+
+  // readonly
+  {
+    auto role = locked->GetRole("readonly");
+    ASSERT_TRUE(role.has_value());
+    EXPECT_TRUE(role->IsBuiltIn());
+
+    EXPECT_EQ(role->permissions().Has(Permission::MATCH), PermissionLevel::GRANT);
+    EXPECT_EQ(role->permissions().Has(Permission::STATS), PermissionLevel::GRANT);
+    EXPECT_EQ(role->permissions().Has(Permission::CREATE), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(role->permissions().Has(Permission::SET), PermissionLevel::NEUTRAL);
+
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(FineGrainedPermission::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(FineGrainedPermission::CREATE),
+              PermissionLevel::DENY);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(FineGrainedPermission::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(FineGrainedPermission::CREATE),
+              PermissionLevel::DENY);
+
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::NEUTRAL);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::NEUTRAL);
+
+    EXPECT_FALSE(role->db_access().GetAllowAll());
+  }
+}
 #endif
 
 TEST_F(AuthQueryHandlerFixture, CreateRoleWhenUserWithSameNameExists) {
@@ -3120,7 +3268,7 @@ TEST_F(AuthQueryHandlerFixture, DropRoleFailsIfAssignedToUserOnDatabase) {
 }
 #endif
 
-// --- Property Permission Tests ---
+// Property Permission Tests
 
 TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnUser) {
   auth.value()->SaveUser(memgraph::auth::User{user_name});

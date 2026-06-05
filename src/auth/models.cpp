@@ -664,7 +664,7 @@ bool operator!=(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
   return !(first == second);
 }
 
-// --- PropertyAccessPermissions ---
+// PropertyAccessPermissions
 
 namespace {
 PermissionLevel CheckBit(PropertyPermission const &perm, uint8_t bit) {
@@ -888,7 +888,7 @@ PropertyAccessPermissions PropertyAccessPermissions::Deserialize(nlohmann::json 
   return result;
 }
 
-// --- PropertyAccessHandler ---
+// PropertyAccessHandler
 
 PropertyAccessPermissions const &PropertyAccessHandler::label_properties() const { return label_properties_; }
 
