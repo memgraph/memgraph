@@ -549,6 +549,49 @@ Feature: Text search related features
             | title       |
             | 'memgraph'  |
 
+    Scenario: Fuzzy prefix treats only the last word as a prefix
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX asYouType ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'lucky luke'})
+            CREATE (:Document {title: 'lucky lucy'})
+            CREATE (:Document {title: 'luckydog kennel'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('asYouType', 'data.title:lucky lu', {fuzzy_prefix: true}) YIELD node
+            RETURN node.title AS title
+            ORDER BY title ASC
+            """
+        Then the result should be:
+            | title          |
+            | 'lucky lucy'   |
+            | 'lucky luke'   |
+
+    Scenario: Fuzzy prefix combines a typo in the leading word with a last-word prefix
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX asYouTypeTypo ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'lucky luke'})
+            CREATE (:Document {title: 'coffee break'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('asYouTypeTypo', 'data.title:lucki lu', {fuzzy_distance: 1, fuzzy_prefix: true}) YIELD node
+            RETURN node.title AS title
+            """
+        Then the result should be:
+            | title         |
+            | 'lucky luke'  |
+
     Scenario: Fuzzy search_all combines fuzzy with all-properties mode
         Given an empty graph
         And having executed

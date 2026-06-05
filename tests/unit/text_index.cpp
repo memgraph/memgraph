@@ -399,3 +399,33 @@ TEST_F(TextIndexTest, FuzzyDistanceAboveTwoThrows) {
                  memgraph::query::TextSearchException);
   }
 }
+
+TEST_F(TextIndexTest, FuzzyPrefixTreatsLastTokenAsPrefix) {
+  this->CreateIndex();
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    this->CreateVertex(acc.get(), "lucky luke", "");
+    this->CreateVertex(acc.get(), "lucky lucy", "");
+    this->CreateVertex(acc.get(), "luckydog kennel", "");
+    this->CreateVertex(acc.get(), "lumber yard", "");
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    constexpr TextSearchConfig prefix_config{.limit = 10, .fuzzy_prefix = true};
+    // last word "lu" is a prefix, leading "lucky" is matched whole => lucky luke + lucky lucy,
+    // not luckydog (leading word is not a prefix) and not lumber.
+    auto as_you_type = acc->TextIndexSearch(
+        test_index.data(), "data.title:lucky lu", text_search_mode::SPECIFIED_PROPERTIES, prefix_config);
+    EXPECT_EQ(as_you_type.size(), 2);
+
+    auto single = acc->TextIndexSearch(
+        test_index.data(), "data.title:luc", text_search_mode::SPECIFIED_PROPERTIES, prefix_config);
+    EXPECT_EQ(single.size(), 3);
+
+    constexpr TextSearchConfig typo_config{.limit = 10, .fuzzy_distance = 1, .fuzzy_prefix = true};
+    auto with_typo = acc->TextIndexSearch(
+        test_index.data(), "data.title:lucki lu", text_search_mode::SPECIFIED_PROPERTIES, typo_config);
+    EXPECT_EQ(with_typo.size(), 2);
+  }
+}

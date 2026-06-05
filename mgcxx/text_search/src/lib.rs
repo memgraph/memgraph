@@ -17,7 +17,7 @@ use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::AggregationCollector;
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
-use tantivy::query::{QueryParser, RegexQuery};
+use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser, RegexQuery};
 use tantivy::schema::*;
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument};
 
@@ -180,6 +180,149 @@ fn apply_fuzzy_config(
     Ok(())
 }
 
+// As-you-type prefix search only supports a single field and plain terms; boolean
+// operators / multiple field clauses are intentionally rejected rather than mis-parsed.
+fn has_unsupported_prefix_syntax(terms: &str) -> bool {
+    terms.contains(':')
+        || terms.contains('(')
+        || terms.contains(')')
+        || terms.starts_with('+')
+        || terms.starts_with('-')
+        || terms
+            .split_whitespace()
+            .any(|w| w == "AND" || w == "OR" || w == "NOT")
+}
+
+// Splits the search query into (field_name, json_path, terms) for the two fuzzy-capable modes.
+// SPECIFIED_PROPERTIES uses fuzzy_field == "data" with a `data.<path>:<terms>` query; ALL_PROPERTIES
+// uses fuzzy_field == "all" with a bare `<terms>` query on the text field.
+fn split_field_and_terms(
+    input: &ffi::SearchInput,
+) -> Result<(String, Option<String>, String), std::io::Error> {
+    let form_err = || {
+        Error::new(
+            ErrorKind::Other,
+            format!(
+                "fuzzy_prefix search on 'data' requires 'data.<property>:<terms>' form, got: {}",
+                input.search_query
+            ),
+        )
+    };
+    let (field_name, json_path, terms) = match input.fuzzy_field.as_str() {
+        "all" => ("all".to_string(), None, input.search_query.trim().to_string()),
+        "data" => {
+            let (lhs, rhs) = input.search_query.split_once(':').ok_or_else(form_err)?;
+            let (prefix, path) = lhs.split_once('.').ok_or_else(form_err)?;
+            if prefix.trim() != "data" {
+                return Err(form_err());
+            }
+            ("data".to_string(), Some(path.trim().to_string()), rhs.trim().to_string())
+        }
+        other => {
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("fuzzy_prefix search unsupported for field '{}'", other),
+            ));
+        }
+    };
+    if has_unsupported_prefix_syntax(&terms) {
+        return Err(Error::new(
+            ErrorKind::Other,
+            "fuzzy_prefix mode does not support boolean operators or multiple field clauses".to_string(),
+        ));
+    }
+    Ok((field_name, json_path, terms))
+}
+
+// Builds a "search as you type" query: leading tokens matched whole, the last token matched as a
+// prefix, all tolerating fuzzy_distance typos, combined with AND. This is the per-term prefix
+// control that QueryParser cannot express (its fuzzy setting is per-field, not per-term).
+fn build_as_you_type_query(
+    index: &Index,
+    schema: &Schema,
+    input: &ffi::SearchInput,
+    index_path: &std::path::PathBuf,
+) -> Result<Box<dyn Query>, std::io::Error> {
+    let (field_name, json_path, terms) = split_field_and_terms(input)?;
+    let field = schema.get_field(&field_name).map_err(|e| {
+        Error::new(
+            ErrorKind::Other,
+            format!("fuzzy_prefix field '{}' not found in {:?} -> {}", field_name, index_path, e),
+        )
+    })?;
+
+    let mut analyzer = index.tokenizer_for_field(field).map_err(|e| {
+        Error::new(
+            ErrorKind::Other,
+            format!("Unable to get tokenizer for '{}' in {:?} -> {}", field_name, index_path, e),
+        )
+    })?;
+    let mut tokens: Vec<String> = Vec::new();
+    {
+        let mut stream = analyzer.token_stream(&terms);
+        while stream.advance() {
+            tokens.push(stream.token().text.clone());
+        }
+    }
+    if tokens.is_empty() {
+        return Err(Error::new(
+            ErrorKind::Other,
+            format!("fuzzy_prefix query '{}' produced no searchable tokens", terms),
+        ));
+    }
+
+    // distance is passed through unclamped so distance > 2 surfaces the same InvalidArgument
+    // error as the non-prefix path (tantivy supports 0..=2), rather than silently clamping.
+    let distance = input.fuzzy_distance;
+    let transpositions = input.fuzzy_transpositions;
+    let last = tokens.len() - 1;
+    let clauses: Vec<(Occur, Box<dyn Query>)> = tokens
+        .iter()
+        .enumerate()
+        .map(|(i, tok)| {
+            let term = match &json_path {
+                // expand_dots stays false to match how the `data` field is indexed.
+                Some(path) => {
+                    let mut t = Term::from_field_json_path(field, path, false);
+                    t.append_type_and_str(tok);
+                    t
+                }
+                None => Term::from_field_text(field, tok),
+            };
+            let fq = if i == last {
+                FuzzyTermQuery::new_prefix(term, distance, transpositions)
+            } else {
+                FuzzyTermQuery::new(term, distance, transpositions)
+            };
+            (Occur::Must, Box::new(fq) as Box<dyn Query>)
+        })
+        .collect();
+
+    Ok(Box::new(BooleanQuery::new(clauses)))
+}
+
+// Shared query construction for the gid-search entry points: as-you-type prefix builder when
+// fuzzy_prefix is set, otherwise the standard QueryParser path.
+fn build_search_query(
+    index: &Index,
+    schema: &Schema,
+    input: &ffi::SearchInput,
+    index_path: &std::path::PathBuf,
+) -> Result<Box<dyn Query>, std::io::Error> {
+    if input.fuzzy_prefix {
+        return build_as_you_type_query(index, schema, input, index_path);
+    }
+    let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
+    let mut query_parser = QueryParser::for_index(index, search_fields);
+    apply_fuzzy_config(&mut query_parser, schema, input)?;
+    query_parser.parse_query(&input.search_query).map_err(|e| {
+        Error::new(
+            ErrorKind::Other,
+            format!("Unable to create search query for {:?} -> {}", index_path, e),
+        )
+    })
+}
+
 fn owned_value_to_json(val: OwnedValue) -> serde_json::Value {
     match val {
         OwnedValue::Null => serde_json::Value::Null,
@@ -235,6 +378,88 @@ mod tests {
             owned_value_to_json(doc),
             json!({"name": "test", "count": -3, "tags": [true, 42u64], "nested": {"x": 1.5}, "empty": null})
         );
+    }
+
+    fn json_data_index(bodies: &[(&str, serde_json::Value)]) -> (Index, Schema) {
+        let mappings: serde_json::Map<String, Value> = serde_json::from_value(json!({
+            "properties": {"data": {"type": "json", "fast": true, "stored": true, "text": true}}
+        }))
+        .unwrap();
+        let schema = create_index_schema(&mappings).unwrap();
+        let index = Index::create_in_ram(schema.clone());
+        let mut writer: IndexWriter = index.writer(50_000_000).unwrap();
+        for (prop, value) in bodies {
+            let mut inner = serde_json::Map::new();
+            inner.insert((*prop).to_string(), value.clone());
+            let mut outer = serde_json::Map::new();
+            outer.insert("data".to_string(), Value::Object(inner));
+            let doc = TantivyDocument::parse_json(&schema, &Value::Object(outer).to_string()).unwrap();
+            writer.add_document(doc).unwrap();
+        }
+        writer.commit().unwrap();
+        (index, schema)
+    }
+
+    fn prefix_input(query: &str, distance: u8) -> ffi::SearchInput {
+        ffi::SearchInput {
+            search_fields: vec![],
+            search_query: query.to_string(),
+            return_fields: vec![],
+            aggregation_query: String::new(),
+            limit: 10,
+            fuzzy_distance: distance,
+            fuzzy_prefix: true,
+            fuzzy_transpositions: true,
+            fuzzy_field: "data".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_as_you_type_last_token_is_prefix_on_json_field() {
+        use tantivy::collector::Count;
+        let (index, schema) = json_data_index(&[
+            ("title", json!("lucky luke")),
+            ("title", json!("lucky lucy")),
+            ("title", json!("luckydog kennel")),
+            ("title", json!("lumber yard")),
+        ]);
+        let searcher = index.reader().unwrap().searcher();
+        let path = std::path::PathBuf::from("test");
+        let count = |q: &str, d: u8| {
+            let query = build_as_you_type_query(&index, &schema, &prefix_input(q, d), &path).unwrap();
+            searcher.search(&query, &Count).unwrap()
+        };
+        // leading "lucky" whole, last "lu" prefix => lucky luke + lucky lucy; NOT luckydog (leading
+        // is not a prefix) and NOT lumber.
+        assert_eq!(count("data.title:lucky lu", 0), 2);
+        // single token is treated as a prefix
+        assert_eq!(count("data.title:luc", 0), 3);
+        // typo in the whole leading word tolerated at distance 1
+        assert_eq!(count("data.title:lucki lu", 1), 2);
+    }
+
+    #[test]
+    fn test_as_you_type_numeric_property_matches_nothing() {
+        use tantivy::collector::Count;
+        let (index, schema) = json_data_index(&[("age", json!(30))]);
+        let searcher = index.reader().unwrap().searcher();
+        let query =
+            build_as_you_type_query(&index, &schema, &prefix_input("data.age:3", 0), &std::path::PathBuf::from("test"))
+                .unwrap();
+        // the query builds a string-typed json-path term; a numeric property has no string terms.
+        assert_eq!(searcher.search(&query, &Count).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_as_you_type_rejects_malformed_and_boolean_queries() {
+        let (index, schema) = json_data_index(&[("title", json!("lucky luke"))]);
+        let path = std::path::PathBuf::from("test");
+        // missing 'data.<prop>:' form
+        assert!(build_as_you_type_query(&index, &schema, &prefix_input("lucky", 0), &path).is_err());
+        // boolean operator
+        assert!(build_as_you_type_query(&index, &schema, &prefix_input("data.title:lucky AND luke", 0), &path).is_err());
+        // empty terms produce no tokens
+        assert!(build_as_you_type_query(&index, &schema, &prefix_input("data.title:", 0), &path).is_err());
     }
 }
 
@@ -861,15 +1086,7 @@ fn search_gids_pinned(
     let index = &context.tantivyContext.index;
     let schema = &context.tantivyContext.schema;
 
-    let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
-    let mut query_parser = QueryParser::for_index(index, search_fields);
-    apply_fuzzy_config(&mut query_parser, schema, input)?;
-    let query = query_parser.parse_query(&input.search_query).map_err(|e| {
-        Error::new(
-            ErrorKind::Other,
-            format!("Unable to create search query for {:?} -> {}", index_path, e),
-        )
-    })?;
+    let query = build_search_query(index, schema, input, index_path)?;
 
     let top_docs = searcher_ctx
         .searcher
@@ -952,15 +1169,7 @@ fn search_edge_gids_pinned(
     let index = &context.tantivyContext.index;
     let schema = &context.tantivyContext.schema;
 
-    let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
-    let mut query_parser = QueryParser::for_index(index, search_fields);
-    apply_fuzzy_config(&mut query_parser, schema, input)?;
-    let query = query_parser.parse_query(&input.search_query).map_err(|e| {
-        Error::new(
-            ErrorKind::Other,
-            format!("Unable to create search query for {:?} -> {}", index_path, e),
-        )
-    })?;
+    let query = build_search_query(index, schema, input, index_path)?;
 
     let top_docs = searcher_ctx
         .searcher

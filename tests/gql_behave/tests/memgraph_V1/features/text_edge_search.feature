@@ -504,3 +504,26 @@ Feature: Text edge search related features
             | title       |
             | 'memgrap'   |
             | 'memgraph'  |
+
+    Scenario: Fuzzy prefix on edges treats only the last word as a prefix
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT EDGE INDEX asYouTypeEdge ON :RELATES_TO
+            """
+        And having executed
+            """
+            CREATE (a:Document)-[:RELATES_TO {title: 'lucky luke'}]->(b:Document)
+            CREATE (c:Document)-[:RELATES_TO {title: 'lucky lucy'}]->(d:Document)
+            CREATE (e:Document)-[:RELATES_TO {title: 'luckydog kennel'}]->(f:Document)
+            """
+        When executing query:
+            """
+            CALL text_search.search_edges('asYouTypeEdge', 'data.title:lucky lu', {fuzzy_prefix: true}) YIELD edge
+            RETURN edge.title AS title
+            ORDER BY title ASC
+            """
+        Then the result should be:
+            | title          |
+            | 'lucky lucy'   |
+            | 'lucky luke'   |
