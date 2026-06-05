@@ -1493,6 +1493,59 @@ TEST(AuthWithoutStorage, PropertyAccessPermissions) {
   }
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissionsMatchingAny) {
+  using memgraph::auth::MatchingMode;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+
+  PropertyAccessPermissions perms;
+  perms.Grant({"A", "B"}, "ssn", memgraph::auth::PropertyPermissionType::READ, MatchingMode::ANY);
+
+  // Node with just :A matches (ANY = at least one label in the rule)
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A"}, "ssn"), PermissionLevel::GRANT);
+  // Node with just :B matches
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"B"}, "ssn"), PermissionLevel::GRANT);
+  // Node with :A, :B matches
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B"}, "ssn"), PermissionLevel::GRANT);
+  // Node with :C does not match
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"C"}, "ssn"), PermissionLevel::NEUTRAL);
+  // Node with :A, :C matches (A is in the rule)
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "C"}, "ssn"), PermissionLevel::GRANT);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsMatchingExactly) {
+  using memgraph::auth::MatchingMode;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+
+  PropertyAccessPermissions perms;
+  perms.Grant({"A", "B"}, "ssn", memgraph::auth::PropertyPermissionType::READ, MatchingMode::EXACTLY);
+
+  // Node with just :A does NOT match (EXACTLY requires all labels in the rule, same count)
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A"}, "ssn"), PermissionLevel::NEUTRAL);
+  // Node with just :B does NOT match
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"B"}, "ssn"), PermissionLevel::NEUTRAL);
+  // Node with :A, :B matches exactly
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B"}, "ssn"), PermissionLevel::GRANT);
+  // Node with :A, :B, :C does NOT match (extra label)
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B", "C"}, "ssn"), PermissionLevel::NEUTRAL);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsMatchingExactlyDenyOverridesAny) {
+  using memgraph::auth::MatchingMode;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+
+  PropertyAccessPermissions perms;
+  perms.Grant({"A"}, "ssn", memgraph::auth::PropertyPermissionType::READ, MatchingMode::ANY);
+  perms.Deny({"A", "B"}, "ssn", memgraph::auth::PropertyPermissionType::READ, MatchingMode::EXACTLY);
+
+  // Node :A only — ANY rule grants, EXACTLY rule doesn't match → GRANT
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A"}, "ssn"), PermissionLevel::GRANT);
+  // Node :A, :B — ANY rule grants, EXACTLY rule denies → DENY wins
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B"}, "ssn"), PermissionLevel::DENY);
+}
+
 TEST(AuthWithoutStorage, PropertyAccessPermissionsSerializeRoundtrip) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;

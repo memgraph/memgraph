@@ -4567,6 +4567,38 @@ TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
       .Check();
 }
 
+TEST_P(CypherMainVisitorTest, GrantPropertyMultiLabelMatchingModes) {
+  auto &ast_generator = *GetParam();
+
+  // Multi-label MATCHING ANY (default)
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {ssn} ON NODES CONTAINING LABELS :A, :B MATCHING ANY TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"ssn"})
+      .WithPropertyEntityNames({"A", "B"})
+      .WithPropertyEntityIsNode(true)
+      .WithPropertyMatchingMode(AuthQuery::LabelMatchingMode::ANY)
+      .Check();
+
+  // Multi-label MATCHING EXACTLY
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {ssn} ON NODES CONTAINING LABELS :A, :B MATCHING EXACTLY TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"ssn"})
+      .WithPropertyEntityNames({"A", "B"})
+      .WithPropertyEntityIsNode(true)
+      .WithPropertyMatchingMode(AuthQuery::LabelMatchingMode::EXACTLY)
+      .Check();
+
+  // Wildcard with MATCHING clause is rejected
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn} ON NODES CONTAINING LABELS * MATCHING ANY TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn} ON NODES CONTAINING LABELS * MATCHING EXACTLY TO user"),
+               SemanticException);
+}
+
 TEST_P(CypherMainVisitorTest, DenyPropertyReadPrivilege) {
   auto &ast_generator = *GetParam();
 

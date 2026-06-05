@@ -574,6 +574,62 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAEdgeTypeDenyOverridesGrant)
       this->edge_type_one, amount_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
 }
 
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAMatchingAnyMultiLabel) {
+  // v1 has label "l1"; add "l2" so it has labels {l1, l2}
+  ASSERT_TRUE(this->v1.AddLabel(this->dba.NameToLabel("l2")).has_value());
+  this->dba.AdvanceCommand();
+
+  memgraph::auth::User user{"test"};
+  // GRANT READ {*} ON NODES CONTAINING LABELS :l1, :l2 MATCHING ANY
+  user.property_access_handler().label_properties().Grant(
+      {"l1", "l2"}, "*", memgraph::auth::PropertyPermissionType::READ, memgraph::auth::MatchingMode::ANY);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto name_id = this->dba.NameToProperty("name");
+
+  // v1 has {l1, l2} — l1 is in the rule, so ANY matches
+  auto labels = this->v1.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels.has_value());
+  std::vector<memgraph::storage::LabelId> label_ids(labels->begin(), labels->end());
+  EXPECT_TRUE(
+      auth_checker.HasPropertyPermission(label_ids, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+
+  // v2 has only {l2} — l2 is in the rule, so ANY matches
+  auto labels2 = this->v2.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels2.has_value());
+  std::vector<memgraph::storage::LabelId> label_ids2(labels2->begin(), labels2->end());
+  EXPECT_TRUE(auth_checker.HasPropertyPermission(
+      label_ids2, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAMatchingExactlyMultiLabel) {
+  // v1 has label "l1"; add "l2" so it has labels {l1, l2}
+  ASSERT_TRUE(this->v1.AddLabel(this->dba.NameToLabel("l2")).has_value());
+  this->dba.AdvanceCommand();
+
+  memgraph::auth::User user{"test"};
+  // GRANT READ {*} ON NODES CONTAINING LABELS :l1, :l2 MATCHING EXACTLY
+  user.property_access_handler().label_properties().Grant(
+      {"l1", "l2"}, "*", memgraph::auth::PropertyPermissionType::READ, memgraph::auth::MatchingMode::EXACTLY);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto name_id = this->dba.NameToProperty("name");
+
+  // v1 has {l1, l2} — exact match
+  auto labels = this->v1.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels.has_value());
+  std::vector<memgraph::storage::LabelId> label_ids(labels->begin(), labels->end());
+  EXPECT_TRUE(
+      auth_checker.HasPropertyPermission(label_ids, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+
+  // v2 has only {l2} — does NOT match exactly (missing l1)
+  auto labels2 = this->v2.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels2.has_value());
+  std::vector<memgraph::storage::LabelId> label_ids2(labels2->begin(), labels2->end());
+  EXPECT_FALSE(auth_checker.HasPropertyPermission(
+      label_ids2, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
 TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAGlobalGrantDeniedOnUnlabeledVertex) {
   memgraph::auth::User user{"test"};
   user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
