@@ -98,9 +98,7 @@ class RuleContext {
   /// The analysis facts of `id`'s e-class. This is the read a fact-gated rule
   /// uses to route a semantic precondition through analysis rather than e-node
   /// shape.
-  [[nodiscard]] auto analysis(EClassId id) const -> Analysis const & {
-    return core().eclass(core().find(id)).analysis();
-  }
+  [[nodiscard]] auto analysis(EClassId id) const -> Analysis const & { return core().analysis_of(id); }
 
  private:
   auto core() const -> EGraph<Symbol, Analysis> & { return graph_.core(); }
