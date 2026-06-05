@@ -11,6 +11,7 @@
 
 #include "query/interpret/eval.hpp"
 
+#include "query/auth_checker.hpp"
 #include "query/graph.hpp"
 #include "query/virtual_graph.hpp"
 
@@ -566,5 +567,19 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
           "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
   }
 }
+
+#ifdef MG_ENTERPRISE
+bool ExpressionEvaluator::IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
+  if (!auth_checker_) return true;
+  auto maybe_labels = accessor.Labels(view_);
+  if (!maybe_labels) return false;
+  return auth_checker_->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+}
+
+bool ExpressionEvaluator::IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
+  if (!auth_checker_) return true;
+  return auth_checker_->HasPropertyPermission(accessor.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+}
+#endif
 
 }  // namespace memgraph::query

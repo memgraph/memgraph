@@ -21,7 +21,6 @@
 #include <string>
 #include <vector>
 
-#include "query/auth_checker.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -37,6 +36,8 @@
 #include "utils/logging.hpp"
 
 namespace memgraph::query {
+
+class FineGrainedAuthChecker;
 
 class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *> {
  public:
@@ -1073,17 +1074,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
 #ifdef MG_ENTERPRISE
-  bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
-    if (!auth_checker_) return true;
-    auto maybe_labels = accessor.Labels(view_);
-    if (!maybe_labels) return false;
-    return auth_checker_->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
-  }
-
-  bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
-    if (!auth_checker_) return true;
-    return auth_checker_->HasPropertyPermission(accessor.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
-  }
+  bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
+  bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
 #endif
 
   template <class TRecordAccessor>
