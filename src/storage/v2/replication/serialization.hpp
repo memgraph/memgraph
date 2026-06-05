@@ -54,6 +54,10 @@ class Encoder final : public durability::BaseEncoder {
 
   slk::Builder *GetBuilder() const { return builder_; }
 
+  void ResetCrcAcc() override {}
+
+  auto CrcAccValue() const -> uint32_t override { return 0; }
+
  private:
   slk::Builder *builder_;
 };

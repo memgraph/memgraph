@@ -22,12 +22,12 @@ void Encoder::WriteBool(bool value) {
   slk::Save(value, builder_);
 }
 
+// Just writes 0 as placeholder value. No need to encode replication stream when we are using TCP sockets
 uint32_t Encoder::WriteCrc() {
   WriteMarker(durability::Marker::TYPE_INT);
-  auto const value = CrcAccValue();
-  // Saved as a uint64 to match the 8-byte ReadUint decode path (the 32-bit CRC sits in the low bytes).
-  slk::Save(static_cast<uint64_t>(value), builder_);
-  return value;
+  uint64_t const placeholder{0};
+  slk::Save(placeholder, builder_);
+  return static_cast<uint32_t>(placeholder);
 }
 
 void Encoder::WriteUint(uint64_t value) {

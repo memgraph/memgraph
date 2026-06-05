@@ -30,7 +30,6 @@ namespace memgraph::storage::durability {
 class BaseEncoder {
  protected:
   ~BaseEncoder() = default;
-  utils::CrcAccumulator crc_acc;
 
  public:
   virtual void WriteMarker(Marker marker) = 0;
@@ -45,9 +44,9 @@ class BaseEncoder {
   virtual void WriteExternalPropertyValue(const ExternalPropertyValue &value) = 0;
   virtual auto GetPosition() -> uint64_t = 0;
 
-  void ResetCrcAcc() { crc_acc.Reset(); }
+  virtual void ResetCrcAcc() = 0;
 
-  auto CrcAccValue() const -> uint32_t { return crc_acc.Value(); }
+  virtual auto CrcAccValue() const -> uint32_t = 0;
 };
 
 /// Encoder that is used to generate a snapshot/WAL.
@@ -101,8 +100,13 @@ class Encoder final : public BaseEncoder {
 
   auto native_handle() const { return file_.fd(); }
 
+  void ResetCrcAcc() override { crc_acc.Reset(); }
+
+  auto CrcAccValue() const -> uint32_t override { return crc_acc.Value(); }
+
  private:
   FileType file_;
+  utils::CrcAccumulator crc_acc;
 };
 
 /// Decoder interface class. Used to implement streams from different sources

@@ -1974,8 +1974,10 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     };
 
     if (auto const *txn_end = std::get_if<WalTransactionEnd>(&delta.data_)) {
+      // We don't do CRC verification on PrepareCommitRpc because we are already using TCP sockets
       if (loading_wal && txn_end->txn_crc.has_value() && !utils::CrcAccumulator::Verify(decoder->CrcAccValue())) {
-        LOG_FATAL("Replication WAL CRC mismatch (stored {}, residue {}).", *txn_end->txn_crc, decoder->CrcAccValue());
+        throw utils::BasicException(
+            "Replication WAL CRC mismatch (stored {}, residue {}).", *txn_end->txn_crc, decoder->CrcAccValue());
       }
       decoder->ResetCrcAcc();
     }
