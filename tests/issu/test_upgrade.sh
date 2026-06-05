@@ -602,8 +602,8 @@ kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRIS
 HELM_CHARTS_BRANCH="${HELM_CHARTS_BRANCH:-}"
 HELM_CHARTS_REPO_URL="${HELM_CHARTS_REPO_URL:-https://github.com/memgraph/helm-charts}"
 # TODO(matt): bump CHART_VERSION to the published chart release that includes
-# vmagentRemote.scrapeMemgraphDirectly (chart > 1.1.0) so the default path uses
-# direct OpenMetrics scraping instead of falling back to the mg-exporter.
+# scrapeMemgraphDirectly (chart > 1.1.0) so the default path uses direct OpenMetrics
+# scraping instead of falling back to the mg-exporter.
 CHART_VERSION="${CHART_VERSION:-1.0.1}"
 
 if [[ -n "$HELM_CHARTS_BRANCH" ]]; then
@@ -619,7 +619,7 @@ else
   helm repo update memgraph
   HA_CHART="memgraph/memgraph-high-availability"
   CHART_VERSION_ARGS=(--version "$CHART_VERSION")
-  # The published chart only exposes vmagentRemote.scrapeMemgraphDirectly after 1.1.0.
+  # The published chart only exposes scrapeMemgraphDirectly after 1.1.0.
   if version_gt "$CHART_VERSION" "1.1.0"; then
     CHART_SUPPORTS_DIRECT_SCRAPE=true
   else
@@ -680,7 +680,7 @@ if [[ "${REMOTE_MONITORING_ENABLED}" == "true" ]]; then
     echo -e "${GREEN}Monitoring: scraping Memgraph OpenMetrics directly (chart supports it; start tag ${LAST_TAG} supports --metrics-format).${NC}"
     helm_install_args+=(
       --set prometheus.enabled=false
-      --set vmagentRemote.scrapeMemgraphDirectly=true
+      --set scrapeMemgraphDirectly=true
     )
   else
     echo -e "${YELLOW}Monitoring: using mg-exporter (Prometheus) path — OpenMetrics unavailable (chart_supports=${CHART_SUPPORTS_DIRECT_SCRAPE}, start tag ${LAST_TAG}).${NC}"
