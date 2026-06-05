@@ -124,6 +124,20 @@ TEST(EGraph_Merge, MergeTwoDifferentEClasses) {
   EXPECT_TRUE(did_merge);
 }
 
+TEST(EGraph_Merge, AnalysisOfCanonicalisesBeforeFetch) {
+  TestEGraph egraph;
+
+  auto [id1, node1, ins1] = egraph.emplace(Op::A);
+  auto [id2, node2, ins2] = egraph.emplace(Op::B);
+  auto [merged, did_merge] = egraph.merge(id1, id2);
+
+  // The merged-away id is no longer canonical; analysis_of must canonicalise
+  // first rather than look it up directly (which would trip eclass's assert).
+  auto const non_canonical = (merged == id1) ? id2 : id1;
+  EXPECT_NE(egraph.find(non_canonical), non_canonical);
+  EXPECT_EQ(&egraph.analysis_of(non_canonical), &egraph.eclass(egraph.find(non_canonical)).analysis());
+}
+
 TEST(EGraph_Merge, MergeSameEClassIsNoOp) {
   TestEGraph egraph;
 
