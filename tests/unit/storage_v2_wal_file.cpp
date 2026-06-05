@@ -40,6 +40,9 @@
 #include "utils/file_locker.hpp"
 #include "utils/uuid.hpp"
 
+#include <spdlog/sinks/stdout_color_sinks.h>  // For color console logging
+#include "spdlog/sinks/ostream_sink.h"
+
 import memgraph.storage.property_value;
 
 static constexpr auto kMetricKind = "l2sq";
@@ -175,6 +178,7 @@ class DeltaGenerator final {
     void Finalize(bool append_transaction_end = true) {
       auto commit_timestamp = gen_->timestamp_++;
       if (transaction_.deltas.empty()) return;
+      gen_->wal_file_.encoder().ResetCrcAcc();
       uint64_t encoded_deltas = 0;
       for (const auto &delta : transaction_.deltas) {
         if (delta.action == memgraph::storage::Delta::Action::ADD_IN_EDGE ||
@@ -203,9 +207,11 @@ class DeltaGenerator final {
         ++encoded_deltas;
       }
       if (append_transaction_end) {
-        // The stored CRC now covers the transaction-end frame itself, so take the exact value the writer recorded
-        // (== what the reader parses) instead of snapshotting the accumulator before the frame.
-        auto const crc_to_append = gen_->wal_file_.AppendTransactionEnd(commit_timestamp).stored_crc_;
+        auto const txn_end_pos = gen_->wal_file_.AppendTransactionEnd(commit_timestamp);
+        auto const crc_to_append = txn_end_pos.stored_crc_;
+        // crc_wal_pos_ is the byte right after the DELTA_TRANSACTION_END marker, so the marker itself is one byte
+        // before.
+        gen_->txn_end_marker_positions_.push_back(txn_end_pos.crc_wal_pos_ - 1);
         if (gen_->valid_) {
           gen_->UpdateStats(commit_timestamp, encoded_deltas + 1);
           for (auto &data : data_) {
@@ -257,7 +263,10 @@ class DeltaGenerator final {
 
     void FinalizeOperationTx() {
       auto timestamp = gen_->timestamp_;
-      auto const crc_to_append = gen_->wal_file_.AppendTransactionEnd(timestamp).stored_crc_;
+      auto const txn_end_pos = gen_->wal_file_.AppendTransactionEnd(timestamp);
+      auto const crc_to_append = txn_end_pos.stored_crc_;
+      // crc_wal_pos_ is the byte right after the DELTA_TRANSACTION_END marker, so the marker itself is one byte before.
+      gen_->txn_end_marker_positions_.push_back(txn_end_pos.crc_wal_pos_ - 1);
       if (gen_->valid_) {
         gen_->UpdateStats(timestamp, 1);
         memgraph::storage::durability::WalDeltaData data{
@@ -658,6 +667,10 @@ class DeltaGenerator final {
 
   DataT GetData() { return data_; }
 
+  // Byte offsets of every DELTA_TRANSACTION_END marker written so far, in append order. Lets tests corrupt a specific
+  // transaction-end marker without having to re-parse the WAL.
+  std::vector<uint64_t> const &GetTxnEndMarkerPositions() const { return txn_end_marker_positions_; }
+
  private:
   void UpdateStats(uint64_t timestamp, uint64_t count) {
     if (deltas_count_ == 0) {
@@ -694,6 +707,8 @@ class DeltaGenerator final {
   memgraph::storage::NameIdMapper &mapper() { return *storage_->name_id_mapper_; }
 
   DataT data_;
+
+  std::vector<uint64_t> txn_end_marker_positions_;
 
   uint64_t deltas_count_{0};
   uint64_t tx_from_{0};
@@ -1380,6 +1395,130 @@ TEST_P(WalFileTest, PartialData) {
   }
   ASSERT_EQ(pos, infos.size() - 2);
   AssertWalInfoEqual(infos[infos.size() - 1].second, memgraph::storage::durability::ReadWalInfo(current_file));
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, WalFileModification) {
+  auto console_logger = spdlog::stdout_color_mt("gtest_logger");
+  spdlog::set_default_logger(console_logger);
+  spdlog::set_level(spdlog::level::trace);
+  spdlog::flush_on(spdlog::level::trace);
+
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, { tx.CreateVertex(); });
+    TRANSACTION(true, {
+      auto vertex = tx.CreateVertex();
+      tx.AddLabel(vertex, "hello");
+    });
+    OPERATION_TX(LABEL_PROPERTIES_INDEX_CREATE, "hello", {{"world"}});
+    TRANSACTION(true, {
+      auto vertex1 = tx.CreateVertex();
+      auto vertex2 = tx.CreateVertex();
+      tx.AddLabel(vertex1, "test");
+      tx.AddLabel(vertex2, "hello");
+      tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue("nandare"));
+      tx.RemoveLabel(vertex1, "test");
+      tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue(123));
+      tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue());
+      tx.DeleteVertex(vertex1);
+    });
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  const auto &wal_file = wal_files.front();
+
+  // The pristine WAL file must read cleanly; ReadWalInfo verifies every transaction's CRC as it parses the deltas.
+  memgraph::storage::durability::WalInfo info{};
+  ASSERT_NO_THROW(info = memgraph::storage::durability::ReadWalInfo(wal_file));
+
+  memgraph::utils::InputFile original;
+  ASSERT_TRUE(original.Open(wal_file));
+  auto const wal_file_size = original.GetSize();
+
+  // Flip every byte of the delta region, one at a time on a fresh copy of the WAL file, and assert that each
+  // single-byte corruption is detected. ReadWalInfo catches it in one of two ways: a transaction whose bytes were
+  // altered fails its per-transaction CRC check and throws, while a flip that breaks the delta structure makes parsing
+  // stop early, yielding fewer deltas than the pristine file. Either outcome counts as detection.
+  auto const corrupted_file = storage_directory / "corrupted_wal";
+  for (uint64_t pos = info.offset_deltas; pos < wal_file_size; ++pos) {
+    uint8_t original_byte{};
+    ASSERT_TRUE(original.SetPosition(memgraph::utils::InputFile::Position::SET, pos).has_value());
+    ASSERT_TRUE(original.Read(&original_byte, 1));
+
+    std::filesystem::remove(corrupted_file);
+    ASSERT_TRUE(std::filesystem::copy_file(wal_file, corrupted_file));
+    {
+      memgraph::utils::OutputFile corrupted;
+      corrupted.Open(corrupted_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+      corrupted.SetPosition(memgraph::utils::OutputFile::Position::SET, pos);
+      uint8_t const flipped_byte = original_byte + 1;
+      corrupted.Write(&flipped_byte, 1);
+      corrupted.Sync();
+      corrupted.Close();
+    }
+    try {
+      auto const corrupted_info = memgraph::storage::durability::ReadWalInfo(corrupted_file);
+      EXPECT_NE(corrupted_info.num_deltas, info.num_deltas) << "Undetected WAL corruption at byte offset " << pos;
+    } catch (memgraph::storage::durability::RecoveryFailure const &e) {
+      spdlog::info(e.what());
+    }
+  }
+  original.Close();
+  std::filesystem::remove(corrupted_file);
+}
+
+TEST_P(WalFileTest, WalMissingTransactionEndMarker) {
+  auto console_logger = spdlog::stdout_color_mt("gtest_logger");
+  spdlog::set_default_logger(console_logger);
+  spdlog::set_level(spdlog::level::trace);
+  spdlog::flush_on(spdlog::level::trace);
+  uint64_t end_marker_pos = 0;
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, { tx.CreateVertex(); });
+    TRANSACTION(true, {
+      auto vertex = tx.CreateVertex();
+      tx.AddLabel(vertex, "hello");
+    });
+    // First transaction's transaction-end marker.
+    end_marker_pos = gen.GetTxnEndMarkerPositions().front();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  const auto &wal_file = wal_files.front();
+
+  // The pristine file reads cleanly and contains both transactions' deltas.
+  memgraph::storage::durability::WalInfo pristine{};
+  ASSERT_NO_THROW(pristine = memgraph::storage::durability::ReadWalInfo(wal_file));
+  ASSERT_GT(pristine.num_deltas, 0U);
+
+  // Sanity check: the byte we are about to overwrite really is the transaction-end marker.
+  {
+    memgraph::utils::InputFile original;
+    ASSERT_TRUE(original.Open(wal_file));
+    uint8_t marker_byte{};
+    ASSERT_TRUE(original.SetPosition(memgraph::utils::InputFile::Position::SET, end_marker_pos).has_value());
+    ASSERT_TRUE(original.Read(&marker_byte, 1));
+    ASSERT_EQ(marker_byte, static_cast<uint8_t>(memgraph::storage::durability::Marker::DELTA_TRANSACTION_END));
+    original.Close();
+  }
+
+  // Overwrite the transaction-end marker with a transaction-start marker; the end is now never read.
+  {
+    memgraph::utils::OutputFile corrupted;
+    corrupted.Open(wal_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    corrupted.SetPosition(memgraph::utils::OutputFile::Position::SET, end_marker_pos);
+    auto const start_marker = static_cast<uint8_t>(memgraph::storage::durability::Marker::DELTA_TRANSACTION_START);
+    corrupted.Write(&start_marker, 1);
+    corrupted.Sync();
+    corrupted.Close();
+  }
+
+  EXPECT_THROW(static_cast<void>(memgraph::storage::durability::ReadWalInfo(wal_file)),
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 class StorageModeWalFileTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {

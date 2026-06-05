@@ -973,13 +973,27 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     try {
       auto timestamp = ReadWalDeltaHeader(&wal);
       auto is_transaction_end = SkipWalDeltaData(&wal, version);
+      if (is_transaction_end) {
+        if (version >= kCrcProtection && !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+          spdlog::error("Durability CRC mismatch.");
+          return std::nullopt;
+        }
+        wal.ResetCrcAcc();
+      }
+
       return {{timestamp, is_transaction_end}};
     } catch (const RecoveryFailure &e) {
-      spdlog::error("Error occurred while reading WAL info: {}", e.what());
+      spdlog::info("Error occurred while reading WAL info: {}", e.what());
       return std::nullopt;
     }
   };
   auto size = wal.GetSize();
+  // CRC verification mirrors LoadWal. Parsing the magic, version, offsets and metadata sections above folded those
+  // bytes into the decoder's CRC accumulator; the position is now at the first delta, so reset the accumulator here.
+  // Each transaction's CRC is then computed over exactly its own byte range (txn start + deltas + transaction-end frame
+  // + CRC trailer), matching EncodeTransactionStart on the write side, and the accumulator is reset again after every
+  // verified transaction end below.
+  wal.ResetCrcAcc();
   std::optional<uint64_t> current_timestamp;
   uint64_t num_deltas_in_txn = 0;
   while (wal.GetPosition() != size) {
@@ -1949,7 +1963,8 @@ std::optional<RecoveryInfo> LoadWal(
         // The CRC trailer has just been consumed and folded into the accumulator, so an intact transaction now reduces
         // to the fixed CRC residue.
         if (txn_end->txn_crc.has_value() && !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
-          LOG_FATAL("Durability CRC mismatch (stored {}, residue {}).", *txn_end->txn_crc, wal.CrcAccValue());
+          throw RecoveryFailure(
+              "Durability CRC mismatch (stored {}, residue {}).", *txn_end->txn_crc, wal.CrcAccValue());
         }
         wal.ResetCrcAcc();
       }
