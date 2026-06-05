@@ -87,6 +87,10 @@ on:
         type: string
         description: "Version to build"
         default: ''
+      daily_build:
+        type: boolean
+        description: "Selects the daily/master PR-style version (<tag>+pr<pr>~<commit>) instead of using release/get_version.py."
+        default: false
 
 run-name: "Build and test MAGE"
 
@@ -123,6 +127,7 @@ env:
   MEMGRAPH_DOWNLOAD_LINK: ${{ inputs.memgraph_download_link }}
   MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK: ${{ inputs.memgraph_debuginfo_download_link }}
   VERSION: "${{ inputs.version }}"
+  DAILY_BUILD: "${{ inputs.daily_build }}"
   CI_BRANCH: "${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}"
   MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
   MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
@@ -198,14 +203,12 @@ jobs:
           fi
 
       - name: Get Memgraph version
-        env:
-          INPUT_REF: ${{ inputs.ref }}
         run: |
-          # Match the MEMGRAPH_VERSION format with that used in reusable_package.yaml:
-          # If building on `master` (i.e. the scheduled daily build) then use the format
-          # "{tag}_pr{number}_commit{hash}"
-          # Otherwise use the format provided by get_version.py
-          if [[ -z "$VERSION" && -z "$INPUT_REF" && "$GITHUB_REF" == "refs/heads/master" ]]; then
+          # Match the MEMGRAPH_VERSION format with that used in reusable_package.yaml,
+          # so MAGE artifacts are versioned like the memgraph package they bundle.
+          # Daily builds use the PR-style scheme "{tag}+pr{number}~{commit}"; everything
+          # else (RC/manual/diff) uses release/get_version.py.
+          if [[ "$DAILY_BUILD" == "true" ]]; then
             version="$(tools/ci/get_master_package_version.sh)"
           else
             version="$(release/get_version.py --memgraph-root-dir "$(pwd)" "${VERSION#v}" '' --variant binary)"

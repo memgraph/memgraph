@@ -128,6 +128,7 @@ jobs:
       arch: ${{ matrix.arch }}
       build_type: RelWithDebInfo
       build_docker_image: ${{ matrix.build_docker_image || 'none' }}
+      daily_build: true
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
@@ -243,6 +244,7 @@ jobs:
       arch: ${{ matrix.build_arch }}
       build_type: RelWithDebInfo
       build_docker_image: ${{ matrix.build_docker_image }}
+      daily_build: true
       memgraph_download_link: >-
         ${{ format(
           'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb',
