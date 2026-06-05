@@ -206,6 +206,26 @@ TEST_F(PlannerV2InterpreterTest, ElidedUnwindExecutesToScaledRows) {
   }
 }
 
+TEST_F(PlannerV2InterpreterTest, ConcatenatedKnownListsHaveKnownLength) {
+  // List concatenation of two known-length lists has a known length
+  // (3 + 100 = 103), so an unused binding over it still elides to a
+  // CardinalityScale.
+  auto stream = Interpret("EXPLAIN UNWIND [1, 2, 3] + range(1, 100) AS x RETURN 42;");
+  auto const plan = PlanText(stream);
+  EXPECT_NE(plan.find("CardinalityScale"), std::string::npos) << plan;
+  EXPECT_EQ(plan.find("Unwind"), std::string::npos) << plan;
+
+  // The known length must be exact (3 + 100), or the elided plan would scale to
+  // the wrong row count.
+  auto exec = Interpret("UNWIND [1, 2, 3] + range(1, 100) AS x RETURN 42;");
+  EXPECT_EQ(exec.GetResults().size(), 103U);
+
+  // The concatenation's known length survives being bound by a WITH and inlined
+  // into the UNWIND.
+  auto via_with = Interpret("EXPLAIN WITH [1, 2, 3] + range(1, 100) AS l UNWIND l AS x RETURN 42;");
+  EXPECT_NE(PlanText(via_with).find("CardinalityScale"), std::string::npos) << PlanText(via_with);
+}
+
 TEST_F(PlannerV2InterpreterTest, UserParameterRangeLengthEnablesElision) {
   // A user parameter's value is known for this execution and plan_v2 is
   // uncached, so range($lo, $hi) folds to a provable length: the unused binding
