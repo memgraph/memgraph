@@ -212,9 +212,13 @@ template <symbol S>
 struct symbol_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, planner::core::EClassId lhs, planner::core::EClassId rhs) -> seeded_node {
+  /// `known_list_length` seeds the result when the operator's semantics fix the
+  /// produced list's length over its operands (list concatenation over two
+  /// known-length lists); nullopt leaves the e-class without the fact.
+  static auto make(storage_type & /*s*/, planner::core::EClassId lhs, planner::core::EClassId rhs,
+                   std::optional<std::size_t> known_list_length = std::nullopt) -> seeded_node {
     return {.lowered = {.children = utils::small_vector{lhs, rhs}, .disambiguator = std::nullopt},
-            .seed = default_analysis_seed<S>()};
+            .seed = analysis{ExpressionAnalysis{.known_list_length = known_list_length}}};
   }
 };
 
