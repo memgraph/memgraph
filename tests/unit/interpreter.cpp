@@ -231,6 +231,44 @@ TEST_F(PlannerV2InterpreterTest, ElidedUnwindExecutesToScaledRows) {
   }
 }
 
+TEST_F(PlannerV2InterpreterTest, ReturningBoundVariableYieldsItsValues) {
+  // The bound variable is reachable both as the Unwind binder and as the RETURN
+  // reference; it must reconstruct to one symbol (one frame slot) so the rows
+  // carry x's values rather than reading an unpopulated slot.
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 3);
+}
+
+TEST_F(PlannerV2InterpreterTest, ExplainProduceShowsUnaliasedColumnSourceText) {
+  // The EXPLAIN plan dump names an unaliased column by its source text, not the
+  // stripped placeholder.
+  auto stream = Interpret("EXPLAIN RETURN 1 + 2;");
+  auto const plan = PlanText(stream);
+  EXPECT_NE(plan.find("Produce {1 + 2}"), std::string::npos) << plan;
+}
+
+TEST_F(PlannerV2InterpreterTest, UnaliasedColumnHeaderIsSourceText) {
+  // An unaliased column's header is its source text, recovered via the symbol's
+  // token_position; without it the header falls back to the stripped placeholder.
+  auto stream = Interpret("RETURN 42;");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader()[0], "42");
+}
+
+TEST_F(PlannerV2InterpreterTest, UnaliasedColumnHeaderIsSourceTextNotFoldedValue) {
+  // The header is the column's source text - carried on the symbol's
+  // token_position - independent of expression folding. `1 + 1` folds to the
+  // value 2, but the column is still named "1 + 1".
+  auto stream = Interpret("RETURN 1 + 1;");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader()[0], "1 + 1");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+}
+
 TEST_F(PlannerV2InterpreterTest, ConcatenatedKnownListsHaveKnownLength) {
   // List concatenation of two known-length lists has a known length
   // (3 + 100 = 103), so an unused binding over it still elides to a
@@ -271,36 +309,6 @@ TEST_F(PlannerV2InterpreterTest, SizeOfKnownLengthListFoldsToItsLength) {
   auto const plan = PlanText(stream);
   EXPECT_NE(plan.find("CardinalityScale {n=3}"), std::string::npos) << plan;
   EXPECT_EQ(plan.find("Unwind"), std::string::npos) << plan;
-}
-
-TEST_F(PlannerV2InterpreterTest, ReturningBoundVariableYieldsItsValues) {
-  // The bound variable is reachable both as the Unwind binder and as the RETURN
-  // reference; it must reconstruct to one symbol (one frame slot) so the rows
-  // carry x's values rather than reading an unpopulated slot.
-  auto stream = Interpret("UNWIND [1, 2, 3] AS x RETURN x;");
-  ASSERT_EQ(stream.GetResults().size(), 3U);
-  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
-  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
-  EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 3);
-}
-
-TEST_F(PlannerV2InterpreterTest, UnaliasedColumnHeaderIsSourceText) {
-  // An unaliased column's header is its source text, recovered via the symbol's
-  // token_position; without it the header falls back to the stripped placeholder.
-  auto stream = Interpret("RETURN 42;");
-  ASSERT_EQ(stream.GetHeader().size(), 1U);
-  EXPECT_EQ(stream.GetHeader()[0], "42");
-}
-
-TEST_F(PlannerV2InterpreterTest, UnaliasedColumnHeaderIsSourceTextNotFoldedValue) {
-  // The header is the column's source text - carried on the symbol's
-  // token_position - independent of expression folding. `1 + 1` folds to the
-  // value 2, but the column is still named "1 + 1".
-  auto stream = Interpret("RETURN 1 + 1;");
-  ASSERT_EQ(stream.GetHeader().size(), 1U);
-  EXPECT_EQ(stream.GetHeader()[0], "1 + 1");
-  ASSERT_EQ(stream.GetResults().size(), 1U);
-  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
 }
 
 TEST_F(PlannerV2InterpreterTest, UserParameterRangeLengthEnablesElision) {

@@ -76,9 +76,10 @@ class LoweringCtx {
   egraph &g;
   SymbolTable const &symbol_table;
   Parameters const &parameters;
+  plan::v2::OutputColumnNames const &output_names;
 
-  LoweringCtx(egraph &eg, SymbolTable const &st, Parameters const &params)
-      : g(eg), symbol_table(st), parameters(params) {}
+  LoweringCtx(egraph &eg, SymbolTable const &st, Parameters const &params, plan::v2::OutputColumnNames const &names)
+      : g(eg), symbol_table(st), parameters(params), output_names(names) {}
 
   auto OpenScratch() -> ScratchFrame { return ScratchFrame{*this}; }
 
@@ -336,6 +337,17 @@ auto LowerWith(query::With &with, eclass pipe, LoweringCtx &ctx) -> eclass {
   return pipe;
 }
 
+// The display name for a RETURN column: the alias if present, else the source
+// text recovered from `output_names` (stripping replaced the expression with a
+// placeholder), falling back to the AST name when neither applies (raw parse).
+auto OutputDisplayName(LoweringCtx &ctx, NamedExpression const &ne) -> std::string {
+  if (ne.is_aliased_) return ne.name_;
+  if (auto const it = ctx.output_names.find(static_cast<int>(ne.token_position_)); it != ctx.output_names.end()) {
+    return it->second;
+  }
+  return ne.name_;
+}
+
 auto LowerReturn(query::Return &ret, eclass pipe, LoweringCtx &ctx) -> eclass {
   // See LowerWith: `*` symbols bypass named_expressions, so refuse them rather
   // than drop columns or let referenced_syms miss a `*`-referenced binding.
@@ -343,7 +355,7 @@ auto LowerReturn(query::Return &ret, eclass pipe, LoweringCtx &ctx) -> eclass {
   auto frame = ctx.OpenScratch();
   for (auto *ne : ret.body_.named_expressions) {
     auto expr = Lower(ctx, *ne->expression_);
-    frame.push(ctx.g.MakeNamedOutput(ne->name_, SymEclassFor(ctx, *ne), expr));
+    frame.push(ctx.g.MakeNamedOutput(OutputDisplayName(ctx, *ne), SymEclassFor(ctx, *ne), expr));
   }
   auto output = ctx.g.MakeOutput(pipe, frame.as_span());
   HashConsTailExpressions(ret.body_, ctx);
@@ -404,10 +416,10 @@ auto LowerCypherQuery(CypherQuery &cq, LoweringCtx &ctx) -> eclass {
 
 namespace memgraph::query::plan::v2 {
 
-auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table, Parameters const &parameters)
-    -> std::tuple<egraph, eclass> {
+auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table, Parameters const &parameters,
+                     OutputColumnNames const &output_names) -> std::tuple<egraph, eclass> {
   auto eg = egraph{};
-  auto ctx = LoweringCtx{eg, symbol_table, parameters};
+  auto ctx = LoweringCtx{eg, symbol_table, parameters, output_names};
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   auto root = LowerCypherQuery(const_cast<CypherQuery &>(query), ctx);
   return {std::move(eg), root};
