@@ -99,9 +99,9 @@ env:
   ARCH: "${{ inputs.arch }}"
   DOCKER_REPOSITORY_NAME: memgraph/memgraph-mage
   BUILD_TYPE: "${{ inputs.build_type }}"
-  # Split-debug is implicit: always on for RelWithDebInfo packaging, the only
-  # build type CI uses. The MAGE deb build now requires the .debug sidecars
-  # the split produces; build-deb.sh errors out if they're missing.
+  # Split-debug is implicit: on for RelWithDebInfo packaging, the build type CI
+  # uses. When on, the MAGE deb build also emits a memgraph-mage-debuginfo deb
+  # from the .debug sidecars; when off, build-deb.sh skips that deb gracefully.
   SPLIT_DEBUG: "${{ inputs.build_type == 'RelWithDebInfo' && 'true' || 'false' }}"
   BUILD_DOCKER_IMAGE: "${{ inputs.build_docker_image }}"
   MALLOC: "${{ inputs.malloc }}"

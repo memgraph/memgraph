@@ -148,6 +148,7 @@ jobs:
       cuda: ${{ matrix.cuda == 'true' }}
       cugraph: ${{ matrix.cugraph == 'true' }}
       push_to_s3: ${{ matrix.push_to_s3 == 'true' }}
+      upload_debug_symbols: ${{ matrix.push_to_s3 == 'true' }}
       malloc: ${{ matrix.malloc == 'true' }}
       run_smoke_tests: ${{ matrix.run_smoke_tests == 'true' }}
       run_tests: ${{ matrix.run_tests == 'true' }}
