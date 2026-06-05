@@ -11,6 +11,7 @@
 
 #include "query/plan_v2/frontend/ast_converter.hpp"
 
+#include <array>
 #include <optional>
 #include <span>
 #include <vector>
@@ -20,6 +21,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/parameters.hpp"
+#include "query/plan_v2/rewrite/fold.hpp"
 
 using memgraph::query::plan::v2::eclass;
 using memgraph::query::plan::v2::egraph;
@@ -159,10 +161,11 @@ auto Lower(LoweringCtx &ctx, Expression &expr) -> eclass;
 // The constant value an expression denotes for this execution, or nullopt if
 // any part is not constant. A `PrimitiveLiteral` carries its value directly; a
 // `ParameterLookup` is constant when its value is known in `parameters` (a
-// stripped literal or a bound user parameter), which is why a list literal -
-// whose elements are stripped to parameters - can still be recognised as
-// constant; a `ListLiteral` is constant exactly when every element is, so this
-// recurses and nested constant lists fold too.
+// stripped literal or a bound user parameter); a `ListLiteral` is constant when
+// every element is; and an operator over constant operands folds via the same
+// `FoldConstant` the e-graph uses (so `[1 + 5, 2, 3]` recognises `1 + 5` as 6).
+// All three recurse, so nested constants fold too.
+// NOLINTBEGIN(cppcoreguidelines-macro-usage, bugprone-macro-parentheses)
 auto ConstantValueOf(Expression &expr, Parameters const &parameters) -> std::optional<storage::ExternalPropertyValue> {
   if (auto *primitive = utils::Downcast<PrimitiveLiteral>(&expr)) return primitive->value_;
   if (auto *param = utils::Downcast<ParameterLookup>(&expr)) {
@@ -179,8 +182,29 @@ auto ConstantValueOf(Expression &expr, Parameters const &parameters) -> std::opt
     }
     return storage::ExternalPropertyValue{std::move(values)};
   }
+#define MG_FOLD_BINARY(Name, AstOp, ...)                             \
+  if (auto *op = utils::Downcast<AstOp>(&expr)) {                    \
+    auto lhs = ConstantValueOf(*op->expression1_, parameters);       \
+    auto rhs = ConstantValueOf(*op->expression2_, parameters);       \
+    if (!lhs || !rhs) return std::nullopt;                           \
+    std::array const operands{std::move(*lhs), std::move(*rhs)};     \
+    return plan::v2::FoldConstant(plan::v2::symbol::Name, operands); \
+  }
+  EGRAPH_BINARY_OPS(MG_FOLD_BINARY)
+#undef MG_FOLD_BINARY
+#define MG_FOLD_UNARY(Name, AstOp, ...)                              \
+  if (auto *op = utils::Downcast<AstOp>(&expr)) {                    \
+    auto operand = ConstantValueOf(*op->expression_, parameters);    \
+    if (!operand) return std::nullopt;                               \
+    std::array const operands{std::move(*operand)};                  \
+    return plan::v2::FoldConstant(plan::v2::symbol::Name, operands); \
+  }
+  EGRAPH_UNARY_OPS(MG_FOLD_UNARY)
+#undef MG_FOLD_UNARY
   return std::nullopt;
 }
+
+// NOLINTEND(cppcoreguidelines-macro-usage, bugprone-macro-parentheses)
 
 // Slot-pattern visitor over ExpressionVisitor<void>: each Visit override
 // assigns result_, which the free Lower() reads after Accept returns.

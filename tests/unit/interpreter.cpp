@@ -256,6 +256,19 @@ TEST_F(PlannerV2InterpreterTest, ConcatenatedKnownListsHaveKnownLength) {
   EXPECT_NE(PlanText(via_with).find("CardinalityScale"), std::string::npos) << PlanText(via_with);
 }
 
+TEST_F(PlannerV2InterpreterTest, ConstantFoldableListElementsAreRecognised) {
+  // A list element that is a constant expression (1 + 5) folds to 6, so the
+  // list is constant with a known length; concatenated with range(1, 5) the
+  // total length is 3 + 5 = 8 and the unused binding elides.
+  auto stream = Interpret("EXPLAIN UNWIND [1 + 5, 2, 3] + range(1, 5) AS x RETURN 42 AS answer;");
+  auto const plan = PlanText(stream);
+  EXPECT_NE(plan.find("CardinalityScale"), std::string::npos) << plan;
+  EXPECT_EQ(plan.find("Unwind"), std::string::npos) << plan;
+
+  auto exec = Interpret("UNWIND [1 + 5, 2, 3] + range(1, 5) AS x RETURN 42;");
+  EXPECT_EQ(exec.GetResults().size(), 8U);
+}
+
 TEST_F(PlannerV2InterpreterTest, UserParameterRangeLengthEnablesElision) {
   // A user parameter's value is known for this execution and plan_v2 is
   // uncached, so range($lo, $hi) folds to a provable length: the unused binding
