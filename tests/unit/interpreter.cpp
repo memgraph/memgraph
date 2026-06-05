@@ -170,9 +170,10 @@ TEST_F(PlannerV2InterpreterTest, UnwindOverProvableLengthRangeElidesUnusedBindin
   // range(0, 100) has a provable length and x is unused, so the binding elides
   // to a CardinalityScale. The int literals reach the planner as constants
   // because plan_v2 folds the (stripped) literal parameters during lowering.
-  auto stream = Interpret("EXPLAIN UNWIND range(0, 100) AS x RETURN 42;");
+  auto stream = Interpret("EXPLAIN UNWIND range(1, 100) AS x RETURN 42;");
   auto const plan = PlanText(stream);
-  EXPECT_NE(plan.find("CardinalityScale"), std::string::npos) << plan;
+  // The deduced row count is carried on the operator and shown in EXPLAIN.
+  EXPECT_NE(plan.find("CardinalityScale {n=100}"), std::string::npos) << plan;
   EXPECT_EQ(plan.find("Unwind"), std::string::npos) << plan;
 }
 

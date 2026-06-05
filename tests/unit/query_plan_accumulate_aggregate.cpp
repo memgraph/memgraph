@@ -642,13 +642,9 @@ TYPED_TEST(QueryPlanTest, CardinalityScale) {
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
-  // CardinalityScale over [1, 2, 3] emits one row per list element, binding
-  // nothing: the row count equals the list size, the values are discarded.
-  auto *list_expr = this->storage.template Create<PrimitiveLiteral>(
-      std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(1),
-                                                            memgraph::storage::ExternalPropertyValue(2),
-                                                            memgraph::storage::ExternalPropertyValue(3)});
-  auto card_scale = std::make_shared<plan::CardinalityScale>(nullptr, list_expr);
+  // CardinalityScale emits its plan-time scale factor of rows per input row,
+  // binding nothing and evaluating no list.
+  auto card_scale = std::make_shared<plan::CardinalityScale>(nullptr, 3);
 
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(PullAll(*card_scale, &context), 3);
@@ -660,35 +656,22 @@ TYPED_TEST(QueryPlanTest, CardinalityScaleRescalesPerInputRow) {
   SymbolTable symbol_table;
 
   // Two stacked CardinalityScales: an outer that emits 2 rows feeding an inner
-  // that emits 3 rows per input row. The inner must re-derive its count for
-  // each outer row, so the product is 6.
-  auto *outer_list =
-      this->storage.template Create<PrimitiveLiteral>(std::vector<memgraph::storage::ExternalPropertyValue>{
-          memgraph::storage::ExternalPropertyValue(1), memgraph::storage::ExternalPropertyValue(2)});
-  auto *inner_list = this->storage.template Create<PrimitiveLiteral>(
-      std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(1),
-                                                            memgraph::storage::ExternalPropertyValue(2),
-                                                            memgraph::storage::ExternalPropertyValue(3)});
-  auto outer = std::make_shared<plan::CardinalityScale>(nullptr, outer_list);
-  auto inner = std::make_shared<plan::CardinalityScale>(outer, inner_list);
+  // that emits 3 rows per input row, so the product is 6.
+  auto outer = std::make_shared<plan::CardinalityScale>(nullptr, 2);
+  auto inner = std::make_shared<plan::CardinalityScale>(outer, 3);
 
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(PullAll(*inner, &context), 6);
 }
 
-TYPED_TEST(QueryPlanTest, CardinalityScaleLargeListCount) {
+TYPED_TEST(QueryPlanTest, CardinalityScaleLargeScale) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
-  // A large list: the count-only strategy keeps a single counter, so the row
-  // count is exact for sizes far beyond what we would want to retain.
-  constexpr int kSize = 100000;
-  std::vector<memgraph::storage::ExternalPropertyValue> elements;
-  elements.reserve(kSize);
-  for (int i = 0; i < kSize; ++i) elements.emplace_back(i);
-  auto *list_expr = this->storage.template Create<PrimitiveLiteral>(std::move(elements));
-  auto card_scale = std::make_shared<plan::CardinalityScale>(nullptr, list_expr);
+  // A large scale factor costs a single counter and no list materialisation.
+  constexpr int kSize = 1000000;
+  auto card_scale = std::make_shared<plan::CardinalityScale>(nullptr, static_cast<size_t>(kSize));
 
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(PullAll(*card_scale, &context), kSize);

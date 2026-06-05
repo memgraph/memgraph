@@ -265,12 +265,12 @@ struct symbol_build_traits<symbol::Unwind> {
     using list = ChildSlot<child::unwind_dead::list, Expression *>;
   };
 
-  static auto build(BuildState & /*state*/, ENodeRef node, Children children) -> result_type {
+  static auto build(BuildState &state, ENodeRef node, Children children) -> result_type {
     if (children.size() == node.children().size()) {
       return build_alive(children.get<slots::input>(), children.get<slots::sym>(), children.get<slots::list>());
     }
     DMG_ASSERT(children.size() == 2, "dead Unwind must emit exactly the input and list children");
-    return build_dead(children.get<dead_slots::input>(), children.get<dead_slots::list>());
+    return build_dead(state, node, children.get<dead_slots::input>());
   }
 
  private:
@@ -279,10 +279,17 @@ struct symbol_build_traits<symbol::Unwind> {
     return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::Unwind>(input, list_expr, sym));
   }
 
-  // Dead Unwind: the sym is unused, so emit a CardinalityScale that yields one
-  // row per list element without binding anything.
-  static auto build_dead(LogicalOperatorPtr const &input, Expression *list_expr) -> result_type {
-    return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::CardinalityScale>(input, list_expr));
+  // Dead Unwind: the sym is unused and the list length is statically known (the
+  // gate that picks this alt), so emit a CardinalityScale carrying that length.
+  // The list is never built or evaluated; the count comes from the list child's
+  // analysis on the e-node.
+  static auto build_dead(BuildState &state, ENodeRef node, LogicalOperatorPtr const &input) -> result_type {
+    auto const list_eclass = node.children()[child::unwind::list];
+    auto const *expr = state.egraph.eclass(state.egraph.find(list_eclass)).analysis().expression();
+    DMG_ASSERT(expr != nullptr && expr->known_list_length.has_value(),
+               "dead Unwind requires a statically known list length");
+    return std::static_pointer_cast<LogicalOperator>(
+        std::make_shared<query::plan::CardinalityScale>(input, *expr->known_list_length));
   }
 };
 
