@@ -20,6 +20,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/parameters.hpp"
 #include "query/plan_v2/rewrite/fold.hpp"
 
@@ -232,7 +233,9 @@ class ExprLowering : public ExpressionVisitor<void> {
   void Visit(Function &function) override {
     auto frame = ctx_.OpenScratch();
     for (auto *arg : function.arguments_) frame.push(Lower(ctx_, *arg));
-    result_ = ctx_.g.MakeFunction(function.function_name_, frame.as_span());
+    // Purity comes from the executor's authoritative function table; resolved
+    // here at the boundary so the e-graph layer never depends on the evaluator.
+    result_ = ctx_.g.MakeFunction(function.function_name_, frame.as_span(), IsFunctionPure(function.function_name_));
   }
 
   // A list whose elements are all (recursively) constant has a value known at

@@ -448,11 +448,16 @@ struct symbol_cost_traits<NamedOutput> {
 
 template <>
 struct symbol_cost_traits<Function> {
-  // Per-class cost-sum chain over args, then override cardinality with the
-  // estimator's output.  Function cardinality is *not* the product of arg
-  // cardinalities (args are scalars).
+  // Per-class cost-sum chain over args, then override cardinality: it is *not*
+  // the product of arg cardinalities (args are scalars).  The produced list's
+  // size is the statically-known `known_list_length` fact when present (e.g.
+  // a constant-bound range), else the estimator's guess for the unknown case.
   static auto cost(ENodeT const &n, ENodeId id, CostChildren children, CostCtx const &ctx) -> CostFrontier {
-    return FunctionCombine(children, ctx.estimator.Estimate(n, n.children()), id);
+    auto const *facts = ctx.syms.egraph.analysis_of(ctx.syms.egraph.find(id)).expression();
+    double const cardinality = (facts != nullptr && facts->known_list_length)
+                                   ? static_cast<double>(*facts->known_list_length)
+                                   : ctx.estimator.Estimate(n, n.children());
+    return FunctionCombine(children, cardinality, id);
   }
 };
 

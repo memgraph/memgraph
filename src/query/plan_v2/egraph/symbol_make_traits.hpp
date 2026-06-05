@@ -165,17 +165,18 @@ struct symbol_make_traits<symbol::Function> {
     /// both, keeping them in lockstep; do not insert directly.
     std::vector<FunctionInfo> info;
 
-    /// Intern a name to its stable id, classifying BuiltinKind on first sight.
-    /// The same name always returns the same id.
-    auto intern(std::string_view name) -> uint64_t;
+    /// Intern a name to its stable id, classifying BuiltinKind and caching
+    /// `is_pure` on first sight.  The same name always returns the same id.
+    auto intern(std::string_view name, bool is_pure) -> uint64_t;
   };
 
   /// args is the complete children list (the function arguments).
   /// `seed` carries any analysis facts the caller can establish from the
   /// builtin's semantics (e.g. `range`'s known length, or `size`'s known
-  /// constant value); empty for opaque functions.
+  /// constant value); empty for opaque functions.  `is_pure` is cached on the
+  /// FunctionInfo (see its doc); the caller has already gated `seed` on it.
   static auto make(storage_type &s, std::string_view name, utils::small_vector<planner::core::EClassId> args,
-                   ExpressionAnalysis seed = {}) -> seeded_node;
+                   ExpressionAnalysis seed, bool is_pure) -> seeded_node;
 };
 
 /// Unwind: no storage, mirrors Bind's [input, sym, list_expr] shape so the

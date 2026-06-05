@@ -54,10 +54,14 @@ inline auto BuiltinKindFor(std::string_view name) -> BuiltinKind {
 
 /// What we cache per interned function name.  Storing the exact source name
 /// (not the lowercased form) so the Builder can recreate the AST `Function`
-/// with the user's spelling.
+/// with the user's spelling.  `is_pure` is sourced from the executor's
+/// authoritative function table at the converter boundary (the planner does not
+/// re-derive it); it gates treating the call's output as a statically-known
+/// fact - only a pure function may be folded or carry a known value.
 struct FunctionInfo {
   std::string name;
   BuiltinKind kind;
+  bool is_pure;
 };
 
 }  // namespace memgraph::query::plan::v2
