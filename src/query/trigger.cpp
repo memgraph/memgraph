@@ -283,8 +283,8 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
   return trigger_plan_;
 }
 
-void Trigger::RecordExecution() const {
-  std::atomic_ref{last_executed_}.store(QueryTimestamp(), std::memory_order_relaxed);
+void Trigger::RecordAttempt() const {
+  std::atomic_ref{last_attempted_}.store(QueryTimestamp(), std::memory_order_relaxed);
 }
 
 void Trigger::RecordFailure(std::string error) const {
@@ -302,7 +302,11 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
     return;
   }
 
-  RecordExecution();
+  RecordAttempt();
+  // Record the outcome (health state and metric) here, the one site that wraps
+  // both commit phases, so the in-memory failure count and triggers_failed
+  // cannot diverge and the before-commit path (which rethrows) is counted too.
+  auto *metrics = db_acc->metric_handles();
 
   try {
     ExecuteImpl(dba,
@@ -317,8 +321,11 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
                 auth_checker);
   } catch (const utils::BasicException &e) {
     RecordFailure(e.what());
+    if (metrics) metrics->triggers_failed.Increment();
     throw;
   }
+
+  if (metrics) metrics->triggers_executed.Increment();
 }
 
 void Trigger::ExecuteImpl(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
@@ -382,7 +389,6 @@ void Trigger::ExecuteImpl(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::M
   while (cursor->Pull(frame, ctx));
 
   cursor->Shutdown();
-  if (auto *mh = db_acc->metric_handles()) mh->triggers_executed.Increment();
 }
 
 namespace {
@@ -683,14 +689,14 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
     for (const auto &trigger : trigger_list.access()) {
       std::optional<std::string> owner_str{};
       if (const auto &owner = trigger.Creator(); owner && *owner) owner_str = owner->username();
-      const auto last_executed = trigger.LastExecuted();
+      const auto last_attempted = trigger.LastAttempted();
       info.push_back({trigger.Name(),
                       trigger.OriginalStatement(),
                       trigger.EventType(),
                       phase,
                       std::move(owner_str),
                       trigger.PrivilegeContext(),
-                      last_executed == Trigger::kNeverExecuted ? std::nullopt : std::optional{last_executed},
+                      last_attempted == Trigger::kNeverAttempted ? std::nullopt : std::optional{last_attempted},
                       trigger.FailureCount(),
                       trigger.LastError()});
     }

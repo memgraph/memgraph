@@ -5612,7 +5612,7 @@ Callback ShowTriggers(TriggerStore *trigger_store) {
                      "event type",
                      "phase",
                      "owner",
-                     "last executed",
+                     "last attempted",
                      "failure count",
                      "last error"},
           .fn = [trigger_store] {
@@ -5632,7 +5632,7 @@ Callback ShowTriggers(TriggerStore *trigger_store) {
               typed_trigger_info.emplace_back(trigger_info.owner.has_value() ? TypedValue{*trigger_info.owner}
                                                                              : TypedValue{});
               typed_trigger_info.emplace_back(
-                  trigger_info.last_executed.has_value() ? TypedValue{*trigger_info.last_executed} : TypedValue{});
+                  trigger_info.last_attempted.has_value() ? TypedValue{*trigger_info.last_attempted} : TypedValue{});
               typed_trigger_info.emplace_back(static_cast<int64_t>(trigger_info.failure_count));
               typed_trigger_info.emplace_back(trigger_info.last_error.has_value() ? TypedValue{*trigger_info.last_error}
                                                                                   : TypedValue{});
@@ -10132,8 +10132,8 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                       triggering_user,
                       interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
+      // triggers_failed and the in-memory failure count are recorded in Trigger::Execute.
       spdlog::error("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
-      if (auto *mh = db_acc->metric_handles()) mh->triggers_failed.Increment();
       db_accessor.Abort();
       continue;
     }

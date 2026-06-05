@@ -73,10 +73,13 @@ struct Trigger {
 
   auto PrivilegeContext() const noexcept { return privilege_context_; }
 
-  // Sentinel for a trigger that has never fired; rendered as null in SHOW TRIGGERS.
-  static constexpr int64_t kNeverExecuted = std::numeric_limits<int64_t>::min();
+  // Sentinel for a trigger that has never been attempted; rendered as null in SHOW TRIGGERS.
+  static constexpr int64_t kNeverAttempted = std::numeric_limits<int64_t>::min();
 
-  int64_t LastExecuted() const noexcept { return std::atomic_ref{last_executed_}.load(std::memory_order_relaxed); }
+  // Timestamp of the most recent fire attempt, advanced before execution so it
+  // reflects activity regardless of success; failure_count/last_error carry the
+  // failure story.
+  int64_t LastAttempted() const noexcept { return std::atomic_ref{last_attempted_}.load(std::memory_order_relaxed); }
 
   uint64_t FailureCount() const noexcept { return std::atomic_ref{failure_count_}.load(std::memory_order_relaxed); }
 
@@ -92,7 +95,7 @@ struct Trigger {
                    std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context, bool is_main,
                    std::shared_ptr<QueryUserOrRole> triggering_user, const AuthChecker *auth_checker) const;
 
-  void RecordExecution() const;
+  void RecordAttempt() const;
   void RecordFailure(std::string error) const;
 
   struct TriggerPlan {
@@ -119,7 +122,7 @@ struct Trigger {
 
   // In-memory, non-durable health state. Numeric fields are accessed via atomic_ref (plain storage keeps Trigger
   // movable into the skip list); last_error_ is guarded by health_lock_ and materialized lazily in GetTriggerInfo.
-  mutable int64_t last_executed_{kNeverExecuted};
+  mutable int64_t last_attempted_{kNeverAttempted};
   mutable uint64_t failure_count_{0};
   mutable utils::RWSpinLock health_lock_;
   mutable std::string last_error_;
@@ -151,7 +154,7 @@ struct TriggerStore {
     TriggerPhase phase;
     std::optional<std::string> owner;
     TriggerPrivilegeContext privilege_context;
-    std::optional<int64_t> last_executed;
+    std::optional<int64_t> last_attempted;
     uint64_t failure_count;
     std::optional<std::string> last_error;
   };

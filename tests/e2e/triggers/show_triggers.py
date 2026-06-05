@@ -54,7 +54,7 @@ def test_show_triggers_output_format(connect):
     result = execute_and_fetch_all(cursor, "SHOW TRIGGERS")
     assert len(result) == 3
 
-    # Convert results to dictionary for easier access. The health columns (last executed,
+    # Convert results to dictionary for easier access. The health columns (last attempted,
     # failure count, last error) are appended after the original six.
     triggers = {}
     for row in result:
@@ -68,7 +68,7 @@ def test_show_triggers_output_format(connect):
             "event type": row[3],
             "phase": row[4],
             "owner": row[5],
-            "last executed": row[6],
+            "last attempted": row[6],
             "failure count": row[7],
             "last error": row[8],
         }
@@ -81,8 +81,8 @@ def test_show_triggers_output_format(connect):
     assert invoker["event type"] == "CREATE"
     assert invoker["phase"] == "BEFORE COMMIT"
     assert invoker["owner"] is None
-    # A trigger that has never fired reports null last_executed and zero failure_count.
-    assert invoker["last executed"] is None
+    # A trigger that has never fired reports null last_attempted and zero failure_count.
+    assert invoker["last attempted"] is None
     assert invoker["failure count"] == 0
     assert invoker["last error"] is None
 
@@ -180,7 +180,7 @@ def test_show_triggers_failing_trigger_health(connect):
 
     # Before it ever fires, health is null/zero.
     row = get_failing()
-    assert row[6] is None  # last executed
+    assert row[6] is None  # last attempted
     assert row[7] == 0  # failure count
     assert row[8] is None  # last error
 
@@ -193,7 +193,41 @@ def test_show_triggers_failing_trigger_health(connect):
         time.sleep(0.1)
         row = get_failing()
 
-    assert row[6] is not None  # last executed is now populated
+    assert row[6] is not None  # last attempted is now populated
+    assert row[7] == 1  # failure count incremented
+    assert row[8] is not None  # last error populated
+
+
+def test_show_triggers_before_commit_failure_health(connect):
+    """A before-commit trigger failure aborts the user's transaction and is recorded
+    in the same health columns as an after-commit failure - synchronously, since the
+    failure surfaces on the originating statement rather than asynchronously."""
+    cursor = connect.cursor()
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE TRIGGER failing_before
+        ON CREATE BEFORE COMMIT EXECUTE
+        UNWIND createdVertices AS node SET node.bad = 1 / 0""",
+    )
+
+    def get_failing():
+        result = execute_and_fetch_all(cursor, "SHOW TRIGGERS")
+        triggers = {row[0]: row for row in result}
+        return triggers["failing_before"]
+
+    row = get_failing()
+    assert row[6] is None  # last attempted
+    assert row[7] == 0  # failure count
+    assert row[8] is None  # last error
+
+    # The failing before-commit trigger makes the CREATE fail.
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "CREATE (:Node)")
+
+    # No polling: a before-commit failure is recorded by the time the statement returns.
+    row = get_failing()
+    assert row[6] is not None  # last attempted is now populated
     assert row[7] == 1  # failure count incremented
     assert row[8] is not None  # last error populated
 
