@@ -69,16 +69,33 @@ auto egraph::MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> 
   return from_core(pimpl_->graph.Make<NamedOutput>(name, to_core(sym), to_core(expr)));
 }
 
+// Analysis facts a builtin's semantics establish at plan time. `range` over
+// constant integer bounds has a known length; `size` of a known-length list
+// folds to that length as a constant, with no evaluation or materialisation.
+auto BuiltinAnalysis(EGraph const &eg, std::string_view name, std::span<planner::core::EClassId const> args)
+    -> ExpressionAnalysis {
+  switch (BuiltinKindFor(name)) {
+    case BuiltinKind::Range:
+      return {.known_list_length = ProvableRangeLength(eg, args)};
+    case BuiltinKind::Size:
+      if (args.size() == 1) {
+        auto const *arg = eg.eclass(eg.find(args[0])).analysis().expression();
+        if (arg != nullptr && arg->known_list_length) {
+          return {.known_constant_value =
+                      storage::ExternalPropertyValue{static_cast<int64_t>(*arg->known_list_length)}};
+        }
+      }
+      return {};
+    case BuiltinKind::Unknown:
+      return {};
+  }
+  return {};
+}
+
 auto egraph::MakeFunction(std::string_view name, std::span<eclass const> args) -> eclass {
   auto core_args = to_core(args);
-  // For builtins whose semantics fix the produced list's length over constant
-  // args (range), seed it as an analysis fact so a later Unwind can elide an
-  // unused binding into a CardinalityScale.
-  std::optional<std::size_t> known_list_length;
-  if (BuiltinKindFor(name) == BuiltinKind::Range) {
-    known_list_length = ProvableRangeLength(pimpl_->graph.core(), core_args);
-  }
-  return from_core(pimpl_->graph.Make<Function>(name, std::move(core_args), known_list_length));
+  auto seed = BuiltinAnalysis(pimpl_->graph.core(), name, core_args);
+  return from_core(pimpl_->graph.Make<Function>(name, std::move(core_args), std::move(seed)));
 }
 
 auto egraph::MakeUnwind(eclass input, eclass sym, eclass list_expr) -> eclass {

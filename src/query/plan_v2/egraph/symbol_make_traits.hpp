@@ -171,11 +171,11 @@ struct symbol_make_traits<symbol::Function> {
   };
 
   /// args is the complete children list (the function arguments).
-  /// `known_list_length` seeds the e-class's analysis when the caller can prove
-  /// the function's result is a list of that length (a builtin whose semantics
-  /// fix the size, e.g. `range` over constant integer bounds).
+  /// `seed` carries any analysis facts the caller can establish from the
+  /// builtin's semantics (e.g. `range`'s known length, or `size`'s known
+  /// constant value); empty for opaque functions.
   static auto make(storage_type &s, std::string_view name, utils::small_vector<planner::core::EClassId> args,
-                   std::optional<std::size_t> known_list_length = std::nullopt) -> seeded_node;
+                   ExpressionAnalysis seed = {}) -> seeded_node;
 };
 
 /// Unwind: no storage, mirrors Bind's [input, sym, list_expr] shape so the

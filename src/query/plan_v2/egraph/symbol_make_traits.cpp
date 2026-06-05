@@ -76,10 +76,9 @@ auto symbol_make_traits<Function>::storage_type::intern(std::string_view name) -
 }
 
 auto symbol_make_traits<Function>::make(storage_type &s, std::string_view name,
-                                        utils::small_vector<planner::core::EClassId> args,
-                                        std::optional<std::size_t> known_list_length) -> seeded_node {
-  return {.lowered = {.children = std::move(args), .disambiguator = s.intern(name)},
-          .seed = analysis{ExpressionAnalysis{.known_list_length = known_list_length}}};
+                                        utils::small_vector<planner::core::EClassId> args, ExpressionAnalysis seed)
+    -> seeded_node {
+  return {.lowered = {.children = std::move(args), .disambiguator = s.intern(name)}, .seed = analysis{std::move(seed)}};
 }
 
 auto symbol_make_traits<Unwind>::make(storage_type & /*s*/, planner::core::EClassId input, planner::core::EClassId sym,

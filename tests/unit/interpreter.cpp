@@ -302,6 +302,15 @@ TEST_F(PlannerV2InterpreterTest, ConstantFoldableListElementsAreRecognised) {
   EXPECT_EQ(exec.GetResults().size(), 8U);
 }
 
+TEST_F(PlannerV2InterpreterTest, SizeOfKnownLengthListFoldsToItsLength) {
+  // size() of a known-length list folds to that length at plan time, with no
+  // materialisation, so range proves its bound and the unused binding elides.
+  auto stream = Interpret("EXPLAIN UNWIND range(1, size([1, 2, 3])) AS x RETURN 42;");
+  auto const plan = PlanText(stream);
+  EXPECT_NE(plan.find("CardinalityScale {n=3}"), std::string::npos) << plan;
+  EXPECT_EQ(plan.find("Unwind"), std::string::npos) << plan;
+}
+
 TEST_F(PlannerV2InterpreterTest, UserParameterRangeLengthEnablesElision) {
   // A user parameter's value is known for this execution and plan_v2 is
   // uncached, so range($lo, $hi) folds to a provable length: the unused binding
