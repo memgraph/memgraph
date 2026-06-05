@@ -77,11 +77,17 @@ class RuleContext {
   /// Available only over a graph that actually interns; on a bare `EGraph` the
   /// constraint removes it from overload resolution.
   template <Symbol S, typename... Args>
-    requires requires(Graph &g, Args &&...args) { g.template Make<S>(std::forward<Args>(args)...); }
+    requires requires(Graph &g, Args &&...args) { g.template Emplace<S>(std::forward<Args>(args)...); }
   auto Make(Args &&...args) -> EClassId {
-    auto id = graph_.template Make<S>(std::forward<Args>(args)...);
-    new_eclasses_.push_back(id);
-    return id;
+    auto const result = graph_.template Emplace<S>(std::forward<Args>(args)...);
+    // Only a genuinely new e-node needs re-indexing; re-interning an existing
+    // one (e.g. a fold rule re-deriving an already-present constant on a
+    // saturated graph) must not register it, or every no-op pass rebuilds the
+    // matcher index for nodes that did not change.
+    if (result.did_insert) {
+      new_eclasses_.push_back(result.eclass_id);
+    }
+    return result.eclass_id;
   }
 
   /// Merge e-classes, auto-counting rewrites.

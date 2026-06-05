@@ -91,6 +91,37 @@ TEST(TypedEGraph, MakeMatchesRawEmplace) {
   EXPECT_EQ(eg.Make<test::Op::F>(std::vector<EClassId>{x, y}), eg.Make<test::Op::F>(std::vector<EClassId>{x, y}));
 }
 
+// Emplace<S> surfaces did_insert; Make<S> is the eclass-only convenience over it.
+TEST(TypedEGraph, EmplaceReportsInsertThenReuse) {
+  test::TypedTestEGraph eg;
+  auto const first = eg.Emplace<test::Op::Var>();
+  auto const again = eg.Emplace<test::Op::Var>();
+
+  EXPECT_TRUE(first.did_insert);
+  EXPECT_FALSE(again.did_insert) << "re-emplacing an interned node must not insert";
+  EXPECT_EQ(first.eclass_id, again.eclass_id);
+  EXPECT_EQ(eg.Make<test::Op::Var>(), first.eclass_id) << "Make<S> forwards Emplace<S>'s eclass";
+}
+
+// A rule's ctx.Make registers an e-class for re-indexing only when a new e-node
+// was actually inserted; re-deriving an already-interned node (the saturated
+// no-op case) registers nothing, so a no-op pass triggers no matcher reindex.
+TEST(RuleContext, MakeRegistersOnlyNewlyInsertedEclasses) {
+  test::TypedTestEGraph eg;
+  auto const existing = eg.Make<test::Op::Var>();
+
+  std::vector<EClassId> new_eclasses;
+  rewrite::RuleContext<test::TypedTestEGraph> ctx{eg, new_eclasses};
+
+  auto const reused = ctx.Make<test::Op::Var>();
+  EXPECT_EQ(reused, existing);
+  EXPECT_TRUE(new_eclasses.empty()) << "re-interned node must not be registered as new";
+
+  auto const fresh = ctx.Make<test::Op::Const>();
+  ASSERT_EQ(new_eclasses.size(), 1U) << "a genuinely new node is registered for reindex";
+  EXPECT_EQ(new_eclasses.front(), fresh);
+}
+
 // === Make: the disambiguator branch via interning (S2, S3) ===
 
 TEST(TypedEGraph, InterningReusesClassForSameKey) {

@@ -114,15 +114,26 @@ class TypedEGraph {
   TypedEGraph(TypedEGraph &&) noexcept = default;
   TypedEGraph &operator=(TypedEGraph &&) noexcept = default;
 
-  /// Construct (or find) the e-class for the enode `S(args...)`. Dispatches
-  /// to `Traits<S>::make` to lower user args and seed the e-class's analysis,
-  /// then emplaces into the core e-graph.
+  /// Construct (or find) the e-class for the enode `S(args...)`, returning the
+  /// full `EmplaceResult`. Dispatches to `Traits<S>::make` to lower user args
+  /// and seed the e-class's analysis, then emplaces into the core e-graph. The
+  /// `did_insert` flag lets callers that track newly-inserted e-classes skip
+  /// work when the node was already interned.
+  template <Symbol S, typename... Args>
+    requires SymbolMakeTraits<Traits<S>, Analysis, Args...>
+  auto Emplace(Args &&...args) -> EmplaceResult {
+    auto made = Traits<S>::make(storage<S>(), std::forward<Args>(args)...);
+    auto const disambiguator = made.lowered.disambiguator.value_or(0);
+    return core_.emplace(S, std::move(made.lowered.children), disambiguator, std::move(made.seed));
+  }
+
+  /// Construct (or find) the e-class for the enode `S(args...)`, returning its
+  /// `EClassId`. Convenience over `Emplace<S>` for callers that do not need the
+  /// insert flag.
   template <Symbol S, typename... Args>
     requires SymbolMakeTraits<Traits<S>, Analysis, Args...>
   auto Make(Args &&...args) -> EClassId {
-    auto made = Traits<S>::make(storage<S>(), std::forward<Args>(args)...);
-    auto const disambiguator = made.lowered.disambiguator.value_or(0);
-    return core_.emplace(S, std::move(made.lowered.children), disambiguator, std::move(made.seed)).eclass_id;
+    return Emplace<S>(std::forward<Args>(args)...).eclass_id;
   }
 
   /// Typed read/write access to one symbol's side-data. Callers use this
