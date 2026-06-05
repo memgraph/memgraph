@@ -27,6 +27,7 @@ enum class BuiltinKind : std::uint8_t {
   Unknown,  ///< UDFs / unrecognised builtins; estimator falls back to default.
   Range,    ///< Cypher range(start, end[, step]); estimator deduces from
             ///< constant int args.
+  Size,     ///< Cypher size(list); folds to the list's known length, no eval.
 };
 
 /// Classify a function name into a BuiltinKind.  Case-insensitive on the
@@ -47,6 +48,7 @@ inline auto BuiltinKindFor(std::string_view name) -> BuiltinKind {
   };
   // TODO: we know candidate is lower case eg, "range" no need to do per charater lowercase
   if (eq_ci("range")) return BuiltinKind::Range;
+  if (eq_ci("size")) return BuiltinKind::Size;
   return BuiltinKind::Unknown;
 }
 
