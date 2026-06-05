@@ -346,42 +346,63 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
     memgraph::auth::PropertyAccessHandler const &handler, std::string_view user_or_role_str) {
   std::vector<std::vector<memgraph::query::TypedValue>> result;
 
-  auto emit = [&](memgraph::auth::PropertyAccessPermissions const &perms, std::string_view entity_kind) {
+  auto emit = [&](memgraph::auth::PropertyAccessPermissions const &perms,
+                  std::string_view entity_kind,
+                  std::string_view global_entity_kind) {
     auto emit_prop_map = [&](std::unordered_map<std::string, memgraph::auth::PropertyPermission> const &prop_map,
-                             std::string_view entity) {
-      auto emit_for_type = [&](memgraph::auth::PropertyPermissionType perm_type, std::string_view type_label) {
-        auto const bit = static_cast<uint8_t>(perm_type);
-        std::vector<std::string> granted;
-        std::vector<std::string> denied;
-        for (auto const &[prop, perm] : prop_map) {
-          if (perm.grants & bit) {
-            granted.push_back(prop);
-          } else if (perm.denies & bit) {
-            denied.push_back(prop);
-          }
-        }
-        std::ranges::sort(granted);
-        std::ranges::sort(denied);
+                             std::string_view scope,
+                             bool is_global) {
+      auto const read_bit = static_cast<uint8_t>(memgraph::auth::PropertyPermissionType::READ);
+      auto const write_bit = static_cast<uint8_t>(memgraph::auth::PropertyPermissionType::WRITE);
 
-        auto emit_row = [&](std::vector<std::string> const &props, std::string_view level, std::string_view verb) {
-          auto prop_list = memgraph::utils::Join(props, ", ");
-          auto privilege = fmt::format("{} {{{}}} ON {} {}", type_label, prop_list, entity_kind, entity);
-          auto description = fmt::format("PROPERTY PERMISSION {} TO {}", verb, user_or_role_str);
-          result.push_back({memgraph::query::TypedValue(std::move(privilege)),
-                            memgraph::query::TypedValue(std::string(level)),
-                            memgraph::query::TypedValue(std::move(description))});
-        };
+      std::vector<std::string> read_granted, read_denied, write_granted, write_denied;
+      for (auto const &[prop, perm] : prop_map) {
+        if (perm.grants & read_bit)
+          read_granted.push_back(prop);
+        else if (perm.denies & read_bit)
+          read_denied.push_back(prop);
+        if (perm.grants & write_bit)
+          write_granted.push_back(prop);
+        else if (perm.denies & write_bit)
+          write_denied.push_back(prop);
+      }
+      std::ranges::sort(read_granted);
+      std::ranges::sort(read_denied);
+      std::ranges::sort(write_granted);
+      std::ranges::sort(write_denied);
 
-        if (!granted.empty()) emit_row(granted, "GRANT", "GRANTED");
-        if (!denied.empty()) emit_row(denied, "DENY", "DENIED");
+      auto emit_row = [&](std::string_view type_label,
+                          std::vector<std::string> const &props,
+                          std::string_view level,
+                          std::string_view verb) {
+        auto prop_list = memgraph::utils::Join(props, ", ");
+        auto privilege = fmt::format("{} {{{}}} ON {}", type_label, prop_list, scope);
+        auto description =
+            fmt::format("{}PROPERTY PERMISSION {} TO {}", is_global ? "GLOBAL " : "", verb, user_or_role_str);
+        result.push_back({memgraph::query::TypedValue(std::move(privilege)),
+                          memgraph::query::TypedValue(std::string(level)),
+                          memgraph::query::TypedValue(std::move(description))});
       };
 
-      emit_for_type(memgraph::auth::PropertyPermissionType::READ, "READ");
-      emit_for_type(memgraph::auth::PropertyPermissionType::WRITE, "SET PROPERTY");
+      auto emit_level = [&](std::vector<std::string> const &read_props,
+                            std::vector<std::string> const &write_props,
+                            std::string_view level,
+                            std::string_view verb) {
+        if (read_props.empty() && write_props.empty()) return;
+        if (!read_props.empty() && read_props == write_props) {
+          emit_row("READ, SET PROPERTY", read_props, level, verb);
+        } else {
+          if (!read_props.empty()) emit_row("READ", read_props, level, verb);
+          if (!write_props.empty()) emit_row("SET PROPERTY", write_props, level, verb);
+        }
+      };
+
+      emit_level(read_granted, write_granted, "GRANT", "GRANTED");
+      emit_level(read_denied, write_denied, "DENY", "DENIED");
     };
 
     if (!perms.GetGlobalRules().empty()) {
-      emit_prop_map(perms.GetGlobalRules(), "*");
+      emit_prop_map(perms.GetGlobalRules(), global_entity_kind, true);
     }
     for (auto const &rule : perms.GetRules()) {
       std::string entity_str;
@@ -394,12 +415,12 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
       if (rule.entities.size() > 1) {
         entity_str += rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY ? " (EXACTLY)" : " (ANY)";
       }
-      emit_prop_map(rule.properties, entity_str);
+      emit_prop_map(rule.properties, fmt::format("{} {}", entity_kind, entity_str), false);
     }
   };
 
-  emit(handler.label_properties(), "NODES CONTAINING LABELS");
-  emit(handler.edge_type_properties(), "EDGES OF TYPE");
+  emit(handler.label_properties(), "NODES CONTAINING LABELS", "ALL LABELS");
+  emit(handler.edge_type_properties(), "EDGES OF TYPE", "ALL EDGE_TYPES");
 
   return result;
 }

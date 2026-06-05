@@ -536,11 +536,13 @@ propertyPermissionList : '{' ( ASTERISK | listOfSymbolicNames ) '}' ;
 
 propertyPermissionType : READ | SET PROPERTY ;
 
-grantPropertyPermission : GRANT permType=propertyPermissionType propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+propertyPermissionTypeList : propertyPermissionType ( ',' propertyPermissionType )* ;
 
-denyPropertyPermission : DENY permType=propertyPermissionType propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+grantPropertyPermission : GRANT permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
 
-revokePropertyPermission : REVOKE permType=propertyPermissionType propList=propertyPermissionList ON entityTypeSpec FROM target=userOrRole ;
+denyPropertyPermission : DENY permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+
+revokePropertyPermission : REVOKE permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec FROM target=userOrRole ;
 
 grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO target=userOrRole ;
 

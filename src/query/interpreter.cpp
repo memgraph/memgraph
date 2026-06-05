@@ -1008,9 +1008,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   auto property_matching_mode = auth_query->property_matching_mode_ == AuthQuery::LabelMatchingMode::EXACTLY
                                     ? auth::MatchingMode::EXACTLY
                                     : auth::MatchingMode::ANY;
-  auto property_permission_type = auth_query->property_permission_type_ == AuthQuery::PropertyPermissionType::WRITE
-                                      ? auth::PropertyPermissionType::WRITE
-                                      : auth::PropertyPermissionType::READ;
+  auto property_permission_types = auth_query->property_permission_types_;
 #endif
   auto password = EvaluateOptionalExpression(auth_query->password_, evaluator);
 
@@ -1837,47 +1835,58 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                      entity_names = std::move(property_entity_names),
                      property_entity_is_node,
                      property_matching_mode,
-                     property_permission_type,
+                     property_permission_types,
                      entity_type,
                      interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
         auto *system_tx = &*interpreter->system_transaction_;
-        switch (action) {
-          case AuthQuery::Action::GRANT_PROPERTY_PERMISSION:
-            auth->GrantPropertyPermission(user_or_role,
-                                          properties,
-                                          entity_names,
-                                          property_entity_is_node,
-                                          property_matching_mode,
-                                          entity_type,
-                                          property_permission_type,
-                                          system_tx);
-            break;
-          case AuthQuery::Action::DENY_PROPERTY_PERMISSION:
-            auth->DenyPropertyPermission(user_or_role,
-                                         properties,
-                                         entity_names,
-                                         property_entity_is_node,
-                                         property_matching_mode,
-                                         entity_type,
-                                         property_permission_type,
-                                         system_tx);
-            break;
-          case AuthQuery::Action::REVOKE_PROPERTY_PERMISSION:
-            auth->RevokePropertyPermission(user_or_role,
+
+        auto dispatch = [&](auth::PropertyPermissionType perm_type) {
+          switch (action) {
+            case AuthQuery::Action::GRANT_PROPERTY_PERMISSION:
+              auth->GrantPropertyPermission(user_or_role,
+                                            properties,
+                                            entity_names,
+                                            property_entity_is_node,
+                                            property_matching_mode,
+                                            entity_type,
+                                            perm_type,
+                                            system_tx);
+              break;
+            case AuthQuery::Action::DENY_PROPERTY_PERMISSION:
+              auth->DenyPropertyPermission(user_or_role,
                                            properties,
                                            entity_names,
                                            property_entity_is_node,
                                            property_matching_mode,
                                            entity_type,
-                                           property_permission_type,
+                                           perm_type,
                                            system_tx);
-            break;
-          default:
-            LOG_FATAL("Unexpected property permission action");
+              break;
+            case AuthQuery::Action::REVOKE_PROPERTY_PERMISSION:
+              auth->RevokePropertyPermission(user_or_role,
+                                             properties,
+                                             entity_names,
+                                             property_entity_is_node,
+                                             property_matching_mode,
+                                             entity_type,
+                                             perm_type,
+                                             system_tx);
+              break;
+            default:
+              LOG_FATAL("Unexpected property permission action");
+          }
+        };
+
+        if (property_permission_types & static_cast<uint8_t>(AuthQuery::PropertyPermissionType::READ)) {
+          dispatch(auth::PropertyPermissionType::READ);
         }
+        if (property_permission_types & static_cast<uint8_t>(AuthQuery::PropertyPermissionType::WRITE)) {
+          dispatch(auth::PropertyPermissionType::WRITE);
+        }
+
         return std::vector<std::vector<TypedValue>>();
       };
 #else
