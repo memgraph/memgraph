@@ -493,7 +493,7 @@ bool PlanPrinter::PreVisit(query::plan::Optional &op) {
 }
 
 PRE_VISIT(Unwind);
-PRE_VISIT(CardinalityScale);
+PRE_VISIT_TS(CardinalityScale);
 PRE_VISIT(Distinct);
 
 bool PlanPrinter::PreVisit(query::plan::Union &op) {
@@ -1408,7 +1408,7 @@ bool PlanToJsonVisitor::PreVisit(Unwind &op) {
 bool PlanToJsonVisitor::PreVisit(CardinalityScale &op) {
   json self;
   self["name"] = "CardinalityScale";
-  self["list_expression"] = ToJson(op.list_expression_, *dba_);
+  self["scale_factor"] = op.scale_factor_;
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

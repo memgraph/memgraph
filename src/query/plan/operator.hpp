@@ -2659,12 +2659,11 @@ class Unwind : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
-/// Emits one row per element of a list expression without binding the elements.
-/// The planner picks this over Unwind when the bound symbol is referenced
-/// nowhere and the list's length is statically known, so iterating the list to
-/// bind each value would be wasted work. The cursor evaluates the list once per
-/// input row, takes its size, discards the values, and yields that many rows;
-/// steady-state memory is a single counter.
+/// Emits `scale_factor_` rows per input row, binding nothing. The planner picks
+/// this over Unwind when the bound symbol is referenced nowhere and the list's
+/// length is statically known, so the count is supplied at plan time and the
+/// list is never evaluated at runtime - iterating, or even materialising, the
+/// list would be wasted work. Steady-state memory is a single counter.
 class CardinalityScale : public memgraph::query::plan::LogicalOperator {
  public:
   static constexpr utils::TypeInfo kType{
@@ -2674,10 +2673,11 @@ class CardinalityScale : public memgraph::query::plan::LogicalOperator {
 
   CardinalityScale() = default;
 
-  CardinalityScale(const std::shared_ptr<LogicalOperator> &input, Expression *list_expression);
+  CardinalityScale(const std::shared_ptr<LogicalOperator> &input, size_t scale_factor);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+  std::string ToString() const override;
 
   bool HasSingleInput() const override { return true; }
 
@@ -2686,7 +2686,7 @@ class CardinalityScale : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  Expression *list_expression_;
+  size_t scale_factor_{0};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };

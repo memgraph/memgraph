@@ -175,7 +175,7 @@ class SimplePlanChecker : public plan::HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(plan::CardinalityScale &op) override {
-    operator_details.push_back("CardinalityScale {" + DescribeExpression(op.list_expression_) + "}");
+    operator_details.push_back("CardinalityScale {n=" + std::to_string(op.scale_factor_) + "}");
     return true;
   }
 
@@ -712,7 +712,7 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "UnwindRangeReturnLiteral",
             .query = "UNWIND range(0, 5) AS x RETURN 1 AS r;",
-            .expected_details = {"Produce {r`0:1}", "CardinalityScale {RANGE(0, 5)}", "Once"},
+            .expected_details = {"Produce {r`0:1}", "CardinalityScale {n=6}", "Once"},
             .expected_rewrites = 0,
         },
         // The introduces-axis lets Output's NamedOutput see symbols the
@@ -737,7 +737,7 @@ INSTANTIATE_TEST_SUITE_P(
             .query = "WITH $p+$p+$p+$p+$p+$p AS a UNWIND range(0, 100) AS X RETURN a;",
             .expected_details =
                 {"Produce {a`1:a}",
-                 "CardinalityScale {RANGE(0, 100)}",
+                 "CardinalityScale {n=101}",
                  "Produce {a`0:(((((ParameterLookup + ParameterLookup) + ParameterLookup) + ParameterLookup) + "
                  "ParameterLookup) + ParameterLookup)}",
                  "Once"},
@@ -748,7 +748,7 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "UnwindConstListReturnLiteral",
             .query = "UNWIND [1, 2, 3] AS x RETURN 42;",
-            .expected_details = {"Produce {42`0:42}", "CardinalityScale {literal}", "Once"},
+            .expected_details = {"Produce {42`0:42}", "CardinalityScale {n=3}", "Once"},
             .expected_rewrites = 0,
         },
         // A referenced sym keeps the Unwind binding even over a constant list.
