@@ -24,7 +24,9 @@
 #include "exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "utils/logging.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::query {
 
@@ -542,6 +544,27 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
 
 bool SymbolGenerator::PreVisit(MapLiteral &map_literal) {
   SetEvaluationModeOnPropertyLookups(map_literal);
+  return true;
+}
+
+bool SymbolGenerator::PreVisit(Function &function) {
+  // Reject a temporal builder applied to a map literal whose constant keys are
+  // not recognised units. Such a key is wrong on every code path, so rejecting
+  // it here - before execution - produces no false positives (a value that only
+  // some paths reach is not checked; only the constant key set is). No other
+  // subexpression is evaluated, so a throwing-but-unreachable expression still
+  // passes this check.
+  const auto &name = function.function_name_;
+  if (IsTemporalMapBuilder(name) && function.arguments_.size() == 1) {
+    if (auto *map = utils::Downcast<MapLiteral>(function.arguments_[0])) {
+      for (const auto &[key, value] : map->elements_) {
+        if (!IsRecognisedTemporalKey(name, key.name)) {
+          throw SemanticException(
+              "{}() does not recognise the temporal map key '{}'.", utils::ToLowerCase(name), key.name);
+        }
+      }
+    }
+  }
   return true;
 }
 

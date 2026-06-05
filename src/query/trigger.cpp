@@ -15,15 +15,12 @@
 #include <cstdint>
 
 #include "dbms/database.hpp"
-#include "query/common.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
-#include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_visitor.hpp"
-#include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan_v2/frontend/egraph_converter.hpp"
@@ -31,7 +28,6 @@
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/memory.hpp"
-#include "utils/string.hpp"
 #ifdef MG_ENTERPRISE
 #include "license/license.hpp"
 #endif
@@ -170,46 +166,14 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
   }
 }
 
-// Rejects a temporal builder applied to a map literal whose constant keys are
-// not recognised units. These keys are wrong on every code path, so failing at
-// create time produces no false positives. No other expression is evaluated:
-// a throwing-but-unreachable subexpression must still create.
-class TemporalKeyValidator : public HierarchicalTreeVisitor {
- public:
-  using HierarchicalTreeVisitor::PostVisit;
-  using HierarchicalTreeVisitor::PreVisit;
-  using HierarchicalTreeVisitor::Visit;
-  using typename HierarchicalTreeVisitor::ReturnType;
-
-  bool PreVisit(Function &function) override {
-    const auto &name = function.function_name_;
-    if (IsTemporalMapBuilder(name) && function.arguments_.size() == 1) {
-      if (auto *map = utils::Downcast<MapLiteral>(function.arguments_[0])) {
-        for (const auto &[key, value] : map->elements_) {
-          if (!IsRecognisedTemporalKey(name, key.name)) {
-            throw SemanticException(
-                "{}() does not recognise the temporal map key '{}'.", utils::ToLowerCase(name), key.name);
-          }
-        }
-      }
-    }
-    return true;
-  }
-
-  ReturnType Visit(Identifier & /*unused*/) override { return true; }
-
-  ReturnType Visit(PrimitiveLiteral & /*unused*/) override { return true; }
-
-  ReturnType Visit(ParameterLookup & /*unused*/) override { return true; }
-
-  ReturnType Visit(EnumValueAccess & /*unused*/) override { return true; }
-};
-
-void ValidateTriggerBody(Query *query) {
-  auto *cypher_query = utils::Downcast<CypherQuery>(query);
-  if (!cypher_query) return;
-  TemporalKeyValidator validator;
-  cypher_query->Accept(validator);
+// Builds the parse-time predefined identifiers (createdVertices, etc.) for an
+// event type as raw pointers, the form MakeSymbolTable consumes.
+std::vector<Identifier *> PredefinedIdentifierPointers(
+    std::vector<std::pair<Identifier, TriggerIdentifierTag>> &identifiers) {
+  std::vector<Identifier *> pointers;
+  pointers.reserve(identifiers.size());
+  std::ranges::transform(identifiers, std::back_inserter(pointers), [](auto &identifier) { return &identifier.first; });
+  return pointers;
 }
 }  // namespace
 
@@ -224,10 +188,16 @@ Trigger::Trigger(std::string name, const std::string &query, const UserParameter
       event_type_{event_type},
       creator_{creator ? creator->clone() : nullptr},  // deep copy (otherwise not thread safe)
       privilege_context_{privilege_context} {
-  // Structural create-time check: a temporal builder over a constant-keyed map
-  // with an unrecognised key is invalid on every path, so reject it now rather
-  // than letting the trigger fail silently at fire time.
-  ValidateTriggerBody(parsed_statements_.query);
+  // Run the standard semantic pass at create time for both privilege contexts.
+  // It performs the create-time structural checks (including unrecognised
+  // temporal map keys) so a trigger that is wrong on every path is rejected now
+  // rather than failing at fire time. INVOKER triggers defer planning to fire
+  // time, so this is the only create-time check they get; DEFINER additionally
+  // builds the plan below (which repeats the pass cheaply).
+  if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_statements_.query)) {
+    auto identifiers = GetPredefinedIdentifiers(event_type_);
+    MakeSymbolTable(cypher_query, PredefinedIdentifierPointers(identifiers));
+  }
   // We check immediately if the query is valid by trying to create a plan.
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
     GetPlan(db_accessor, db_name, creator_);
@@ -248,17 +218,12 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
     ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
 
-    std::vector<Identifier *> predefined_identifiers;
-    predefined_identifiers.reserve(identifiers.size());
-    std::ranges::transform(
-        identifiers, std::back_inserter(predefined_identifiers), [](auto &identifier) { return &identifier.first; });
-
     plan::v2::QueryPlannerContext planner_context;
     auto logical_plan = MakeLogicalPlan(std::move(ast_storage),
                                         utils::Downcast<CypherQuery>(parsed_statements_.query),
                                         parsed_statements_.parameters,
                                         db_accessor,
-                                        predefined_identifiers,
+                                        PredefinedIdentifierPointers(identifiers),
                                         planner_context);
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));

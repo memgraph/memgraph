@@ -1582,6 +1582,22 @@ TYPED_TEST(TestSymbolGenerator, ListComprehensionInReturn) {
   ASSERT_EQ(collector.symbols_.size(), 0);
 }
 
+TYPED_TEST(TestSymbolGenerator, TemporalBuilderUnknownMapKeyRejected) {
+  // RETURN date({yir: 2020}) - 'yir' is not a date unit. The builder would throw
+  // only at runtime; the semantic pass now rejects the wrong-on-every-path key
+  // before execution, so every query (and trigger) catches it at submit/create.
+  auto *bad_map = MAP({this->storage.GetPropertyIx("yir"), LITERAL(2020)});
+  auto *bad_date = this->storage.template Create<Function>("DATE", std::vector<Expression *>{bad_map});
+  auto bad_query = QUERY(SINGLE_QUERY(RETURN(bad_date, AS("d"))));
+  EXPECT_THROW(MakeSymbolTable(bad_query), SemanticException);
+
+  // A recognised key passes the semantic pass (singular and plural alike).
+  auto *good_map = MAP({this->storage.GetPropertyIx("years"), LITERAL(2020)});
+  auto *good_date = this->storage.template Create<Function>("DATE", std::vector<Expression *>{good_map});
+  auto good_query = QUERY(SINGLE_QUERY(RETURN(good_date, AS("d"))));
+  EXPECT_NO_THROW(MakeSymbolTable(good_query));
+}
+
 TYPED_TEST(TestSymbolGenerator, ListComprehensionInWith) {
   // WITH [x in [1, 2, 3] WHERE x = 2 | x + 1] AS added_numbers RETURN added_numbers
   auto *ident = IDENT("x");

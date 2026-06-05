@@ -1253,7 +1253,7 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
 TYPED_TEST(TriggerStoreTest, TemporalKeyValidationAtCreate) {
   memgraph::query::TriggerStore store{this->testing_directory};
 
-  auto add = [&](const char *name, const char *query) {
+  auto add_with = [&](const char *name, const char *query, memgraph::query::TriggerPrivilegeContext privilege_context) {
     store.AddTrigger(name,
                      query,
                      {},
@@ -1264,8 +1264,11 @@ TYPED_TEST(TriggerStoreTest, TemporalKeyValidationAtCreate) {
                      memgraph::query::InterpreterConfig::Query{},
                      this->auth_checker.GenQueryUser(std::nullopt, {}),
                      memgraph::dbms::kDefaultDB,
-                     memgraph::query::TriggerPrivilegeContext::DEFINER,
+                     privilege_context,
                      nullptr);
+  };
+  auto add = [&](const char *name, const char *query) {
+    add_with(name, query, memgraph::query::TriggerPrivilegeContext::DEFINER);
   };
 
   // Unknown temporal map keys are wrong on every path: reject at create time.
@@ -1291,6 +1294,13 @@ TYPED_TEST(TriggerStoreTest, TemporalKeyValidationAtCreate) {
   ASSERT_NO_THROW(add("ok_out_of_range", "RETURN localtime({hour: 999})"));
   ASSERT_NO_THROW(add("ok_guarded_value", "RETURN CASE WHEN false THEN localtime({hour: 999}) ELSE 1 END"));
   ASSERT_NO_THROW(add("ok_div_zero", "RETURN CASE WHEN false THEN 1 / 0 ELSE 1 END"));
+
+  // INVOKER triggers defer planning to fire time, but the semantic pass still
+  // runs at create time, so unrecognised temporal keys are rejected for them too.
+  using memgraph::query::TriggerPrivilegeContext;
+  ASSERT_THROW(add_with("bad_invoker", "RETURN date({yir: 2020})", TriggerPrivilegeContext::INVOKER),
+               memgraph::utils::BasicException);
+  ASSERT_NO_THROW(add_with("ok_invoker", "RETURN date({years: 2020})", TriggerPrivilegeContext::INVOKER));
 }
 
 TYPED_TEST(TriggerStoreTest, DropTrigger) {
