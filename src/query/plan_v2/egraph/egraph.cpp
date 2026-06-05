@@ -11,15 +11,18 @@
 
 #include "query/plan_v2/egraph/egraph.hpp"
 
+#include <cmath>
+#include <cstdint>
 #include <optional>
+#include <span>
 
-#include "query/plan_v2/cost/builtin_estimator.hpp"
 #include "query/plan_v2/egraph/builtin_functions.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 
 namespace memgraph::query::plan::v2 {
 
 using enum symbol;
+using EGraph = planner::core::EGraph<symbol, analysis>;
 
 egraph::egraph() : pimpl_(std::make_unique<impl>()) {}
 
@@ -71,11 +74,47 @@ auto egraph::MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> 
   return from_core(pimpl_->graph.Make<NamedOutput>(name, to_core(sym), to_core(expr)).eclass_id);
 }
 
+// If `eclass_id` is statically known to hold an int constant, return it.  Reads
+// `known_constant_value`, so it fires for any constant-valued e-class (a
+// literal, or a folded expression), not just one still carrying a `Literal`.
+auto TryReadIntLiteral(EGraph const &eg, planner::core::EClassId eclass_id) -> std::optional<int64_t> {
+  auto const *expr = eg.analysis_of(eclass_id).expression();
+  if (expr == nullptr || !expr->known_constant_value) return std::nullopt;
+
+  auto const &val = *expr->known_constant_value;
+  if (val.IsInt()) return val.ValueInt();
+  // Tolerate doubles that exactly represent an integer (e.g. range(0.0, 5.0)
+  // from a parser that promoted ints to doubles); reject non-integral doubles.
+  if (val.IsDouble()) {
+    auto const d = val.ValueDouble();
+    if (std::isfinite(d) && std::trunc(d) == d) return static_cast<int64_t>(d);
+  }
+  return std::nullopt;
+}
+
+// The provably-exact length of `range(start, end)` when both bounds are
+// statically-known integers (`nullopt` otherwise).  Cypher range is inclusive
+// on both ends; reversed bounds give an empty list.  Computed once here, at the
+// make-time seed; the search plane reads the resulting fact rather than
+// recomputing.
+auto ProvableRangeLength(EGraph const &eg, std::span<planner::core::EClassId const> args)
+    -> std::optional<std::size_t> {
+  if (args.size() != 2) return std::nullopt;
+  auto const a = TryReadIntLiteral(eg, args[0]);
+  auto const b = TryReadIntLiteral(eg, args[1]);
+  if (!a || !b) return std::nullopt;
+  if (*b < *a) return std::size_t{0};
+  return static_cast<std::size_t>(*b - *a) + 1;
+}
+
 // Analysis facts a builtin's semantics establish at plan time. `range` over
 // constant integer bounds has a known length; `size` of a known-length list
 // folds to that length as a constant, with no evaluation or materialisation.
-auto BuiltinAnalysis(EGraph const &eg, std::string_view name, std::span<planner::core::EClassId const> args)
-    -> ExpressionAnalysis {
+// Purity gate: only a pure function's output is a statically-known fact, so an
+// impure call seeds nothing regardless of kind.
+auto BuiltinAnalysis(EGraph const &eg, std::string_view name, std::span<planner::core::EClassId const> args,
+                     bool is_pure) -> ExpressionAnalysis {
+  if (!is_pure) return {};
   switch (BuiltinKindFor(name)) {
     case BuiltinKind::Range:
       return {.known_list_length = ProvableRangeLength(eg, args)};
@@ -94,10 +133,10 @@ auto BuiltinAnalysis(EGraph const &eg, std::string_view name, std::span<planner:
   return {};
 }
 
-auto egraph::MakeFunction(std::string_view name, std::span<eclass const> args) -> eclass {
+auto egraph::MakeFunction(std::string_view name, std::span<eclass const> args, bool is_pure) -> eclass {
   auto core_args = to_core(args);
-  auto seed = BuiltinAnalysis(pimpl_->graph.core(), name, core_args);
-  return from_core(pimpl_->graph.Make<Function>(name, std::move(core_args), std::move(seed)).eclass_id);
+  auto seed = BuiltinAnalysis(pimpl_->graph.core(), name, core_args, is_pure);
+  return from_core(pimpl_->graph.Make<Function>(name, std::move(core_args), std::move(seed), is_pure).eclass_id);
 }
 
 auto egraph::MakeUnwind(eclass input, eclass sym, eclass list_expr) -> eclass {

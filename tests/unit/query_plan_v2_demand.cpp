@@ -30,7 +30,9 @@ namespace memgraph::query::plan::v2 {
 namespace {
 
 // range(1, 3) -> a list of statically-known length 3.
-auto Range1To3(egraph &eg) -> eclass { return eg.MakeFunction("range", {IntLit(eg, 1), IntLit(eg, 3)}); }
+auto Range1To3(egraph &eg) -> eclass {
+  return eg.MakeFunction("range", {IntLit(eg, 1), IntLit(eg, 3)}, /*is_pure=*/true);
+}
 
 auto HasIntroducedBit(std::span<Alternative const> alts, uint16_t bit) -> bool {
   return std::ranges::any_of(alts, [bit](Alternative const &a) { return a.introduces.test(bit); });
