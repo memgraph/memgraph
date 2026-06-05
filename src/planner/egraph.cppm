@@ -293,6 +293,14 @@ struct EGraph : private detail::EGraphBase {
   }
 
   /**
+   * @brief Analysis of `id`'s e-class, canonicalising first.
+   *
+   * The one place "canonicalise then fetch analysis" lives; a fact-gated read
+   * takes the arm it needs off the returned Analysis.
+   */
+  auto analysis_of(EClassId id) const -> Analysis const & { return eclass(find(id)).analysis(); }
+
+  /**
    * @brief Check if an e-class exists and is canonical
    */
   auto has_class(EClassId id) const -> bool;

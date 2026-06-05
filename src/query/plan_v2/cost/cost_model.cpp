@@ -373,7 +373,7 @@ struct symbol_cost_traits<Unwind> {
     auto const sym_eclass = n.children()[sym];
     auto const &[_, sym_cost] = children[sym]->resolve();
     auto const list_eclass = n.children()[list];
-    auto const *list_expr = ctx.syms.egraph.eclass(ctx.syms.egraph.find(list_eclass)).analysis().expression();
+    auto const *list_expr = ctx.syms.egraph.analysis_of(list_eclass).expression();
     auto const known_length = list_expr != nullptr ? list_expr->known_list_length : std::nullopt;
     return UnwindFlatMap(*children[input],
                          *children[list],
