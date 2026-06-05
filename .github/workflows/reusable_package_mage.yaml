@@ -87,6 +87,10 @@ on:
         type: string
         description: "Version to build"
         default: ''
+      daily_build:
+        type: boolean
+        description: "Selects the daily/master PR-style version (<tag>+pr<pr>~<commit>) instead of using release/get_version.py."
+        default: false
 
 run-name: "Build and test MAGE"
 
@@ -95,9 +99,9 @@ env:
   ARCH: "${{ inputs.arch }}"
   DOCKER_REPOSITORY_NAME: memgraph/memgraph-mage
   BUILD_TYPE: "${{ inputs.build_type }}"
-  # Split-debug is implicit: always on for RelWithDebInfo packaging, the only
-  # build type CI uses. The MAGE deb build now requires the .debug sidecars
-  # the split produces; build-deb.sh errors out if they're missing.
+  # Split-debug is implicit: on for RelWithDebInfo packaging, the build type CI
+  # uses. When on, the MAGE deb build also emits a memgraph-mage-debuginfo deb
+  # from the .debug sidecars; when off, build-deb.sh skips that deb gracefully.
   SPLIT_DEBUG: "${{ inputs.build_type == 'RelWithDebInfo' && 'true' || 'false' }}"
   BUILD_DOCKER_IMAGE: "${{ inputs.build_docker_image }}"
   MALLOC: "${{ inputs.malloc }}"
@@ -123,6 +127,7 @@ env:
   MEMGRAPH_DOWNLOAD_LINK: ${{ inputs.memgraph_download_link }}
   MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK: ${{ inputs.memgraph_debuginfo_download_link }}
   VERSION: "${{ inputs.version }}"
+  DAILY_BUILD: "${{ inputs.daily_build }}"
   CI_BRANCH: "${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}"
   MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
   MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
@@ -199,13 +204,15 @@ jobs:
 
       - name: Get Memgraph version
         run: |
-          variant=binary
-          version="${VERSION}"
-          if [[ -n "$version" ]]; then
-            # strip "v" prefix if it exists
-            version="${version#v}"
+          # Match the MEMGRAPH_VERSION format with that used in reusable_package.yaml,
+          # so MAGE artifacts are versioned like the memgraph package they bundle.
+          # Daily builds use the PR-style scheme "{tag}+pr{number}~{commit}"; everything
+          # else (RC/manual/diff) uses release/get_version.py.
+          if [[ "$DAILY_BUILD" == "true" ]]; then
+            version="$(tools/ci/get_master_package_version.sh)"
+          else
+            version="$(release/get_version.py --memgraph-root-dir "$(pwd)" "${VERSION#v}" '' --variant binary)"
           fi
-          version="$(release/get_version.py --memgraph-root-dir $(pwd) "$VERSION" '' --variant "$variant")"
           echo "MEMGRAPH_VERSION=${version}" >> $GITHUB_ENV
 
       - name: Create wheels directory and fetch wheels if available

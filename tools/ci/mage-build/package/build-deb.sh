@@ -50,14 +50,33 @@ tar -xvzf $PACKAGE_DIR -C $SCRIPT_DIR/build/usr/lib/memgraph/
 DEBUG_PACKAGE_DIR="$(dirname "$PACKAGE_DIR")/mage-debug.tar.gz"
 DEBUGINFO_STAGE_ROOT="$SCRIPT_DIR/build-debuginfo/usr/lib/memgraph"
 mkdir -pv "$DEBUGINFO_STAGE_ROOT/query_modules"
-if [[ -f "$DEBUG_PACKAGE_DIR" ]] && \
-   tar -tzf "$DEBUG_PACKAGE_DIR" | grep -q '\.debug$'; then
-    HAS_DEBUGINFO=true
+
+# Diagnostic: who we are and which tarballs actually sit next to mage.tar.gz.
+# A missing or misdetected mage-debug.tar.gz is then obvious in the build log.
+echo "build-deb.sh: user=$(id -un) HOME=${HOME:-} PACKAGE_DIR=$PACKAGE_DIR"
+ls -la "$(dirname "$PACKAGE_DIR")"/*.tar.gz 2>&1 || true
+
+# Detect the split-debug sidecar. Read the listing into a variable before
+# grepping: `tar -tzf … | grep -q` lets grep close the pipe early, and the
+# resulting SIGPIPE on tar is fatal under `set -o pipefail`.
+HAS_DEBUGINFO=false
+if [[ -f "$DEBUG_PACKAGE_DIR" ]]; then
+    debug_listing="$(tar -tzf "$DEBUG_PACKAGE_DIR" 2>/dev/null || true)"
+    if grep -qm1 '\.debug$' <<<"$debug_listing"; then
+        HAS_DEBUGINFO=true
+    fi
+fi
+
+if [[ "$HAS_DEBUGINFO" == "true" ]]; then
     tar -xvzf "$DEBUG_PACKAGE_DIR" -C "$DEBUGINFO_STAGE_ROOT"
 else
-    HAS_DEBUGINFO=false
-    echo "::warning::No .debug sidecars at $DEBUG_PACKAGE_DIR — skipping memgraph-mage-debuginfo deb. Pass --split-debug to produce it."
-    awk 'BEGIN{RS=""; ORS="\n\n"} !/^Package: memgraph-mage-debuginfo$/' \
+    # No sidecars: build-mage ran without --split-debug (which stays optional
+    # for MAGE, as it is for Memgraph). Skip the debuginfo deb gracefully.
+    echo "::warning::No .debug sidecars at $DEBUG_PACKAGE_DIR — skipping memgraph-mage-debuginfo deb ($BUILD_TYPE build)."
+    # Drop the debuginfo stanza from debian/control. Paragraph mode (RS="")
+    # treats each stanza as one record; anchor on embedded newlines because
+    # plain ^/$ match the whole record, not the Package: line within it.
+    awk 'BEGIN{RS="";ORS="\n\n"} $0 !~ /(^|\n)Package: memgraph-mage-debuginfo(\n|$)/' \
         "$SCRIPT_DIR/debian/control" > "$SCRIPT_DIR/debian/control.tmp"
     mv "$SCRIPT_DIR/debian/control.tmp" "$SCRIPT_DIR/debian/control"
     # debhelper's dh_install processes every debian/<pkg>.install file it
