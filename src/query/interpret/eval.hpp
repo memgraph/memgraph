@@ -240,27 +240,20 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
 
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
-  ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
-                      storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
-                      const int64_t *hops_counter = nullptr, const std::shared_ptr<QueryUserOrRole> &user_or_role = {},
-                      const std::shared_ptr<QueryUserOrRole> &triggering_user = {}
-#ifdef MG_ENTERPRISE
-                      ,
-                      FineGrainedAuthChecker *auth_checker = nullptr
-#endif
-                      )
+  ExpressionEvaluator(Frame *frame, ExecutionContext const &context, storage::View view,
+                      FrameChangeCollector *frame_change_collector = nullptr, int64_t const *hops_counter = nullptr)
       : frame_(frame),
-        symbol_table_(&symbol_table),
-        ctx_(&ctx),
-        dba_(dba),
+        symbol_table_(&context.symbol_table),
+        ctx_(&context.evaluation_context),
+        dba_(context.db_accessor),
         view_(view),
         frame_change_collector_(frame_change_collector),
         hops_counter_(hops_counter),
-        user_or_role_(user_or_role.get()),
-        triggering_user_(triggering_user.get())
+        user_or_role_(context.user_or_role.get()),
+        triggering_user_(context.triggering_user.get())
 #ifdef MG_ENTERPRISE
         ,
-        auth_checker_(auth_checker)
+        auth_checker_(context.auth_checker.get())
 #endif
   {
   }

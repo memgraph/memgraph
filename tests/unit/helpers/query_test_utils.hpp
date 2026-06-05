@@ -167,8 +167,11 @@ struct QueryEvaluationComponent {
 
     ctx.properties = NamesToProperties(builder.ast_storage.properties_, &storage_component.dba);
     ctx.labels = NamesToLabels(builder.ast_storage.labels_, &storage_component.dba);
-    ExpressionEvaluator eval(
-        &frame, builder.symbol_table, ctx, &storage_component.dba, storage::View::OLD, &frame_change_collector);
+    ExecutionContext execution_context;
+    execution_context.db_accessor = &storage_component.dba;
+    execution_context.symbol_table = builder.symbol_table;
+    execution_context.evaluation_context = ctx;
+    ExpressionEvaluator eval(&frame, execution_context, storage::View::OLD, &frame_change_collector);
     return expr->Accept(eval);
   }
 
