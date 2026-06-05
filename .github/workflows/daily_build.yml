@@ -189,12 +189,11 @@ jobs:
       - name: Resolve memgraph version
         id: version
         run: |
-          # Daily version strings include "+" and "~" (e.g. 3.10.0+57~1935c004bd81)
-          # — both are legal in S3 keys and stored verbatim, but "+" needs to
-          # be percent-encoded in URL paths or HTTP clients treat it as a
-          # space. memgraph_version_url is the URL-safe form for download
-          # links; memgraph_version stays raw for any filename matching.
-          version="$(release/get_version.py --memgraph-root-dir "$(pwd)" '' '' --variant binary)"
+          # The version string includes "+" and "~" — both are legal in S3 keys and
+          # stored verbatim, but "+" must be percent-encoded in URL paths or HTTP
+          # clients treat it as a space. memgraph_version_url is the URL-safe form
+          # for download links; memgraph_version stays raw for any filename matching.
+          version="$(tools/ci/get_master_package_version.sh)"
           version_url="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$version")"
           echo "Resolved memgraph version: $version"
           echo "URL-safe version: $version_url"

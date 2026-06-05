@@ -499,35 +499,50 @@ jobs:
       - name: "Rename Package"
         if: github.ref == 'refs/heads/master' && !inputs.ref
         run: |
-          tag="$(tools/ci/get_latest_tag.sh)"
-          pr="$(git log --pretty=%B | grep -oP '(?<=\(#)\d+(?=\))' | head -n 1)"
-          commit="$(git rev-parse HEAD | cut -c1-12)"
+          # during testing, we will keep the default naming because it uses the
+          # previous tag + number of commits since and the current commit hash
+          # if on master, then store the latest PR number and the commit
 
+          old_debuginfo=""
+          new_debuginfo=""
           if [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
+            core="$(tools/ci/get_master_package_version.sh)"
             old_name="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph_*.deb 2>/dev/null | head -n 1)"
-            new_name="memgraph_${tag}+pr${pr}~${commit}-1_${ARCH}64.deb"
+            new_name="memgraph_${core}-1_${ARCH}64.deb"
+            old_debuginfo="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)"
+            new_debuginfo="memgraph-debuginfo_${core}-1_${ARCH}64.deb"
           else
+            core="$(tools/ci/get_master_package_version.sh rpm)"
             old_name="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)"
             if [[ "$ARCH" == "amd" ]]; then
               arch_str="x86_64"
             else
               arch_str="aarch64"
             fi
-            new_name="memgraph-${tag}_0.pr${pr}.${commit}-1.${arch_str}.rpm"
+            new_name="memgraph-${core}-1.${arch_str}.rpm"
+            old_debuginfo="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-debuginfo-*.rpm 2>/dev/null | head -n 1)"
+            new_debuginfo="memgraph-debuginfo-${core}-1.${arch_str}.rpm"
           fi
           mv -v "$old_name" "$PACKAGE_ARTIFACT_DIR/$new_name"
+          # Sidecar only exists for split-debug (RelWithDebInfo) builds.
+          if [[ -n "$old_debuginfo" ]]; then
+            mv -v "$old_debuginfo" "$PACKAGE_ARTIFACT_DIR/$new_debuginfo"
+          fi
 
+          if [[ "$BUILD_DOCKER_IMAGE" != "none" ]]; then
+            docker_core="$(tools/ci/get_master_package_version.sh docker)"
+          fi
           if [[ "$BUILD_DOCKER_IMAGE" == "prod" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
             for old_name in "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz; do
               [ -e "$old_name" ] || continue
-              new_name="memgraph-${tag}_pr${pr}_${commit}-docker.tar.gz"
+              new_name="memgraph-${docker_core}-docker.tar.gz"
               mv -v "$old_name" "$DOCKER_PROD_ARTIFACT_DIR/$new_name"
             done
           fi
           if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
             for old_name in "$DOCKER_DEBUG_ARTIFACT_DIR"/memgraph*-docker.tar.gz; do
               [ -e "$old_name" ] || continue
-              new_name="memgraph-${tag}_pr${pr}_${commit}-relwithdebinfo-docker.tar.gz"
+              new_name="memgraph-${docker_core}-relwithdebinfo-docker.tar.gz"
               mv -v "$old_name" "$DOCKER_DEBUG_ARTIFACT_DIR/$new_name"
             done
           fi

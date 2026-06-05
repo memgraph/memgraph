@@ -198,14 +198,18 @@ jobs:
           fi
 
       - name: Get Memgraph version
+        env:
+          INPUT_REF: ${{ inputs.ref }}
         run: |
-          variant=binary
-          version="${VERSION}"
-          if [[ -n "$version" ]]; then
-            # strip "v" prefix if it exists
-            version="${version#v}"
+          # Match the MEMGRAPH_VERSION format with that used in reusable_package.yaml:
+          # If building on `master` (i.e. the scheduled daily build) then use the format
+          # "{tag}_pr{number}_commit{hash}"
+          # Otherwise use the format provided by get_version.py
+          if [[ -z "$VERSION" && -z "$INPUT_REF" && "$GITHUB_REF" == "refs/heads/master" ]]; then
+            version="$(tools/ci/get_master_package_version.sh)"
+          else
+            version="$(release/get_version.py --memgraph-root-dir "$(pwd)" "${VERSION#v}" '' --variant binary)"
           fi
-          version="$(release/get_version.py --memgraph-root-dir $(pwd) "$VERSION" '' --variant "$variant")"
           echo "MEMGRAPH_VERSION=${version}" >> $GITHUB_ENV
 
       - name: Create wheels directory and fetch wheels if available
