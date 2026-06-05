@@ -964,6 +964,10 @@ void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
     }
     user.fine_grained_access_handler().label_permissions().GrantGlobal(kAllLabelPermissions);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(kAllEdgeTypePermissions);
+    user.property_access_handler().label_properties().GrantGlobal("*", PropertyPermissionType::READ);
+    user.property_access_handler().label_properties().GrantGlobal("*", PropertyPermissionType::WRITE);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", PropertyPermissionType::READ);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", PropertyPermissionType::WRITE);
     user.db_access().GrantAll();
   }
 #endif
@@ -1261,11 +1265,18 @@ bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
         role.fine_grained_access_handler().edge_type_permissions().GrantGlobal(edgePermissions);
       };
 
+  auto const grant_property_privileges = [](Role &role, PropertyPermissionType type) {
+    role.property_access_handler().label_properties().GrantGlobal("*", type);
+    role.property_access_handler().edge_type_properties().GrantGlobal("*", type);
+  };
+
   make_role("admin", [&](Role &role) {
     for (auto permission : kPermissionsAll) {
       role.permissions().Grant(permission);
     }
     grant_privileges(role, kAllLabelPermissions, kAllEdgeTypePermissions);
+    grant_property_privileges(role, PropertyPermissionType::READ);
+    grant_property_privileges(role, PropertyPermissionType::WRITE);
     role.db_access().GrantAll();
   });
 
@@ -1280,12 +1291,15 @@ bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
       role.permissions().Grant(permission);
     }
     grant_privileges(role, kAllLabelPermissions, kAllEdgeTypePermissions);
+    grant_property_privileges(role, PropertyPermissionType::READ);
+    grant_property_privileges(role, PropertyPermissionType::WRITE);
   });
 
   make_role("readonly", [&](Role &role) {
     role.permissions().Grant(Permission::MATCH);
     role.permissions().Grant(Permission::STATS);
     grant_privileges(role, FineGrainedPermission::READ, FineGrainedPermission::READ);
+    grant_property_privileges(role, PropertyPermissionType::READ);
   });
 
   return true;

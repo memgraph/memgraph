@@ -3307,12 +3307,12 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForUser
   });
 
   // denied row
-  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {dob} ON NODES :Employee");
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {dob} ON NODES CONTAINING LABELS :Employee");
   EXPECT_EQ(prop_rows[0][1].ValueString(), "DENY");
   EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION DENIED TO USER");
 
   // granted row (collapsed)
-  EXPECT_EQ(prop_rows[1][0].ValueString(), "READ {salary, ssn} ON NODES :Employee");
+  EXPECT_EQ(prop_rows[1][0].ValueString(), "READ {salary, ssn} ON NODES CONTAINING LABELS :Employee");
   EXPECT_EQ(prop_rows[1][1].ValueString(), "GRANT");
   EXPECT_EQ(prop_rows[1][2].ValueString(), "PROPERTY PERMISSION GRANTED TO USER");
 }
@@ -3341,7 +3341,7 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForRole
   }
 
   ASSERT_EQ(prop_rows.size(), 1);
-  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {amount} ON RELATIONSHIPS :PAID");
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {amount} ON EDGES OF TYPE :PAID");
   EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
   EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO ROLE");
 }
@@ -3369,7 +3369,7 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesWildcardPropertyPermission) {
   }
 
   ASSERT_EQ(prop_rows.size(), 1);
-  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {*} ON NODES :Employee");
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {*} ON NODES CONTAINING LABELS :Employee");
   EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
   EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO USER");
 }

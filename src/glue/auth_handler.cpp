@@ -398,8 +398,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
     }
   };
 
-  emit(handler.label_properties(), "NODES");
-  emit(handler.edge_type_properties(), "RELATIONSHIPS");
+  emit(handler.label_properties(), "NODES CONTAINING LABELS");
+  emit(handler.edge_type_properties(), "EDGES OF TYPE");
 
   return result;
 }
