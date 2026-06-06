@@ -134,11 +134,14 @@ class RewriteRule {
     return roots;
   }
 
-  /// Populate match buffer using VM executor.
+  /// Populate match buffer using VM executor. `active`, when non-null, restricts
+  /// a symbol-rooted pattern's root candidates to that set (see
+  /// VMExecutor::execute); null matches every candidate.
   template <typename VMExecutor>
-  void match(MatcherIndex<Symbol, Analysis> &index, VMExecutor &vm_executor, MatcherContext &ctx) const {
+  void match(MatcherIndex<Symbol, Analysis> &index, VMExecutor &vm_executor, MatcherContext &ctx,
+             boost::unordered_flat_set<EClassId> const *active = nullptr) const {
     ctx.clear();
-    vm_executor.execute(compiled_, index, ctx.match_ctx.arena(), ctx.match_buffer);
+    vm_executor.execute(compiled_, index, ctx.match_ctx.arena(), ctx.match_buffer, active);
   }
 
   /// Apply matches from buffer to egraph. Returns number of rewrites.

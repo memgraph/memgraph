@@ -217,6 +217,46 @@ void BM_PlanV2_SettledRegion(benchmark::State &state) {
 
 BENCHMARK(BM_PlanV2_SettledRegion)->ArgsProduct({{0, 256, 1024, 4096}, {0, 1}})->Unit(benchmark::kMicrosecond);
 
+// Same-symbol settled region: the case the coarse latch *cannot* help, and the
+// one per-candidate matching would. The driver is a deep Add chain that folds
+// one level per pass, so the Add-fold rule stays armed for the whole climb. The
+// settled region is `width` independent Add folds of the *same* symbol: they
+// fold on pass 1 and never change, but because the driver keeps Add armed, every
+// pass re-matches all `width` settled Add candidates too. The latch arms at
+// symbol granularity, so it can only drop a rule when its whole symbol goes
+// quiet - it cannot drop the settled Adds while the driver's Adds are live.
+// If per-pass cost grows with `width` under Latched, that growth is the residual
+// the latch leaves on the table and per-candidate matching would remove.
+auto BuildSameSymbolSettled(int64_t width) -> egraph {
+  egraph eg;
+  auto const two = Lit(eg, 2);
+  eclass cur = Lit(eg, 1);
+  for (int level = 0; level < 24; ++level) {
+    cur = eg.MakeAdd(cur, two);  // all Add, so the fold rule never goes quiet
+  }
+  benchmark::DoNotOptimize(cur);
+  for (int64_t w = 0; w < width; ++w) {
+    auto const base = 1000 + (w * 2);
+    benchmark::DoNotOptimize(eg.MakeAdd(Lit(eg, base), Lit(eg, base + 1)));
+  }
+  return eg;
+}
+
+void BM_PlanV2_SameSymbolSettled(benchmark::State &state) {
+  auto const width = state.range(0);
+  auto const mode = state.range(1) == 0 ? ArmingMode::ArmAll : ArmingMode::Latched;
+  for (auto _ : state) {
+    state.PauseTiming();
+    auto eg = BuildSameSymbolSettled(width);
+    Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
+    state.ResumeTiming();
+    benchmark::DoNotOptimize(rewriter.saturate(RewriteConfig::Unlimited(), mode));
+  }
+  state.SetItemsProcessed(state.iterations() * (width + 24));
+}
+
+BENCHMARK(BM_PlanV2_SameSymbolSettled)->ArgsProduct({{0, 256, 1024, 4096}, {0, 1}})->Unit(benchmark::kMicrosecond);
+
 }  // namespace
 
 BENCHMARK_MAIN();

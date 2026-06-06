@@ -232,6 +232,7 @@ class Rewriter {
     ArmingIndex<Symbol> arming;
     std::size_t closure_depth = 0;
     boost::unordered_flat_set<std::size_t> armed;
+    active_sparse_ = false;  // first full-arm pass matches every candidate
     if (mode == ArmingMode::Latched) {
       arming = BuildArmingIndex(rules_);
       closure_depth = MaxRuleSetPatternDepth(rules_);
@@ -268,7 +269,8 @@ class Rewriter {
         rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule);
       } else {
         egraph_->clear_touched();  // capture only this pass's changes
-        rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule, &armed);
+        rewrites_this_iter =
+            apply_once_with_stats(result.rewrites_per_rule, &armed, active_sparse_ ? &active_eclasses_ : nullptr);
       }
       result.rewrites_applied += rewrites_this_iter;
 
@@ -317,7 +319,8 @@ class Rewriter {
    * @return Total number of rewrites applied across all rules
    */
   auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats,
-                             boost::unordered_flat_set<std::size_t> const *armed = nullptr) -> std::size_t {
+                             boost::unordered_flat_set<std::size_t> const *armed = nullptr,
+                             boost::unordered_flat_set<EClassId> const *active = nullptr) -> std::size_t {
     assert(!egraph_->needs_rebuild() && "E-graph must be clean at start of rewrite iteration");
 
     ctx_.clear_new_eclasses();
@@ -326,7 +329,7 @@ class Rewriter {
     auto const &rules = rules_.rules();
     for (std::size_t idx = 0; idx < rules.size(); ++idx) {
       if (armed != nullptr && !armed->contains(idx)) continue;  // latched: skip un-armed rules
-      rules[idx]->match(matcher_, vm_executor_, ctx_.matcher_ctx());
+      rules[idx]->match(matcher_, vm_executor_, ctx_.matcher_ctx(), active);
       auto rewrites = rules[idx]->apply(ctx_.rule_ctx(), ctx_.matcher_ctx());
       per_rule_stats[idx] += rewrites;
       total_rewrites += rewrites;
@@ -351,7 +354,7 @@ class Rewriter {
   /// symbols, and map those through the arming index.
   auto arm_from_touched(ArmingIndex<Symbol> const &arming, std::size_t closure_depth)
       -> boost::unordered_flat_set<std::size_t> {
-    auto const active = ComputeActiveSet(*egraph_, egraph_->touched_eclasses(), closure_depth);
+    auto active = ComputeActiveSet(*egraph_, egraph_->touched_eclasses(), closure_depth);
     boost::unordered_flat_set<Symbol> active_symbols;
     for (auto const eclass_id : active) {
       for (auto const enode_id : egraph_->eclass(eclass_id).nodes()) {
@@ -360,8 +363,29 @@ class Rewriter {
     }
     boost::unordered_flat_set<std::size_t> armed;
     arming.collect_armed(active_symbols, armed);
+
+    // Retain the active set for per-candidate matching only when it is a small
+    // slice of the graph (a genuinely sparse change). When most classes are
+    // active there is little to prune, and holding the large set live across the
+    // matching pass only adds cache pressure - so drop it and fall back to
+    // symbol-granularity matching (the latch alone).
+    active_sparse_ = active.size() * 2 < egraph_->num_classes();
+    if (active_sparse_) {
+      active_eclasses_ = std::move(active);
+    } else {
+      active_eclasses_ = {};
+    }
     return armed;
   }
+
+  // The active set from the last arm_from_touched when it was sparse enough to
+  // use, retained so the matcher can restrict a symbol-rooted rule's root
+  // candidates to it (the same soundness argument as the latch, at e-class
+  // rather than symbol granularity). Valid only when active_sparse_.
+  boost::unordered_flat_set<EClassId> active_eclasses_;
+  // Whether active_eclasses_ holds a usable (sparse) active set for the next
+  // pass. False means match every armed candidate (the latch alone).
+  bool active_sparse_ = false;
 
  public:
   /**
