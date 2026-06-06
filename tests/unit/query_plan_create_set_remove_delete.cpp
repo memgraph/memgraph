@@ -2884,6 +2884,51 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyPbacOnVertex) {
     ASSERT_TRUE(maybe_old->IsNull());
   }
 }
+
+TYPED_TEST(UpdatePropertiesWithAuthFixture, RemoveNestedPropertyPbacOnVertex) {
+  // Create a vertex with a map property: prop = {inner: 42}
+  auto v = this->dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(this->vertex_label).has_value());
+  auto inner_prop_id = this->dba.NameToProperty("inner");
+  {
+    memgraph::storage::PropertyValue::map_t map_val;
+    map_val.emplace(inner_prop_id, memgraph::storage::PropertyValue(42));
+    ASSERT_TRUE(v.SetProperty(this->entity_prop, memgraph::storage::PropertyValue(std::move(map_val))).has_value());
+  }
+  this->dba.AdvanceCommand();
+
+  auto const execute_remove_nested = [&](memgraph::auth::User &user) {
+    auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
+    std::vector<memgraph::storage::PropertyId> path{this->entity_prop, inner_prop_id};
+    auto n_p = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), path);
+    auto remove_nested = std::make_shared<plan::RemoveNestedProperty>(scan_all.op_, std::move(path), n_p);
+    auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
+                      ->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce(remove_nested, output);
+
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+    auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+    PullAll(*produce, &context);
+    this->dba.AdvanceCommand();
+  };
+
+  // Create a user with LBAC of READ | SET_PROPERTY
+  auto user = std::invoke([&]() {
+    memgraph::auth::User user{"pbac_nested_test"};
+    user.fine_grained_access_handler().label_permissions().GrantGlobal(
+        static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::SET_PROPERTY |
+                                                           memgraph::auth::FineGrainedPermission::READ));
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
+    return user;
+  });
+
+  // With no PBAC WRITE on the nested prop, operation should throw
+  ASSERT_THROW(execute_remove_nested(user), QueryRuntimeException);
+
+  // With PBAC WRITE granted, operation should succeed
+  user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);
+  ASSERT_NO_THROW(execute_remove_nested(user));
+}
 #endif
 
 template <typename StorageType>

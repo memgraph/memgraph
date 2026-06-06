@@ -5807,11 +5807,21 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !context.auth_checker->Has(
-              lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Removing node property failed: missing SET PROPERTY or UPDATE permission on labels.");
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+        if (!context.auth_checker->Has(lhs.ValueVertex(),
+                                       storage::View::NEW,
+                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+          throw QueryRuntimeException(
+              "Removing node property failed: missing SET PROPERTY or UPDATE permission on labels.");
+        }
+        auto maybe_labels = lhs.ValueVertex().Labels(storage::View::NEW);
+        if (!maybe_labels) {
+          ThrowVertexLabelsReadFailure(maybe_labels.error());
+        }
+        if (!context.auth_checker->HasPropertyPermission(
+                *maybe_labels, self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) {
+          throw QueryRuntimeException("Removing node property failed: missing SET PROPERTY permission on property.");
+        }
       }
 #endif
       remove_nested_property(&lhs.ValueVertex());
@@ -5819,10 +5829,16 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
     }
     case TypedValue::Type::Edge: {
 #ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Removing edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+        if (!context.auth_checker->Has(lhs.ValueEdge(),
+                                       memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+          throw QueryRuntimeException(
+              "Removing edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
+        }
+        if (!context.auth_checker->HasPropertyPermission(
+                lhs.ValueEdge().EdgeType(), self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) {
+          throw QueryRuntimeException("Removing edge property failed: missing SET PROPERTY permission on property.");
+        }
       }
 #endif
       remove_nested_property(&lhs.ValueEdge());
