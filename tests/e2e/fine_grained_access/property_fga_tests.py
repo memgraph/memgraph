@@ -292,5 +292,30 @@ def test_set_edge_property_denied_throws():
         common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {secret_code} ON EDGES OF TYPE :WORKS_AT FROM user;")
 
 
+def test_role_merge_deny_wins():
+    """User PBAC + two roles: deny from one role overrides grant from the other."""
+    admin = admin_cursor()
+    try:
+        # Role A grants READ {salary} on :Employee
+        common.execute_and_fetch_all(admin, "CREATE ROLE role_a;")
+        common.execute_and_fetch_all(admin, "GRANT READ {salary} ON NODES CONTAINING LABELS :Employee TO ROLE role_a;")
+        # Role B denies READ {salary} on :Employee
+        common.execute_and_fetch_all(admin, "CREATE ROLE role_b;")
+        common.execute_and_fetch_all(admin, "DENY READ {salary} ON NODES CONTAINING LABELS :Employee TO ROLE role_b;")
+        # Assign both roles
+        common.execute_and_fetch_all(admin, "GRANT ROLE role_a, role_b TO user;")
+
+        result = common.execute_and_fetch_all(
+            user_cursor(), "MATCH (n:Employee) RETURN n.name AS name, n.salary AS salary;"
+        )
+        assert len(result) == 1
+        assert result[0][0] == "Alice"  # user's own global GRANT READ {*} covers name
+        assert result[0][1] is None  # role_b's per-entity DENY wins over role_a's GRANT
+    finally:
+        common.execute_and_fetch_all(admin, "REVOKE ROLE role_a, role_b FROM user;")
+        common.execute_and_fetch_all(admin, "DROP ROLE role_a;")
+        common.execute_and_fetch_all(admin, "DROP ROLE role_b;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
