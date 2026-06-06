@@ -210,8 +210,7 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
   {
     memgraph::auth::User user{"Test"};
     user.fine_grained_access_handler().label_permissions().Grant({"label"}, memgraph::auth::kAllLabelPermissions);
-    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
-    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
     auto results = CollectProduce(*produce, &context);
@@ -235,8 +234,7 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
         {"label"},
         static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::kVertexLabelUpdatePermissions |
                                                            memgraph::auth::FineGrainedPermission::READ));
-    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
-    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
     ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
@@ -368,12 +366,8 @@ class CreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
   }
 
   static void GrantAllPropertyAccess(memgraph::auth::User &user) {
-    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
-    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);
-    user.property_access_handler().edge_type_properties().GrantGlobal("*",
-                                                                      memgraph::auth::PropertyPermissionType::READ);
-    user.property_access_handler().edge_type_properties().GrantGlobal("*",
-                                                                      memgraph::auth::PropertyPermissionType::WRITE);
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
   }
 };
 
@@ -2100,18 +2094,11 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
   const memgraph::storage::PropertyId edge_prop{dba.NameToProperty(edge_prop_name)};
   const memgraph::storage::PropertyValue edge_prop_value{1};
 
-  memgraph::auth::User base_user{"alice"};
+  void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
 
-  void SetUp() override {
-    memgraph::license::global_license_checker.EnableTesting();
-    base_user.property_access_handler().label_properties().GrantGlobal("*",
-                                                                       memgraph::auth::PropertyPermissionType::READ);
-    base_user.property_access_handler().label_properties().GrantGlobal("*",
-                                                                       memgraph::auth::PropertyPermissionType::WRITE);
-    base_user.property_access_handler().edge_type_properties().GrantGlobal(
-        "*", memgraph::auth::PropertyPermissionType::READ);
-    base_user.property_access_handler().edge_type_properties().GrantGlobal(
-        "*", memgraph::auth::PropertyPermissionType::WRITE);
+  static void GrantAllPropertyAccess(memgraph::auth::User &user) {
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
   }
 
   void SetVertexProperty(memgraph::query::VertexAccessor vertex) {
@@ -2319,7 +2306,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   };
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"denied_global"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().DenyGlobal(memgraph::auth::kAllLabelPermissions);
 
@@ -2337,7 +2325,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"denied_label"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().Deny({this->vertex_label_name},
                                                                 memgraph::auth::kAllLabelPermissions);
@@ -2356,7 +2345,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_global"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(
         static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::kVertexLabelUpdatePermissions |
@@ -2376,7 +2366,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_label"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().Grant(
         {this->vertex_label_name},
@@ -2397,7 +2388,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_read_label"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().Grant({this->vertex_label_name},
                                                                  memgraph::auth::FineGrainedPermission::READ);
@@ -2416,7 +2408,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_read_global"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
 
@@ -2434,7 +2427,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_update_label_denied_read_global"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().Grant(
         {this->vertex_label_name},
@@ -2456,7 +2450,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_update_global_denied_read_label"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().Deny({this->vertex_label_name},
                                                                 memgraph::auth::kAllLabelPermissions);
@@ -2478,7 +2473,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_create_delete_label_denied_read_global"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().Grant({this->vertex_label_name},
                                                                  memgraph::auth::kAllLabelPermissions);
@@ -2498,7 +2494,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_create_delete_global_denied_read_label"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().Deny({this->vertex_label_name},
                                                                 memgraph::auth::kAllLabelPermissions);
@@ -2569,7 +2566,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   };
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"denied_global"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().DenyGlobal(memgraph::auth::kAllEdgeTypePermissions);
@@ -2588,7 +2586,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"denied_edge_type"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Deny({edge_type_name},
@@ -2608,7 +2607,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_global"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
@@ -2629,7 +2629,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_edge_type"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant(
@@ -2651,7 +2652,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_update_edge_type_denied_read_global"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant(
@@ -2674,7 +2676,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_read_edge_type"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant({edge_type_name},
@@ -2694,7 +2697,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_read_global"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
@@ -2713,7 +2717,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_update_global_denied_read_edge_type"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Deny({edge_type_name},
@@ -2736,7 +2741,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_create_delete_edge_type_denied_read_global"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant({edge_type_name},
@@ -2757,7 +2763,8 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   }
 
   {
-    auto user = this->base_user;
+    auto user = memgraph::auth::User{"granted_create_delete_global_denied_read_edge_type"};
+    this->GrantAllPropertyAccess(user);
 
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Deny({edge_type_name},
@@ -2784,21 +2791,21 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyPbacOnVertex) {
   ASSERT_TRUE(v.SetProperty(this->entity_prop, this->entity_prop_value).has_value());
   this->dba.AdvanceCommand();
 
-  auto test_hypothesis = [&](int expected_property_value) {
+  auto const test_hypothesis = [&](int expected_property_value) {
     auto vertex = *this->dba.Vertices(memgraph::storage::View::NEW).begin();
     auto maybe_prop = vertex.GetProperty(memgraph::storage::View::NEW, this->entity_prop);
     ASSERT_TRUE(maybe_prop.has_value());
     ASSERT_EQ(maybe_prop->ValueInt(), expected_property_value);
   };
 
-  auto test_remove_hypothesis = [&](int properties_size) {
+  auto const test_remove_hypothesis = [&](int properties_size) {
     auto vertex = *this->dba.Vertices(memgraph::storage::View::NEW).begin();
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
     ASSERT_TRUE(maybe_properties.has_value());
     EXPECT_EQ(maybe_properties->size(), properties_size);
   };
 
-  auto make_user_with_lbac = [&]() {
+  auto const make_user_with_lbac = [&]() {
     memgraph::auth::User user{"pbac_test"};
     user.fine_grained_access_handler().label_permissions().GrantGlobal(
         static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::kVertexLabelUpdatePermissions |
@@ -2807,7 +2814,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyPbacOnVertex) {
     return user;
   };
 
-  // No PBAC WRITE on prop — SET, UPDATE, REMOVE all throw
+  // No PBAC WRITE on prop - SET, UPDATE, REMOVE all throw
   {
     auto user = make_user_with_lbac();
 
@@ -2824,7 +2831,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyPbacOnVertex) {
     test_remove_hypothesis(1);
   }
 
-  // PBAC WRITE granted on prop — SET, UPDATE, REMOVE all succeed
+  // PBAC WRITE granted on prop - SET, UPDATE, REMOVE all succeed
   {
     auto user = make_user_with_lbac();
     user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);
@@ -2846,7 +2853,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyPbacOnVertex) {
     this->dba.AdvanceCommand();
   }
 
-  // REPLACE: node has "prop", setting "prop2". WRITE only on prop2 — throw (existing prop not writable)
+  // REPLACE: node has "prop", setting "prop2". WRITE only on prop2 - throw (existing prop not writable)
   {
     auto user = make_user_with_lbac();
     user.property_access_handler().label_properties().Grant(
@@ -2857,7 +2864,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyPbacOnVertex) {
     test_hypothesis(1);
   }
 
-  // REPLACE: node has "prop", setting "prop2". WRITE only on prop — throw (new prop not writable)
+  // REPLACE: node has "prop", setting "prop2". WRITE only on prop - throw (new prop not writable)
   {
     auto user = make_user_with_lbac();
     user.property_access_handler().label_properties().Grant(
@@ -2868,7 +2875,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyPbacOnVertex) {
     test_hypothesis(1);
   }
 
-  // REPLACE: WRITE on both props — succeeds, node now has only prop2
+  // REPLACE: WRITE on both props - succeeds, node now has only prop2
   {
     auto user = make_user_with_lbac();
     user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);

@@ -2010,8 +2010,7 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsHasUnrestrictedAccess) {
   {
     // Global * with READ+WRITE, no denies means unrestricted
     PropertyAccessPermissions perms;
-    perms.GrantGlobal("*", PropertyPermissionType::READ);
-    perms.GrantGlobal("*", PropertyPermissionType::WRITE);
+    perms.GrantGlobal("*", kAllPropertyPermissionTypes);
     EXPECT_TRUE(perms.HasUnrestrictedAccess());
   }
   {
@@ -2023,16 +2022,14 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsHasUnrestrictedAccess) {
   {
     // Entity rule present, restricted
     PropertyAccessPermissions perms;
-    perms.GrantGlobal("*", PropertyPermissionType::READ);
-    perms.GrantGlobal("*", PropertyPermissionType::WRITE);
+    perms.GrantGlobal("*", kAllPropertyPermissionTypes);
     perms.Grant({"Employee"}, "ssn");
     EXPECT_FALSE(perms.HasUnrestrictedAccess());
   }
   {
     // Global * grant + global DENY on ssn, restricted
     PropertyAccessPermissions perms;
-    perms.GrantGlobal("*", PropertyPermissionType::READ);
-    perms.GrantGlobal("*", PropertyPermissionType::WRITE);
+    perms.GrantGlobal("*", kAllPropertyPermissionTypes);
     perms.DenyGlobal("ssn");
     EXPECT_FALSE(perms.HasUnrestrictedAccess());
   }
