@@ -771,12 +771,10 @@ PermissionLevel PropertyAccessPermissions::Has(std::span<std::string const> enti
     return r::any_of(entities, [&](auto const &e) { return rule.entities.contains(e); });
   };
 
-  bool any_rule_matched = false;
   bool any_grant = false;
 
   for (auto const &rule : rules_) {
     if (rule_matches(rule)) {
-      any_rule_matched = true;
       auto level = CheckPropertyMap(rule.properties, property, bit);
       if (level == PermissionLevel::DENY) return PermissionLevel::DENY;
       if (level == PermissionLevel::GRANT) any_grant = true;
