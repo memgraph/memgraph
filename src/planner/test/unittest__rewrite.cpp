@@ -11,6 +11,10 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
+#include <vector>
+
+#include "planner/rewrite/arming_index.hpp"
 #include "test_rewriter_fixture.hpp"
 #include "test_rules.hpp"
 
@@ -19,6 +23,63 @@ namespace memgraph::planner::core {
 using namespace test;
 using namespace pattern;
 using namespace rewrite;
+
+// --- Arming index (Stage 2 of the rule latch) ---
+
+TEST(ArmingIndex, RuleExposesEveryPatternRootSymbol) {
+  // Single-pattern rule roots at one symbol.
+  EXPECT_EQ(make_idempotent_f_rule().pattern_root_symbols(), (std::vector<std::optional<Op>>{Op::F}));
+  // Multi-pattern rule exposes all roots, in order, with repeats.
+  EXPECT_EQ(make_chain_join_rule().pattern_root_symbols(), (std::vector<std::optional<Op>>{Op::F, Op::F2, Op::F}));
+  EXPECT_EQ(make_merge_vars_rule().pattern_root_symbols(), (std::vector<std::optional<Op>>{Op::Var, Op::Var}));
+}
+
+auto AsVec(std::span<std::size_t const> s) -> std::vector<std::size_t> { return {s.begin(), s.end()}; }
+
+TEST(ArmingIndex, IndexesBySymbolAndAlwaysArmsSymbollessRoots) {
+  // Rule 0 roots at {F}; rule 1 at {F, F2}; rule 2 has a symbol-less root.
+  std::vector<std::vector<std::optional<Op>>> roots{{Op::F}, {Op::F, Op::F2}, {std::nullopt}};
+  auto const index = ArmingIndex<Op>::from_root_symbols(roots);
+
+  EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F)), (std::vector<std::size_t>{0, 1}));
+  EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F2)), (std::vector<std::size_t>{1}));
+  EXPECT_TRUE(index.rules_for_symbol(Op::Neg).empty());
+  EXPECT_EQ(AsVec(index.always_armed()), (std::vector<std::size_t>{2}));
+}
+
+TEST(ArmingIndex, CollectArmedUnionsAlwaysArmedWithActiveSymbols) {
+  std::vector<std::vector<std::optional<Op>>> roots{{Op::F}, {Op::F, Op::F2}, {std::nullopt}};
+  auto const index = ArmingIndex<Op>::from_root_symbols(roots);
+
+  auto armed = [&](std::vector<Op> const &active) {
+    boost::unordered_flat_set<std::size_t> out;
+    index.collect_armed(active, out);
+    return out;
+  };
+  // F activates rules 0 and 1; the symbol-less rule 2 is always armed.
+  EXPECT_EQ(armed({Op::F}), (boost::unordered_flat_set<std::size_t>{0, 1, 2}));
+  EXPECT_EQ(armed({Op::F2}), (boost::unordered_flat_set<std::size_t>{1, 2}));
+  // No active symbol: only the always-armed rule.
+  EXPECT_EQ(armed({}), (boost::unordered_flat_set<std::size_t>{2}));
+}
+
+TEST(ArmingIndex, DedupesARuleRootedAtOneSymbolTwice) {
+  // merge_vars roots both its patterns at Op::Var; it must index once.
+  auto const rules = RuleSet<EGraph<Op, NoAnalysis>>::Builder{}.add_rule(make_merge_vars_rule()).build();
+  auto const index = BuildArmingIndex(rules);
+  EXPECT_EQ(AsVec(index.rules_for_symbol(Op::Var)), (std::vector<std::size_t>{0}));
+}
+
+TEST(ArmingIndex, BuildsFromRealRuleSetInRuleIndexOrder) {
+  auto const rules = RuleSet<EGraph<Op, NoAnalysis>>::Builder{}
+                         .add_rule(make_idempotent_f_rule())  // index 0: {F}
+                         .add_rule(make_chain_join_rule())    // index 1: {F, F2}
+                         .build();
+  auto const index = BuildArmingIndex(rules);
+  EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F)), (std::vector<std::size_t>{0, 1}));
+  EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F2)), (std::vector<std::size_t>{1}));
+  EXPECT_TRUE(index.always_armed().empty());
+}
 
 // --- Saturation ---
 
