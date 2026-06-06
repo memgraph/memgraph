@@ -2193,6 +2193,10 @@ class StubPropertyFGAChecker final : public memgraph::query::FineGrainedAuthChec
 
   bool HasUnrestrictedAccessToEdges() const override { return true; }
 
+  bool HasUnrestrictedAccessToVertexProperties() const override { return true; }
+
+  bool HasUnrestrictedAccessToEdgeTypeProperties() const override { return true; }
+
   bool NeedsFineGrainedAuthChecker() const override { return !denied_.empty(); }
 
   void MakeThreadSafe() const override {}

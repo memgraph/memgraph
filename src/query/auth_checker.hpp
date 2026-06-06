@@ -81,6 +81,10 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool HasUnrestrictedAccessToEdges() const = 0;
 
+  [[nodiscard]] virtual bool HasUnrestrictedAccessToVertexProperties() const = 0;
+
+  [[nodiscard]] virtual bool HasUnrestrictedAccessToEdgeTypeProperties() const = 0;
+
   /// True when a FineGrainedAuthChecker must be attached for correct
   /// authorization, defined by either per-Label/per-Edge rules, or per-Property
   /// rules. When false, the checker is redundant as no restrictions to labels,
@@ -148,6 +152,10 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
   bool HasUnrestrictedAccessToVertices() const override { return true; }
 
   bool HasUnrestrictedAccessToEdges() const override { return true; }
+
+  bool HasUnrestrictedAccessToVertexProperties() const override { return true; }
+
+  bool HasUnrestrictedAccessToEdgeTypeProperties() const override { return true; }
 
   bool NeedsFineGrainedAuthChecker() const override { return false; }
 

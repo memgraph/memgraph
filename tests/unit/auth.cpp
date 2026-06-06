@@ -2067,6 +2067,46 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntityMerge) {
   }
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissionsHasUnrestrictedAccess) {
+  using memgraph::auth::PropertyAccessPermissions;
+  using memgraph::auth::PropertyPermissionType;
+
+  {
+    // Empty rules and empty global means unrestricted, i.e., no PBAC
+    PropertyAccessPermissions perms;
+    EXPECT_TRUE(perms.HasUnrestrictedAccess());
+  }
+  {
+    // Global * with READ+WRITE, no denies means unrestricted
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("*", PropertyPermissionType::READ);
+    perms.GrantGlobal("*", PropertyPermissionType::WRITE);
+    EXPECT_TRUE(perms.HasUnrestrictedAccess());
+  }
+  {
+    // Global * with READ only, restricted
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("*", PropertyPermissionType::READ);
+    EXPECT_FALSE(perms.HasUnrestrictedAccess());
+  }
+  {
+    // Entity rule present, restricted
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("*", PropertyPermissionType::READ);
+    perms.GrantGlobal("*", PropertyPermissionType::WRITE);
+    perms.Grant({"Employee"}, "ssn");
+    EXPECT_FALSE(perms.HasUnrestrictedAccess());
+  }
+  {
+    // Global * grant + global DENY on ssn, restricted
+    PropertyAccessPermissions perms;
+    perms.GrantGlobal("*", PropertyPermissionType::READ);
+    perms.GrantGlobal("*", PropertyPermissionType::WRITE);
+    perms.DenyGlobal("ssn");
+    EXPECT_FALSE(perms.HasUnrestrictedAccess());
+  }
+}
+
 TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
   const std::string any_label = "AnyString";
   const std::string check_label = "Label";

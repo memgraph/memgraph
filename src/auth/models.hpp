@@ -458,6 +458,8 @@ class PropertyAccessPermissions final {
 
   auto const &GetGlobalRules() const { return global_; }
 
+  bool HasUnrestrictedAccess() const;
+
  private:
   PropertyAccessRule &FindOrCreateRule(std::unordered_set<std::string> const &entities, MatchingMode matching_mode);
 

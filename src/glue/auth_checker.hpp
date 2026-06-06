@@ -89,6 +89,10 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
 
   bool HasUnrestrictedAccessToEdges() const override;
 
+  bool HasUnrestrictedAccessToVertexProperties() const override;
+
+  bool HasUnrestrictedAccessToEdgeTypeProperties() const override;
+
   bool NeedsFineGrainedAuthChecker() const override;
 
   bool HasPropertyPermission(std::span<storage::LabelId const> labels, storage::PropertyId property,

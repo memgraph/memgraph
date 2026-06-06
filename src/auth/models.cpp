@@ -825,6 +825,17 @@ void DeserializePropertyMap(nlohmann::json const &props_json,
 }
 }  // namespace
 
+bool PropertyAccessPermissions::HasUnrestrictedAccess() const {
+  if (!rules_.empty()) return false;
+  if (global_.empty()) return true;
+  if (global_.size() != 1) return false;
+  auto it = global_.find("*");
+  if (it == global_.end()) return false;
+  auto const all =
+      static_cast<uint8_t>(PropertyPermissionType::READ) | static_cast<uint8_t>(PropertyPermissionType::WRITE);
+  return (it->second.grants & all) == all && it->second.denies == 0;
+}
+
 nlohmann::json PropertyAccessPermissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   if (!global_.empty()) {

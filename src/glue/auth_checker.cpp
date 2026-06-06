@@ -313,14 +313,17 @@ bool FineGrainedAuthChecker::HasUnrestrictedAccessToEdges() const {
   return HasAllGlobalPrivilegesOnEdges() && permissions.GetRules().empty();
 }
 
+bool FineGrainedAuthChecker::HasUnrestrictedAccessToVertexProperties() const {
+  return GetCachedPropertyLabelPermissions().HasUnrestrictedAccess();
+}
+
+bool FineGrainedAuthChecker::HasUnrestrictedAccessToEdgeTypeProperties() const {
+  return GetCachedPropertyEdgeTypePermissions().HasUnrestrictedAccess();
+}
+
 bool FineGrainedAuthChecker::NeedsFineGrainedAuthChecker() const {
-  if (!HasUnrestrictedAccessToVertices() || !HasUnrestrictedAccessToEdges()) {
-    return true;
-  }
-  auto const &label_props = GetCachedPropertyLabelPermissions();
-  auto const &edge_props = GetCachedPropertyEdgeTypePermissions();
-  return !label_props.GetRules().empty() || !label_props.GetGlobalRules().empty() || !edge_props.GetRules().empty() ||
-         !edge_props.GetGlobalRules().empty();
+  return !(HasUnrestrictedAccessToVertices() && HasUnrestrictedAccessToEdges() &&
+           HasUnrestrictedAccessToVertexProperties() && HasUnrestrictedAccessToEdgeTypeProperties());
 }
 
 auth::PropertyAccessPermissions const &FineGrainedAuthChecker::GetCachedPropertyLabelPermissions() const {
