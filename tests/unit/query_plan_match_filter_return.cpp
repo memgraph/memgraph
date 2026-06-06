@@ -1972,12 +1972,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
 
   static void GrantAllPropertyAccess(memgraph::auth::User &user) {
-    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
-    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);
-    user.property_access_handler().edge_type_properties().GrantGlobal("*",
-                                                                      memgraph::auth::PropertyPermissionType::READ);
-    user.property_access_handler().edge_type_properties().GrantGlobal("*",
-                                                                      memgraph::auth::PropertyPermissionType::WRITE);
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
   }
 
   void SetUp() override {
@@ -2444,12 +2440,8 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
 
   static void GrantAllPropertyAccess(memgraph::auth::User &user) {
-    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
-    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);
-    user.property_access_handler().edge_type_properties().GrantGlobal("*",
-                                                                      memgraph::auth::PropertyPermissionType::READ);
-    user.property_access_handler().edge_type_properties().GrantGlobal("*",
-                                                                      memgraph::auth::PropertyPermissionType::WRITE);
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
   }
 
   void SetUp() override {
@@ -4401,13 +4393,13 @@ TYPED_TEST(SubqueriesFeature, SubqueriesWithForeach) {
 }
 
 #ifdef MG_ENTERPRISE
-TYPED_TEST(MatchReturnFixture, PropertyFGANoRulesDenied) {
+TYPED_TEST(MatchReturnFixture, PropertyFGANoPropertyRulesMeansAccessDenied) {
   auto v = this->dba.InsertVertex();
-  auto label = this->dba.NameToLabel("Employee");
-  ASSERT_TRUE(v.AddLabel(label).has_value());
+  ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("Employee")).has_value());
   ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("name"), memgraph::storage::PropertyValue("Alice")).has_value());
   this->dba.AdvanceCommand();
 
+  // User has LBAC read access but no PBAC rules at all — property should be denied
   auto user = memgraph::auth::User{"test_user"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
 
@@ -4424,7 +4416,7 @@ TYPED_TEST(MatchReturnFixture, PropertyFGANoRulesDenied) {
   EXPECT_TRUE(results[0][0].IsNull());
 }
 
-TYPED_TEST(MatchReturnFixture, PropertyFGAFlagDisabledMeansNoRestriction) {
+TYPED_TEST(MatchReturnFixture, PropertyFGALicenseDisabledMeansNoRestriction) {
   memgraph::license::global_license_checker.DisableTesting();
 
   auto v = this->dba.InsertVertex();
