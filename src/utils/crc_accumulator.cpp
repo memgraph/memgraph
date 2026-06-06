@@ -31,6 +31,10 @@ auto CrcAccumulator::PatchByte(uint32_t const crc, uint32_t const t_delta, uint6
   return static_cast<uint32_t>(crc ^ crc32_combine(t_delta, 0, static_cast<z_off_t>(bytes_after)));
 }
 
+auto CrcAccumulator::Combine(uint32_t const crc_a, uint32_t const crc_b, uint64_t const len_b) -> uint32_t {
+  return static_cast<uint32_t>(crc32_combine(crc_a, crc_b, static_cast<z_off_t>(len_b)));
+}
+
 auto CrcAccumulator::Verify(uint32_t const crc) -> bool {
   // `crc` must be the running CRC after every byte UP TO AND INCLUDING the stored CRC trailer has been folded in.
   // CRC-32 is self-checking: feeding a block followed by its own CRC reduces to a fixed residue. Because the trailer is

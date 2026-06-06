@@ -67,6 +67,7 @@ class Encoder final : public BaseEncoder {
   void WriteBool(bool value) override;
   void WriteUint(uint64_t value) override;
   uint32_t WriteCrc() override;
+  void WriteCrcAt(uint64_t position, uint32_t crc);
   void WriteDouble(double value) override;
   void WriteString(std::string_view value) override;
   void WriteEnum(storage::Enum value) override;

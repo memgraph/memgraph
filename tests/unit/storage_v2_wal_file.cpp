@@ -251,7 +251,6 @@ class DeltaGenerator final {
     void StartTx() {
       auto timestamp = gen_->timestamp_;
       constexpr bool commit{true};
-      gen_->wal_file_.encoder().ResetCrcAcc();
       gen_->wal_file_.AppendTransactionStart(timestamp, commit, memgraph::storage::StorageAccessType::UNIQUE);
       if (gen_->valid_) {
         gen_->UpdateStats(timestamp, 1);
@@ -1399,11 +1398,6 @@ TEST_P(WalFileTest, PartialData) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(WalFileTest, WalFileModification) {
-  auto console_logger = spdlog::stdout_color_mt("gtest_logger");
-  spdlog::set_default_logger(console_logger);
-  spdlog::set_level(spdlog::level::trace);
-  spdlog::flush_on(spdlog::level::trace);
-
   {
     DeltaGenerator gen(storage_directory, GetParam(), 5);
     TRANSACTION(true, { tx.CreateVertex(); });
@@ -1437,12 +1431,9 @@ TEST_P(WalFileTest, WalFileModification) {
   ASSERT_TRUE(original.Open(wal_file));
   auto const wal_file_size = original.GetSize();
 
-  // Flip every byte of the delta region, one at a time on a fresh copy of the WAL file, and assert that each
-  // single-byte corruption is detected. ReadWalInfo catches it in one of two ways: a transaction whose bytes were
-  // altered fails its per-transaction CRC check and throws, while a flip that breaks the delta structure makes parsing
-  // stop early, yielding fewer deltas than the pristine file. Either outcome counts as detection.
   auto const corrupted_file = storage_directory / "corrupted_wal";
-  for (uint64_t pos = info.offset_deltas; pos < wal_file_size; ++pos) {
+  for (uint64_t pos = 0; pos < wal_file_size; ++pos) {
+    spdlog::trace("Testing byte: {}", pos);
     uint8_t original_byte{};
     ASSERT_TRUE(original.SetPosition(memgraph::utils::InputFile::Position::SET, pos).has_value());
     ASSERT_TRUE(original.Read(&original_byte, 1));
@@ -1470,10 +1461,6 @@ TEST_P(WalFileTest, WalFileModification) {
 }
 
 TEST_P(WalFileTest, WalMissingTransactionEndMarker) {
-  auto console_logger = spdlog::stdout_color_mt("gtest_logger");
-  spdlog::set_default_logger(console_logger);
-  spdlog::set_level(spdlog::level::trace);
-  spdlog::flush_on(spdlog::level::trace);
   uint64_t end_marker_pos = 0;
   {
     DeltaGenerator gen(storage_directory, GetParam(), 5);
