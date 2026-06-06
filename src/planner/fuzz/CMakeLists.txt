@@ -23,10 +23,18 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_link_options(fuzz_compiler_contracts PRIVATE -fsanitize=fuzzer,address)
     target_compile_definitions(fuzz_compiler_contracts PUBLIC ASSERT_FUZZ)
 
+    # Differential fuzzer: latched saturation must equal arm-all saturation
+    add_executable(fuzz_rewrite_latch fuzz_rewrite_latch.cpp)
+    target_link_libraries(fuzz_rewrite_latch PRIVATE mg::planner fmt::fmt)
+    target_compile_options(fuzz_rewrite_latch PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
+    target_link_options(fuzz_rewrite_latch PRIVATE -fsanitize=fuzzer,address)
+    target_compile_definitions(fuzz_rewrite_latch PUBLIC ASSERT_FUZZ)
+
     # Create corpus directories for each fuzzer
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_egraph)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_pattern_vm)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_compiler_contracts)
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_rewrite_latch)
 
     # Corpus profiling: run single corpus file for perf analysis
     add_executable(corpus_profile corpus_profile.cpp)
@@ -56,6 +64,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         DEPENDS fuzz_compiler_contracts
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         COMMENT "Running compiler contracts fuzzer..."
+    )
+
+    add_custom_target(run_fuzz_rewrite_latch
+        COMMAND $<TARGET_FILE:fuzz_rewrite_latch> ${CMAKE_CURRENT_BINARY_DIR}/corpus_rewrite_latch
+        DEPENDS fuzz_rewrite_latch
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Running rule-latch differential fuzzer..."
     )
 
     # Clear corpus directories
