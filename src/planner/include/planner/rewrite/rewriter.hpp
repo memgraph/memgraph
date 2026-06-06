@@ -198,7 +198,10 @@ class Rewriter {
    *
    * @param rules New rule set to use
    */
-  void set_rules(RuleSet<Graph> rules) { rules_ = std::move(rules); }
+  void set_rules(RuleSet<Graph> rules) {
+    rules_ = std::move(rules);
+    full_arm_pending_ = true;  // new rules: the next latched saturate arms all once
+  }
 
   /**
    * @brief Run equality saturation with the configured rules
@@ -222,14 +225,26 @@ class Rewriter {
     auto const start_time = std::chrono::steady_clock::now();
 
     // Latched-mode scheduling: arm only the rules a pass could newly enable.
-    // The first pass arms everything (the whole initial graph is "changed").
+    // The first pass arms from whatever the e-graph has touched since the last
+    // clear - construction fills it for a fresh graph (so a query using few
+    // operators arms few rules), and an unchanged graph has touched nothing, so
+    // re-saturating it arms nothing and returns at once.
     ArmingIndex<Symbol> arming;
     std::size_t closure_depth = 0;
     boost::unordered_flat_set<std::size_t> armed;
     if (mode == ArmingMode::Latched) {
       arming = BuildArmingIndex(rules_);
       closure_depth = MaxRuleSetPatternDepth(rules_);
-      for (std::size_t i = 0; i < num_rules(); ++i) armed.insert(i);
+      if (full_arm_pending_) {
+        // The rewriter has not seen this graph before: every rule must run once.
+        // Arm all directly rather than scan the whole graph to rediscover that.
+        for (std::size_t i = 0; i < num_rules(); ++i) armed.insert(i);
+        full_arm_pending_ = false;
+      } else {
+        // A later saturate on the same rewriter: arm only what changed since.
+        // An unchanged graph touched nothing, so this arms nothing.
+        armed = arm_from_touched(arming, closure_depth);
+      }
     }
 
     for (std::size_t iter = 0; iter < config.max_iterations; ++iter) {
@@ -376,6 +391,9 @@ class Rewriter {
   pattern::vm::VMExecutor<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher
   ProcessingContext<Symbol> proc_ctx_;
   RewriteContext<Graph> ctx_;
+  // True until this rewriter's first latched pass: that pass arms every rule
+  // (the graph is new to it); afterwards arming is driven by the touched-set.
+  bool full_arm_pending_ = true;
 };
 
 /// Deduce the graph type at the construction site, so callers write

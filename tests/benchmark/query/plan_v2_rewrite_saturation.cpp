@@ -45,6 +45,7 @@
 
 namespace {
 
+using memgraph::planner::core::rewrite::ArmingMode;
 using memgraph::planner::core::rewrite::RewriteConfig;
 using memgraph::planner::core::rewrite::Rewriter;
 using memgraph::query::plan::v2::DefaultRules;
@@ -134,6 +135,41 @@ void BM_PlanV2_NoopSaturation(benchmark::State &state) {
 }
 
 BENCHMARK(BM_PlanV2_NoopSaturation)->RangeMultiplier(2)->Range(1, 128)->Unit(benchmark::kMicrosecond);
+
+// Full saturate-to-fixpoint, comparing the arming modes. range(0) = units;
+// range(1) = mode (0 = ArmAll reference, 1 = Latched). The build cost is
+// identical across modes, so the delta between modes at a size is the latch's
+// saving on the later passes (settled and irrelevant rules no longer re-run).
+void BM_PlanV2_Saturate(benchmark::State &state) {
+  auto const units = state.range(0);
+  auto const mode = state.range(1) == 0 ? ArmingMode::ArmAll : ArmingMode::Latched;
+  for (auto _ : state) {
+    auto eg = BuildGraph(units);
+    Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
+    benchmark::DoNotOptimize(rewriter.saturate(RewriteConfig::Unlimited(), mode));
+  }
+  state.SetItemsProcessed(state.iterations() * units);
+}
+
+BENCHMARK(BM_PlanV2_Saturate)->ArgsProduct({{1, 8, 64}, {0, 1}})->Unit(benchmark::kMicrosecond);
+
+// Re-saturate an already-settled graph - the "saturate then re-apply" scenario
+// and the incremental-saturation case. range(1): 0 = ArmAll, 1 = Latched.
+// ArmAll re-matches every rule over the whole settled graph each call; Latched
+// sees an empty touched-set and returns at once.
+void BM_PlanV2_ReSaturate(benchmark::State &state) {
+  auto const units = state.range(0);
+  auto const mode = state.range(1) == 0 ? ArmingMode::ArmAll : ArmingMode::Latched;
+  auto eg = BuildGraph(units);
+  Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
+  rewriter.saturate(RewriteConfig::Unlimited(), mode);  // settle once, outside timing
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(rewriter.saturate(RewriteConfig::Unlimited(), mode));
+  }
+  state.SetItemsProcessed(state.iterations() * units);
+}
+
+BENCHMARK(BM_PlanV2_ReSaturate)->ArgsProduct({{1, 8, 64}, {0, 1}})->Unit(benchmark::kMicrosecond);
 
 }  // namespace
 
