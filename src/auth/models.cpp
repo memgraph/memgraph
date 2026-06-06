@@ -929,10 +929,10 @@ PropertyAccessHandler PropertyAccessHandler::Deserialize(nlohmann::json const &d
 PropertyAccessPermissions Merge(PropertyAccessPermissions const &first, PropertyAccessPermissions const &second) {
   PropertyAccessPermissions result = first;
   for (auto const &rule : second.GetRules()) {
+    std::vector<std::string> const entities_vec(rule.entities.begin(), rule.entities.end());
     for (auto const &[prop, perm] : rule.properties) {
       for (auto type : {PropertyPermissionType::READ, PropertyPermissionType::WRITE}) {
         auto second_level = CheckBit(perm, static_cast<uint8_t>(type));
-        std::vector<std::string> entities_vec(rule.entities.begin(), rule.entities.end());
         if (second_level == PermissionLevel::DENY) {
           result.Deny(rule.entities, prop, type, rule.matching_mode);
         } else if (second_level == PermissionLevel::GRANT &&
