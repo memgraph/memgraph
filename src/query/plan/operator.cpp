@@ -1613,9 +1613,8 @@ std::string ScanAllByLabelProperties::ToString(PlanStringContext const &ctx) con
   // TODO: better diagnostics...info about expression_ranges_?
   auto const property_names =
       properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
-        return utils::Join(property_path | std::ranges::views::transform(
-                                               [&](storage::PropertyId prop) { return PropertyName(prop, ctx); }),
-                           ".");
+        return utils::Join(
+            property_path | rv::transform([&](storage::PropertyId prop) { return PropertyName(prop, ctx); }), ".");
       }) |
       ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
@@ -4470,9 +4469,8 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter, PlanString
     }
     case Type::Property: {
       auto const &path = single_filter.property_filter->property_ids_.path;
-      auto redacted = utils::Join(
-          path | std::ranges::views::transform([&](auto const &pix) { return RedactPropertyName(pix.name, ctx); }),
-          ".");
+      auto redacted =
+          utils::Join(path | rv::transform([&](auto const &pix) { return RedactPropertyName(pix.name, ctx); }), ".");
       return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(), redacted);
     }
     case Type::Id: {
@@ -4494,10 +4492,9 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter, PlanString
       }
       const auto *filter_expression = static_cast<EdgeTypesTest *>(single_filter.expression);
 
-      auto or_edge_types =
-          filter_expression->valid_edgetypes_ |
-          std::ranges::views::transform([&](EdgeTypeIx const &et) -> std::string const & { return et.name; }) |
-          std::ranges::views::join_with('|') | std::ranges::to<std::string>();
+      auto or_edge_types = filter_expression->valid_edgetypes_ |
+                           rv::transform([&](EdgeTypeIx const &et) -> std::string const & { return et.name; }) |
+                           rv::join_with('|') | std::ranges::to<std::string>();
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
         return fmt::format("[:{}]", or_edge_types);
       }
@@ -9924,9 +9921,8 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
 std::string ScanParallelByLabelProperties::ToString(PlanStringContext const &ctx) const {
   auto const property_names =
       properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
-        return utils::Join(property_path | std::ranges::views::transform(
-                                               [&](storage::PropertyId prop) { return PropertyName(prop, ctx); }),
-                           ".");
+        return utils::Join(
+            property_path | rv::transform([&](storage::PropertyId prop) { return PropertyName(prop, ctx); }), ".");
       }) |
       ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
