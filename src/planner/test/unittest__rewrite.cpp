@@ -124,6 +124,50 @@ TEST(ActiveSet, ParentClosureReachesAncestorsToDepthOnly) {
   EXPECT_TRUE(d2.contains(eg.find(ffa)));
 }
 
+// --- Rule latch: Latched mode equals ArmAll, and reaches a true fixpoint ---
+
+namespace {
+// Build Neg^depth(Var) into `eg` and return the chain top. double_neg composes
+// across passes, so the latch must re-arm the rule pass after pass.
+auto BuildNegChain(EGraph<Op, NoAnalysis> &eg, int depth) -> EClassId {
+  auto top = eg.emplace(Op::Var, 1).eclass_id;
+  for (int i = 0; i < depth; ++i) top = eg.emplace(Op::Neg, {top}).eclass_id;
+  return top;
+}
+}  // namespace
+
+TEST(RuleLatch, LatchedReachesATrueFixpoint) {
+  EGraph<Op, NoAnalysis> eg;
+  BuildNegChain(eg, 8);
+  TestRewriter rewriter{eg, TestRuleSet::Build(make_double_neg_rule())};
+
+  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  ASSERT_TRUE(result.saturated());
+
+  // The sharp oracle: one all-rules pass on the latched result finds nothing,
+  // i.e. the latch did not stop short of the real fixpoint.
+  EXPECT_EQ(rewriter.iterate_once(), 0U);
+}
+
+TEST(RuleLatch, LatchedEqualsArmAll) {
+  EGraph<Op, NoAnalysis> arm_all_eg;
+  BuildNegChain(arm_all_eg, 8);
+  TestRewriter arm_all{arm_all_eg, TestRuleSet::Build(make_double_neg_rule())};
+  auto const arm_all_result = arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::ArmAll);
+
+  EGraph<Op, NoAnalysis> latched_eg;
+  BuildNegChain(latched_eg, 8);
+  TestRewriter latched{latched_eg, TestRuleSet::Build(make_double_neg_rule())};
+  auto const latched_result = latched.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+
+  // Same merges discovered, same final shape, both saturated.
+  EXPECT_TRUE(arm_all_result.saturated());
+  EXPECT_TRUE(latched_result.saturated());
+  EXPECT_EQ(latched_result.rewrites_applied, arm_all_result.rewrites_applied);
+  EXPECT_EQ(latched_eg.num_classes(), arm_all_eg.num_classes());
+  EXPECT_EQ(latched_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
+}
+
 // --- Saturation ---
 
 class Rewrite_ChainedNegation : public Rewrite, public ::testing::WithParamInterface<int> {};

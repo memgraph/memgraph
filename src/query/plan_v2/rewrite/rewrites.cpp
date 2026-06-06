@@ -132,7 +132,7 @@ auto ApplyInlineRewrite(egraph &eg) -> std::size_t {
 }
 
 auto ApplyAllRewrites(egraph &eg, RewriteConfig const &config) -> RewriteResult {
-  return Rewriter(impl_of(eg).graph, DefaultRules()).saturate(config);
+  return Rewriter(impl_of(eg).graph, DefaultRules()).saturate(config, planner::core::rewrite::ArmingMode::Latched);
 }
 
 }  // namespace memgraph::query::plan::v2
