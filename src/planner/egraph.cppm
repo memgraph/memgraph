@@ -143,9 +143,35 @@ struct EGraphBase {
    */
   [[nodiscard]] auto worklist_size() const -> size_t { return rebuild_worklist_.size(); }
 
+  /**
+   * @brief Canonical e-classes changed since the last clear_touched().
+   *
+   * Accumulates every newly-inserted e-class and every merge target, including
+   * those produced by the rebuild cascade (cascade merges re-enter merge() and
+   * so are recorded too). Entries are canonicalized on read - a merged-away id
+   * resolves to its survivor - and de-duplicated. The set survives rebuild(); a
+   * caller drains it explicitly with clear_touched() per pass. Complete for
+   * analysis changes too: analysis moves only on merge, and every merge records
+   * its class here.
+   */
+  [[nodiscard]] auto touched_eclasses() const -> boost::unordered_flat_set<EClassId> {
+    boost::unordered_flat_set<EClassId> out;
+    out.reserve(touched_.size());
+    for (auto id : touched_) out.insert(find(id));
+    return out;
+  }
+
+  /**
+   * @brief Forget the touched-set; the next pass starts from empty.
+   */
+  void clear_touched() { touched_.clear(); }
+
  protected:
   mutable UnionFind union_find_;
   boost::unordered_flat_set<EClassId> rebuild_worklist_;
+  // Raw (pre-canonicalization) ids of e-classes changed since clear_touched();
+  // see touched_eclasses() for the read contract.
+  boost::unordered_flat_set<EClassId> touched_;
   size_t num_dead_nodes_ = 0;
 };
 }  // namespace detail
@@ -226,11 +252,13 @@ struct EGraph : private detail::EGraphBase {
   EGraph(EGraph &&) noexcept = default;
   auto operator=(EGraph &&) noexcept -> EGraph & = default;
 
+  using EGraphBase::clear_touched;
   using EGraphBase::find;
   using EGraphBase::needs_rebuild;
   using EGraphBase::num_dead_nodes;
   using EGraphBase::num_live_nodes;
   using EGraphBase::num_nodes;
+  using EGraphBase::touched_eclasses;
   using EGraphBase::worklist_size;
 
   /// Symbol and analysis recovered from the graph type alone, so generic engine
@@ -453,6 +481,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator, An
   hashcons_[enode_ref] = ENodeInfo{.current_eclassid = new_eclass_id, .enode_id = new_enode_id};
   classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id, std::move(seed)));
   canonical_eclasses_.add(new_eclass_id);
+  touched_.insert(new_eclass_id);
 
   return {.eclass_id = new_eclass_id, .enode_id = new_enode_id, .did_insert = true};
 }
@@ -488,6 +517,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
   }
 
   canonical_eclasses_.add(new_eclass_id);
+  touched_.insert(new_eclass_id);
 
   return {.eclass_id = new_eclass_id, .enode_id = new_enode_id, .did_insert = true};
 }
@@ -512,6 +542,9 @@ auto EGraph<Symbol, Analysis>::merge(EClassId a, EClassId b) -> MergeResult {
 
   // defer hashcons and congruence processing
   rebuild_worklist_.insert(merged_id);
+  // Record the change for the per-pass touched-set. Cascade merges during
+  // rebuild re-enter here, so this captures the full cascade.
+  touched_.insert(merged_id);
 
   merge_eclasses(*classes_[merged_id], other_id);
 
@@ -534,6 +567,7 @@ template <typename Symbol, typename Analysis>
 void EGraph<Symbol, Analysis>::clear() {
   union_find_.Clear();
   rebuild_worklist_.clear();
+  touched_.clear();
   classes_.clear();
   hashcons_.clear();
   enode_storage_.clear();
@@ -726,6 +760,7 @@ auto EGraph<Symbol, Analysis>::merge_all(std::span<const uint32_t> canonical_ids
 
   auto merged_root = EClassId{union_find_.UnionSets(canonical_ids, uf_ctx)};
   rebuild_worklist_.insert(merged_root);
+  touched_.insert(merged_root);
 
   auto merged_it = classes_.find(merged_root);
   assert(merged_it != classes_.end());
