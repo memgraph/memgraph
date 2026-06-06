@@ -19,6 +19,7 @@
 #include <vector>
 
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_node_map.hpp>
 
 #include "query/plan_v2/egraph/builtin_functions.hpp"
 #include "query/plan_v2/egraph/symbol.hpp"
@@ -96,7 +97,13 @@ struct symbol_make_traits<symbol::Symbol> {
 template <>
 struct symbol_make_traits<symbol::Literal> {
   struct storage_type {
-    std::map<storage::ExternalPropertyValue, uint64_t> store;
+    // Hash-consed value -> id. A node-stable map (not flat) so the `info`
+    // pointers below stay valid; hashing is O(1) versus the ordered map's
+    // operator<=> chain, which dominated constant folding. `operator==` is
+    // defined as `is_eq(a <=> b)`, so the hash partition matches the ordered
+    // map's exactly - the interned set of constants is unchanged.
+    boost::unordered_node_map<storage::ExternalPropertyValue, uint64_t, std::hash<storage::ExternalPropertyValue>>
+        store;
     std::vector<storage::ExternalPropertyValue const *> info;
   };
 
