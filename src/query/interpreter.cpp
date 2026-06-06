@@ -1004,7 +1004,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   auto impersonation_targets = auth_query->impersonation_targets_;
   auto property_permissions = auth_query->property_permissions_;
   auto property_entity_names = auth_query->property_entity_names_;
-  auto property_entity_is_node = auth_query->property_entity_is_node_;
+  auto property_entity_kind = auth_query->property_entity_kind_ == AuthQuery::PropertyEntityKind::NODE
+                                  ? auth::PropertyEntityKind::NODE
+                                  : auth::PropertyEntityKind::EDGE;
   auto property_matching_mode = auth_query->property_matching_mode_ == AuthQuery::LabelMatchingMode::EXACTLY
                                     ? auth::MatchingMode::EXACTLY
                                     : auth::MatchingMode::ANY;
@@ -1833,7 +1835,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                      user_or_role = std::move(user_or_role),
                      properties = std::move(property_permissions),
                      entity_names = std::move(property_entity_names),
-                     property_entity_is_node,
+                     property_entity_kind,
                      property_matching_mode,
                      property_permission_types,
                      entity_type,
@@ -1849,7 +1851,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
               auth->GrantPropertyPermission(user_or_role,
                                             properties,
                                             entity_names,
-                                            property_entity_is_node,
+                                            property_entity_kind,
                                             property_matching_mode,
                                             entity_type,
                                             perm_type,
@@ -1859,7 +1861,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
               auth->DenyPropertyPermission(user_or_role,
                                            properties,
                                            entity_names,
-                                           property_entity_is_node,
+                                           property_entity_kind,
                                            property_matching_mode,
                                            entity_type,
                                            perm_type,
@@ -1869,7 +1871,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
               auth->RevokePropertyPermission(user_or_role,
                                              properties,
                                              entity_names,
-                                             property_entity_is_node,
+                                             property_entity_kind,
                                              property_matching_mode,
                                              entity_type,
                                              perm_type,

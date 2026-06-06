@@ -2890,8 +2890,8 @@ struct AuthQueryChecker {
     return *this;
   }
 
-  AuthQueryChecker &WithPropertyEntityIsNode(bool v) {
-    property_entity_is_node_ = v;
+  AuthQueryChecker &WithPropertyEntityKind(AuthQuery::PropertyEntityKind v) {
+    property_entity_kind_ = v;
     return *this;
   }
 
@@ -2925,7 +2925,7 @@ struct AuthQueryChecker {
     }
     EXPECT_EQ(q->property_permissions_, property_permissions_);
     EXPECT_EQ(q->property_entity_names_, property_entity_names_);
-    EXPECT_EQ(q->property_entity_is_node_, property_entity_is_node_);
+    EXPECT_EQ(q->property_entity_kind_, property_entity_kind_);
     EXPECT_EQ(q->property_matching_mode_, property_matching_mode_);
     EXPECT_EQ(q->property_permission_types_, property_permission_types_);
   }
@@ -2945,7 +2945,7 @@ struct AuthQueryChecker {
   std::optional<std::unordered_set<std::string>> role_databases_;
   std::vector<std::string> property_permissions_;
   std::vector<std::string> property_entity_names_;
-  bool property_entity_is_node_{true};
+  AuthQuery::PropertyEntityKind property_entity_kind_{AuthQuery::PropertyEntityKind::NODE};
   AuthQuery::LabelMatchingMode property_matching_mode_{AuthQuery::LabelMatchingMode::ANY};
   uint8_t property_permission_types_{0};
 };
@@ -4534,7 +4534,7 @@ TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"ssn"})
       .WithPropertyEntityNames({"Employee"})
-      .WithPropertyEntityIsNode(true)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
       .WithPropertyPermissionTypes(kRead)
       .Check();
 
@@ -4545,7 +4545,7 @@ TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"ssn", "salary", "dob"})
       .WithPropertyEntityNames({"Employee"})
-      .WithPropertyEntityIsNode(true)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
       .WithPropertyPermissionTypes(kRead)
       .Check();
 
@@ -4556,7 +4556,7 @@ TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"*"})
       .WithPropertyEntityNames({"*"})
-      .WithPropertyEntityIsNode(true)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
       .WithPropertyPermissionTypes(kRead)
       .Check();
 
@@ -4567,7 +4567,7 @@ TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"amount", "currency"})
       .WithPropertyEntityNames({"PAID"})
-      .WithPropertyEntityIsNode(false)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::EDGE)
       .WithPropertyPermissionTypes(kRead)
       .Check();
 }
@@ -4583,7 +4583,7 @@ TEST_P(CypherMainVisitorTest, GrantPropertyMultiLabelMatchingModes) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"ssn"})
       .WithPropertyEntityNames({"A", "B"})
-      .WithPropertyEntityIsNode(true)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
       .WithPropertyMatchingMode(AuthQuery::LabelMatchingMode::ANY)
       .WithPropertyPermissionTypes(kRead)
       .Check();
@@ -4595,7 +4595,7 @@ TEST_P(CypherMainVisitorTest, GrantPropertyMultiLabelMatchingModes) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"ssn"})
       .WithPropertyEntityNames({"A", "B"})
-      .WithPropertyEntityIsNode(true)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
       .WithPropertyMatchingMode(AuthQuery::LabelMatchingMode::EXACTLY)
       .WithPropertyPermissionTypes(kRead)
       .Check();
@@ -4617,7 +4617,7 @@ TEST_P(CypherMainVisitorTest, DenyPropertyReadPrivilege) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"ssn"})
       .WithPropertyEntityNames({"Employee"})
-      .WithPropertyEntityIsNode(true)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
       .WithPropertyPermissionTypes(kRead)
       .Check();
 
@@ -4626,7 +4626,7 @@ TEST_P(CypherMainVisitorTest, DenyPropertyReadPrivilege) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"amount"})
       .WithPropertyEntityNames({"PAID"})
-      .WithPropertyEntityIsNode(false)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::EDGE)
       .WithPropertyPermissionTypes(kRead)
       .Check();
 }
@@ -4641,7 +4641,7 @@ TEST_P(CypherMainVisitorTest, RevokePropertyReadPrivilege) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"ssn"})
       .WithPropertyEntityNames({"Employee"})
-      .WithPropertyEntityIsNode(true)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
       .WithPropertyPermissionTypes(kRead)
       .Check();
 
@@ -4651,7 +4651,7 @@ TEST_P(CypherMainVisitorTest, RevokePropertyReadPrivilege) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"amount"})
       .WithPropertyEntityNames({"PAID"})
-      .WithPropertyEntityIsNode(false)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::EDGE)
       .WithPropertyPermissionTypes(kRead)
       .Check();
 }
@@ -4684,7 +4684,7 @@ TEST_P(CypherMainVisitorTest, GrantSetPropertyPermission) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"department", "title"})
       .WithPropertyEntityNames({"Employee"})
-      .WithPropertyEntityIsNode(true)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
       .WithPropertyPermissionTypes(static_cast<uint8_t>(AuthQuery::PropertyPermissionType::WRITE))
       .Check();
 
@@ -4694,7 +4694,7 @@ TEST_P(CypherMainVisitorTest, GrantSetPropertyPermission) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"*"})
       .WithPropertyEntityNames({"PAID"})
-      .WithPropertyEntityIsNode(false)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::EDGE)
       .WithPropertyPermissionTypes(static_cast<uint8_t>(AuthQuery::PropertyPermissionType::WRITE))
       .Check();
 }
@@ -4708,7 +4708,7 @@ TEST_P(CypherMainVisitorTest, DenySetPropertyPermission) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"salary", "ssn"})
       .WithPropertyEntityNames({"Employee"})
-      .WithPropertyEntityIsNode(true)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
       .WithPropertyPermissionTypes(static_cast<uint8_t>(AuthQuery::PropertyPermissionType::WRITE))
       .Check();
 }
@@ -4722,7 +4722,7 @@ TEST_P(CypherMainVisitorTest, RevokeSetPropertyPermission) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"salary"})
       .WithPropertyEntityNames({"Employee"})
-      .WithPropertyEntityIsNode(true)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
       .WithPropertyPermissionTypes(static_cast<uint8_t>(AuthQuery::PropertyPermissionType::WRITE))
       .Check();
 }
@@ -4739,7 +4739,7 @@ TEST_P(CypherMainVisitorTest, GrantCombinedReadSetPropertyPermission) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"ssn"})
       .WithPropertyEntityNames({"Employee"})
-      .WithPropertyEntityIsNode(true)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
       .WithPropertyPermissionTypes(both)
       .Check();
 
@@ -4749,7 +4749,7 @@ TEST_P(CypherMainVisitorTest, GrantCombinedReadSetPropertyPermission) {
       .WithUserOrRole("user")
       .WithPropertyPermissions({"amount"})
       .WithPropertyEntityNames({"PAID"})
-      .WithPropertyEntityIsNode(false)
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::EDGE)
       .WithPropertyPermissionTypes(both)
       .Check();
 }

@@ -316,6 +316,8 @@ class UserImpersonation {
 #ifdef MG_ENTERPRISE
 enum class MatchingMode : uint8_t { ANY, EXACTLY };
 
+enum class PropertyEntityKind : uint8_t { NODE, EDGE };
+
 struct FineGrainedAccessRule {
   std::unordered_set<std::string> symbols;
   FineGrainedPermission grants{FineGrainedPermission::NONE};
@@ -412,6 +414,9 @@ bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 
 #ifdef MG_ENTERPRISE
 enum class PropertyPermissionType : uint8_t { NONE = 0, READ = 0x01, WRITE = 0x02 };
+
+constexpr auto kAllPropertyPermissionTypes = static_cast<PropertyPermissionType>(
+    std::to_underlying(PropertyPermissionType::READ) | std::to_underlying(PropertyPermissionType::WRITE));
 
 struct PropertyPermission {
   uint8_t grants{std::to_underlying(PropertyPermissionType::NONE)};

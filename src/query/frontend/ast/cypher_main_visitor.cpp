@@ -2613,7 +2613,7 @@ AuthQuery *BuildPropertyPermissionQuery(AstStorage *storage, AuthQuery::Action a
   }
 
   if (type_spec->labelEntitiesList()) {
-    auth->property_entity_is_node_ = true;
+    auth->property_entity_kind_ = query::AuthQuery::PropertyEntityKind::NODE;
     auth->property_entity_names_ =
         std::any_cast<std::vector<std::string>>(type_spec->labelEntitiesList()->accept(visitor));
 
@@ -2628,7 +2628,7 @@ AuthQuery *BuildPropertyPermissionQuery(AstStorage *storage, AuthQuery::Action a
       auth->property_matching_mode_ = AuthQuery::LabelMatchingMode::ANY;
     }
   } else {
-    auth->property_entity_is_node_ = false;
+    auth->property_entity_kind_ = query::AuthQuery::PropertyEntityKind::EDGE;
     auth->property_entity_names_ = std::any_cast<std::vector<std::string>>(type_spec->edgeType->accept(visitor));
   }
 

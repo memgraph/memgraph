@@ -1380,17 +1380,18 @@ void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, cons
 }
 
 namespace {
-auto &SelectPropertyPermissions(auth::PropertyAccessHandler &handler, bool is_node) {
-  return is_node ? handler.label_properties() : handler.edge_type_properties();
+auto &SelectPropertyPermissions(auth::PropertyAccessHandler &handler, auth::PropertyEntityKind entity_kind) {
+  return entity_kind == auth::PropertyEntityKind::NODE ? handler.label_properties() : handler.edge_type_properties();
 }
 }  // namespace
 
 template <typename EditFn>
 void AuthQueryHandler::EditPropertyPermission(const std::string &user_or_role,
                                               const std::vector<std::string> &properties,
-                                              const std::vector<std::string> &entity_names, bool is_node,
-                                              auth::MatchingMode matching_mode, auth::UserOrRoleType type,
-                                              system::Transaction *system_tx, EditFn const &edit_fn) {
+                                              const std::vector<std::string> &entity_names,
+                                              auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                              auth::UserOrRoleType type, system::Transaction *system_tx,
+                                              EditFn const &edit_fn) {
   try {
     auto locked_auth = auth_->Lock();
 
@@ -1401,13 +1402,13 @@ void AuthQueryHandler::EditPropertyPermission(const std::string &user_or_role,
                                          user_or_role);
 
     if (user) {
-      auto &perms = SelectPropertyPermissions(user->property_access_handler(), is_node);
+      auto &perms = SelectPropertyPermissions(user->property_access_handler(), entity_kind);
       for (auto const &prop : properties) {
         edit_fn(perms, entity_names, matching_mode, prop);
       }
       locked_auth->SaveUser(*user, system_tx);
     } else if (role) {
-      auto &perms = SelectPropertyPermissions(role->property_access_handler(), is_node);
+      auto &perms = SelectPropertyPermissions(role->property_access_handler(), entity_kind);
       for (auto const &prop : properties) {
         edit_fn(perms, entity_names, matching_mode, prop);
       }
@@ -1422,13 +1423,14 @@ void AuthQueryHandler::EditPropertyPermission(const std::string &user_or_role,
 
 void AuthQueryHandler::GrantPropertyPermission(const std::string &user_or_role,
                                                const std::vector<std::string> &properties,
-                                               const std::vector<std::string> &entity_names, bool is_node,
-                                               auth::MatchingMode matching_mode, auth::UserOrRoleType type,
-                                               auth::PropertyPermissionType perm_type, system::Transaction *system_tx) {
+                                               const std::vector<std::string> &entity_names,
+                                               auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                               auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
+                                               system::Transaction *system_tx) {
   EditPropertyPermission(user_or_role,
                          properties,
                          entity_names,
-                         is_node,
+                         entity_kind,
                          matching_mode,
                          type,
                          system_tx,
@@ -1444,13 +1446,14 @@ void AuthQueryHandler::GrantPropertyPermission(const std::string &user_or_role,
 
 void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
                                               const std::vector<std::string> &properties,
-                                              const std::vector<std::string> &entity_names, bool is_node,
-                                              auth::MatchingMode matching_mode, auth::UserOrRoleType type,
-                                              auth::PropertyPermissionType perm_type, system::Transaction *system_tx) {
+                                              const std::vector<std::string> &entity_names,
+                                              auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                              auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
+                                              system::Transaction *system_tx) {
   EditPropertyPermission(user_or_role,
                          properties,
                          entity_names,
-                         is_node,
+                         entity_kind,
                          matching_mode,
                          type,
                          system_tx,
@@ -1466,14 +1469,14 @@ void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
 
 void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
                                                 const std::vector<std::string> &properties,
-                                                const std::vector<std::string> &entity_names, bool is_node,
-                                                auth::MatchingMode matching_mode, auth::UserOrRoleType type,
-                                                auth::PropertyPermissionType perm_type,
+                                                const std::vector<std::string> &entity_names,
+                                                auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                                auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
                                                 system::Transaction *system_tx) {
   EditPropertyPermission(user_or_role,
                          properties,
                          entity_names,
-                         is_node,
+                         entity_kind,
                          matching_mode,
                          type,
                          system_tx,

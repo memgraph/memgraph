@@ -964,10 +964,8 @@ void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
     }
     user.fine_grained_access_handler().label_permissions().GrantGlobal(kAllLabelPermissions);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(kAllEdgeTypePermissions);
-    user.property_access_handler().label_properties().GrantGlobal("*", PropertyPermissionType::READ);
-    user.property_access_handler().label_properties().GrantGlobal("*", PropertyPermissionType::WRITE);
-    user.property_access_handler().edge_type_properties().GrantGlobal("*", PropertyPermissionType::READ);
-    user.property_access_handler().edge_type_properties().GrantGlobal("*", PropertyPermissionType::WRITE);
+    user.property_access_handler().label_properties().GrantGlobal("*", kAllPropertyPermissionTypes);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", kAllPropertyPermissionTypes);
     user.db_access().GrantAll();
   }
 #endif
@@ -1275,8 +1273,7 @@ bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
       role.permissions().Grant(permission);
     }
     grant_privileges(role, kAllLabelPermissions, kAllEdgeTypePermissions);
-    grant_property_privileges(role, PropertyPermissionType::READ);
-    grant_property_privileges(role, PropertyPermissionType::WRITE);
+    grant_property_privileges(role, kAllPropertyPermissionTypes);
     role.db_access().GrantAll();
   });
 
@@ -1291,8 +1288,7 @@ bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
       role.permissions().Grant(permission);
     }
     grant_privileges(role, kAllLabelPermissions, kAllEdgeTypePermissions);
-    grant_property_privileges(role, PropertyPermissionType::READ);
-    grant_property_privileges(role, PropertyPermissionType::WRITE);
+    grant_property_privileges(role, kAllPropertyPermissionTypes);
   });
 
   make_role("readonly", [&](Role &role) {

@@ -1031,10 +1031,8 @@ nlohmann::json Role::Serialize() const {
 
 namespace {
 void MigratePropertyAccessDefaults(PropertyAccessHandler &handler) {
-  handler.label_properties().GrantGlobal("*", PropertyPermissionType::READ);
-  handler.label_properties().GrantGlobal("*", PropertyPermissionType::WRITE);
-  handler.edge_type_properties().GrantGlobal("*", PropertyPermissionType::READ);
-  handler.edge_type_properties().GrantGlobal("*", PropertyPermissionType::WRITE);
+  handler.label_properties().GrantGlobal("*", kAllPropertyPermissionTypes);
+  handler.edge_type_properties().GrantGlobal("*", kAllPropertyPermissionTypes);
 }
 }  // namespace
 

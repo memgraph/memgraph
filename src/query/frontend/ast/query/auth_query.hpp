@@ -117,6 +117,8 @@ class AuthQuery : public memgraph::query::Query {
     ROLE,         // Explicitly specified as a ROLE; only the role namespace is checked.
   };
 
+  enum class PropertyEntityKind { NODE, EDGE };
+
   enum class DatabaseSpecification {
     NONE,     // No database specification (non-enterprise)
     MAIN,     // MAIN database (enterprise)
@@ -147,7 +149,7 @@ class AuthQuery : public memgraph::query::Query {
   std::vector<std::string> impersonation_targets_;
   std::vector<std::string> property_permissions_;
   std::vector<std::string> property_entity_names_;
-  bool property_entity_is_node_{true};
+  PropertyEntityKind property_entity_kind_{PropertyEntityKind::NODE};
   LabelMatchingMode property_matching_mode_{LabelMatchingMode::ANY};
   uint8_t property_permission_types_{0};
 
@@ -174,7 +176,7 @@ class AuthQuery : public memgraph::query::Query {
     object->impersonation_targets_ = impersonation_targets_;
     object->property_permissions_ = property_permissions_;
     object->property_entity_names_ = property_entity_names_;
-    object->property_entity_is_node_ = property_entity_is_node_;
+    object->property_entity_kind_ = property_entity_kind_;
     object->property_matching_mode_ = property_matching_mode_;
     object->property_permission_types_ = property_permission_types_;
     object->database_specification_ = database_specification_;
