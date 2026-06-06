@@ -922,7 +922,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   Decoder wal;
   auto version = wal.Initialize(path, kWalMagic);
   if (!version) throw RecoveryFailure("Couldn't read WAL magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version!");
+  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version {}!", *version);
 
   // Prepare return value.
   WalInfo info;
@@ -967,6 +967,13 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     info.seq_num = *maybe_seq_num;
   }
 
+  if (version >= kCrcProtection) {
+    wal.ReadUint();
+    if (!utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+      throw RecoveryFailure("Durability mismatch in WAL header");
+    }
+  }
+
   // Read deltas.
   info.num_deltas = 0;
   auto validate_delta = [&wal, version = *version]() -> std::optional<std::pair<uint64_t, bool>> {
@@ -975,7 +982,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
       auto is_transaction_end = SkipWalDeltaData(&wal, version);
       if (is_transaction_end) {
         if (version >= kCrcProtection && !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
-          spdlog::error("Durability CRC mismatch.");
+          spdlog::error("Durability CRC mismatch");
           return std::nullopt;
         }
         wal.ResetCrcAcc();
@@ -2019,27 +2026,45 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   // Initialize the WAL file.
   MG_ASSERT(wal_.Initialize(path_, kWalMagic, kVersion), "Failed to open WAL file {}", path_);
 
-  // Write placeholder offsets.
   wal_.WriteMarker(Marker::SECTION_OFFSETS);
+  auto const crc_header_prefix = wal_.CrcAccValue();
   uint64_t const offset_offsets = wal_.GetPosition();
   uint64_t offset_metadata{0};
   wal_.WriteUint(offset_metadata);
   uint64_t offset_deltas{0};
   wal_.WriteUint(offset_deltas);
 
-  // Write metadata.
+  // Write metadata with a clean accumulator so it captures exactly the metadata bytes.
   offset_metadata = wal_.GetPosition();
+  wal_.ResetCrcAcc();
   wal_.WriteMarker(Marker::SECTION_METADATA);
   wal_.WriteString(std::string{uuid});
   wal_.WriteString(epoch_id);
   wal_.WriteUint(seq_num);
 
-  // Write final offsets.
-  offset_deltas = wal_.GetPosition();
+  uint64_t const offset_header_crc = wal_.GetPosition();
+  wal_.WriteMarker(Marker::TYPE_INT);
+  auto const crc_metadata = wal_.CrcAccValue();  // crc(metadata + trailer TYPE_INT marker)
+  uint64_t const crc_metadata_len = wal_.GetPosition() - offset_metadata;
+  offset_deltas = offset_header_crc + sizeof(Marker) + sizeof(uint64_t);
+
+  // Back-patch the offsets with their final values, capturing crc(offsets) from a clean accumulator.
   wal_.SetPosition(offset_offsets);
+  wal_.ResetCrcAcc();
   wal_.WriteUint(offset_metadata);
   wal_.WriteUint(offset_deltas);
+  static constexpr uint64_t kOffsetsBytes = 2 * (sizeof(Marker) + sizeof(uint64_t));
+  auto const crc_offsets = wal_.CrcAccValue();
+
+  // Stitch the pieces in file order: prefix ++ offsets ++ (metadata ++ trailer marker).
+  auto const crc_prefix_offsets = utils::CrcAccumulator::Combine(crc_header_prefix, crc_offsets, kOffsetsBytes);
+  auto const header_crc = utils::CrcAccumulator::Combine(crc_prefix_offsets, crc_metadata, crc_metadata_len);
+
+  // Patch the reserved trailer with the final header CRC.
+  wal_.WriteCrcAt(offset_header_crc, header_crc);
+
   wal_.SetPosition(offset_deltas);
+  wal_.ResetCrcAcc();
 
   // Sync the initial data.
   wal_.Sync();

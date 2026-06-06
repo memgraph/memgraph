@@ -31,6 +31,12 @@ class CrcAccumulator {
 
   static auto PatchByte(uint32_t crc, uint32_t t_delta, uint64_t bytes_after) -> uint32_t;
 
+  /// Combine two independently-accumulated CRCs. Given crc(A) and crc(B), where B is `len_b` bytes long, returns
+  /// crc(A ++ B) -- the CRC of A followed by B -- without re-reading A's bytes. Thin wrapper over zlib's crc32_combine.
+  /// Used to compute a section CRC whose pieces are produced in separate passes (e.g. a fixed prefix plus back-patched
+  /// bytes), where a single streaming accumulator would see the bytes in the wrong order.
+  static auto Combine(uint32_t crc_a, uint32_t crc_b, uint64_t len_b) -> uint32_t;
+
   /// Self-checking CRC verification. `crc` is the running CRC accumulated over the whole input INCLUDING the stored CRC
   /// trailer that follows it. An intact "input ++ crc" stream reduces to a fixed CRC-32 residue, so this just compares
   /// against that residue. Returns true when the input verifies.
