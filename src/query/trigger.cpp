@@ -274,6 +274,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
       *ctx.user_or_role && dba) {
     auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(*ctx.user_or_role, dba);
     DMG_ASSERT(fine_grained_checker, "Auth checker should not be null");
+    // Only assign the auth checker if the user has restricted access (LBAC or PBAC)
     if (fine_grained_checker->NeedsFineGrainedAuthChecker()) {
       ctx.auth_checker = std::move(fine_grained_checker);
     }

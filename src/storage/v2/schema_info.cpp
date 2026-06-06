@@ -455,6 +455,7 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(
     edges.emplace_back(std::move(edge));
   }
 
+  // Cleanup result (we must leave unused stats in analytical)
   auto stats_cleanup = [&json](const std::string &main_key) {
     erase_if(json[main_key].get_ref<nlohmann::json::array_t &>(), [](auto &elem) { return elem["count"] <= 0; });
     for (auto &val : json[main_key].get_ref<nlohmann::json::array_t &>()) {
