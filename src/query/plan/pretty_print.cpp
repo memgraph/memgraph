@@ -248,7 +248,7 @@ nlohmann::json ToJson(const std::vector<T> &items, const Args &...args) {
 }  // namespace
 
 struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
-  explicit PlanToJsonVisitor(const DbAccessor *dba, NamedLogicalOperator::PropertyVisibleFn property_visible = {})
+  explicit PlanToJsonVisitor(const DbAccessor *dba, PropertyVisibleFn property_visible = {})
       : dba_(dba), property_visible_(std::move(property_visible)) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -342,7 +342,7 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
  protected:
   nlohmann::json output_;
   const DbAccessor *dba_;
-  NamedLogicalOperator::PropertyVisibleFn property_visible_;
+  PropertyVisibleFn property_visible_;
 
   std::string RedactPropertyName(std::string const &name) const {
     if (property_visible_ && !property_visible_(name)) return "<redacted>";
@@ -372,8 +372,7 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
 
 }  // namespace impl
 
-PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out,
-                         NamedLogicalOperator::PropertyVisibleFn property_visible)
+PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out, PropertyVisibleFn property_visible)
     : dba_(dba), out_(out), property_visible_(std::move(property_visible)) {}
 
 // NOLINTBEGIN(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
@@ -415,8 +414,7 @@ PRE_VISIT_TS(ScanAllByPointDistance);
 PRE_VISIT_TS(ScanAllByPointWithinbbox);
 
 namespace {
-std::string ScanChunkToString(const auto &op, const DbAccessor *dba,
-                              NamedLogicalOperator::PropertyVisibleFn const &property_visible) {
+std::string ScanChunkToString(const auto &op, const DbAccessor *dba, PropertyVisibleFn const &property_visible) {
   // ScanChunk is always connected to a ParallelMerge->ScanParallel variant. Combine the two and return the same plan
   // that a single threaded query would produce.
   auto *node = dynamic_cast<ScanParallel *>(op.input_->input().get());
@@ -628,14 +626,13 @@ void PlanPrinter::Branch(query::plan::LogicalOperator &op, const std::string &br
 }
 
 void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out,
-                 NamedLogicalOperator::PropertyVisibleFn property_visible) {
+                 PropertyVisibleFn property_visible) {
   PlanPrinter printer(&dba, out, std::move(property_visible));
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }
 
-nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root,
-                          NamedLogicalOperator::PropertyVisibleFn property_visible) {
+nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root, PropertyVisibleFn property_visible) {
   impl::PlanToJsonVisitor visitor(&dba, std::move(property_visible));
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(visitor);

@@ -3730,7 +3730,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
     memgraph::logging::EmitSessionTraceEvent(hint);
   }
 
-  plan::NamedLogicalOperator::PropertyVisibleFn property_visible;
+  plan::PropertyVisibleFn property_visible;
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context->auth_checker && user_or_role &&
       *user_or_role) {

@@ -218,15 +218,15 @@ class HierarchicalLogicalOperatorVisitor : public LogicalOperatorCompositeVisito
   using typename LogicalOperatorLeafVisitor::ReturnType;
 };
 
+using PropertyVisibleFn = std::function<bool(std::string const &)>;
+
 struct PlanStringContext {
   const DbAccessor *dba{nullptr};
-  std::function<bool(std::string const &)> property_visible{};
+  PropertyVisibleFn property_visible{};
 };
 
 class NamedLogicalOperator {
  public:
-  using PropertyVisibleFn = std::function<bool(std::string const &)>;
-
   virtual std::string ToString(PlanStringContext const &ctx) const = 0;
   virtual ~NamedLogicalOperator() = default;
 
@@ -241,8 +241,7 @@ class NamedLogicalOperator {
   NamedLogicalOperator &operator=(NamedLogicalOperator &&) noexcept = default;
 };
 
-inline PlanStringContext PlanStringContextFrom(const DbAccessor *dba,
-                                               NamedLogicalOperator::PropertyVisibleFn property_visible = {}) {
+inline PlanStringContext PlanStringContextFrom(const DbAccessor *dba, PropertyVisibleFn property_visible = {}) {
   return PlanStringContext{.dba = dba, .property_visible = std::move(property_visible)};
 }
 

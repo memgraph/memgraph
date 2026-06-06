@@ -4494,7 +4494,7 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter, PlanString
 
       auto or_edge_types = filter_expression->valid_edgetypes_ |
                            rv::transform([&](EdgeTypeIx const &et) -> std::string const & { return et.name; }) |
-                           rv::join_with('|') | std::ranges::to<std::string>();
+                           std::ranges::views::join_with('|') | std::ranges::to<std::string>();
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
         return fmt::format("[:{}]", or_edge_types);
       }
