@@ -75,6 +75,15 @@ constexpr PatternVar kFoldArg1{2};
 /// merge `root` with the interned result. A non-constant operand or an
 /// evaluation that declines (runtime error, non-scalar) leaves `root` alone.
 void TryFold(FoldCtx &ctx, symbol op, EClassId root, std::span<EClassId const> operand_classes) {
+  // Already folded: the root's class carries the constant. A folded root keeps
+  // matching this rule (the operator e-node stays in the merged class), so
+  // without this guard every re-match re-evaluates and re-interns the result
+  // only to re-attempt a merge that is already done. The guard turns that into
+  // one analysis read.
+  if (auto const *root_expr = ctx.analysis(root).expression();
+      root_expr != nullptr && root_expr->known_constant_value) {
+    return;
+  }
   std::array<storage::ExternalPropertyValue, 2> operands;
   std::size_t n = 0;
   for (auto cls : operand_classes) {
