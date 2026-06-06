@@ -15,13 +15,11 @@
 #include <span>
 
 #include "planner/extract/extractor.hpp"
-#include "query/plan_v2/cost/builtin_estimator.hpp"
 #include "query/plan_v2/cost/cost_model.hpp"
 #include "query/plan_v2/egraph/alternative.hpp"
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
-#include "query/plan_v2/resolve/extraction_env.hpp"
-#include "query/plan_v2/resolve/pre_extraction.hpp"
+#include "query/plan_v2/test_support/extraction_inputs.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::plan::v2::test {
@@ -33,16 +31,8 @@ namespace memgraph::query::plan::v2::test {
 /// frontier views reference, so it must not be moved while in use.
 class CostHarness {
  public:
-  CostHarness(egraph const &e, eclass root)
-      : core_{impl_of(e).graph.core()},
-        estimator_{e},
-        pre_{BuildPreExtractionData(core_)},
-        syms_{.egraph = core_,
-              .variable_index = pre_.variable_index,
-              .outer_scope = {},
-              .referenced_syms = pre_.referenced_syms} {
-    CostCtx const cost_ctx{.estimator = estimator_, .syms = syms_};
-    (void)planner::core::extract::ComputeFrontiers(core_, cost_ctx, to_core(root), frontier_context_);
+  CostHarness(egraph const &e, eclass root) : in_{e} {
+    (void)planner::core::extract::ComputeFrontiers(in_.core, in_.cost_ctx(), to_core(root), frontier_context_);
   }
 
   CostHarness(CostHarness const &) = delete;
@@ -65,15 +55,10 @@ class CostHarness {
 
   /// The VariableIndex bit a Symbol e-class was assigned, for asserting against
   /// an alt's `introduces` / `required`.
-  [[nodiscard]] auto bit_of(eclass sym) const -> uint16_t { return pre_.variable_index.bit_of(to_core(sym)); }
+  [[nodiscard]] auto bit_of(eclass sym) const -> uint16_t { return in_.pre.variable_index.bit_of(to_core(sym)); }
 
  private:
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
-  EGraph const &core_;
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
-  BuiltinEstimator estimator_;
-  PreExtractionData pre_;
-  SymbolContext syms_;
+  ExtractionInputs in_;
   planner::core::extract::FrontierContext<CostFrontier> frontier_context_{};
 };
 
