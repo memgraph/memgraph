@@ -63,20 +63,20 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
   AstStorage storage;
   memgraph::utils::MonotonicBufferResource mem{1024};
-  ExecutionContext execution_context_;
-  EvaluationContext &ctx = execution_context_.evaluation_context;
-  SymbolTable &symbol_table = execution_context_.symbol_table;
+  ExecutionContext execution_context;
+  EvaluationContext &ctx = execution_context.evaluation_context;
+  SymbolTable &symbol_table = execution_context.symbol_table;
 
   Frame frame{128};
-  ExpressionEvaluator eval{&frame, execution_context_, memgraph::storage::View::OLD};
+  ExpressionEvaluator eval{&frame, execution_context, memgraph::storage::View::OLD};
 
   ExpressionEvaluatorTest()
       : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
         db(new StorageType(config)),
         storage_dba(db->Access(memgraph::storage::WRITE)),
         dba(storage_dba.get()),
-        execution_context_{.db_accessor = &dba,
-                           .evaluation_context = {.memory = &mem, .timestamp = memgraph::query::QueryTimestamp()}} {}
+        execution_context{.db_accessor = &dba,
+                          .evaluation_context = {.memory = &mem, .timestamp = memgraph::query::QueryTimestamp()}} {}
 
   ~ExpressionEvaluatorTest() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
