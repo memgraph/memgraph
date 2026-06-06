@@ -171,6 +171,52 @@ void BM_PlanV2_ReSaturate(benchmark::State &state) {
 
 BENCHMARK(BM_PlanV2_ReSaturate)->ArgsProduct({{1, 8, 64}, {0, 1}})->Unit(benchmark::kMicrosecond);
 
+// Getting-to-saturation with most rules unarmed each pass. The graph has:
+//   - a deep alternating Add/Mul chain of constants: it folds one level per
+//     pass, so saturation takes many passes and the Add-fold and Mul-fold rules
+//     *alternate* being the single armed rule as the fold climbs; and
+//   - `width` independent Sub folds that all fire on the first pass and then
+//     never change - a settled region.
+// Under Latched the Sub rule is dropped once its region settles, so the long
+// climb never re-scans it; under ArmAll the Sub region is re-matched every pass.
+// The gap grows with `width`. range(1): 0 = ArmAll, 1 = Latched.
+auto Lit(egraph &eg, int64_t v) -> eclass { return eg.MakeLiteral(ExternalPropertyValue{v}); }
+
+auto BuildSettledPlusDriver(int64_t width) -> egraph {
+  egraph eg;
+  auto const two = Lit(eg, 2);
+  // Driver: Add/Mul alternate up the chain; one level folds per pass.
+  eclass cur = Lit(eg, 1);
+  for (int level = 0; level < 24; ++level) {
+    cur = (level % 2 == 0) ? eg.MakeAdd(cur, two) : eg.MakeMul(cur, two);
+  }
+  benchmark::DoNotOptimize(cur);
+  // Settled region: distinct constants so the Subs don't hash-cons together.
+  for (int64_t w = 0; w < width; ++w) {
+    auto const base = 1000 + (w * 2);
+    benchmark::DoNotOptimize(eg.MakeSub(Lit(eg, base), Lit(eg, base + 1)));
+  }
+  return eg;
+}
+
+void BM_PlanV2_SettledRegion(benchmark::State &state) {
+  auto const width = state.range(0);
+  auto const mode = state.range(1) == 0 ? ArmingMode::ArmAll : ArmingMode::Latched;
+  for (auto _ : state) {
+    // Time only the saturation loop; the O(width) build and matcher-index
+    // construction are identical across modes and would otherwise dilute the
+    // comparison.
+    state.PauseTiming();
+    auto eg = BuildSettledPlusDriver(width);
+    Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
+    state.ResumeTiming();
+    benchmark::DoNotOptimize(rewriter.saturate(RewriteConfig::Unlimited(), mode));
+  }
+  state.SetItemsProcessed(state.iterations() * (width + 24));
+}
+
+BENCHMARK(BM_PlanV2_SettledRegion)->ArgsProduct({{0, 256, 1024, 4096}, {0, 1}})->Unit(benchmark::kMicrosecond);
+
 }  // namespace
 
 BENCHMARK_MAIN();
