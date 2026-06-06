@@ -3543,34 +3543,9 @@ antlrcpp::Any CypherMainVisitor::visitPartialComparisonExpression(
   return 0;
 }
 
-// Addition and subtraction.
-antlrcpp::Any CypherMainVisitor::visitExpression7(MemgraphCypher::Expression7Context *ctx) {
-  return LeftAssociativeOperatorExpression(
-      ctx->expression6(), ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
-}
-
-// Multiplication, division, modding.
-antlrcpp::Any CypherMainVisitor::visitExpression6(MemgraphCypher::Expression6Context *ctx) {
-  return LeftAssociativeOperatorExpression(
-      ctx->expression5(), ctx->children, {MemgraphCypher::ASTERISK, MemgraphCypher::SLASH, MemgraphCypher::PERCENT});
-}
-
-// Exponentiation.
-antlrcpp::Any CypherMainVisitor::visitExpression5(MemgraphCypher::Expression5Context *ctx) {
-  if (ctx->expression4().size() > 1U) {
-    return LeftAssociativeOperatorExpression(ctx->expression4(), ctx->children, {MemgraphCypher::CARET});
-  }
-  return visitChildren(ctx);
-}
-
-// Unary minus and plus.
-antlrcpp::Any CypherMainVisitor::visitExpression4(MemgraphCypher::Expression4Context *ctx) {
-  return PrefixUnaryOperator(ctx->expression3a(), ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
-}
-
 // IS NULL, IS NOT NULL, STARTS WITH, ..
-antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aContext *ctx) {
-  auto *expression = std::any_cast<Expression *>(ctx->expression2a()->accept(this));
+antlrcpp::Any CypherMainVisitor::visitExpression7(MemgraphCypher::Expression7Context *ctx) {
+  auto *expression = std::any_cast<Expression *>(ctx->expression6()->accept(this));
 
   for (auto *op : ctx->stringAndNullOperators()) {
     if (op->IS() && op->NOT() && op->CYPHERNULL()) {
@@ -3580,11 +3555,11 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aC
       expression = static_cast<Expression *>(storage_->Create<IsNullOperator>(expression));
     } else if (op->IN()) {
       expression = static_cast<Expression *>(
-          storage_->Create<InListOperator>(expression, std::any_cast<Expression *>(op->expression2a()->accept(this))));
+          storage_->Create<InListOperator>(expression, std::any_cast<Expression *>(op->expression6()->accept(this))));
     } else if (utils::StartsWith(op->getText(), "=~")) {
       auto *regex_match = storage_->Create<RegexMatch>();
       regex_match->string_expr_ = expression;
-      regex_match->regex_ = std::any_cast<Expression *>(op->expression2a()->accept(this));
+      regex_match->regex_ = std::any_cast<Expression *>(op->expression6()->accept(this));
       expression = regex_match;
     } else {
       std::string function_name;
@@ -3597,12 +3572,37 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aC
       } else {
         throw utils::NotYetImplemented("function '{}'", op->getText());
       }
-      auto *expression2 = std::any_cast<Expression *>(op->expression2a()->accept(this));
+      auto *expression2 = std::any_cast<Expression *>(op->expression6()->accept(this));
       std::vector<Expression *> args = {expression, expression2};
       expression = static_cast<Expression *>(storage_->Create<Function>(function_name, args));
     }
   }
   return expression;
+}
+
+// Addition and subtraction.
+antlrcpp::Any CypherMainVisitor::visitExpression6(MemgraphCypher::Expression6Context *ctx) {
+  return LeftAssociativeOperatorExpression(
+      ctx->expression5(), ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
+}
+
+// Multiplication, division, modding.
+antlrcpp::Any CypherMainVisitor::visitExpression5(MemgraphCypher::Expression5Context *ctx) {
+  return LeftAssociativeOperatorExpression(
+      ctx->expression4(), ctx->children, {MemgraphCypher::ASTERISK, MemgraphCypher::SLASH, MemgraphCypher::PERCENT});
+}
+
+// Exponentiation.
+antlrcpp::Any CypherMainVisitor::visitExpression4(MemgraphCypher::Expression4Context *ctx) {
+  if (ctx->expression3().size() > 1U) {
+    return LeftAssociativeOperatorExpression(ctx->expression3(), ctx->children, {MemgraphCypher::CARET});
+  }
+  return visitChildren(ctx);
+}
+
+// Unary minus and plus.
+antlrcpp::Any CypherMainVisitor::visitExpression3(MemgraphCypher::Expression3Context *ctx) {
+  return PrefixUnaryOperator(ctx->expression2a(), ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
 }
 
 antlrcpp::Any CypherMainVisitor::visitStringAndNullOperators(MemgraphCypher::StringAndNullOperatorsContext *) {
