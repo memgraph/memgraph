@@ -37,8 +37,8 @@ class ScopedProfile {
     if (!root_) {
       stats_ = &context_->stats;
       stats_->key = key;
-      PlanStringContext ctx{.dba = context->db_accessor, .property_visible = context->property_visible_};
-      stats_->name = op.ToString(ctx);
+      op.dba_ = context->db_accessor;
+      stats_->name = op.ToString();
     } else {
       stats_ = nullptr;
 
@@ -50,8 +50,8 @@ class ScopedProfile {
         root_->children.emplace_back();
         stats_ = &root_->children.back();
         stats_->key = key;
-        PlanStringContext ctx{.dba = context->db_accessor, .property_visible = context->property_visible_};
-        stats_->name = op.ToString(ctx);
+        op.dba_ = context->db_accessor;
+        stats_->name = op.ToString();
       } else {
         stats_ = &(*it);
       }

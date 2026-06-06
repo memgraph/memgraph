@@ -118,17 +118,6 @@ namespace rv = r::views;
 
 namespace memgraph::query::plan {
 
-std::string NamedLogicalOperator::PropertyName(storage::PropertyId id, PlanStringContext const &ctx) const {
-  auto const &name = ctx.dba->PropertyToName(id);
-  if (ctx.property_visible && !ctx.property_visible(name)) return "<redacted>";
-  return name;
-}
-
-std::string NamedLogicalOperator::RedactPropertyName(std::string const &name, PlanStringContext const &ctx) const {
-  if (ctx.property_visible && !ctx.property_visible(name)) return "<redacted>";
-  return name;
-}
-
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &storage)
@@ -676,7 +665,7 @@ std::vector<Symbol> CreateExpand::ModifiedSymbols(const SymbolTable &table) cons
   return symbols;
 }
 
-std::string CreateExpand::ToString(PlanStringContext const &ctx) const {
+std::string CreateExpand::ToString() const {
   const auto *maybe_edge_type_id = std::get_if<storage::EdgeTypeId>(&edge_info_.edge_type);
   const bool is_expansion_static = maybe_edge_type_id != nullptr;
   return fmt::format("{} ({}){}[{}:{}]{}({})",
@@ -684,7 +673,7 @@ std::string CreateExpand::ToString(PlanStringContext const &ctx) const {
                      input_symbol_.name(),
                      edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
                      edge_info_.symbol.name(),
-                     is_expansion_static ? ctx.dba->EdgeTypeToName(*maybe_edge_type_id) : "<DYNAMIC>",
+                     is_expansion_static ? dba_->EdgeTypeToName(*maybe_edge_type_id) : "<DYNAMIC>",
                      edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
                      node_info_.symbol.name());
 }
@@ -1043,9 +1032,7 @@ std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
   return symbols;
 }
 
-std::string ScanAll::ToString(PlanStringContext const &ctx) const {
-  return fmt::format("ScanAll ({})", output_symbol_.name());
-}
+std::string ScanAll::ToString() const { return fmt::format("ScanAll ({})", output_symbol_.name()); }
 
 std::unique_ptr<LogicalOperator> ScanAll::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ScanAll>();
@@ -1078,8 +1065,8 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem,
                                                                 "ScanAllByLabel");
 }
 
-std::string ScanAllByLabel::ToString(PlanStringContext const &ctx) const {
-  return fmt::format("ScanAllByLabel ({} :{})", output_symbol_.name(), ctx.dba->LabelToName(label_));
+std::string ScanAllByLabel::ToString() const {
+  return fmt::format("ScanAllByLabel ({} :{})", output_symbol_.name(), dba_->LabelToName(label_));
 }
 
 std::unique_ptr<LogicalOperator> ScanAllByLabel::Clone(AstStorage *storage) const {
@@ -1110,14 +1097,14 @@ std::vector<Symbol> ScanAllByEdge::ModifiedSymbols(const SymbolTable &table) con
   return symbols;
 }
 
-std::string ScanAllByEdge::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByEdge::ToString() const {
   return fmt::format(
       "ScanAllByEdge ({}){}[{}{}]{}({})",
       common_.node1_symbol.name(),
       common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
       common_.edge_symbol.name(),
       utils::IterableToString(
-          common_.edge_types, "|", [&ctx](const auto &edge_type) { return ":" + ctx.dba->EdgeTypeToName(edge_type); }),
+          common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
       common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node2_symbol.name());
 }
@@ -1150,14 +1137,14 @@ UniqueCursorPtr ScanAllByEdgeType::MakeCursor(utils::MemoryResource *mem,
       mem, *this, input_->MakeCursor(mem, metric_handles), view_, std::move(edges), "ScanAllByEdgeType");
 }
 
-std::string ScanAllByEdgeType::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByEdgeType::ToString() const {
   return fmt::format(
       "ScanAllByEdgeType ({}){}[{}{}]{}({})",
       common_.node1_symbol.name(),
       common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
       common_.edge_symbol.name(),
       utils::IterableToString(
-          common_.edge_types, "|", [&ctx](const auto &edge_type) { return ":" + ctx.dba->EdgeTypeToName(edge_type); }),
+          common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
       common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node2_symbol.name());
 }
@@ -1192,15 +1179,15 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
       mem, *this, input_->MakeCursor(mem, metric_handles), view_, std::move(get_edges), "ScanAllByEdgeTypeProperty");
 }
 
-std::string ScanAllByEdgeTypeProperty::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByEdgeTypeProperty::ToString() const {
   return fmt::format(
       "ScanAllByEdgeTypeProperty ({0}){1}[{2}{3} {{{4}}}]{5}({6})",
       common_.node1_symbol.name(),
       common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
       common_.edge_symbol.name(),
       utils::IterableToString(
-          common_.edge_types, "|", [&ctx](const auto &edge_type) { return ":" + ctx.dba->EdgeTypeToName(edge_type); }),
-      PropertyName(property_, ctx),
+          common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+      dba_->PropertyToName(property_),
       common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node2_symbol.name());
 }
@@ -1336,15 +1323,15 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource
                                                                        "ScanAllByEdgeTypePropertyValue");
 }
 
-std::string ScanAllByEdgeTypePropertyValue::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByEdgeTypePropertyValue::ToString() const {
   return fmt::format(
       "ScanAllByEdgeTypePropertyValue ({0}){1}[{2}{3} {{{4}}}]{5}({6})",
       common_.node1_symbol.name(),
       common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
       common_.edge_symbol.name(),
       utils::IterableToString(
-          common_.edge_types, "|", [&ctx](const auto &edge_type) { return ":" + ctx.dba->EdgeTypeToName(edge_type); }),
-      PropertyName(property_, ctx),
+          common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+      dba_->PropertyToName(property_),
       common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node2_symbol.name());
 }
@@ -1394,15 +1381,15 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
                                                                        "ScanAllByEdgeTypePropertyRange");
 }
 
-std::string ScanAllByEdgeTypePropertyRange::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByEdgeTypePropertyRange::ToString() const {
   return fmt::format(
       "ScanAllByEdgeTypePropertyRange ({0}){1}[{2}{3} {{{4}}}]{5}({6})",
       common_.node1_symbol.name(),
       common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
       common_.edge_symbol.name(),
       utils::IterableToString(
-          common_.edge_types, "|", [&ctx](const auto &edge_type) { return ":" + ctx.dba->EdgeTypeToName(edge_type); }),
-      PropertyName(property_, ctx),
+          common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+      dba_->PropertyToName(property_),
       common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node2_symbol.name());
 }
@@ -1444,12 +1431,12 @@ UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem,
       mem, *this, input_->MakeCursor(mem, metric_handles), view_, std::move(get_edges), "ScanAllByEdgeProperty");
 }
 
-std::string ScanAllByEdgeProperty::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByEdgeProperty::ToString() const {
   return fmt::format("ScanAllByEdgeProperty ({0}){1}[{2} {{{3}}}]{4}({5})",
                      common_.node1_symbol.name(),
                      common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
                      common_.edge_symbol.name(),
-                     PropertyName(property_, ctx),
+                     dba_->PropertyToName(property_),
                      common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
                      common_.node2_symbol.name());
 }
@@ -1490,12 +1477,12 @@ UniqueCursorPtr ScanAllByEdgePropertyValue::MakeCursor(utils::MemoryResource *me
       mem, *this, input_->MakeCursor(mem, metric_handles), view_, std::move(get_edges), "ScanAllByEdgePropertyValue");
 }
 
-std::string ScanAllByEdgePropertyValue::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByEdgePropertyValue::ToString() const {
   return fmt::format("ScanAllByEdgePropertyValue ({0}){1}[{2} {{{3}}}]{4}({5})",
                      common_.node1_symbol.name(),
                      common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
                      common_.edge_symbol.name(),
-                     PropertyName(property_, ctx),
+                     dba_->PropertyToName(property_),
                      common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
                      common_.node2_symbol.name());
 }
@@ -1542,12 +1529,12 @@ UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *me
       mem, *this, input_->MakeCursor(mem, metric_handles), view_, std::move(get_edges), "ScanAllByEdgePropertyRange");
 }
 
-std::string ScanAllByEdgePropertyRange::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByEdgePropertyRange::ToString() const {
   return fmt::format("ScanAllByEdgePropertyRange ({0}){1}[{2} {{{3}}}]{4}({5})",
                      common_.node1_symbol.name(),
                      common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
                      common_.edge_symbol.name(),
-                     PropertyName(property_, ctx),
+                     dba_->PropertyToName(property_),
                      common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
                      common_.node2_symbol.name());
 }
@@ -1609,19 +1596,19 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
                                                                 "ScanAllByLabelProperties");
 }
 
-std::string ScanAllByLabelProperties::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByLabelProperties::ToString() const {
   // TODO: better diagnostics...info about expression_ranges_?
   auto const property_names =
       properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
         return utils::Join(
-            property_path | rv::transform([&](storage::PropertyId prop) { return PropertyName(prop, ctx); }), ".");
+            property_path | rv::transform([&](storage::PropertyId prop) { return dba_->PropertyToName(prop); }), ".");
       }) |
       ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
   std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
   return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}}){3}",
                      output_symbol_.name(),
-                     ctx.dba->LabelToName(label_),
+                     dba_->LabelToName(label_),
                      properties_stringified,
                      suffix);
 }
@@ -1692,9 +1679,7 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem,
       mem, *this, output_symbol_, input_->MakeCursor(mem, metric_handles), view_, std::move(vertices), "ScanAllById");
 }
 
-std::string ScanAllById::ToString(PlanStringContext const &ctx) const {
-  return fmt::format("ScanAllById ({})", output_symbol_.name());
-}
+std::string ScanAllById::ToString() const { return fmt::format("ScanAllById ({})", output_symbol_.name()); }
 
 std::unique_ptr<LogicalOperator> ScanAllById::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllById>();
@@ -1736,7 +1721,7 @@ UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem,
       mem, *this, input_->MakeCursor(mem, metric_handles), view_, std::move(edges), "ScanAllByEdgeId");
 }
 
-std::string ScanAllByEdgeId::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByEdgeId::ToString() const {
   return fmt::format("ScanAllByEdgeId ({})", common_.edge_symbol.name());
 }
 
@@ -1804,14 +1789,14 @@ std::vector<Symbol> Expand::ModifiedSymbols(const SymbolTable &table) const {
   return symbols;
 }
 
-std::string Expand::ToString(PlanStringContext const &ctx) const {
+std::string Expand::ToString() const {
   return fmt::format(
       "Expand ({}){}[{}{}]{}({})",
       input_symbol_.name(),
       common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
       common_.edge_symbol.name(),
       utils::IterableToString(
-          common_.edge_types, "|", [&ctx](const auto &edge_type) { return ":" + ctx.dba->EdgeTypeToName(edge_type); }),
+          common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
       common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node_symbol.name());
 }
@@ -4204,7 +4189,7 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem,
   }
 }  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
 
-std::string ExpandVariable::ToString(PlanStringContext const &ctx) const {
+std::string ExpandVariable::ToString() const {
   return fmt::format(
       "{} ({}){}[{}{}]{}({})",
       OperatorName(),
@@ -4212,7 +4197,7 @@ std::string ExpandVariable::ToString(PlanStringContext const &ctx) const {
       common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
       common_.edge_symbol.name(),
       utils::IterableToString(
-          common_.edge_types, "|", [&ctx](const auto &edge_type) { return ":" + ctx.dba->EdgeTypeToName(edge_type); }),
+          common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
       common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node_symbol.name());
 }
@@ -4410,7 +4395,7 @@ std::unique_ptr<LogicalOperator> Filter::Clone(AstStorage *storage) const {
   return object;
 }
 
-std::string Filter::SingleFilterName(FilterInfo const &single_filter, PlanStringContext const &ctx) const {
+std::string Filter::SingleFilterName(FilterInfo const &single_filter) const {
   using Type = query::plan::FilterInfo::Type;
   switch (single_filter.type) {
     case Type::Generic: {
@@ -4469,9 +4454,9 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter, PlanString
     }
     case Type::Property: {
       auto const &path = single_filter.property_filter->property_ids_.path;
-      auto redacted =
-          utils::Join(path | rv::transform([&](auto const &pix) { return RedactPropertyName(pix.name, ctx); }), ".");
-      return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(), redacted);
+      auto prop_name =
+          utils::Join(path | rv::transform([](auto const &pix) -> std::string const & { return pix.name; }), ".");
+      return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(), prop_name);
     }
     case Type::Id: {
       return fmt::format("{}({})",
@@ -4482,9 +4467,8 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter, PlanString
       return "Pattern";
     }
     case Type::Point: {
-      return fmt::format("{{{}.{}}}",
-                         single_filter.point_filter->symbol_.name(),
-                         RedactPropertyName(single_filter.point_filter->property_.name, ctx));
+      return fmt::format(
+          "{{{}.{}}}", single_filter.point_filter->symbol_.name(), single_filter.point_filter->property_.name);
     }
     case Type::EdgeType: {
       if (single_filter.expression->GetTypeInfo() != EdgeTypesTest::kType) {
@@ -4506,10 +4490,10 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter, PlanString
   }
 }
 
-std::string Filter::ToString(PlanStringContext const &ctx) const {
+std::string Filter::ToString() const {
   std::set<std::string, std::less<>> filter_names;
   for (const auto &filter : all_filters_) {
-    filter_names.insert(SingleFilterName(filter, ctx));
+    filter_names.insert(SingleFilterName(filter));
   }
   return fmt::format("Filter {}", utils::IterableToString(filter_names, ", ", [](const auto &name) { return name; }));
 }
@@ -4639,7 +4623,7 @@ std::unique_ptr<LogicalOperator> Produce::Clone(AstStorage *storage) const {
   return object;
 }
 
-std::string Produce::ToString(PlanStringContext const &ctx) const {
+std::string Produce::ToString() const {
   return fmt::format("Produce {{{}}}",
                      utils::IterableToString(named_expressions_, ", ", [](const auto &nexpr) { return nexpr->name_; }));
 }
@@ -5980,7 +5964,7 @@ std::unique_ptr<LogicalOperator> EdgeUniquenessFilter::Clone(AstStorage *storage
   return object;
 }
 
-std::string EdgeUniquenessFilter::ToString(PlanStringContext const &ctx) const {
+std::string EdgeUniquenessFilter::ToString() const {
   return fmt::format("EdgeUniquenessFilter {{{0} : {1}}}",
                      utils::IterableToString(previous_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
                      expand_symbol_.name());
@@ -6895,7 +6879,7 @@ std::unique_ptr<LogicalOperator> Aggregate::Clone(AstStorage *storage) const {
   return object;
 }
 
-std::string Aggregate::ToString(PlanStringContext const &ctx) const {
+std::string Aggregate::ToString() const {
   return fmt::format("Aggregate {{{0}}} {{{1}}}",
                      utils::IterableToString(
                          aggregations_,
@@ -7058,7 +7042,7 @@ std::unique_ptr<LogicalOperator> OrderBy::Clone(AstStorage *storage) const {
   return object;
 }
 
-std::string OrderBy::ToString(PlanStringContext const &ctx) const {
+std::string OrderBy::ToString() const {
   return fmt::format("OrderBy {{{}}}",
                      utils::IterableToString(output_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
 }
@@ -7601,7 +7585,7 @@ std::unique_ptr<LogicalOperator> Union::Clone(AstStorage *storage) const {
   return object;
 }
 
-std::string Union::ToString(PlanStringContext const &ctx) const {
+std::string Union::ToString() const {
   return fmt::format("Union {{{0} : {1}}}",
                      utils::IterableToString(left_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
                      utils::IterableToString(right_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
@@ -8230,7 +8214,7 @@ std::unique_ptr<LogicalOperator> CallProcedure::Clone(AstStorage *storage) const
   return object;
 }
 
-std::string CallProcedure::ToString(PlanStringContext const &ctx) const {
+std::string CallProcedure::ToString() const {
   return fmt::format("CallProcedure<{0}> {{{1}}}",
                      procedure_name_,
                      utils::IterableToString(result_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
@@ -8455,9 +8439,7 @@ std::unique_ptr<LogicalOperator> LoadCsv::Clone(AstStorage *storage) const {
   return object;
 }
 
-std::string LoadCsv::ToString(PlanStringContext const &ctx) const {
-  return fmt::format("LoadCsv {{{}}}", row_var_.name());
-};
+std::string LoadCsv::ToString() const { return fmt::format("LoadCsv {{{}}}", row_var_.name()); };
 
 LoadParquet::LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file,
                          std::unordered_map<Expression *, Expression *> config_map, Symbol row_var)
@@ -8573,9 +8555,7 @@ std::unique_ptr<LogicalOperator> LoadParquet::Clone(AstStorage *storage) const {
   return object;
 }
 
-std::string LoadParquet::ToString(PlanStringContext const &ctx) const {
-  return fmt::format("LoadParquet {{{}}}", row_var_.name());
-}
+std::string LoadParquet::ToString() const { return fmt::format("LoadParquet {{{}}}", row_var_.name()); }
 
 LoadJsonl::LoadJsonl(std::shared_ptr<LogicalOperator> input, Expression *file,
                      std::unordered_map<Expression *, Expression *> config_map, Symbol row_var)
@@ -8684,9 +8664,7 @@ std::unique_ptr<LogicalOperator> LoadJsonl::Clone(AstStorage *storage) const {
   return object;
 }
 
-std::string LoadJsonl::ToString(PlanStringContext const &ctx) const {
-  return fmt::format("LoadJsonl {{{}}}", row_var_.name());
-}
+std::string LoadJsonl::ToString() const { return fmt::format("LoadJsonl {{{}}}", row_var_.name()); }
 
 class ForeachCursor : public Cursor {
  public:
@@ -9084,7 +9062,7 @@ std::unique_ptr<LogicalOperator> HashJoin::Clone(AstStorage *storage) const {
   return object;
 }
 
-std::string HashJoin::ToString(PlanStringContext const &ctx) const {
+std::string HashJoin::ToString() const {
   return fmt::format("HashJoin {{{} : {}}}",
                      utils::IterableToString(left_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
                      utils::IterableToString(right_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
@@ -9450,10 +9428,10 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem,
                                                                 "ScanAllByPointDistance");
 }
 
-std::string ScanAllByPointDistance::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByPointDistance::ToString() const {
   auto const &name = output_symbol_.name();
-  auto const &label = ctx.dba->LabelToName(label_);
-  auto const property = PropertyName(property_, ctx);
+  auto const &label = dba_->LabelToName(label_);
+  auto const property = dba_->PropertyToName(property_);
   return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, label, property);
 }
 
@@ -9517,10 +9495,10 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem,
                                                                 "ScanAllByPointWithinbbox");
 }
 
-std::string ScanAllByPointWithinbbox::ToString(PlanStringContext const &ctx) const {
+std::string ScanAllByPointWithinbbox::ToString() const {
   auto const &name = output_symbol_.name();
-  auto const &label = ctx.dba->LabelToName(label_);
-  auto const property = PropertyName(property_, ctx);
+  auto const &label = dba_->LabelToName(label_);
+  auto const property = dba_->PropertyToName(property_);
   return fmt::format("ScanAllByPointWithinbbox ({0} :{1} {{{2}}})", name, label, property);
 }
 
@@ -9558,7 +9536,7 @@ query::plan::NodeCreationInfo query::plan::NodeCreationInfo::Clone(query::AstSto
   return object;
 }
 
-std::string query::plan::LogicalOperator::ToString(PlanStringContext const &ctx) const { return GetTypeInfo().name; }
+std::string query::plan::LogicalOperator::ToString() const { return GetTypeInfo().name; }
 
 query::plan::EdgeCreationInfo query::plan::EdgeCreationInfo::Clone(query::AstStorage *storage) const {
   EdgeCreationInfo object;
@@ -9624,9 +9602,7 @@ UniqueCursorPtr ScanChunk::MakeCursor(utils::MemoryResource *mem,
       mem, *this, output_symbol_, input_->MakeCursor(mem, metric_handles), view_, std::move(vertices), "ScanChunk");
 }
 
-std::string ScanChunk::ToString(PlanStringContext const &ctx) const {
-  return fmt::format("ScanChunk ({})", output_symbol_.name());
-}
+std::string ScanChunk::ToString() const { return fmt::format("ScanChunk ({})", output_symbol_.name()); }
 
 std::unique_ptr<LogicalOperator> ScanChunk::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ScanChunk>();
@@ -9669,14 +9645,14 @@ std::vector<Symbol> ScanChunkByEdge::ModifiedSymbols(const SymbolTable &table) c
   return symbols;
 }
 
-std::string ScanChunkByEdge::ToString(PlanStringContext const &ctx) const {
+std::string ScanChunkByEdge::ToString() const {
   return fmt::format(
       "ScanChunkByEdge ({}){}[{}{}]{}({})",
       common_.node1_symbol.name(),
       common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
       common_.edge_symbol.name(),
       utils::IterableToString(
-          common_.edge_types, "|", [&ctx](const auto &edge_type) { return ":" + ctx.dba->EdgeTypeToName(edge_type); }),
+          common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
       common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node2_symbol.name());
 }
@@ -9792,9 +9768,7 @@ ScanParallel::ScanParallel(const std::shared_ptr<LogicalOperator> &input, storag
 
 ACCEPT_WITH_INPUT(ScanParallel)
 
-std::string ScanParallel::ToString(PlanStringContext const &ctx) const {
-  return fmt::format("ScanParallel (threads: {})", num_threads_);
-}
+std::string ScanParallel::ToString() const { return fmt::format("ScanParallel (threads: {})", num_threads_); }
 
 std::unique_ptr<LogicalOperator> ScanParallel::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ScanParallel>();
@@ -9827,8 +9801,8 @@ UniqueCursorPtr ScanParallelByLabel::MakeCursor(utils::MemoryResource *mem,
 #endif
 }
 
-std::string ScanParallelByLabel::ToString(PlanStringContext const &ctx) const {
-  return fmt::format("ScanParallelByLabel (threads: {}, :{})", num_threads_, ctx.dba->LabelToName(label_));
+std::string ScanParallelByLabel::ToString() const {
+  return fmt::format("ScanParallelByLabel (threads: {}, :{})", num_threads_, dba_->LabelToName(label_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByLabel::Clone(AstStorage *storage) const {
@@ -9863,9 +9837,8 @@ UniqueCursorPtr ScanParallelByEdgeType::MakeCursor(utils::MemoryResource *mem,
 #endif
 }
 
-std::string ScanParallelByEdgeType::ToString(PlanStringContext const &ctx) const {
-  return fmt::format(
-      "ScanParallelByEdgeType (threads: {}, -[:{}]-)", num_threads_, ctx.dba->EdgeTypeToName(edge_type_));
+std::string ScanParallelByEdgeType::ToString() const {
+  return fmt::format("ScanParallelByEdgeType (threads: {}, -[:{}]-)", num_threads_, dba_->EdgeTypeToName(edge_type_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeType::Clone(AstStorage *storage) const {
@@ -9918,18 +9891,18 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
 #endif
 }
 
-std::string ScanParallelByLabelProperties::ToString(PlanStringContext const &ctx) const {
+std::string ScanParallelByLabelProperties::ToString() const {
   auto const property_names =
       properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
         return utils::Join(
-            property_path | rv::transform([&](storage::PropertyId prop) { return PropertyName(prop, ctx); }), ".");
+            property_path | rv::transform([&](storage::PropertyId prop) { return dba_->PropertyToName(prop); }), ".");
       }) |
       ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
   std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
   return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {{{2}}}){3}",
                      num_threads_,
-                     ctx.dba->LabelToName(label_),
+                     dba_->LabelToName(label_),
                      properties_stringified,
                      suffix);
 }
@@ -9973,11 +9946,11 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
 #endif
 }
 
-std::string ScanParallelByEdgeTypeProperty::ToString(PlanStringContext const &ctx) const {
+std::string ScanParallelByEdgeTypeProperty::ToString() const {
   return fmt::format("ScanParallelByEdgeTypeProperty (threads: {}, -[:{}]- {{{}}})",
                      num_threads_,
-                     ctx.dba->EdgeTypeToName(edge_type_),
-                     PropertyName(property_, ctx));
+                     dba_->EdgeTypeToName(edge_type_),
+                     dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypeProperty::Clone(AstStorage *storage) const {
@@ -10022,11 +9995,11 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
 #endif
 }
 
-std::string ScanParallelByEdgeTypePropertyRange::ToString(PlanStringContext const &ctx) const {
+std::string ScanParallelByEdgeTypePropertyRange::ToString() const {
   return fmt::format("ScanParallelByEdgeTypePropertyRange (threads: {}, -[:{}]- {{{}}})",
                      num_threads_,
-                     ctx.dba->EdgeTypeToName(edge_type_),
-                     PropertyName(property_, ctx));
+                     dba_->EdgeTypeToName(edge_type_),
+                     dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyRange::Clone(AstStorage *storage) const {
@@ -10071,9 +10044,9 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
 #endif
 }
 
-std::string ScanParallelByEdgeProperty::ToString(PlanStringContext const &ctx) const {
+std::string ScanParallelByEdgeProperty::ToString() const {
   return fmt::format(
-      "ScanParallelByEdgeProperty (threads: {}, -[]- {{{}}})", num_threads_, PropertyName(property_, ctx));
+      "ScanParallelByEdgeProperty (threads: {}, -[]- {{{}}})", num_threads_, dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeProperty::Clone(AstStorage *storage) const {
@@ -10111,9 +10084,9 @@ UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResourc
 #endif
 }
 
-std::string ScanParallelByEdgePropertyValue::ToString(PlanStringContext const &ctx) const {
+std::string ScanParallelByEdgePropertyValue::ToString() const {
   return fmt::format(
-      "ScanParallelByEdgePropertyValue (threads: {}, -[]- {{{}}})", num_threads_, PropertyName(property_, ctx));
+      "ScanParallelByEdgePropertyValue (threads: {}, -[]- {{{}}})", num_threads_, dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyValue::Clone(AstStorage *storage) const {
@@ -10158,9 +10131,9 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
 #endif
 }
 
-std::string ScanParallelByEdgePropertyRange::ToString(PlanStringContext const &ctx) const {
+std::string ScanParallelByEdgePropertyRange::ToString() const {
   return fmt::format(
-      "ScanParallelByEdgePropertyRange (threads: {}, -[]- {{{}}})", num_threads_, PropertyName(property_, ctx));
+      "ScanParallelByEdgePropertyRange (threads: {}, -[]- {{{}}})", num_threads_, dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyRange::Clone(AstStorage *storage) const {
@@ -10201,7 +10174,7 @@ UniqueCursorPtr ScanParallelByEdge::MakeCursor(utils::MemoryResource * /*mem*/,
 #endif
 }
 
-std::string ScanParallelByEdge::ToString(PlanStringContext const &ctx) const {
+std::string ScanParallelByEdge::ToString() const {
   return fmt::format("ScanParallelByEdge (threads: {}, ({}){}[{}]{}({}))",
                      num_threads_,
                      node1_symbol_.name(),
@@ -10259,11 +10232,11 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryRes
 #endif
 }
 
-std::string ScanParallelByEdgeTypePropertyValue::ToString(PlanStringContext const &ctx) const {
+std::string ScanParallelByEdgeTypePropertyValue::ToString() const {
   return fmt::format("ScanParallelByEdgeTypePropertyValue (threads: {}, -[:{}]- {{{}}})",
                      num_threads_,
-                     ctx.dba->EdgeTypeToName(edge_type_),
-                     PropertyName(property_, ctx));
+                     dba_->EdgeTypeToName(edge_type_),
+                     dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyValue::Clone(AstStorage *storage) const {
@@ -10286,7 +10259,7 @@ ParallelMerge::ParallelMerge(const std::shared_ptr<LogicalOperator> &input) : in
 
 ACCEPT_WITH_INPUT(ParallelMerge)
 
-std::string ParallelMerge::ToString(PlanStringContext const &ctx) const { return "ParallelMerge"; }
+std::string ParallelMerge::ToString() const { return "ParallelMerge"; }
 
 std::unique_ptr<LogicalOperator> ParallelMerge::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ParallelMerge>();

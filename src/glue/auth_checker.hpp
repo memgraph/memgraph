@@ -101,9 +101,6 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
   bool HasPropertyPermission(storage::EdgeTypeId const &edge_type, storage::PropertyId property,
                              query::AuthQuery::PropertyPermissionType type) const override;
 
-  bool IsPropertyVisible(std::string const &property_name,
-                         query::AuthQuery::PropertyPermissionType type) const override;
-
   void MakeThreadSafe() const override;
   bool IsThreadSafe() const override;
 

@@ -248,8 +248,7 @@ nlohmann::json ToJson(const std::vector<T> &items, const Args &...args) {
 }  // namespace
 
 struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
-  explicit PlanToJsonVisitor(const DbAccessor *dba, PropertyVisibleFn property_visible = {})
-      : dba_(dba), property_visible_(std::move(property_visible)) {}
+  explicit PlanToJsonVisitor(const DbAccessor *dba) : dba_(dba) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -342,21 +341,12 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
  protected:
   nlohmann::json output_;
   const DbAccessor *dba_;
-  PropertyVisibleFn property_visible_;
 
-  std::string RedactPropertyName(std::string const &name) const {
-    if (property_visible_ && !property_visible_(name)) return "<redacted>";
-    return name;
-  }
-
-  nlohmann::json PropertyToJson(storage::PropertyId property) const {
-    return RedactPropertyName(dba_->PropertyToName(property));
-  }
+  nlohmann::json PropertyToJson(storage::PropertyId property) const { return dba_->PropertyToName(property); }
 
   nlohmann::json PropertyPathToJson(storage::PropertyPath const &path) const {
-    return path |
-           rv::transform([&](auto &&property_id) { return RedactPropertyName(dba_->PropertyToName(property_id)); }) |
-           rv::join('.') | r::to<std::string>;
+    return path | rv::transform([&](auto &&property_id) { return dba_->PropertyToName(property_id); }) | rv::join('.') |
+           r::to<std::string>;
   }
 
   nlohmann::json PropertiesToJson(std::vector<storage::PropertyPath> const &paths) const {
@@ -372,8 +362,7 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
 
 }  // namespace impl
 
-PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out, PropertyVisibleFn property_visible)
-    : dba_(dba), out_(out), property_visible_(std::move(property_visible)) {}
+PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), out_(out) {}
 
 // NOLINTBEGIN(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
 #define PRE_VISIT(TOp)                                                       \
@@ -382,11 +371,11 @@ PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out, PropertyVisib
     return true;                                                             \
   }
 
-#define PRE_VISIT_TS(TOp)                                                                          \
-  bool PlanPrinter::PreVisit(TOp &op) {                                                            \
-    PlanStringContext ctx{.dba = dba_, .property_visible = property_visible_};                     \
-    WithPrintLn([this, &op, ctx](auto &out) { out << StartSymbol() << " " << op.ToString(ctx); }); \
-    return true;                                                                                   \
+#define PRE_VISIT_TS(TOp)                                                                  \
+  bool PlanPrinter::PreVisit(TOp &op) {                                                    \
+    op.dba_ = dba_;                                                                        \
+    WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); }); \
+    return true;                                                                           \
   }
 
 #define PRE_VISIT_IGNORE(TOp) \
@@ -414,15 +403,15 @@ PRE_VISIT_TS(ScanAllByPointDistance);
 PRE_VISIT_TS(ScanAllByPointWithinbbox);
 
 namespace {
-std::string ScanChunkToString(const auto &op, const DbAccessor *dba, PropertyVisibleFn const &property_visible) {
+std::string ScanChunkToString(const auto &op, const DbAccessor *dba) {
   // ScanChunk is always connected to a ParallelMerge->ScanParallel variant. Combine the two and return the same plan
   // that a single threaded query would produce.
   auto *node = dynamic_cast<ScanParallel *>(op.input_->input().get());
   if (!node) {
     throw std::runtime_error("ScanChunk must be connected to a ScanParallel variant");
   }
-  PlanStringContext ctx{.dba = dba, .property_visible = property_visible};
-  auto name = node->ToString(ctx);
+  node->dba_ = dba;
+  auto name = node->ToString();
   name.replace(name.find("Parallel"), strlen("Parallel"), "All");
   name.insert(name.find('(') + 1, op.output_symbol_.name() + ", ");
   return name;
@@ -430,14 +419,12 @@ std::string ScanChunkToString(const auto &op, const DbAccessor *dba, PropertyVis
 }  // namespace
 
 bool PlanPrinter::PreVisit(ScanChunk &op) {
-  WithPrintLn(
-      [this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_, property_visible_); });
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(ScanChunkByEdge &op) {
-  WithPrintLn(
-      [this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_, property_visible_); });
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
   return true;
 }
 
@@ -515,16 +502,16 @@ PRE_VISIT(Unwind);
 PRE_VISIT(Distinct);
 
 bool PlanPrinter::PreVisit(query::plan::Union &op) {
-  PlanStringContext ctx{.dba = dba_, .property_visible = property_visible_};
-  WithPrintLn([this, &op, ctx](auto &out) { out << StartSymbol() << " " << op.ToString(ctx); });
+  op.dba_ = dba_;
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::RollUpApply &op) {
-  PlanStringContext ctx{.dba = dba_, .property_visible = property_visible_};
-  WithPrintLn([this, &op, ctx](auto &out) { out << StartSymbol() << " " << op.ToString(ctx); });
+  op.dba_ = dba_;
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
   Branch(*op.list_collection_branch_);
   op.input_->Accept(*this);
   return false;
@@ -539,7 +526,7 @@ PRE_VISIT_TS(LoadCsv);
 PRE_VISIT_TS(LoadParquet);
 
 bool PlanPrinter::PreVisit(query::plan::LoadJsonl &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString({}); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -562,8 +549,8 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::HashJoin &op) {
-  PlanStringContext ctx{.dba = dba_, .property_visible = property_visible_};
-  WithPrintLn([this, &op, ctx](auto &out) { out << StartSymbol() << " " << op.ToString(ctx); });
+  op.dba_ = dba_;
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
   return false;
@@ -577,8 +564,8 @@ bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::Filter &op) {
-  PlanStringContext ctx{.dba = dba_, .property_visible = property_visible_};
-  WithPrintLn([this, &op, ctx](auto &out) { out << StartSymbol() << " " << op.ToString(ctx); });
+  op.dba_ = dba_;
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
   for (const auto &pattern_filter : op.pattern_filters_) {
     Branch(*pattern_filter);
   }
@@ -625,15 +612,14 @@ void PlanPrinter::Branch(query::plan::LogicalOperator &op, const std::string &br
   --depth_;
 }
 
-void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out,
-                 PropertyVisibleFn property_visible) {
-  PlanPrinter printer(&dba, out, std::move(property_visible));
+void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out) {
+  PlanPrinter printer(&dba, out);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }
 
-nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root, PropertyVisibleFn property_visible) {
-  impl::PlanToJsonVisitor visitor(&dba, std::move(property_visible));
+nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root) {
+  impl::PlanToJsonVisitor visitor(&dba);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(visitor);
   return visitor.output();

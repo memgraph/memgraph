@@ -86,14 +86,6 @@ class StubPropertyFGAChecker final : public memgraph::query::FineGrainedAuthChec
     return !denied_.contains({storage_->EdgeTypeToName(edge_type), storage_->PropertyToName(property)});
   }
 
-  bool IsPropertyVisible(std::string const &property_name,
-                         memgraph::query::AuthQuery::PropertyPermissionType) const override {
-    for (auto const &[entity, prop] : denied_) {
-      if (prop == property_name) return false;
-    }
-    return true;
-  }
-
  private:
   memgraph::storage::Storage const *storage_;
   DenySet denied_;

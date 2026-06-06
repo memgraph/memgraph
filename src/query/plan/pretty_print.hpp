@@ -28,20 +28,18 @@ class LogicalOperator;
 /// DbAccessor is needed for resolving label and property names.
 /// Note that `plan_root` isn't modified, but we can't take it as a const
 /// because we don't have support for visiting a const LogicalOperator.
-void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out,
-                 PropertyVisibleFn property_visible = {});
+void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out);
 
 /// Convert a `LogicalOperator` plan to a JSON representation.
 /// DbAccessor is needed for resolving label and property names.
-nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root,
-                          PropertyVisibleFn property_visible = {});
+nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root);
 
 struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  PlanPrinter(const DbAccessor *dba, std::ostream *out, PropertyVisibleFn property_visible = {});
+  PlanPrinter(const DbAccessor *dba, std::ostream *out);
 
   bool DefaultPreVisit() override;
 
@@ -150,7 +148,6 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   const DbAccessor *dba_{nullptr};
   std::ostream *out_{nullptr};
   bool is_parallel_{false};
-  PropertyVisibleFn property_visible_;
 };
 
 }  // namespace plan
