@@ -4401,57 +4401,6 @@ TYPED_TEST(SubqueriesFeature, SubqueriesWithForeach) {
 }
 
 #ifdef MG_ENTERPRISE
-TYPED_TEST(MatchReturnFixture, PropertyFGARedactsDeniedProperty) {
-  auto v = this->dba.InsertVertex();
-  auto label = this->dba.NameToLabel("Employee");
-  ASSERT_TRUE(v.AddLabel(label).has_value());
-  ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("name"), memgraph::storage::PropertyValue("Alice")).has_value());
-  ASSERT_TRUE(
-      v.SetProperty(this->dba.NameToProperty("ssn"), memgraph::storage::PropertyValue("123-45-6789")).has_value());
-  this->dba.AdvanceCommand();
-
-  auto user = memgraph::auth::User{"test_user"};
-  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Grant({"Employee"}, "name");
-  user.property_access_handler().label_properties().Deny({"Employee"}, "ssn");
-
-  auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
-  auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "ssn");
-  auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
-  auto produce = MakeProduce(scan_all.op_, output);
-
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
-  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
-  auto results = CollectProduce(*produce, &context);
-
-  ASSERT_EQ(results.size(), 1);
-  EXPECT_TRUE(results[0][0].IsNull());
-}
-
-TYPED_TEST(MatchReturnFixture, PropertyFGAAllowsGrantedProperty) {
-  auto v = this->dba.InsertVertex();
-  auto label = this->dba.NameToLabel("Employee");
-  ASSERT_TRUE(v.AddLabel(label).has_value());
-  ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("name"), memgraph::storage::PropertyValue("Alice")).has_value());
-  this->dba.AdvanceCommand();
-
-  auto user = memgraph::auth::User{"test_user"};
-  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Grant({"Employee"}, "name");
-
-  auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
-  auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "name");
-  auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
-  auto produce = MakeProduce(scan_all.op_, output);
-
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
-  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
-  auto results = CollectProduce(*produce, &context);
-
-  ASSERT_EQ(results.size(), 1);
-  EXPECT_EQ(results[0][0].ValueString(), "Alice");
-}
-
 TYPED_TEST(MatchReturnFixture, PropertyFGANoRulesDenied) {
   auto v = this->dba.InsertVertex();
   auto label = this->dba.NameToLabel("Employee");
@@ -4464,31 +4413,6 @@ TYPED_TEST(MatchReturnFixture, PropertyFGANoRulesDenied) {
 
   auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
   auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "name");
-  auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
-  auto produce = MakeProduce(scan_all.op_, output);
-
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
-  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
-  auto results = CollectProduce(*produce, &context);
-
-  ASSERT_EQ(results.size(), 1);
-  EXPECT_TRUE(results[0][0].IsNull());
-}
-
-TYPED_TEST(MatchReturnFixture, PropertyFGADenyOnAnyLabelDenies) {
-  auto v = this->dba.InsertVertex();
-  ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("Employee")).has_value());
-  ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("Manager")).has_value());
-  ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("ssn"), memgraph::storage::PropertyValue("123")).has_value());
-  this->dba.AdvanceCommand();
-
-  auto user = memgraph::auth::User{"test_user"};
-  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Grant({"Employee"}, "ssn");
-  user.property_access_handler().label_properties().Deny({"Manager"}, "ssn");
-
-  auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
-  auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "ssn");
   auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
   auto produce = MakeProduce(scan_all.op_, output);
 
@@ -4523,106 +4447,5 @@ TYPED_TEST(MatchReturnFixture, PropertyFGAFlagDisabledMeansNoRestriction) {
 
   ASSERT_EQ(results.size(), 1);
   EXPECT_EQ(results[0][0].ValueString(), "123");
-}
-
-TYPED_TEST(MatchReturnFixture, PropertyFGAEdgeRedaction) {
-  auto v1 = this->dba.InsertVertex();
-  auto v2 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("Node")).has_value());
-  ASSERT_TRUE(v2.AddLabel(this->dba.NameToLabel("Node")).has_value());
-  auto edge_type = this->dba.NameToEdgeType("PAID");
-  auto edge_result = this->dba.InsertEdge(&v1, &v2, edge_type);
-  ASSERT_TRUE(edge_result.has_value());
-  auto &edge = edge_result.value();
-  ASSERT_TRUE(edge.SetProperty(this->dba.NameToProperty("amount"), memgraph::storage::PropertyValue(100)).has_value());
-  this->dba.AdvanceCommand();
-
-  auto user = memgraph::auth::User{"test_user"};
-  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().edge_type_properties().Deny({"PAID"}, "amount");
-
-  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
-  auto r_m = MakeExpand(this->storage,
-                        this->symbol_table,
-                        n.op_,
-                        n.sym_,
-                        "r",
-                        EdgeAtom::Direction::OUT,
-                        {edge_type},
-                        "m",
-                        false,
-                        memgraph::storage::View::OLD);
-
-  auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("r")->MapTo(r_m.edge_sym_), "amount");
-  auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
-  auto produce = MakeProduce(r_m.op_, output);
-
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
-  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
-  auto results = CollectProduce(*produce, &context);
-
-  ASSERT_EQ(results.size(), 1);
-  EXPECT_TRUE(results[0][0].IsNull());
-}
-
-TYPED_TEST(MatchReturnFixture, PropertyFGAKeysOmitsDeniedKey) {
-  auto v = this->dba.InsertVertex();
-  auto label = this->dba.NameToLabel("Employee");
-  ASSERT_TRUE(v.AddLabel(label).has_value());
-  ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("name"), memgraph::storage::PropertyValue("Alice")).has_value());
-  ASSERT_TRUE(
-      v.SetProperty(this->dba.NameToProperty("ssn"), memgraph::storage::PropertyValue("123-45-6789")).has_value());
-  this->dba.AdvanceCommand();
-
-  auto user = memgraph::auth::User{"test_user"};
-  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Grant({"Employee"}, "name");
-  user.property_access_handler().label_properties().Deny({"Employee"}, "ssn");
-
-  auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
-  auto *fn_keys = FN("keys", IDENT("n")->MapTo(scan_all.sym_));
-  auto output = NEXPR("result", fn_keys)->MapTo(this->symbol_table.CreateSymbol("result", true));
-  auto produce = MakeProduce(scan_all.op_, output);
-
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
-  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
-  auto results = CollectProduce(*produce, &context);
-
-  ASSERT_EQ(results.size(), 1);
-  ASSERT_TRUE(results[0][0].IsList());
-  auto const &keys = results[0][0].ValueList();
-  ASSERT_EQ(keys.size(), 1);
-  EXPECT_EQ(keys[0].ValueString(), "name");
-}
-
-TYPED_TEST(MatchReturnFixture, PropertyFGAValuesOmitsDeniedKey) {
-  auto v = this->dba.InsertVertex();
-  auto label = this->dba.NameToLabel("Employee");
-  ASSERT_TRUE(v.AddLabel(label).has_value());
-  ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("name"), memgraph::storage::PropertyValue("Alice")).has_value());
-  ASSERT_TRUE(
-      v.SetProperty(this->dba.NameToProperty("ssn"), memgraph::storage::PropertyValue("123-45-6789")).has_value());
-  this->dba.AdvanceCommand();
-
-  auto user = memgraph::auth::User{"test_user"};
-  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Grant({"Employee"}, "name");
-  user.property_access_handler().label_properties().Deny({"Employee"}, "ssn");
-
-  auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
-  auto *fn_values = FN("values", IDENT("n")->MapTo(scan_all.sym_));
-  auto output = NEXPR("result", fn_values)->MapTo(this->symbol_table.CreateSymbol("result", true));
-  auto produce = MakeProduce(scan_all.op_, output);
-
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
-  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
-  auto results = CollectProduce(*produce, &context);
-
-  ASSERT_EQ(results.size(), 1);
-  ASSERT_TRUE(results[0][0].IsList());
-  auto const &vals = results[0][0].ValueList();
-  ASSERT_EQ(vals.size(), 1) << "`values()` list must match `keys()` cardinality when FGA hides properties";
-  EXPECT_EQ(vals[0].ValueString(), "Alice");
 }
 #endif

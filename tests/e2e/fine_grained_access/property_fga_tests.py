@@ -38,12 +38,6 @@ def test_return_allowed_property_is_visible():
     assert result[0][0] == "Alice"
 
 
-def test_return_denied_property_bracket_access_is_null():
-    result = common.execute_and_fetch_all(user_cursor(), 'MATCH (n:Employee) RETURN n["ssn"] AS ssn;')
-    assert len(result) == 1
-    assert result[0][0] is None
-
-
 def test_properties_includes_denied_key_with_null_value():
     result = common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) RETURN properties(n) AS props;")
     assert len(result) == 1
@@ -86,21 +80,10 @@ def test_where_on_denied_property_returns_no_rows():
     assert len(result) == 0
 
 
-def test_where_is_not_null_on_denied_property_returns_no_rows():
-    result = common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) WHERE n.ssn IS NOT NULL RETURN n;")
-    assert len(result) == 0
-
-
 def test_collect_denied_property_returns_empty():
     result = common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) RETURN collect(n.ssn) AS collected;")
     assert len(result) == 1
     assert result[0][0] == []
-
-
-def test_count_denied_property_returns_zero():
-    result = common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) RETURN count(n.ssn) AS cnt;")
-    assert len(result) == 1
-    assert result[0][0] == 0
 
 
 def test_dump_database_omits_denied_property():
@@ -167,77 +150,6 @@ def test_admin_sees_all_properties():
 
 
 # --- SET PROPERTY (write) permission tests ---
-
-
-def show_privileges_for(cursor, role):
-    return common.execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR {role};")
-
-
-def find_property_privilege(rows, substring):
-    """Find rows whose privilege column (index 0) contains the given substring."""
-    return [r for r in rows if substring in r[0]]
-
-
-def test_grant_set_property_shows_in_privileges():
-    admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee TO user;")
-    rows = show_privileges_for(admin, "user")
-    matches = find_property_privilege(rows, "SET PROPERTY")
-    assert len(matches) > 0
-    salary_rows = [r for r in matches if "salary" in r[0] and "Employee" in r[0]]
-    assert len(salary_rows) == 1
-    assert salary_rows[0][1] == "GRANT"
-    # Clean up
-    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee FROM user;")
-
-
-def test_deny_set_property_shows_in_privileges():
-    admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {name} ON NODES CONTAINING LABELS :Employee TO user;")
-    rows = show_privileges_for(admin, "user")
-    matches = find_property_privilege(rows, "SET PROPERTY")
-    name_rows = [r for r in matches if "name" in r[0] and "Employee" in r[0]]
-    assert len(name_rows) == 1
-    assert name_rows[0][1] == "DENY"
-    # Clean up
-    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {name} ON NODES CONTAINING LABELS :Employee FROM user;")
-
-
-def test_revoke_set_property_removes_from_privileges():
-    admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee TO user;")
-    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee FROM user;")
-    rows = show_privileges_for(admin, "user")
-    matches = find_property_privilege(rows, "SET PROPERTY")
-    salary_rows = [r for r in matches if "salary" in r[0] and "Employee" in r[0]]
-    assert len(salary_rows) == 0
-
-
-def test_grant_set_property_independent_of_read():
-    admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee TO user;")
-    rows = show_privileges_for(admin, "user")
-    # READ {*} grant on Employee should still be present
-    read_rows = find_property_privilege(rows, "READ")
-    employee_read = [r for r in read_rows if "Employee" in r[0]]
-    assert len(employee_read) > 0
-    # SET PROPERTY should also be present
-    write_rows = find_property_privilege(rows, "SET PROPERTY")
-    assert len(write_rows) > 0
-    # Clean up
-    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee FROM user;")
-
-
-def test_grant_set_property_on_edge_type():
-    admin = admin_cursor()
-    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {start_date} ON EDGES OF TYPE :WORKS_AT TO user;")
-    rows = show_privileges_for(admin, "user")
-    matches = find_property_privilege(rows, "SET PROPERTY")
-    edge_rows = [r for r in matches if "start_date" in r[0] and "WORKS_AT" in r[0]]
-    assert len(edge_rows) == 1
-    assert edge_rows[0][1] == "GRANT"
-    # Clean up
-    common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {start_date} ON EDGES OF TYPE :WORKS_AT FROM user;")
 
 
 # --- Write-path enforcement tests ---

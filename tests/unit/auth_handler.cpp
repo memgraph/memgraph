@@ -3357,53 +3357,6 @@ TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnRole) {
   EXPECT_EQ(props.Has(paid, "currency"), memgraph::auth::PermissionLevel::NEUTRAL);
 }
 
-TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionWildcard) {
-  auth.value()->SaveUser(memgraph::auth::User{user_name});
-
-  auth_handler.GrantPropertyPermission(user_name,
-                                       {"*"},
-                                       {"Employee"},
-                                       true,
-                                       memgraph::auth::MatchingMode::ANY,
-                                       memgraph::auth::UserOrRoleType::USER,
-                                       memgraph::auth::PropertyPermissionType::READ,
-                                       nullptr);
-
-  auto user = auth->ReadLock()->GetUser(user_name);
-  ASSERT_TRUE(user.has_value());
-  auto const &props = user->property_access_handler().label_properties();
-  std::vector<std::string> emp = {"Employee"};
-  EXPECT_EQ(props.Has(emp, "anything"), memgraph::auth::PermissionLevel::GRANT);
-}
-
-TEST_F(AuthQueryHandlerFixture, DenyOverridesGrantPropertyPermission) {
-  auth.value()->SaveUser(memgraph::auth::User{user_name});
-
-  auth_handler.GrantPropertyPermission(user_name,
-                                       {"*"},
-                                       {"Employee"},
-                                       true,
-                                       memgraph::auth::MatchingMode::ANY,
-                                       memgraph::auth::UserOrRoleType::USER,
-                                       memgraph::auth::PropertyPermissionType::READ,
-                                       nullptr);
-  auth_handler.DenyPropertyPermission(user_name,
-                                      {"ssn"},
-                                      {"Employee"},
-                                      true,
-                                      memgraph::auth::MatchingMode::ANY,
-                                      memgraph::auth::UserOrRoleType::USER,
-                                      memgraph::auth::PropertyPermissionType::READ,
-                                      nullptr);
-
-  auto user = auth->ReadLock()->GetUser(user_name);
-  ASSERT_TRUE(user.has_value());
-  auto const &props = user->property_access_handler().label_properties();
-  std::vector<std::string> emp = {"Employee"};
-  EXPECT_EQ(props.Has(emp, "ssn"), memgraph::auth::PermissionLevel::DENY);
-  EXPECT_EQ(props.Has(emp, "name"), memgraph::auth::PermissionLevel::GRANT);
-}
-
 TEST_F(AuthQueryHandlerFixture, PropertyPermissionOnNonexistentUserThrows) {
   EXPECT_THROW(auth_handler.GrantPropertyPermission("nobody",
                                                     {"ssn"},

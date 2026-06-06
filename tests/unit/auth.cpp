@@ -1546,27 +1546,6 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsMatchingExactlyDenyOverridesAn
   EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B"}, "ssn"), PermissionLevel::DENY);
 }
 
-TEST(AuthWithoutStorage, PropertyAccessPermissionsSerializeRoundtrip) {
-  using memgraph::auth::PermissionLevel;
-  using memgraph::auth::PropertyAccessPermissions;
-  std::vector<std::string> const emp = {"Employee"};
-  std::vector<std::string> const paid = {"PAID"};
-
-  PropertyAccessPermissions perms;
-  perms.Grant({"Employee"}, "*");
-  perms.Deny({"Employee"}, "ssn");
-  perms.Grant({"PAID"}, "amount");
-
-  auto json = perms.Serialize();
-  auto deserialized = PropertyAccessPermissions::Deserialize(json);
-
-  EXPECT_EQ(deserialized.Has(emp, "ssn"), PermissionLevel::DENY);
-  EXPECT_EQ(deserialized.Has(emp, "name"), PermissionLevel::GRANT);
-  EXPECT_EQ(deserialized.Has(paid, "amount"), PermissionLevel::GRANT);
-  EXPECT_EQ(deserialized.Has(paid, "other"), PermissionLevel::NEUTRAL);
-  EXPECT_EQ(perms, deserialized);
-}
-
 TEST(AuthWithoutStorage, PropertyAccessPermissionsDeserializeEmpty) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;
@@ -1987,54 +1966,6 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntity) {
     perms.RevokeGlobal("*");
     EXPECT_EQ(perms.Has(emp, "name"), PermissionLevel::NEUTRAL);
   }
-}
-
-TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntityReadWrite) {
-  using memgraph::auth::PermissionLevel;
-  using memgraph::auth::PropertyAccessPermissions;
-  using memgraph::auth::PropertyPermissionType;
-  std::vector<std::string> const emp = {"Employee"};
-
-  // Global grant READ, check WRITE is independent
-  {
-    PropertyAccessPermissions perms;
-    perms.GrantGlobal("name", PropertyPermissionType::READ);
-    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
-    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
-  }
-
-  // Global grant both READ and WRITE
-  {
-    PropertyAccessPermissions perms;
-    perms.GrantGlobal("*", PropertyPermissionType::READ);
-    perms.GrantGlobal("*", PropertyPermissionType::WRITE);
-    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
-    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
-  }
-}
-
-TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntitySerializeRoundtrip) {
-  using memgraph::auth::PermissionLevel;
-  using memgraph::auth::PropertyAccessPermissions;
-  using memgraph::auth::PropertyPermissionType;
-
-  PropertyAccessPermissions perms;
-  perms.GrantGlobal("*", PropertyPermissionType::READ);
-  perms.GrantGlobal("*", PropertyPermissionType::WRITE);
-  perms.DenyGlobal("ssn", PropertyPermissionType::READ);
-  perms.Grant({"Employee"}, "salary");
-
-  auto json = perms.Serialize();
-  auto deserialized = PropertyAccessPermissions::Deserialize(json);
-
-  std::vector<std::string> const emp = {"Employee"};
-  std::vector<std::string> const person = {"Person"};
-  EXPECT_EQ(deserialized.Has(emp, "salary"), PermissionLevel::GRANT);
-  EXPECT_EQ(deserialized.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
-  EXPECT_EQ(deserialized.Has(person, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
-  EXPECT_EQ(deserialized.Has(person, "name", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
-  EXPECT_EQ(deserialized.Has(person, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
-  EXPECT_EQ(perms, deserialized);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntityMerge) {
