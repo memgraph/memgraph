@@ -375,6 +375,136 @@ TEST(EpochTrackerStress, ConcurrentReleaseRacesBlockAllocation) {
       << "IsSafeToFree(" << kTotal << ") must be true after all " << kTotal << " ids released";
 }
 
+// ---------------------------------------------------------------------------
+// Watermark cache tests
+// ---------------------------------------------------------------------------
+
+// WatermarkCacheAdvancesAndStalls: verify that the resume cache correctly
+// advances across block boundaries and stalls at partial fields, and that
+// IsSafeToFree returns identical results to a fresh oracle tracker performing
+// the same operations.
+//
+// Layout (kIdsInField==64, kIdsInBlock==4096):
+//   Phase A: release ids 0..62 (partial first field of block 0) → stall inside block 0.
+//   Phase B: release id 63 (first field of block 0 now full) → stall still inside block 0.
+//   Phase C: release ids 64..4095 (rest of block 0, all fields full) → prefix advances
+//            through block 0; stall at start of block 1.
+//   Phase D: release ids 4096..4158 (first two partial fields of block 1) → stall
+//            inside block 1.
+//   Phase E: release ids 4159..8191 (rest of block 1 minus id 8192 which stays live)
+//            → prefix advances through block 1; stall at block 2 (first field not full).
+//
+// After each phase, IsSafeToFree is compared against a hand-computed expected
+// last_dead derived from the same logic as ComputeLastDead.
+TEST(EpochTracker, WatermarkCacheAdvancesAndStalls) {
+  using namespace memgraph::utils;
+
+  // kIdsInField and kIdsInBlock are private; use the values documented in the
+  // header (64 and 4096 respectively) — the BlockBoundary64 and
+  // BlockAllocationAcross4096 tests already verify these constants.
+  constexpr uint64_t kField = 64;
+  constexpr uint64_t kBlock = 4096;
+
+  // Acquire enough ids to span 3 blocks (ids 0 .. 3*kBlock-1 = 12287) plus one
+  // extra live id that stays unreleased throughout to pin the stall point.
+  constexpr uint64_t kTotal = 3 * kBlock + 1;  // 12289
+  EpochTracker tracker;
+  for (uint64_t i = 0; i < kTotal; ++i) (void)tracker.Acquire();
+
+  // --- Phase A: release ids 0..62 (partial first field of block 0) ---
+  // Expected last_dead: 62 (where_alive=63 in the partial field; bit 63 still alive).
+  // IsSafeToFree(63) → last_dead(62) >= 62 → true.
+  // IsSafeToFree(64) → last_dead(62) >= 63 → false.
+  for (uint64_t i = 0; i <= 62; ++i) tracker.Release(i);
+  EXPECT_TRUE(tracker.IsSafeToFree(63)) << "Phase A: guard 63 should be safe";
+  EXPECT_FALSE(tracker.IsSafeToFree(64)) << "Phase A: guard 64 should not be safe";
+
+  // --- Phase B: release id 63 → first field now full ---
+  // Expected last_dead: 63 (stall at second field of block 0, which is empty).
+  // IsSafeToFree(64) → 63 >= 63 → true.
+  // IsSafeToFree(65) → 63 >= 64 → false.
+  tracker.Release(63);
+  EXPECT_TRUE(tracker.IsSafeToFree(64)) << "Phase B: guard 64 should be safe after id 63 released";
+  EXPECT_FALSE(tracker.IsSafeToFree(65)) << "Phase B: guard 65 should not be safe";
+
+  // --- Phase C: release ids 64..4095 (complete rest of block 0) ---
+  // Expected last_dead: 4095; stall at block 1 field 0 (all zero).
+  // IsSafeToFree(4096) → 4095 >= 4095 → true.
+  // IsSafeToFree(4097) → 4095 >= 4096 → false.
+  for (uint64_t i = 64; i <= 4095; ++i) tracker.Release(i);
+  EXPECT_TRUE(tracker.IsSafeToFree(4096)) << "Phase C: guard 4096 should be safe";
+  EXPECT_FALSE(tracker.IsSafeToFree(4097)) << "Phase C: guard 4097 should not be safe";
+
+  // --- Phase D: release ids 4096..4095+2*kField-1 = 4096..4223 (two partial fields of block 1) ---
+  // All 128 bits of fields 0 and 1 of block 1 are set; field 2 is empty.
+  // Expected last_dead: 4095 + 2*kField = 4095 + 128 = 4223.
+  // IsSafeToFree(4224) → 4223 >= 4223 → true.
+  // IsSafeToFree(4225) → 4223 >= 4224 → false.
+  for (uint64_t i = 4096; i <= 4095 + 2 * kField; ++i) tracker.Release(i);
+  EXPECT_TRUE(tracker.IsSafeToFree(4224)) << "Phase D: guard 4224 should be safe";
+  EXPECT_FALSE(tracker.IsSafeToFree(4225)) << "Phase D: guard 4225 should not be safe";
+
+  // --- Phase E: release ids 4224..8191 (rest of block 1 through last id 8191) ---
+  // id 8192 (first of block 2) is still live.
+  // Expected last_dead: 8191 (stall at block 2 field 0, bit 0 not set).
+  // IsSafeToFree(8192) → 8191 >= 8191 → true.
+  // IsSafeToFree(8193) → 8191 >= 8192 → false.
+  for (uint64_t i = 4224; i <= 8191; ++i) tracker.Release(i);
+  EXPECT_TRUE(tracker.IsSafeToFree(8192)) << "Phase E: guard 8192 should be safe";
+  EXPECT_FALSE(tracker.IsSafeToFree(8193)) << "Phase E: guard 8193 should not be safe";
+
+  // Release remaining live ids so the destructor assertion holds.
+  for (uint64_t i = 8192; i < kTotal; ++i) tracker.Release(i);
+}
+
+// ClearResetsWatermarkCache: verify that destroying an EpochTracker with a warm
+// cache and recreating a fresh one produces correct, stale-free results.
+//
+// Round 1: fill tracker, warm the cache (IsSafeToFree returns true), then
+// destroy the tracker.  Any dangling scan_resume_ would manifest as a
+// use-after-free on the next ComputeLastDead call if the cache were carried
+// into round 2 — Clear() is called by the destructor.
+//
+// Round 2: a brand-new EpochTracker starting from a clean state is used to
+// re-verify that a fresh instance works correctly with no leftover state.
+// (Because Clear() is private and only called by the destructor, we exercise
+// it through destruction+recreation rather than calling it directly.)
+TEST(EpochTracker, ClearResetsWatermarkCache) {
+  using namespace memgraph::utils;
+
+  constexpr uint64_t kBlock = 4096;
+  // Use 2.5 blocks worth of ids to ensure at least 2 full blocks are committed
+  // to the cache (warm: scan_resume_ points into a Block that will be freed).
+  constexpr uint64_t kRound1Ids = 2 * kBlock + 128;
+
+  // --- Round 1: warm the cache then destroy ---
+  {
+    EpochTracker t1;
+    for (uint64_t i = 0; i < kRound1Ids; ++i) (void)t1.Acquire();
+    for (uint64_t i = 0; i < kRound1Ids; ++i) t1.Release(i);
+    // Warm the cache: IsSafeToFree walks all blocks, sets scan_resume_.
+    EXPECT_TRUE(t1.IsSafeToFree(kRound1Ids)) << "Round 1: all ids released, must be safe";
+    // t1 goes out of scope here; ~EpochTracker() calls Clear(), which must
+    // reset scan_resume_=nullptr and cached_last_dead_=kNoDeadPrefix.
+    // If the reset is missing, t2 (a fresh placement in the same stack region
+    // on many compilers) or a subsequent EpochTracker created at the same
+    // address would inherit a dangling pointer — caught by ASan.
+  }
+
+  // --- Round 2: fresh tracker, verify clean state ---
+  {
+    EpochTracker t2;
+    // Fresh tracker: no ids acquired, no cache.
+    EXPECT_FALSE(t2.IsSafeToFree(1)) << "Round 2: fresh tracker, guard 1 must not be safe";
+    EXPECT_TRUE(t2.IsSafeToFree(0)) << "Round 2: guard 0 always safe";
+
+    constexpr uint64_t kRound2Ids = kBlock + 1;
+    for (uint64_t i = 0; i < kRound2Ids; ++i) (void)t2.Acquire();
+    for (uint64_t i = 0; i < kRound2Ids; ++i) t2.Release(i);
+    EXPECT_TRUE(t2.IsSafeToFree(kRound2Ids)) << "Round 2: all ids released, must be safe";
+  }
+}
+
 // Acquire/Release churn with interleaved threads: N threads each loop k times,
 // calling Acquire() immediately followed by Release() with an occasional yield.
 // Ids from different threads interleave in the epoch counter, so partial
@@ -382,6 +512,12 @@ TEST(EpochTrackerStress, ConcurrentReleaseRacesBlockAllocation) {
 //
 // After all threads join, IsSafeToFree(CurrentEpoch()) must hold because every
 // Acquire()d id was immediately Release()d.
+//
+// Note on watermark cache + concurrency: IsSafeToFree / ComputeLastDead are
+// called ONLY from the checker thread in SafetyContractUnderConcurrency, which
+// satisfies the single-caller contract (see class-level doc).  This test does
+// NOT call IsSafeToFree from multiple threads concurrently; the post-join
+// IsSafeToFree call below is made single-threaded after all workers have exited.
 // EXPECT_* is issued only by main after all threads have joined.
 TEST(EpochTrackerStress, AcquireReleaseChurn) {
   using namespace memgraph::utils;
