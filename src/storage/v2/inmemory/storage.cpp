@@ -3436,17 +3436,16 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   if (need_full_scan_edges) {
     auto edge_acc = edges_.access();
 
+    // Heavy-edge vector-edge-index cleanup. Flag-INDEPENDENT (heavy edges live in
+    // edge_acc regardless of --storage-light-edge), and must run BEFORE the main
+    // removal loop below frees these Edge* via edge_acc.remove — otherwise
+    // RemoveEdgesFromVectorEdgeIndices would dereference freed memory. Identical to
+    // master; do not fold this into the light-edge gate (doing so dropped heavy-edge
+    // index cleanup on the flag-off path and left dangling Edge* in the vector index).
     if (!need_full_scan_vertices && !indices_.vector_edge_index_.Empty()) {
-      auto analytical_deleted_edges =
+      auto const analytical_deleted_edges =
           edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
           std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
-
-      if (config_.salient.items.storage_light_edge) {
-        auto vertex_acc = vertices_.access();
-        for (auto &e : LightEdgeIterable{vertex_acc}) {
-          if (e.delta() == nullptr && e.deleted()) analytical_deleted_edges.push_back(&e);
-        }
-      }
 
       if (!analytical_deleted_edges.empty()) {
         indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
@@ -3462,6 +3461,18 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
 
     if (config_.salient.items.storage_light_edge) {
+      // Single LightEdgeIterable pass over the light edges (which live in vertex
+      // adjacency, never in edge_acc): collect once, then
+      //   (a) feed RemoveEdgesFromVectorEdgeIndices if the vector-edge index is
+      //       non-empty AND need_full_scan_vertices is false (when vertices are
+      //       also full-scanned, the need_full_scan_vertices block already ran the
+      //       light-edge vector cleanup, so we must not double-remove), and
+      //   (b) call OnEdgeDeleted + push to the graveyard unconditionally.
+      // This collapses the two former light-edge LightEdgeIterable loops (one for
+      // the vector-index cleanup, one for OnEdgeDeleted + graveyard push) into one;
+      // both used the identical predicate (delta()==nullptr && deleted()). Light
+      // edges are not freed by the main loop above (they are deferred to the
+      // graveyard drain), so their Edge* remain valid here.
       auto vertex_acc = vertices_.access();
       std::vector<Edge *, memory::DbAwareAllocator<Edge *>> analytical_deleted_light_edges;
       for (auto &e : LightEdgeIterable{vertex_acc}) {
@@ -3471,6 +3482,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         }
       }
       if (!analytical_deleted_light_edges.empty()) {
+        if (!need_full_scan_vertices && !indices_.vector_edge_index_.Empty()) {
+          indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_light_edges);
+        }
         auto const guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
         light_edge_graveyard_.WithLock(
             [&](auto &graveyard) { graveyard.push_back({guard_epoch, std::move(analytical_deleted_light_edges)}); });
