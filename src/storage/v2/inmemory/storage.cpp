@@ -663,15 +663,15 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemorySt
                                                     StorageAccessType rw_type,
                                                     std::optional<std::chrono::milliseconds> timeout)
     : Accessor(tag, storage, isolation_level, storage_mode, rw_type, timeout),
-      config_(storage->config_.salient.items) {}
+      salient_items_(storage->config_.salient.items) {}
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode,
                                                     std::optional<std::chrono::milliseconds> timeout)
-    : Accessor(tag, storage, isolation_level, storage_mode, timeout), config_(storage->config_.salient.items) {}
+    : Accessor(tag, storage, isolation_level, storage_mode, timeout), salient_items_(storage->config_.salient.items) {}
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
-    : Accessor(std::move(other)), config_(other.config_) {}
+    : Accessor(std::move(other)), salient_items_(other.salient_items_) {}
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
@@ -799,7 +799,7 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
       // COLLECTION time, preserving the epoch-gated drain invariant. The full-scan
       // light arm then finds nothing for these (not in adjacency) -> no double-push.
       // Heavy mode keeps the skip-list full-scan path byte-identical.
-      if (config_.storage_light_edge) {
+      if (salient_items_.storage_light_edge) {
         mem_storage->deleted_edges_.WithLock([&](auto &storage_deleted_edges) {
           for (auto const &edge : deleted_edges) {
             storage_deleted_edges.push_back(edge.edge_.ptr);
@@ -828,11 +828,11 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeInterna
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   EdgeRef edge(gid);
-  if (config_.properties_on_edges) {
+  if (salient_items_.properties_on_edges) {
     // SchemaInfo handles edge creation via vertices; add collector here if that ever changes
     Edge *edge_ptr = nullptr;
     auto *delta = CreateDeleteObjectDelta(&transaction_);
-    if (config_.storage_light_edge) {
+    if (salient_items_.storage_light_edge) {
       edge_ptr = InMemoryStorage::LightEdgePool::Create(gid, delta);
       MG_ASSERT(edge_ptr, "Failed to allocate a light edge!");
     } else {
@@ -953,7 +953,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   auto const it = std::invoke([this, gid, &res]() {
     auto const byGid = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.gid == gid; };
     auto const byEdgePtr = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; };
-    if (config_.properties_on_edges) return std::ranges::find_if(res->edges, byEdgePtr);
+    if (salient_items_.properties_on_edges) return std::ranges::find_if(res->edges, byEdgePtr);
     return std::ranges::find_if(res->edges, byGid);
   });
 
@@ -1252,7 +1252,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  if (config_.enable_schema_info) {
+  if (salient_items_.enable_schema_info) {
     // Queue schema update instead of processing immediately. This ensures
     // schema updates are processed in commit timestamp order, solving a race
     // condition whereby a slow in-flight edge operation can be accidentally
@@ -1347,7 +1347,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // (see CollectGarbage implementation).
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
 
-  if (config_.enable_schema_info) {
+  if (salient_items_.enable_schema_info) {
     mem_storage->ProcessPendingSchemaUpdates(durability_commit_timestamp);
   }
 

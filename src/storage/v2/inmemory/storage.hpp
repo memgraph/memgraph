@@ -728,7 +728,7 @@ class InMemoryStorage final : public Storage {
     void GCRapidDeltaCleanup(std::vector<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
                              std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
                              IndexPerformanceTracker &impact_tracker);
-    SalientConfig::Items config_;
+    SalientConfig::Items salient_items_;
 
     uint64_t commit_flag_wal_position_{0};
     bool needs_wal_update_{false};
