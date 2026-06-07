@@ -112,7 +112,7 @@ browser.
 ### macOS
 
 [![macOS](https://img.shields.io/badge/macOS-Docker-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-on-macos-docker)
-[![macOS](https://img.shields.io/badge/lima-AACF41?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-on-ubuntu)
+[![Lima](https://img.shields.io/badge/Lima-AACF41?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://github.com/lima-vm/lima)
 
 ### Linux
 
@@ -184,6 +184,11 @@ ad hoc queries, and optimize their performance.
 using Kafka, RedPanda or Pulsar streams, CSV, JSON, Parquet, and JSONL files
 (from local disk, S3, or HTTP), or Cypher commands.
 
+## :school: Learning Resources
+- [Memgraph documentation](https://memgraph.com/docs)
+- [Best practices repository](https://github.com/memgraph/best-practices)
+- [Memgraph internals notes](https://memgraph.notion.site/Memgraph-Internals-12b69132d67a417898972927d6870bd2)
+
 ## :bulb: Best Practices
 The [memgraph/best-practices](https://github.com/memgraph/best-practices)
 repository contains ready-to-use examples covering graph modeling, data import,
@@ -253,6 +258,7 @@ making Memgraph better!
 
 ## :busts_in_silhouette: Community
 - :purple_heart: [**Discord**](https://discord.gg/memgraph)
+- :speech_balloon: [**Discourse**](https://discourse.memgraph.com/)
 - :ocean: [**Stack Overflow**](https://stackoverflow.com/questions/tagged/memgraphdb)
 - :bird: [**Twitter**](https://twitter.com/memgraphdb)
 - :movie_camera:
