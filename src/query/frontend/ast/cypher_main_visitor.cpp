@@ -4487,6 +4487,46 @@ antlrcpp::Any CypherMainVisitor::visitSetSessionTraceQuery(MemgraphCypher::SetSe
   return session_trace_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitSessionSettingQuery(MemgraphCypher::SessionSettingQueryContext *ctx) {
+  DMG_ASSERT(ctx->children.size() == 1, "SessionSettingQuery should have exactly one child!");
+  auto *session_setting_query = std::any_cast<SessionSettingQuery *>(ctx->children[0]->accept(this));
+  query_ = session_setting_query;
+  return session_setting_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetSessionSetting(MemgraphCypher::SetSessionSettingContext *ctx) {
+  auto *session_setting_query = storage_->Create<SessionSettingQuery>();
+  session_setting_query->action_ = SessionSettingQuery::Action::SET_SETTING;
+
+  if (!ctx->settingName()->literal()->StringLiteral()) {
+    throw SemanticException("Setting name should be a string literal");
+  }
+  if (!ctx->settingValue()->literal()->StringLiteral()) {
+    throw SemanticException("Setting value should be a string literal");
+  }
+
+  session_setting_query->setting_name_ = std::any_cast<Expression *>(ctx->settingName()->accept(this));
+  MG_ASSERT(session_setting_query->setting_name_);
+  session_setting_query->setting_value_ = std::any_cast<Expression *>(ctx->settingValue()->accept(this));
+  MG_ASSERT(session_setting_query->setting_value_);
+
+  return session_setting_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitResetSessionSetting(MemgraphCypher::ResetSessionSettingContext *ctx) {
+  auto *session_setting_query = storage_->Create<SessionSettingQuery>();
+  session_setting_query->action_ = SessionSettingQuery::Action::RESET_SETTING;
+
+  if (!ctx->settingName()->literal()->StringLiteral()) {
+    throw SemanticException("Setting name should be a string literal");
+  }
+
+  session_setting_query->setting_name_ = std::any_cast<Expression *>(ctx->settingName()->accept(this));
+  MG_ASSERT(session_setting_query->setting_name_);
+
+  return session_setting_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitLimitKV(MemgraphCypher::LimitKVContext *ctx) {
   auto key = utils::ToLowerCase(std::any_cast<std::string>(ctx->key->accept(this)));
   auto value = VisitLimitValue(ctx->val, this);

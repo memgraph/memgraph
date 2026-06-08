@@ -332,4 +332,97 @@ TEST_F(SessionTraceEmitTest, IsSessionTraceEnabledRespectsLogLevel) {
   EXPECT_FALSE(memgraph::logging::IsSessionTraceEnabled());
 }
 
+// --- Per-session settings overlay -------------------------------------------
+
+TEST(SessionLogContextOverlay, AbsentKeyReturnsNullopt) {
+  SessionLogContext ctx;
+  EXPECT_FALSE(ctx.GetSetting("log.min_duration_ms").has_value());
+}
+
+TEST(SessionLogContextOverlay, SetAndGet) {
+  SessionLogContext ctx;
+  ctx.SetSetting("log.min_duration_ms", "250");
+  auto v = ctx.GetSetting("log.min_duration_ms");
+  ASSERT_TRUE(v.has_value());
+  EXPECT_EQ(*v, "250");
+}
+
+TEST(SessionLogContextOverlay, ResetClearsValue) {
+  SessionLogContext ctx;
+  ctx.SetSetting("log.failed_queries", "true");
+  ctx.ResetSetting("log.failed_queries");
+  EXPECT_FALSE(ctx.GetSetting("log.failed_queries").has_value());
+}
+
+TEST(SessionLogContextOverlay, SetOverwritesExistingValue) {
+  SessionLogContext ctx;
+  ctx.SetSetting("log.min_duration_ms", "100");
+  ctx.SetSetting("log.min_duration_ms", "500");
+  auto v = ctx.GetSetting("log.min_duration_ms");
+  ASSERT_TRUE(v.has_value());
+  EXPECT_EQ(*v, "500");
+}
+
+// --- Slow/failed-query emit helpers -----------------------------------------
+
+class QueryLogEmitTest : public SessionTraceEmitTest {};
+
+TEST_F(QueryLogEmitTest, SlowQueryHeaderOnlyWhenNoPlan) {
+  memgraph::logging::EmitSlowQueryLog("alice", "memgraph", "MATCH (n) RETURN n", 1234, std::nullopt);
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_EQ(sink_->messages[0], "[slow-query] duration_ms=1234 user=alice db=memgraph query=\"MATCH (n) RETURN n\"");
+}
+
+TEST_F(QueryLogEmitTest, SlowQueryIncludesPlanBlockWhenProvided) {
+  const std::string plan = "ScanAll\n  Once\n";
+  memgraph::logging::EmitSlowQueryLog("alice", "memgraph", "MATCH (n) RETURN n", 50, std::string_view{plan});
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_NE(sink_->messages[0].find("[slow-query] duration_ms=50"), std::string::npos);
+  // Each non-empty source line is prefixed with two extra spaces; pretty-print's
+  // own indentation (the "  " in "  Once") is preserved on top.
+  EXPECT_NE(sink_->messages[0].find("\nPLAN:\n  ScanAll\n    Once"), std::string::npos);
+}
+
+TEST_F(QueryLogEmitTest, SlowQueryEscapesEmbeddedQuotes) {
+  memgraph::logging::EmitSlowQueryLog("bob", "memgraph", R"(RETURN "hi")", 1, std::nullopt);
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_NE(sink_->messages[0].find(R"(query="RETURN \"hi\"")"), std::string::npos);
+}
+
+TEST_F(QueryLogEmitTest, SlowQueryEscapesEmbeddedBackslash) {
+  // Both the backslash and the quotes must be escaped, so a literal `\"` becomes `\\\"`.
+  memgraph::logging::EmitSlowQueryLog("bob", "memgraph", R"(RETURN "a\b")", 1, std::nullopt);
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_EQ(sink_->messages[0], R"([slow-query] duration_ms=1 user=bob db=memgraph query="RETURN \"a\\b\"")");
+}
+
+TEST_F(QueryLogEmitTest, FailedQueryEscapesBackslashInErrorAndQuery) {
+  memgraph::logging::EmitFailedQueryLog("alice", "memgraph", R"(LOAD CSV FROM "c:\tmp")", R"(bad path c:\tmp)");
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_EQ(sink_->messages[0],
+            R"([failed-query] user=alice db=memgraph error="bad path c:\\tmp" query="LOAD CSV FROM \"c:\\tmp\"")");
+}
+
+TEST_F(QueryLogEmitTest, FieldsEscapeNewlinesAndTabsOntoSingleLine) {
+  // A multi-line query and a tab-laden error must stay on one physical line so
+  // the quoted fields remain self-delimiting; only the PLAN block is multi-line.
+  memgraph::logging::EmitFailedQueryLog("alice", "memgraph", "MATCH (n)\nRETURN n", "boom\ttab");
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_EQ(sink_->messages[0].find('\n'), std::string::npos);
+  EXPECT_EQ(sink_->messages[0],
+            R"([failed-query] user=alice db=memgraph error="boom\ttab" query="MATCH (n)\nRETURN n")");
+}
+
+TEST_F(QueryLogEmitTest, FailedQueryLineHasTagAndFields) {
+  memgraph::logging::EmitFailedQueryLog("alice", "memgraph", "RETURN 1/0", "Division by zero");
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_EQ(sink_->messages[0], R"([failed-query] user=alice db=memgraph error="Division by zero" query="RETURN 1/0")");
+}
+
+TEST_F(QueryLogEmitTest, FailedQueryHandlesNoneDb) {
+  memgraph::logging::EmitFailedQueryLog("", "<none>", "FOO", "Syntax error");
+  ASSERT_EQ(sink_->messages.size(), 1u);
+  EXPECT_NE(sink_->messages[0].find("user= db=<none>"), std::string::npos);
+}
+
 }  // namespace

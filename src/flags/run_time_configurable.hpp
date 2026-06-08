@@ -13,10 +13,13 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 
 #include "utils/observer.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/session_context.hpp"
 #include "utils/settings.hpp"
 
 namespace memgraph::flags::run_time {
@@ -132,5 +135,27 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
  * @brief Detach observer from the global snapshor period variable
  */
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);
+
+int64_t GetLogMinDurationMs();
+bool GetLogFailedQueries();
+bool GetLogQueryPlan();
+
+// Settings keys; stored in the per-session overlay and the global settings store.
+inline constexpr std::string_view kLogMinDurationMsKey = "log.min_duration_ms";
+inline constexpr std::string_view kLogFailedQueriesKey = "log.failed_queries";
+inline constexpr std::string_view kLogQueryPlanKey = "log.query_plan";
+
+// Effective value of a session-overridable setting: session overlay first, then
+// the cached global. One getter per setting keeps the fallback explicit.
+int64_t GetEffectiveLogMinDurationMs(const logging::SessionLogContext &ctx);
+bool GetEffectiveLogFailedQueries(const logging::SessionLogContext &ctx);
+bool GetEffectiveLogQueryPlan(const logging::SessionLogContext &ctx);
+
+// True if `key` is one of the per-session-overridable settings (the allow-list).
+bool IsSessionSettable(std::string_view key);
+
+// Validate a raw string `value` for `key`. Returns an error message if invalid,
+// std::nullopt if valid. Precondition: IsSessionSettable(key).
+std::optional<std::string> ValidateSessionSettingValue(std::string_view key, std::string_view value);
 
 }  // namespace memgraph::flags::run_time

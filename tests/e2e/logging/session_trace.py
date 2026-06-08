@@ -21,7 +21,7 @@ import pytest
 # The harness writes the log under <build>/e2e/logs/, dated by spdlog's daily_file_sink.
 # Pick the newest match — older dated files from past runs may linger.
 _BUILD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-LOG_GLOB = os.path.join(_BUILD_DIR, "e2e", "logs", "session_trace_log*.log")
+LOG_GLOB = os.path.join(_BUILD_DIR, "e2e", "logs", "session_trace*.log")
 
 SESSION_TAG = re.compile(r"\[session=([^\]]+)\]")
 
