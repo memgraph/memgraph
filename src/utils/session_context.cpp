@@ -20,7 +20,7 @@ namespace {
 // newlines/tabs become escape sequences so the field never spans log lines.
 void AppendQuoted(fmt::memory_buffer &out, std::string_view value) {
   out.push_back('"');
-  for (char c : value) {
+  for (const char c : value) {
     switch (c) {
       case '"':
         out.append(std::string_view{"\\\""});

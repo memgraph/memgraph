@@ -2808,7 +2808,7 @@ Callback HandleQueryCallableMappingsQuery() {
     results.reserve(mapping.size());
 
     for (const auto &[alias, source] : mapping) {
-      std::string_view type = [&]() -> std::string_view {
+      const std::string_view type = [&]() -> std::string_view {
         if (procedure::FindProcedure(procedure::gModuleRegistry, source)) return "procedure";
         if (procedure::FindFunction(procedure::gModuleRegistry, source)) return "function";
         return "unknown";
@@ -10006,9 +10006,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
     // query_execution holds the query string copy that survives Prepare* moving it out.
-    std::string_view failed_query_text = (query_execution_ptr && *query_execution_ptr)
-                                             ? std::string_view{(*query_execution_ptr)->query_string}
-                                             : std::string_view{};
+    const std::string_view failed_query_text = (query_execution_ptr && *query_execution_ptr)
+                                                   ? std::string_view{(*query_execution_ptr)->query_string}
+                                                   : std::string_view{};
     MaybeEmitFailedQueryLog(failed_query_text, e.what());
     // Trigger first failed query
     metrics::FirstFailedQuery();
