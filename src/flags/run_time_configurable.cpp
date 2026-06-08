@@ -205,7 +205,7 @@ std::atomic<bool> log_query_plan_{true};
 
 memgraph::utils::Settings::ValidatorResult ValidInt64Str(std::string_view in) {
   try {
-    (void)memgraph::utils::ParseInt(in);
+    memgraph::utils::ParseInt(in);
   } catch (const memgraph::utils::BasicException &) {
     return std::unexpected{"Value must be an integer."};
   }
