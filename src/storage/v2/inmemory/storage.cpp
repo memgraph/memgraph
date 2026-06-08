@@ -2826,6 +2826,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     return;
   }
 
+  // Publish run-state for SHOW TRANSACTIONS; cleared on scope exit (see GcProgress).
+  gc_progress_.Start(periodic, main_guard.owns_lock());
+  const utils::OnScopeExit gc_run_state_reset{[&] { gc_progress_.Reset(); }};
+
   // Diagnostic trace
   const utils::Timer timer;
   spdlog::trace("Storage GC on '{}' started [{}]", name(), periodic ? "periodic" : "forced");
@@ -3170,6 +3174,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // after the last currently active transaction is finished.
   // This operation is very expensive as it traverses through all of the items
   // in every index every time.
+  gc_progress_.SetPhase(GcPhase::INDEX_CLEANUP);
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
       indices_.RemoveObsoleteVertexEntries(oldest_active_start_timestamp, token);
@@ -3184,6 +3189,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto skiplist_elapsed = std::chrono::duration<double>(skiplist_cleanup_timer.Elapsed());
     metric_handles_.gc_skiplist_cleanup_latency_seconds.Observe(skiplist_elapsed.count());
   }
+
+  gc_progress_.SetPhase(GcPhase::DELETE);
 
   {
     auto guard = std::unique_lock{engine_lock_};
@@ -3989,8 +3996,9 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   }
   snapshot_progress_.Start();
   auto const clear_snapshot_running_on_exit = utils::OnScopeExit{[&] {
-    snapshot_progress_.Reset();
+    // Clear `running` first so readers stop trusting the fields before they are wiped.
     snapshot_running_.store(false, std::memory_order_release);
+    snapshot_progress_.Reset();
   }};
 
   // This is to make sure SHOW SNAPSHOTS, CREATE SNAPSHOT, and some replication

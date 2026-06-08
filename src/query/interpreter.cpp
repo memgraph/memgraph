@@ -6670,6 +6670,30 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
   return results;
 }
 
+// Synthetic SHOW TRANSACTIONS row for a background task (snapshot, GC): same
+// 7-column "running" shape, differing only in id, query text, and metadata.
+std::vector<TypedValue> BuildBackgroundTaskRow(std::string_view transaction_id, std::string_view query_text,
+                                               std::map<std::string, TypedValue> metadata, int64_t start_time_us,
+                                               int64_t start_steady_ms) {
+  // start_time_us == 0 means "not started yet": leave start_time null, elapsed 0.
+  auto [start_tv, elapsed_ms] = [&]() -> std::pair<TypedValue, int64_t> {
+    if (start_time_us <= 0) return {TypedValue{}, 0};
+    auto const start_tp = std::chrono::system_clock::time_point{std::chrono::microseconds{start_time_us}};
+    auto const steady_start = std::chrono::steady_clock::time_point{std::chrono::milliseconds{start_steady_ms}};
+    return StartTimeAndElapsedMs(start_tp, steady_start);
+  }();
+  std::vector<TypedValue> row;
+  row.reserve(7);
+  row.emplace_back("");
+  row.emplace_back(transaction_id);
+  row.emplace_back(std::vector<TypedValue>{TypedValue(query_text)});
+  row.emplace_back("running");
+  row.emplace_back(std::move(metadata));
+  row.emplace_back(std::move(start_tv));
+  row.emplace_back(elapsed_ms);
+  return row;
+}
+
 std::vector<TypedValue> BuildSnapshotTransactionRow(storage::SnapshotProgressView const &progress,
                                                     std::string_view db_name) {
   std::map<std::string, TypedValue> metadata;
@@ -6677,24 +6701,18 @@ std::vector<TypedValue> BuildSnapshotTransactionRow(storage::SnapshotProgressVie
   metadata.emplace("items_done", static_cast<int64_t>(progress.items_done));
   metadata.emplace("items_total", static_cast<int64_t>(progress.items_total));
   metadata.emplace("db_name", std::string{db_name});
-  TypedValue start_tv{};
-  int64_t elapsed_ms = 0;
-  if (progress.start_time_us > 0) {
-    auto const start_tp = std::chrono::system_clock::time_point{std::chrono::microseconds{progress.start_time_us}};
-    auto const steady_start =
-        std::chrono::steady_clock::time_point{std::chrono::milliseconds{progress.start_steady_ms}};
-    std::tie(start_tv, elapsed_ms) = StartTimeAndElapsedMs(start_tp, steady_start);
-  }
-  std::vector<TypedValue> row;
-  row.reserve(7);
-  row.emplace_back("");
-  row.emplace_back("snapshot");
-  row.emplace_back(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")});
-  row.emplace_back("running");
-  row.emplace_back(std::move(metadata));
-  row.emplace_back(std::move(start_tv));
-  row.emplace_back(elapsed_ms);
-  return row;
+  return BuildBackgroundTaskRow(
+      "snapshot", "CREATE SNAPSHOT", std::move(metadata), progress.start_time_us, progress.start_steady_ms);
+}
+
+std::vector<TypedValue> BuildGcTransactionRow(storage::GcRunInfoView const &info, std::string_view db_name) {
+  std::map<std::string, TypedValue> metadata;
+  metadata.emplace("phase", storage::GcProgress::PhaseToString(info.phase));
+  metadata.emplace("trigger", info.periodic ? "periodic" : "forced");
+  metadata.emplace("exclusive_lock", TypedValue(info.exclusive_lock));
+  metadata.emplace("db_name", std::string{db_name});
+  return BuildBackgroundTaskRow(
+      "gc", "GARBAGE COLLECTION", std::move(metadata), info.start_time_us, info.start_steady_ms);
 }
 
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
@@ -6715,21 +6733,24 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
         return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
       };
       callback.header = {"username", "transaction_id", "query", "status", "metadata", "start_time", "elapsed_ms"};
-      // Snapshot rows always have status "running"; skip them entirely if the filter
-      // is active and RUNNING is not among the requested statuses.
-      const bool include_snapshots =
+      // Background-task rows are always "running"; skip them when a status filter
+      // excludes RUNNING.
+      const bool include_background_tasks =
           transaction_query->status_filter_.empty() ||
           std::ranges::contains(transaction_query->status_filter_, TransactionQueueQuery::StatusFilter::RUNNING);
-      callback.fn = [interpreter_context, show_transactions = std::move(show_transactions), include_snapshots] {
+      callback.fn = [interpreter_context, show_transactions = std::move(show_transactions), include_background_tasks] {
         auto results = interpreter_context->interpreters.WithLock(show_transactions);
-        // Append synthetic rows for running snapshots (background/periodic/exit)
-        if (include_snapshots && interpreter_context->dbms_handler) {
+        if (include_background_tasks && interpreter_context->dbms_handler) {
           interpreter_context->dbms_handler->ForEach([&results](auto db_acc) {
             auto *storage = db_acc->storage();
             if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
             auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-            if (!mem_storage->IsSnapshotRunning()) return;
-            results.emplace_back(BuildSnapshotTransactionRow(mem_storage->GetSnapshotProgress(), db_acc->name()));
+            if (auto snapshot_progress = mem_storage->TryGetSnapshotProgress()) {
+              results.emplace_back(BuildSnapshotTransactionRow(*snapshot_progress, db_acc->name()));
+            }
+            if (auto gc_info = mem_storage->TryGetGcRunInfo()) {
+              results.emplace_back(BuildGcTransactionRow(*gc_info, db_acc->name()));
+            }
           });
         }
         return results;

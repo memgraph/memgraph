@@ -79,12 +79,12 @@ TEST(SnapshotProgressTest, ResetClearsAllFields) {
 }
 
 TEST(SnapshotProgressTest, PhaseToStringAllValues) {
-  EXPECT_STREQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::IDLE), "idle");
-  EXPECT_STREQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::EDGES), "edges");
-  EXPECT_STREQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::VERTICES), "vertices");
-  EXPECT_STREQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::INDICES), "indices");
-  EXPECT_STREQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::CONSTRAINTS), "constraints");
-  EXPECT_STREQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::FINALIZING), "finalizing");
+  EXPECT_EQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::IDLE), "idle");
+  EXPECT_EQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::EDGES), "edges");
+  EXPECT_EQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::VERTICES), "vertices");
+  EXPECT_EQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::INDICES), "indices");
+  EXPECT_EQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::CONSTRAINTS), "constraints");
+  EXPECT_EQ(SnapshotProgress::PhaseToString(SnapshotProgress::Phase::FINALIZING), "finalizing");
 }
 
 TEST(SnapshotProgressTest, PhaseTransitionsFullLifecycle) {
