@@ -2828,7 +2828,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   // Publish run-state for SHOW TRANSACTIONS; cleared on scope exit (see GcProgress).
   gc_progress_.Start(periodic, main_guard.owns_lock());
-  utils::OnScopeExit gc_run_state_reset{[&] { gc_progress_.Reset(); }};
+  const utils::OnScopeExit gc_run_state_reset{[&] { gc_progress_.Reset(); }};
 
   // Diagnostic trace
   const utils::Timer timer;
