@@ -603,11 +603,13 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContex
   return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
 }
 
-// Each strict to* conversion and its *OrNull variant share one type-set: the strict form throws
-// on a rejected type, the *OrNull form returns null.
+// Type-set shared by each strict to* and its *OrNull variant: strict throws on a rejected type, *OrNull
+// returns null; a parse failure on an accepted type returns null in both.
 using ToBooleanTypes = Or<Null, Bool, Integer, String>;
 using ToFloatTypes = Or<Null, Bool, Number, String>;
 using ToIntegerTypes = Or<Null, Bool, Number, String>;
+using ToStringTypes =
+    Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum, Point2d, Point3d>;
 
 TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<ToBooleanTypes>("toBoolean", args, nargs);
@@ -670,22 +672,24 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
   }
 }
 
+// Null-on-rejected-type wrapper: accepted types delegate to the strict fn (still null on parse failure), rest -> null.
+template <typename Types, TypedValue (*StrictFn)(const TypedValue *, int64_t, const FunctionContext &)>
+TypedValue ConvertOrNull(const char *name, const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 1) throw QueryRuntimeException("'{}' requires exactly 1 argument.", name);
+  if (!Types::Check(args[0])) return TypedValue(ctx.memory);
+  return StrictFn(args, nargs, ctx);
+}
+
 TypedValue ToBooleanOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  if (nargs != 1) throw QueryRuntimeException("'toBooleanOrNull' requires exactly 1 argument.");
-  if (!ToBooleanTypes::Check(args[0])) return TypedValue(ctx.memory);
-  return ToBoolean(args, nargs, ctx);
+  return ConvertOrNull<ToBooleanTypes, ToBoolean>("toBooleanOrNull", args, nargs, ctx);
 }
 
 TypedValue ToFloatOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  if (nargs != 1) throw QueryRuntimeException("'toFloatOrNull' requires exactly 1 argument.");
-  if (!ToFloatTypes::Check(args[0])) return TypedValue(ctx.memory);
-  return ToFloat(args, nargs, ctx);
+  return ConvertOrNull<ToFloatTypes, ToFloat>("toFloatOrNull", args, nargs, ctx);
 }
 
 TypedValue ToIntegerOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  if (nargs != 1) throw QueryRuntimeException("'toIntegerOrNull' requires exactly 1 argument.");
-  if (!ToIntegerTypes::Check(args[0])) return TypedValue(ctx.memory);
-  return ToInteger(args, nargs, ctx);
+  return ConvertOrNull<ToIntegerTypes, ToInteger>("toIntegerOrNull", args, nargs, ctx);
 }
 
 TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1209,9 +1213,7 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
 }
 
 TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<
-      Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum, Point2d, Point3d>>(
-      "toString", args, nargs);
+  FType<ToStringTypes>("toString", args, nargs);
   const auto &arg = args[0];
   using enum TypedValue::Type;
   switch (arg.type()) {
@@ -1282,6 +1284,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     case VirtualGraph:
     case Function: {
       MG_ASSERT(false, "unexpected TypedValue::Type");
+      std::unreachable();
     }
   }
 }
@@ -1290,75 +1293,11 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
   if (nargs != 1) {
     throw QueryRuntimeException("'toStringOrNull' requires exactly 1 argument.");
   }
-
   const auto &arg = args[0];
-  using enum TypedValue::Type;
-  switch (arg.type()) {
-    case String: {
-      return {arg, ctx.memory};
-    }
-
-    case Int: {
-      // TODO: This is making a pointless copy of std::string, we may want to
-      // use a different conversion to string
-      return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
-    }
-
-    case Double: {
-      return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
-    }
-
-    case Date: {
-      return TypedValue(arg.ValueDate().ToString(), ctx.memory);
-    }
-
-    case LocalTime: {
-      return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
-    }
-
-    case LocalDateTime: {
-      return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
-    }
-
-    case Duration: {
-      return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
-    }
-    case ZonedDateTime: {
-      return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
-    }
-
-    case Enum: {
-      auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (!opt_str) return TypedValue(ctx.memory);  // unresolvable enum -> null
-      return TypedValue(*opt_str, ctx.memory);
-    }
-
-    case Bool: {
-      return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
-    }
-
-    case Point2d: {
-      return TypedValue(CypherConstructionFor(arg.ValuePoint2d()), ctx.memory);
-    }
-
-    case Point3d: {
-      return TypedValue(CypherConstructionFor(arg.ValuePoint3d()), ctx.memory);
-    }
-
-    case Null:
-    case List:
-    case Map:
-    case Vertex:
-    case Edge:
-    case VirtualEdge:
-    case VirtualNode:
-    case Path:
-    case Graph:
-    case VirtualGraph:
-    case Function: {
-      return TypedValue(ctx.memory);
-    }
-  }
+  // Rejected type -> null. Unresolvable enum is the one accepted type whose strict conversion throws, so null it too.
+  if (!ToStringTypes::Check(arg)) return TypedValue(ctx.memory);
+  if (arg.IsEnum() && !ctx.db_accessor->EnumToName(arg.ValueEnum())) return TypedValue(ctx.memory);
+  return ToString(args, nargs, ctx);
 }
 
 TypedValue ToStringList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {

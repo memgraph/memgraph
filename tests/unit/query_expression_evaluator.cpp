@@ -2049,6 +2049,11 @@ TYPED_TEST(FunctionTest, ToBoolean) {
   ASSERT_TRUE(this->EvaluateFunction("TOBOOLEAN", "\n\tFALSEA ").IsNull());
   ASSERT_EQ(this->EvaluateFunction("TOBOOLEAN", true).ValueBool(), true);
   ASSERT_EQ(this->EvaluateFunction("TOBOOLEAN", false).ValueBool(), false);
+  // Rejected types throw (this is the distinction from TOBOOLEANORNULL, which returns null).
+  ASSERT_THROW(this->EvaluateFunction("TOBOOLEAN", 3.5), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOBOOLEAN", MakeTypedValueList(1, 2, 3)), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOBOOLEAN", TypedValue(std::map<std::string, TypedValue>{})),
+               QueryRuntimeException);
 }
 
 TYPED_TEST(FunctionTest, ToFloat) {
@@ -2061,6 +2066,10 @@ TYPED_TEST(FunctionTest, ToFloat) {
   ASSERT_EQ(this->EvaluateFunction("TOFLOAT", -3).ValueDouble(), -3.0);
   ASSERT_EQ(this->EvaluateFunction("TOFLOAT", true).ValueDouble(), 1.0);
   ASSERT_EQ(this->EvaluateFunction("TOFLOAT", false).ValueDouble(), 0.0);
+  // Rejected types throw (this is the distinction from TOFLOATORNULL, which returns null).
+  ASSERT_THROW(this->EvaluateFunction("TOFLOAT", MakeTypedValueList(1, 2, 3)), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOFLOAT", TypedValue(std::map<std::string, TypedValue>{})),
+               QueryRuntimeException);
 }
 
 TYPED_TEST(FunctionTest, ToInteger) {
@@ -2073,6 +2082,10 @@ TYPED_TEST(FunctionTest, ToInteger) {
   ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "\n\t3X ").IsNull());
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", -3.5).ValueInt(), -3);
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", 3.5).ValueInt(), 3);
+  // Rejected types throw (the distinction from TOINTEGERORNULL, which returns null).
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", MakeTypedValueList(1, 2, 3)), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", TypedValue(std::map<std::string, TypedValue>{})),
+               QueryRuntimeException);
 }
 
 TYPED_TEST(FunctionTest, ToBooleanOrNull) {
@@ -2702,14 +2715,29 @@ TYPED_TEST(FunctionTest, ToStringPoint) {
   using enum memgraph::storage::CoordinateReferenceSystem;
   const auto p2 = Point2d(Cartesian_2d, 1, 2);
   const auto p3 = Point3d(Cartesian_3d, 1, 2, 3);
-  // a point stringifies to Memgraph's standard point representation.
+  // Pin the exact format; the rest of the cases assert agreement with the canonical representation.
+  EXPECT_EQ(this->EvaluateFunction("TOSTRING", TypedValue(p2)).ValueString(), "POINT({ x:1, y:2, srid: 7203 })");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRING", TypedValue(p3)).ValueString(), "POINT({ x:1, y:2, z:3, srid: 9157 })");
   EXPECT_EQ(this->EvaluateFunction("TOSTRING", TypedValue(p2)).ValueString(),
             memgraph::query::CypherConstructionFor(p2).c_str());
   EXPECT_EQ(this->EvaluateFunction("TOSTRING", TypedValue(p3)).ValueString(),
             memgraph::query::CypherConstructionFor(p3).c_str());
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullPoint) {
+  using memgraph::storage::Point2d;
+  using enum memgraph::storage::CoordinateReferenceSystem;
+  const auto p2 = Point2d(Cartesian_2d, 1, 2);
   EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", TypedValue(p2)).ValueString(),
             memgraph::query::CypherConstructionFor(p2).c_str());
-  // points flow through toStringList too (it delegates to toStringOrNull).
+}
+
+TYPED_TEST(FunctionTest, ToStringListPoint) {
+  using memgraph::storage::Point2d;
+  using memgraph::storage::Point3d;
+  using enum memgraph::storage::CoordinateReferenceSystem;
+  const auto p2 = Point2d(Cartesian_2d, 1, 2);
+  const auto p3 = Point3d(Cartesian_3d, 1, 2, 3);
   CompareList(
       this->EvaluateFunction("TOSTRINGLIST", MakeTypedValueList(TypedValue(p2), TypedValue(p3))),
       MakeTypedValueList(memgraph::query::CypherConstructionFor(p2), memgraph::query::CypherConstructionFor(p3)));

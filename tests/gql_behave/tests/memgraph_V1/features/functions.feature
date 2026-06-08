@@ -201,6 +201,26 @@ Feature: Functions
             | n                  |
             | [1, null, 3, null] |
 
+    Scenario: ToBooleanList nulls non-convertible elements instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toBooleanList([true, [2], 'true', 3.5]) AS n
+            """
+        Then the result should be:
+            | n                          |
+            | [true, null, true, null]   |
+
+    Scenario: ToFloatList nulls non-convertible elements instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toFloatList([1.5, [2], '3', 'x']) AS n
+            """
+        Then the result should be:
+            | n                    |
+            | [1.5, null, 3.0, null] |
+
     Scenario: Abs test 01:
         Given an empty graph
         And having executed
