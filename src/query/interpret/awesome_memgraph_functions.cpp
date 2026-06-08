@@ -605,9 +605,8 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContex
 
 // Type-set shared by each strict to* and its *OrNull variant: strict throws on a rejected type, *OrNull
 // returns null; a parse failure on an accepted type returns null in both.
-using ToBooleanTypes = Or<Null, Bool, Integer, String>;
-using ToFloatTypes = Or<Null, Bool, Number, String>;
-using ToIntegerTypes = Or<Null, Bool, Number, String>;
+using ToBooleanTypes = Or<Null, Bool, Integer, String>;  // Integer, not Number: toBoolean rejects floats.
+using ToNumericTypes = Or<Null, Bool, Number, String>;   // shared by toFloat and toInteger.
 using ToStringTypes =
     Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum, Point2d, Point3d>;
 
@@ -631,7 +630,7 @@ TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<ToFloatTypes>("toFloat", args, nargs);
+  FType<ToNumericTypes>("toFloat", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -651,7 +650,7 @@ TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext 
 }
 
 TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<ToIntegerTypes>("toInteger", args, nargs);
+  FType<ToNumericTypes>("toInteger", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -685,11 +684,11 @@ TypedValue ToBooleanOrNull(const TypedValue *args, int64_t nargs, const Function
 }
 
 TypedValue ToFloatOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return ConvertOrNull<ToFloatTypes, ToFloat>("toFloatOrNull", args, nargs, ctx);
+  return ConvertOrNull<ToNumericTypes, ToFloat>("toFloatOrNull", args, nargs, ctx);
 }
 
 TypedValue ToIntegerOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return ConvertOrNull<ToIntegerTypes, ToInteger>("toIntegerOrNull", args, nargs, ctx);
+  return ConvertOrNull<ToNumericTypes, ToInteger>("toIntegerOrNull", args, nargs, ctx);
 }
 
 TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1284,7 +1283,6 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     case VirtualGraph:
     case Function: {
       MG_ASSERT(false, "unexpected TypedValue::Type");
-      std::unreachable();
     }
   }
 }
