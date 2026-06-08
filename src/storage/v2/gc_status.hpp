@@ -30,10 +30,10 @@ struct GcRunInfoView {
 };
 
 // GC run-state for SHOW TRANSACTIONS. One writer (the GC thread, under gc_lock_),
-// many readers. `running` is the publish handshake: Start() fills the fields
-// (relaxed) then releases `running` last, so a reader seeing running == true also
-// sees coherent fields. This holds on any architecture, so the field loads stay
-// relaxed; only `running` and `phase` (advanced mid-run) carry ordering.
+// many readers. Mirrors SnapshotProgress: every field is release-stored /
+// acquire-loaded, so each is independently synchronized, and `running` gates the
+// read (see TryGetRunInfo). `running` is cleared first on Reset so readers stop
+// trusting the fields before they are wiped.
 struct GcProgress {
   std::atomic_bool running{false};
   std::atomic<GcPhase> phase{GcPhase::IDLE};
@@ -43,15 +43,14 @@ struct GcProgress {
   std::atomic<int64_t> start_time_us{0};
   std::atomic<int64_t> start_steady_ms{0};
 
-  bool IsRunning() const;
   void Start(bool is_periodic, bool is_exclusive);
   void SetPhase(GcPhase p);
 
   // Clears `running` first, then the rest, so readers never see half-reset fields.
   void Reset();
 
-  // Coherent read: nullopt unless running. Re-checks `running` after the fields
-  // so a run ending mid-read reads as not-running, never a torn row.
+  // Coherent read: reads the fields, then checks `running` last, so a run ending
+  // mid-read reads as not-running, never a torn row.
   std::optional<GcRunInfoView> TryGetRunInfo() const;
 
   static std::string_view PhaseToString(GcPhase phase);
