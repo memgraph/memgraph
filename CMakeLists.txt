@@ -296,10 +296,6 @@ add_compile_options(
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
 )
 
-# Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
-    "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
-
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
@@ -412,6 +408,15 @@ if (MG_MEMORY_PROFILE AND ASAN)
 endif ()
 if (MG_MEMORY_PROFILE)
     add_compile_definitions(MG_MEMORY_PROFILE)
+endif ()
+
+# Profiling build: keep frame pointers so `perf` can walk the stack without
+# unwind metadata, plus -fno-optimize-sibling-calls so tail calls stay as real
+# frames. Reserving a register costs throughput, so keep OFF for shipped builds.
+option(MG_PROFILE "Retain frame pointers for perf profiling" OFF)
+if (MG_PROFILE)
+    message(STATUS "MG_PROFILE=ON: retaining frame pointers for profiling")
+    add_compile_options(-fno-omit-frame-pointer -fno-optimize-sibling-calls)
 endif ()
 
 if (ASAN)
