@@ -91,6 +91,9 @@ else()
   target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=0)
 endif()
 
+# Passed as a definition so build_info.cpp needn't include the generated version.hpp.
+target_compile_definitions(mg-utils PRIVATE MEMGRAPH_VERSION_STRING="${MEMGRAPH_VERSION}")
+
 
 add_library(mg-aws STATIC)
 add_library(mg::aws ALIAS mg-aws)
