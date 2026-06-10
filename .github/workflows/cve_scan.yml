@@ -42,8 +42,24 @@ on:
     inputs:
       date:
         type: string
-        required: true
-        description: "Daily build date (yyyymmdd) to be scanned."
+        required: false
+        default: ''
+        description: "Daily-build mode: build date (yyyymmdd) to be scanned."
+      version:
+        type: string
+        required: false
+        default: ''
+        description: "RC mode: release version (X.Y.Z). Must be set together with `rc_number`."
+      rc_number:
+        type: string
+        required: false
+        default: ''
+        description: "RC mode: release candidate number (e.g. rc1). Must be set together with `version`."
+      mock:
+        type: boolean
+        required: false
+        default: false
+        description: "RC mode: scan the mock-rc artifacts instead of the real RC artifacts."
 
 run-name: CVE Scan for ${{ inputs.version != '' && format('v{0}-{1}', inputs.version, inputs.rc_number) || inputs.date }}
 
