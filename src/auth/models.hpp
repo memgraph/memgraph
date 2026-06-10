@@ -436,23 +436,20 @@ class PropertyAccessPermissions final {
  public:
   PropertyAccessPermissions() = default;
 
-  void Grant(std::unordered_set<std::string> const &entities, std::string const &property,
-             PropertyPermissionType type = PropertyPermissionType::READ,
+  void Grant(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
              MatchingMode matching_mode = MatchingMode::ANY);
-  void Deny(std::unordered_set<std::string> const &entities, std::string const &property,
-            PropertyPermissionType type = PropertyPermissionType::READ, MatchingMode matching_mode = MatchingMode::ANY);
-  void Revoke(std::unordered_set<std::string> const &entities, std::string const &property,
-              PropertyPermissionType type = PropertyPermissionType::READ,
+  void Deny(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
+            MatchingMode matching_mode = MatchingMode::ANY);
+  void Revoke(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
               MatchingMode matching_mode = MatchingMode::ANY);
 
-  void GrantGlobal(std::string const &property, PropertyPermissionType type = PropertyPermissionType::READ);
-  void DenyGlobal(std::string const &property, PropertyPermissionType type = PropertyPermissionType::READ);
-  void RevokeGlobal(std::string const &property, PropertyPermissionType type = PropertyPermissionType::READ);
+  void GrantGlobal(std::string const &property, PropertyPermissionType type);
+  void DenyGlobal(std::string const &property, PropertyPermissionType type);
+  void RevokeGlobal(std::string const &property, PropertyPermissionType type);
 
   PermissionLevel Has(std::span<std::string const> entities, std::string const &property,
-                      PropertyPermissionType type = PropertyPermissionType::READ) const;
-  PermissionLevel HasGlobal(std::string const &property,
-                            PropertyPermissionType type = PropertyPermissionType::READ) const;
+                      PropertyPermissionType type) const;
+  PermissionLevel HasGlobal(std::string const &property, PropertyPermissionType type) const;
 
   nlohmann::json Serialize() const;
   static PropertyAccessPermissions Deserialize(nlohmann::json const &data);

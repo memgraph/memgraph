@@ -4426,7 +4426,8 @@ TYPED_TEST(MatchReturnFixture, PropertyFGALicenseDisabledMeansNoRestriction) {
 
   auto user = memgraph::auth::User{"test_user"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.property_access_handler().label_properties().Deny({"Employee"}, "ssn");
+  user.property_access_handler().label_properties().Deny(
+      {"Employee"}, "ssn", memgraph::auth::PropertyPermissionType::READ);
 
   auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
   auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "ssn");

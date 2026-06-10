@@ -3286,9 +3286,12 @@ TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnUser) {
   ASSERT_TRUE(user.has_value());
   auto const &props = user->property_access_handler().label_properties();
   std::vector<std::string> emp = {"Employee"};
-  EXPECT_EQ(props.Has(emp, "ssn"), memgraph::auth::PermissionLevel::GRANT);
-  EXPECT_EQ(props.Has(emp, "salary"), memgraph::auth::PermissionLevel::GRANT);
-  EXPECT_EQ(props.Has(emp, "name"), memgraph::auth::PermissionLevel::NEUTRAL);
+  EXPECT_EQ(props.Has(emp, "ssn", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has(emp, "salary", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has(emp, "name", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::NEUTRAL);
 }
 
 TEST_F(AuthQueryHandlerFixture, DenyPropertyPermissionOnUser) {
@@ -3307,7 +3310,7 @@ TEST_F(AuthQueryHandlerFixture, DenyPropertyPermissionOnUser) {
   ASSERT_TRUE(user.has_value());
   auto const &props = user->property_access_handler().label_properties();
   std::vector<std::string> emp = {"Employee"};
-  EXPECT_EQ(props.Has(emp, "ssn"), memgraph::auth::PermissionLevel::DENY);
+  EXPECT_EQ(props.Has(emp, "ssn", memgraph::auth::PropertyPermissionType::READ), memgraph::auth::PermissionLevel::DENY);
 }
 
 TEST_F(AuthQueryHandlerFixture, RevokePropertyPermissionOnUser) {
@@ -3333,8 +3336,9 @@ TEST_F(AuthQueryHandlerFixture, RevokePropertyPermissionOnUser) {
   auto user = auth->ReadLock()->GetUser(user_name);
   ASSERT_TRUE(user.has_value());
   std::vector<std::string> emp = {"Employee"};
-  EXPECT_EQ(user->property_access_handler().label_properties().Has(emp, "ssn"),
-            memgraph::auth::PermissionLevel::NEUTRAL);
+  EXPECT_EQ(
+      user->property_access_handler().label_properties().Has(emp, "ssn", memgraph::auth::PropertyPermissionType::READ),
+      memgraph::auth::PermissionLevel::NEUTRAL);
 }
 
 TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnRole) {
@@ -3353,8 +3357,10 @@ TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnRole) {
   ASSERT_TRUE(role.has_value());
   auto const &props = role->property_access_handler().edge_type_properties();
   std::vector<std::string> paid = {"PAID"};
-  EXPECT_EQ(props.Has(paid, "amount"), memgraph::auth::PermissionLevel::GRANT);
-  EXPECT_EQ(props.Has(paid, "currency"), memgraph::auth::PermissionLevel::NEUTRAL);
+  EXPECT_EQ(props.Has(paid, "amount", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has(paid, "currency", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::NEUTRAL);
 }
 
 TEST_F(AuthQueryHandlerFixture, PropertyPermissionOnNonexistentUserThrows) {

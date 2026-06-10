@@ -1428,67 +1428,67 @@ TEST(AuthWithoutStorage, PropertyAccessPermissions) {
   // Default: no rules → NEUTRAL (no opinion)
   {
     PropertyAccessPermissions perms;
-    EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::NEUTRAL);
-    EXPECT_EQ(perms.Has(emp, "name"), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
   }
 
   // Explicit grant
   {
     PropertyAccessPermissions perms;
-    perms.Grant({"Employee"}, "ssn");
-    EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::GRANT);
-    EXPECT_EQ(perms.Has(emp, "name"), PermissionLevel::NEUTRAL);
-    EXPECT_EQ(perms.Has(other, "ssn"), PermissionLevel::NEUTRAL);
+    perms.Grant({"Employee"}, "ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(perms.Has(other, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
   }
 
   // Explicit deny
   {
     PropertyAccessPermissions perms;
-    perms.Deny({"Employee"}, "ssn");
-    EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::DENY);
-    EXPECT_EQ(perms.Has(emp, "name"), PermissionLevel::NEUTRAL);
+    perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
   }
 
   // Wildcard grant, specific deny
   {
     PropertyAccessPermissions perms;
-    perms.Grant({"Employee"}, "*");
-    perms.Deny({"Employee"}, "ssn");
-    EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::DENY);
-    EXPECT_EQ(perms.Has(emp, "name"), PermissionLevel::GRANT);
-    EXPECT_EQ(perms.Has(emp, "salary"), PermissionLevel::GRANT);
+    perms.Grant({"Employee"}, "*", PropertyPermissionType::READ);
+    perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::GRANT);
   }
 
   // Wildcard deny, specific grant
   {
     PropertyAccessPermissions perms;
-    perms.Deny({"Employee"}, "*");
-    perms.Grant({"Employee"}, "name");
-    EXPECT_EQ(perms.Has(emp, "name"), PermissionLevel::GRANT);
-    EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::DENY);
+    perms.Deny({"Employee"}, "*", PropertyPermissionType::READ);
+    perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   }
 
   // Revoke removes the rule, falls back to wildcard
   {
     PropertyAccessPermissions perms;
-    perms.Grant({"Employee"}, "*");
-    perms.Deny({"Employee"}, "ssn");
-    perms.Revoke({"Employee"}, "ssn");
-    EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::GRANT);
+    perms.Grant({"Employee"}, "*", PropertyPermissionType::READ);
+    perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+    perms.Revoke({"Employee"}, "ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
   }
 
   // Revoke on nonexistent entity/property is a no-op
   {
     PropertyAccessPermissions perms;
-    perms.Revoke({"Employee"}, "ssn");
+    perms.Revoke({"Employee"}, "ssn", PropertyPermissionType::READ);
     EXPECT_TRUE(perms.GetRules().empty());
   }
 
   // Revoke last property removes entity entry
   {
     PropertyAccessPermissions perms;
-    perms.Grant({"Employee"}, "ssn");
-    perms.Revoke({"Employee"}, "ssn");
+    perms.Grant({"Employee"}, "ssn", PropertyPermissionType::READ);
+    perms.Revoke({"Employee"}, "ssn", PropertyPermissionType::READ);
     EXPECT_TRUE(perms.GetRules().empty());
   }
 }
@@ -1502,15 +1502,15 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsMatchingAny) {
   perms.Grant({"A", "B"}, "ssn", memgraph::auth::PropertyPermissionType::READ, MatchingMode::ANY);
 
   // Node with just :A matches (ANY = at least one label in the rule)
-  EXPECT_EQ(perms.Has(std::vector<std::string>{"A"}, "ssn"), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A"}, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
   // Node with just :B matches
-  EXPECT_EQ(perms.Has(std::vector<std::string>{"B"}, "ssn"), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"B"}, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
   // Node with :A, :B matches
-  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B"}, "ssn"), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B"}, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
   // Node with :C does not match
-  EXPECT_EQ(perms.Has(std::vector<std::string>{"C"}, "ssn"), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"C"}, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
   // Node with :A, :C matches (A is in the rule)
-  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "C"}, "ssn"), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "C"}, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsMatchingExactly) {
@@ -1522,13 +1522,14 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsMatchingExactly) {
   perms.Grant({"A", "B"}, "ssn", memgraph::auth::PropertyPermissionType::READ, MatchingMode::EXACTLY);
 
   // Node with just :A does NOT match (EXACTLY requires all labels in the rule, same count)
-  EXPECT_EQ(perms.Has(std::vector<std::string>{"A"}, "ssn"), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A"}, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
   // Node with just :B does NOT match
-  EXPECT_EQ(perms.Has(std::vector<std::string>{"B"}, "ssn"), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"B"}, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
   // Node with :A, :B matches exactly
-  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B"}, "ssn"), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B"}, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
   // Node with :A, :B, :C does NOT match (extra label)
-  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B", "C"}, "ssn"), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B", "C"}, "ssn", PropertyPermissionType::READ),
+            PermissionLevel::NEUTRAL);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsMatchingExactlyDenyOverridesAny) {
@@ -1541,9 +1542,9 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsMatchingExactlyDenyOverridesAn
   perms.Deny({"A", "B"}, "ssn", memgraph::auth::PropertyPermissionType::READ, MatchingMode::EXACTLY);
 
   // Node :A only — ANY rule grants, EXACTLY rule doesn't match → GRANT
-  EXPECT_EQ(perms.Has(std::vector<std::string>{"A"}, "ssn"), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A"}, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
   // Node :A, :B — ANY rule grants, EXACTLY rule denies → DENY wins
-  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B"}, "ssn"), PermissionLevel::DENY);
+  EXPECT_EQ(perms.Has(std::vector<std::string>{"A", "B"}, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsDeserializeEmpty) {
@@ -1554,11 +1555,11 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsDeserializeEmpty) {
 
   // Empty object → no rules
   auto perms = PropertyAccessPermissions::Deserialize(nlohmann::json::object());
-  EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
 
   // Non-object → no rules
   auto perms2 = PropertyAccessPermissions::Deserialize(nlohmann::json(42));
-  EXPECT_EQ(perms2.Has(emp, "ssn"), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms2.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessHandlerSerializeRoundtrip) {
@@ -1568,16 +1569,17 @@ TEST(AuthWithoutStorage, PropertyAccessHandlerSerializeRoundtrip) {
   std::vector<std::string> const paid = {"PAID"};
 
   PropertyAccessHandler handler;
-  handler.label_properties().Grant({"Employee"}, "*");
-  handler.label_properties().Deny({"Employee"}, "ssn");
-  handler.edge_type_properties().Grant({"PAID"}, "amount");
+  handler.label_properties().Grant({"Employee"}, "*", PropertyPermissionType::READ);
+  handler.label_properties().Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+  handler.edge_type_properties().Grant({"PAID"}, "amount", PropertyPermissionType::READ);
 
   auto json = handler.Serialize();
   auto deserialized = PropertyAccessHandler::Deserialize(json);
 
-  EXPECT_EQ(deserialized.label_properties().Has(emp, "ssn"), PermissionLevel::DENY);
-  EXPECT_EQ(deserialized.label_properties().Has(emp, "name"), PermissionLevel::GRANT);
-  EXPECT_EQ(deserialized.edge_type_properties().Has(paid, "amount"), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.label_properties().Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(deserialized.label_properties().Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(deserialized.edge_type_properties().Has(paid, "amount", PropertyPermissionType::READ),
+            PermissionLevel::GRANT);
   EXPECT_EQ(handler, deserialized);
 }
 
@@ -1590,8 +1592,8 @@ TEST(AuthWithoutStorage, PropertyAccessHandlerDeserializeMissingKey) {
 
   // Old format with no property access key → default empty handler
   auto handler = PropertyAccessHandler::Deserialize(nlohmann::json::object());
-  EXPECT_EQ(handler.label_properties().Has(emp, "ssn"), PermissionLevel::NEUTRAL);
-  EXPECT_EQ(handler.edge_type_properties().Has(paid, "amount"), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(handler.label_properties().Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(handler.edge_type_properties().Has(paid, "amount", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsMerge) {
@@ -1603,52 +1605,52 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsMerge) {
   // DENY in second overrides GRANT in first
   {
     PropertyAccessPermissions first;
-    first.Grant({"Employee"}, "ssn");
+    first.Grant({"Employee"}, "ssn", PropertyPermissionType::READ);
     PropertyAccessPermissions second;
-    second.Deny({"Employee"}, "ssn");
+    second.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
     auto merged = Merge(first, second);
-    EXPECT_EQ(merged.Has(emp, "ssn"), PermissionLevel::DENY);
+    EXPECT_EQ(merged.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   }
 
   // GRANT in second does NOT override DENY in first
   {
     PropertyAccessPermissions first;
-    first.Deny({"Employee"}, "ssn");
+    first.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
     PropertyAccessPermissions second;
-    second.Grant({"Employee"}, "ssn");
+    second.Grant({"Employee"}, "ssn", PropertyPermissionType::READ);
     auto merged = Merge(first, second);
-    EXPECT_EQ(merged.Has(emp, "ssn"), PermissionLevel::DENY);
+    EXPECT_EQ(merged.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   }
 
   // GRANT in second fills NEUTRAL in first
   {
     PropertyAccessPermissions first;
     PropertyAccessPermissions second;
-    second.Grant({"Employee"}, "ssn");
+    second.Grant({"Employee"}, "ssn", PropertyPermissionType::READ);
     auto merged = Merge(first, second);
-    EXPECT_EQ(merged.Has(emp, "ssn"), PermissionLevel::GRANT);
+    EXPECT_EQ(merged.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
   }
 
   // Merge with empty is identity
   {
     PropertyAccessPermissions first;
-    first.Grant({"Employee"}, "name");
-    first.Deny({"Employee"}, "ssn");
+    first.Grant({"Employee"}, "name", PropertyPermissionType::READ);
+    first.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
     PropertyAccessPermissions second;
     auto merged = Merge(first, second);
-    EXPECT_EQ(merged.Has(emp, "name"), PermissionLevel::GRANT);
-    EXPECT_EQ(merged.Has(emp, "ssn"), PermissionLevel::DENY);
+    EXPECT_EQ(merged.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(merged.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   }
 
   // Wildcard in first, specific DENY in second
   {
     PropertyAccessPermissions first;
-    first.Grant({"Employee"}, "*");
+    first.Grant({"Employee"}, "*", PropertyPermissionType::READ);
     PropertyAccessPermissions second;
-    second.Deny({"Employee"}, "ssn");
+    second.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
     auto merged = Merge(first, second);
-    EXPECT_EQ(merged.Has(emp, "ssn"), PermissionLevel::DENY);
-    EXPECT_EQ(merged.Has(emp, "name"), PermissionLevel::GRANT);
+    EXPECT_EQ(merged.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+    EXPECT_EQ(merged.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
   }
 }
 
@@ -1909,62 +1911,62 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntity) {
   // Global grant applies to any entity
   {
     PropertyAccessPermissions perms;
-    perms.GrantGlobal("name");
-    EXPECT_EQ(perms.Has(emp, "name"), PermissionLevel::GRANT);
-    EXPECT_EQ(perms.Has(person, "name"), PermissionLevel::GRANT);
-    EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::NEUTRAL);
+    perms.GrantGlobal("name", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has(person, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
   }
 
   // Global wildcard grant: all properties on all entities
   {
     PropertyAccessPermissions perms;
-    perms.GrantGlobal("*");
-    EXPECT_EQ(perms.Has(emp, "name"), PermissionLevel::GRANT);
-    EXPECT_EQ(perms.Has(person, "ssn"), PermissionLevel::GRANT);
+    perms.GrantGlobal("*", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has(person, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
   }
 
   // Global deny overrides global grant (specific property beats wildcard)
   {
     PropertyAccessPermissions perms;
-    perms.GrantGlobal("*");
-    perms.DenyGlobal("ssn");
-    EXPECT_EQ(perms.Has(emp, "name"), PermissionLevel::GRANT);
-    EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::DENY);
-    EXPECT_EQ(perms.Has(person, "ssn"), PermissionLevel::DENY);
+    perms.GrantGlobal("*", PropertyPermissionType::READ);
+    perms.DenyGlobal("ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has(person, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   }
 
   // Per-entity rules override global rules
   {
     PropertyAccessPermissions perms;
-    perms.GrantGlobal("*");
-    perms.Deny({"Employee"}, "ssn");
-    EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::DENY);
-    EXPECT_EQ(perms.Has(emp, "name"), PermissionLevel::GRANT);
-    EXPECT_EQ(perms.Has(person, "ssn"), PermissionLevel::GRANT);
+    perms.GrantGlobal("*", PropertyPermissionType::READ);
+    perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has(person, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
   }
 
   // Per-entity rules take precedence: entity grant overrides global deny
   {
     PropertyAccessPermissions perms;
-    perms.DenyGlobal("ssn");
-    perms.Grant({"Employee"}, "ssn");
-    EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::GRANT);
-    EXPECT_EQ(perms.Has(person, "ssn"), PermissionLevel::DENY);
+    perms.DenyGlobal("ssn", PropertyPermissionType::READ);
+    perms.Grant({"Employee"}, "ssn", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(perms.Has(person, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   }
 
   // No entity rules and no global rules → NEUTRAL
   {
     PropertyAccessPermissions perms;
-    perms.GrantGlobal("name");
-    EXPECT_EQ(perms.Has(emp, "ssn"), PermissionLevel::NEUTRAL);
+    perms.GrantGlobal("name", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
   }
 
   // Revoke global
   {
     PropertyAccessPermissions perms;
-    perms.GrantGlobal("*");
-    perms.RevokeGlobal("*");
-    EXPECT_EQ(perms.Has(emp, "name"), PermissionLevel::NEUTRAL);
+    perms.GrantGlobal("*", PropertyPermissionType::READ);
+    perms.RevokeGlobal("*", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
   }
 }
 
@@ -1978,23 +1980,23 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntityMerge) {
   // First has global grant, second has global deny on specific property
   {
     PropertyAccessPermissions first;
-    first.GrantGlobal("*");
+    first.GrantGlobal("*", PropertyPermissionType::READ);
     PropertyAccessPermissions second;
-    second.DenyGlobal("ssn");
+    second.DenyGlobal("ssn", PropertyPermissionType::READ);
     auto merged = Merge(first, second);
-    EXPECT_EQ(merged.Has(emp, "name"), PermissionLevel::GRANT);
-    EXPECT_EQ(merged.Has(emp, "ssn"), PermissionLevel::DENY);
+    EXPECT_EQ(merged.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+    EXPECT_EQ(merged.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   }
 
   // Merge global with per-entity
   {
     PropertyAccessPermissions first;
-    first.GrantGlobal("*");
+    first.GrantGlobal("*", PropertyPermissionType::READ);
     PropertyAccessPermissions second;
-    second.Deny({"Employee"}, "ssn");
+    second.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
     auto merged = Merge(first, second);
-    EXPECT_EQ(merged.Has(emp, "ssn"), PermissionLevel::DENY);
-    EXPECT_EQ(merged.Has(person, "name"), PermissionLevel::GRANT);
+    EXPECT_EQ(merged.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+    EXPECT_EQ(merged.Has(person, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
   }
 }
 
@@ -2023,14 +2025,14 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsHasUnrestrictedAccess) {
     // Entity rule present, restricted
     PropertyAccessPermissions perms;
     perms.GrantGlobal("*", kAllPropertyPermissionTypes);
-    perms.Grant({"Employee"}, "ssn");
+    perms.Grant({"Employee"}, "ssn", PropertyPermissionType::READ);
     EXPECT_FALSE(perms.HasUnrestrictedAccess());
   }
   {
     // Global * grant + global DENY on ssn, restricted
     PropertyAccessPermissions perms;
     perms.GrantGlobal("*", kAllPropertyPermissionTypes);
-    perms.DenyGlobal("ssn");
+    perms.DenyGlobal("ssn", PropertyPermissionType::READ);
     EXPECT_FALSE(perms.HasUnrestrictedAccess());
   }
 }
@@ -2331,15 +2333,17 @@ TEST(AuthWithoutStorage, UserDeserializeNoMigrationWhenPropertyRulesExist) {
   // User with explicit property rules should not get migration
   auto user = User("existing_user");
   user.permissions().Grant(Permission::MATCH);
-  user.property_access_handler().label_properties().Grant({"Employee"}, "name");
+  user.property_access_handler().label_properties().Grant({"Employee"}, "name", PropertyPermissionType::READ);
 
   auto data = user.Serialize();
   auto output = User::Deserialize(data);
 
   // Should have the explicit rule, no global grants
   std::vector<std::string> const emp = {"Employee"};
-  EXPECT_EQ(output.property_access_handler().label_properties().Has(emp, "name"), PermissionLevel::GRANT);
-  EXPECT_EQ(output.property_access_handler().label_properties().HasGlobal("name"), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(output.property_access_handler().label_properties().Has(emp, "name", PropertyPermissionType::READ),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(output.property_access_handler().label_properties().HasGlobal("name", PropertyPermissionType::READ),
+            PermissionLevel::NEUTRAL);
 }
 
 TEST(AuthWithoutStorage, RoleDeserializeMigrationAddsGlobalPropertyGrants) {
