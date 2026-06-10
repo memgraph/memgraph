@@ -4,17 +4,39 @@ concurrency:
   cancel-in-progress: true
 
 # The CVE scanning workflow lives in the memgraph/infra repo. This workflow
-# resolves the daily-build image URLs for a given date and triggers the scan in
-# infra via a `repository_dispatch` event (event_type "cve-scan"); the scan
-# itself runs in infra.
+# triggers the scan in infra via a `repository_dispatch` event (event_type
+# "cve-scan"); the scan itself runs in infra.
+#
+# Callers pick one of two modes:
+#   1. Daily-build mode — pass `date` (yyyymmdd). Image URLs are resolved by
+#      listing the daily-build S3 prefix.
+#   2. RC mode — pass `version` (X.Y.Z) and `rc_number` (e.g. rc1). Image URLs
+#      are constructed from the deterministic RC S3 layout. `mock` selects the
+#      mock-rc prefix.
 
 on:
   workflow_call:
     inputs:
       date:
         type: string
-        required: true
-        description: "Daily build date (yyyymmdd) to be scanned."
+        required: false
+        default: ''
+        description: "Daily-build mode: build date (yyyymmdd) to be scanned."
+      version:
+        type: string
+        required: false
+        default: ''
+        description: "RC mode: release version (X.Y.Z). Must be set together with `rc_number`."
+      rc_number:
+        type: string
+        required: false
+        default: ''
+        description: "RC mode: release candidate number (e.g. rc1). Must be set together with `version`."
+      mock:
+        type: boolean
+        required: false
+        default: false
+        description: "RC mode: scan the mock-rc artifacts instead of the real RC artifacts."
 
   workflow_dispatch:
     inputs:
@@ -23,7 +45,7 @@ on:
         required: true
         description: "Daily build date (yyyymmdd) to be scanned."
 
-run-name: CVE Scan for ${{ inputs.date }}
+run-name: CVE Scan for ${{ inputs.version != '' && format('v{0}-{1}', inputs.version, inputs.rc_number) || inputs.date }}
 
 jobs:
   TriggerCVEScan:
@@ -48,12 +70,34 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
           CURRENT_BUILD_DATE: ${{ inputs.date }}
+          VERSION: ${{ inputs.version }}
+          RC_NUMBER: ${{ inputs.rc_number }}
+          MOCK: ${{ inputs.mock }}
         run: |
-          # Resolve the daily-build image URLs for this date.
-          mage_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'mage')"
-          mage_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'mage')"
-          memgraph_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'memgraph')"
-          memgraph_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'memgraph')"
+          if [[ -n "$VERSION" && -n "$RC_NUMBER" ]]; then
+            # RC mode: construct URLs from the deterministic RC S3 layout.
+            tag="v${VERSION}-${RC_NUMBER}"
+            memgraph_prefix="memgraph"
+            mage_prefix="mage"
+            if [[ "$MOCK" == "true" ]]; then
+              memgraph_prefix="memgraph-mock-rc"
+              mage_prefix="mage-mock-rc"
+            fi
+            base="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io"
+            memgraph_amd_url="${base}/${memgraph_prefix}/${tag}/docker/memgraph-${VERSION}-docker.tar.gz"
+            memgraph_arm_url="${base}/${memgraph_prefix}/${tag}/docker-aarch64/memgraph-${VERSION}-docker.tar.gz"
+            mage_amd_url="${base}/${mage_prefix}/${tag}/mage-${VERSION}.tar.gz"
+            mage_arm_url="${base}/${mage_prefix}/${tag}/mage-${VERSION}-arm64.tar.gz"
+          elif [[ -n "$CURRENT_BUILD_DATE" ]]; then
+            # Daily-build mode: resolve URLs by listing the daily-build S3 prefix.
+            mage_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'mage')"
+            mage_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'mage')"
+            memgraph_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'memgraph')"
+            memgraph_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'memgraph')"
+          else
+            echo "cve_scan: must pass either (version + rc_number) or date" >&2
+            exit 1
+          fi
 
           echo "MAGE arm64 URL: $mage_arm_url"
           echo "MAGE amd64 URL: $mage_amd_url"

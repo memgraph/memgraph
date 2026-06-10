@@ -42,6 +42,10 @@ on:
         type: boolean
         description: "Build MAGE."
         default: true
+      run_cve_scan:
+        type: boolean
+        description: "Run CVE scan on the RC Memgraph and MAGE docker images."
+        default: true
       mock:
         type: boolean
         description: "Build mock RC."
@@ -403,4 +407,15 @@ jobs:
       memgraph_image: ${{ needs.SetupStressImageOutputs.outputs.amd_mage_image_url }}
       workload: ../workloads/publications/workload.yaml
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  TriggerCVEScan:
+    name: Trigger CVE Scan
+    needs: [PackageArtifact, BuildAndTestMAGE]
+    if: ${{ inputs.run_cve_scan }}
+    uses: ./.github/workflows/cve_scan.yml
+    with:
+      version: ${{ inputs.version }}
+      rc_number: ${{ inputs.rc_number }}
+      mock: ${{ inputs.mock }}
     secrets: inherit
