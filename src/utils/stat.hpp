@@ -27,15 +27,74 @@ namespace memgraph::utils {
 
 static constexpr int64_t VM_MAX_MAP_COUNT_DEFAULT{-1};
 
+// Forward declaration so the per-entry helper below can recurse into
+// subdirectories.
+template <bool IgnoreSymlink = true>
+inline uint64_t GetDirDiskUsage(const std::filesystem::path &path);
+
+namespace detail {
+
+// Returns the on-disk byte size contributed by a single directory entry, or 0
+// if the entry should be skipped (a symlink when IgnoreSymlink, a vanished or
+// unreadable entry, a non-regular file). Uses its own error_code so a per-entry
+// failure never leaks out; recurses into real subdirectories.
+template <bool IgnoreSymlink>
+inline uint64_t DirEntryDiskUsage(const std::filesystem::directory_entry &dir_entry) {
+  static_assert(sizeof(std::uintmax_t) >= sizeof(uint64_t), "file_size() result may be narrowed");
+  std::error_code ec;
+
+  if constexpr (IgnoreSymlink) {
+    const bool is_symlink = dir_entry.is_symlink(ec);
+    if (ec) {
+      // Entry vanished or became unstattable mid-scan.
+      spdlog::trace("Skipping entry '{}' during disk usage scan: {}", dir_entry.path(), ec.message());
+      return 0;
+    }
+    if (is_symlink) {
+      return 0;  // expected skip — do not log
+    }
+  }
+
+  const bool entry_is_dir = dir_entry.is_directory(ec);
+  if (!ec && entry_is_dir) {
+    return GetDirDiskUsage<IgnoreSymlink>(dir_entry.path());
+  }
+
+  // Not a directory; only regular files contribute. ec set here means the entry
+  // vanished between iteration and stat — skip it.
+  const bool entry_is_file = dir_entry.is_regular_file(ec);
+  if (ec || !entry_is_file) {
+    return 0;
+  }
+
+  if (!utils::HasReadAccess(dir_entry.path())) {
+    spdlog::warn(
+        "Skipping file path on collecting directory disk usage '{}' because it is not readable, check file "
+        "ownership and read permissions!",
+        dir_entry.path());
+    return 0;
+  }
+
+  const auto fsize = dir_entry.file_size(ec);
+  if (ec) {
+    // The file vanished between is_regular_file and file_size (e.g. WAL
+    // rotation) — skip silently at trace level.
+    spdlog::trace("Skipping file '{}' during disk usage scan: {}", dir_entry.path(), ec.message());
+    return 0;
+  }
+  return static_cast<uint64_t>(fsize);
+}
+
+}  // namespace detail
+
 /// Returns the number of bytes a directory is using on disk. If the given path
 /// isn't a directory, zero will be returned. If there are some files with
 /// wrong permission, it will be skipped. Entries that vanish during the scan
 /// (e.g. WAL rotation, snapshot retention deletes) are skipped silently so
 /// that the function is non-throwing by construction even under filesystem
 /// races.
-template <bool IgnoreSymlink = true>
+template <bool IgnoreSymlink>
 inline uint64_t GetDirDiskUsage(const std::filesystem::path &path) {
-  static_assert(sizeof(std::uintmax_t) >= sizeof(uint64_t), "file_size() result may be narrowed");
   std::error_code ec;
 
   // Guard: path must be an existing directory (non-throwing). A vanished or
@@ -58,71 +117,34 @@ inline uint64_t GetDirDiskUsage(const std::filesystem::path &path) {
     return 0;
   }
 
-  // Construct iterator without throwing; warn and bail on error.
+  // Construct iterator without throwing. A directory that vanished between the
+  // is_directory check above and this open (e.g. snapshot retention) is an
+  // expected race — trace it, like a vanished file; other failures (permissions,
+  // I/O) warrant a warning.
   std::filesystem::directory_iterator it(path, ec);
   if (ec) {
-    spdlog::warn("Cannot open directory for disk usage scan '{}': {}", path, ec.message());
+    if (ec == std::errc::no_such_file_or_directory || ec == std::errc::not_a_directory) {
+      spdlog::trace("Skipping disk usage scan of '{}': directory vanished mid-scan: {}", path, ec.message());
+    } else {
+      spdlog::warn("Cannot open directory for disk usage scan '{}': {}", path, ec.message());
+    }
     return 0;
   }
 
   uint64_t size = 0;
+  // *it is dereferenced only when valid: the constructor produced the first
+  // entry (checked above), and after a successful increment the loop condition
+  // re-validates against end{}. A failed increment is reported and breaks
+  // before the iterator is touched again, so we never dereference past an error
+  // regardless of how the failed iterator compares to end{}.
+  for (const std::filesystem::directory_iterator end{}; it != end;) {
+    size += detail::DirEntryDiskUsage<IgnoreSymlink>(*it);
 
-  // Single increment site: std::filesystem::directory_iterator::increment(ec)
-  // sets the iterator to end on error, so the loop condition handles termination
-  // correctly. increment(ec) is the last operation before each loop exit and the
-  // error_code overloads clear ec on success ([fs.err.report]), so the post-loop
-  // check below is authoritative for the advance that actually failed — no manual
-  // reset of ec is needed inside the body.
-  for (const std::filesystem::directory_iterator end{}; it != end; it.increment(ec)) {
-    const auto &dir_entry = *it;
-
-    // All per-entry status queries use the error_code overloads so that a
-    // file disappearing mid-scan (e.g. WAL rename/delete) is silently skipped.
-    if constexpr (IgnoreSymlink) {
-      const bool is_symlink = dir_entry.is_symlink(ec);
-      if (ec) {
-        // Entry vanished or became unstattable mid-scan.
-        spdlog::trace("Skipping entry '{}' during disk usage scan: {}", dir_entry.path(), ec.message());
-        continue;
-      }
-      if (is_symlink) {
-        continue;  // expected skip — do not log
-      }
-    }
-
-    const bool entry_is_dir = dir_entry.is_directory(ec);
-    if (!ec && entry_is_dir) {
-      size += GetDirDiskUsage<IgnoreSymlink>(dir_entry.path());
-      continue;
-    }
-
-    // Not a directory; only regular files contribute. ec set here means the
-    // entry vanished between iteration and stat — skip it.
-    const bool entry_is_file = dir_entry.is_regular_file(ec);
-    if (ec || !entry_is_file) {
-      continue;
-    }
-
-    if (!utils::HasReadAccess(dir_entry.path())) {
-      spdlog::warn(
-          "Skipping file path on collecting directory disk usage '{}' because it is not readable, check file "
-          "ownership and read permissions!",
-          dir_entry.path());
-      continue;
-    }
-
-    const auto fsize = dir_entry.file_size(ec);
+    it.increment(ec);
     if (ec) {
-      // The file vanished between is_regular_file and file_size (e.g. WAL
-      // rotation) — skip silently at trace level.
-      spdlog::trace("Skipping file '{}' during disk usage scan: {}", dir_entry.path(), ec.message());
-      continue;
+      spdlog::warn("Error advancing directory iterator for '{}': {}", path, ec.message());
+      break;
     }
-    size += static_cast<uint64_t>(fsize);
-  }
-
-  if (ec) {
-    spdlog::warn("Error advancing directory iterator for '{}': {}", path, ec.message());
   }
 
   return size;

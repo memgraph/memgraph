@@ -13,6 +13,8 @@
 #include <fstream>
 #include <string>
 
+#include <unistd.h>
+
 #include <gtest/gtest.h>
 
 #include "utils/stat.hpp"
@@ -22,7 +24,8 @@ namespace fs = std::filesystem;
 class GetDirDiskUsageTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    root_ = fs::temp_directory_path() / "MG_test_get_dir_disk_usage";
+    // Per-process unique root so parallel test binaries (ctest -j) don't collide.
+    root_ = fs::temp_directory_path() / ("MG_test_get_dir_disk_usage_" + std::to_string(::getpid()));
     fs::remove_all(root_);
     fs::create_directories(root_);
   }
