@@ -238,12 +238,34 @@ mod tests {
     }
 }
 
+// Field order is load-bearing: Rust drops fields in declaration order;
+// index_reader must drop before index.
 pub struct TantivyContext {
     pub index_path: std::path::PathBuf,
     pub schema: Schema,
-    pub index: Index,
-    pub index_writer: IndexWriter,
+    pub index_writer: Option<IndexWriter>,
     pub index_reader: IndexReader,
+    pub index: Index,
+}
+
+impl TantivyContext {
+    fn writer_mut(&mut self) -> &mut IndexWriter {
+        self.index_writer.as_mut().expect("BUG: index_writer consumed before Drop")
+    }
+}
+
+impl Drop for TantivyContext {
+    fn drop(&mut self) {
+        if let Some(writer) = self.index_writer.take() {
+            if let Err(e) = writer.wait_merging_threads() {
+                log::warn!(
+                    "wait_merging_threads failed during TantivyContext drop for {:?}: {:?}",
+                    self.index_path,
+                    e
+                );
+            }
+        }
+    }
 }
 
 fn init(_log_level: &String) -> Result<(), std::io::Error> {
@@ -493,9 +515,9 @@ fn create_index(path: &String, config: &ffi::IndexConfig) -> Result<ffi::Context
         tantivyContext: Box::new(TantivyContext {
             index_path: path,
             schema,
-            index,
-            index_writer,
+            index_writer: Some(index_writer),
             index_reader,
+            index,
         }),
     })
 }
@@ -519,8 +541,7 @@ fn add_document(
             ));
         }
     };
-    let index_writer = &mut context.tantivyContext.index_writer;
-    match index_writer.add_document(document) {
+    match context.tantivyContext.writer_mut().add_document(document) {
         Ok(_) => {
             if skip_commit {
                 return Ok(());
@@ -542,25 +563,26 @@ fn delete_document(
     input: &ffi::SearchInput,
     skip_commit: bool,
 ) -> Result<(), std::io::Error> {
-    let index_path = &context.tantivyContext.index_path;
-    let index = &context.tantivyContext.index;
-    let schema = &context.tantivyContext.schema;
-    let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
-    let query_parser = QueryParser::for_index(index, search_fields);
-    let query = match query_parser.parse_query(&input.search_query) {
-        Ok(q) => q,
-        Err(e) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Unable to create search query for {:?} text search index -> {}",
-                    index_path, e
-                ),
-            ));
+    let query = {
+        let index_path = &context.tantivyContext.index_path;
+        let index = &context.tantivyContext.index;
+        let schema = &context.tantivyContext.schema;
+        let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
+        let query_parser = QueryParser::for_index(index, search_fields);
+        match query_parser.parse_query(&input.search_query) {
+            Ok(q) => q,
+            Err(e) => {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    format!(
+                        "Unable to create search query for {:?} text search index -> {}",
+                        index_path, e
+                    ),
+                ));
+            }
         }
     };
-    let index_writer = &mut context.tantivyContext.index_writer;
-    match index_writer.delete_query(query) {
+    match context.tantivyContext.writer_mut().delete_query(query) {
         Ok(_) => {
             if skip_commit {
                 return Ok(());
@@ -569,6 +591,7 @@ fn delete_document(
             }
         }
         Err(e) => {
+            let index_path = &context.tantivyContext.index_path;
             return Err(Error::new(
                 ErrorKind::Other,
                 format!(
@@ -581,10 +604,10 @@ fn delete_document(
 }
 
 fn commit(context: &mut ffi::Context) -> Result<(), std::io::Error> {
-    let index_path = &context.tantivyContext.index_path;
-    match context.tantivyContext.index_writer.commit() {
+    match context.tantivyContext.writer_mut().commit() {
         Ok(_) => {
             // Explicitly reload the index reader to see the new changes
+            let index_path = &context.tantivyContext.index_path;
             if let Err(e) = context.tantivyContext.index_reader.reload() {
                 return Err(Error::new(
                     ErrorKind::Other,
@@ -597,6 +620,7 @@ fn commit(context: &mut ffi::Context) -> Result<(), std::io::Error> {
             return Ok(());
         }
         Err(e) => {
+            let index_path = &context.tantivyContext.index_path;
             return Err(Error::new(
                 ErrorKind::Other,
                 format!(
@@ -609,12 +633,12 @@ fn commit(context: &mut ffi::Context) -> Result<(), std::io::Error> {
 }
 
 fn rollback(context: &mut ffi::Context) -> Result<(), std::io::Error> {
-    let index_path = &context.tantivyContext.index_path;
-    match context.tantivyContext.index_writer.rollback() {
+    match context.tantivyContext.writer_mut().rollback() {
         Ok(_) => {
             return Ok(());
         }
         Err(e) => {
+            let index_path = &context.tantivyContext.index_path;
             return Err(Error::new(
                 ErrorKind::Other,
                 format!(
@@ -1102,18 +1126,12 @@ fn get_num_docs(context: &mut ffi::Context) -> Result<u64, std::io::Error> {
 /// This will remove the entire directory and all its contents.
 /// NOTE: This function takes ownership of the context.
 fn drop_index(context: ffi::Context) -> Result<(), std::io::Error> {
-    let TantivyContext {
-        index_path,
-        schema: _,
-        index,
-        index_writer,
-        index_reader,
-    } = *context.tantivyContext;
+    // Clone (not mem::take) so TantivyContext::drop can still log the path on failure.
+    let index_path = context.tantivyContext.index_path.clone();
 
-    // Drop Tantivy resources to release file handles
-    drop(index_reader);
-    drop(index_writer);
-    drop(index);
+    // Dropping context triggers TantivyContext::drop, which calls wait_merging_threads
+    // before releasing the writer, then drops index_reader and index via field drop.
+    drop(context);
 
     // Now safe to remove the directory
     if index_path.exists() {

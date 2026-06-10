@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <utility>
@@ -31,10 +33,14 @@ namespace memgraph::memory {
 // Internal layout for per-DB extent hooks. The `hooks` field MUST be first so
 // that extent hook callbacks can cast `extent_hooks_t *` → `DbArenaHooks *`.
 struct DbArenaHooks {
-  extent_hooks_t hooks;           // must be first
-  utils::MemoryTracker *tracker;  // per-DB tracker, fed by extent events
-  extent_hooks_t *base_hooks;     // default jemalloc hooks (called through)
-  // TODO: Think about a failsafe in case unhooking failed
+  extent_hooks_t hooks;  // must be first
+  // Written once (relaxed) before hooks are published via mallctl; jemalloc's
+  // RELEASE store of extent_hooks orders it against callback loads, so relaxed
+  // suffices for the success path. Nulled (relaxed) only on the hook-restore-
+  // failure path in ~ArenaPool where no jemalloc mutex serialises — atomic only
+  // to keep that defensive store race-free, never a synchronisation point.
+  std::atomic<utils::MemoryTracker *> tracker;
+  extent_hooks_t *base_hooks;  // default jemalloc hooks (called through)
 };
 
 #endif
@@ -58,7 +64,7 @@ class ArenaPool {
   unsigned idx() const noexcept;
 
   // Acquire an arena for DB-owned thread work.
-  unsigned Acquire();
+  [[nodiscard]] unsigned Acquire();
 
   // Return an arena acquired from this pool so a future Acquire() can reuse it.
   void Release(unsigned arena_idx) noexcept;
@@ -71,7 +77,7 @@ class ArenaPool {
   void PurgeAllArenas() const;
 
   // Acquire an explicit tcache for DB-owned thread work.
-  unsigned AcquireTcache();
+  [[nodiscard]] unsigned AcquireTcache();
 
   // Return a tcache acquired from this pool so a future AcquireTcache() can reuse it.
   void ReleaseTcache(unsigned tcache_id) noexcept;
@@ -81,7 +87,10 @@ class ArenaPool {
 
  private:
 #if USE_JEMALLOC
-  DbArenaHooks hooks_{};
+  // Heap-allocated for stable address; &hooks_->hooks is installed on jemalloc arenas via mallctl.
+  // On failed hook restore, ~ArenaPool leaks this struct (~64 B) so any retained jemalloc reference
+  // stays valid for the process lifetime. The arena is abandoned, so the leak is bounded.
+  std::unique_ptr<DbArenaHooks> hooks_;
 
   // Protects arenas_, free_count_, and first_arena_use_count_.
   mutable std::mutex arena_mux_;
@@ -104,6 +113,14 @@ class ArenaPool {
 };
 
 #if USE_JEMALLOC
+
+// Ensure every CPU id sched_getcpu() can return resolves to an arena that is NOT a per-DB arena.
+// percpu_arena binds threads to arenas[sched_getcpu()] with no clamp; sched_getcpu can return ids
+// above the online-CPU-derived automatic range (jemalloc#2054). A thread on an overflow CPU would
+// bind a per-DB arena → shutdown UAF. Fix: create sacrificial arenas (default hooks, process
+// lifetime) until per-DB indices exceed every possible CPU id. Idempotent, thread-safe.
+// Returns the sacrificial arena indices created (empty if percpu_arena is disabled or already covered).
+const std::vector<unsigned> &EnsureCpuArenaCoverage();
 
 // Populate a DbArenaHooks struct so it can be installed on any jemalloc arena.
 // `tracker`    – receives Alloc/Free calls for that arena.
@@ -136,7 +153,7 @@ class GlobalArenaPool {
   // concurrently; each gets a distinct valid index. This is benign: je_mallctl is
   // thread-safe and neither index is lost. At most N-1 extra arenas are created versus
   // serialising the slow path, which is acceptable for an infrequent operation.
-  unsigned Acquire() {
+  [[nodiscard]] unsigned Acquire() {
     {
       std::lock_guard<std::mutex> lock(mux_);
       if (!pool_.empty()) {
@@ -145,6 +162,10 @@ class GlobalArenaPool {
         return idx;
       }
     }
+    // Safety net: per-DB arena indices must stay above every reachable CPU id,
+    // so the sacrificial coverage arenas (normally created at startup by
+    // SetHooks) must exist before we append the first per-DB arena.
+    EnsureCpuArenaCoverage();
     unsigned arena_idx = 0;
     size_t sz = sizeof(arena_idx);
     const int err = je_mallctl("arenas.create", &arena_idx, &sz, nullptr, 0);
@@ -186,8 +207,9 @@ namespace testing {
 
 enum class ArenaPoolFailureInjection {
   None,
-  ConstructorPublish,
+  ConstructorThrow,
   AcquireArenaCreate,
+  DestructorRestore,
 };
 
 void SetArenaPoolFailureInjection(ArenaPoolFailureInjection failure);
