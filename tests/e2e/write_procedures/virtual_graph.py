@@ -123,5 +123,61 @@ class TestVirtualEdgesWithProcedures:
         assert by_person["A1"] != by_person["A3"], "A3 in sales → different community"
 
 
+class TestVirtualNodeConstructor:
+    def test_construct_with_label_list(self, connection):
+        """virtualNode(gid, [labels], props) yields a synthetic node carrying the
+        given labels and properties."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH virtualNode(1, ['Expert', 'Analyst'], {score: 42, name: 'A'}) AS n
+            RETURN labels(n) AS labels, n.score AS score, n.name AS name;
+            """,
+        )
+
+        assert len(results) == 1
+        labels, score, name = results[0]
+        assert sorted(labels) == ["Analyst", "Expert"]
+        assert score == 42
+        assert name == "A"
+
+    def test_construct_with_single_label(self, connection):
+        """The single-label form virtualNode(gid, 'Label', props) is accepted and
+        yields a node with that one label."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            "WITH virtualNode(1, 'Expert', {score: 42}) AS n RETURN labels(n) AS labels, n.score AS score;",
+        )
+
+        assert len(results) == 1
+        assert results[0][0] == ["Expert"]
+        assert results[0][1] == 42
+
+    def test_synthetic_id_distinct_from_real(self, connection):
+        """A constructed node carries a synthetic GID (counted down from the top of
+        the id space), never the user-supplied handle and never a real node's id."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:Real);")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH (r:Real)
+            WITH r, virtualNode(1, 'V', {}) AS n
+            RETURN id(n) AS vnid, id(r) AS rid;
+            """,
+        )
+
+        assert len(results) == 1
+        vnid, rid = results[0]
+        # Real gids count up from 0; synthetic gids count down from UINT64_MAX and
+        # decode as negative signed ints. The synthetic id is not the handle (1).
+        assert vnid < 0
+        assert vnid != rid
+        assert vnid != 1
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

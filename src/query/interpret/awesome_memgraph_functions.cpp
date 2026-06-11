@@ -32,6 +32,7 @@
 #include "query/query_user.hpp"
 #include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_node.hpp"
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
 #include "utils/pmr/string.hpp"
@@ -1991,6 +1992,36 @@ TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &c
   return TypedValue(std::move(roles_list));
 }
 
+// virtualNode(handle, labels, properties) constructs a synthetic node: a node with no origin,
+// holding an overlay property store only. Its identity is a fresh synthetic gid; the first
+// argument is a user-facing logical handle used to wire virtual edges when a projection is
+// assembled, not the node's identity. Labels may be a single string or a list of strings.
+TypedValue VirtualNodeCtor(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Integer, Or<String, List>, Map>("virtualNode", args, nargs);
+
+  const auto alloc = VirtualNode::allocator_type{ctx.memory};
+
+  VirtualNode::label_list labels{alloc};
+  if (args[1].type() == TypedValue::Type::String) {
+    labels.emplace_back(args[1].ValueString());
+  } else {
+    for (const auto &label : args[1].ValueList()) {
+      if (label.type() != TypedValue::Type::String) {
+        throw QueryRuntimeException("virtualNode() labels must be strings.");
+      }
+      labels.emplace_back(label.ValueString());
+    }
+  }
+
+  VirtualNode::property_map properties{alloc};
+  auto *name_id_mapper = ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper();
+  for (const auto &[name, value] : args[2].ValueMap()) {
+    properties.insert_or_assign(ctx.db_accessor->NameToProperty(name), value.ToPropertyValue(name_id_mapper));
+  }
+
+  return TypedValue(VirtualNode{std::move(labels), std::move(properties), alloc}, ctx.memory);
+}
+
 auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     // Predicate functions
     {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
@@ -2033,6 +2064,9 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"TOSET", func_info{.func_ = ToSet, .is_pure_ = true}},
     {"UNIFORMSAMPLE", func_info{.func_ = UniformSample, .is_pure_ = false}},
     {"VALUES", func_info{.func_ = Values, .is_pure_ = true}},
+
+    // Virtual graph constructors. Not pure: each call mints a fresh synthetic gid.
+    {"VIRTUALNODE", func_info{.func_ = VirtualNodeCtor, .is_pure_ = false}},
 
     // Mathematical functions - numeric
     {"ABS", func_info{.func_ = Abs, .is_pure_ = true}},
