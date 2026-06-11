@@ -120,7 +120,7 @@ auto BuiltinAnalysis(EGraph const &eg, std::string_view name, std::span<planner:
       return {.known_list_length = ProvableRangeLength(eg, args)};
     case BuiltinKind::Size:
       if (args.size() == 1) {
-        auto const *arg = eg.eclass(eg.find(args[0])).analysis().expression();
+        auto const *arg = eg.analysis_of(args[0]).expression();
         if (arg != nullptr && arg->known_list_length) {
           return {.known_constant_value =
                       storage::ExternalPropertyValue{static_cast<int64_t>(*arg->known_list_length)}};
@@ -175,7 +175,7 @@ template <>
 auto BinaryKnownListLength<symbol::Add>(EGraph const &eg, planner::core::EClassId lhs, planner::core::EClassId rhs)
     -> std::optional<std::size_t> {
   auto length_of = [&](planner::core::EClassId c) -> std::optional<std::size_t> {
-    auto const *expr = eg.eclass(eg.find(c)).analysis().expression();
+    auto const *expr = eg.analysis_of(c).expression();
     return expr != nullptr ? expr->known_list_length : std::nullopt;
   };
   auto const l = length_of(lhs);
