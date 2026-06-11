@@ -29,6 +29,12 @@ jobs:
             # branches and tags. (default: 1)
             fetch-depth: 0
 
+        - name: Clean up Docker
+          if: always()
+          continue-on-error: true
+          run: |
+            ./tools/ci/docker_cleanup.sh
+
         - name: Log in to Docker Hub
           uses: ./.github/actions/docker-login
           with:
