@@ -4972,6 +4972,45 @@ std::unique_ptr<LogicalOperator> SetProperty::Clone(AstStorage *storage) const {
   return object;
 }
 
+namespace {
+
+// Writes a single property to a synthetic node's overlay. A null value removes the key, matching
+// SET n.x = null on a real node.
+void SetPropertyOnVirtualNode(VirtualNode &node, storage::PropertyId key, const TypedValue &value,
+                              storage::NameIdMapper *name_id_mapper) {
+  if (value.IsNull()) {
+    node.RemoveProperty(key);
+  } else {
+    node.SetProperty(key, value.ToPropertyValue(name_id_mapper));
+  }
+}
+
+// Writes a property map to a synthetic node's overlay. REPLACE clears the overlay first; UPDATE
+// merges. A null map value removes the key. Unlike a real node, a synthetic node has only its
+// overlay, so the right-hand side must be a map (there is no record to copy properties from).
+void SetPropertiesOnVirtualNode(VirtualNode &node, const TypedValue &rhs, SetProperties::Op op,
+                                ExecutionContext *context,
+                                std::unordered_map<std::string, storage::PropertyId> &cached_name_id) {
+  if (rhs.type() != TypedValue::Type::Map) {
+    throw QueryRuntimeException("Right-hand side in SET on a virtual node must be a map.");
+  }
+  auto *name_id_mapper = context->db_accessor->GetStorageAccessor()->GetNameIdMapper();
+  if (op == SetProperties::Op::REPLACE) node.ClearProperties();
+  for (const auto &[string_key, value] : rhs.ValueMap()) {
+    storage::PropertyId property_id;
+    if (auto it = cached_name_id.find(std::string(string_key)); it != cached_name_id.end()) [[likely]] {
+      property_id = it->second;
+    } else {
+      property_id = context->db_accessor->NameToProperty(string_key);
+      cached_name_id.emplace(string_key, property_id);
+    }
+    SetPropertyOnVirtualNode(node, property_id, value, name_id_mapper);
+    context->execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+  }
+}
+
+}  // namespace
+
 SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils::MemoryResource *mem,
                                                   metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
@@ -5046,6 +5085,21 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
             TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
             TypedValue{rhs});
       }
+      break;
+    }
+    case TypedValue::Type::VirtualNode: {
+      // A synthetic node has value semantics in a TypedValue, so the write must target the
+      // frame-resident node, not the evaluated copy above. This requires the node to be named.
+      auto *object = utils::Downcast<Identifier>(self_.lhs_->expression_);
+      if (object == nullptr) {
+        throw QueryRuntimeException("Setting a property on a virtual node requires a named node.");
+      }
+      auto *name_id_mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      frame_writer.Modify(context.symbol_table.at(*object), [&](TypedValue &node) {
+        SetPropertyOnVirtualNode(node.ValueVirtualNode(), self_.property_, rhs, name_id_mapper);
+      });
+      context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       break;
     }
     case TypedValue::Type::Null:
@@ -5471,6 +5525,12 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
         SetPropertiesOnRecord(&edge.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
       };
       frame_writer.Modify(self_.input_symbol_, set_properties_on_record);
+      break;
+    }
+    case TypedValue::Type::VirtualNode: {
+      frame_writer.Modify(self_.input_symbol_, [&](TypedValue &node) {
+        SetPropertiesOnVirtualNode(node.ValueVirtualNode(), rhs, self_.op_, &context, cached_name_id_);
+      });
       break;
     }
     case TypedValue::Type::Null: {

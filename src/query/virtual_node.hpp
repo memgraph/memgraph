@@ -72,6 +72,10 @@ class VirtualNode final {
     impl_->properties.insert_or_assign(key, std::move(value));
   }
 
+  void RemoveProperty(storage::PropertyId key) { impl_->properties.erase(key); }
+
+  void ClearProperties() { impl_->properties.clear(); }
+
   [[nodiscard]] auto Properties() const noexcept -> const property_map & { return impl_->properties; }
 
   bool operator==(const VirtualNode &other) const noexcept { return gid_ == other.gid_; }

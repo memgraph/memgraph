@@ -179,5 +179,72 @@ class TestVirtualNodeConstructor:
         assert vnid != 1
 
 
+class TestVirtualNodeSet:
+    def test_set_single_property_overwrites_and_adds(self, connection):
+        """SET n.key = value on a synthetic node overwrites an existing overlay key
+        and creates a previously-absent one; a read in the same query sees the write."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH virtualNode(1, 'V', {x: 1}) AS n
+            SET n.x = 2
+            SET n.y = 9
+            RETURN n.x AS x, n.y AS y;
+            """,
+        )
+        assert results == [(2, 9)]
+
+    def test_set_single_property_null_removes_key(self, connection):
+        """SET n.key = null removes the overlay key, matching real-node semantics."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH virtualNode(1, 'V', {x: 1, y: 2}) AS n
+            SET n.x = null
+            RETURN n.x AS x, properties(n) AS props;
+            """,
+        )
+        assert len(results) == 1
+        x, props = results[0]
+        assert x is None
+        assert props == {"y": 2}
+
+    def test_set_map_merge_updates_overlay(self, connection):
+        """SET n += {..} merges the map into the overlay, keeping untouched keys."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH virtualNode(1, 'V', {x: 1}) AS n
+            SET n += {y: 2, z: 3}
+            RETURN properties(n) AS props;
+            """,
+        )
+        assert results[0][0] == {"x": 1, "y": 2, "z": 3}
+
+    def test_set_map_replace_clears_overlay(self, connection):
+        """SET n = {..} replaces the whole overlay: prior keys are gone."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH virtualNode(1, 'V', {x: 1, y: 2}) AS n
+            SET n = {z: 3}
+            RETURN properties(n) AS props;
+            """,
+        )
+        assert results[0][0] == {"z": 3}
+
+    def test_set_does_not_error_on_synthetic_node(self, connection):
+        """A SET on a synthetic node never raises, regardless of form."""
+        cursor = connection.cursor()
+        # Each form should run without raising.
+        execute_and_fetch_all(cursor, "WITH virtualNode(1, 'V', {}) AS n SET n.a = 1 RETURN n;")
+        execute_and_fetch_all(cursor, "WITH virtualNode(1, 'V', {}) AS n SET n += {b: 1} RETURN n;")
+        execute_and_fetch_all(cursor, "WITH virtualNode(1, 'V', {a: 1}) AS n SET n = {c: 1} RETURN n;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
