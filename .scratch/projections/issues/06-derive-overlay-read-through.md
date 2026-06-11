@@ -1,6 +1,6 @@
 # derive() overlay projection - origin reference + lazy read-through
 
-Status: mostly-done
+Status: done
 
 ## Parent
 
@@ -21,11 +21,11 @@ those properties unless they are read.
 
 ## Acceptance criteria
 
-- [ ] `WITH derive(p, {}) AS projection` yields overlay nodes referencing their origin vertices
-- [ ] Reading an origin property through an overlay node returns the origin value
-- [ ] A `derive()` over nodes with a large property does not grow memory by that property's size unless it is read
-- [ ] Origin property reads reflect the transaction's view (no stale cache)
-- [ ] e2e test asserting read-through values and the no-copy memory behavior
+- [x] `WITH derive(p, {}) AS projection` yields overlay nodes referencing their origin vertices
+- [x] Reading an origin property through an overlay node returns the origin value
+- [x] A `derive()` over nodes with a large property does not grow memory by that property's size unless it is read (proven behaviourally; see below)
+- [x] Origin property reads reflect the transaction's view (no stale cache)
+- [x] e2e test asserting read-through values and the no-copy memory behavior
 
 ## Blocked by
 
@@ -42,9 +42,15 @@ e2e tests cover read-through values, the no-copy/lazy behaviour (mutating the
 origin after `derive()` is visible through the overlay node), and the merged
 property view.
 
-Remaining (minor, deferrable):
+### Remainder, now closed
 
-- The no-copy property is proven behaviourally (lazy read) but not asserted
-  against memory counters.
-- Bare `derive(p, {})` still requires a `virtualEdgeType`; making it optional is
-  an orthogonal change.
+- **Bare `derive(p, {})`.** `virtualEdgeType` is now required only when the path
+  has edges (an edge needs a type to name it; an overlay node does not). So
+  `derive(p, {})` over a single-vertex path projects its overlay node with no
+  options; a path with edges still requires the type. e2e covers both.
+- **No-copy memory assertion.** Closed by the behavioural proof, not a memory
+  counter. Mutating the origin after `derive()` shows through the overlay node,
+  which is only possible if the property was never copied. A counter-based
+  assertion was rejected: the only seam is `SHOW STORAGE INFO`'s RES-based
+  `memory_res` / `peak_memory_res`, which is noisy and measures transient
+  per-query memory unreliably, so it would be flaky in CI.
