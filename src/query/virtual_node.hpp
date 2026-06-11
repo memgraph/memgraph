@@ -41,22 +41,29 @@ class VirtualNode final {
   using key_set = utils::pmr::vector<storage::PropertyId>;
   using hidden_keys = key_set;
 
+  // A node carrying no projection reference belongs to no derive() projection (a synthetic node, or
+  // an overlay node built before provenance was wired). Overlay nodes from one derive() site share a
+  // single non-negative reference into the result's projection-schema table.
+  static constexpr int64_t kNoProjectionRef = -1;
+
   VirtualNode(label_list labels, property_map properties, allocator_type alloc = {},
-              std::optional<VertexAccessor> origin = std::nullopt, hidden_keys hidden = {}, key_set overlay_bound = {})
+              std::optional<VertexAccessor> origin = std::nullopt, hidden_keys hidden = {}, key_set overlay_bound = {},
+              int64_t projection_ref = kNoProjectionRef)
       : gid_(NextSyntheticGid()),
         impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), std::move(origin), std::move(hidden),
-                                     std::move(overlay_bound), alloc)) {}
+                                     std::move(overlay_bound), projection_ref, alloc)) {}
 
   VirtualNode(const VirtualNode &other, allocator_type alloc)
       : gid_(other.gid_),
         impl_(std::make_unique<Impl>(other.impl_->labels, other.impl_->properties, other.impl_->origin,
-                                     other.impl_->hidden, other.impl_->overlay_bound, alloc)) {}
+                                     other.impl_->hidden, other.impl_->overlay_bound, other.impl_->projection_ref,
+                                     alloc)) {}
 
   VirtualNode(VirtualNode &&other, allocator_type alloc)
       : gid_(other.gid_),
         impl_(std::make_unique<Impl>(std::move(other.impl_->labels), std::move(other.impl_->properties),
                                      std::move(other.impl_->origin), std::move(other.impl_->hidden),
-                                     std::move(other.impl_->overlay_bound), alloc)) {}
+                                     std::move(other.impl_->overlay_bound), other.impl_->projection_ref, alloc)) {}
 
   VirtualNode(const VirtualNode &other) : VirtualNode(other, other.impl_->labels.get_allocator()) {}
 
@@ -83,6 +90,12 @@ class VirtualNode final {
   [[nodiscard]] auto HasOrigin() const noexcept -> bool { return impl_->origin.has_value(); }
 
   [[nodiscard]] auto Origin() const noexcept -> const std::optional<VertexAccessor> & { return impl_->origin; }
+
+  // True if this node references a projection-schema entry (set for overlay nodes from a derive()
+  // whose schema is statically known). The reference is the schema table key carried on the wire.
+  [[nodiscard]] auto HasProjectionRef() const noexcept -> bool { return impl_->projection_ref != kNoProjectionRef; }
+
+  [[nodiscard]] auto ProjectionRef() const noexcept -> int64_t { return impl_->projection_ref; }
 
   // A hidden key is invisible to reads and to function calls over the node, regardless of whether
   // the origin or the overlay holds a value for it.
@@ -174,18 +187,25 @@ class VirtualNode final {
     std::optional<VertexAccessor> origin;
     hidden_keys hidden;
     key_set overlay_bound;
+    int64_t projection_ref;
 
     Impl(const label_list &lbls, const property_map &props, const std::optional<VertexAccessor> &orig,
-         const hidden_keys &hid, const key_set &ovl, allocator_type alloc)
-        : labels(lbls, alloc), properties(props, alloc), origin(orig), hidden(hid, alloc), overlay_bound(ovl, alloc) {}
+         const hidden_keys &hid, const key_set &ovl, int64_t proj_ref, allocator_type alloc)
+        : labels(lbls, alloc),
+          properties(props, alloc),
+          origin(orig),
+          hidden(hid, alloc),
+          overlay_bound(ovl, alloc),
+          projection_ref(proj_ref) {}
 
     Impl(label_list &&lbls, property_map &&props, std::optional<VertexAccessor> &&orig, hidden_keys &&hid,
-         key_set &&ovl, allocator_type alloc)
+         key_set &&ovl, int64_t proj_ref, allocator_type alloc)
         : labels(std::move(lbls), alloc),
           properties(std::move(props), alloc),
           origin(std::move(orig)),
           hidden(std::move(hid), alloc),
-          overlay_bound(std::move(ovl), alloc) {}
+          overlay_bound(std::move(ovl), alloc),
+          projection_ref(proj_ref) {}
   };
 
   storage::Gid gid_;

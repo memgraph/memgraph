@@ -6652,7 +6652,8 @@ class AggregateCursor : public Cursor {
             ProjectPathWithOptions(input_value,
                                    agg_elem.arg2->Accept(*evaluator),
                                    agg_value->values_[pos].ValueVirtualGraph(),
-                                   agg_value->derive_dedup_[pos]);
+                                   agg_value->derive_dedup_[pos],
+                                   agg_elem.output_sym.position());
             break;
           }
           case Aggregation::Op::COLLECT_MAP:
@@ -6719,7 +6720,8 @@ class AggregateCursor : public Cursor {
           ProjectPathWithOptions(input_value,
                                  agg_elem.arg2->Accept(*evaluator),
                                  agg_value->values_[pos].ValueVirtualGraph(),
-                                 agg_value->derive_dedup_[pos]);
+                                 agg_value->derive_dedup_[pos],
+                                 agg_elem.output_sym.position());
           break;
         }
         case Aggregation::Op::COLLECT_MAP:
@@ -6764,7 +6766,7 @@ class AggregateCursor : public Cursor {
   }
 
   VirtualNode BuildDerivedNode(const VertexAccessor &real_vertex, std::string_view labels_key,
-                               std::string_view props_key, const TypedValue::TMap &options,
+                               std::string_view props_key, const TypedValue::TMap &options, int64_t projection_ref,
                                VirtualNode::allocator_type alloc) const {
     static constexpr auto kPropertyPolicy = "propertyPolicy";
 
@@ -6841,7 +6843,8 @@ class AggregateCursor : public Cursor {
             alloc,
             std::optional<VertexAccessor>{real_vertex},
             std::move(hidden),
-            std::move(overlay_bound)};
+            std::move(overlay_bound),
+            projection_ref};
   }
 
   // Collapses the path to a single synthetic edge between its endpoints. Intermediate vertices
@@ -6852,7 +6855,8 @@ class AggregateCursor : public Cursor {
   // If a path endpoint's real gid is already present, we reuse the canonical VirtualNode; only
   // the first occurrence inserts a new one into `projected_graph`.
   void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value,
-                              VirtualGraph &projected_graph, CompactAggregationValue::DeriveDedup &dedup) {
+                              VirtualGraph &projected_graph, CompactAggregationValue::DeriveDedup &dedup,
+                              int64_t projection_ref) {
     static constexpr auto kVirtualEdgeType = "virtualEdgeType";
     static constexpr auto kSourceLabels = "sourceNodeLabels";
     static constexpr auto kSourceProperties = "sourceNodeProperties";
@@ -6899,7 +6903,7 @@ class AggregateCursor : public Cursor {
       if (const auto it = dedup.find(real_gid); it != dedup.end()) {
         return projected_graph.FindNode(it->second);
       }
-      auto new_node = BuildDerivedNode(real_vertex, labels_key, props_key, options, alloc);
+      auto new_node = BuildDerivedNode(real_vertex, labels_key, props_key, options, projection_ref, alloc);
       const auto synth_gid = new_node.Gid();
       dedup[real_gid] = synth_gid;
       projected_graph.InsertNode(std::move(new_node));

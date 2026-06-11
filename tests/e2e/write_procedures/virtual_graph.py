@@ -532,7 +532,8 @@ class TestBoltOverlaySerialization:
         for (overlay,) in rows:
             real = real_by_pid[overlay.properties["id"]]
             assert overlay.id == real.id, "overlay node must serialize at its origin's Bolt id"
-            assert overlay.properties == real.properties
+            origin_props = {k: v for k, v in overlay.properties.items() if not k.startswith("__mg")}
+            assert origin_props == real.properties
             assert overlay.labels == real.labels
 
     def test_overlay_value_shadows_origin_in_serialized_map(self, connection):
@@ -573,6 +574,79 @@ class TestBoltOverlaySerialization:
         assert synthetic.id < 0, "synthetic gids count down from the top of the id space"
         assert synthetic.id != real.id
         assert synthetic.properties == {"x": 1}
+
+
+class TestBoltProvenanceTag:
+    """Each overlay node from derive() carries a reserved projection-tag property
+    (__mg_overlay_ref, a plain Int) referencing its projection-schema entry. Every overlay
+    node from one derive() shares the tag value (one schema entry per derive() site). Real
+    nodes and synthetic virtualNode() nodes carry no tag. The tag is an ordinary Int
+    property, so a generic client decodes the result unchanged and scalar values are sent
+    unwrapped."""
+
+    TAG = "__mg_overlay_ref"
+
+    def test_overlay_nodes_carry_a_shared_int_tag(self, connection):
+        """Both overlay nodes from a single derive() carry __mg_overlay_ref as an int, and
+        the value is the same on both - they reference one schema entry."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 1})-[:R]->(:N {id: 2, v: 2});")
+
+        rows = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            UNWIND g.nodes AS o
+            RETURN o;
+            """,
+        )
+
+        assert len(rows) == 2
+        tags = [o.properties.get(self.TAG) for (o,) in rows]
+        assert all(isinstance(t, int) for t in tags), "every overlay node carries an int tag"
+        assert tags[0] == tags[1], "all overlay nodes from one derive() share the tag value"
+
+    def test_real_node_carries_no_tag(self, connection):
+        """A node from a plain MATCH belongs to no projection, so it carries no tag."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 7});")
+
+        real = execute_and_fetch_all(cursor, "MATCH (n:N) RETURN n;")[0][0]
+        assert self.TAG not in real.properties
+
+    def test_synthetic_node_carries_no_tag(self, connection):
+        """A synthetic virtualNode() has no origin and no projection, so it carries no tag;
+        its scalar properties arrive unwrapped."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+
+        synthetic = execute_and_fetch_all(cursor, "RETURN virtualNode(1, 'V', {x: 1}) AS n;")[0][0]
+        assert self.TAG not in synthetic.properties
+        assert synthetic.properties == {"x": 1}
+
+    def test_tagged_overlay_keeps_origin_scalars_unwrapped(self, connection):
+        """Tagging the node does not wrap the origin's scalar property values - they decode
+        as plain scalars alongside the int tag."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 7, name: 'x'})-[:R]->(:N {id: 2});")
+
+        rows = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            UNWIND g.nodes AS o
+            RETURN o;
+            """,
+        )
+
+        source = next(o for (o,) in rows if o.properties.get("id") == 1)
+        assert source.properties["v"] == 7
+        assert source.properties["name"] == "x"
 
 
 if __name__ == "__main__":

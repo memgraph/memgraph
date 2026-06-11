@@ -28,6 +28,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/temporal.hpp"
 
+using memgraph::communication::bolt::kMgOverlayRef;
 using memgraph::communication::bolt::kMgTypeEnum;
 using memgraph::communication::bolt::kMgTypeType;
 using memgraph::communication::bolt::kMgTypeValue;
@@ -149,6 +150,12 @@ communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const s
   bolt_map_t properties;
   for (const auto &[prop_id, prop_value] : node.Properties()) {
     properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  // An overlay node from a projection with a known schema carries a reserved Int property pointing
+  // at its projection-schema entry. The value is sent unwrapped so generic clients read it as an
+  // ordinary property and ignore it.
+  if (node.HasProjectionRef()) {
+    properties[std::string{kMgOverlayRef}] = Value{node.ProjectionRef()};
   }
   auto element_id = std::to_string(id.AsInt());
   return communication::bolt::Vertex{
