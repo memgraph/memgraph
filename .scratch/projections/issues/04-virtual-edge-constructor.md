@@ -24,3 +24,16 @@ versus by virtual node.
 ## Blocked by
 
 - `03-virtual-node-constructor`
+
+## Comments
+
+Endpoint-by-gid semantics were settled in `03`: the `gid`/`from_gid`/`to_gid`
+values are logical **handles**, not node identities (a synthetic node's identity
+is its own synthetic gid). `virtualNode()` already accepts a handle but does not
+store it. This slice should:
+
+- Persist the handle on `VirtualNode` (a field, defaulting to none so
+  `derive()`-built nodes are unaffected), set by `virtualNode()`.
+- Resolve `virtualEdge("T", from, to)` endpoints given either a handle or a
+  virtual node; standalone, an edge may hold unresolved handle endpoints that a
+  projection assembly (`05`) binds to nodes by handle.

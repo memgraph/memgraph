@@ -1,6 +1,6 @@
 # project() subgraph constructor
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -30,3 +30,11 @@ top of it.
 ## Blocked by
 
 None - can start immediately.
+
+## Comments
+
+`project()` (the `PROJECT_PATH` / `PROJECT_LISTS` aggregation) and the subgraph
+machinery already existed on master; this slice was already satisfied. Added a
+confirming e2e test asserting an algorithm-shaped procedure reads real property
+values over a `project()` subgraph and yields real accessors whose ids resolve
+to the real store (`tests/e2e/write_procedures/read_subgraph.py`).

@@ -1,6 +1,6 @@
 # Write-back to real nodes from a project() subgraph
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -23,3 +23,11 @@ write-back path established here is reused by overlay write-back (slice 08).
 ## Blocked by
 
 - `01-project-subgraph-constructor`
+
+## Comments
+
+Already worked on master: a subgraph yields real accessors, and a `SET` on a
+real accessor persists. Added a confirming e2e test asserting an algorithm's
+output written onto a yielded node persists to the real store across statements,
+including creating a previously-absent property
+(`tests/e2e/write_procedures/read_subgraph.py`).

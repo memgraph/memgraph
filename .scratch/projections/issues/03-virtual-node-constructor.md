@@ -1,6 +1,6 @@
 # virtualNode() constructor
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -27,3 +27,18 @@ missing argument handling.
 ## Blocked by
 
 None - can start immediately (parallel track).
+
+## Comments
+
+Implemented as a builtin function `virtualNode(handle, labels, props)` returning
+a `VirtualNode` TypedValue. Labels accept a single string or a list; the node
+takes a fresh synthetic gid and serializes over Bolt as an ordinary node. `SET`
+on a synthetic node (per-property, `+=`, and `=`) mutates its overlay; label
+writes (`SET n:Label`) are not yet handled.
+
+Design decision (the `gid` argument): the node's identity is a synthetic gid,
+not the user-supplied `gid`. The `gid` is a logical **handle** used to wire
+virtual edges by reference when a projection is assembled. `virtualNode()`
+accepts and validates the handle but does not yet persist it on the node;
+handle storage and resolution land in `04-virtual-edge-constructor`, its first
+consumer.
