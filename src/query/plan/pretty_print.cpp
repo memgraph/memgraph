@@ -183,6 +183,16 @@ json ToJson(const Aggregate::Element &elem, const DbAccessor &dba) {
     if (elem.arg2) {
       json["options"] = ToJson(elem.arg2, dba);
     }
+  } else if (elem.op == Aggregation::Op::DERIVE_LISTS) {
+    if (elem.arg1) {
+      json["nodes"] = ToJson(elem.arg1, dba);
+    }
+    if (elem.arg2) {
+      json["relationships"] = ToJson(elem.arg2, dba);
+    }
+    if (elem.arg3) {
+      json["options"] = ToJson(elem.arg3, dba);
+    }
   } else if (elem.op == Aggregation::Op::COLLECT_MAP) {
     if (elem.arg1) {
       json["value"] = ToJson(elem.arg1, dba);

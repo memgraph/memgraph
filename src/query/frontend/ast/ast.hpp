@@ -4044,6 +4044,10 @@ class CallSubquery : public memgraph::query::Clause {
   // True if `CALL (*) { ... }` was used — import every variable currently in
   // the outer scope. When set, scoped_variables_ is left empty
   bool all_variables_scoped_{false};
+  // `CALL { USE <var> ... }`: identifier of an in-memory VirtualGraph value (from the outer scope) over which the
+  // subquery's MATCH/Expand should run instead of storage. Null when no USE clause is present. It is resolved
+  // against the outer scope (handled explicitly by the symbol generator), not traversed as part of Accept().
+  memgraph::query::Identifier *use_graph_{nullptr};
 
   CallSubquery *Clone(AstStorage *storage) const override {
     CallSubquery *object = storage->Create<CallSubquery>();
@@ -4054,6 +4058,7 @@ class CallSubquery : public memgraph::query::Clause {
     }
     object->has_variable_scope_ = has_variable_scope_;
     object->all_variables_scoped_ = all_variables_scoped_;
+    object->use_graph_ = use_graph_ ? use_graph_->Clone(storage) : nullptr;
     return object;
   }
 

@@ -533,6 +533,7 @@ bool Aggregation::Accept(HierarchicalTreeVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
     if (expression1_) expression1_->Accept(visitor);
     if (expression2_) expression2_->Accept(visitor);
+    if (expression3_) expression3_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
 }
@@ -544,6 +545,14 @@ Aggregation::Aggregation(Expression *expression1, Expression *expression2, Aggre
   DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::PROJECT_LISTS || op == Aggregation::Op::COLLECT_MAP ||
                                          op == Aggregation::Op::DERIVE),
              "expression2 is obligatory in COLLECT_MAP, PROJECT_LISTS and DERIVE, and invalid otherwise");
+}
+
+Aggregation::Aggregation(Expression *expression1, Expression *expression2, Expression *expression3, Aggregation::Op op,
+                         bool distinct)
+    : BinaryOperator(expression1, expression2), expression3_(expression3), op_(op), distinct_(distinct) {
+  DMG_ASSERT(op == Aggregation::Op::DERIVE_LISTS, "Three-expression Aggregation is only valid for DERIVE_LISTS");
+  DMG_ASSERT(expression1 && expression2 && expression3,
+             "DERIVE_LISTS requires a node list, a relationship list and an options map");
 }
 
 auto PropertyIxPath::Clone(AstStorage *storage) const -> PropertyIxPath {

@@ -66,7 +66,8 @@ class QueryPlanTest : public testing::Test {
       named_expressions.push_back(named_expr);
       // the key expression is only used in COLLECT_MAP
       Expression *key_expr_ptr = aggr_op == Aggregation::Op::COLLECT_MAP ? LITERAL("key") : nullptr;
-      aggregates.emplace_back(Aggregate::Element{*aggr_inputs_it++, key_expr_ptr, aggr_op, aggr_sym, distinct});
+      aggregates.emplace_back(
+          Aggregate::Element{*aggr_inputs_it++, key_expr_ptr, nullptr, aggr_op, aggr_sym, distinct});
     }
 
     // Produce will also evaluate group_by expressions and return them after the

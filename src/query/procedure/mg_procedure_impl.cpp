@@ -394,6 +394,8 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       throw std::logic_error{"mgp_value for TypedValue::Type::Graph doesn't exist."};
     case memgraph::query::TypedValue::Type::VirtualGraph:
       throw std::logic_error{"mgp_value for TypedValue::Type::VirtualGraph doesn't exist."};
+    case memgraph::query::TypedValue::Type::VirtualPath:
+      throw std::logic_error{"mgp_value for TypedValue::Type::VirtualPath doesn't exist."};
   }
 }
 
@@ -5244,6 +5246,7 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
     case TypedValue::Type::Edge:
     case TypedValue::Type::VirtualEdge:
     case TypedValue::Type::VirtualNode:
+    case TypedValue::Type::VirtualPath:
     case TypedValue::Type::Path:
     case TypedValue::Type::Graph:
     case TypedValue::Type::VirtualGraph:

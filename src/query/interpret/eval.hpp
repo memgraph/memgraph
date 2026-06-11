@@ -28,6 +28,8 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_edge.hpp"
+#include "query/virtual_node.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/point.hpp"
@@ -240,8 +242,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
                       storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
-                      const int64_t *hops_counter = nullptr,
-		      const std::shared_ptr<QueryUserOrRole> &user_or_role = {},
+                      const int64_t *hops_counter = nullptr, const std::shared_ptr<QueryUserOrRole> &user_or_role = {},
                       const std::shared_ptr<QueryUserOrRole> &triggering_user = {})
       : frame_(frame),
         symbol_table_(&symbol_table),
@@ -635,6 +636,33 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         return TypedValue(true, ctx_->memory);
       }
+      case TypedValue::Type::VirtualNode: {
+        // VirtualNodes (from derive()/USE <graph>) carry their labels as plain strings, so the label test is a
+        // name-membership check rather than a storage label-id lookup.
+        const auto &vn = expression_result.ValueVirtualNode();
+        const auto vn_has_label = [&](const LabelIx &label) {
+          for (const auto &existing : vn.Labels()) {
+            if (std::string_view{existing} == std::string_view{label.name}) return true;
+          }
+          return false;
+        };
+        for (const auto &label : labels_test.labels_) {
+          if (!vn_has_label(label)) return TypedValue(false, ctx_->memory);
+        }
+        for (const auto &or_labels_pattern : labels_test.or_labels_) {
+          bool has_at_least_one_label = false;
+          for (const auto &label : or_labels_pattern) {
+            if (vn_has_label(label)) {
+              has_at_least_one_label = true;
+              break;
+            }
+          }
+          if (!has_at_least_one_label) {
+            return TypedValue(false, ctx_->memory);
+          }
+        }
+        return TypedValue(true, ctx_->memory);
+      }
       default:
         throw QueryRuntimeException("Only nodes have labels.");
     }
@@ -654,6 +682,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             edgetype_test.valid_edgetypes_,
             [=](const storage::EdgeTypeId et_id) { return edge_type == et_id; },
             [&](EdgeTypeIx const &et) { return GetEdgeType(et); });
+        return TypedValue(is_valid, ctx_->memory);
+      }
+      case TypedValue::Type::VirtualEdge: {
+        // VirtualEdges carry their type as a plain string, so the test is a name-membership check.
+        const std::string_view edge_type = expression_result.ValueVirtualEdge().EdgeTypeName();
+        const auto is_valid = std::ranges::any_of(edgetype_test.valid_edgetypes_, [&](const EdgeTypeIx &et) {
+          return std::string_view{et.name} == edge_type;
+        });
         return TypedValue(is_valid, ctx_->memory);
       }
       default:

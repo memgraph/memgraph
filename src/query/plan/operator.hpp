@@ -581,6 +581,11 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
   /// transaction sees along with their modifications.
   storage::View view_;
 
+  /// When set, this ScanAll iterates a @c VirtualGraph value bound to this symbol on the frame (produced e.g. by
+  /// derive()) instead of scanning the storage. Used to run read queries over an in-memory virtual graph (USE
+  /// <graph>). Since a VirtualGraph has no indices, the planner only ever emits a plain ScanAll for such scopes.
+  std::optional<Symbol> graph_symbol_;
+
   std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -1091,6 +1096,10 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   /// State from which the input node should get expanded.
   storage::View view_;
 
+  /// When set, expansion follows the adjacency of the @c VirtualGraph value bound to this symbol on the frame
+  /// (the input node is then a VirtualNode), instead of the storage. Mirrors @c ScanAll::graph_symbol_.
+  std::optional<Symbol> graph_symbol_;
+
   std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -1197,6 +1206,11 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
 
   /// Limit for the number of paths returned in kshortest path expansion.
   Expression *limit_;
+
+  /// When set, a DEPTH_FIRST variable-length expansion runs over the @c VirtualGraph bound to this symbol on the
+  /// frame instead of storage (see @c ScanAll::graph_symbol_). Only DEPTH_FIRST is supported over a virtual graph;
+  /// the shortest-path variants are not.
+  std::optional<Symbol> graph_symbol_;
 
   std::string_view OperatorName() const;
 
@@ -1876,7 +1890,8 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   /// An aggregation element, contains:
-  ///        (input data expression, secondary data expression - only used in COLLECT_MAP and PROJECT_LISTS,
+  ///        (input data expression, secondary data expression - used in COLLECT_MAP, PROJECT_LISTS and DERIVE,
+  ///        tertiary data expression - the options map of the three-argument DERIVE (DERIVE_LISTS),
   ///        type of aggregation, output symbol, distinct)
   struct Element {
     static const utils::TypeInfo kType;
@@ -1885,6 +1900,7 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
 
     Expression *arg1;
     Expression *arg2;
+    Expression *arg3;
     Aggregation::Op op;
     Symbol output_sym;
     bool distinct{false};

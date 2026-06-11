@@ -34,6 +34,12 @@ class VirtualNode final {
   VirtualNode(label_list labels, property_map properties, allocator_type alloc = {})
       : gid_(NextSyntheticGid()), impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), alloc)) {}
 
+  // Constructs a VirtualNode with an explicit (non-synthetic) gid. Used when derive() is asked to preserve the
+  // originating real vertex's gid instead of minting a fresh synthetic one. The caller is responsible for ensuring
+  // the gid does not collide with other nodes in the same VirtualGraph.
+  VirtualNode(storage::Gid gid, label_list labels, property_map properties, allocator_type alloc = {})
+      : gid_(gid), impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), alloc)) {}
+
   VirtualNode(const VirtualNode &other, allocator_type alloc)
       : gid_(other.gid_), impl_(std::make_unique<Impl>(other.impl_->labels, other.impl_->properties, alloc)) {}
 

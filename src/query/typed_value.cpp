@@ -25,6 +25,7 @@
 #include "query/virtual_edge.hpp"
 #include "query/virtual_graph.hpp"
 #include "query/virtual_node.hpp"
+#include "query/virtual_path.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
@@ -93,6 +94,16 @@ TypedValue::TypedValue(VirtualEdge &&ve, allocator_type alloc) : alloc_{alloc}, 
 TypedValue::TypedValue(VirtualNode &&vn, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualNode) {
   auto *ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(std::move(vn));
   alloc_trait::construct(alloc_, &virtual_node_v, ptr);
+}
+
+TypedValue::TypedValue(const VirtualPath &vp, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualPath) {
+  auto *ptr = utils::Allocator<VirtualPath>(alloc_).new_object<VirtualPath>(vp);
+  alloc_trait::construct(alloc_, &virtual_path_v, ptr);
+}
+
+TypedValue::TypedValue(VirtualPath &&vp, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualPath) {
+  auto *ptr = utils::Allocator<VirtualPath>(alloc_).new_object<VirtualPath>(std::move(vp));
+  alloc_trait::construct(alloc_, &virtual_path_v, ptr);
 }
 
 TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper)
@@ -695,6 +706,7 @@ TypedValue::operator storage::ExternalPropertyValue() const {
     case Type::Edge:
     case Type::VirtualEdge:
     case Type::VirtualNode:
+    case Type::VirtualPath:
     case Type::Path:
     case Type::Graph:
     case Type::VirtualGraph:
@@ -740,6 +752,11 @@ TypedValue::TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{a
     case Type::VirtualNode: {
       auto *vn_ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(*other.virtual_node_v);
       alloc_trait::construct(alloc_, &virtual_node_v, vn_ptr);
+      return;
+    }
+    case Type::VirtualPath: {
+      auto *vp_ptr = utils::Allocator<VirtualPath>(alloc_).new_object<VirtualPath>(*other.virtual_path_v);
+      alloc_trait::construct(alloc_, &virtual_path_v, vp_ptr);
       return;
     }
     case Type::Path: {
@@ -833,6 +850,14 @@ TypedValue::TypedValue(TypedValue &&other, allocator_type alloc) : alloc_{alloc}
       } else {
         auto *vn_ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(std::move(*other.virtual_node_v));
         alloc_trait::construct(alloc_, &virtual_node_v, vn_ptr);
+      }
+      break;
+    case Type::VirtualPath:
+      if (other.alloc_ == alloc_) {
+        alloc_trait::construct(alloc_, &virtual_path_v, std::move(other.virtual_path_v));
+      } else {
+        auto *vp_ptr = utils::Allocator<VirtualPath>(alloc_).new_object<VirtualPath>(std::move(*other.virtual_path_v));
+        alloc_trait::construct(alloc_, &virtual_path_v, vp_ptr);
       }
       break;
     case Type::Path: {
@@ -963,6 +988,7 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
     case Type::Edge:
     case Type::VirtualEdge:
     case Type::VirtualNode:
+    case Type::VirtualPath:
     case Type::Path:
     case Type::Graph:
     case Type::VirtualGraph:
@@ -1008,6 +1034,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, *virtual_edge_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, *virtual_node_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(VirtualPath, VirtualPath, *virtual_path_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
@@ -1052,6 +1079,7 @@ bool TypedValue::ContainsDeleted() const {
       return edge_v.IsDeleted();
     case Type::VirtualEdge:
     case Type::VirtualNode:
+    case Type::VirtualPath:
       return false;
     case Type::Path:
       return std::ranges::any_of(path_v->vertices(),
@@ -1089,6 +1117,7 @@ bool TypedValue::IsPropertyValue() const {
     case Type::Edge:
     case Type::VirtualEdge:
     case Type::VirtualNode:
+    case Type::VirtualPath:
     case Type::Path:
     case Type::Graph:
     case Type::VirtualGraph:
@@ -1121,6 +1150,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "virtual_edge";
     case TypedValue::Type::VirtualNode:
       return os << "virtual_node";
+    case TypedValue::Type::VirtualPath:
+      return os << "virtual_path";
     case TypedValue::Type::Path:
       return os << "path";
     case TypedValue::Type::Date:
@@ -1343,6 +1374,17 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
           }
           break;
         }
+        case Type::VirtualPath: {
+          auto *vp = virtual_path_v.release();
+          if (vp) {
+            utils::Allocator<VirtualPath>(alloc_).delete_object(vp);
+          }
+          if (other.virtual_path_v) {
+            auto *vp_ptr = utils::Allocator<VirtualPath>(alloc_).new_object<VirtualPath>(*other.virtual_path_v);
+            virtual_path_v = std::unique_ptr<VirtualPath>(vp_ptr);
+          }
+          break;
+        }
         case Type::Path: {
           auto *path = path_v.release();
           if (path) {
@@ -1466,6 +1508,14 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
           virtual_node_v = std::move(other.virtual_node_v);
           break;
         }
+        case Type::VirtualPath: {
+          auto *vp = virtual_path_v.release();
+          if (vp) {
+            utils::Allocator<VirtualPath>(alloc_).delete_object(vp);
+          }
+          virtual_path_v = std::move(other.virtual_path_v);
+          break;
+        }
         case Type::Path: {
           auto *path = path_v.release();
           if (path) {
@@ -1573,6 +1623,14 @@ TypedValue::~TypedValue() {
       }
       break;
     }
+    case Type::VirtualPath: {
+      auto *vp = virtual_path_v.release();
+      std::destroy_at(&virtual_path_v);
+      if (vp) {
+        utils::Allocator<VirtualPath>(alloc_).delete_object(vp);
+      }
+      break;
+    }
     case Type::Path: {
       auto *path = path_v.release();
       std::destroy_at(&path_v);
@@ -1665,6 +1723,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
       case TypedValue::Type::Edge:
       case TypedValue::Type::VirtualEdge:
       case TypedValue::Type::VirtualNode:
+      case TypedValue::Type::VirtualPath:
       case TypedValue::Type::Path:
       case TypedValue::Type::Graph:
       case TypedValue::Type::VirtualGraph:
@@ -1784,6 +1843,8 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
       }
       return TypedValue(true, a.alloc_);
     }
+    case TypedValue::Type::VirtualPath:
+      return TypedValue(a.ValueVirtualPath() == b.ValueVirtualPath(), a.alloc_);
     case TypedValue::Type::Path:
       return TypedValue(a.ValuePath() == b.ValuePath(), a.alloc_);
     case TypedValue::Type::Date:
@@ -2129,6 +2190,15 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return value.ValueVirtualEdge().Gid().AsUint();
     case TypedValue::Type::VirtualNode:
       return value.ValueVirtualNode().Gid().AsUint();
+    case TypedValue::Type::VirtualPath: {
+      size_t hash = 0;
+      const auto combine = [&hash](storage::Gid gid) {
+        hash ^= std::hash<storage::Gid>{}(gid) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+      };
+      for (const auto &vertex : value.ValueVirtualPath().vertices()) combine(vertex.Gid());
+      for (const auto &edge : value.ValueVirtualPath().edges()) combine(edge.Gid());
+      return hash;
+    }
     case TypedValue::Type::Path: {
       const auto &vertices = value.ValuePath().vertices();
       const auto &edges = value.ValuePath().edges();

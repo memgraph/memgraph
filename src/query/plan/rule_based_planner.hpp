@@ -80,6 +80,10 @@ struct PlanningContext {
   std::unordered_set<Symbol> bound_symbols{};
   bool is_write_query{false};
   bool in_exists_subquery{false};
+  /// When set (inside a `CALL { USE <graph> ... }` scope), node scans and expansions are planned against the
+  /// in-memory VirtualGraph bound to this symbol instead of storage: ScanAll/Expand get their graph_symbol_ set and
+  /// index-based scan rewrites are skipped (a VirtualGraph has no indices).
+  std::optional<Symbol> active_virtual_graph_symbol{};
 };
 
 template <class TDbAccessor>
@@ -481,6 +485,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                      }) |
                      std::ranges::to<std::unordered_set<Symbol>>();
             });
+            std::optional<Symbol> use_graph_symbol;
+            if (call_sub->use_graph_ != nullptr) {
+              use_graph_symbol = context.symbol_table->at(*call_sub->use_graph_);
+            }
             input_op = HandleSubquery(std::move(input_op),
                                       single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table,
@@ -488,7 +496,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                       pending_comprehensions,
                                       write_occurred,
                                       call_sub->cypher_query_->pre_query_directives_.commit_frequency_,
-                                      scoped_variables);
+                                      scoped_variables,
+                                      use_graph_symbol);
             if (context.is_write_query && !has_periodic_commit) {
               input_op = std::make_unique<Accumulate>(
                   std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
@@ -1094,8 +1103,11 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     const bool is_unseen_node = bound_symbols.insert(node1_symbol).second;
 
     // we can just perform scanning from an edge if it's a simple edge
-    // we don't take into consideration path expansion as part of edge scanning
-    if (is_unseen_node && expansion.expand_from_edge && expansion.edge->type_ == EdgeAtom::Type::SINGLE) {
+    // we don't take into consideration path expansion as part of edge scanning.
+    // A VirtualGraph has no edge index, so inside a USE <graph> scope we skip this edge-scan shortcut and fall through
+    // to the generic ScanAll(node1) + Expand(edge) path, which both have virtual-graph implementations.
+    if (is_unseen_node && expansion.expand_from_edge && expansion.edge->type_ == EdgeAtom::Type::SINGLE &&
+        !context_->active_virtual_graph_symbol) {
       const auto &node2_symbol = symbol_table.at(*expansion.node2->identifier_);
       const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
       auto edge_types = GetEdgeTypes(expansion.edge->edge_types_);
@@ -1119,7 +1131,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     if (is_unseen_node) {
       // We have just bound this symbol, so generate ScanAll which fills it.
-      last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, view);
+      auto scan = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, view);
+      // Inside `CALL { USE <graph> ... }` the scan iterates the VirtualGraph bound to that symbol.
+      scan->graph_symbol_ = context_->active_virtual_graph_symbol;
+      last_op = std::move(scan);
       new_symbols.emplace_back(node1_symbol);
 
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
@@ -1170,6 +1185,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     auto edge_types = GetEdgeTypes(edge->edge_types_);
     if (edge->IsVariable()) {
+      if (context_->active_virtual_graph_symbol) {
+        // Over a VirtualGraph we support plain variable-length (DEPTH_FIRST) and single-source breadth-first
+        // (BREADTH_FIRST without an existing target). s-t shortest path, weighted/all-shortest and kshortest are not.
+        const bool supported = edge->type_ == EdgeAtom::Type::DEPTH_FIRST ||
+                               (edge->type_ == EdgeAtom::Type::BREADTH_FIRST && !existing_node);
+        if (!supported) {
+          throw utils::NotYetImplemented("this shortest-path expansion inside a USE <graph> subquery");
+        }
+      }
       std::optional<ExpansionLambda> weight_lambda;
       std::optional<Symbol> total_weight;
 
@@ -1252,30 +1276,36 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
       // TODO: Pass weight lambda.
       MG_ASSERT(view == storage::View::OLD, "ExpandVariable should only be planned with storage::View::OLD");
-      last_op = std::make_unique<ExpandVariable>(std::move(last_op),
-                                                 node1_symbol,
-                                                 node_symbol,
-                                                 edge_symbol,
-                                                 edge->type_,
-                                                 expansion.direction,
-                                                 edge_types,
-                                                 expansion.is_flipped,
-                                                 edge->lower_bound_,
-                                                 edge->upper_bound_,
-                                                 existing_node,
-                                                 filter_lambda,
-                                                 weight_lambda,
-                                                 total_weight,
-                                                 edge->limit_);
+      auto expand_variable = std::make_unique<ExpandVariable>(std::move(last_op),
+                                                              node1_symbol,
+                                                              node_symbol,
+                                                              edge_symbol,
+                                                              edge->type_,
+                                                              expansion.direction,
+                                                              edge_types,
+                                                              expansion.is_flipped,
+                                                              edge->lower_bound_,
+                                                              edge->upper_bound_,
+                                                              existing_node,
+                                                              filter_lambda,
+                                                              weight_lambda,
+                                                              total_weight,
+                                                              edge->limit_);
+      // Inside `CALL { USE <graph> ... }` a DEPTH_FIRST expansion walks the VirtualGraph's adjacency.
+      expand_variable->graph_symbol_ = context_->active_virtual_graph_symbol;
+      last_op = std::move(expand_variable);
     } else {
-      last_op = std::make_unique<Expand>(std::move(last_op),
-                                         node1_symbol,
-                                         node_symbol,
-                                         edge_symbol,
-                                         expansion.direction,
-                                         edge_types,
-                                         existing_node,
-                                         view);
+      auto expand = std::make_unique<Expand>(std::move(last_op),
+                                             node1_symbol,
+                                             node_symbol,
+                                             edge_symbol,
+                                             expansion.direction,
+                                             edge_types,
+                                             existing_node,
+                                             view);
+      // Inside `CALL { USE <graph> ... }` the expansion follows the VirtualGraph's adjacency.
+      expand->graph_symbol_ = context_->active_virtual_graph_symbol;
+      last_op = std::move(expand);
     }
 
     // Bind the expanded edge and node.
@@ -1370,7 +1400,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       std::unique_ptr<LogicalOperator> last_op, std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
       AstStorage &storage, std::unordered_map<Symbol, PatternComprehensionMatching> & /*pending_comprehensions*/,
       bool /*write_occurred*/, Expression *commit_frequency,
-      const std::optional<std::unordered_set<Symbol>> &scoped_variables = std::nullopt) {
+      const std::optional<std::unordered_set<Symbol>> &scoped_variables = std::nullopt,
+      std::optional<Symbol> use_graph_symbol = std::nullopt) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));
@@ -1384,7 +1415,16 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
           impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage);
     }
 
+    // `CALL { USE <graph> ... }`: route all node scans / expansions in this subquery body (and any nested ones that
+    // don't override it) to the named VirtualGraph. Restored afterwards so sibling clauses are unaffected.
+    auto const previous_virtual_graph_symbol = context_->active_virtual_graph_symbol;
+    if (use_graph_symbol) {
+      context_->active_virtual_graph_symbol = use_graph_symbol;
+    }
+
     auto subquery_op = Plan(*subquery);
+
+    context_->active_virtual_graph_symbol = previous_virtual_graph_symbol;
     auto subquery_bound_symbols = subquery_op->OutputSymbols(*context_->symbol_table);
 
     context_->bound_symbols.clear();

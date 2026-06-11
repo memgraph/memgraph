@@ -20,6 +20,7 @@
 #include "query/graph.hpp"
 #include "query/typed_value.hpp"
 #include "query/virtual_graph.hpp"
+#include "query/virtual_path.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
@@ -259,6 +260,19 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     case query::TypedValue::Type::VirtualNode: {
       check_db();
       return storage::Result<Value>{std::in_place, ToBoltVertex(value.ValueVirtualNode(), *db)};
+    }
+
+    case query::TypedValue::Type::VirtualPath: {
+      check_db();
+      const auto &vp = value.ValueVirtualPath();
+      std::vector<communication::bolt::Vertex> path_vertices;
+      path_vertices.reserve(vp.vertices().size());
+      for (const auto &v : vp.vertices()) path_vertices.emplace_back(ToBoltVertex(v, *db));
+      std::vector<communication::bolt::Edge> path_edges;
+      path_edges.reserve(vp.edges().size());
+      for (const auto &e : vp.edges()) path_edges.emplace_back(ToBoltEdge(e, *db));
+      return storage::Result<Value>{std::in_place,
+                                    communication::bolt::Path(std::move(path_vertices), std::move(path_edges))};
     }
 
     // Unsupported conversions

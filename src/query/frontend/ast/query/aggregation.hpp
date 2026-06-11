@@ -24,7 +24,19 @@ class Aggregation : public memgraph::query::BinaryOperator {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Op { COUNT, MIN, MAX, SUM, AVG, COLLECT_LIST, COLLECT_MAP, PROJECT_PATH, PROJECT_LISTS, DERIVE };
+  enum class Op {
+    COUNT,
+    MIN,
+    MAX,
+    SUM,
+    AVG,
+    COLLECT_LIST,
+    COLLECT_MAP,
+    PROJECT_PATH,
+    PROJECT_LISTS,
+    DERIVE,
+    DERIVE_LISTS
+  };
 
   Aggregation() = default;
 
@@ -39,7 +51,7 @@ class Aggregation : public memgraph::query::BinaryOperator {
 
   static std::string OpToString(Op op) {
     static constexpr std::array op_strings = {
-        kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject, kDerive};
+        kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject, kDerive, kDerive};
     return std::string{op_strings[static_cast<int>(op)]};
   }
 
@@ -54,6 +66,11 @@ class Aggregation : public memgraph::query::BinaryOperator {
     return this;
   }
 
+  /// Aggregation's third expression. Only used by DERIVE_LISTS, where the call is derive(nodes, edges, options):
+  /// expression1_ holds the node list, expression2_ the relationship list, and expression3_ the options map.
+  /// Null for every other aggregation.
+  memgraph::query::Expression *expression3_{nullptr};
+
   memgraph::query::Aggregation::Op op_;
   /// Symbol table position of the symbol this Aggregation is mapped to.
   int32_t symbol_pos_{-1};
@@ -63,6 +80,7 @@ class Aggregation : public memgraph::query::BinaryOperator {
     Aggregation *object = storage->Create<Aggregation>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
     object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression3_ = expression3_ ? expression3_->Clone(storage) : nullptr;
     object->op_ = op_;
     object->symbol_pos_ = symbol_pos_;
     object->distinct_ = distinct_;
@@ -77,6 +95,9 @@ class Aggregation : public memgraph::query::BinaryOperator {
   /// COLLECT_MAP or for the relationships list in the two-argument overload of PROJECT_PATH; no other aggregate
   /// functions use this parameter.
   Aggregation(Expression *expression1, Expression *expression2, Op op, bool distinct);
+
+  /// Three-expression overload used by DERIVE_LISTS: derive(nodes, edges, options).
+  Aggregation(Expression *expression1, Expression *expression2, Expression *expression3, Op op, bool distinct);
 
  private:
   friend class AstStorage;

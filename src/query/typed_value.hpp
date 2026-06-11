@@ -36,6 +36,7 @@ class Graph;         // fwd declare
 class VirtualGraph;  // fwd declare
 class VirtualEdge;   // fwd declare
 class VirtualNode;   // fwd declare
+class VirtualPath;   // fwd declare
 
 namespace {
 template <typename T>
@@ -111,7 +112,8 @@ class TypedValue {
     Point2d,
     Point3d,
     VirtualEdge,
-    VirtualNode
+    VirtualNode,
+    VirtualPath
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -292,6 +294,8 @@ class TypedValue {
 
   explicit TypedValue(const VirtualNode &vn, allocator_type alloc = {});
 
+  explicit TypedValue(const VirtualPath &vp, allocator_type alloc = {});
+
   explicit TypedValue(const Path &path, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Path) {
     auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(path);
     alloc_trait::construct(alloc_, &path_v, path_ptr);
@@ -389,6 +393,8 @@ class TypedValue {
   explicit TypedValue(VirtualEdge &&ve, allocator_type alloc);
 
   explicit TypedValue(VirtualNode &&vn, allocator_type alloc);
+
+  explicit TypedValue(VirtualPath &&vp, allocator_type alloc);
 
   /**
    * Construct with the value of path.
@@ -523,6 +529,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, *virtual_edge_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, *virtual_node_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualPath, VirtualPath, *virtual_path_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
@@ -794,6 +801,7 @@ class TypedValue {
     std::function<void(TypedValue *)> function_v;
     std::unique_ptr<VirtualEdge> virtual_edge_v;
     std::unique_ptr<VirtualNode> virtual_node_v;
+    std::unique_ptr<VirtualPath> virtual_path_v;
   };
 
   /**
