@@ -77,10 +77,10 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra);
 
-  std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare();
+  memgraph::communication::bolt::PreparedRunMetadata InterpretPrepare();
 
-  std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
-                                                                    const bolt_map_t &extra) {
+  memgraph::communication::bolt::PreparedRunMetadata Interpret(const std::string &query, const bolt_map_t &params,
+                                                               const bolt_map_t &extra) {
     // Interpret has been split in two (Parse and Prepare)
     // This allows us to Parse, deduce the priority and then schedule accordingly
     // Leaving this one-shot version for back-compatiblity
