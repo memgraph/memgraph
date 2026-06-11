@@ -554,6 +554,19 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(BindGraphView &op) override {
+    prev_ops_.push_back(&op);
+    // The body scans a projection, which exposes no index to drive an indexed
+    // join. A join rewrite would consult the real graph's indexes, so the body is
+    // left as planned and not rewritten.
+    return false;
+  }
+
+  bool PostVisit(BindGraphView & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PostVisit(Apply & /*op*/) override {
     prev_ops_.pop_back();
     return true;

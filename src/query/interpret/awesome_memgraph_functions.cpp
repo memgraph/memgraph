@@ -35,8 +35,10 @@
 #include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
 #include "query/string_helpers.hpp"
+#include "query/subgraph_graph_view.hpp"
 #include "query/typed_value.hpp"
 #include "query/virtual_graph.hpp"
+#include "query/virtual_graph_view.hpp"
 #include "query/virtual_node.hpp"
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
@@ -624,29 +626,61 @@ TypedValue IsEmpty(const TypedValue *args, int64_t nargs, const FunctionContext 
   }
 }
 
+// Resolves a node's (in, out) degree over the ambient graph view: a projection
+// node counts the projection's edges, a subgraph member counts only its member
+// edges, and a real vertex on the identity view (or with no view bound) counts
+// the real graph's edges.
+std::pair<int64_t, int64_t> AmbientInOutDegree(const TypedValue &arg, const FunctionContext &ctx) {
+  if (arg.IsVirtualNode()) {
+    const auto gid = arg.ValueVirtualNode().Gid();
+    if (auto *projection = dynamic_cast<VirtualGraphView *>(ctx.graph_view)) {
+      return {static_cast<int64_t>(projection->InEdges(gid).size()),
+              static_cast<int64_t>(projection->OutEdges(gid).size())};
+    }
+    // A virtual node outside a projection scope (a literal virtualNode(), no
+    // VirtualGraphView bound) has no ambient topology.
+    return {0, 0};
+  }
+  const auto &vertex = arg.ValueVertex();
+  if (auto *subgraph = dynamic_cast<SubgraphGraphView *>(ctx.graph_view)) {
+    const auto count_members = [&](auto maybe_edges) -> int64_t {
+      if (!maybe_edges) throw QueryRuntimeException("Trying to get degree of a node that doesn't exist.");
+      int64_t count = 0;
+      for (const auto &edge : maybe_edges->edges) {
+        if (subgraph->ContainsEdge(edge)) ++count;
+      }
+      return count;
+    };
+    return {count_members(vertex.InEdges(ctx.view)), count_members(vertex.OutEdges(ctx.view))};
+  }
+  if (dynamic_cast<VirtualGraphView *>(ctx.graph_view) != nullptr) {
+    // A real vertex is not a node of a projection, so it has no edges in the
+    // ambient projection graph. Reached when a real vertex is imported into a
+    // CALL { USE <projection> ... } scope; the scope must not report the
+    // vertex's real-graph degree.
+    return {0, 0};
+  }
+  return {static_cast<int64_t>(UnwrapDegreeResult(vertex.InDegree(ctx.view))),
+          static_cast<int64_t>(UnwrapDegreeResult(vertex.OutDegree(ctx.view)))};
+}
+
 TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  const auto &vertex = args[0].ValueVertex();
-  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
-  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
-  return TypedValue(static_cast<int64_t>(out_degree + in_degree), ctx.memory);
+  const auto [in_degree, out_degree] = AmbientInOutDegree(args[0], ctx);
+  return TypedValue(in_degree + out_degree, ctx.memory);
 }
 
 TypedValue InDegree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("inDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  const auto &vertex = args[0].ValueVertex();
-  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
-  return TypedValue(static_cast<int64_t>(in_degree), ctx.memory);
+  return TypedValue(AmbientInOutDegree(args[0], ctx).first, ctx.memory);
 }
 
 TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("outDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  const auto &vertex = args[0].ValueVertex();
-  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
-  return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
+  return TypedValue(AmbientInOutDegree(args[0], ctx).second, ctx.memory);
 }
 
 // Type-set shared by each strict to* and its *OrNull variant: strict throws on a rejected type, *OrNull

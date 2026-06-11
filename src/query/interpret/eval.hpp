@@ -20,6 +20,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "query/common.hpp"
@@ -29,6 +30,8 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_edge.hpp"
+#include "query/virtual_node.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/point.hpp"
@@ -477,7 +480,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       lhs_ptr = &lhs;
     }
     auto index = list_indexing.expression2_->Accept(*this);
-    if (!lhs_ptr->IsList() && !lhs_ptr->IsMap() && !lhs_ptr->IsVertex() && !lhs_ptr->IsEdge() && !lhs_ptr->IsNull())
+    if (!lhs_ptr->IsList() && !lhs_ptr->IsMap() && !lhs_ptr->IsVertex() && !lhs_ptr->IsEdge() &&
+        !lhs_ptr->IsVirtualNode() && !lhs_ptr->IsVirtualEdge() && !lhs_ptr->IsNull())
       throw QueryRuntimeException(
           "Expected a list, a map, a node or an edge to index with '[]', got "
           "{}.",
@@ -514,6 +518,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
       return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
     };
+
+    if (lhs_ptr->IsVirtualNode()) {
+      if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
+      // A projected node reads through the same GetProperty as a real vertex.
+      return {GetProperty(lhs_ptr->ValueVirtualNode(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
+    }
+
+    if (lhs_ptr->IsVirtualEdge()) {
+      if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
+      // A projected edge reads through the same GetProperty as a real edge.
+      return {GetProperty(lhs_ptr->ValueVirtualEdge(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
+    }
 
     // lhs is Null
     return TypedValue(ctx_->memory);
@@ -644,6 +660,22 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         return TypedValue(true, ctx_->memory);
       }
+      case TypedValue::Type::VirtualNode: {
+        // A projection node carries its labels as names, not ids, and exposes no
+        // index, so the test is a membership check over its label list.
+        const auto &node = expression_result.ValueVirtualNode();
+        const auto has_label = [&](const LabelIx &label) {
+          return std::ranges::any_of(
+              node.Labels(), [&](const auto &held) { return std::string_view{held} == std::string_view{label.name}; });
+        };
+        for (const auto &label : labels_test.labels_) {
+          if (!has_label(label)) return TypedValue(false, ctx_->memory);
+        }
+        for (const auto &or_labels_pattern : labels_test.or_labels_) {
+          if (!std::ranges::any_of(or_labels_pattern, has_label)) return TypedValue(false, ctx_->memory);
+        }
+        return TypedValue(true, ctx_->memory);
+      }
       default:
         throw QueryRuntimeException("Only nodes have labels.");
     }
@@ -754,11 +786,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                                  user_or_role_,
                                  triggering_user_,
 #ifdef MG_ENTERPRISE
-                                 auth_checker_
+                                 auth_checker_,
 #else
-                                 nullptr
+                                 nullptr,
 #endif
-    };
+                                 ctx_->graph_view};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.

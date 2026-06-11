@@ -65,6 +65,9 @@ target_link_libraries(${test_prefix}skip_list_vs_stl mg-utils)
 add_benchmark(expansion.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}expansion mg-query mg-communication mg-license)
 
+add_benchmark(query_graph_view_scan.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+target_link_libraries(${test_prefix}query_graph_view_scan mg-query mg-communication mg-license)
+
 add_benchmark(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg::storage)
 

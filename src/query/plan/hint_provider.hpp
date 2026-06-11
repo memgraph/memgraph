@@ -313,6 +313,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Apply & /*op*/) override { return true; }
 
+  bool PreVisit(BindGraphView & /*unused*/) override { return true; }
+
+  bool PostVisit(BindGraphView & /*unused*/) override { return true; }
+
   bool PreVisit(LoadCsv & /*unused*/) override { return true; }
 
   bool PostVisit(LoadCsv & /*unused*/) override { return true; }

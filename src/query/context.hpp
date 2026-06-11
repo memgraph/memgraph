@@ -39,6 +39,7 @@ namespace memgraph::query {
 
 class FineGrainedAuthChecker;
 class TriggerContextCollector;
+class GraphView;
 
 enum class TransactionStatus {
   IDLE,
@@ -72,6 +73,10 @@ struct EvaluationContext {
   /// modifies the values
   mutable std::unordered_map<std::string, int64_t> counters{};
   Scope scope{};
+  // The ambient graph the read operators scan and the topology functions resolve
+  // over. Bound to the identity view (the real graph) by default; a
+  // `CALL { USE ... }` scope rebinds a projection or subgraph view for the block.
+  GraphView *graph_view{nullptr};
 };
 
 std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor *dba);

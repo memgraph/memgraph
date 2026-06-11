@@ -805,6 +805,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(BindGraphView &op) override {
+    prev_ops_.push_back(&op);
+    // The body scans a projection, which exposes no index or statistics. Leave it
+    // a full ScanAll + Filter: an index scan reads the real graph through the
+    // accessor, not the bound projection, so substituting one here would read the
+    // wrong graph. The body is not rewritten.
+    return false;
+  }
+
+  bool PostVisit(BindGraphView & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(LoadCsv &op) override {
     prev_ops_.push_back(&op);
     return true;

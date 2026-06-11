@@ -47,14 +47,17 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/graph.hpp"
+#include "query/graph_view.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/parallel_state.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/subgraph_graph_view.hpp"
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_graph_view.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
@@ -849,6 +852,47 @@ VertexAccessor const &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame
   }
 }
 
+namespace {
+// A scan yields either a real VertexAccessor (label/index scans, and the
+// identity view) or a ScanVertex (the ambient GraphView, which may be a
+// projection). These helpers let the shared ScanAllCursor handle both.
+
+template <typename TWriter>
+void WriteScannedVertex(TWriter &writer, const Symbol &symbol, const VertexAccessor &vertex) {
+  writer.Write(symbol, vertex);
+}
+
+template <typename TWriter>
+void WriteScannedVertex(TWriter &writer, const Symbol &symbol, const ScanVertex &vertex) {
+  std::visit([&](const auto &v) { writer.Write(symbol, v); }, vertex);
+}
+
+#ifdef MG_ENTERPRISE
+bool ScannedVertexVisible(FineGrainedAuthChecker const &checker, const VertexAccessor &vertex, storage::View view) {
+  return checker.Has(vertex, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+}
+
+// An overlay node reads through to a real origin vertex, so it gets the same
+// label-based visibility decision a direct read of the origin would: it is
+// visible only if the origin is. A synthetic node has no origin and no
+// real-graph privileges, so it is always visible. A projection node surfaces
+// through both the scan and the expand paths, so both gate on this.
+bool OverlayNodeVisible(FineGrainedAuthChecker const &checker, const VirtualNode &vnode, storage::View view) {
+  if (const auto &origin = vnode.Origin()) {
+    return checker.Has(*origin, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+  }
+  return true;
+}
+
+bool ScannedVertexVisible(FineGrainedAuthChecker const &checker, const ScanVertex &vertex, storage::View view) {
+  if (const auto *real = std::get_if<VertexAccessor>(&vertex)) {
+    return checker.Has(*real, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+  }
+  return OverlayNodeVisible(checker, std::get<VirtualNode>(vertex), view);
+}
+#endif
+}  // namespace
+
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
@@ -886,7 +930,7 @@ class ScanAllCursor : public Cursor {
 #endif
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    frame_writer.Write(output_symbol_, *vertices_it_.value());
+    WriteScannedVertex(frame_writer, output_symbol_, *vertices_it_.value());
     ++vertices_it_.value();
     return true;
   }
@@ -894,8 +938,7 @@ class ScanAllCursor : public Cursor {
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_end_it_.value()) {
-      if (context.auth_checker->Has(
-              *vertices_it_.value(), view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+      if (ScannedVertexVisible(*context.auth_checker, *vertices_it_.value(), view_)) {
         return true;
       }
       ++vertices_it_.value();
@@ -1018,9 +1061,13 @@ ACCEPT_WITH_INPUT(ScanAll)
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_operator.Increment();
 
-  auto vertices = [this](Frame &, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_));
+  auto vertices = [this](Frame &, ExecutionContext &context) -> std::optional<VertexRange> {
+    // Scan through the ambient graph view. Without one bound, read the real
+    // graph directly - the identity view's behaviour, expressed inline.
+    if (context.evaluation_context.graph_view != nullptr) {
+      return context.evaluation_context.graph_view->Vertices(view_);
+    }
+    return VertexRange{context.db_accessor->Vertices(view_)};
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, *this, output_symbol_, input_->MakeCursor(mem, metric_handles), view_, std::move(vertices), "ScanAll");
@@ -1841,9 +1888,48 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   while (true) {
     AbortCheck(context);
+
+    // A projection's edges, when the input node is a VirtualNode. The endpoint
+    // is the edge's other end, and both edge and node go to the frame as their
+    // virtual TypedValue variants.
+    if (in_vedges_ && *in_vedges_it_ != in_vedges_->end()) {
+      const VirtualEdge *edge = *(*in_vedges_it_)++;
+      const VirtualNode &other = edge->From();
+      if (!VirtualEdgeMatches(*edge, other)) continue;
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !OverlayNodeVisible(*context.auth_checker, other, self_.view_)) {
+        continue;
+      }
+#endif
+      frame_writer.Write(self_.common_.edge_symbol, *edge);
+      if (!self_.common_.existing_node) frame_writer.Write(self_.common_.node_symbol, other);
+      return true;
+    }
+    if (out_vedges_ && *out_vedges_it_ != out_vedges_->end()) {
+      const VirtualEdge *edge = *(*out_vedges_it_)++;
+      // A self-loop is both an in-edge and an out-edge; expanding BOTH ways it
+      // was already emitted from the in-edge arm, so emit it once.
+      if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge->FromGid() == edge->ToGid()) continue;
+      const VirtualNode &other = edge->To();
+      if (!VirtualEdgeMatches(*edge, other)) continue;
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !OverlayNodeVisible(*context.auth_checker, other, self_.view_)) {
+        continue;
+      }
+#endif
+      frame_writer.Write(self_.common_.edge_symbol, *edge);
+      if (!self_.common_.existing_node) frame_writer.Write(self_.common_.node_symbol, other);
+      return true;
+    }
+
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
+      // Inside a subgraph scope, expansion stays within the subgraph: drop an
+      // edge that is not a member.
+      if (subgraph_view_ && !subgraph_view_->ContainsEdge(edge)) continue;
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
@@ -1861,6 +1947,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     // attempt to get a value from the outgoing edges
     if (out_edges_ && *out_edges_it_ != out_edges_->end()) {
       auto edge = *(*out_edges_it_)++;
+      // Inside a subgraph scope, expansion stays within the subgraph: drop an
+      // edge that is not a member.
+      if (subgraph_view_ && !subgraph_view_->ContainsEdge(edge)) continue;
       // when expanding in EdgeAtom::Direction::BOTH directions
       // we should do only one expansion for cycles, and it was
       // already done in the block above
@@ -1894,6 +1983,10 @@ void Expand::ExpandCursor::Reset() {
   in_edges_it_ = std::nullopt;
   out_edges_ = std::nullopt;
   out_edges_it_ = std::nullopt;
+  in_vedges_ = std::nullopt;
+  in_vedges_it_ = std::nullopt;
+  out_vedges_ = std::nullopt;
+  out_vedges_it_ = std::nullopt;
 }
 
 ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame) {
@@ -1953,6 +2046,26 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
     if (!input_cursor_->Pull(frame, context)) return false;
 
     if (context.hops_limit.IsLimitReached()) return false;
+
+    // A projection node expands through the bound view's edge index, not the
+    // real-graph accessor.
+    const TypedValue &input_value = frame[self_.input_symbol_];
+    if (input_value.IsVirtualNode()) {
+      if (InitVirtualEdges(frame, context, input_value.ValueVirtualNode())) return true;
+      continue;
+    }
+
+    // A real vertex is not a node of a projection, so inside a projection scope
+    // it has no edges in the ambient graph: its real-graph edges are not part of
+    // the projection and are not expanded. This keeps expansion consistent with
+    // degree(), which reports zero for the same pairing.
+    if (dynamic_cast<VirtualGraphView *>(context.evaluation_context.graph_view) != nullptr) {
+      continue;
+    }
+
+    // A real member of a bound subgraph expands its real edges filtered to the
+    // subgraph's membership; outside a subgraph scope this stays null.
+    subgraph_view_ = dynamic_cast<SubgraphGraphView *>(context.evaluation_context.graph_view);
 
     expansion_info_ = GetExpansionInfo(frame);
 
@@ -2026,6 +2139,50 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
 
     return true;
   }
+}
+
+bool Expand::ExpandCursor::VirtualEdgeMatches(const VirtualEdge &edge, const VirtualNode &other) const {
+  if (!allowed_edge_type_names_.empty() &&
+      std::ranges::find(allowed_edge_type_names_, std::string_view{edge.EdgeTypeName()}) ==
+          allowed_edge_type_names_.end()) {
+    return false;
+  }
+  // When the pattern's other end is already bound (existing_node), only the edge
+  // reaching that node matches.
+  if (existing_vnode_gid_ && other.Gid() != *existing_vnode_gid_) return false;
+  return true;
+}
+
+bool Expand::ExpandCursor::InitVirtualEdges(Frame &frame, ExecutionContext &context, const VirtualNode &vnode) {
+  // A VirtualNode on the frame means a projection is the ambient view, so its
+  // edge index is the bound view's. Edge expansion is the projection's, reached
+  // through the view rather than the real-graph accessor.
+  auto *view = dynamic_cast<VirtualGraphView *>(context.evaluation_context.graph_view);
+  DMG_ASSERT(view, "A VirtualNode is scanned only with a projection bound as the ambient view");
+
+  allowed_edge_type_names_.clear();
+  for (const auto edge_type : self_.common_.edge_types) {
+    allowed_edge_type_names_.emplace_back(view->EdgeTypeToName(edge_type));
+  }
+
+  existing_vnode_gid_.reset();
+  if (self_.common_.existing_node) {
+    const TypedValue &existing = frame[self_.common_.node_symbol];
+    if (existing.IsNull()) return true;  // an unbound optional end matches nothing
+    existing_vnode_gid_ = existing.ValueVirtualNode().Gid();
+  }
+
+  const auto gid = vnode.Gid();
+  const auto direction = self_.common_.direction;
+  if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
+    in_vedges_ = view->InEdges(gid);
+    in_vedges_it_ = in_vedges_->begin();
+  }
+  if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
+    out_vedges_ = view->OutEdges(gid);
+    out_vedges_it_ = out_vedges_->begin();
+  }
+  return true;
 }
 
 ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
@@ -8050,7 +8207,8 @@ namespace {
 void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
-                         int64_t procedure_id, const bool call_initializer = false) {
+                         int64_t procedure_id, const bool call_initializer = false,
+                         query::GraphView *ambient_view = nullptr) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
@@ -8080,6 +8238,17 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 
     vg_acc = query::VirtualGraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), &*virtual_graph);
     graph.impl = &*vg_acc;
+  } else if (ambient_view != nullptr) {
+    // No explicit graph argument, but a `CALL { USE g ... }` scope bound an
+    // ambient view: route the procedure over it, borrowing the scope-owned
+    // graph (no copy). An explicit argument above takes precedence over this.
+    if (auto *subgraph_view = dynamic_cast<query::SubgraphGraphView *>(ambient_view)) {
+      db_acc = query::SubgraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), subgraph_view->graph());
+      graph.impl = &*db_acc;
+    } else if (auto *virtual_view = dynamic_cast<query::VirtualGraphView *>(ambient_view)) {
+      vg_acc = query::VirtualGraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), virtual_view->graph());
+      graph.impl = &*vg_acc;
+    }
   }
 
   procedure::ValidateArguments(args_list, proc, fully_qualified_procedure_name);
@@ -8270,7 +8439,8 @@ class CallProcedureCursor : public Cursor {
                           memory_limit,
                           &result_,
                           self_->procedure_id_,
-                          call_initializer);
+                          call_initializer,
+                          context.evaluation_context.graph_view);
 
       if (call_initializer) call_initializer = false;
 
@@ -8976,6 +9146,102 @@ void Apply::ApplyCursor::Reset() {
   input_->Reset();
   subquery_->Reset();
   pull_input_ = true;
+}
+
+namespace {
+class BindGraphViewCursor : public Cursor {
+ public:
+  BindGraphViewCursor(const BindGraphView &self, utils::MemoryResource *mem,
+                      metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("BindGraphView");
+
+    AbortCheck(context);
+
+    // The bound graph value comes from the outer frame; evaluate it once per
+    // outer row (Reset clears it) and reuse the view for every pull of the body.
+    if (!view_) BindView(frame, context);
+
+    auto *const outer_view = context.evaluation_context.graph_view;
+    context.evaluation_context.graph_view = view_;
+    try {
+      const bool pulled = input_cursor_->Pull(frame, context);
+      context.evaluation_context.graph_view = outer_view;
+      return pulled;
+    } catch (...) {
+      context.evaluation_context.graph_view = outer_view;
+      throw;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    view_ = nullptr;
+    view_storage_.emplace<std::monostate>();
+    graph_value_.reset();
+  }
+
+ private:
+  void BindView(Frame &frame, ExecutionContext &context) {
+    ExpressionEvaluator evaluator(&frame,
+                                  context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor,
+                                  storage::View::NEW,
+                                  context.frame_change_collector,
+                                  &context.number_of_hops,
+                                  context.user_or_role,
+                                  context.triggering_user);
+    graph_value_.emplace(self_.use_graph_->Accept(evaluator));
+    switch (graph_value_->type()) {
+      case TypedValue::Type::VirtualGraph:
+        view_ = &view_storage_.emplace<VirtualGraphView>(&graph_value_->ValueVirtualGraph(), context.db_accessor);
+        break;
+      case TypedValue::Type::Graph:
+        view_ = &view_storage_.emplace<SubgraphGraphView>(&graph_value_->ValueGraph(), context.db_accessor);
+        break;
+      default:
+        throw QueryRuntimeException(
+            "USE expects a projection produced by virtualGraph()/derive() or a subgraph produced by project().");
+    }
+  }
+
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+  const BindGraphView &self_;
+  UniqueCursorPtr input_cursor_;
+  // graph_value_ owns the projection or subgraph; the view in view_storage_
+  // borrows it and view_ points at it through the GraphView seam, so the three
+  // are bound and released together.
+  std::optional<TypedValue> graph_value_;
+  std::variant<std::monostate, VirtualGraphView, SubgraphGraphView> view_storage_;
+  GraphView *view_{nullptr};
+};
+}  // namespace
+
+BindGraphView::BindGraphView(std::shared_ptr<LogicalOperator> input, Expression *use_graph)
+    : input_(input ? std::move(input) : std::make_shared<Once>()), use_graph_(use_graph) {}
+
+ACCEPT_WITH_INPUT(BindGraphView)
+
+UniqueCursorPtr BindGraphView::MakeCursor(utils::MemoryResource *mem,
+                                          metrics::DatabaseMetricHandles &metric_handles) const {
+  return MakeUniqueCursorPtr<BindGraphViewCursor>(mem, *this, mem, metric_handles);
+}
+
+std::vector<Symbol> BindGraphView::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+std::unique_ptr<LogicalOperator> BindGraphView::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<BindGraphView>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->use_graph_ = use_graph_ ? use_graph_->Clone(storage) : nullptr;
+  return object;
 }
 
 IndexedJoin::IndexedJoin(const std::shared_ptr<LogicalOperator> main_branch,

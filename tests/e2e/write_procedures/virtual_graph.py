@@ -856,5 +856,453 @@ class TestBoltProvenanceTag:
             assert self.TAG not in o.properties, "a projection with non-literal options carries no tag"
 
 
+class TestUseScope:
+    def test_use_scope_scans_projection(self, connection):
+        """`CALL { USE g MATCH (n) ... }` runs the MATCH over the bound
+        projection, returning its nodes."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 10}), virtualNode(2, 'N', {x: 20})] AS nodes, [] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (n) RETURN n.x AS x }
+            RETURN x ORDER BY x;
+            """,
+        )
+        assert results == [(10,), (20,)]
+
+    def test_use_scope_is_scoped_to_the_projection(self, connection):
+        """The bound view applies inside the block only: a MATCH outside sees the
+        real graph, a MATCH inside sees the projection."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "CREATE (:Real), (:Real), (:Real);")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH (r) WITH count(r) AS real_count
+            WITH real_count, virtualGraph([virtualNode(1, 'N', {x: 10})], []) AS g
+            CALL { USE g MATCH (n) RETURN n.x AS x }
+            RETURN real_count, x;
+            """,
+        )
+        assert results == [(3, 10)]
+
+    def test_write_in_use_scope_errors(self, connection):
+        """A USE scope is read-only: a write clause inside it is rejected."""
+        cursor = connection.cursor()
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(
+                cursor,
+                """
+                WITH virtualGraph([virtualNode(1, 'N', {})], []) AS g
+                CALL { USE g CREATE (n) }
+                RETURN 1;
+                """,
+            )
+
+    def test_use_scope_expands_directed(self, connection):
+        """A directed expand inside the scope returns the projection's edge with
+        both endpoints bound to projection nodes."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes,
+                 [virtualEdge('R', 1, 2)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a)-[r]->(b) RETURN a.x AS ax, type(r) AS t, b.x AS bx }
+            RETURN ax, t, bx;
+            """,
+        )
+        assert results == [(1, "R", 2)]
+
+    def test_use_scope_expands_undirected(self, connection):
+        """An undirected expand traverses the edge from both ends."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes,
+                 [virtualEdge('R', 1, 2)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a)-[r]-(b) RETURN a.x AS ax, b.x AS bx }
+            RETURN ax, bx ORDER BY ax;
+            """,
+        )
+        assert results == [(1, 2), (2, 1)]
+
+    def test_use_scope_expands_type_filtered(self, connection):
+        """An edge-type filter selects only edges of that type."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes,
+                 [virtualEdge('R', 1, 2), virtualEdge('S', 1, 2)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a)-[r:R]->(b) RETURN type(r) AS t }
+            RETURN t;
+            """,
+        )
+        assert results == [("R",)]
+
+    def test_use_scope_expands_self_loop(self, connection):
+        """A self-loop is reachable expanding either direction; both endpoints are
+        the same projection node."""
+        cursor = connection.cursor()
+        out_rows = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 7})] AS nodes, [virtualEdge('R', 1, 1)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a)-[r]->(b) RETURN a.x AS ax, b.x AS bx }
+            RETURN ax, bx;
+            """,
+        )
+        assert out_rows == [(7, 7)]
+
+        in_rows = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 7})] AS nodes, [virtualEdge('R', 1, 1)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a)<-[r]-(b) RETURN a.x AS ax, b.x AS bx }
+            RETURN ax, bx;
+            """,
+        )
+        assert in_rows == [(7, 7)]
+
+    def test_use_scope_label_filter(self, connection):
+        """A label-filtered MATCH returns only the projection nodes with that
+        label, via a full scan plus filter."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'A', {x: 1}), virtualNode(2, 'B', {x: 2}), virtualNode(3, 'A', {x: 3})] AS nodes,
+                 [] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (n:A) RETURN n.x AS x }
+            RETURN x ORDER BY x;
+            """,
+        )
+        assert results == [(1,), (3,)]
+
+    def test_use_scope_label_filter_ignores_real_index(self, connection):
+        """A label scan over a projection stays a full scan even when the real
+        graph has an index on that label: the projection is read, not the real
+        graph."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "CREATE INDEX ON :A")
+        execute_and_fetch_all(cursor, "CREATE (:A {x: 100})")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'A', {x: 1}), virtualNode(2, 'B', {x: 2})] AS nodes, [] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (n:A) RETURN n.x AS x }
+            RETURN x ORDER BY x;
+            """,
+        )
+        assert results == [(1,)]
+
+    def test_use_scope_property_predicate(self, connection):
+        """A WHERE property predicate filters projection nodes by scan."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 10}), virtualNode(2, 'N', {x: 20}), virtualNode(3, 'N', {x: 30})] AS nodes,
+                 [] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (n) WHERE n.x > 15 RETURN n.x AS x }
+            RETURN x ORDER BY x;
+            """,
+        )
+        assert results == [(20,), (30,)]
+
+
+class TestUseScopeOverDerive:
+    """A USE scope over a derive() overlay projection: reads inside the scope go
+    through to the origin per the per-property binding."""
+
+    def _make_path(self, cursor):
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 7, secret: 42})-[:R]->(:N {id: 2, v: 9, secret: 43});")
+
+    def test_use_scope_over_derive_reads_through(self, connection):
+        """A MATCH inside the scope returns the origin's property values, and a
+        predicate over a read-through value filters correctly."""
+        cursor = connection.cursor()
+        self._make_path(cursor)
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            CALL { USE g MATCH (n) WHERE n.v > 8 RETURN n.id AS id, n.v AS v }
+            RETURN id, v ORDER BY id;
+            """,
+        )
+        assert results == [(2, 9)]
+
+    def test_use_scope_over_derive_overlay_shadows(self, connection):
+        """An overlay-bound key shadows the origin value inside the scope."""
+        cursor = connection.cursor()
+        self._make_path(cursor)
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {v: 'overlay'}, sourceNodeProperties: {v: 100}}) AS g
+            CALL { USE g MATCH (n) WHERE n.id = 1 RETURN n.v AS v }
+            RETURN v;
+            """,
+        )
+        assert results == [(100,)]
+
+    def test_use_scope_over_derive_hidden_invisible(self, connection):
+        """A hidden key is invisible to reads and to predicates inside the scope:
+        the read yields null and `WHERE n.secret IS NULL` matches every node."""
+        cursor = connection.cursor()
+        self._make_path(cursor)
+        read = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {secret: 'hidden'}}) AS g
+            CALL { USE g MATCH (n) WHERE n.id = 1 RETURN n.secret AS s }
+            RETURN s;
+            """,
+        )
+        assert read == [(None,)]
+
+        pred = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {secret: 'hidden'}}) AS g
+            CALL { USE g MATCH (n) WHERE n.secret IS NULL RETURN n.id AS id }
+            RETURN id ORDER BY id;
+            """,
+        )
+        assert pred == [(1,), (2,)]
+
+    def test_use_scope_over_derive_expands_with_read_through_endpoints(self, connection):
+        """Expanding the derived edge inside the scope binds endpoints that read
+        through to their origins."""
+        cursor = connection.cursor()
+        self._make_path(cursor)
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            CALL { USE g MATCH (a)-[r]->(b) RETURN a.id AS aid, type(r) AS t, b.id AS bid }
+            RETURN aid, t, bid;
+            """,
+        )
+        assert results == [(1, "E", 2)]
+
+    def test_use_scope_over_derive_degree_counts_projection_edges(self, connection):
+        """degree/outDegree/inDegree over a projection node count the projection's
+        edges, which differ from the node's real-graph degree."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        # a has real out-degree 2.
+        execute_and_fetch_all(cursor, "CREATE (a:N {id: 1})-[:R]->(:N {id: 2}), (a)-[:R]->(:N {id: 3});")
+        # The projection derived from the single path a->b has one edge.
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            CALL { USE g MATCH (n) WHERE n.id = 1 RETURN degree(n) AS d, outDegree(n) AS od, inDegree(n) AS ind }
+            RETURN d, od, ind;
+            """,
+        )
+        assert results == [(1, 1, 0)]
+        real = execute_and_fetch_all(cursor, "MATCH (a:N {id: 1}) RETURN outDegree(a) AS od;")
+        assert real == [(2,)]
+
+    def test_use_scope_reads_virtual_edge_property(self, connection):
+        """A projected edge reads a property through the same call site as a real
+        edge, by name lookup and by subscript."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1})-[:R]->(:N {id: 2});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', relationshipProperties: {weight: 99}}) AS g
+            CALL { USE g MATCH ()-[r]->() RETURN r.weight AS by_name, r['weight'] AS by_subscript }
+            RETURN by_name, by_subscript;
+            """,
+        )
+        assert results == [(99, 99)]
+
+
+class TestUseScopeOverSubgraph:
+    """A USE scope over a project() subgraph: scans its real member nodes and
+    keeps expansion within membership, through the same seam as projections."""
+
+    def test_use_scope_over_subgraph_scans_members(self, connection):
+        """A MATCH inside the scope returns only the subgraph's member nodes, not
+        other real-graph nodes."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:A {name: 'a'})-[:R]->(:B {name: 'b'}), (:C {name: 'c'});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg MATCH (n) RETURN n.name AS name }
+            RETURN name ORDER BY name;
+            """,
+        )
+        assert results == [("a",), ("b",)]
+
+    def test_use_scope_over_subgraph_expansion_respects_membership(self, connection):
+        """Expanding inside the scope stays within the subgraph: a member node's
+        edge to a non-member is not traversed."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(
+            cursor,
+            "CREATE (a:A {name: 'a'})-[:R]->(b:B {name: 'b'}), (b)-[:R2]->(:C {name: 'c'});",
+        )
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg MATCH (x)-[r]->(y) RETURN x.name AS xn, y.name AS yn }
+            RETURN xn, yn ORDER BY xn;
+            """,
+        )
+        assert results == [("a", "b")]
+
+    def test_use_scope_over_subgraph_degree_counts_member_edges(self, connection):
+        """degree over a subgraph member counts only member edges, differing from
+        the node's real-graph degree."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        # b has real degree 2: an in-edge from a and an out-edge to c.
+        execute_and_fetch_all(cursor, "CREATE (a:A)-[:R]->(b:B {id: 1}), (b)-[:R2]->(:C);")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg MATCH (n:B) RETURN degree(n) AS d, inDegree(n) AS ind, outDegree(n) AS od }
+            RETURN d, ind, od;
+            """,
+        )
+        assert results == [(1, 1, 0)]
+        real = execute_and_fetch_all(cursor, "MATCH (b:B {id: 1}) RETURN degree(b) AS d;")
+        assert real == [(2,)]
+
+
+class TestUseScopeProceduresHonorAmbientView:
+    """Inside a `CALL { USE g ... }` scope, an unmodified read procedure that
+    reads `ctx.graph` operates on the bound view, not the real graph. The
+    procedures here take no graph argument, so the only graph they can see is
+    the ambient one routed in by the USE scope."""
+
+    def test_ambient_virtualgraph_view_iterates_projection_vertices(self, connection):
+        """An ambient virtualGraph projection: an unmodified vertex-iterating
+        procedure yields the projection's nodes."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 10}), virtualNode(2, 'N', {x: 20})] AS nodes, [] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g CALL read.subgraph_get_vertices() YIELD node RETURN node.x AS x }
+            RETURN x ORDER BY x;
+            """,
+        )
+        assert results == [(10,), (20,)]
+
+    def test_ambient_virtualgraph_view_expands_projection_edges(self, connection):
+        """An ambient virtualGraph projection: an unmodified edge-expanding
+        procedure traverses the projection's edges."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes,
+                 [virtualEdge('R', 1, 2)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a {x: 1}) CALL read.subgraph_get_out_edges(a) YIELD edge RETURN type(edge) AS t }
+            RETURN t;
+            """,
+        )
+        assert results == [("R",)]
+
+    def test_ambient_subgraph_view_iterates_member_vertices(self, connection):
+        """An ambient project() subgraph: an unmodified vertex-iterating procedure
+        yields only the subgraph's member nodes."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:A {name: 'a'})-[:R]->(:B {name: 'b'}), (:C {name: 'c'});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg CALL read.subgraph_get_vertices() YIELD node RETURN node.name AS name }
+            RETURN name ORDER BY name;
+            """,
+        )
+        assert results == [("a",), ("b",)]
+
+    def test_ambient_subgraph_view_expands_member_edges(self, connection):
+        """An ambient project() subgraph: an unmodified edge-expanding procedure
+        traverses a member node's edges through the bound subgraph."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:A {name: 'a'})-[:R]->(:B {name: 'b'}), (:C {name: 'c'});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg MATCH (x:A) CALL read.subgraph_get_out_edges(x) YIELD edge RETURN type(edge) AS t }
+            RETURN t;
+            """,
+        )
+        assert results == [("R",)]
+
+    def test_procedure_outside_use_scope_sees_real_graph(self, connection):
+        """With no USE scope, the same procedure reads the real graph."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:Real {name: 'r1'}), (:Real {name: 'r2'});")
+        results = execute_and_fetch_all(
+            cursor,
+            "CALL read.subgraph_get_vertices() YIELD node RETURN node.name AS name ORDER BY name;",
+        )
+        assert results == [("r1",), ("r2",)]
+
+    def test_explicit_graph_argument_wins_over_ambient_view(self, connection):
+        """An explicit graph argument takes precedence over the ambient view:
+        `USE h { CALL proc(g) }` runs the procedure over g, not h."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH virtualGraph([virtualNode(1, 'N', {x: 10})], []) AS g,
+                 virtualGraph([virtualNode(2, 'N', {x: 20})], []) AS h
+            CALL (g) { USE h CALL read.subgraph_get_vertices(g) YIELD node RETURN node.x AS x }
+            RETURN x;
+            """,
+        )
+        assert results == [(10,)]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

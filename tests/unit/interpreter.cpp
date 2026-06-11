@@ -698,6 +698,392 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
   }
 }
 
+// `CALL { USE g MATCH (n) ... }` scans the bound projection's nodes.
+TYPED_TEST(InterpreterTest, CallUseScopeScansProjection) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 10}), virtualNode(2, 'N', {x: 20})] AS nodes, [] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n) RETURN n.x AS x } "
+      "RETURN x ORDER BY x");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader()[0], "x");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 10);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 20);
+}
+
+// The scope binds the projection inside the block only: a MATCH outside sees the
+// real graph, a MATCH inside sees the projection.
+TYPED_TEST(InterpreterTest, CallUseScopeIsScopedToTheProjection) {
+  this->Interpret("CREATE (:Real), (:Real), (:Real)");
+  auto stream = this->Interpret(
+      "MATCH (r) WITH count(r) AS real_count "
+      "WITH real_count, virtualGraph([virtualNode(1, 'N', {x: 10})], []) AS g "
+      "CALL { USE g MATCH (n) RETURN n.x AS x } "
+      "RETURN real_count, x");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 10);
+}
+
+// A directed expand inside a USE scope resolves a projection node's edge; both
+// endpoints bind back to projection nodes.
+TYPED_TEST(InterpreterTest, CallUseScopeExpandsDirected) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes, [virtualEdge('R', 1, 2)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a)-[r]->(b) RETURN a.x AS ax, type(r) AS t, b.x AS bx } "
+      "RETURN ax, t, bx");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "R");
+  EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 2);
+}
+
+// An undirected expand traverses the edge from both ends.
+TYPED_TEST(InterpreterTest, CallUseScopeExpandsUndirected) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes, [virtualEdge('R', 1, 2)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a)-[r]-(b) RETURN a.x AS ax, b.x AS bx } "
+      "RETURN ax, bx ORDER BY ax");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+}
+
+// An edge-type filter selects only edges of that type.
+TYPED_TEST(InterpreterTest, CallUseScopeExpandsTypeFiltered) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('S', 1, 2)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a)-[r:R]->(b) RETURN type(r) AS t } "
+      "RETURN t");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "R");
+}
+
+// A self-loop is reachable expanding either direction; its two endpoints are the
+// same projection node.
+TYPED_TEST(InterpreterTest, CallUseScopeExpandsSelfLoop) {
+  auto out = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 7})] AS nodes, [virtualEdge('R', 1, 1)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a)-[r]->(b) RETURN a.x AS ax, b.x AS bx } "
+      "RETURN ax, bx");
+  ASSERT_EQ(out.GetResults().size(), 1U);
+  EXPECT_EQ(out.GetResults()[0][0].ValueInt(), 7);
+  EXPECT_EQ(out.GetResults()[0][1].ValueInt(), 7);
+
+  auto in = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 7})] AS nodes, [virtualEdge('R', 1, 1)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a)<-[r]-(b) RETURN a.x AS ax, b.x AS bx } "
+      "RETURN ax, bx");
+  ASSERT_EQ(in.GetResults().size(), 1U);
+  EXPECT_EQ(in.GetResults()[0][0].ValueInt(), 7);
+  EXPECT_EQ(in.GetResults()[0][1].ValueInt(), 7);
+}
+
+// A label-filtered MATCH inside a USE scope returns only the projection nodes
+// carrying that label, by full scan plus filter.
+TYPED_TEST(InterpreterTest, CallUseScopeLabelFilter) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'A', {x: 1}), virtualNode(2, 'B', {x: 2}), virtualNode(3, 'A', {x: 3})] AS nodes, "
+      "[] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n:A) RETURN n.x AS x } "
+      "RETURN x ORDER BY x");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+}
+
+// A label-filtered scan over a projection stays a full scan even when the real
+// graph has an index on that label: the projection is read, not the real graph.
+TYPED_TEST(InterpreterTest, CallUseScopeLabelFilterIgnoresRealIndex) {
+  this->Interpret("CREATE INDEX ON :A");
+  this->Interpret("CREATE (:A {x: 100})");
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'A', {x: 1}), virtualNode(2, 'B', {x: 2})] AS nodes, [] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n:A) RETURN n.x AS x } "
+      "RETURN x ORDER BY x");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+}
+
+// A label+property equality match inside a USE scope stays a full scan even when
+// the real graph carries a composite index on that label and property: the
+// projection's matching node is returned, not the real graph's.
+TYPED_TEST(InterpreterTest, CallUseScopeLabelPropertyEqualityIgnoresRealIndex) {
+  this->Interpret("CREATE INDEX ON :A(x)");
+  this->Interpret("CREATE (:A {x: 1})");
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'A', {x: 1, tag: 11}), virtualNode(2, 'A', {x: 2, tag: 22})] AS nodes, [] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n:A {x: 1}) RETURN n.tag AS tag } "
+      "RETURN tag");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 11);
+}
+
+// A label+property range match inside a USE scope stays a full scan even when the
+// real graph carries a composite index on that label and property: only the
+// projection nodes satisfying the range are returned, not the real graph's.
+TYPED_TEST(InterpreterTest, CallUseScopeLabelPropertyRangeIgnoresRealIndex) {
+  this->Interpret("CREATE INDEX ON :A(x)");
+  this->Interpret("CREATE (:A {x: 100})");
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'A', {x: 5, tag: 11}), virtualNode(2, 'A', {x: 1, tag: 22})] AS nodes, [] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n:A) WHERE n.x > 3 RETURN n.tag AS tag } "
+      "RETURN tag ORDER BY tag");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 11);
+}
+
+// An id predicate inside a USE scope over a project() subgraph stays a full scan
+// of the members: a real vertex outside the subgraph is not reachable by its id,
+// and a member is. Were the id lookup to resolve through the real accessor it
+// would return the non-member.
+TYPED_TEST(InterpreterTest, CallUseScopeIdFilterScansSubgraphMembers) {
+  this->Interpret("CREATE (:A {name: 'a'})-[:R]->(:B {name: 'b'}), (:C {name: 'c'})");
+  const auto id_of = [this](const std::string &query) { return this->Interpret(query).GetResults()[0][0].ValueInt(); };
+  const auto member_id = id_of("MATCH (b:B) RETURN id(b)");
+  const auto non_member_id = id_of("MATCH (c:C) RETURN id(c)");
+
+  auto absent = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) WITH project(p) AS sg "
+      "CALL { USE sg MATCH (n) WHERE id(n) = $cid RETURN n.name AS name } "
+      "RETURN count(name) AS cnt",
+      {{"cid", memgraph::storage::ExternalPropertyValue(non_member_id)}});
+  ASSERT_EQ(absent.GetResults().size(), 1U);
+  EXPECT_EQ(absent.GetResults()[0][0].ValueInt(), 0);
+
+  auto present = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) WITH project(p) AS sg "
+      "CALL { USE sg MATCH (n) WHERE id(n) = $bid RETURN n.name AS name } "
+      "RETURN name",
+      {{"bid", memgraph::storage::ExternalPropertyValue(member_id)}});
+  ASSERT_EQ(present.GetResults().size(), 1U);
+  EXPECT_EQ(present.GetResults()[0][0].ValueString(), "b");
+}
+
+// A WHERE property predicate inside a USE scope filters projection nodes by scan.
+TYPED_TEST(InterpreterTest, CallUseScopePropertyPredicate) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 10}), virtualNode(2, 'N', {x: 20}), virtualNode(3, 'N', {x: 30})] AS nodes, "
+      "[] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n) WHERE n.x > 15 RETURN n.x AS x } "
+      "RETURN x ORDER BY x");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 20);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 30);
+}
+
+// A projection node reads a property through the same call site as a real vertex,
+// by name lookup and by subscript.
+TYPED_TEST(InterpreterTest, CallUseScopeReadsPropertyAndSubscript) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 42})] AS nodes, [] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n) RETURN n.x AS by_name, n['x'] AS by_subscript, n.missing AS absent } "
+      "RETURN by_name, by_subscript, absent");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 42);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 42);
+  EXPECT_EQ(stream.GetResults()[0][2].type(), memgraph::communication::bolt::Value::Type::Null);
+}
+
+// A USE scope over a derive() overlay projection reads through to the origin: a
+// MATCH inside the scope returns the origin's property values, and a predicate
+// over a read-through value filters correctly.
+TYPED_TEST(InterpreterTest, CallUseScopeOverDeriveReadsThrough) {
+  this->Interpret("CREATE (:N {id: 1, v: 7})-[:R]->(:N {id: 2, v: 9})");
+  auto stream = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E'}) AS g "
+      "CALL { USE g MATCH (n) WHERE n.v > 8 RETURN n.id AS id, n.v AS v } "
+      "RETURN id, v ORDER BY id");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 9);
+}
+
+// An overlay-bound key shadows the origin value inside a USE scope.
+TYPED_TEST(InterpreterTest, CallUseScopeOverDeriveOverlayShadows) {
+  this->Interpret("CREATE (:N {id: 1, v: 7})-[:R]->(:N {id: 2, v: 9})");
+  auto stream = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {v: 'overlay'}, sourceNodeProperties: {v: 100}}) AS g "
+      "CALL { USE g MATCH (n) WHERE n.id = 1 RETURN n.v AS v } "
+      "RETURN v");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 100);
+}
+
+// A hidden key is invisible to reads and to predicates inside a USE scope: the
+// read yields null, and `WHERE n.secret IS NULL` matches every node.
+TYPED_TEST(InterpreterTest, CallUseScopeOverDeriveHiddenInvisible) {
+  this->Interpret("CREATE (:N {id: 1, secret: 42})-[:R]->(:N {id: 2, secret: 43})");
+  auto read = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {secret: 'hidden'}}) AS g "
+      "CALL { USE g MATCH (n) WHERE n.id = 1 RETURN n.secret AS s } "
+      "RETURN s");
+  ASSERT_EQ(read.GetResults().size(), 1U);
+  EXPECT_EQ(read.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null);
+
+  auto pred = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {secret: 'hidden'}}) AS g "
+      "CALL { USE g MATCH (n) WHERE n.secret IS NULL RETURN n.id AS id } "
+      "RETURN id ORDER BY id");
+  ASSERT_EQ(pred.GetResults().size(), 2U);
+  EXPECT_EQ(pred.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(pred.GetResults()[1][0].ValueInt(), 2);
+}
+
+// A USE scope over a project() subgraph scans only the subgraph's member nodes,
+// not other real-graph nodes.
+TYPED_TEST(InterpreterTest, CallUseScopeOverSubgraphScansMembers) {
+  this->Interpret("CREATE (:A {name: 'a'})-[:R]->(:B {name: 'b'}), (:C {name: 'c'})");
+  auto stream = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) "
+      "WITH project(p) AS sg "
+      "CALL { USE sg MATCH (n) RETURN n.name AS name } "
+      "RETURN name ORDER BY name");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "a");
+  EXPECT_EQ(stream.GetResults()[1][0].ValueString(), "b");
+}
+
+// Expansion inside a USE scope over a subgraph stays within membership: a member
+// node's edge to a non-member is not traversed.
+TYPED_TEST(InterpreterTest, CallUseScopeOverSubgraphExpansionRespectsMembership) {
+  this->Interpret("CREATE (a:A {name: 'a'})-[:R]->(b:B {name: 'b'}), (b)-[:R2]->(:C {name: 'c'})");
+  auto stream = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) "
+      "WITH project(p) AS sg "
+      "CALL { USE sg MATCH (x)-[r]->(y) RETURN x.name AS xn, y.name AS yn } "
+      "RETURN xn, yn ORDER BY xn");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "a");
+  EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "b");
+}
+
+// degree/inDegree/outDegree over a projection node inside a USE scope count the
+// projection's edges, which differ from the node's real-graph degree.
+TYPED_TEST(InterpreterTest, CallUseScopeDegreeOverProjection) {
+  // a has real out-degree 2.
+  this->Interpret("CREATE (a:N {id: 1})-[:R]->(:N {id: 2}), (a)-[:R]->(:N {id: 3})");
+  // The projection derived from the single path a->b has one edge, so a's
+  // projection out-degree is 1.
+  auto stream = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E'}) AS g "
+      "CALL { USE g MATCH (n) WHERE n.id = 1 RETURN degree(n) AS d, outDegree(n) AS od, inDegree(n) AS ind } "
+      "RETURN d, od, ind");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 0);
+
+  // The same node's real-graph out-degree is 2, differing from the projection.
+  auto real = this->Interpret("MATCH (a:N {id: 1}) RETURN outDegree(a) AS od");
+  ASSERT_EQ(real.GetResults().size(), 1U);
+  EXPECT_EQ(real.GetResults()[0][0].ValueInt(), 2);
+}
+
+// degree over a subgraph member inside a USE scope counts only member edges,
+// differing from the node's real-graph degree.
+TYPED_TEST(InterpreterTest, CallUseScopeDegreeOverSubgraph) {
+  // b has real degree 2: an in-edge from a and an out-edge to c.
+  this->Interpret("CREATE (a:A)-[:R]->(b:B {id: 1}), (b)-[:R2]->(:C)");
+  // The subgraph holds only the a->b edge, so b's subgraph degree is 1.
+  auto stream = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) "
+      "WITH project(p) AS sg "
+      "CALL { USE sg MATCH (n:B) RETURN degree(n) AS d, inDegree(n) AS ind, outDegree(n) AS od } "
+      "RETURN d, ind, od");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 0);
+
+  // The same node's real-graph degree is 2, differing from the subgraph.
+  auto real = this->Interpret("MATCH (b:B {id: 1}) RETURN degree(b) AS d");
+  ASSERT_EQ(real.GetResults().size(), 1U);
+  EXPECT_EQ(real.GetResults()[0][0].ValueInt(), 2);
+}
+
+// A projected edge reads a property through the same call site as a real edge,
+// by name lookup and by subscript - no edge-kind branch.
+TYPED_TEST(InterpreterTest, CallUseScopeReadsVirtualEdgeProperty) {
+  this->Interpret("CREATE (:N {id: 1})-[:R]->(:N {id: 2})");
+  auto stream = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E', relationshipProperties: {weight: 99}}) AS g "
+      "CALL { USE g MATCH ()-[r]->() RETURN r.weight AS by_name, r['weight'] AS by_subscript, r.missing AS absent } "
+      "RETURN by_name, by_subscript, absent");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 99);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 99);
+  EXPECT_EQ(stream.GetResults()[0][2].type(), memgraph::communication::bolt::Value::Type::Null);
+}
+
+// degree over a literal virtual node outside any USE scope counts its ambient
+// topology, which is none: a node built by virtualNode() carries no edges, so
+// every degree is zero.
+TYPED_TEST(InterpreterTest, DegreeOverLiteralVirtualNodeIsZero) {
+  auto stream = this->Interpret(
+      "RETURN degree(virtualNode(1, 'N', {})) AS d, inDegree(virtualNode(2, 'N', {})) AS ind, "
+      "outDegree(virtualNode(3, 'N', {})) AS od");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 0);
+  EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 0);
+}
+
+// A real vertex imported into a USE scope over a projection is not a node of
+// that projection, so its degree in the ambient graph is zero. The scope must
+// not leak the vertex's real-graph degree.
+TYPED_TEST(InterpreterTest, DegreeOverRealVertexImportedIntoProjectionScopeIsZero) {
+  this->Interpret("CREATE (a:N {id: 1})-[:R]->(:N {id: 2}), (a)-[:R]->(:N {id: 3})");
+  auto stream = this->Interpret(
+      "MATCH (r:N {id: 1}) WITH r, virtualGraph([virtualNode(1, 'N', {})], []) AS g "
+      "CALL (r) { USE g RETURN degree(r) AS d, inDegree(r) AS ind, outDegree(r) AS od } "
+      "RETURN d, ind, od");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 0);
+  EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 0);
+
+  // Outside the projection scope the same vertex has real-graph out-degree 2.
+  auto real = this->Interpret("MATCH (r:N {id: 1}) RETURN outDegree(r) AS od");
+  ASSERT_EQ(real.GetResults().size(), 1U);
+  EXPECT_EQ(real.GetResults()[0][0].ValueInt(), 2);
+}
+
+// Expansion from a real vertex imported into a USE scope over a projection
+// yields nothing: the vertex is not a node of the projection, so it has no edges
+// in the ambient graph, consistent with its zero degree. The real graph's
+// neighbours are not leaked into the scope.
+TYPED_TEST(InterpreterTest, ExpandFromRealVertexImportedIntoProjectionScopeYieldsNothing) {
+  this->Interpret("CREATE (a:N {id: 1})-[:R]->(:N {id: 2}), (a)-[:R]->(:N {id: 3})");
+  auto stream = this->Interpret(
+      "MATCH (r:N {id: 1}) WITH r, virtualGraph([virtualNode(1, 'N', {})], []) AS g "
+      "CALL (r) { USE g MATCH (r)-[e]->(x) RETURN x } "
+      "RETURN count(*) AS c");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);

@@ -402,6 +402,26 @@ TEST_F(PlannerV2PipelineTest, ExtractedSymbolPositionsResolveInCompactTable) {
                                    }();
 }
 
+// plan_v2 has no USE-scope support: a `CALL { USE g ... }` must surface loudly
+// rather than silently dropping the binding and scanning the real graph. The
+// binding is to a literal so the only construct plan_v2 cannot lower is USE -
+// the throw isolates the missing USE guard, not an unlowerable graph value.
+TEST_F(PlannerV2PipelineTest, UseScopeInCallSubquerySurfacesNotYetImplemented) {
+  auto *cypher_query = ParseQuery("WITH 1 AS g CALL { USE g RETURN 1 AS y } RETURN y;");
+  ASSERT_NE(cypher_query, nullptr);
+  symbol_table_ = MakeSymbolTable(cypher_query);
+  EXPECT_THROW((void)ConvertToEgraph(*cypher_query, symbol_table_), NotYetImplemented);
+}
+
+// Positive control: the same subquery shape without USE lowers cleanly, so the
+// throw above is attributable to USE and not to the CALL block itself.
+TEST_F(PlannerV2PipelineTest, NonUseCallSubqueryLowersWithoutThrow) {
+  auto *cypher_query = ParseQuery("WITH 1 AS g CALL { RETURN 1 AS y } RETURN y;");
+  ASSERT_NE(cypher_query, nullptr);
+  symbol_table_ = MakeSymbolTable(cypher_query);
+  EXPECT_NO_THROW((void)ConvertToEgraph(*cypher_query, symbol_table_));
+}
+
 // clang-format off
 INSTANTIATE_TEST_SUITE_P(
     InlineRewrites,
