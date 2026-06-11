@@ -11,12 +11,14 @@
 
 #include <array>
 #include <bit>
+#include <cstring>
 #include <memory>
 #include <span>
 
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
 #include "communication/bolt/v1/codes.hpp"
+#include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "disk_test_utils.hpp"
 #include "glue/communication.hpp"
@@ -83,6 +85,36 @@ TestBuffer encoder_buffer(output_stream);
 memgraph::communication::bolt::Encoder<TestBuffer> bolt_encoder(encoder_buffer);
 std::vector<uint8_t> &output = output_stream.output;
 
+// Feeds already-encoded bytes back to a Decoder, so a Value can be round-tripped through the wire
+// format the way a generic client would decode it.
+class ReadbackBuffer {
+ public:
+  explicit ReadbackBuffer(std::vector<uint8_t> data) : data_(std::move(data)) {}
+
+  bool Read(uint8_t *out, size_t len) {
+    if (pos_ + len > data_.size()) return false;
+    std::memcpy(out, data_.data() + pos_, len);
+    pos_ += len;
+    return true;
+  }
+
+ private:
+  std::vector<uint8_t> data_;
+  size_t pos_{0};
+};
+
+Value RoundTrip(const Value &value) {
+  TestOutputStream out;
+  TestBuffer buffer(out);
+  memgraph::communication::bolt::BaseEncoder<TestBuffer> encoder(buffer);
+  encoder.WriteValue(value);
+  ReadbackBuffer readback(out.output);
+  memgraph::communication::bolt::Decoder<ReadbackBuffer> decoder(readback);
+  Value decoded;
+  EXPECT_TRUE(decoder.ReadValue(&decoded));
+  return decoded;
+}
+
 struct BoltEncoder : ::testing::Test {
   // In newer gtest library (1.8.1+) this is changed to SetUpTestSuite
   static void SetUpTestCase() { InitializeData(data, SIZE); }
@@ -91,6 +123,56 @@ struct BoltEncoder : ::testing::Test {
 };
 
 }  // namespace
+
+// The projection-schema table is a once-per-result map sent in the RUN header so a projection-aware
+// client can style overlay nodes. Its entries are plain nested maps, lists, and strings, so a
+// generic Bolt decoder reads it with no special handling. The table is keyed by each projection's
+// reference (a stringified Int), pointing at a small extensible map of the overlay key names and the
+// virtual edge type.
+TEST_F(BoltEncoder, ProjectionSchemaTableRoundTrips) {
+  bolt_map_t entry;
+  entry.emplace("overlay", std::vector<Value>{Value{"score"}, Value{"rank"}});
+  entry.emplace("edgeType", Value{"DERIVED"});
+  bolt_map_t table;
+  table.emplace("3", Value{std::move(entry)});
+
+  Value decoded = RoundTrip(Value{std::move(table)});
+
+  ASSERT_EQ(decoded.type(), Value::Type::Map);
+  const auto &decoded_table = decoded.ValueMap();
+  ASSERT_EQ(decoded_table.size(), 1U);
+  ASSERT_EQ(decoded_table.count("3"), 1U);
+
+  const auto &decoded_entry = decoded_table.at("3").ValueMap();
+  ASSERT_EQ(decoded_entry.at("edgeType").type(), Value::Type::String);
+  EXPECT_EQ(decoded_entry.at("edgeType").ValueString(), "DERIVED");
+
+  const auto &overlay = decoded_entry.at("overlay").ValueList();
+  ASSERT_EQ(overlay.size(), 2U);
+  EXPECT_EQ(overlay[0].ValueString(), "score");
+  EXPECT_EQ(overlay[1].ValueString(), "rank");
+}
+
+// An overlay node carries its projection reference as the reserved __mg_overlay_ref property, a plain
+// Int. Provenance never wraps a scalar property value (no {__type, __value} envelope), so the tag and
+// the origin's own scalars decode as ordinary values that a generic client consumes directly.
+TEST_F(BoltEncoder, ProjectionTagAndScalarsAreUnwrapped) {
+  bolt_map_t properties;
+  properties.emplace("__mg_overlay_ref", Value{static_cast<int64_t>(3)});
+  properties.emplace("id", Value{static_cast<int64_t>(42)});
+  properties.emplace("name", Value{"alice"});
+
+  Value decoded = RoundTrip(Value{std::move(properties)});
+
+  ASSERT_EQ(decoded.type(), Value::Type::Map);
+  const auto &decoded_props = decoded.ValueMap();
+  ASSERT_EQ(decoded_props.at("__mg_overlay_ref").type(), Value::Type::Int);
+  EXPECT_EQ(decoded_props.at("__mg_overlay_ref").ValueInt(), 3);
+  ASSERT_EQ(decoded_props.at("id").type(), Value::Type::Int);
+  EXPECT_EQ(decoded_props.at("id").ValueInt(), 42);
+  ASSERT_EQ(decoded_props.at("name").type(), Value::Type::String);
+  EXPECT_EQ(decoded_props.at("name").ValueString(), "alice");
+}
 
 TEST_F(BoltEncoder, NullAndBool) {
   std::vector<Value> vals;

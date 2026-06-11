@@ -26,6 +26,7 @@
 #include <unordered_map>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "query/auth_checker.hpp"
 #include "query/common.hpp"
@@ -35,6 +36,8 @@
 #include "query/query_user.hpp"
 #include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_graph.hpp"
+#include "query/virtual_node.hpp"
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
 #include "utils/pmr/string.hpp"
@@ -448,6 +451,16 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 constexpr auto allow_all_properties = [](storage::PropertyId) { return true; };
+
+// Returned by value: a virtual node's Properties() merges its origin's properties with its overlay
+// and is not a stored map.
+auto VirtualProperties(const TypedValue &value) -> VirtualNode::property_map {
+  if (value.IsVirtualNode()) return value.ValueVirtualNode().Properties();
+  const auto &edge_properties = value.ValueVirtualEdge().Properties();
+  VirtualNode::property_map result{edge_properties.get_allocator()};
+  for (const auto &[id, property_value] : edge_properties) result.insert_or_assign(id, property_value);
+  return result;
+}
 
 // NOTE: Denied properties appear as keys with null values. This differs from
 // keys() and values(), which omit denied properties entirely. This divergence
@@ -2055,6 +2068,112 @@ TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &c
   return TypedValue(std::move(roles_list));
 }
 
+// virtualNode(handle, labels, properties) constructs a synthetic node: a node with no origin,
+// holding an overlay property store only. Its identity is a fresh synthetic gid; the first
+// argument is the import handle, stored on the node to wire virtual edges to it by reference when a
+// projection is assembled, not the node's identity. Labels may be a single string or a list.
+TypedValue VirtualNodeCtor(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Integer, Or<String, List>, Map>("virtualNode", args, nargs);
+
+  const auto alloc = VirtualNode::allocator_type{ctx.memory};
+
+  VirtualNode::label_list labels{alloc};
+  if (args[1].type() == TypedValue::Type::String) {
+    labels.emplace_back(args[1].ValueString());
+  } else {
+    for (const auto &label : args[1].ValueList()) {
+      if (label.type() != TypedValue::Type::String) {
+        throw QueryRuntimeException("virtualNode() labels must be strings.");
+      }
+      labels.emplace_back(label.ValueString());
+    }
+  }
+
+  VirtualNode::property_map properties{alloc};
+  auto *name_id_mapper = ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper();
+  for (const auto &[name, value] : args[2].ValueMap()) {
+    properties.insert_or_assign(ctx.db_accessor->NameToProperty(name), value.ToPropertyValue(name_id_mapper));
+  }
+
+  VirtualNode node{std::move(labels), std::move(properties), alloc};
+  node.SetHandle(args[0].ValueInt());
+  return TypedValue(std::move(node), ctx.memory);
+}
+
+// virtualEdge(type, from, to) constructs a synthetic edge with a fresh synthetic gid. Each endpoint
+// is given as a virtual node (a resolved endpoint) or as a gid handle (an unresolved endpoint bound
+// to a node only when a projection is assembled from lists); the two forms may be mixed. A real
+// vertex is not an endpoint - wire a real node by passing its id() as the handle.
+TypedValue VirtualEdgeCtor(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<String, Or<Integer, Vertex>, Or<Integer, Vertex>>("virtualEdge", args, nargs);
+
+  auto resolve = [&](const TypedValue &endpoint) -> VirtualEdge::Endpoint {
+    if (endpoint.IsInt()) return endpoint.ValueInt();
+    if (endpoint.IsVirtualNode()) {
+      return std::allocate_shared<VirtualNode>(std::pmr::polymorphic_allocator<VirtualNode>(ctx.memory),
+                                               endpoint.ValueVirtualNode());
+    }
+    throw QueryRuntimeException(
+        "virtualEdge() endpoints must be a virtual node or a gid handle; to wire a real node, pass "
+        "its id() as the handle, e.g. virtualEdge('T', id(n1), id(n2)).");
+  };
+
+  utils::pmr::string edge_type{args[0].ValueString(), ctx.memory};
+  VirtualEdge edge{resolve(args[1]), resolve(args[2]), std::move(edge_type), VirtualEdge::allocator_type{ctx.memory}};
+  return TypedValue(std::move(edge), ctx.memory);
+}
+
+// virtualGraph(nodes, edges, config?) assembles a projection from a list of synthetic nodes and a
+// list of synthetic edges, binding each edge's endpoints to a node by import handle (or by identity
+// for a resolved endpoint). Nulls in either list are skipped; a real vertex or edge is rejected. The
+// optional config map's onDanglingEdge key chooses 'error' (default) or 'drop' for an edge whose
+// endpoint matches no listed node.
+TypedValue VirtualGraphCtor(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<List, List, Optional<Map>>("virtualGraph", args, nargs);
+
+  std::vector<VirtualNode> nodes;
+  for (const auto &element : args[0].ValueList()) {
+    if (element.IsNull()) continue;
+    if (!element.IsVirtualNode()) {
+      throw QueryRuntimeException(
+          "virtualGraph() node list must contain virtual nodes or nulls; use project()/derive() for real nodes.");
+    }
+    nodes.push_back(element.ValueVirtualNode());
+  }
+
+  std::vector<VirtualEdge> edges;
+  for (const auto &element : args[1].ValueList()) {
+    if (element.IsNull()) continue;
+    if (!element.IsVirtualEdge()) {
+      throw QueryRuntimeException(
+          "virtualGraph() edge list must contain virtual edges or nulls; use project()/derive() for real edges.");
+    }
+    edges.push_back(element.ValueVirtualEdge());
+  }
+
+  auto policy = DanglingEdgePolicy::kError;
+  if (nargs == 3) {
+    const auto &config = args[2].ValueMap();
+    if (const auto it = config.find("onDanglingEdge"); it != config.end()) {
+      if (it->second.type() != TypedValue::Type::String) {
+        throw QueryRuntimeException("virtualGraph() option 'onDanglingEdge' must be 'error' or 'drop'.");
+      }
+      const auto &mode = it->second.ValueString();
+      if (mode == "drop") {
+        policy = DanglingEdgePolicy::kDrop;
+      } else if (mode == "error") {
+        policy = DanglingEdgePolicy::kError;
+      } else {
+        throw QueryRuntimeException("virtualGraph() option 'onDanglingEdge' must be 'error' or 'drop', got '{}'.",
+                                    std::string_view{mode});
+      }
+    }
+  }
+
+  auto graph = AssembleVirtualGraph(nodes, edges, policy, VirtualGraph::allocator_type{ctx.memory});
+  return TypedValue(std::move(graph), ctx.memory);
+}
+
 auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     // Predicate functions
     {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
@@ -2097,6 +2216,11 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"TOSET", func_info{.func_ = ToSet, .is_pure_ = true}},
     {"UNIFORMSAMPLE", func_info{.func_ = UniformSample, .is_pure_ = false}},
     {"VALUES", func_info{.func_ = Values, .is_pure_ = true}},
+
+    // Virtual graph constructors. Not pure: each call mints a fresh synthetic gid.
+    {"VIRTUALNODE", func_info{.func_ = VirtualNodeCtor, .is_pure_ = false}},
+    {"VIRTUALEDGE", func_info{.func_ = VirtualEdgeCtor, .is_pure_ = false}},
+    {"VIRTUALGRAPH", func_info{.func_ = VirtualGraphCtor, .is_pure_ = false}},
 
     // Mathematical functions - numeric
     {"ABS", func_info{.func_ = Abs, .is_pure_ = true}},

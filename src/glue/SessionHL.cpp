@@ -440,7 +440,26 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
   }
 }
 
-std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrepare() {
+namespace {
+// Converts the query layer's projection schemas into the Bolt RUN-header table: a map keyed by each
+// projection's reference (rendered as a string, since Bolt map keys are strings) to a small,
+// extensible map describing that projection. Empty when the query produced no projection.
+bolt_map_t ToBoltProjectionSchema(const std::vector<memgraph::query::ProjectionSchema> &schemas) {
+  bolt_map_t table;
+  for (const auto &schema : schemas) {
+    std::vector<bolt_value_t> overlay;
+    overlay.reserve(schema.overlay.size());
+    for (const auto &key : schema.overlay) overlay.emplace_back(key);
+    bolt_map_t entry;
+    entry.emplace("overlay", std::move(overlay));
+    entry.emplace("edgeType", schema.edge_type);
+    table.emplace(std::to_string(schema.ref), std::move(entry));
+  }
+  return table;
+}
+}  // namespace
+
+memgraph::communication::bolt::PreparedRunMetadata SessionHL::InterpretPrepare() {
   if (!parsed_res_) {
     throw memgraph::communication::bolt::ClientError("Trying to prepare a query that was not parsed.");
   }
@@ -451,8 +470,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     auto result =
         interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
     interpreter_.CheckAuthorized(result.privileges, result.db);
-
-    return {std::move(result.headers), result.qid};
+    return {std::move(result.headers), result.qid, ToBoltProjectionSchema(result.projection_schemas)};
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {

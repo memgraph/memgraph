@@ -29,6 +29,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/temporal.hpp"
 
+using memgraph::communication::bolt::kMgOverlayRef;
 using memgraph::communication::bolt::kMgTypeEnum;
 using memgraph::communication::bolt::kMgTypeType;
 using memgraph::communication::bolt::kMgTypeValue;
@@ -142,13 +143,22 @@ communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage
 }
 
 communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db) {
-  auto id = communication::bolt::Id::FromUint(node.Gid().AsUint());
+  // An overlay node serializes at its origin's identity, so a click, expand, or edit in a client
+  // maps back to the real node. A synthetic node (no origin) keeps its synthetic id.
+  const auto gid = node.HasOrigin() ? node.Origin()->Gid() : node.Gid();
+  auto id = communication::bolt::Id::FromUint(gid.AsUint());
   std::vector<std::string> labels;
   labels.reserve(node.Labels().size());
   for (const auto &label : node.Labels()) labels.emplace_back(label);
   bolt_map_t properties;
   for (const auto &[prop_id, prop_value] : node.Properties()) {
     properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  // An overlay node from a projection with a known schema carries a reserved Int property pointing
+  // at its projection-schema entry. The value is sent unwrapped so generic clients read it as an
+  // ordinary property and ignore it.
+  if (node.HasProjectionRef()) {
+    properties[std::string{kMgOverlayRef}] = Value{node.ProjectionRef()};
   }
   auto element_id = std::to_string(id.AsInt());
   return communication::bolt::Vertex{

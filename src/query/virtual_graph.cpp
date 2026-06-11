@@ -11,7 +11,11 @@
 
 #include "query/virtual_graph.hpp"
 
+#include <optional>
+
+#include "query/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/pmr/unordered_map.hpp"
 
 namespace memgraph::query {
 
@@ -110,6 +114,46 @@ void VirtualGraph::Merge(const VirtualGraph &other, const VirtualGraphAliasMap &
     DMG_ASSERT(from_shared && to_shared, "merge alias resolution failed");
     InsertEdgeIfNew(VirtualEdge(edge, std::move(from_shared), std::move(to_shared), edge_alloc));
   }
+}
+
+VirtualGraph AssembleVirtualGraph(std::span<const VirtualNode> nodes, std::span<const VirtualEdge> edges,
+                                  DanglingEdgePolicy policy, VirtualGraph::allocator_type alloc) {
+  VirtualGraph graph(alloc);
+
+  // The synthetic gid of the node carrying each import handle, so a handle endpoint binds to a node.
+  utils::pmr::unordered_map<int64_t, storage::Gid> handle_to_gid(alloc.resource());
+  for (const auto &node : nodes) {
+    const auto &inserted = graph.InsertNode(node);
+    if (const auto handle = inserted.Handle()) {
+      const auto [it, added] = handle_to_gid.try_emplace(*handle, inserted.Gid());
+      if (!added && it->second != inserted.Gid()) {
+        throw QueryRuntimeException("Duplicate import handle {} in the virtualGraph() node list.", *handle);
+      }
+    }
+  }
+
+  // Bind an endpoint to a listed node: a handle endpoint by matching handle, a resolved endpoint by
+  // its synthetic gid. Returns nullptr when no listed node matches (the endpoint is dangling).
+  const auto bind = [&](std::optional<int64_t> handle, storage::Gid gid) -> std::shared_ptr<const VirtualNode> {
+    if (handle) {
+      const auto it = handle_to_gid.find(*handle);
+      if (it == handle_to_gid.end()) return nullptr;
+      return graph.FindNode(it->second);
+    }
+    return graph.FindNode(gid);
+  };
+
+  const VirtualEdge::allocator_type edge_alloc(alloc.resource());
+  for (const auto &edge : edges) {
+    auto from = bind(edge.FromHandle(), edge.FromGid());
+    auto to = bind(edge.ToHandle(), edge.ToGid());
+    if (!from || !to) {
+      if (policy == DanglingEdgePolicy::kDrop) continue;
+      throw QueryRuntimeException("virtualGraph() edge references a node absent from the node list (dangling edge).");
+    }
+    graph.InsertEdgeIfNew(VirtualEdge(edge, std::move(from), std::move(to), edge_alloc));
+  }
+  return graph;
 }
 
 }  // namespace memgraph::query

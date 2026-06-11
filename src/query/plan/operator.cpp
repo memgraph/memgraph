@@ -4867,6 +4867,45 @@ std::unique_ptr<LogicalOperator> SetProperty::Clone(AstStorage *storage) const {
   return object;
 }
 
+namespace {
+
+// Writes a single property to a synthetic node's overlay. A null value removes the key, matching
+// SET n.x = null on a real node.
+void SetPropertyOnVirtualNode(VirtualNode &node, storage::PropertyId key, const TypedValue &value,
+                              storage::NameIdMapper *name_id_mapper) {
+  if (value.IsNull()) {
+    node.RemoveProperty(key);
+  } else {
+    node.SetProperty(key, value.ToPropertyValue(name_id_mapper));
+  }
+}
+
+// Writes a property map to a synthetic node's overlay. REPLACE clears the overlay first; UPDATE
+// merges. A null map value removes the key. Unlike a real node, a synthetic node has only its
+// overlay, so the right-hand side must be a map (there is no record to copy properties from).
+void SetPropertiesOnVirtualNode(VirtualNode &node, const TypedValue &rhs, SetProperties::Op op,
+                                ExecutionContext *context,
+                                std::unordered_map<std::string, storage::PropertyId> &cached_name_id) {
+  if (rhs.type() != TypedValue::Type::Map) {
+    throw QueryRuntimeException("Right-hand side in SET on a virtual node must be a map.");
+  }
+  auto *name_id_mapper = context->db_accessor->GetStorageAccessor()->GetNameIdMapper();
+  if (op == SetProperties::Op::REPLACE) node.ClearProperties();
+  for (const auto &[string_key, value] : rhs.ValueMap()) {
+    storage::PropertyId property_id;
+    if (auto it = cached_name_id.find(std::string(string_key)); it != cached_name_id.end()) [[likely]] {
+      property_id = it->second;
+    } else {
+      property_id = context->db_accessor->NameToProperty(string_key);
+      cached_name_id.emplace(string_key, property_id);
+    }
+    SetPropertyOnVirtualNode(node, property_id, value, name_id_mapper);
+    context->execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+  }
+}
+
+}  // namespace
+
 SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils::MemoryResource *mem,
                                                   metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
@@ -4951,6 +4990,21 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
             TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
             TypedValue{rhs});
       }
+      break;
+    }
+    case TypedValue::Type::VirtualNode: {
+      // A synthetic node has value semantics in a TypedValue, so the write must target the
+      // frame-resident node, not the evaluated copy above. This requires the node to be named.
+      auto *object = utils::Downcast<Identifier>(self_.lhs_->expression_);
+      if (object == nullptr) {
+        throw QueryRuntimeException("Setting a property on a virtual node requires a named node.");
+      }
+      auto *name_id_mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      frame_writer.Modify(context.symbol_table.at(*object), [&](TypedValue &node) {
+        SetPropertyOnVirtualNode(node.ValueVirtualNode(), self_.property_, rhs, name_id_mapper);
+      });
+      context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       break;
     }
     case TypedValue::Type::Null:
@@ -5485,6 +5539,12 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
         SetPropertiesOnRecord(&edge.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
       };
       frame_writer.Modify(self_.input_symbol_, set_properties_on_record);
+      break;
+    }
+    case TypedValue::Type::VirtualNode: {
+      frame_writer.Modify(self_.input_symbol_, [&](TypedValue &node) {
+        SetPropertiesOnVirtualNode(node.ValueVirtualNode(), rhs, self_.op_, &context, cached_name_id_);
+      });
       break;
     }
     case TypedValue::Type::Null: {
@@ -6601,7 +6661,8 @@ class AggregateCursor : public Cursor {
             ProjectPathWithOptions(input_value,
                                    agg_elem.arg2->Accept(*evaluator),
                                    agg_value->values_[pos].ValueVirtualGraph(),
-                                   agg_value->derive_dedup_[pos]);
+                                   agg_value->derive_dedup_[pos],
+                                   ProjectionRefForDerive(agg_elem));
             break;
           }
           case Aggregation::Op::COLLECT_MAP:
@@ -6668,7 +6729,8 @@ class AggregateCursor : public Cursor {
           ProjectPathWithOptions(input_value,
                                  agg_elem.arg2->Accept(*evaluator),
                                  agg_value->values_[pos].ValueVirtualGraph(),
-                                 agg_value->derive_dedup_[pos]);
+                                 agg_value->derive_dedup_[pos],
+                                 ProjectionRefForDerive(agg_elem));
           break;
         }
         case Aggregation::Op::COLLECT_MAP:
@@ -6712,9 +6774,21 @@ class AggregateCursor : public Cursor {
     }
   }
 
+  // The projection-schema reference a derive() stamps onto its overlay nodes: the output symbol's
+  // plan position, unique per derive() site. It is set only when the options are a static map
+  // literal; with non-literal options (e.g. the whole map is a parameter) the schema cannot be
+  // extracted before execution, so the nodes carry no reference and the result describes no schema
+  // for them. The execution-time and prepare-time sides agree on this same predicate.
+  static int64_t ProjectionRefForDerive(const Aggregate::Element &element) {
+    if (utils::Downcast<MapLiteral>(element.arg2) == nullptr) return VirtualNode::kNoProjectionRef;
+    return element.output_sym.position();
+  }
+
   VirtualNode BuildDerivedNode(const VertexAccessor &real_vertex, std::string_view labels_key,
-                               std::string_view props_key, const TypedValue::TMap &options,
+                               std::string_view props_key, const TypedValue::TMap &options, int64_t projection_ref,
                                VirtualNode::allocator_type alloc) const {
+    static constexpr auto kPropertyPolicy = "propertyPolicy";
+
     VirtualNode::label_list labels{alloc};
     if (const auto labels_it = options.find(labels_key); labels_it != options.end()) {
       if (labels_it->second.type() != TypedValue::Type::List) {
@@ -6736,29 +6810,60 @@ class AggregateCursor : public Cursor {
       }
     }
 
-    VirtualNode::property_map properties{alloc};
+    // The overlay holds only the explicitly-overridden properties; every other property is read
+    // through the origin lazily, so a projection never copies the origin's properties (e.g. vector
+    // embeddings) unless they are actually read.
+    // overlay_bound names every key whose read and write target this node's overlay: the
+    // construction-time override keys below and the 'overlay' propertyPolicy bindings. Every other
+    // key on the resulting overlay node is origin-bound, so a write to it persists to the origin.
+    VirtualNode::property_map overlay{alloc};
+    VirtualNode::key_set overlay_bound{alloc};
     if (options.find(props_key) != options.end()) {
       ApplyPropertyMap(options, props_key, [&](storage::PropertyId id, storage::PropertyValue pv) {
-        properties.insert_or_assign(id, std::move(pv));
+        overlay.insert_or_assign(id, std::move(pv));
+        overlay_bound.push_back(id);
       });
-    } else {
-      auto maybe_props = real_vertex.Properties(storage::View::NEW);
-      if (!maybe_props) throw QueryRuntimeException("derive() could not read properties of a path vertex.");
-      if (auth_checker_) {
-        auto label_ids = labels | rv::transform([this](auto const &name) { return db_accessor_->NameToLabel(name); }) |
-                         r::to<std::vector>();
-        for (auto &[id, pv] : *maybe_props) {
-          if (auth_checker_->HasPropertyPermission(label_ids, id, AuthQuery::PropertyPermissionType::READ)) {
-            properties.insert_or_assign(id, std::move(pv));
-          }
+    }
+
+    // The static property policy: per property, 'hidden' makes it invisible, 'origin' binds it to
+    // the origin (read-through), 'overlay' allows an overlay value to shadow. Read source and write
+    // target are coupled, so a key bound to 'origin' may not also be overlaid - that is a conflict
+    // rejected at construction rather than resolved silently.
+    VirtualNode::hidden_keys hidden{alloc};
+    if (const auto policy_it = options.find(kPropertyPolicy); policy_it != options.end()) {
+      if (policy_it->second.type() != TypedValue::Type::Map) {
+        throw QueryRuntimeException("derive() option '{}' must be a map of property names to bindings.",
+                                    kPropertyPolicy);
+      }
+      for (const auto &[name, binding] : policy_it->second.ValueMap()) {
+        if (binding.type() != TypedValue::Type::String) {
+          throw QueryRuntimeException(
+              "derive() '{}' binding for '{}' must be 'origin', 'overlay', or 'hidden'.", kPropertyPolicy, name);
         }
-      } else {
-        for (auto &[id, pv] : *maybe_props) {
-          properties.insert_or_assign(id, std::move(pv));
+        const auto id = db_accessor_->NameToProperty(name);
+        const auto &value = binding.ValueString();
+        if (value == "hidden") {
+          hidden.push_back(id);
+        } else if (value == "origin") {
+          if (overlay.find(id) != overlay.end()) {
+            throw QueryRuntimeException("derive() property '{}' is both overlaid and bound to origin.", name);
+          }
+        } else if (value == "overlay") {
+          overlay_bound.push_back(id);
+        } else {
+          throw QueryRuntimeException(
+              "derive() '{}' binding for '{}' must be 'origin', 'overlay', or 'hidden'.", kPropertyPolicy, name);
         }
       }
     }
-    return {std::move(labels), std::move(properties), alloc};
+
+    return {std::move(labels),
+            std::move(overlay),
+            alloc,
+            std::optional<VertexAccessor>{real_vertex},
+            std::move(hidden),
+            std::move(overlay_bound),
+            projection_ref};
   }
 
   // Collapses the path to a single synthetic edge between its endpoints. Intermediate vertices
@@ -6769,7 +6874,8 @@ class AggregateCursor : public Cursor {
   // If a path endpoint's real gid is already present, we reuse the canonical VirtualNode; only
   // the first occurrence inserts a new one into `projected_graph`.
   void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value,
-                              VirtualGraph &projected_graph, CompactAggregationValue::DeriveDedup &dedup) {
+                              VirtualGraph &projected_graph, CompactAggregationValue::DeriveDedup &dedup,
+                              int64_t projection_ref) {
     static constexpr auto kVirtualEdgeType = "virtualEdgeType";
     static constexpr auto kSourceLabels = "sourceNodeLabels";
     static constexpr auto kSourceProperties = "sourceNodeProperties";
@@ -6785,11 +6891,35 @@ class AggregateCursor : public Cursor {
       throw QueryRuntimeException("derive() argument 2 must be a map of options (e.g. {virtualEdgeType: 'TYPE'}).");
     }
     const auto &options = options_value.ValueMap();
+
+    const auto &path_vertices = path_value.ValuePath().vertices();
+    if (path_vertices.empty()) return;
+
+    const auto alloc = projected_graph.get_allocator();
+    auto canonical = [&](const VertexAccessor &real_vertex,
+                         std::string_view labels_key,
+                         std::string_view props_key) -> std::shared_ptr<const VirtualNode> {
+      const auto real_gid = real_vertex.Gid();
+      if (const auto it = dedup.find(real_gid); it != dedup.end()) {
+        return projected_graph.FindNode(it->second);
+      }
+      auto new_node = BuildDerivedNode(real_vertex, labels_key, props_key, options, projection_ref, alloc);
+      const auto synth_gid = new_node.Gid();
+      dedup[real_gid] = synth_gid;
+      projected_graph.InsertNode(std::move(new_node));
+      return projected_graph.FindNode(synth_gid);
+    };
+
+    auto stored_from = canonical(path_vertices.front(), kSourceLabels, kSourceProperties);
+
+    if (path_vertices.size() < 2) return;
+
+    // The path has edges, so a virtual edge type is now required. It is not needed to project a
+    // single-vertex path's overlay node, so a bare derive(p, {}) over one node is allowed.
     const auto type_it = options.find(kVirtualEdgeType);
     if (type_it == options.end() || type_it->second.type() != TypedValue::Type::String) {
-      throw QueryRuntimeException("derive() options map must contain a 'virtualEdgeType' string key.");
+      throw QueryRuntimeException("derive() requires a 'virtualEdgeType' string option when the path has edges.");
     }
-
     const auto &type_name = type_it->second.ValueString();
     const bool type_is_undirected = [&] {
       const auto it = options.find(kUndirectedEdgeTypes);
@@ -6804,28 +6934,6 @@ class AggregateCursor : public Cursor {
       return std::ranges::any_of(list,
                                  [&](const auto &e) { return e.ValueString() == "*" || e.ValueString() == type_name; });
     }();
-
-    const auto &path_vertices = path_value.ValuePath().vertices();
-    if (path_vertices.empty()) return;
-
-    const auto alloc = projected_graph.get_allocator();
-    auto canonical = [&](const VertexAccessor &real_vertex,
-                         std::string_view labels_key,
-                         std::string_view props_key) -> std::shared_ptr<const VirtualNode> {
-      const auto real_gid = real_vertex.Gid();
-      if (const auto it = dedup.find(real_gid); it != dedup.end()) {
-        return projected_graph.FindNode(it->second);
-      }
-      auto new_node = BuildDerivedNode(real_vertex, labels_key, props_key, options, alloc);
-      const auto synth_gid = new_node.Gid();
-      dedup[real_gid] = synth_gid;
-      projected_graph.InsertNode(std::move(new_node));
-      return projected_graph.FindNode(synth_gid);
-    };
-
-    auto stored_from = canonical(path_vertices.front(), kSourceLabels, kSourceProperties);
-
-    if (path_vertices.size() < 2) return;
 
     auto stored_to = canonical(path_vertices.back(), kTargetLabels, kTargetProperties);
 
