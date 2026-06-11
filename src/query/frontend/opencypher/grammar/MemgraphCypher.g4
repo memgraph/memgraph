@@ -174,7 +174,6 @@ memgraphCypherKeyword : cypherKeyword
                       | REPLACE
                       | REPLICA
                       | REPLICAS
-                      | RELATIONSHIPS
                       | REPLICATION
                       | REQUIRE
                       | RESET
