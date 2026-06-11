@@ -6653,7 +6653,7 @@ class AggregateCursor : public Cursor {
                                    agg_elem.arg2->Accept(*evaluator),
                                    agg_value->values_[pos].ValueVirtualGraph(),
                                    agg_value->derive_dedup_[pos],
-                                   agg_elem.output_sym.position());
+                                   ProjectionRefForDerive(agg_elem));
             break;
           }
           case Aggregation::Op::COLLECT_MAP:
@@ -6721,7 +6721,7 @@ class AggregateCursor : public Cursor {
                                  agg_elem.arg2->Accept(*evaluator),
                                  agg_value->values_[pos].ValueVirtualGraph(),
                                  agg_value->derive_dedup_[pos],
-                                 agg_elem.output_sym.position());
+                                 ProjectionRefForDerive(agg_elem));
           break;
         }
         case Aggregation::Op::COLLECT_MAP:
@@ -6763,6 +6763,16 @@ class AggregateCursor : public Cursor {
     for (const auto &[name, val] : it->second.ValueMap()) {
       setter(db_accessor_->NameToProperty(name), val.ToPropertyValue(name_id_mapper));
     }
+  }
+
+  // The projection-schema reference a derive() stamps onto its overlay nodes: the output symbol's
+  // plan position, unique per derive() site. It is set only when the options are a static map
+  // literal; with non-literal options (e.g. the whole map is a parameter) the schema cannot be
+  // extracted before execution, so the nodes carry no reference and the result describes no schema
+  // for them. The execution-time and prepare-time sides agree on this same predicate.
+  static int64_t ProjectionRefForDerive(const Aggregate::Element &element) {
+    if (utils::Downcast<MapLiteral>(element.arg2) == nullptr) return VirtualNode::kNoProjectionRef;
+    return element.output_sym.position();
   }
 
   VirtualNode BuildDerivedNode(const VertexAccessor &real_vertex, std::string_view labels_key,

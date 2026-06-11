@@ -648,6 +648,30 @@ class TestBoltProvenanceTag:
         assert source.properties["v"] == 7
         assert source.properties["name"] == "x"
 
+    def test_param_options_derive_emits_no_tag(self, connection):
+        """When derive() options are not a static map literal (here, the whole options map
+        is a query parameter), the projection schema is unknowable before execution. The
+        overlay nodes still serialize at their origin identity, but carry no tag - there is
+        no schema entry for a projection-aware client to point them at."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1})-[:R]->(:N {id: 2});")
+
+        rows = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, $opts) AS g
+            UNWIND g.nodes AS o
+            RETURN o;
+            """,
+            {"opts": {"virtualEdgeType": "E"}},
+        )
+
+        assert len(rows) == 2
+        for (o,) in rows:
+            assert self.TAG not in o.properties, "a projection with non-literal options carries no tag"
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
