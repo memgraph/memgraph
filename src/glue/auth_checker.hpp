@@ -122,6 +122,10 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
   mutable std::optional<auth::FineGrainedAccessPermissions> cached_edge_permissions_;
   mutable std::optional<auth::PropertyAccessPermissions> cached_property_label_permissions_;
   mutable std::optional<auth::PropertyAccessPermissions> cached_property_edge_type_permissions_;
+  mutable std::optional<bool> unrestricted_vertices_;
+  mutable std::optional<bool> unrestricted_edges_;
+  mutable std::optional<bool> unrestricted_vertex_properties_;
+  mutable std::optional<bool> unrestricted_edge_properties_;
 };
 #endif
 }  // namespace memgraph::glue

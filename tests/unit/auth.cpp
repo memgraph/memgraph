@@ -2004,9 +2004,9 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsHasUnrestrictedAccess) {
   using memgraph::auth::PropertyPermissionType;
 
   {
-    // Empty rules and empty global means unrestricted, i.e., no PBAC
+    // Empty rules and empty global means not configured
     PropertyAccessPermissions perms;
-    EXPECT_TRUE(perms.HasUnrestrictedAccess());
+    EXPECT_FALSE(perms.HasUnrestrictedAccess());
   }
   {
     // Global * with READ+WRITE, no denies means unrestricted
