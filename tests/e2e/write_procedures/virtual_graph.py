@@ -333,6 +333,37 @@ class TestVirtualGraphConstructor:
 
 
 class TestDeriveOverlayReadThrough:
+    def test_bare_derive_projects_single_node_without_edge_type(self, connection):
+        """A virtualEdgeType is only needed to project edges. derive(p, {}) over a
+        single-vertex path yields the overlay node, reading through to its origin,
+        with no edge type required."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 7});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})
+            WITH derive(p, {}) AS g
+            UNWIND g.nodes AS n
+            RETURN n.v AS v;
+            """,
+        )
+        assert len(results) == 1
+        assert results[0][0] == 7  # read through to the origin
+
+    def test_bare_derive_errors_when_path_has_edges(self, connection):
+        """A path with edges still requires a virtualEdgeType to name the derived
+        edge."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1})-[:R]->(:N {id: 2});")
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(
+                cursor,
+                "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) WITH derive(p, {}) AS g RETURN g;",
+            )
+
     def test_reads_origin_property_value(self, connection):
         """An overlay node from derive() with no property override reads its origin's
         property values."""

@@ -6882,25 +6882,6 @@ class AggregateCursor : public Cursor {
       throw QueryRuntimeException("derive() argument 2 must be a map of options (e.g. {virtualEdgeType: 'TYPE'}).");
     }
     const auto &options = options_value.ValueMap();
-    const auto type_it = options.find(kVirtualEdgeType);
-    if (type_it == options.end() || type_it->second.type() != TypedValue::Type::String) {
-      throw QueryRuntimeException("derive() options map must contain a 'virtualEdgeType' string key.");
-    }
-
-    const auto &type_name = type_it->second.ValueString();
-    const bool type_is_undirected = [&] {
-      const auto it = options.find(kUndirectedEdgeTypes);
-      if (it == options.end()) return false;
-      if (it->second.type() != TypedValue::Type::List) {
-        throw QueryRuntimeException("derive() option '{}' must be a list of edge-type strings.", kUndirectedEdgeTypes);
-      }
-      const auto &list = it->second.ValueList();
-      if (std::ranges::any_of(list, [](const auto &e) { return e.type() != TypedValue::Type::String; })) {
-        throw QueryRuntimeException("derive() option '{}' entries must be strings.", kUndirectedEdgeTypes);
-      }
-      return std::ranges::any_of(list,
-                                 [&](const auto &e) { return e.ValueString() == "*" || e.ValueString() == type_name; });
-    }();
 
     const auto &path_vertices = path_value.ValuePath().vertices();
     if (path_vertices.empty()) return;
@@ -6923,6 +6904,27 @@ class AggregateCursor : public Cursor {
     auto stored_from = canonical(path_vertices.front(), kSourceLabels, kSourceProperties);
 
     if (path_vertices.size() < 2) return;
+
+    // The path has edges, so a virtual edge type is now required. It is not needed to project a
+    // single-vertex path's overlay node, so a bare derive(p, {}) over one node is allowed.
+    const auto type_it = options.find(kVirtualEdgeType);
+    if (type_it == options.end() || type_it->second.type() != TypedValue::Type::String) {
+      throw QueryRuntimeException("derive() requires a 'virtualEdgeType' string option when the path has edges.");
+    }
+    const auto &type_name = type_it->second.ValueString();
+    const bool type_is_undirected = [&] {
+      const auto it = options.find(kUndirectedEdgeTypes);
+      if (it == options.end()) return false;
+      if (it->second.type() != TypedValue::Type::List) {
+        throw QueryRuntimeException("derive() option '{}' must be a list of edge-type strings.", kUndirectedEdgeTypes);
+      }
+      const auto &list = it->second.ValueList();
+      if (std::ranges::any_of(list, [](const auto &e) { return e.type() != TypedValue::Type::String; })) {
+        throw QueryRuntimeException("derive() option '{}' entries must be strings.", kUndirectedEdgeTypes);
+      }
+      return std::ranges::any_of(list,
+                                 [&](const auto &e) { return e.ValueString() == "*" || e.ValueString() == type_name; });
+    }();
 
     auto stored_to = canonical(path_vertices.back(), kTargetLabels, kTargetProperties);
 
