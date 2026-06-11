@@ -335,6 +335,7 @@ int main(int argc, char **argv) {
 #endif
 
   std::optional<memgraph::utils::Scheduler> python_gc_scheduler{std::nullopt};
+  std::optional<memgraph::utils::Scheduler> hot_cold_eviction_scheduler{std::nullopt};
   wchar_t *program_name{nullptr};
   PyThreadState *python_thread_state{nullptr};
 
@@ -962,6 +963,64 @@ int main(int argc, char **argv) {
 #endif  // MG_ENTERPRISE (hot/cold callbacks)
 
 #ifdef MG_ENTERPRISE
+  // Memory-watermark eviction scheduler: periodically checks tracked memory usage; if it exceeds
+  // the configured high-watermark it calls SuspendColdestIdleTenants to drive usage back to the
+  // low-watermark.  Guarded by BOTH the master experiment flag and the per-flag enable so default
+  // behaviour is completely unchanged.
+  if (!is_coordinator_instance && dbms_handler.has_value() && FLAGS_storage_hot_cold_eviction_enabled &&
+      memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::HOT_COLD_TENANTS)) {
+    // Sanity-check watermark percents at startup.  Misconfigured values won't crash the process
+    // but will make eviction either never fire (low >= high) or compute nonsensical byte targets.
+    if (FLAGS_storage_hot_cold_eviction_high_watermark_percent == 0 ||
+        FLAGS_storage_hot_cold_eviction_high_watermark_percent > 100) {
+      spdlog::warn(
+          "Hot/cold eviction: high_watermark_percent ({}) is outside (0,100]; eviction may not behave correctly.",
+          FLAGS_storage_hot_cold_eviction_high_watermark_percent);
+    }
+    if (FLAGS_storage_hot_cold_eviction_low_watermark_percent == 0 ||
+        FLAGS_storage_hot_cold_eviction_low_watermark_percent > 100) {
+      spdlog::warn(
+          "Hot/cold eviction: low_watermark_percent ({}) is outside (0,100]; eviction may not behave correctly.",
+          FLAGS_storage_hot_cold_eviction_low_watermark_percent);
+    }
+    if (FLAGS_storage_hot_cold_eviction_low_watermark_percent >=
+        FLAGS_storage_hot_cold_eviction_high_watermark_percent) {
+      spdlog::warn(
+          "Hot/cold eviction: low_watermark_percent ({}) >= high_watermark_percent ({}); this "
+          "collapses the hysteresis band. With low == high eviction still fires (driving usage down "
+          "to the high watermark); with low > high it can never reduce usage below the trigger and "
+          "will thrash. Set low < high for a proper hysteresis band.",
+          FLAGS_storage_hot_cold_eviction_low_watermark_percent,
+          FLAGS_storage_hot_cold_eviction_high_watermark_percent);
+    }
+    hot_cold_eviction_scheduler.emplace();
+    hot_cold_eviction_scheduler->SetInterval(std::chrono::seconds(FLAGS_storage_hot_cold_eviction_poll_interval_sec));
+    hot_cold_eviction_scheduler->Run("HC-Evict", [&dbms_handler]() {
+      const int64_t limit = memgraph::flags::GetMemoryLimit();
+      if (limit <= 0) return;
+      const int64_t usage = memgraph::utils::total_memory_tracker.Amount();
+      const int64_t high = (limit / 100) * static_cast<int64_t>(FLAGS_storage_hot_cold_eviction_high_watermark_percent);
+      if (usage <= high) return;  // below the high watermark — nothing to do
+      const int64_t low = (limit / 100) * static_cast<int64_t>(FLAGS_storage_hot_cold_eviction_low_watermark_percent);
+      const int64_t to_free = usage - low;  // aim to drop back to the low watermark
+      if (to_free <= 0) return;
+      const int64_t freed =
+          dbms_handler->SuspendColdestIdleTenants(to_free, FLAGS_storage_hot_cold_eviction_max_per_cycle);
+      if (freed > 0) {
+        spdlog::info(
+            "Hot/cold eviction cycle: usage {} > high {}, freed ~{} bytes (target {}).", usage, high, freed, to_free);
+      }
+    });
+    spdlog::info(
+        "Hot/cold memory-watermark eviction scheduler started (interval {}s, high {}%, low {}%, max {}/cycle).",
+        FLAGS_storage_hot_cold_eviction_poll_interval_sec,
+        FLAGS_storage_hot_cold_eviction_high_watermark_percent,
+        FLAGS_storage_hot_cold_eviction_low_watermark_percent,
+        FLAGS_storage_hot_cold_eviction_max_per_cycle);
+  }
+#endif  // MG_ENTERPRISE (hot/cold eviction scheduler)
+
+#ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
   // Needs to start after dbms_handler.RestoreTriggers has been run. Otherwise we have a deadlock:
   // This thread takes unique lock on dbms handler and waits for storage write access
@@ -1071,6 +1130,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
                       &coordinator_state,
                       &metrics_server,
+                      &hot_cold_eviction_scheduler,
 #endif
                       is_coordinator_instance,
                       &websocket_server,
@@ -1110,6 +1170,12 @@ int main(int argc, char **argv) {
 #endif
 
 #ifdef MG_ENTERPRISE
+    // Stop the eviction scheduler before draining the resume pool so no new
+    // SuspendColdestIdleTenants call can race with teardown of tenant tasks.
+    if (hot_cold_eviction_scheduler) {
+      spdlog::trace("Stopping hot/cold eviction scheduler");
+      hot_cold_eviction_scheduler->Stop();
+    }
     if (dbms_handler.has_value()) {
       // Drain in-flight resumes BEFORE shutting down replication state (and tenant tasks): a resume
       // callback (on_resume_repl_) re-wires MAIN-side replication through repl_state, so draining the
@@ -1129,7 +1195,6 @@ int main(int argc, char **argv) {
         locked_repl_state->Shutdown();
       }
     }
-
     if (dbms_handler.has_value()) {
       dbms_handler->ForEach([](memgraph::dbms::DatabaseAccess acc) {
         spdlog::trace("Closing background tasks and deleting repl clients for db: {}", acc->name());

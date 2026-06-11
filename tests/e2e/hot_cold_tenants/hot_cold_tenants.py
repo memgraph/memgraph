@@ -396,5 +396,176 @@ def test_t4_flag_off_suspend_resume_rejected(test_name):
     ), f"Expected error to mention 'hot-cold-tenants', got: {resume_error_msg!r}"
 
 
+# ---------------------------------------------------------------------------
+# T5 — automatic memory-watermark eviction scheduler
+# ---------------------------------------------------------------------------
+
+# Instance args for T5: eviction scheduler enabled with an aggressively low
+# watermark so that normal process memory (>>2.6 MiB at 1% of 256 MiB) keeps
+# the high-watermark permanently crossed and the scheduler suspends idle tenants
+# within a few poll cycles.
+_EVICTION_ARGS = [
+    "--bolt-port",
+    "7687",
+    "--log-level",
+    "TRACE",
+    "--experimental-enabled=hot-cold-tenants",
+    "--storage-wal-enabled=true",
+    "--storage-snapshot-interval-sec=300",
+    "--data-recovery-on-startup=true",
+    "--storage-hot-cold-min-hot-residency-sec=0",
+    # Eviction scheduler flags
+    "--storage-hot-cold-eviction-enabled=true",
+    "--storage-hot-cold-eviction-poll-interval-sec=1",
+    "--storage-hot-cold-eviction-high-watermark-percent=1",
+    "--storage-hot-cold-eviction-low-watermark-percent=1",
+    "--storage-hot-cold-eviction-max-per-cycle=3",
+    # 256 MiB limit → high watermark ~2.6 MiB; process baseline easily exceeds it.
+    "--memory-limit=256",
+]
+
+
+def instance_description_eviction(test_name: str) -> dict:
+    """Return a cluster description for the auto-eviction T5 test."""
+    return {
+        "instance_evict": {
+            "args": _EVICTION_ARGS,
+            "log_file": f"{get_logs_path(file, test_name)}/instance_evict.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_evict",
+            "setup_queries": [],
+        },
+    }
+
+
+def _read_instance_log(test_name: str) -> str:
+    """Return the content of the T5 instance log, or an empty string if not found."""
+    log_path = os.path.join(
+        interactive_mg_runner.BUILD_DIR,
+        "tests",
+        "e2e",
+        f"hot_cold_tenants/{file}/{test_name}/instance_evict.log",
+    )
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+def test_t5_auto_eviction_under_memory_pressure(test_name):
+    """
+    Verify that the automatic memory-watermark eviction scheduler suspends an idle
+    non-default tenant when tracked memory exceeds the high-watermark.
+
+    Setup:
+    - 256 MiB memory limit; high-watermark = 1% (~2.6 MiB).  The Memgraph process
+      baseline easily exceeds 2.6 MiB of tracked allocation, so the scheduler will
+      fire on the very first poll tick (1 s interval).
+    - ``idle_db`` is created, populated (2 000 nodes), and then left completely idle.
+    - The default ``memgraph`` DB is kept alive on ``conn_default`` but never writes,
+      so it is NOT the coldest tenant and must never be auto-evicted (the scheduler
+      also skips kDefaultDB unconditionally).
+
+    Expected behaviour:
+    1. Within ~20 s idle_db transitions to State='cold' (auto-suspended by the
+       eviction scheduler).
+    2. After auto-suspension, a fresh connection's USE DATABASE idle_db block-and-
+       resumes the tenant synchronously, and the subsequent query returns
+       count(n) == 2 000.
+
+    If the scheduler does not fire within the timeout the test fails with:
+    - the last ``SHOW DATABASES`` output, and
+    - the lines from the instance log that contain the word "eviction".
+    """
+    instances = instance_description_eviction(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    # Default connection stays on the 'memgraph' system DB throughout.
+    conn_default = connect(host="localhost", port=7687)
+    cursor_default = conn_default.cursor()
+
+    # Create the tenant that will be auto-evicted.
+    execute_and_fetch_all(cursor_default, "CREATE DATABASE idle_db")
+
+    # Populate idle_db over a dedicated connection. Connection-scoped: this open
+    # connection pins idle_db HOT for its whole lifetime, so the 1-second-interval
+    # eviction scheduler cannot evict it mid-populate (it is closed below to release).
+    #
+    # USE DATABASE must be issued as an autocommit (implicit) transaction; only then
+    # can we switch the connection to explicit-transaction mode for the heavy CREATE.
+    conn_populate = mgclient.connect(host="localhost", port=7687)
+    conn_populate.autocommit = True
+    cursor_populate = conn_populate.cursor()
+    cursor_populate.execute("USE DATABASE idle_db")
+
+    # Switch to explicit-transaction mode so the CREATE runs as one atomic op.
+    conn_populate.autocommit = False
+    cursor_populate.execute("UNWIND range(1, 2000) AS i CREATE (:Pad {i: i})")
+    conn_populate.commit()
+
+    # Close the populate connection so idle_db has zero active connections/accessors.
+    conn_populate.close()
+
+    # idle_db is now HOT with data but completely idle.  The scheduler fires every
+    # 1 s.  Poll SHOW DATABASES until idle_db goes 'cold' (auto-evicted).
+    EVICTION_TIMEOUT_S = 20.0
+    last_show_dbs: list[tuple] = []
+
+    deadline = time.monotonic() + EVICTION_TIMEOUT_S
+    became_cold = False
+    while time.monotonic() < deadline:
+        last_show_dbs = execute_and_fetch_all(cursor_default, "SHOW DATABASES")
+        for row in last_show_dbs:
+            if row[0] == "idle_db" and str(row[1]) == "cold":
+                became_cold = True
+                break
+        if became_cold:
+            break
+        time.sleep(1.0)
+
+    if not became_cold:
+        # Extract eviction-related log lines for diagnostics.
+        full_log = _read_instance_log(test_name)
+        eviction_lines = [ln for ln in full_log.splitlines() if "eviction" in ln.lower()]
+        eviction_excerpt = "\n".join(eviction_lines[-40:]) if eviction_lines else "(no eviction log lines found)"
+        pytest.fail(
+            f"idle_db did not reach State='cold' within {EVICTION_TIMEOUT_S}s.\n"
+            f"Last SHOW DATABASES output: {last_show_dbs!r}\n"
+            f"Instance log (eviction lines):\n{eviction_excerpt}"
+        )
+
+    # -------------------------------------------------------------------------
+    # Round-trip: confirm data survived auto-eviction. A fresh connection's
+    # USE DATABASE block-and-resumes the COLD tenant; retry in a bounded loop to
+    # tolerate the brief window where the scheduler is mid-suspend.
+    # -------------------------------------------------------------------------
+    RESUME_TIMEOUT_S = 20.0
+    deadline_resume = time.monotonic() + RESUME_TIMEOUT_S
+    final_count: int | None = None
+    last_resume_exc: Exception | None = None
+
+    while time.monotonic() < deadline_resume:
+        try:
+            conn_check = connect(host="localhost", port=7687)
+            cursor_check = conn_check.cursor()
+            execute_and_fetch_all(cursor_check, "USE DATABASE idle_db")
+            rows = execute_and_fetch_all(cursor_check, "MATCH (n:Pad) RETURN count(n) AS c")
+            final_count = rows[0][0]
+            conn_check.close()
+            break
+        except Exception as exc:
+            last_resume_exc = exc
+            time.sleep(0.5)
+
+    assert final_count is not None, (
+        f"idle_db did not become queryable within {RESUME_TIMEOUT_S}s after auto-eviction. "
+        f"Last exception: {last_resume_exc!r}"
+    )
+    assert final_count == 2000, (
+        f"Expected 2000 nodes after auto-eviction resume, got {final_count} "
+        "(data loss: auto-suspend->resume did not recover storage)"
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
