@@ -1,6 +1,7 @@
 # ADR 0001: One projected-node type for derived views
 
-Status: proposed
+Status: proposed (Decision point 3 and "The user-supplied gid is an import key,
+not node state" are superseded by ADR 0002)
 
 ## Context
 
@@ -79,7 +80,13 @@ Three settled choices:
    its gids are resolved against the node list at projection assembly (issue 05), not
    stored as unresolved endpoints on the edge and not materialized as placeholder nodes.
 
+   **Superseded by ADR 0002.** Eager evaluation makes a standalone gid-form edge value
+   exist before assembly, so its endpoints must be stored on the edge. The handle is now
+   stored on the node and an edge endpoint may be an unresolved handle.
+
 ### The user-supplied gid is an import key, not node state
+
+**Superseded by ADR 0002**: the import key (handle) is stored on the node.
 
 A node's identity is its synthetic gid. The integer a user passes to
 `virtualNode(gid, ...)` is a key used once, at list assembly, to wire edges to nodes by

@@ -29,11 +29,21 @@ words in issues, tests, and proposals rather than drifting to synonyms.
   only. Produced by `virtualNode(...)` or imported from external data. Reads and
   writes both hit its overlay. `SET` on a synthetic node never errors.
 
-- **Handle** (import key) - the integer a user passes to `virtualNode(gid, ...)`.
-  It is **not** the node's identity (that is a synthetic gid) and is **not**
-  stored on the node or on an edge. It is a key used once, at list assembly, to
-  wire `virtualEdge(type, from_gid, to_gid)` endpoints to nodes by their declared
-  gid.
+- **Synthetic edge** - a typed edge in a derived view with its own synthetic
+  gid, produced by `virtualEdge(type, from, to)`. Each endpoint is either a
+  **virtual node** (a resolved endpoint) or a **handle** (an unresolved
+  endpoint), settled per endpoint, so the two may be mixed.
+
+- **Handle** (import key) - the integer a user passes to `virtualNode(gid, ...)`
+  or as a `virtualEdge` endpoint. It is **not** a node's identity (that is a
+  synthetic gid); it is an import key **stored on the node** so that, at list
+  assembly, a synthetic edge's **unresolved (handle) endpoints** are bound to
+  nodes by matching handles. A node built by `derive()` carries no handle.
+
+- **Unresolved endpoint** - a synthetic edge endpoint holding a handle rather
+  than a node, awaiting binding at list assembly. A standalone edge may carry
+  unresolved endpoints; a real vertex is never an endpoint (wire it by its
+  `id()` as a handle).
 
 - **Binding** - the store a single property is fixed to: `origin` (read-through
   and write-through, persisted), `overlay` (read and write hit the overlay,
