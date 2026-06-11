@@ -32,7 +32,8 @@ fi
 
 echo "Linking git hooks OR skip if .git folder is not there"
 if [ -d "$DIR/.git" ]; then
-  for hook in $(find "$DIR/.githooks" -type f -printf "%f\n"); do
+  for hookpath in $(find "$DIR/.githooks" -type f); do
+    hook="$(basename "$hookpath")"
     ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
     echo "Added $hook hook"
   done
@@ -44,7 +45,9 @@ fi
 if [[ "$ci" == "false" ]]; then
   echo "Installing pre-commit hooks"
   export PIP_BREAK_SYSTEM_PACKAGES=1
-  python3 -m pip install --upgrade pip
-  pip install pre-commit black==26.5.0 isort==5.12.*
+  # Upgrading pip is best-effort: a Homebrew/distro-managed pip can't uninstall
+  # itself (no RECORD file), so don't let a failed upgrade abort the script.
+  python3 -m pip install --upgrade pip || true
+  python3 -m pip install pre-commit black==26.5.0 isort==5.12.*
   python3 -m pre_commit install
 fi
