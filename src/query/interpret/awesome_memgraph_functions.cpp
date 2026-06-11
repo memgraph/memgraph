@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <functional>
 #include <iterator>
+#include <optional>
 #include <random>
 #include <string_view>
 #include <type_traits>
@@ -1211,9 +1212,8 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
   }
 }
 
-TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<ToStringTypes>("toString", args, nargs);
-  const auto &arg = args[0];
+// Conversion core shared by toString and toStringOrNull; nullopt iff the enum can't be resolved to a name.
+std::optional<TypedValue> TryToString(const TypedValue &arg, const FunctionContext &ctx) {
   using enum TypedValue::Type;
   switch (arg.type()) {
     case Null: {
@@ -1221,7 +1221,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     }
 
     case String: {
-      return {arg, ctx.memory};
+      return TypedValue(arg, ctx.memory);
     }
 
     case Int: {
@@ -1256,7 +1256,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
 
     case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      if (!opt_str) return std::nullopt;
       return TypedValue(*opt_str, ctx.memory);
     }
 
@@ -1287,15 +1287,21 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
   }
 }
 
+TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<ToStringTypes>("toString", args, nargs);
+  auto converted = TryToString(args[0], ctx);
+  if (!converted) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+  return *std::move(converted);
+}
+
 TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   if (nargs != 1) {
     throw QueryRuntimeException("'toStringOrNull' requires exactly 1 argument.");
   }
-  const auto &arg = args[0];
-  // Rejected type -> null. Unresolvable enum is the one accepted type whose strict conversion throws, so null it too.
-  if (!ToStringTypes::Check(arg)) return TypedValue(ctx.memory);
-  if (arg.IsEnum() && !ctx.db_accessor->EnumToName(arg.ValueEnum())) return TypedValue(ctx.memory);
-  return ToString(args, nargs, ctx);
+  // Rejected type or unconvertible value -> null.
+  if (!ToStringTypes::Check(args[0])) return TypedValue(ctx.memory);
+  auto converted = TryToString(args[0], ctx);
+  return converted ? *std::move(converted) : TypedValue(ctx.memory);
 }
 
 TypedValue ToStringList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
