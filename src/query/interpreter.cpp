@@ -7906,6 +7906,94 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .rw_type = RWType::W,
           .db = query->db_name_};
     }
+    case MultiDatabaseQuery::Action::SUSPEND: {
+      if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+        throw QueryRuntimeException(
+            "SUSPEND DATABASE requires the hot-cold-tenants experiment to be enabled "
+            "(--experimental-enabled=hot-cold-tenants).");
+      }
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [db_name = query->db_name_, db_handler](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            std::vector<std::vector<TypedValue>> status;
+
+            auto result = db_handler->Suspend(db_name);
+            if (!result) {
+              switch (result.error()) {
+                case dbms::DbmsHandler::SuspendError::DEFAULT_DB:
+                  throw QueryRuntimeException("Cannot suspend the default database.");
+                case dbms::DbmsHandler::SuspendError::NON_EXISTENT:
+                  throw QueryRuntimeException("Database {} does not exist or is already suspended.", db_name);
+                case dbms::DbmsHandler::SuspendError::NOT_IN_MEMORY:
+                  throw QueryRuntimeException(
+                      "Cannot suspend {}: storage must be in-memory transactional (on-disk and in-memory "
+                      "analytical storage modes are not suspendable).",
+                      db_name);
+                case dbms::DbmsHandler::SuspendError::DURABILITY_INCOMPLETE:
+                  throw QueryRuntimeException("Cannot suspend {}: durability mode must be periodic-snapshot + WAL.",
+                                              db_name);
+                case dbms::DbmsHandler::SuspendError::REPLICATING:
+                  throw QueryRuntimeException(
+                      "Cannot suspend {}: database has registered replicas (MAIN-side replication).", db_name);
+                case dbms::DbmsHandler::SuspendError::REPLICA_ROLE:
+                  throw QueryRuntimeException("Cannot suspend {}: this instance is a REPLICA.", db_name);
+                case dbms::DbmsHandler::SuspendError::ACTIVE_CONNECTIONS:
+                  throw QueryRuntimeException(
+                      "Cannot suspend {}: database has active connections; retry after all sessions close.", db_name);
+                case dbms::DbmsHandler::SuspendError::MIN_RESIDENCY:
+                  throw QueryRuntimeException(
+                      "Cannot suspend {}: database has not been hot long enough since last use (anti-thrash guard).",
+                      db_name);
+              }
+            }
+
+            status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully suspended database " + db_name)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::NONE,
+          .db = query->db_name_};
+    }
+    case MultiDatabaseQuery::Action::RESUME: {
+      if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+        throw QueryRuntimeException(
+            "RESUME DATABASE requires the hot-cold-tenants experiment to be enabled "
+            "(--experimental-enabled=hot-cold-tenants).");
+      }
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [db_name = query->db_name_, db_handler](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            std::vector<std::vector<TypedValue>> status;
+
+            auto result = db_handler->Resume(db_name);
+            if (!result) {
+              switch (result.error()) {
+                case dbms::DbmsHandler::ResumeError::NON_EXISTENT:
+                  throw QueryRuntimeException(
+                      "Cannot resume {}: database does not exist or is not in the suspended registry.", db_name);
+                case dbms::DbmsHandler::ResumeError::RECOVERY_FAILED:
+                  throw QueryRuntimeException(
+                      "Cannot resume {}: recovery failed; database remains suspended and may be retried.", db_name);
+              }
+            }
+
+            status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully resumed database " + db_name)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::NONE,
+          .db = query->db_name_};
+    }
   }
 #else
   // here to satisfy clang-tidy
@@ -9686,11 +9774,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     query_execution->summary["cost_estimate"] = 0.0;
 
     // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
-    bool system_queries =
-        utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
-        utils::Downcast<ReplicationQuery>(parsed_query.query) ||
-        utils::Downcast<UserProfileQuery>(parsed_query.query) ||
-        utils::Downcast<TenantProfileQuery>(parsed_query.query) || utils::Downcast<ParameterQuery>(parsed_query.query);
+    // SUSPEND/RESUME are node-local commands that do NOT open a system transaction.
+    auto *mdb_for_systxn = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
+    bool const is_local_multidb = mdb_for_systxn && (mdb_for_systxn->action_ == MultiDatabaseQuery::Action::SUSPEND ||
+                                                     mdb_for_systxn->action_ == MultiDatabaseQuery::Action::RESUME);
+    bool system_queries = utils::Downcast<AuthQuery>(parsed_query.query) || (mdb_for_systxn && !is_local_multidb) ||
+                          utils::Downcast<ReplicationQuery>(parsed_query.query) ||
+                          utils::Downcast<UserProfileQuery>(parsed_query.query) ||
+                          utils::Downcast<TenantProfileQuery>(parsed_query.query) ||
+                          utils::Downcast<ParameterQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
     auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
