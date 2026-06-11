@@ -30,8 +30,10 @@ so the real special-case set is known. See the architecture-improvement skill.
 
 ## Acceptance criteria
 
-- [ ] An inventory of node-kind branch points
-- [ ] A proposed unifying abstraction with a hot-path-cost argument
+- [x] An inventory of node-kind branch points - `.scratch/projections/issue-16-branch-inventory.md`
+- [~] A proposed unifying abstraction with a hot-path-cost argument - seeded (the
+      `mgp` variant seam vs a shared-interface base, with the visit-vs-vtable
+      hot-path note); needs the design decision made
 - [ ] A staged refactor plan, with follow-on issues
 
 ## Blocked by
