@@ -1,6 +1,6 @@
 # derive() overlay projection - origin reference + lazy read-through
 
-Status: ready-for-agent
+Status: mostly-done
 
 ## Parent
 
@@ -30,3 +30,21 @@ those properties unless they are read.
 ## Blocked by
 
 - `01-project-subgraph-constructor`
+
+## Comments
+
+Implemented the unified node from `docs/adr/0001-projected-node.md` on the
+`VirtualNode` class: it carries an optional origin vertex, property reads fall
+through to the origin lazily (latest transaction view, never cached), and
+overlay keys shadow. `derive()` sets the origin and no longer copies inherited
+properties, so a projection does not duplicate origin properties unless read.
+e2e tests cover read-through values, the no-copy/lazy behaviour (mutating the
+origin after `derive()` is visible through the overlay node), and the merged
+property view.
+
+Remaining (minor, deferrable):
+
+- The no-copy property is proven behaviourally (lazy read) but not asserted
+  against memory counters.
+- Bare `derive(p, {})` still requires a `virtualEdgeType`; making it optional is
+  an orthogonal change.
