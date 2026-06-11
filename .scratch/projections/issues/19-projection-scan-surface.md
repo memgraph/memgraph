@@ -1,6 +1,6 @@
 # Projection scan surface (GraphView over a VirtualGraph)
 
-Status: ready-for-agent
+Status: done - `src/query/virtual_graph_view.hpp`, `tests/unit/query_graph_view.cpp`
 
 ## Parent
 
@@ -19,10 +19,20 @@ required for this slice.
 
 ## Acceptance criteria
 
-- [ ] The projection `GraphView` yields all of a `VirtualGraph`'s nodes
-- [ ] It yields a given node's out-edges and in-edges, direction respected, self-loops in both
-- [ ] Name-to-id and id-to-name mapping works through the view
-- [ ] Unit tests over a synthetic `VirtualGraph` cover the above
+- [x] The projection view yields all of a `VirtualGraph`'s nodes - `VirtualGraphView::Nodes()`
+- [x] It yields a given node's out-edges and in-edges, direction respected, self-loops in both
+      - `OutEdges`/`InEdges` over the `VirtualGraph` in/out indexes
+- [x] Name-to-id and id-to-name mapping works through the view - shares the real accessor's namespace
+- [x] Unit tests over a synthetic `VirtualGraph` cover the above
+
+## Shape decision
+
+Per the chosen shape (human-in-the-loop): this slice is a **standalone**
+`VirtualGraphView`, not yet a `GraphView` subclass, so `VertexRange` and
+`ScanAll` are untouched. The name methods already match the `GraphView`
+signatures. Issue 21 adopts this as the projection `GraphView`: it widens
+`VertexRange` to the common scan element (`VertexAccessor` | `VirtualNode`),
+makes `VirtualGraphView::Nodes()` the `Vertices()` override, and wires `ScanAll`.
 
 ## Blocked by
 
