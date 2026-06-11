@@ -59,6 +59,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/atomic_utils.hpp"
+#include "utils/db_aware_allocator.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/memory_tracker.hpp"
@@ -325,6 +326,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
+  MG_ASSERT(!config_.salient.items.storage_light_edge || config_.salient.items.properties_on_edges,
+            "Light edges require properties on edges (--storage-light-edge implies "
+            "--storage-properties-on-edges=true).");
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -456,6 +460,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       }
       vertices_.run_gc();
       edges_.run_gc();
+      DrainLightEdgeGraveyard();
 
       // Auto-indexer also has a skiplist
       async_indexer_.RunGC();
@@ -522,6 +527,11 @@ InMemoryStorage::~InMemoryStorage() {
     create_snapshot_handler("exit");
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
+  // Free live light edges (pool-allocated Edge*) before teardown. Gated: heavy
+  // edges live in edges_ and are freed by the skip-list, not here.
+  if (config_.salient.items.storage_light_edge) {
+    ClearLightEdges();
+  }
 }
 
 void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change) {
@@ -660,6 +670,25 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
     if (!deleted_edges.empty() && transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       mem_storage->gc_full_scan_edges_delete_.store(true, std::memory_order_release);
+
+      // Analytical-mode leak fix: in analytical mode the edge is pop_back'd from
+      // vertex adjacency at delete time, so the GC full-scan light arm (which
+      // iterates over LIVE adjacency) can never find these light Edge* -> they
+      // would be unreachable and leak (heavy works because its node persists in
+      // the edges_ skip-list scanned by the heavy full-scan arm). Route the
+      // deleted LIGHT Edge* into deleted_edges_, exactly like the transactional
+      // FastDiscard path. CollectGarbage swaps deleted_edges_ into
+      // current_deleted_edges and the light arm pushes them to the graveyard with
+      // guard_epoch snapped at collection time. The full-scan light arm then finds
+      // nothing for these (not in adjacency) -> no double-push. Heavy mode keeps
+      // the skip-list full-scan path byte-identical.
+      if (config_.storage_light_edge) {
+        mem_storage->deleted_edges_.WithLock([&](auto &storage_deleted_edges) {
+          for (auto const &edge : deleted_edges) {
+            storage_deleted_edges.push_back(edge.edge_.ptr);
+          }
+        });
+      }
     }
   }};
 
@@ -675,74 +704,33 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
   return maybe_result;
 }
 
-Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
-                                                                   EdgeTypeId edge_type) {
-  MG_ASSERT(from->transaction_ == to->transaction_,
-            "VertexAccessors must be from the same transaction when creating "
-            "an edge!");
-  MG_ASSERT(from->transaction_ == &transaction_,
-            "VertexAccessors must be from the same transaction in when "
-            "creating an edge!");
-
-  // It's important to destruct accessors after we unlock the vertices to avoid expensive skip list gc while we hold the
-  // locks
-  std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
-
-  auto *from_vertex = from->vertex_;
-  auto *to_vertex = to->vertex_;
-
-  // This has to be called before any object gets locked
-  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
-  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
-
-  transaction_.async_index_helper_.Track(edge_type);
-
-  auto const from_result = PrepareForNonSequentialWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
-  if (from_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
-  DeltaChainState const from_state =
-      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
-
-  // If to and from are the same we need to ensure to_result is the same as from_result
-  DeltaChainState to_state = from_state;
-  if (to_vertex != from_vertex) {
-    WriteResult const to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
-    if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
-    to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
-  }
-
-  if (storage_->config_.salient.items.enable_schema_metadata) {
-    storage_->stored_edge_types_.try_insert(edge_type);
-  }
+std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeInternal(
+    Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type, DeltaChainState from_state, DeltaChainState to_state,
+    storage::Gid gid, std::optional<SchemaInfo::ModifyingAccessor> &schema_acc,
+    std::optional<utils::SkipListDb<Edge>::Accessor> &edge_acc) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
-    edge_acc = mem_storage->edges_.access();
+    // SchemaInfo handles edge creation via vertices; add collector here if that ever changes
+    Edge *edge_ptr = nullptr;
     auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    if (delta) {
-      delta->prev.Set(&*it);
+    if (config_.storage_light_edge) {
+      // Create throws on OOM (propagated to abort the txn), never returns null.
+      edge_ptr = InMemoryStorage::LightEdgePool::Create(gid, delta);
+    } else {
+      edge_acc = mem_storage->edges_.access();
+      auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
+      MG_ASSERT(inserted, "The edge must be inserted here!");
+      MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
+      edge_ptr = &*it;
     }
+    if (delta) {
+      delta->prev.Set(edge_ptr);
+    }
+    edge = EdgeRef(edge_ptr);
     if (auto &idx = mem_storage->edges_metadata_index_) {
-      idx->OnEdgeCreated(gid, from->vertex_);
+      idx->OnEdgeCreated(gid, from_vertex);
     }
   }
 
@@ -781,6 +769,64 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
 
+Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
+                                                                   EdgeTypeId edge_type) {
+  MG_ASSERT(from->transaction_ == to->transaction_,
+            "VertexAccessors must be from the same transaction when creating "
+            "an edge!");
+  MG_ASSERT(from->transaction_ == &transaction_,
+            "VertexAccessors must be from the same transaction in when "
+            "creating an edge!");
+
+  // It's important to destruct the accessor after we unlock the vertices to avoid expensive skip list gc while we hold
+  // the locks
+  std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
+  auto *from_vertex = from->vertex_;
+  auto *to_vertex = to->vertex_;
+
+  // This has to be called before any object gets locked
+  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
+  // Obtain the locks by `gid` order to avoid lock cycles.
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
+  if (from_vertex->gid < to_vertex->gid) {
+    guard_from.lock();
+    guard_to.lock();
+  } else if (from_vertex->gid > to_vertex->gid) {
+    guard_to.lock();
+    guard_from.lock();
+  } else {
+    // The vertices are the same vertex, only lock one.
+    guard_from.lock();
+  }
+
+  transaction_.async_index_helper_.Track(edge_type);
+  auto const from_result = PrepareForNonSequentialWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
+  if (from_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (from_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
+  DeltaChainState const from_state =
+      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
+
+  // If to and from are the same we need to ensure to_result is the same as from_result
+  DeltaChainState to_state = from_state;
+  if (to_vertex != from_vertex) {
+    WriteResult const to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
+    if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
+    to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
+  }
+
+  if (storage_->config_.salient.items.enable_schema_metadata) {
+    storage_->stored_edge_types_.try_insert(edge_type);
+  }
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+
+  auto result = CreateEdgeInternal(from_vertex, to_vertex, edge_type, from_state, to_state, gid, schema_acc, edge_acc);
+  MG_ASSERT(result.has_value(), "CreateEdgeInternal must not fail when called from CreateEdge");
+  return *result;
+}
+
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, const View view, EdgeTypeId edge_type,
                                                                         VertexAccessor *from_vertex,
                                                                         VertexAccessor *to_vertex) {
@@ -808,10 +854,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
-  // It's important to destruct accessors after we unlock the vertices to avoid expensive skip list gc while we hold the
-  // locks
+  // It's important to destruct the accessor after we unlock the vertices to avoid expensive skip list gc while we hold
+  // the locks
   std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
-
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -858,49 +903,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // possible.
   atomic_fetch_max_explicit(&mem_storage->edge_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
 
-  EdgeRef edge(gid);
-  if (config_.properties_on_edges) {
-    // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
-    edge_acc = mem_storage->edges_.access();
-    auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    if (delta) {
-      delta->prev.Set(&*it);
-    }
-    if (auto &idx = mem_storage->edges_metadata_index_) {
-      idx->OnEdgeCreated(gid, from->vertex_);
-    }
-  }
-
-  utils::AtomicMemoryBlock([this, edge, from_vertex, edge_type, to_vertex, &schema_acc, from_state, to_state]() {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
-    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
-
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state);
-    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
-
-    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
-
-    // Update indices if they exist.
-    Indices::UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
-
-    // Increment edge count.
-    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
-
-    if (schema_acc) {
-      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                     acc.CreateEdge(from_vertex, to_vertex, edge_type);
-                                   },
-                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                 *schema_acc);
-    }
-  });
-
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
+  auto result = CreateEdgeInternal(from_vertex, to_vertex, edge_type, from_state, to_state, gid, schema_acc, edge_acc);
+  MG_ASSERT(result.has_value(), "CreateEdgeInternal must not fail when called from CreateEdgeEx");
+  return *result;
 }
 
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
@@ -1327,6 +1332,13 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
         [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.end(), current_deleted_vertices); });
   }
   if (!current_deleted_edges.empty()) {
+    // Both heavy and light edges defer to deleted_edges_ here. Light edges must
+    // NOT be pushed to the light_edge_graveyard_ at commit time: the graveyard
+    // watermark (guard_epoch) is snapped at GC-COLLECTION time so that any
+    // post-commit reader is ordered before it. Riding deleted_edges_ into
+    // CollectGarbage also runs the index cleanup (OnEdgesDeleted +
+    // RemoveEdgesFromVectorEdgeIndices) before the graveyard push, exactly like
+    // heavy. Heavy behaviour is unchanged.
     // O(1) splice under the SpinLock — never an O(batch) copy while locked.
     mem_storage->deleted_edges_.WithLock(
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), current_deleted_edges); });
@@ -1374,7 +1386,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // then remove them directly from the skiplists and transfer ownership
     // to the GC in one locked batch, instead of acquiring the lock once per element.
     std::vector<Gid> my_deleted_vertices;
-    std::vector<Edge *> my_deleted_edges;
+    // std::list so the light-edge abort handover into deleted_edges_ is an O(1)
+    // splice under the SpinLock (see below); heavy arm only iterates it.
+    std::list<Edge *, memory::DbAwareAllocator<Edge *>> my_deleted_edges;
 
     // TWO passes needed here
     // Abort will modify objects to restore state to how they were before this txn
@@ -1676,10 +1690,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                   *transaction_.active_indices_,
                                   transaction_.start_timestamp,
                                   mem_storage->name_id_mapper_.get());
-    // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
+    // EDGES METADATA (has ptr to Vertices, must be before removing verticies).
+    // Heavy edges are removed from the edges_ skiplist below and never re-enter
+    // GC, so abort is their single metadata-removal site. Light edges instead
+    // ride deleted_edges_ into CollectGarbage, which is THEIR single removal site
+    // (OnEdgesDeleted at the transactional GC light arm) — calling OnEdgesDeleted
+    // here too would double-remove the gid and trip the MG_ASSERT in
+    // EdgeMetadataIndex::OnEdgesDeleted. So gate this to heavy only.
     // my_deleted_edges holds Edge* for edges this aborting txn created (abort-of-create);
     // they remain in `edges_` until the remove loop below, so reading ->gid here is safe.
-    if (!my_deleted_edges.empty()) {
+    if (!my_deleted_edges.empty() && !mem_storage->config_.salient.items.storage_light_edge) {
       if (auto &idx = mem_storage->edges_metadata_index_) {
         idx->OnEdgesDeleted(my_deleted_edges | std::ranges::views::transform(&Edge::gid));
       }
@@ -1693,11 +1713,28 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
     }
 
-    // EDGES
+    // EDGES / LIGHT EDGES
+    // Both heavy and light edges defer to deleted_edges_ here. Light edges must
+    // NOT be pushed to the light_edge_graveyard_ at abort time: the graveyard
+    // watermark (guard_epoch) is snapped at GC-COLLECTION time so that any
+    // post-abort reader is ordered before it. Riding deleted_edges_ into
+    // CollectGarbage also runs the index cleanup (OnEdgesDeleted +
+    // RemoveEdgesFromVectorEdgeIndices) before the graveyard push, exactly like
+    // heavy. Light edges have no skiplist node, so the heavy edges_acc.remove
+    // call is skipped for them; only the deleted_edges_ routing applies.
+    // Heavy behaviour is unchanged.
     if (!my_deleted_edges.empty()) {
-      auto edges_acc = mem_storage->edges_.access();
-      for (auto *edge : my_deleted_edges) {
-        edges_acc.remove(edge->gid);
+      if (mem_storage->config_.salient.items.storage_light_edge) {
+        // Watermark snapped at GC-collection time; index cleanup runs in
+        // CollectGarbage before the graveyard push — see FastDiscard above.
+        // O(1) splice under the SpinLock — never an O(batch) copy while locked.
+        mem_storage->deleted_edges_.WithLock(
+            [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), my_deleted_edges); });
+      } else {
+        auto edges_acc = mem_storage->edges_.access();
+        for (auto *edge : my_deleted_edges) {
+          edges_acc.remove(edge->gid);
+        }
       }
     }
   }
@@ -3206,18 +3243,36 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
 
-  // EDGES
+  // EDGES / LIGHT EDGES
   if (!current_deleted_edges.empty()) {
-    auto edge_acc = edges_.access();
+    if (config_.salient.items.storage_light_edge) {
+      // Light edges are not skiplist nodes; route them to the graveyard for
+      // deferred free. Clean the vector edge index first (unconditionally —
+      // unlike the heavy arm below which only does so when no vertices were
+      // deleted — because the light Edge* and their Vertex* outlive the push).
+      if (!indices_.vector_edge_index_.Empty()) {
+        // std::list -> contiguous temp vector for the std::span API (off-lock).
+        std::vector<Edge *> const edges_to_remove(current_deleted_edges.begin(), current_deleted_edges.end());
+        indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
+      }
+      light_edge_graveyard_.WithLock([&](auto &graveyard) {
+        // guard_epoch defaults to 0 (epoch gating snapped at drain time in 7b-ii)
+        // std::move is an O(1) list move (entry.edges is a std::list) under the lock.
+        LightEdgeGraveyardEntry entry{.edges = std::move(current_deleted_edges)};
+        graveyard.push_back(std::move(entry));
+      });
+    } else {
+      auto edge_acc = edges_.access();
 
-    if (current_deleted_vertices.empty() && !indices_.vector_edge_index_.Empty()) {
-      // std::list -> contiguous temp vector for the std::span API (off-lock; see above).
-      std::vector<Edge *> const edges_to_remove(current_deleted_edges.begin(), current_deleted_edges.end());
-      indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
-    }
+      if (current_deleted_vertices.empty() && !indices_.vector_edge_index_.Empty()) {
+        // std::list -> contiguous temp vector for the std::span API (off-lock; see above).
+        std::vector<Edge *> const edges_to_remove(current_deleted_edges.begin(), current_deleted_edges.end());
+        indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
+      }
 
-    for (auto *edge : current_deleted_edges) {
-      MG_ASSERT(edge_acc.remove(edge->gid), "Invalid database state!");
+      for (auto *edge : current_deleted_edges) {
+        MG_ASSERT(edge_acc.remove(edge->gid), "Invalid database state!");
+      }
     }
   }
 
@@ -3278,6 +3333,41 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         if (idx) idx->OnEdgeDeleted(edge.gid);
         edge_acc.remove(edge);
       }
+    }
+
+    // Light-edge analytical arm: analytically-deleted light edges do NOT appear
+    // in the edges_ skip-list (they live in vertex adjacency and are removed at
+    // delete time), so there are no entries to find here via edge_acc. Instead,
+    // inform_gc_edge_deletion routes deleted light Edge* directly into
+    // deleted_edges_ so they arrive in current_deleted_edges and are handled by
+    // the transactional light arm above (OnEdgesDeleted + graveyard push).
+  }
+}
+
+void InMemoryStorage::DrainLightEdgeGraveyard() {
+  if (!config_.salient.items.storage_light_edge) return;
+  // No edge-index iterable pins light edges yet (MakeEdgePin is still the
+  // heavy-only form), so no reader can race the free and we drain the whole
+  // graveyard unconditionally here.
+  //
+  // The ONLY push site for this graveyard is CollectGarbage at GC-collection
+  // time. Both the commit (FastDiscard) and abort light arms route deleted Edge*
+  // through deleted_edges_ so that CollectGarbage snaps the guard_epoch watermark
+  // AFTER all readers are ordered. Invariant: metadata + vector-index entries are
+  // already removed at GC-collect time before the push happens.
+  std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>> local_graveyard;
+  light_edge_graveyard_.WithLock([&](auto &graveyard) { local_graveyard.swap(graveyard); });
+  if (local_graveyard.empty()) return;
+
+  // The edge-metadata entry for every graveyarded edge was already removed at
+  // GC-collection time (CollectGarbage OnEdgesDeleted and
+  // RemoveEdgesFromVectorEdgeIndices) BEFORE the Edge* was routed here. The
+  // graveyard exists solely to defer the *memory free*; it must NOT touch
+  // edges_metadata_index_ again, otherwise it would double-remove the entry and
+  // trip the `acc.remove` assert in OnEdgeDeleted.
+  for (auto &entry : local_graveyard) {
+    for (auto *edge : entry.edges) {
+      InMemoryStorage::LightEdgePool::Destroy(edge);
     }
   }
 }
@@ -4414,7 +4504,21 @@ EdgeInfo ExtractEdgeInfo(Vertex *from_vertex, const Edge *edge_ptr) {
   return std::nullopt;
 }
 
-EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid) {
+// Scan from_vertex->out_edges for the light edge with the given GID.
+// Acquires from_vertex->lock (shared) for the scan, mirroring ExtractEdgeInfo.
+namespace {
+EdgeInfo ScanOutEdgesForGid(Vertex *from_vertex, Gid edge_gid) {
+  std::shared_lock const guard{from_vertex->lock};
+  for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+    if (edge_ref.ptr->gid == edge_gid) {
+      return std::tuple(edge_ref, edge_type, from_vertex, to_vertex);
+    }
+  }
+  return std::nullopt;
+}
+}  // namespace
+
+EdgeInfo InMemoryStorage::FindHeavyEdge(Gid edge_gid) {
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(edge_gid);
   if (edge_it == edge_acc.end()) {
@@ -4439,7 +4543,53 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid) {
   return std::nullopt;
 }
 
+EdgeInfo InMemoryStorage::FindLightEdgeFromMetadata(Gid edge_gid) {
+  // Light edges are not in edges_; resolve from_vertex via the metadata index
+  // (soft-miss: a deleted light edge has no entry) then rescan its out_edges.
+  if (!edges_metadata_index_) return std::nullopt;
+  // Pin vertices_ BEFORE calling TryFromVertexOf so that GC cannot reclaim the
+  // Vertex node between the index lookup and the point we lock/scan it. This
+  // mirrors FindHeavyEdge, which also pins before the index consultation.
+  auto vertices_acc = vertices_.access();
+  auto *from_vertex = edges_metadata_index_->TryFromVertexOf(edge_gid);
+  if (from_vertex == nullptr) return std::nullopt;
+  return ScanOutEdgesForGid(from_vertex, edge_gid);
+}
+
+EdgeInfo InMemoryStorage::FindLightEdgeByScan(Gid edge_gid) {
+  // No metadata index: scan all vertices' out_edges for the gid.
+  auto vertices_acc = vertices_.access();
+  for (auto &from_vertex : vertices_acc) {
+    if (auto maybe_info = ScanOutEdgesForGid(&from_vertex, edge_gid)) {
+      return maybe_info;
+    }
+  }
+  return std::nullopt;
+}
+
+EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid) {
+  if (config_.salient.items.storage_light_edge) {  // GATE
+    if (edges_metadata_index_) return FindLightEdgeFromMetadata(edge_gid);
+    return FindLightEdgeByScan(edge_gid);
+  }
+  return FindHeavyEdge(edge_gid);
+}
+
 EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
+  if (config_.salient.items.storage_light_edge) {  // GATE — light edges not in edges_
+    auto vertices_acc = vertices_.access();
+    auto vertex_it = vertices_acc.find(from_vertex_gid);
+    // Soft-miss on an absent from_vertex: the heavy arm (and the public
+    // optional-returning FindEdge wrapper) return nullopt for a not-found edge,
+    // and callers (e.g. the mgp C-API edge lookup) treat that as "no such edge"
+    // rather than an error. A stale/deleted from_vertex_gid means the edge is
+    // gone, so return nullopt instead of throwing across the query boundary.
+    if (vertex_it == vertices_acc.end()) {
+      return std::nullopt;
+    }
+    auto *from_vertex = &(*vertex_it);
+    return ScanOutEdgesForGid(from_vertex, edge_gid);
+  }
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(edge_gid);
   if (edge_it == edge_acc.end()) {
@@ -4461,6 +4611,78 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
   return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
 }
 
+Edge *InMemoryStorage::LightEdgePool::Create(Gid gid, Delta *delta) {
+  // Allocation failure is propagated, NOT swallowed: an over-limit allocation
+  // throws utils::OutOfMemoryException (derived from BasicException, NOT
+  // std::bad_alloc) and a genuine OOM throws std::bad_alloc. Both must reach the
+  // query layer so the transaction aborts with an error — exactly as the heavy
+  // path does when edges_.insert() allocates a skip-list node. Catching only
+  // std::bad_alloc here (in a noexcept function) would let OutOfMemoryException
+  // cross the noexcept boundary -> std::terminate, turning a recoverable
+  // memory-limit hit into a server crash. Edge(Gid, Delta*) is nothrow (asserted
+  // below), so only the allocation can throw; it does so before any edge is
+  // constructed or linked, so propagation is exception-safe — the caller's delta
+  // is unwound by the transaction abort, identical to the heavy OOM path.
+  static_assert(std::is_nothrow_constructible_v<Edge, Gid, Delta *>,
+                "Edge(Gid, Delta*) must be nothrow; otherwise a throwing "
+                "construct_at would leak the allocation made just above it.");
+  memory::DbAwareAllocator<Edge> alloc;
+  Edge *edge_ptr = std::allocator_traits<decltype(alloc)>::allocate(alloc, 1);
+  std::construct_at(edge_ptr, gid, delta);
+  return edge_ptr;
+}
+
+void InMemoryStorage::LightEdgePool::Destroy(Edge *p) noexcept {
+  if (p == nullptr) return;
+  memory::DbAwareAllocator<Edge> alloc;
+  std::destroy_at(p);
+  std::allocator_traits<decltype(alloc)>::deallocate(alloc, p, 1);
+}
+
+void InMemoryStorage::ClearLightEdges() {
+  // Free ONLY live light edges held in vertex adjacency. Each edge appears
+  // exactly once across all out_edges (a self-loop has a single source-vertex
+  // entry), so no deduplication is needed. Deleted light edges still queued in
+  // the graveyard are freed by the loop below.
+  auto vertex_acc = vertices_.access();
+  for (auto &vertex : vertex_acc) {
+    for (auto const &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
+      InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
+    }
+  }
+
+  // Also free any deleted light edges still queued in the graveyard. Swap out
+  // under lock, then free without holding the SpinLock (mirrors
+  // DrainLightEdgeGraveyard's swap-out-then-free pattern).
+  std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>> pending_graveyard;
+  light_edge_graveyard_.WithLock([&](auto &graveyard) { pending_graveyard.swap(graveyard); });
+  for (auto &entry : pending_graveyard) {
+    for (auto *edge : entry.edges) {
+      InMemoryStorage::LightEdgePool::Destroy(edge);
+    }
+  }
+
+  // Free any deleted light edges still queued in deleted_edges_ that never
+  // reached the graveyard (i.e. were deleted but GC has not yet collected them —
+  // the commit (FastDiscard) / abort paths route them into deleted_edges_, and
+  // the CollectGarbage swap later drains them into the graveyard). These
+  // pool-allocated Edge* are owned by no skip-list, so without this drain they
+  // leak at teardown/Clear/DropGraph. The three sets (live adjacency,
+  // deleted_edges_, graveyard) are disjoint: CollectGarbage swaps deleted_edges_
+  // empty BEFORE moving the edges into a graveyard entry, and an edge is removed
+  // from vertex adjacency in the same delta-processing step that later routes its
+  // Edge* into deleted_edges_ — so no Edge* freed here is double-freed by the
+  // loops above. Heavy mode never reaches this function (all callers gate on
+  // storage_light_edge); heavy deleted_edges_ Edge* live in the edges_ skip-list
+  // and are freed by it, so they must NOT be freed as light edges.
+  deleted_edges_.WithLock([&](auto &deleted_edges) {
+    for (auto *edge : deleted_edges) {
+      InMemoryStorage::LightEdgePool::Destroy(edge);
+    }
+    deleted_edges.clear();
+  });
+}
+
 void InMemoryStorage::Clear() {
   // NOTE: Make sure this function is called while exclusively holding on to the main lock
   // When creating a snapshot, we first lock the snapshot, then create the accessor
@@ -4477,6 +4699,11 @@ void InMemoryStorage::Clear() {
     last_processed_commit_ts_ = kTimestampInitialId;
   }
   schema_info_.Clear();
+  // Free live light edges before clearing vertices (their adjacency lists are
+  // the only handle to the pool-allocated Edge*).
+  if (config_.salient.items.storage_light_edge) {
+    ClearLightEdges();
+  }
 
   // Clear main memory
   vertices_.clear();
@@ -4661,6 +4888,10 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->constraints_.DropGraphClearConstraints();
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
+  // Free live light edges before clearing vertices (analytical DROP GRAPH).
+  if (mem_storage->config_.salient.items.storage_light_edge) {
+    mem_storage->ClearLightEdges();
+  }
 
   mem_storage->vertices_.clear();
   mem_storage->waiting_gc_deltas_->clear();

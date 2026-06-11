@@ -124,6 +124,18 @@ class InMemoryStorage final : public Storage {
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
+
+  /// Light-weight wrapper around DbAwareAllocator<Edge> for light-edge
+  /// allocation and destruction. DbAwareAllocator is stateless (reads the
+  /// thread-local arena at each call), so Create/Destroy are safe to call
+  /// from any thread with an active DbArenaScope.
+  struct LightEdgePool {
+    // Throws (utils::OutOfMemoryException / std::bad_alloc) on allocation
+    // failure, like the heavy edges_.insert path — never returns nullptr.
+    static Edge *Create(Gid gid, Delta *delta);
+    static void Destroy(Edge *p) noexcept;
+  };
+
   enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
 
   static const char *CreateSnapshotErrorToString(CreateSnapshotError error) {
@@ -187,6 +199,12 @@ class InMemoryStorage final : public Storage {
     std::expected<void, ConstraintViolation> UniqueConstraintsViolation() const;
 
     void CheckForFastDiscardOfDeltas();
+
+    std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
+                                                   DeltaChainState from_state, DeltaChainState to_state,
+                                                   storage::Gid gid,
+                                                   std::optional<SchemaInfo::ModifyingAccessor> &schema_acc,
+                                                   std::optional<utils::SkipListDb<Edge>::Accessor> &edge_acc);
 
     [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,
@@ -804,6 +822,20 @@ class InMemoryStorage final : public Storage {
 
   EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
 
+  // Light-edge find helpers (gated by salient.items.storage_light_edge). The
+  // heavy path remains FindHeavyEdge (== prior FindEdge(Gid) body).
+  EdgeInfo FindLightEdgeFromMetadata(Gid edge_gid);
+  EdgeInfo FindLightEdgeByScan(Gid edge_gid);
+  EdgeInfo FindHeavyEdge(Gid edge_gid);
+
+  // Light-edge teardown (frees pool-allocated Edge* still live in vertex
+  // adjacency). Gated at every call site by salient.items.storage_light_edge.
+  void ClearLightEdges();
+  // Drain the light-edge graveyard: free the queued deleted Edge*. The drain is
+  // unconditional (no reader pins light edges yet). Called from FreeMemory after
+  // edges_.run_gc(); early-returns when the storage_light_edge flag is off.
+  void DrainLightEdgeGraveyard();
+
   // Database-owned arena pool for per-thread arena management.
   // Database must outlive Storage; Database member declaration order guarantees that.
   memgraph::memory::ArenaPool *db_arena_{nullptr};
@@ -812,6 +844,21 @@ class InMemoryStorage final : public Storage {
   // current DB TLS scope, while long-lived DB work establishes that scope at
   // the appropriate execution boundary.
   utils::SkipListDb<Vertex> vertices_;
+
+  // Graveyard for deleted light edges. Deleted light Edge* are pushed here ONLY
+  // at CollectGarbage time (after metadata + vector-index entries are already
+  // removed). The commit (FastDiscard) and abort light arms route deleted Edge*
+  // through deleted_edges_ so the guard_epoch watermark is snapped only after all
+  // concurrent readers are ordered; the drain frees them later. guard_epoch is a
+  // sentinel (0) here — the drain frees unconditionally, as no reader pins light
+  // edges.
+  struct LightEdgeGraveyardEntry {
+    uint64_t guard_epoch{0};
+    // std::list (not vector): current_deleted_edges is std::move'd in under the
+    // light_edge_graveyard_ lock, so the transfer must be an O(1) list move, not
+    // an O(batch) copy. The drain iterates it once, off the lock.
+    std::list<Edge *, memory::DbAwareAllocator<Edge *>> edges;
+  };
 
   // Returns a pin that keeps edge-index iterables' underlying Edge memory alive
   // for the lifetime of the iterable. Heavy mode pins the edges_ skip-list
@@ -893,6 +940,11 @@ class InMemoryStorage final : public Storage {
   // splice: the FastDiscard/Abort critical sections must not do O(batch) work
   // while holding this SpinLock. The GC consume side runs off the lock.
   utils::Synchronized<std::list<Edge *, memory::DbAwareAllocator<Edge *>>, utils::SpinLock> deleted_edges_;
+
+  // Deleted light edges awaiting deferred free (see DrainLightEdgeGraveyard).
+  utils::Synchronized<std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>>,
+                      utils::SpinLock>
+      light_edge_graveyard_;
 
   std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
   std::atomic<bool> gc_index_cleanup_edge_performance_ = false;
