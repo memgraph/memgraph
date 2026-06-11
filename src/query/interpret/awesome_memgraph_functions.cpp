@@ -2000,8 +2000,8 @@ TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &c
 
 // virtualNode(handle, labels, properties) constructs a synthetic node: a node with no origin,
 // holding an overlay property store only. Its identity is a fresh synthetic gid; the first
-// argument is a user-facing logical handle used to wire virtual edges when a projection is
-// assembled, not the node's identity. Labels may be a single string or a list of strings.
+// argument is the import handle, stored on the node to wire virtual edges to it by reference when a
+// projection is assembled, not the node's identity. Labels may be a single string or a list.
 TypedValue VirtualNodeCtor(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Integer, Or<String, List>, Map>("virtualNode", args, nargs);
 
@@ -2025,7 +2025,9 @@ TypedValue VirtualNodeCtor(const TypedValue *args, int64_t nargs, const Function
     properties.insert_or_assign(ctx.db_accessor->NameToProperty(name), value.ToPropertyValue(name_id_mapper));
   }
 
-  return TypedValue(VirtualNode{std::move(labels), std::move(properties), alloc}, ctx.memory);
+  VirtualNode node{std::move(labels), std::move(properties), alloc};
+  node.SetHandle(args[0].ValueInt());
+  return TypedValue(std::move(node), ctx.memory);
 }
 
 auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{

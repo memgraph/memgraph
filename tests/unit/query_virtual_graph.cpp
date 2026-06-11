@@ -156,6 +156,23 @@ TEST(VirtualGraphTest, StoresAndReadsProperties) {
   EXPECT_EQ(ve.Properties().size(), 2);
 }
 
+TEST(VirtualGraphTest, NodeCarriesImportHandleDistinctFromIdentity) {
+  // A synthetic node built by virtualNode() carries an import handle, used at list assembly to
+  // wire edge endpoints by reference. The handle is not the node's identity (still a synthetic gid).
+  memgraph::query::VirtualNode handled({"L"}, {});
+  handled.SetHandle(7);
+  EXPECT_EQ(handled.Handle(), 7);
+  EXPECT_NE(handled.Gid().AsInt(), 7);
+
+  // A node built without a handle (e.g. by derive()) carries none.
+  const memgraph::query::VirtualNode unhandled({"L"}, {});
+  EXPECT_EQ(unhandled.Handle(), std::nullopt);
+
+  // The handle survives a copy.
+  const memgraph::query::VirtualNode copy = handled;
+  EXPECT_EQ(copy.Handle(), 7);
+}
+
 TEST(VirtualGraphTest, InsertIfNewDedupsDistinctEdgeGidsByTriple) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &vn1 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));

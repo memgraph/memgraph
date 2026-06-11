@@ -51,19 +51,20 @@ class VirtualNode final {
               int64_t projection_ref = kNoProjectionRef)
       : gid_(NextSyntheticGid()),
         impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), std::move(origin), std::move(hidden),
-                                     std::move(overlay_bound), projection_ref, alloc)) {}
+                                     std::move(overlay_bound), projection_ref, std::nullopt, alloc)) {}
 
   VirtualNode(const VirtualNode &other, allocator_type alloc)
       : gid_(other.gid_),
         impl_(std::make_unique<Impl>(other.impl_->labels, other.impl_->properties, other.impl_->origin,
                                      other.impl_->hidden, other.impl_->overlay_bound, other.impl_->projection_ref,
-                                     alloc)) {}
+                                     other.impl_->handle, alloc)) {}
 
   VirtualNode(VirtualNode &&other, allocator_type alloc)
       : gid_(other.gid_),
         impl_(std::make_unique<Impl>(std::move(other.impl_->labels), std::move(other.impl_->properties),
                                      std::move(other.impl_->origin), std::move(other.impl_->hidden),
-                                     std::move(other.impl_->overlay_bound), other.impl_->projection_ref, alloc)) {}
+                                     std::move(other.impl_->overlay_bound), other.impl_->projection_ref,
+                                     other.impl_->handle, alloc)) {}
 
   VirtualNode(const VirtualNode &other) : VirtualNode(other, other.impl_->labels.get_allocator()) {}
 
@@ -88,6 +89,13 @@ class VirtualNode final {
   [[nodiscard]] auto Labels() const noexcept -> const label_list & { return impl_->labels; }
 
   [[nodiscard]] auto HasOrigin() const noexcept -> bool { return impl_->origin.has_value(); }
+
+  // The import handle: the integer a user passed to virtualNode(), used at list assembly to wire
+  // edge endpoints to this node by reference. It is not the node's identity (that is the synthetic
+  // gid) and is never serialized. A node built by derive() carries none.
+  [[nodiscard]] auto Handle() const noexcept -> std::optional<int64_t> { return impl_->handle; }
+
+  void SetHandle(std::optional<int64_t> handle) noexcept { impl_->handle = handle; }
 
   [[nodiscard]] auto Origin() const noexcept -> const std::optional<VertexAccessor> & { return impl_->origin; }
 
@@ -188,24 +196,28 @@ class VirtualNode final {
     hidden_keys hidden;
     key_set overlay_bound;
     int64_t projection_ref;
+    std::optional<int64_t> handle;
 
     Impl(const label_list &lbls, const property_map &props, const std::optional<VertexAccessor> &orig,
-         const hidden_keys &hid, const key_set &ovl, int64_t proj_ref, allocator_type alloc)
+         const hidden_keys &hid, const key_set &ovl, int64_t proj_ref, std::optional<int64_t> hndl,
+         allocator_type alloc)
         : labels(lbls, alloc),
           properties(props, alloc),
           origin(orig),
           hidden(hid, alloc),
           overlay_bound(ovl, alloc),
-          projection_ref(proj_ref) {}
+          projection_ref(proj_ref),
+          handle(hndl) {}
 
     Impl(label_list &&lbls, property_map &&props, std::optional<VertexAccessor> &&orig, hidden_keys &&hid,
-         key_set &&ovl, int64_t proj_ref, allocator_type alloc)
+         key_set &&ovl, int64_t proj_ref, std::optional<int64_t> hndl, allocator_type alloc)
         : labels(std::move(lbls), alloc),
           properties(std::move(props), alloc),
           origin(std::move(orig)),
           hidden(std::move(hid), alloc),
           overlay_bound(std::move(ovl), alloc),
-          projection_ref(proj_ref) {}
+          projection_ref(proj_ref),
+          handle(hndl) {}
   };
 
   storage::Gid gid_;
