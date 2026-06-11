@@ -2936,6 +2936,65 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, RemoveNestedPropertyPbacOnVertex) {
   user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);
   ASSERT_NO_THROW(execute_remove_nested(user));
 }
+
+TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertiesFromVertexMasksDeniedRead) {
+  // SET n = m where m is a vertex: denied source properties are seen as `null`.
+  auto src = this->dba.InsertVertex();
+  ASSERT_TRUE(src.AddLabel(this->vertex_label).has_value());
+  ASSERT_TRUE(src.SetProperty(this->entity_prop, this->entity_prop_value).has_value());
+
+  auto dst = this->dba.InsertVertex();
+  ASSERT_TRUE(dst.AddLabel(this->vertex_label).has_value());
+  ASSERT_TRUE(dst.SetProperty(this->entity_prop, memgraph::storage::PropertyValue(99)).has_value());
+  this->dba.AdvanceCommand();
+
+  auto const make_user_write_only = [&]() {
+    memgraph::auth::User user{"set_vertex_no_read"};
+    user.fine_grained_access_handler().label_permissions().GrantGlobal(
+        static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::kVertexLabelUpdatePermissions |
+                                                           memgraph::auth::FineGrainedPermission::READ));
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::WRITE);
+    return user;
+  };
+
+  auto const execute_set = [&](memgraph::auth::User &user, plan::SetProperties::Op op) {
+    auto scan_n = MakeScanAll(this->storage, this->symbol_table, "n");
+    auto scan_m = MakeScanAll(this->storage, this->symbol_table, "m", scan_n.op_);
+    auto *m_ident = IDENT("m")->MapTo(scan_m.sym_);
+    auto set_props = std::make_shared<plan::SetProperties>(scan_m.op_, scan_n.sym_, m_ident, op);
+
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+    auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+    PullAll(*set_props, &context);
+    this->dba.AdvanceCommand();
+  };
+
+  auto const assert_all_vertices_empty = [&]() {
+    for (auto v : this->dba.Vertices(memgraph::storage::View::NEW)) {
+      auto maybe_props = v.Properties(memgraph::storage::View::NEW);
+      ASSERT_TRUE(maybe_props.has_value());
+      EXPECT_TRUE(maybe_props->empty());
+    }
+  };
+
+  auto const restore_properties = [&]() {
+    for (auto v : this->dba.Vertices(memgraph::storage::View::NEW)) {
+      ASSERT_TRUE(v.SetProperty(this->entity_prop, memgraph::storage::PropertyValue(99)).has_value());
+    }
+    ASSERT_TRUE(src.SetProperty(this->entity_prop, this->entity_prop_value).has_value());
+    this->dba.AdvanceCommand();
+  };
+
+  // REPLACE (SET n = m): clears dst, copies nulled source props — dst ends up empty
+  auto user = make_user_write_only();
+  execute_set(user, plan::SetProperties::Op::REPLACE);
+  assert_all_vertices_empty();
+
+  // UPDATE (SET n += m): denied source prop is null, which removes dst's existing value
+  restore_properties();
+  execute_set(user, plan::SetProperties::Op::UPDATE);
+  assert_all_vertices_empty();
+}
 #endif
 
 template <typename StorageType>
