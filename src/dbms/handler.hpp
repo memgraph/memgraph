@@ -166,6 +166,30 @@ class Handler {
   }
 
   /**
+   * @brief Unconditionally erase the entry associated with `name`.
+   *
+   * Intended for erasing a COLD / terminal-state Gatekeeper shell while the CALLER holds its
+   * exclusive lock_. It is safe for a COLD shell because ~Gatekeeper waits only for a TERMINAL
+   * state (HOT or COLD — COLD qualifies) AND count == 0 (a cold shell has no live accessors),
+   * so the wait returns promptly.
+   *
+   * NOTE: This is NOT a substitute for TryDelete(): it does NOT quiesce a live tenant (it never
+   * mints an accessor / calls try_delete()). Erasing a HOT entry with live accessors here would
+   * block in ~Gatekeeper until the count drains. Only use it on a COLD/terminal shell.
+   *
+   * @param name Name associated with the context to erase
+   * @return true if an entry was erased, false if none existed
+   */
+  bool Erase(std::string_view name) {
+    // unordered_map::erase has no heterogeneous (string_view) overload, so match the file's
+    // idiom: heterogeneous find() then erase(iterator).
+    auto itr = items_.find(name);
+    if (itr == items_.end()) return false;
+    items_.erase(itr);
+    return true;
+  }
+
+  /**
    * @brief Check if a name is already used.
    *
    * @param name Name to check

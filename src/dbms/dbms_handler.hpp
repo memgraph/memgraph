@@ -733,6 +733,17 @@ class DbmsHandler {
   DeleteResult Delete_(std::string_view db_name);
 
   /**
+   * @brief Drop a COLD (suspended) tenant from disk + metadata. CALLER MUST HOLD lock_ (exclusive).
+   *
+   * Mirrors the HOT-drop teardown effects that actually apply to a COLD shell (no value_, no
+   * threads, no streams): erase the COLD gatekeeper shell, drop the durability KVStore key, remove
+   * the on-disk storage dir, detach the tenant profile, drop the suspended_ rebuild metadata, and
+   * (if a system transaction is present) record the DropDatabase delta. uuid + path are sourced from
+   * the suspended_ entry, since GetConfig() returns nullopt for a COLD tenant.
+   */
+  DeleteResult DropCold_(std::string_view db_name, system::Transaction *txn);
+
+  /**
    * @brief Implementation of Suspend. See Suspend() for semantics.
    *
    * Three phases: (A) eligibility + capture under shared lock_, (B) freeze (no lock_),

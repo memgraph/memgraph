@@ -258,4 +258,84 @@ TEST_F(HotColdSuspendTest, RestartEquivalenceRecoversSuspendedTenantData) {
   EXPECT_EQ(CountNodes(db_acc), kNodes);
 }
 
+// ---------------------------------------------------------------------------
+// State-aware DROP + RENAME guard (commit 6 wires the query handlers; here we
+// exercise the DbmsHandler APIs directly).
+// ---------------------------------------------------------------------------
+
+TEST_F(HotColdSuspendTest, DropColdTenantViaMetadata) {
+  CreateAndPopulate("cold_drop_db", 4);
+
+  // Capture the durability dir before suspend.
+  const auto durability_dir = DBMS().Get("cold_drop_db")->config().durability.storage_directory;
+  ASSERT_TRUE(std::filesystem::exists(durability_dir));
+
+  // Move HOT -> COLD.
+  ASSERT_TRUE(DBMS().Suspend("cold_drop_db").has_value());
+
+  // Drop the COLD tenant (no system transaction in this unit-test seam).
+  auto del = DBMS().TryDelete("cold_drop_db");
+  ASSERT_TRUE(del.has_value()) << "cold drop should succeed";
+
+  // The on-disk durability dir is GONE (cold drop removes it).
+  EXPECT_FALSE(std::filesystem::exists(durability_dir));
+
+  // The tenant no longer appears in TenantRuntimeInfos (the COLD shell was erased AND the
+  // suspended_ rebuild metadata dropped).
+  for (const auto &info : DBMS().TenantRuntimeInfos()) {
+    EXPECT_NE(info.name, "cold_drop_db") << "dropped cold tenant must not appear in runtime infos";
+  }
+
+  // suspended_ no longer has it: a Resume now reports NON_EXISTENT (proves no rebuild metadata and
+  // that no recovery/materialize re-created the tenant hot).
+  auto resumed = DBMS().Resume("cold_drop_db");
+  ASSERT_FALSE(resumed.has_value());
+  EXPECT_EQ(resumed.error(), memgraph::dbms::DbmsHandler::ResumeError::NON_EXISTENT);
+
+  // And it did not reappear as a HOT tenant.
+  EXPECT_THROW((void)DBMS().Get("cold_drop_db"), memgraph::dbms::UnknownDatabaseException);
+}
+
+TEST_F(HotColdSuspendTest, HotDropStillWorks) {
+  // Regression: the state-aware dispatch must not break the HOT drop path.
+  CreateAndPopulate("hot_drop_db", 3);
+
+  const auto durability_dir = DBMS().Get("hot_drop_db")->config().durability.storage_directory;
+  ASSERT_TRUE(std::filesystem::exists(durability_dir));
+
+  auto del = DBMS().TryDelete("hot_drop_db");
+  ASSERT_TRUE(del.has_value()) << "hot drop should still succeed";
+
+  // Gone from the map.
+  EXPECT_THROW((void)DBMS().Get("hot_drop_db"), memgraph::dbms::UnknownDatabaseException);
+  // Disk cleaned.
+  EXPECT_FALSE(std::filesystem::exists(durability_dir));
+}
+
+TEST_F(HotColdSuspendTest, RenameColdRejected) {
+  constexpr int kNodes = 6;
+  CreateAndPopulate("rename_cold_db", kNodes);
+  ASSERT_TRUE(DBMS().Suspend("rename_cold_db").has_value());
+
+  // Renaming a COLD tenant must be rejected (retryable), NOT crash via the post-rename MG_ASSERT.
+  auto renamed = DBMS().Rename("rename_cold_db", "rename_cold_db_new");
+  ASSERT_FALSE(renamed.has_value());
+  EXPECT_EQ(renamed.error(), memgraph::dbms::RenameError::USING);
+
+  // The tenant is untouched and still recoverable under the OLD name with all its data.
+  auto resumed = DBMS().Resume("rename_cold_db");
+  ASSERT_TRUE(resumed.has_value()) << "cold tenant must remain resumable under its old name";
+  auto db_acc = *resumed;
+  EXPECT_EQ(CountNodes(db_acc), kNodes);
+
+  // The new name was never created.
+  EXPECT_THROW((void)DBMS().Get("rename_cold_db_new"), memgraph::dbms::UnknownDatabaseException);
+}
+
+// TODO(hot-cold): a deterministic test for the transitional (SUSPENDING/RESUMING) DROP/RENAME reject
+// (DeleteError::USING / RenameError::USING) requires holding a tenant mid-transition via a latch in
+// SetOnResume while another thread drops/renames. That is inherently racy to set up reliably in a
+// unit test; the COLD + HOT paths above cover the deterministic branches of the dispatch. The
+// transitional branch is a small, audited switch case sharing the same retryable USING sink.
+
 #endif  // MG_ENTERPRISE

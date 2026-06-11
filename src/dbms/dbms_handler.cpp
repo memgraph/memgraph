@@ -276,6 +276,25 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     return std::unexpected{DeleteError::DEFAULT_DB};
   }
 
+  // State-aware dispatch (hot/cold tenants). A COLD tenant has no readable config (GetConfig
+  // returns nullopt), so route it to the cold-drop path before the hot path below.
+  if (auto *gk = db_handler_.GetGatekeeper(db_name)) {
+    switch (gk->state()) {
+      case utils::GatekeeperState::HOT:
+        break;  // fall through to the existing hot path
+      case utils::GatekeeperState::COLD:
+        return DropCold_(db_name, transaction);
+      case utils::GatekeeperState::SUSPENDING:
+      case utils::GatekeeperState::RESUMING:
+        // Transitional state — reject as retryable ("database busy, try again"). We reuse the
+        // existing DeleteError::USING rather than adding a dedicated TRANSITIONING value: adding a
+        // DeleteError enumerator would break the interpreter's no-default switch on DeleteError and
+        // stop commit 6 from building standalone. A dedicated TRANSITIONING error is a later
+        // refinement.
+        return std::unexpected{DeleteError::USING};
+    }
+  }
+
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
   if (!conf) {
@@ -323,6 +342,22 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
 DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::Transaction *transaction) {
   auto wr = std::lock_guard(lock_);
 
+  // State-aware dispatch (hot/cold tenants). See TryDelete for rationale on reusing DeleteError::USING
+  // for the transitional (SUSPENDING/RESUMING) states.
+  if (db_name != kDefaultDB) {
+    if (auto *gk = db_handler_.GetGatekeeper(db_name)) {
+      switch (gk->state()) {
+        case utils::GatekeeperState::HOT:
+          break;  // fall through to the existing hot path
+        case utils::GatekeeperState::COLD:
+          return DropCold_(db_name, transaction);
+        case utils::GatekeeperState::SUSPENDING:
+        case utils::GatekeeperState::RESUMING:
+          return std::unexpected{DeleteError::USING};
+      }
+    }
+  }
+
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
   if (!conf) {
@@ -342,6 +377,22 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
 
 DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
   auto wr = std::lock_guard(lock_);
+
+  // State-aware dispatch (hot/cold tenants). No system transaction in this overload -> pass nullptr.
+  if (db_name != kDefaultDB) {
+    if (auto *gk = db_handler_.GetGatekeeper(db_name)) {
+      switch (gk->state()) {
+        case utils::GatekeeperState::HOT:
+          break;  // fall through to Delete_ (hot path)
+        case utils::GatekeeperState::COLD:
+          return DropCold_(db_name, /*txn=*/nullptr);
+        case utils::GatekeeperState::SUSPENDING:
+        case utils::GatekeeperState::RESUMING:
+          return std::unexpected{DeleteError::USING};
+      }
+    }
+  }
+
   return Delete_(db_name);
 }
 
@@ -349,6 +400,12 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
   auto wr = std::lock_guard(lock_);
   std::string db_name;
   try {
+    // NOTE: cold-drop-by-uuid is intentionally NOT supported here. Get_(uuid) resolves the name by
+    // iterating the map and minting accessors; a COLD shell mints none (access() == nullopt in
+    // non-HOT states), so a COLD tenant is not reachable by uuid through this overload. That is
+    // acceptable for now: drop-by-uuid is the replication-only path, and a COLD tenant is
+    // non-replicated by construction (Suspend_ rejects replication participants). Left as-is; the
+    // name-based TryDelete / Delete(name, txn) carry the cold dispatch.
     const auto db = Get_(uuid);
     db_name = db->name();
   } catch (const UnknownDatabaseException &) {
@@ -368,6 +425,17 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
 
   if (old_name == new_name) {
     return std::unexpected{RenameError::SAME_NAME};
+  }
+
+  // State-aware guard (hot/cold tenants): only a HOT tenant can be renamed. A COLD shell has no
+  // live storage and is not re-fetchable via db_handler_.Get(new_name) after the rename, which
+  // would trip the MG_ASSERT(new_db, ...) below (crash) and leave a dangling gatekeeper pointer in
+  // the suspended_ rebuild metadata (its name no longer matches the map key). Reject non-HOT states
+  // as retryable using the existing RenameError::USING ("cannot rename, try again") — adding a
+  // dedicated enumerator would break the interpreter's no-default switch on RenameError. A dedicated
+  // TRANSITIONING error is a later refinement.
+  if (auto *gk = db_handler_.GetGatekeeper(old_name); gk && gk->state() != utils::GatekeeperState::HOT) {
+    return std::unexpected{RenameError::USING};
   }
 
   // Perform the rename operation in the handler
@@ -577,6 +645,12 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     auto &database = *db->get();
     database.StopAllBackgroundTasks();
     database.streams()->DropAll();
+    // Disable any pending exit snapshot so the Database dtor does NOT write a full snapshot
+    // that remove_all (called from the DeferDelete callback below) would immediately delete.
+    // Idempotent: calling it on a live storage just clears the exit_snapshot_enabled_ flag.
+    // Both the suspend path (Suspend_) and the hot-DROP path (this function) now disable the
+    // exit snapshot before teardown.
+    database.storage()->DisableExitSnapshot();
   }
 
   // Remove from durability list
@@ -599,6 +673,53 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
       spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
     }
   });
+
+  return {};  // Success
+}
+
+DbmsHandler::DeleteResult DbmsHandler::DropCold_(std::string_view db_name, system::Transaction *txn) {
+  // CALLER HOLDS lock_ (exclusive). Drop a COLD (suspended) tenant: its config is NOT readable via
+  // GetConfig() (nullopt for COLD), so uuid + path come from the suspended_ rebuild metadata.
+  auto it = suspended_.find(db_name);
+  if (it == suspended_.end()) {
+    // Gatekeeper said COLD but no rebuild metadata — treat as non-existent (not actually cold).
+    return std::unexpected{DeleteError::NON_EXISTENT};
+  }
+  const auto uuid = it->second.salient.uuid;
+  const auto path = default_config_.durability.storage_directory / it->second.rel_dir;
+
+  // Erase the COLD gatekeeper shell. ~Gatekeeper waits for TERMINAL state (COLD qualifies) AND
+  // count == 0 (a cold shell has none), so this returns promptly without quiescing any live tenant.
+  if (!db_handler_.Erase(db_name)) {
+    return std::unexpected{DeleteError::NON_EXISTENT};
+  }
+
+  // Drop the rebuild metadata IMMEDIATELY after Erase, before the durability/disk ops below.
+  // Rationale: if durability_->Delete throws after the gatekeeper shell is gone but while the
+  // suspended_ entry still exists, Contains(db_name) would lie (report the tenant present) until
+  // restart. db_handler_.Erase touches db_handler_.items_, not suspended_, so the iterator `it`
+  // is still valid here; uuid/path were already copied above, so nothing below needs `it`.
+  suspended_.erase(it);
+
+  // Remove from durability list (KVStore).
+  if (durability_) durability_->Delete(Durability::GenKey(db_name));
+
+  // Delete disk storage.
+  std::error_code ec;
+  (void)std::filesystem::remove_all(path, ec);
+  if (ec) {
+    spdlog::error(R"(Failed to clean disk while deleting cold database "{}" stored in {})", db_name, path);
+  }
+
+  // Detach from tenant profile (no-op if not attached).
+  if (tenant_profiles_) {
+    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
+  }
+
+  // Save delta (system transaction scope).
+  if (txn) {
+    txn->AddAction<DropDatabase>(uuid);
+  }
 
   return {};  // Success
 }
