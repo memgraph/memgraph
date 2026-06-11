@@ -277,7 +277,7 @@ struct symbol_build_traits<symbol::Unwind> {
   // analysis on the e-node.
   static auto build_dead(BuildState &state, ENodeRef node, LogicalOperatorPtr const &input) -> result_type {
     auto const list_eclass = node.children()[child::unwind::list];
-    auto const *expr = state.egraph.eclass(state.egraph.find(list_eclass)).analysis().expression();
+    auto const *expr = state.egraph.analysis_of(list_eclass).expression();
     DMG_ASSERT(expr != nullptr && expr->known_list_length.has_value(),
                "dead Unwind requires a statically known list length");
     auto const scale = *expr->known_list_length;
