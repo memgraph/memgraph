@@ -1,6 +1,6 @@
 # Per-property binding + hidden + construction-time conflict validation
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -32,3 +32,18 @@ resolved precedence.
 ## Blocked by
 
 - `06-derive-overlay-read-through`
+
+## Comments
+
+`derive()` takes a `propertyPolicy` map (`origin`/`overlay`/`hidden` per
+property). Hidden keys are invisible to reads and function calls (GetProperty
+null, Properties() omits). Unlisted keys read through. A key bound `origin` that
+is also overlaid via `sourceNodeProperties` is a construction-time error. The
+hidden set is static, fixed at construction, stored in the node's heap `Impl`
+(inline size and mgp budgets unchanged). e2e covers hidden, overlay-shadow,
+read-through, and the conflict error.
+
+One policy map applies to both source and target nodes; the only runtime node
+state needed was the hidden set (`overlay`/`origin` bindings drive only the
+construction-time conflict check, since overlay shadowing already comes from the
+override value and origin read-through is the default).
