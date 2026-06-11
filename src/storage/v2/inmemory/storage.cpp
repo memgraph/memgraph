@@ -322,7 +322,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                 .wal_directory_ = config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
-      global_locker_(file_retainer_.AddLocker()) {
+      global_locker_(file_retainer_.AddLocker()),
+      exit_snapshot_enabled_(config.durability.snapshot_on_exit) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -507,10 +508,12 @@ InMemoryStorage::~InMemoryStorage() {
     wal_file_.reset();
   }
 
-  // On destruction, we want to stop snapshot creation unless snapshot_on_exit is set to true.
-  // If snapshot on exit is set to true then create_snapshot_handler() will just skip snapshot creation because it
-  // will figure out that there are no changes.
-  if (!config_.durability.snapshot_on_exit) {
+  // On destruction, we want to stop snapshot creation unless exit_snapshot_enabled_ is set to true.
+  // exit_snapshot_enabled_ mirrors config_.durability.snapshot_on_exit at construction; it can be
+  // cleared by DisableExitSnapshot() (e.g. by suspend/drop teardown) to skip the exit snapshot
+  // without touching the config. If the exit snapshot is enabled, create_snapshot_handler() will
+  // just skip snapshot creation when it figures out that there are no changes.
+  if (!exit_snapshot_enabled_) {
     if (snapshot_running_.load(std::memory_order_acquire)) {
       spdlog::info("snapshot aborting: storage is shutting down");
     }
@@ -518,11 +521,13 @@ InMemoryStorage::~InMemoryStorage() {
   }
 
   snapshot_runner_.Stop();
-  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
+  if (exit_snapshot_enabled_ && this->create_snapshot_handler) {
     create_snapshot_handler("exit");
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
+
+void InMemoryStorage::DisableExitSnapshot() { exit_snapshot_enabled_ = false; }
 
 void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change) {
   if (config_.track_label_counts) {

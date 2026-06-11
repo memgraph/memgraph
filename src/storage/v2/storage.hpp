@@ -327,6 +327,12 @@ class Storage {
     ttl_.Shutdown();
   }
 
+  // Opt out of the exit snapshot that the destructor would otherwise take when
+  // durability.snapshot_on_exit is set. Used by suspend/drop teardown to free
+  // storage WITHOUT serializing a snapshot (durability is already complete via
+  // WAL + periodic snapshot). No-op for backends without an exit snapshot.
+  virtual void DisableExitSnapshot() {}
+
   // TODO: make non-public
   ReplicationStorageState repl_storage_state_;
 

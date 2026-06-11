@@ -784,6 +784,8 @@ class InMemoryStorage final : public Storage {
     Storage::StopAllBackgroundTasks();
   }
 
+  void DisableExitSnapshot() override;
+
   std::unordered_map<LabelId, uint64_t> GetLabelCounts() const override {
     auto locked = label_counts_.Lock();
     return std::unordered_map<LabelId, uint64_t>(locked->begin(), locked->end());
@@ -836,6 +838,12 @@ class InMemoryStorage final : public Storage {
   std::atomic_bool snapshot_running_{false};
   std::atomic_bool abort_snapshot_{false};
   SnapshotProgress snapshot_progress_;
+
+  // Gates the destructor's exit snapshot. Initialized from
+  // config_.durability.snapshot_on_exit; DisableExitSnapshot() clears it so
+  // suspend/drop teardown skips the exit snapshot. (Plain bool: only written by
+  // DisableExitSnapshot() on the owning thread before the single-threaded dtor.)
+  bool exit_snapshot_enabled_;
 
   std::shared_ptr<utils::Observer<utils::SchedulerInterval>> snapshot_periodic_observer_;
 

@@ -1500,6 +1500,69 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(DurabilityTest, DisableExitSnapshotSkipsExitSnapshot) {
+  // Build a storage with snapshot_on_exit=true, call DisableExitSnapshot() before
+  // destruction, and verify that the snapshot directory remains empty — i.e., no
+  // exit snapshot was written despite the config requesting one.
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory,
+                                                    .snapshot_on_exit = true,
+                                                    .allow_parallel_snapshot_creation = true},
+                                     .salient = {.items = {.properties_on_edges = false, .enable_schema_info = false}}};
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+    // Populate with a few vertices so there is data to snapshot.
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Opt out of the exit snapshot before the scope closes (dtor runs).
+    db.storage()->DisableExitSnapshot();
+  }
+
+  // The exit snapshot must have been suppressed.
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(DurabilityTest, ExitSnapshotStillTakenByDefault) {
+  // Verify that the exit-snapshot contract is preserved when DisableExitSnapshot()
+  // is NOT called: destroying a storage with snapshot_on_exit=true must produce
+  // exactly one snapshot (guards against accidental regression).
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory,
+                                                    .snapshot_on_exit = true,
+                                                    .allow_parallel_snapshot_creation = true},
+                                     .salient = {.items = {.properties_on_edges = false, .enable_schema_info = false}}};
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+    // Populate with a few vertices so there is data to snapshot.
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // DisableExitSnapshot() is intentionally NOT called.
+  }
+
+  // The exit snapshot must have been written.
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, SnapshotPeriodic) {
   // Create snapshot.
   {
