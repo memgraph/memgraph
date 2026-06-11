@@ -868,6 +868,9 @@ PropertyAccessPermissions PropertyAccessPermissions::Deserialize(nlohmann::json 
 
   if (data.contains("rules") && data["rules"].is_array()) {
     for (auto const &rule_json : data["rules"]) {
+      if (!rule_json.is_object()) {
+        throw AuthException("Couldn't load property access rule data!");
+      }
       PropertyAccessRule rule;
       if (rule_json.contains(kSymbols)) {
         for (auto const &e : rule_json[kSymbols]) {
@@ -880,17 +883,6 @@ PropertyAccessPermissions PropertyAccessPermissions::Deserialize(nlohmann::json 
       if (rule_json.contains("properties") && rule_json["properties"].is_object()) {
         DeserializePropertyMap(rule_json["properties"], rule.properties);
       }
-      result.rules_.push_back(std::move(rule));
-    }
-  } else {
-    // Migration: old format was {entity: {prop: {grants, denies}}, ...}
-    for (auto const &[key, props_json] : data.items()) {
-      if (key == "global") continue;
-      if (!props_json.is_object()) continue;
-      PropertyAccessRule rule;
-      rule.entities.insert(key);
-      rule.matching_mode = MatchingMode::ANY;
-      DeserializePropertyMap(props_json, rule.properties);
       result.rules_.push_back(std::move(rule));
     }
   }
