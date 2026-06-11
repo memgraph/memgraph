@@ -31,10 +31,14 @@ so the real special-case set is known. See the architecture-improvement skill.
 ## Acceptance criteria
 
 - [x] An inventory of node-kind branch points - `.scratch/projections/issue-16-branch-inventory.md`
-- [~] A proposed unifying abstraction with a hot-path-cost argument - seeded (the
-      `mgp` variant seam vs a shared-interface base, with the visit-vs-vtable
-      hot-path note); needs the design decision made
-- [ ] A staged refactor plan, with follow-on issues
+- [x] A proposed unifying abstraction with a hot-path-cost argument - `GraphView`
+      (ADR 0005): a range-returning view at the `query/` accessor boundary, real
+      `DbAccessor` as the identity view, subgraph/projection as views layered over
+      a base. Hot path preserved by the coarse (per-scan) virtual boundary with
+      concrete per-element reads; validated by issue 12 profiling.
+- [~] A staged refactor plan, with follow-on issues - the staging is sketched in
+      ADR 0005 Consequences (scan surface -> define `GraphView` -> route operators
+      + functions); still needs breaking into agent-ready implementation issues
 
 ## Blocked by
 
