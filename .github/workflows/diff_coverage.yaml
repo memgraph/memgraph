@@ -54,6 +54,12 @@ jobs:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -193,6 +199,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -284,6 +296,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.ref }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
