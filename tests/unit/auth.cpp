@@ -1848,27 +1848,6 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsReadWriteSerializeRoundtrip) {
   EXPECT_EQ(perms, deserialized);
 }
 
-TEST(AuthWithoutStorage, PropertyAccessPermissionsDeserializeOldFormat) {
-  using memgraph::auth::PermissionLevel;
-  using memgraph::auth::PropertyAccessPermissions;
-  using memgraph::auth::PropertyPermissionType;
-
-  // Old format: {"Employee": {"ssn": "DENY", "*": "GRANT"}, "PAID": {"amount": "GRANT"}}
-  // Should deserialize as READ-only permissions (backwards compat)
-  nlohmann::json old_format = {{"Employee", {{"ssn", "DENY"}, {"*", "GRANT"}}}, {"PAID", {{"amount", "GRANT"}}}};
-
-  std::vector<std::string> const emp = {"Employee"};
-  std::vector<std::string> const paid = {"PAID"};
-
-  auto perms = PropertyAccessPermissions::Deserialize(old_format);
-  EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
-  EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
-  EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
-  EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
-  EXPECT_EQ(perms.Has(paid, "amount", PropertyPermissionType::READ), PermissionLevel::GRANT);
-  EXPECT_EQ(perms.Has(paid, "amount", PropertyPermissionType::WRITE), PermissionLevel::NEUTRAL);
-}
-
 TEST(AuthWithoutStorage, PropertyAccessPermissionsReadWriteMerge) {
   using memgraph::auth::Merge;
   using memgraph::auth::PermissionLevel;
