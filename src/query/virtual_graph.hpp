@@ -77,4 +77,16 @@ class VirtualGraph final {
   adjacency_map in_index_;
 };
 
+// What to do with a dangling edge - one whose endpoint resolves to no node in the node list - when
+// assembling a projection from lists.
+enum class DanglingEdgePolicy { kError, kDrop };
+
+// Assemble a projection from lists of synthetic nodes and edges. Nodes are inserted (deduplicated by
+// synthetic gid) and indexed by their import handle; a duplicate handle is an error. Each edge's
+// endpoints are bound to a listed node - an unresolved (handle) endpoint by matching handle, a
+// resolved endpoint by synthetic-gid membership - then the edge is inserted (deduplicated by
+// from/to/type). A dangling edge aborts the assembly under kError or is omitted under kDrop.
+VirtualGraph AssembleVirtualGraph(std::span<const VirtualNode> nodes, std::span<const VirtualEdge> edges,
+                                  DanglingEdgePolicy policy, VirtualGraph::allocator_type alloc);
+
 }  // namespace memgraph::query

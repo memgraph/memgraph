@@ -10,8 +10,11 @@
 // licenses/APL.txt.
 
 #include <unordered_set>
+#include <vector>
 
 #include "gtest/gtest.h"
+
+#include "query/exceptions.hpp"
 
 #include "query/virtual_edge.hpp"
 #include "query/virtual_graph.hpp"
@@ -200,6 +203,96 @@ TEST(VirtualGraphTest, NodeCarriesImportHandleDistinctFromIdentity) {
   // The handle survives a copy.
   const memgraph::query::VirtualNode copy = handled;
   EXPECT_EQ(copy.Handle(), 7);
+}
+
+namespace {
+// Builds a synthetic node carrying an import handle, as virtualNode(handle, ...) would.
+memgraph::query::VirtualNode HandledNode(int64_t handle, memgraph::query::VirtualNode::label_list labels = {}) {
+  memgraph::query::VirtualNode node{std::move(labels), {}};
+  node.SetHandle(handle);
+  return node;
+}
+}  // namespace
+
+TEST(VirtualGraphTest, AssembleBindsEdgesToNodesByHandle) {
+  std::vector<memgraph::query::VirtualNode> nodes;
+  nodes.push_back(HandledNode(1, {"A"}));
+  nodes.push_back(HandledNode(2, {"B"}));
+  const auto n1_gid = nodes[0].Gid();
+  const auto n2_gid = nodes[1].Gid();
+
+  std::vector<memgraph::query::VirtualEdge> edges;
+  edges.emplace_back(int64_t{1}, int64_t{2}, "KNOWS");
+
+  auto graph = memgraph::query::AssembleVirtualGraph(
+      nodes, edges, memgraph::query::DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+
+  EXPECT_EQ(graph.nodes().size(), 2);
+  ASSERT_EQ(graph.edges().size(), 1);
+  // The handle endpoints are bound to the listed nodes: the edge now points at their synthetic gids.
+  const auto &e = *graph.edges().begin();
+  EXPECT_EQ(e.FromGid(), n1_gid);
+  EXPECT_EQ(e.ToGid(), n2_gid);
+}
+
+TEST(VirtualGraphTest, AssembleErrorsOnDanglingEdge) {
+  std::vector<memgraph::query::VirtualNode> nodes;
+  nodes.push_back(HandledNode(1));
+  std::vector<memgraph::query::VirtualEdge> edges;
+  edges.emplace_back(int64_t{1}, int64_t{2}, "KNOWS");  // handle 2 has no node
+
+  EXPECT_THROW(memgraph::query::AssembleVirtualGraph(
+                   nodes, edges, memgraph::query::DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource()),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST(VirtualGraphTest, AssembleDropsDanglingEdgeKeepingOthers) {
+  std::vector<memgraph::query::VirtualNode> nodes;
+  nodes.push_back(HandledNode(1));
+  nodes.push_back(HandledNode(2));
+  std::vector<memgraph::query::VirtualEdge> edges;
+  edges.emplace_back(int64_t{1}, int64_t{2}, "OK");       // both endpoints present
+  edges.emplace_back(int64_t{1}, int64_t{3}, "DANGLES");  // handle 3 has no node
+
+  auto graph = memgraph::query::AssembleVirtualGraph(
+      nodes, edges, memgraph::query::DanglingEdgePolicy::kDrop, memgraph::utils::NewDeleteResource());
+
+  EXPECT_EQ(graph.nodes().size(), 2);
+  EXPECT_EQ(graph.edges().size(), 1);  // the dangling edge is omitted, the other kept
+}
+
+TEST(VirtualGraphTest, AssembleErrorsOnDuplicateHandleEvenUnderDrop) {
+  std::vector<memgraph::query::VirtualNode> nodes;
+  nodes.push_back(HandledNode(1, {"A"}));
+  nodes.push_back(HandledNode(1, {"B"}));  // same handle on a distinct node
+  std::vector<memgraph::query::VirtualEdge> edges;
+
+  // A duplicate handle is an ambiguity, not a dangling edge: it errors regardless of policy.
+  EXPECT_THROW(memgraph::query::AssembleVirtualGraph(
+                   nodes, edges, memgraph::query::DanglingEdgePolicy::kDrop, memgraph::utils::NewDeleteResource()),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST(VirtualGraphTest, AssembleBindsResolvedNodeEndpointByGid) {
+  // An edge whose endpoints are resolved node objects (the node-form of virtualEdge).
+  auto a = std::make_shared<const memgraph::query::VirtualNode>(HandledNode(1, {"A"}));
+  auto b = std::make_shared<const memgraph::query::VirtualNode>(HandledNode(2, {"B"}));
+  std::vector<memgraph::query::VirtualEdge> edges;
+  edges.emplace_back(a, b, "KNOWS");
+
+  std::vector<memgraph::query::VirtualNode> both;
+  both.push_back(*a);
+  both.push_back(*b);
+  auto graph = memgraph::query::AssembleVirtualGraph(
+      both, edges, memgraph::query::DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+  EXPECT_EQ(graph.edges().size(), 1);  // resolved endpoints bound by synthetic-gid membership
+
+  // With one endpoint's node absent from the list, the resolved endpoint is dangling.
+  std::vector<memgraph::query::VirtualNode> only_a;
+  only_a.push_back(*a);
+  EXPECT_THROW(memgraph::query::AssembleVirtualGraph(
+                   only_a, edges, memgraph::query::DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource()),
+               memgraph::query::QueryRuntimeException);
 }
 
 TEST(VirtualGraphTest, InsertIfNewDedupsDistinctEdgeGidsByTriple) {
