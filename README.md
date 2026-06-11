@@ -112,7 +112,7 @@ browser.
 ### macOS
 
 [![macOS](https://img.shields.io/badge/macOS-Docker-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-on-macos-docker)
-[![Lima](https://img.shields.io/badge/Lima-AACF41?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://github.com/lima-vm/lima)
+[![macOS](https://img.shields.io/badge/lima-AACF41?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-on-ubuntu)
 
 ### Linux
 
@@ -258,7 +258,6 @@ making Memgraph better!
 
 ## :busts_in_silhouette: Community
 - :purple_heart: [**Discord**](https://discord.gg/memgraph)
-- :speech_balloon: [**Discourse**](https://discourse.memgraph.com/)
 - :ocean: [**Stack Overflow**](https://stackoverflow.com/questions/tagged/memgraphdb)
 - :bird: [**Twitter**](https://twitter.com/memgraphdb)
 - :movie_camera:
