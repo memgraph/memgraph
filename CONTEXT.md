@@ -11,8 +11,9 @@ words in issues, tests, and proposals rather than drifting to synonyms.
   / `SubgraphVertexAccessor`.
 
 - **Projection** - a derived view built from **overlay** and/or **synthetic**
-  nodes, produced by `derive(path, config)`. Lazy and writable per a static
-  per-property binding.
+  nodes. Produced by `derive(path, config)` (lazy and writable per a static
+  per-property binding) or assembled by `virtualGraph(nodes, edges, config)` from
+  lists of synthetic elements to import an external graph in one query.
 
 - **Projected node** - the single value type for every node in a derived view
   (see `docs/adr/0001-projected-node.md`), realized by the C++ `VirtualNode`
@@ -44,6 +45,13 @@ words in issues, tests, and proposals rather than drifting to synonyms.
   than a node, awaiting binding at list assembly. A standalone edge may carry
   unresolved endpoints; a real vertex is never an endpoint (wire it by its
   `id()` as a handle).
+
+- **Dangling edge** - at `virtualGraph` assembly, an edge whose `from` or `to`
+  endpoint resolves to no node in the node list (a handle with no matching node,
+  or a node not present in the list). The `onDanglingEdge` config decides whether
+  one aborts the construction (`error`) or is silently omitted (`drop`). Distinct
+  from a duplicate import handle among nodes (an ambiguity, always an error) and
+  from an isolated node (no edges, always fine).
 
 - **Binding** - the store a single property is fixed to: `origin` (read-through
   and write-through, persisted), `overlay` (read and write hit the overlay,
