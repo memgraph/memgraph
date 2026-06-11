@@ -72,6 +72,17 @@ DECLARE_uint64(storage_hot_cold_min_hot_residency_sec);
 DECLARE_uint64(storage_hot_cold_max_concurrent_resumes);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_hot_cold_eviction_enabled);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_hot_cold_eviction_poll_interval_sec);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_hot_cold_eviction_high_watermark_percent);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_hot_cold_eviction_low_watermark_percent);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_hot_cold_eviction_max_per_cycle);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_properties_on_edges);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_snapshot_interval_sec);

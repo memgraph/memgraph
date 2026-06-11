@@ -411,6 +411,20 @@ class DbmsHandler {
    *        an explicit early drain keeps shutdown ordering obvious.)
    */
   void ShutdownResumePool() { resume_pool_.ShutDown(); }
+
+  /**
+   * @brief Suspend the coldest idle HOT tenants until `bytes_to_free` bytes are freed (estimated)
+   *        or `max_evictions` tenants have been suspended, whichever comes first. Coldness is ranked
+   *        by LastUsedNs() (oldest = coldest). Skips the default DB and silently skips any tenant
+   *        Suspend_ rejects (active connections, min-residency, replication, transitional state, ...).
+   *        Returns the estimated freed bytes (sum of DbMemoryUsage() of the tenants actually
+   *        suspended). CALLER MUST NOT hold lock_ (Suspend_ acquires it internally).
+   *
+   * @param bytes_to_free stop evicting once this many estimated bytes have been freed
+   * @param max_evictions hard cap on evictions per call
+   * @return int64_t estimated bytes freed (sum of DbMemoryUsage() of suspended tenants)
+   */
+  int64_t SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t max_evictions);
 #endif
 
   /**

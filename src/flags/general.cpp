@@ -117,6 +117,22 @@ DEFINE_uint64(storage_hot_cold_max_concurrent_resumes, 2,
               "Hot/cold: max concurrent background tenant resumes (resume executor width).");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_hot_cold_eviction_enabled, false,
+            "Hot/cold: enable automatic RAM-pressure eviction of the coldest idle in-memory tenants.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_hot_cold_eviction_poll_interval_sec, 30,
+              "Hot/cold: polling interval (seconds) for the memory-watermark eviction scheduler.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_hot_cold_eviction_high_watermark_percent, 85,
+              "Hot/cold: eviction triggers when tracked memory exceeds this percent of the memory limit.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_hot_cold_eviction_low_watermark_percent, 70,
+              "Hot/cold: eviction suspends tenants until tracked memory drops below this percent of the memory limit.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_hot_cold_eviction_max_per_cycle, 3,
+              "Hot/cold: maximum number of tenants to evict per scheduler cycle.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

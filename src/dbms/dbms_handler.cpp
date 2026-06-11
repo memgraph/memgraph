@@ -11,11 +11,13 @@
 
 #include "dbms/dbms_handler.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <shared_mutex>
 #include <thread>
+#include <vector>
 
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
@@ -822,6 +824,49 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
   // The COLD shell stays in db_handler_ so a later resume can move-assign a fresh gatekeeper.
   gk->finish_suspend();
   return {};
+}
+
+int64_t DbmsHandler::SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t max_evictions) {
+#ifdef MG_ENTERPRISE
+  if (max_evictions == 0 || bytes_to_free <= 0) return 0;
+
+  struct Candidate {
+    std::string name;
+    int64_t last_used_ns;
+    int64_t bytes;
+  };
+
+  std::vector<Candidate> candidates;
+  {
+    // Snapshot eligible HOT tenants under a shared lock. Do NOT call Suspend_ here — it takes lock_.
+    auto rd = std::shared_lock{lock_};
+    for (auto &[name, db_gk] : db_handler_) {
+      if (name == kDefaultDB) continue;
+      if (db_gk.state() != utils::GatekeeperState::HOT) continue;
+      auto acc = db_gk.access();  // transient; dropped at end of iteration
+      if (!acc) continue;         // raced out of HOT
+      candidates.push_back({std::string{name}, (*acc)->LastUsedNs(), (*acc)->DbMemoryUsage()});
+    }
+  }
+  // Coldest first = smallest last_used_ns.
+  std::ranges::sort(candidates, [](const auto &a, const auto &b) { return a.last_used_ns < b.last_used_ns; });
+  int64_t freed = 0;
+  uint64_t evicted = 0;
+  for (const auto &c : candidates) {
+    if (evicted >= max_evictions || freed >= bytes_to_free) break;
+    if (Suspend_(c.name).has_value()) {
+      freed += c.bytes;
+      ++evicted;
+      spdlog::info("Hot/cold eviction: suspended idle tenant \"{}\" (~{} bytes).", c.name, c.bytes);
+    }
+    // On failure (active connections / min-residency / etc.) skip and try the next-coldest.
+  }
+  return freed;
+#else
+  (void)bytes_to_free;
+  (void)max_evictions;
+  return 0;
+#endif
 }
 
 DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name) {
