@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 
@@ -37,20 +38,23 @@ class VirtualNode final {
   using allocator_type = utils::Allocator<VirtualNode>;
   using label_list = utils::pmr::vector<utils::pmr::string>;
   using property_map = utils::pmr::unordered_map<storage::PropertyId, storage::PropertyValue>;
+  using hidden_keys = utils::pmr::vector<storage::PropertyId>;
 
   VirtualNode(label_list labels, property_map properties, allocator_type alloc = {},
-              std::optional<VertexAccessor> origin = std::nullopt)
+              std::optional<VertexAccessor> origin = std::nullopt, hidden_keys hidden = {})
       : gid_(NextSyntheticGid()),
-        impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), std::move(origin), alloc)) {}
+        impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), std::move(origin), std::move(hidden),
+                                     alloc)) {}
 
   VirtualNode(const VirtualNode &other, allocator_type alloc)
       : gid_(other.gid_),
-        impl_(std::make_unique<Impl>(other.impl_->labels, other.impl_->properties, other.impl_->origin, alloc)) {}
+        impl_(std::make_unique<Impl>(other.impl_->labels, other.impl_->properties, other.impl_->origin,
+                                     other.impl_->hidden, alloc)) {}
 
   VirtualNode(VirtualNode &&other, allocator_type alloc)
       : gid_(other.gid_),
         impl_(std::make_unique<Impl>(std::move(other.impl_->labels), std::move(other.impl_->properties),
-                                     std::move(other.impl_->origin), alloc)) {}
+                                     std::move(other.impl_->origin), std::move(other.impl_->hidden), alloc)) {}
 
   VirtualNode(const VirtualNode &other) : VirtualNode(other, other.impl_->labels.get_allocator()) {}
 
@@ -78,9 +82,16 @@ class VirtualNode final {
 
   [[nodiscard]] auto Origin() const noexcept -> const std::optional<VertexAccessor> & { return impl_->origin; }
 
-  // Read: an overlay key shadows the origin; otherwise fall through to the origin lazily (latest
-  // transaction view, never cached); otherwise null. An origin with no such key yields null too.
+  // A hidden key is invisible to reads and to function calls over the node, regardless of whether
+  // the origin or the overlay holds a value for it.
+  [[nodiscard]] auto IsHidden(storage::PropertyId key) const noexcept -> bool {
+    return std::find(impl_->hidden.begin(), impl_->hidden.end(), key) != impl_->hidden.end();
+  }
+
+  // Read: hidden keys yield null; an overlay key shadows the origin; otherwise fall through to the
+  // origin lazily (latest transaction view, never cached); otherwise null.
   [[nodiscard]] auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
+    if (IsHidden(key)) return storage::PropertyValue{};
     if (const auto it = impl_->properties.find(key); it != impl_->properties.end()) return it->second;
     if (impl_->origin) {
       auto maybe_value = impl_->origin->GetProperty(storage::View::NEW, key);
@@ -109,9 +120,13 @@ class VirtualNode final {
       if (!maybe_props.has_value()) {
         throw QueryRuntimeException("Reading properties of a projected node's origin failed.");
       }
-      for (auto &[id, value] : *maybe_props) merged.insert_or_assign(id, std::move(value));
+      for (auto &[id, value] : *maybe_props) {
+        if (!IsHidden(id)) merged.insert_or_assign(id, std::move(value));
+      }
     }
-    for (const auto &[id, value] : impl_->properties) merged.insert_or_assign(id, value);
+    for (const auto &[id, value] : impl_->properties) {
+      if (!IsHidden(id)) merged.insert_or_assign(id, value);
+    }
     return merged;
   }
 
@@ -124,13 +139,18 @@ class VirtualNode final {
     label_list labels;
     property_map properties;
     std::optional<VertexAccessor> origin;
+    hidden_keys hidden;
 
     Impl(const label_list &lbls, const property_map &props, const std::optional<VertexAccessor> &orig,
-         allocator_type alloc)
-        : labels(lbls, alloc), properties(props, alloc), origin(orig) {}
+         const hidden_keys &hid, allocator_type alloc)
+        : labels(lbls, alloc), properties(props, alloc), origin(orig), hidden(hid, alloc) {}
 
-    Impl(label_list &&lbls, property_map &&props, std::optional<VertexAccessor> &&orig, allocator_type alloc)
-        : labels(std::move(lbls), alloc), properties(std::move(props), alloc), origin(std::move(orig)) {}
+    Impl(label_list &&lbls, property_map &&props, std::optional<VertexAccessor> &&orig, hidden_keys &&hid,
+         allocator_type alloc)
+        : labels(std::move(lbls), alloc),
+          properties(std::move(props), alloc),
+          origin(std::move(orig)),
+          hidden(std::move(hid), alloc) {}
   };
 
   storage::Gid gid_;

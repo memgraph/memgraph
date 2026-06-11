@@ -11,6 +11,7 @@
 
 import sys
 
+import mgclient
 import pytest
 from common import execute_and_fetch_all
 
@@ -234,6 +235,71 @@ class TestDeriveOverlayReadThrough:
             """,
         )
         assert results[0][0] == {"id": 1, "v": 7}
+
+
+class TestDerivePerPropertyBinding:
+    def _make_path(self, cursor):
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 7, secret: 42})-[:R]->(:N {id: 2, v: 9});")
+
+    def test_hidden_property_invisible_to_reads(self, connection):
+        """A property bound 'hidden' is absent from reads and from function calls over the
+        node, while an unlisted property still reads through to the origin."""
+        cursor = connection.cursor()
+        self._make_path(cursor)
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {secret: 'hidden'}}) AS g
+            UNWIND g.nodes AS n
+            WITH n WHERE n.id = 1
+            RETURN n.secret AS secret, n.v AS v, properties(n) AS props;
+            """,
+        )
+        secret, v, props = results[0]
+        assert secret is None
+        assert v == 7  # unlisted -> read-through
+        assert props == {"id": 1, "v": 7}  # 'secret' hidden from properties()
+
+    def test_overlay_binding_with_override_shadows(self, connection):
+        """A key bound 'overlay' with a sourceNodeProperties override shadows the origin
+        value on read, and is not treated as a conflict."""
+        cursor = connection.cursor()
+        self._make_path(cursor)
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {
+                virtualEdgeType: 'E',
+                propertyPolicy: {v: 'overlay'},
+                sourceNodeProperties: {v: 100}
+            }) AS g
+            UNWIND g.nodes AS n
+            WITH n WHERE n.id = 1
+            RETURN n.v AS v;
+            """,
+        )
+        assert results[0][0] == 100
+
+    def test_overlay_and_origin_binding_conflict_errors(self, connection):
+        """Overlaying a key and binding it to 'origin' is a construction-time error."""
+        cursor = connection.cursor()
+        self._make_path(cursor)
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(
+                cursor,
+                """
+                MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+                WITH derive(p, {
+                    virtualEdgeType: 'E',
+                    propertyPolicy: {v: 'origin'},
+                    sourceNodeProperties: {v: 100}
+                }) AS g
+                RETURN g;
+                """,
+            )
 
 
 class TestVirtualNodeSet:

@@ -6766,6 +6766,8 @@ class AggregateCursor : public Cursor {
   VirtualNode BuildDerivedNode(const VertexAccessor &real_vertex, std::string_view labels_key,
                                std::string_view props_key, const TypedValue::TMap &options,
                                VirtualNode::allocator_type alloc) const {
+    static constexpr auto kPropertyPolicy = "propertyPolicy";
+
     VirtualNode::label_list labels{alloc};
     if (const auto labels_it = options.find(labels_key); labels_it != options.end()) {
       if (labels_it->second.type() != TypedValue::Type::List) {
@@ -6796,7 +6798,39 @@ class AggregateCursor : public Cursor {
         overlay.insert_or_assign(id, std::move(pv));
       });
     }
-    return {std::move(labels), std::move(overlay), alloc, std::optional<VertexAccessor>{real_vertex}};
+
+    // The static property policy: per property, 'hidden' makes it invisible, 'origin' binds it to
+    // the origin (read-through), 'overlay' allows an overlay value to shadow. Read source and write
+    // target are coupled, so a key bound to 'origin' may not also be overlaid - that is a conflict
+    // rejected at construction rather than resolved silently.
+    VirtualNode::hidden_keys hidden{alloc};
+    if (const auto policy_it = options.find(kPropertyPolicy); policy_it != options.end()) {
+      if (policy_it->second.type() != TypedValue::Type::Map) {
+        throw QueryRuntimeException("derive() option '{}' must be a map of property names to bindings.",
+                                    kPropertyPolicy);
+      }
+      for (const auto &[name, binding] : policy_it->second.ValueMap()) {
+        if (binding.type() != TypedValue::Type::String) {
+          throw QueryRuntimeException(
+              "derive() '{}' binding for '{}' must be 'origin', 'overlay', or 'hidden'.", kPropertyPolicy, name);
+        }
+        const auto id = db_accessor_->NameToProperty(name);
+        const auto &value = binding.ValueString();
+        if (value == "hidden") {
+          hidden.push_back(id);
+        } else if (value == "origin") {
+          if (overlay.find(id) != overlay.end()) {
+            throw QueryRuntimeException("derive() property '{}' is both overlaid and bound to origin.", name);
+          }
+        } else if (value != "overlay") {
+          throw QueryRuntimeException(
+              "derive() '{}' binding for '{}' must be 'origin', 'overlay', or 'hidden'.", kPropertyPolicy, name);
+        }
+      }
+    }
+
+    return {
+        std::move(labels), std::move(overlay), alloc, std::optional<VertexAccessor>{real_vertex}, std::move(hidden)};
   }
 
   // Collapses the path to a single synthetic edge between its endpoints. Intermediate vertices
