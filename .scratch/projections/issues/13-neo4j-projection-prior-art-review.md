@@ -34,9 +34,29 @@ config-surface and Cypher-on-projection decisions.
 
 ## Acceptance criteria
 
-- [ ] A short comparison note: adopt / avoid / diverge, with rationale
-- [ ] Concrete recommendations folded into the relevant design issues
+- [x] A short comparison note: adopt / avoid / diverge, with rationale
+- [x] Concrete recommendations folded into the relevant design issues
 
 ## Blocked by
 
 None - can start immediately.
+
+## Comments
+
+Done. Comparison note: `.scratch/projections/prior-art-neo4j-gds.md`.
+
+Headline findings:
+
+- Our aggregation-function projection, node-or-handle endpoints, and `derive()`
+  config keys are **convergent** with GDS's *new* (non-deprecated) Cypher
+  projection - we never built the deprecated Cypher-as-strings form.
+- We are **deliberately better** on the things that aged badly in GDS/APOC: lazy
+  read-through vs their materialization (and no numeric-only restriction),
+  functions working over virtual nodes vs APOC's `labels() == []`, and loud
+  failure on ambiguity vs GDS silent first-occurrence-wins.
+- **Open gaps** feeding issues 14/11: no named-graph reuse (we recompute per
+  query; theirs is a catalog), no native label/type projection shorthand, and a
+  decision to keep parallel-edge weighting in user Cypher (GDS lesson) rather
+  than a config enum.
+- For issue 11: GDS's deprecation of the string-query form is a direct warning -
+  `USE projection` must be real nested Cypher, not a query string.
