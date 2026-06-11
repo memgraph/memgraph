@@ -4,7 +4,7 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_mgconsole() {
     # tests whether the `mgconsole` binary exists and works inside the container
-    expected_version="${1:-1.5}"
+    expected_version="${1:-1.6}"
     expected_path="/usr/bin/mgconsole"
     # Use `command -v` (bash builtin) instead of `which` — minimal CentOS 10
     # and similar base images don't ship the `which` utility, causing

@@ -85,7 +85,7 @@ the next generation of applications driver by real-time connected data.")
 set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, logrotate")
 
 # Configure CPack to build mgconsole using the unified install script
-set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
+set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_.cmake")
 
 # Component-based packaging. Produces:
 #   * memgraph_<ver>_<arch>.deb / memgraph-<ver>-1.<arch>.rpm
