@@ -15,9 +15,10 @@ words in issues, tests, and proposals rather than drifting to synonyms.
   per-property binding.
 
 - **Projected node** - the single value type for every node in a derived view
-  (see `docs/adr/0001-projected-node.md`). Holds an **optional origin** real
-  vertex plus its own **overlay property store**. "Overlay node" and "synthetic
-  node" are its two configurations, not separate types.
+  (see `docs/adr/0001-projected-node.md`), realized by the C++ `VirtualNode`
+  class. Holds an **optional origin** real vertex plus its own **overlay property
+  store**. "Overlay node" and "synthetic node" are its two configurations, not
+  separate types.
 
 - **Overlay node** - a projected node **with** an origin. Reads fall through to
   the origin lazily (origin properties are never copied unless read); declared

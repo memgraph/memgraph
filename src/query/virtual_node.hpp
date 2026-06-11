@@ -12,10 +12,14 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 
+#include "query/exceptions.hpp"
 #include "query/synthetic_gid.hpp"
+#include "query/vertex_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/string.hpp"
@@ -24,22 +28,29 @@
 
 namespace memgraph::query {
 
-// Standalone graph node with no provenance back to any real vertex.
+// A node in a derived view. Holds its own overlay property store and, optionally, a reference to an
+// origin real vertex. With no origin it is a synthetic node (the overlay is its only store). With an
+// origin it is an overlay node: property reads fall through to the origin lazily (never copied),
+// and an overlay key shadows the origin value for that key.
 class VirtualNode final {
  public:
   using allocator_type = utils::Allocator<VirtualNode>;
   using label_list = utils::pmr::vector<utils::pmr::string>;
   using property_map = utils::pmr::unordered_map<storage::PropertyId, storage::PropertyValue>;
 
-  VirtualNode(label_list labels, property_map properties, allocator_type alloc = {})
-      : gid_(NextSyntheticGid()), impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), alloc)) {}
+  VirtualNode(label_list labels, property_map properties, allocator_type alloc = {},
+              std::optional<VertexAccessor> origin = std::nullopt)
+      : gid_(NextSyntheticGid()),
+        impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), std::move(origin), alloc)) {}
 
   VirtualNode(const VirtualNode &other, allocator_type alloc)
-      : gid_(other.gid_), impl_(std::make_unique<Impl>(other.impl_->labels, other.impl_->properties, alloc)) {}
+      : gid_(other.gid_),
+        impl_(std::make_unique<Impl>(other.impl_->labels, other.impl_->properties, other.impl_->origin, alloc)) {}
 
   VirtualNode(VirtualNode &&other, allocator_type alloc)
       : gid_(other.gid_),
-        impl_(std::make_unique<Impl>(std::move(other.impl_->labels), std::move(other.impl_->properties), alloc)) {}
+        impl_(std::make_unique<Impl>(std::move(other.impl_->labels), std::move(other.impl_->properties),
+                                     std::move(other.impl_->origin), alloc)) {}
 
   VirtualNode(const VirtualNode &other) : VirtualNode(other, other.impl_->labels.get_allocator()) {}
 
@@ -63,8 +74,21 @@ class VirtualNode final {
 
   [[nodiscard]] auto Labels() const noexcept -> const label_list & { return impl_->labels; }
 
+  [[nodiscard]] auto HasOrigin() const noexcept -> bool { return impl_->origin.has_value(); }
+
+  [[nodiscard]] auto Origin() const noexcept -> const std::optional<VertexAccessor> & { return impl_->origin; }
+
+  // Read: an overlay key shadows the origin; otherwise fall through to the origin lazily (latest
+  // transaction view, never cached); otherwise null. An origin with no such key yields null too.
   [[nodiscard]] auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
     if (const auto it = impl_->properties.find(key); it != impl_->properties.end()) return it->second;
+    if (impl_->origin) {
+      auto maybe_value = impl_->origin->GetProperty(storage::View::NEW, key);
+      if (!maybe_value.has_value()) {
+        throw QueryRuntimeException("Reading a property of a projected node's origin failed.");
+      }
+      return std::move(*maybe_value);
+    }
     return storage::PropertyValue{};
   }
 
@@ -76,20 +100,37 @@ class VirtualNode final {
 
   void ClearProperties() { impl_->properties.clear(); }
 
-  [[nodiscard]] auto Properties() const noexcept -> const property_map & { return impl_->properties; }
+  // Merged view: origin properties (read lazily) with overlay keys shadowing them. Returned by
+  // value because the merge is not stored - origin properties are never copied into the overlay.
+  [[nodiscard]] auto Properties() const -> property_map {
+    property_map merged{impl_->properties.get_allocator()};
+    if (impl_->origin) {
+      auto maybe_props = impl_->origin->Properties(storage::View::NEW);
+      if (!maybe_props.has_value()) {
+        throw QueryRuntimeException("Reading properties of a projected node's origin failed.");
+      }
+      for (auto &[id, value] : *maybe_props) merged.insert_or_assign(id, std::move(value));
+    }
+    for (const auto &[id, value] : impl_->properties) merged.insert_or_assign(id, value);
+    return merged;
+  }
 
   bool operator==(const VirtualNode &other) const noexcept { return gid_ == other.gid_; }
 
  private:
+  // The origin lives in the heap-allocated Impl, not inline, so a VirtualNode stays small and the
+  // mgp_vertex/mgp_edge size budgets that embed it do not grow.
   struct Impl {
     label_list labels;
     property_map properties;
+    std::optional<VertexAccessor> origin;
 
-    Impl(const label_list &lbls, const property_map &props, allocator_type alloc)
-        : labels(lbls, alloc), properties(props, alloc) {}
+    Impl(const label_list &lbls, const property_map &props, const std::optional<VertexAccessor> &orig,
+         allocator_type alloc)
+        : labels(lbls, alloc), properties(props, alloc), origin(orig) {}
 
-    Impl(label_list &&lbls, property_map &&props, allocator_type alloc)
-        : labels(std::move(lbls), alloc), properties(std::move(props), alloc) {}
+    Impl(label_list &&lbls, property_map &&props, std::optional<VertexAccessor> &&orig, allocator_type alloc)
+        : labels(std::move(lbls), alloc), properties(std::move(props), alloc), origin(std::move(orig)) {}
   };
 
   storage::Gid gid_;

@@ -112,3 +112,23 @@ the assembly step (issue 05) and nowhere else.
   standalone unresolved edge has no defined rendering.
 - **Materialize placeholder nodes for gid endpoints.** Rejected: it creates a second node
   identity per handle that assembly then has to merge away.
+
+## Implementation status
+
+The unified node and overlay read-through landed on the existing `VirtualNode` class. Two
+of the settled choices above are deferred to keep churn down until they pay off:
+
+- **Name.** The class is still `VirtualNode`, not `ProjectedNode`. A rename touches the
+  `TypedValue` type-enum and ~170 sites for no behavioural gain, and would leave
+  `VirtualNode` renamed while `VirtualEdge`/`VirtualGraph` are not. `VirtualNode` is the
+  realization of the projected-node concept for now; a coherent family-wide rename is
+  optional later cleanup.
+- **Read signature.** `VirtualNode` keeps its bare `GetProperty(key)` / `Properties()` and
+  reads the origin internally with `storage::View::NEW` (the view `derive()` already used),
+  so no read caller changes. The `VertexAccessor`-shaped `(View) -> Result<>` signature -
+  the lever for folding real and projected reads together - is adopted if and when issue 16
+  is taken on.
+
+Landed: `VirtualNode` carries an optional origin; property reads fall through to it lazily
+(overlay keys shadow); `derive()` sets the origin and no longer copies inherited properties.
+Per-property binding and write-back (the origin write path) remain separate slices.

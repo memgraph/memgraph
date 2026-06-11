@@ -445,8 +445,14 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   return TypedValue(list.back(), ctx.memory);
 }
 
-const auto &VirtualProperties(const TypedValue &value) {
-  return value.IsVirtualNode() ? value.ValueVirtualNode().Properties() : value.ValueVirtualEdge().Properties();
+// Returned by value: a virtual node's Properties() merges its origin's properties with its overlay
+// and is not a stored map.
+auto VirtualProperties(const TypedValue &value) -> VirtualNode::property_map {
+  if (value.IsVirtualNode()) return value.ValueVirtualNode().Properties();
+  const auto &edge_properties = value.ValueVirtualEdge().Properties();
+  VirtualNode::property_map result{edge_properties.get_allocator()};
+  for (const auto &[id, property_value] : edge_properties) result.insert_or_assign(id, property_value);
+  return result;
 }
 
 TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {

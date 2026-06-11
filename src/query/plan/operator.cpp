@@ -6787,20 +6787,16 @@ class AggregateCursor : public Cursor {
       }
     }
 
-    VirtualNode::property_map properties{alloc};
+    // The overlay holds only the explicitly-overridden properties; every other property is read
+    // through the origin lazily, so a projection never copies the origin's properties (e.g. vector
+    // embeddings) unless they are actually read.
+    VirtualNode::property_map overlay{alloc};
     if (options.find(props_key) != options.end()) {
       ApplyPropertyMap(options, props_key, [&](storage::PropertyId id, storage::PropertyValue pv) {
-        properties.insert_or_assign(id, std::move(pv));
+        overlay.insert_or_assign(id, std::move(pv));
       });
-    } else {
-      // no properties option -> inherit every property from the original vertex
-      auto maybe_props = real_vertex.Properties(storage::View::NEW);
-      if (!maybe_props) throw QueryRuntimeException("derive() could not read properties of a path vertex.");
-      for (auto &[id, pv] : *maybe_props) {
-        properties.insert_or_assign(id, std::move(pv));
-      }
     }
-    return {std::move(labels), std::move(properties), alloc};
+    return {std::move(labels), std::move(overlay), alloc, std::optional<VertexAccessor>{real_vertex}};
   }
 
   // Collapses the path to a single synthetic edge between its endpoints. Intermediate vertices

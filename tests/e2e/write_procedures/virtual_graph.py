@@ -179,6 +179,63 @@ class TestVirtualNodeConstructor:
         assert vnid != 1
 
 
+class TestDeriveOverlayReadThrough:
+    def test_reads_origin_property_value(self, connection):
+        """An overlay node from derive() with no property override reads its origin's
+        property values."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 7})-[:R]->(:N {id: 2, v: 9});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            UNWIND g.nodes AS n
+            RETURN n.id AS id, n.v AS v ORDER BY id;
+            """,
+        )
+        assert results == [(1, 7), (2, 9)]
+
+    def test_read_is_lazy_not_a_copy(self, connection):
+        """Reads fall through to the origin at read time, not a snapshot taken at
+        construction: mutating the origin after derive() is visible through the
+        overlay node. A copy would still show the pre-mutation value.
+        """
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 1})-[:R]->(:N {id: 2, v: 2});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(a:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g, a
+            SET a.v = 100
+            RETURN [n IN g.nodes | n.v] AS vs;
+            """,
+        )
+        # origin a.v is now 100, b.v stays 2; read-through reflects the mutation.
+        assert sorted(results[0][0]) == [2, 100]
+
+    def test_overlay_node_exposes_origin_properties(self, connection):
+        """properties() over an overlay node returns the merged view (origin keys read
+        through), so a returned overlay node carries its origin's properties."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 7})-[:R]->(:N {id: 2, v: 9});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            UNWIND g.nodes AS n
+            WITH n WHERE n.id = 1
+            RETURN properties(n) AS props;
+            """,
+        )
+        assert results[0][0] == {"id": 1, "v": 7}
+
+
 class TestVirtualNodeSet:
     def test_set_single_property_overwrites_and_adds(self, connection):
         """SET n.key = value on a synthetic node overwrites an existing overlay key
