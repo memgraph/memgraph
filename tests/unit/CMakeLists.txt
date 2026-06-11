@@ -990,6 +990,11 @@ if (MG_ENTERPRISE)
         SOURCES hot_cold_observability.cpp
         LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
     )
+
+    add_unit_test(hot_cold_gatekeeper
+        SOURCES hot_cold_gatekeeper.cpp
+        LINK_TARGETS mg-utils
+    )
 else ()
     add_unit_test(dbms_handler_community
         SOURCES dbms_handler_community.cpp
