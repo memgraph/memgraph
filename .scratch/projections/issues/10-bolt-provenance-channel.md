@@ -1,6 +1,6 @@
 # Bolt provenance channel - per-node ref + RUN-header schema table
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -20,13 +20,13 @@ the static schema. Follow-on - not MVP-blocking.
 
 ## Acceptance criteria
 
-- [ ] Each projected node carries a reserved projection-tag property referencing its schema entry
-- [ ] The projection-schema table is emitted once in the RUN header, before any record
-- [ ] The table entry lists at least the overlay and hidden keys for that projection
-- [ ] A node from no projection carries no tag and is treated as fully real
-- [ ] An existing driver decodes the result unchanged (reserved key is an ordinary Int property; unknown header key ignored)
-- [ ] Scalar property values are sent unwrapped
-- [ ] Test asserting the header table, per-node tag, and unchanged decoding for a generic client
+- [x] Each projected node carries a reserved projection-tag property referencing its schema entry
+- [x] The projection-schema table is emitted once in the RUN header, before any record
+- [x] The table entry lists at least the overlay keys for that projection (hidden dropped from the wire per the locked design - a hidden key is already omitted from the property map, so its name carries no styling value)
+- [x] A node from no projection carries no tag and is treated as fully real
+- [x] An existing driver decodes the result unchanged (reserved key is an ordinary Int property; unknown header key ignored)
+- [x] Scalar property values are sent unwrapped
+- [x] Test asserting the header table, per-node tag, and unchanged decoding for a generic client (e2e for the per-node tag; bolt encoder/decoder round-trip for the table shape and unwrapped scalars)
 
 ## Blocked by
 
