@@ -47,6 +47,35 @@ TEST(VirtualGraphTest, AccessorsAndIdentity) {
   EXPECT_EQ(set.size(), 2);
 }
 
+TEST(VirtualGraphTest, EdgeHoldsUnresolvedHandleEndpoints) {
+  // virtualEdge("T", 1, 2) with gid arguments holds unresolved import-handle endpoints, bound to
+  // nodes only at projection assembly. Standalone, each endpoint's gid is the handle itself.
+  memgraph::query::VirtualEdge ve(int64_t{1}, int64_t{2}, "T");
+
+  EXPECT_EQ(ve.FromGid().AsInt(), 1);
+  EXPECT_EQ(ve.ToGid().AsInt(), 2);
+  EXPECT_EQ(ve.FromHandle(), 1);
+  EXPECT_EQ(ve.ToHandle(), 2);
+  EXPECT_EQ(ve.EdgeTypeName(), "T");
+
+  // An unresolved endpoint has no node; reaching for one (startNode/endNode) is an error.
+  EXPECT_THROW((void)ve.From(), memgraph::query::QueryRuntimeException);
+  EXPECT_THROW((void)ve.To(), memgraph::query::QueryRuntimeException);
+}
+
+TEST(VirtualGraphTest, EdgeMixesHandleAndNodeEndpoints) {
+  auto node = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L"}, {}));
+  const memgraph::query::VirtualEdge ve(node, int64_t{5}, "T");
+
+  // The resolved end exposes its node; the handle end exposes its handle and throws for a node.
+  EXPECT_EQ(ve.FromGid(), node->Gid());
+  EXPECT_EQ(ve.From().Gid(), node->Gid());
+  EXPECT_EQ(ve.FromHandle(), std::nullopt);
+  EXPECT_EQ(ve.ToGid().AsInt(), 5);
+  EXPECT_EQ(ve.ToHandle(), 5);
+  EXPECT_THROW((void)ve.To(), memgraph::query::QueryRuntimeException);
+}
+
 TEST(VirtualGraphTest, VirtualGraphFiltersEdgesByVertex) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &vn1 = vg.InsertNode(memgraph::query::VirtualNode({}, {}));
