@@ -36,9 +36,10 @@ so the real special-case set is known. See the architecture-improvement skill.
       `DbAccessor` as the identity view, subgraph/projection as views layered over
       a base. Hot path preserved by the coarse (per-scan) virtual boundary with
       concrete per-element reads; validated by issue 12 profiling.
-- [~] A staged refactor plan, with follow-on issues - the staging is sketched in
-      ADR 0005 Consequences (scan surface -> define `GraphView` -> route operators
-      + functions); still needs breaking into agent-ready implementation issues
+- [x] A staged refactor plan, with follow-on issues - broken into tracer-bullet
+      slices `17`-`28`. Design (17, HITL) -> seam + scan surface + grammar (18-20)
+      -> first end-to-end `USE` node scan (21) -> widen one axis each (22, 23, 25,
+      26), element seam (24), topology functions (27) -> retire forks (28).
 
 ## Blocked by
 
