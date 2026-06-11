@@ -257,6 +257,81 @@ class TestVirtualEdgeConstructor:
             execute_and_fetch_all(cursor, "WITH virtualEdge('T', 1, 2) AS e RETURN startNode(e);")
 
 
+class TestVirtualGraphConstructor:
+    def test_assembles_graph_consumable_by_procedure(self, connection):
+        """virtualGraph(nodes, edges) imports a graph from lists; an edge given by
+        handles binds to the listed nodes, and a procedure can read it."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'Person', {name: 'A'}), virtualNode(2, 'Person', {name: 'B'})] AS nodes,
+                 [virtualEdge('KNOWS', 1, 2)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            UNWIND g.nodes AS n
+            CALL read.subgraph_edge_info(g, n) YIELD edge_type, weight
+            RETURN edge_type;
+            """,
+        )
+
+        # Node 1 has an out-edge to node 2; node 2 has none, so a single edge record.
+        assert len(results) == 1
+        assert results[0][0] == "KNOWS"
+
+    def test_dangling_edge_errors_by_default(self, connection):
+        """An edge whose endpoint matches no listed node aborts construction by
+        default."""
+        cursor = connection.cursor()
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(
+                cursor,
+                """
+                WITH [virtualNode(1, 'N', {})] AS nodes, [virtualEdge('R', 1, 2)] AS edges
+                RETURN virtualGraph(nodes, edges) AS g;
+                """,
+            )
+
+    def test_drop_mode_omits_dangling_edge(self, connection):
+        """onDanglingEdge: 'drop' omits the dangling edge and the construction
+        succeeds with the surviving nodes."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {})] AS nodes, [virtualEdge('R', 1, 2)] AS edges
+            WITH virtualGraph(nodes, edges, {onDanglingEdge: 'drop'}) AS g
+            RETURN size(g.nodes) AS node_count, size(g.edges) AS edge_count;
+            """,
+        )
+
+        assert len(results) == 1
+        assert results[0][0] == 1  # the one supplied node
+        assert results[0][1] == 0  # the dangling edge was dropped
+
+    def test_nulls_in_lists_are_skipped(self, connection):
+        """Nulls in either list are ignored rather than rejected."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {}), null] AS nodes, [null] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            RETURN size(g.nodes) AS node_count;
+            """,
+        )
+
+        assert len(results) == 1
+        assert results[0][0] == 1
+
+    def test_real_node_in_list_is_rejected(self, connection):
+        """A real vertex is not a synthetic element; the node list rejects it."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:Real);")
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(cursor, "MATCH (r:Real) RETURN virtualGraph([r], []) AS g;")
+
+
 class TestDeriveOverlayReadThrough:
     def test_reads_origin_property_value(self, connection):
         """An overlay node from derive() with no property override reads its origin's
