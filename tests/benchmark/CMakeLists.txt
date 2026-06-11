@@ -83,6 +83,9 @@ target_link_libraries(${test_prefix}thread_safe_memory mg-utils)
 add_benchmark(stack_erase_if.cpp)
 target_link_libraries(${test_prefix}stack_erase_if mg-utils)
 
+add_benchmark(storage_v2_deleted_edges_gc.cpp)
+target_link_libraries(${test_prefix}storage_v2_deleted_edges_gc mg-utils)
+
 # USearch index_dense benchmark: same source, two configs (builtin vs simsimd) to compare metric path.
 # Uncomment to build and run locally.
 #[[
