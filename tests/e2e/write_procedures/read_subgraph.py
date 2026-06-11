@@ -397,5 +397,56 @@ def test_algorithm_reads_real_properties_over_subgraph(multi_db):
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
 
 
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_write_back_to_real_node_persists(multi_db):
+    """A SET on a node yielded by an algorithm run over a project() subgraph
+    persists to the real store.
+
+    read.community_label yields (node, community_id) over the subgraph; the outer
+    query writes community_id onto each yielded node. The property is new
+    (previously absent), so the write must create it, and a follow-up query in a
+    separate statement must read back the written values from the real nodes.
+    """
+    cursor = multi_db.cursor()
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (a:Person {name: 'A', dept: 'eng'}),
+               (b:Person {name: 'B', dept: 'eng'}),
+               (c:Person {name: 'C', dept: 'sales'}),
+               (a)-[:KNOWS]->(b),
+               (b)-[:KNOWS]->(c);
+        """,
+    )
+
+    # Write the algorithm output back onto the real nodes.
+    execute_and_fetch_all(
+        cursor,
+        """
+        MATCH p=(:Person)-[:KNOWS]->(:Person)
+        WITH project(p) AS graph
+        CALL read.community_label(graph, 'dept') YIELD node, community_id
+        SET node.community = community_id;
+        """,
+    )
+
+    # A separate statement reads the written values back from the real nodes.
+    written = {
+        name: community
+        for name, community in execute_and_fetch_all(
+            cursor, "MATCH (n:Person) RETURN n.name, n.community ORDER BY n.name;"
+        )
+    }
+
+    # The previously-absent 'community' property was created on every node.
+    assert all(community is not None for community in written.values())
+    # The persisted values match the grouping the algorithm computed.
+    assert written["A"] == written["B"], "A and B both in eng -> same community"
+    assert written["A"] != written["C"], "C in sales -> different community"
+
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
