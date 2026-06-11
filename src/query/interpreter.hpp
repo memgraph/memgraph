@@ -18,6 +18,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
+#include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "query/context.hpp"
@@ -243,23 +244,36 @@ struct CurrentDB {
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
+    // NOTE: this updates db_acc_ only. Under HOT_COLD_TENANTS the caller MUST also set
+    // current_db_name_ (the persistent session identity used by name() when db_acc_ is disengaged);
+    // see Interpreter::SetCurrentDB / PrepareUseDatabaseQuery. Flag-off leaves current_db_name_ unset
+    // (name() reads the live accessor), which is correct.
     db_acc_ = std::move(new_db);
     in_explicit_db_ = in_explicit_db;
   }
 
   void ResetDB() {
     db_acc_.reset();
+    current_db_name_.reset();
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
   }
 
-  std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
+  // Returns the session's current DB name. When db_acc_ is engaged (the normal case under both flag
+  // states), the live accessor's name is authoritative; otherwise fall back to current_db_name_.
+  std::string name() const {
+    if (db_acc_) return db_acc_->get()->name();
+    return current_db_name_.value_or("");
+  }
 
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;  // Current db (TODO: expand to support multiple)
+  // Persistent session DB identity (flag ON path only), kept in sync with db_acc_ so name() stays
+  // robust. db_acc_ is connection-scoped (held for the whole session) under both flag states.
+  std::optional<std::string> current_db_name_;
   std::unique_ptr<storage::Storage::Accessor> db_transactional_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
@@ -525,6 +539,8 @@ class Interpreter final {
     query_executions_.clear();
     system_transaction_.reset();
     transaction_queries_->clear();
+    // db_acc_ is connection-scoped under both flag states (held for the whole session); only release
+    // it when the DB was marked for deletion (byte-identical to pre-hot/cold behaviour).
     if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
       current_db_.db_acc_.reset();
     }
@@ -632,6 +648,19 @@ class Interpreter final {
   void SetupInterpreterTransaction(const QueryExtras &extras);
   void SetupDatabaseTransaction(bool couldCommit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
+
+#ifdef MG_ENTERPRISE
+  /**
+   * Connection-scoped model: db_acc_ is normally already held for the whole session (acquired at
+   * connect / USE / SetCurrentDB), so this is a no-op in the common case. It only re-acquires the
+   * accessor defensively if it was released mid-session (e.g. the DB was marked for deletion in
+   * ResetInterpreter), reheating a COLD tenant via block-and-resume. No-op when the flag is OFF.
+   *
+   * Called at autocommit-Prepare-START (after ResetInterpreter) and at explicit-BEGIN-handler-START
+   * (before the db_acc_ null-check).
+   */
+  void EnsureDbAccessForQuery();
+#endif
 };
 
 template <typename TStream>

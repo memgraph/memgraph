@@ -276,6 +276,22 @@ class DbmsHandler {
     return Get_(uuid);
   }
 
+  /**
+   * @brief Non-pinning existence check: returns true if the tenant exists in ANY state (HOT or COLD/suspended).
+   *
+   * Unlike Get(), this does NOT mint an accessor and does NOT throw. Safe to call from the query path
+   * when the flag is ON to validate a db-name before storing it as the session's persistent identity.
+   * GetGatekeeper covers both HOT and COLD shells; suspended_ is belt-and-suspenders for COLD rebuild
+   * metadata that has not yet been written back into db_handler_ (sub-millisecond window).
+   *
+   * @param name tenant name to test
+   * @return true if the tenant is known in any state
+   */
+  bool Contains(std::string_view name) const {
+    auto rd = std::shared_lock{lock_};
+    return db_handler_.GetGatekeeper(name) != nullptr || suspended_.contains(name);
+  }
+
 #else
   /**
    * @brief Get the context associated with the default database
@@ -387,6 +403,14 @@ class DbmsHandler {
    * @param name tenant name
    */
   void KickResume(std::string_view name);
+
+  /**
+   * @brief Drain + join the background resume executor. Idempotent. Call during daemon shutdown
+   *        BEFORE tearing down per-tenant background tasks so no in-flight resume republishes a
+   *        tenant after its tasks were stopped. (Member-destruction order also guarantees this, but
+   *        an explicit early drain keeps shutdown ordering obvious.)
+   */
+  void ShutdownResumePool() { resume_pool_.ShutDown(); }
 #endif
 
   /**

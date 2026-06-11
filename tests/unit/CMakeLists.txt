@@ -1005,6 +1005,11 @@ if (MG_ENTERPRISE)
         SOURCES hot_cold_resume.cpp
         LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
     )
+
+    add_unit_test(hot_cold_connection_scoped_accessor
+        SOURCES hot_cold_connection_scoped_accessor.cpp
+        LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+    )
 else ()
     add_unit_test(dbms_handler_community
         SOURCES dbms_handler_community.cpp

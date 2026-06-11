@@ -596,14 +596,13 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     }
   };
 
-  auto insert_result =
-      map.try_emplace(stream_name,
-                      StreamData<TStream>{std::move(stream_info.common_info.transformation_name),
-                                          std::move(ownername),
-                                          std::move(rolenames),
-                                          std::make_unique<SynchronizedStreamSource<TStream>>(
-                                              stream_name, std::move(stream_info), std::move(consumer_function),
-                                              arena_pool_)});
+  auto insert_result = map.try_emplace(
+      stream_name,
+      StreamData<TStream>{std::move(stream_info.common_info.transformation_name),
+                          std::move(ownername),
+                          std::move(rolenames),
+                          std::make_unique<SynchronizedStreamSource<TStream>>(
+                              stream_name, std::move(stream_info), std::move(consumer_function), arena_pool_)});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
   return insert_result.first;
 }

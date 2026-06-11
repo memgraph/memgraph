@@ -922,6 +922,46 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
+  // Hot/cold resume callbacks: wire instance-level knowledge (replication role, triggers, streams,
+  // TTL) into the DbmsHandler resume machinery. These are only called when a COLD tenant is resumed.
+  // Placed here (after interpreter_context_ is initialized and modules/triggers/streams are restored)
+  // so the callbacks can safely reference interpreter_context_.
+  if (!is_coordinator_instance && dbms_handler.has_value()) {
+    // (a) Replica role check — used by Resume_ to skip replication wiring on replicas.
+    dbms_handler->SetReplicaRoleCheck([&repl_state]() { return repl_state->ReadLock()->IsReplica(); });
+
+    // (b) PRE-publish hook — re-arm triggers, streams, and TTL for the resumed tenant, mirroring
+    //     the per-DB body of DbmsHandler::RestoreTriggers / RestoreStreams called at startup.
+    dbms_handler->SetOnResume([&interpreter_context_, &repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+      auto *ic = &interpreter_context_;
+      // Triggers: needs a WRITE storage access + DbAccessor.
+      {
+        auto storage_accessor = db_acc->Access(memgraph::storage::WRITE);
+        auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
+        db_acc->trigger_store()->RestoreTriggers(
+            &ic->ast_cache, &dba, ic->config.query, ic->auth_checker, db_acc->name(), ic->parameters);
+      }
+      // Streams. (db_acc is already the Accessor here, not a std::optional<Accessor> as in the
+      // RestoreStreams loop body — pass it directly, no dereference.)
+      db_acc->streams()->RestoreStreams(db_acc, ic);
+      // TTL user-check (role-safe: returns false on replica so TTL does not run there).
+      db_acc->storage()->ttl_.SetUserCheck([&repl_state]() { return repl_state->ReadLock()->IsMainWriteable(); });
+    });
+
+    // (c) POST-publish hook — recover replication clients for the resumed tenant.
+    //     Cold tenants are non-replicated, so this is effectively a safety no-op for MVP.
+    //     It mirrors RecoverStorageReplication so a tenant that had replicas before suspension
+    //     is re-connected on resume.
+    dbms_handler->SetOnResumeRepl([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+      auto locked = repl_state->Lock();
+      if (auto *main_data = std::get_if<memgraph::replication::RoleMainData>(&locked->ReplicationData())) {
+        memgraph::dbms::DbmsHandler::RecoverStorageReplication(db_acc, *main_data);
+      }
+    });
+  }
+#endif  // MG_ENTERPRISE (hot/cold callbacks)
+
+#ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
   // Needs to start after dbms_handler.RestoreTriggers has been run. Otherwise we have a deadlock:
   // This thread takes unique lock on dbms handler and waits for storage write access
@@ -1068,6 +1108,16 @@ int main(int argc, char **argv) {
       coordinator_state->GetDataInstanceManagementServer().Shutdown();
     }
 #endif
+
+#ifdef MG_ENTERPRISE
+    if (dbms_handler.has_value()) {
+      // Drain in-flight resumes BEFORE shutting down replication state (and tenant tasks): a resume
+      // callback (on_resume_repl_) re-wires MAIN-side replication through repl_state, so draining the
+      // pool first prevents an in-flight resume from touching an already-shut-down repl_state (which
+      // surfaces as a spurious shutdown error) or republishing a tenant after its tasks are torn down.
+      dbms_handler->ShutdownResumePool();
+    }
+#endif  // MG_ENTERPRISE
 
     // Don't replicate on shutdown anymore
     {

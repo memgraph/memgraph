@@ -266,6 +266,8 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   trigger_context_collector_.reset();
   // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
+  // db_acc_ is connection-scoped under both flag states (held for the whole session); it is NOT
+  // released at transaction boundaries. The gatekeeper count it holds blocks suspend while connected.
 }
 
 struct QueryLogWrapper {
@@ -3296,6 +3298,26 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
   }
 }
 
+#ifdef MG_ENTERPRISE
+// Connection-scoped hot/cold acquisition. Returns the tenant's HOT DatabaseAccess, reheating it
+// first if it is COLD (block-and-resume). Resume() is Get-first: it returns the accessor immediately
+// when the tenant is already HOT, otherwise it blocks the caller's thread for the recovery duration
+// (single-flight coalesces concurrent callers) and returns the freshly-HOT accessor. The held
+// accessor increments the gatekeeper count, which blocks suspend for the session's lifetime — that
+// count is the suspend-safety mechanism for the connection-scoped model.
+dbms::DatabaseAccess ResumeForSession(dbms::DbmsHandler *dbms_handler, std::string_view db_name) {
+  auto res = dbms_handler->Resume(db_name);
+  if (res.has_value()) return std::move(*res);
+  switch (res.error()) {
+    case dbms::DbmsHandler::ResumeError::NON_EXISTENT:
+      throw dbms::UnknownDatabaseException("Tried to retrieve an unknown database \"{}\".", db_name);
+    case dbms::DbmsHandler::ResumeError::RECOVERY_FAILED:
+      throw QueryException("Database '{}' failed to resume; check SHOW DATABASES and retry.", db_name);
+  }
+  throw QueryException("Database '{}' could not be acquired.", db_name);  // unreachable
+}
+#endif
+
 }  // namespace
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
@@ -3306,6 +3328,14 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms
     : current_db_{std::move(db)}, interpreter_context_(interpreter_context) {
   MG_ASSERT(current_db_.db_acc_, "Database accessor needs to be valid");
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
+#ifdef MG_ENTERPRISE
+  // flag ON (connection-scoped): HOLD the constructor-injected accessor for this Interpreter's
+  // lifetime, exactly like flag OFF. The held accessor increments the gatekeeper count, blocking
+  // suspend while the session is connected. Stash the name so current_db_.name() stays robust.
+  if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+    current_db_.current_db_name_ = current_db_.db_acc_->get()->name();
+  }
+#endif
 }
 
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
@@ -3345,6 +3375,11 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         if (in_explicit_transaction_) {
           throw ExplicitTransactionUsageException("Nested transactions are not supported.");
         }
+#ifdef MG_ENTERPRISE
+        // flag ON: lazily acquire db_acc_ from the persistent session name BEFORE the null-check below.
+        // flag OFF: no-op (db_acc_ is already held for the whole session).
+        EnsureDbAccessForQuery();
+#endif
         SetupInterpreterTransaction(extras);
         // Multiple paths can lead to transaction BEGIN, so we need to reset the timer in the handler
         current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
@@ -3386,7 +3421,12 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw ExplicitTransactionUsageException("No current transaction to rollback.");
         }
 
-        (*current_db_.db_acc_)->metric_handles()->rolled_back_transactions.Increment();
+        // Guard matches the pattern used for other metric reads (~798/817): db_acc_ is normally
+        // live here (engaged at BEGIN, kept through the explicit transaction), but the direct-API
+        // path and the flag-ON disengaged-between-txn state make a defensive check correct.
+        if (current_db_.db_acc_) {
+          (*current_db_.db_acc_)->metric_handles()->rolled_back_transactions.Increment();
+        }
 
         Abort();
         expect_rollback_ = false;
@@ -6636,9 +6676,9 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       continue;
     }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
-    auto get_interpreter_db_name = [&]() -> std::string {
-      return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
-    };
+    // Use current_db_.name() rather than db_acc_->get()->name() directly: when HOT_COLD_TENANTS is ON,
+    // db_acc_ may be disengaged between transactions, but current_db_name_ still holds the session's DB.
+    auto get_interpreter_db_name = [&]() -> std::string { return interpreter->current_db_.name(); };
     auto same_user = [](const auto &lv, const auto &rv) {
       if (lv.get() == rv) return true;
       if (lv && rv) return *lv == *rv;
@@ -8029,13 +8069,29 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
         std::string res;
 
         try {
-          if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
-            res = "Already using " + db_name;
+          if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+            // Connection-scoped: USE acquires and HOLDS the accessor for the session, reheating the
+            // tenant via block-and-resume if it is COLD. Mirrors the flag-OFF path (Resume-vs-Get).
+            if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
+              res = "Already using " + db_name;
+            } else {
+              auto tmp = ResumeForSession(db_handler, db_name);
+              if (on_change) (*on_change)(db_name);  // notify session; may throw
+              current_db.SetCurrentDB(std::move(tmp), false);
+              current_db.current_db_name_ = std::string{db_name};
+              // in_explicit_db_ stays false: USE is a session-level switch, not a bolt-explicit-db pin
+              res = "Using " + db_name;
+            }
           } else {
-            auto tmp = db_handler->Get(db_name);
-            if (on_change) (*on_change)(db_name);  // Will trow if cb fails
-            current_db.SetCurrentDB(std::move(tmp), false);
-            res = "Using " + db_name;
+            // flag OFF: unchanged — mint + pin the accessor for the whole session.
+            if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
+              res = "Already using " + db_name;
+            } else {
+              auto tmp = db_handler->Get(db_name);
+              if (on_change) (*on_change)(db_name);  // Will throw if cb fails
+              current_db.SetCurrentDB(std::move(tmp), false);
+              res = "Using " + db_name;
+            }
           }
         } catch (const utils::BasicException &e) {
           throw QueryRuntimeException(e.what());
@@ -8069,15 +8125,20 @@ PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curr
         "INFO.");
   }
 
+  // Capture the current DB name at Prepare time via current_db.name(), which falls back to
+  // current_db_name_ when db_acc_ is disengaged (flag ON, between transactions). This avoids
+  // the bug where db_acc_ is null between transactions under HOT_COLD_TENANTS, which would
+  // cause SHOW DATABASE to return Null even when the session has a valid current DB identity.
+  std::string current_name = current_db.name();
   return PreparedQuery{
       .header = {"Current"},
       .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [db_acc = current_db.db_acc_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+      .query_handler = [current_name = std::move(current_name), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         if (!pull_plan) {
           std::vector<std::vector<TypedValue>> results;
-          auto db_name = db_acc ? TypedValue{db_acc->get()->storage()->name()} : TypedValue{};
-          results.push_back({std::move(db_name)});
+          auto db_name_tv = current_name.empty() ? TypedValue{} : TypedValue{current_name};
+          results.push_back({std::move(db_name_tv)});
           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
         }
 
@@ -9396,11 +9457,39 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::
 void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
   // Can throw
   // do we lock here?
+  if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+    // flag ON (connection-scoped): acquire and HOLD the accessor for the session, reheating the
+    // tenant via block-and-resume if it is COLD. Mirrors the flag-OFF path but Resume-instead-of-Get.
+    current_db_.SetCurrentDB(ResumeForSession(interpreter_context_->dbms_handler, db_name), in_explicit_db);
+    current_db_.current_db_name_ = std::string{db_name};
+    return;
+  }
+  // flag OFF: UNCHANGED — mint + pin the accessor for the whole session.
   current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(db_name), in_explicit_db);
 }
 #else
 // Default database only
 void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(), false); }
+#endif
+
+#ifdef MG_ENTERPRISE
+void Interpreter::EnsureDbAccessForQuery() {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+    // flag OFF: no-op — db_acc_ is held for the entire session by SetCurrentDB.
+    return;
+  }
+  if (current_db_.db_acc_) {
+    // Connection-scoped: the accessor is already held (acquired at connect / USE / SetCurrentDB).
+    return;
+  }
+  // Defensive: a session DB name is set but the accessor was released (e.g. its DB was marked for
+  // deletion mid-session via ResetInterpreter). Re-acquire via block-and-resume; ResumeForSession
+  // throws UnknownDatabaseException if the tenant is genuinely gone.
+  if (current_db_.current_db_name_) {
+    current_db_.db_acc_ = ResumeForSession(interpreter_context_->dbms_handler, *current_db_.current_db_name_);
+  }
+  // No current db (system query with no DB context) — leave db_acc_ disengaged.
+}
 #endif
 
 Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserParameters_fn params_getter,
@@ -9443,6 +9532,13 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     const utils::Timer parsing_timer;
     memgraph::logging::EmitSessionTraceEvent("Query parsing started.");
+    // db_acc_ is connection-scoped (held for the whole session) under both flag states, so it is
+    // normally engaged here and database_uuid is populated. It can be disengaged only on the
+    // defensive deletion-recovery path (the DB was marked for deletion mid-session; see
+    // EnsureDbAccessForQuery), in which case database_uuid is left empty. An empty uuid does NOT
+    // cause cross-tenant AST cache mis-keying: the cache is keyed by stripped-query hash (not uuid),
+    // and `parsed_query.parameters` is re-resolved with the real uuid after the accessor is
+    // (re-)acquired in Prepare (the post-acquire PrepareQueryParameters call).
     std::string database_uuid;
     if (current_db_.db_acc_) database_uuid = std::string{current_db_.db_acc_->get()->uuid()};
     ParsedQuery parsed_query = ParseQuery(query_string,
@@ -9712,6 +9808,17 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     AdvanceCommand();
   } else {
     ResetInterpreter();
+#ifdef MG_ENTERPRISE
+    // flag ON: defensively re-acquire db_acc_ if it was released mid-session (e.g. marked-for-delete).
+    // flag OFF: no-op (db_acc_ is already held for the whole session).
+    EnsureDbAccessForQuery();
+    // Re-establish DB-arena attribution in the rare case db_acc_ was disengaged at Prepare entry
+    // and EnsureDbAccessForQuery just re-acquired it. Normally (connection-scoped) the Prepare-entry
+    // scope already covers this; the guard makes it a no-op then.
+    if (current_db_.db_acc_ && !db_arena_scope) {
+      db_arena_scope.emplace(current_db_.db_acc_->get());
+    }
+#endif
     transaction_queries_->push_back(parsed_query.query_string);
     if (current_db_.db_transactional_accessor_ /* && !in_explicit_transaction_*/) {
       // If we're not in an explicit transaction block and we have an open

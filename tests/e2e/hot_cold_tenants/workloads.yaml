@@ -1,0 +1,4 @@
+workloads:
+  - name: "Hot/cold tenants suspend and resume"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["hot_cold_tenants/hot_cold_tenants.py"]
