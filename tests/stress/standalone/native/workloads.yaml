@@ -14,3 +14,6 @@ workloads:
 
   - config: workloads/ring/workload.yaml
     enabled: true
+
+  - config: workloads/hot_cold/workload.yaml
+    enabled: true

@@ -1,0 +1,67 @@
+# Hot/Cold Tenant Concurrency Stress Workload
+#
+# Hammers the hot/cold 4-state gatekeeper (HOT -> SUSPENDING -> COLD ->
+# RESUMING -> HOT) with concurrent writers, manual SUSPEND/RESUME commands, and
+# the background auto-eviction scheduler running simultaneously.
+#
+# Three-way contention:
+#   1. Writer threads: open per-tenant connections, create labelled nodes in
+#      explicit transactions.
+#   2. Suspender/Resumer threads: issue SUSPEND DATABASE / RESUME DATABASE on
+#      random tenants from the default-db control connection.
+#   3. Auto-eviction scheduler (memory-limit=512 + watermark=2%): independently
+#      evicts idle tenants in the background.
+#
+# Final integrity check: each worker accumulates a local committed count; after
+# the run every tenant is resumed and the on-disk node count must match the
+# sum of committed writes. Any mismatch = data loss = non-zero exit.
+#
+# NOTE: Run this workload against an ASan or TSan build to get sanitizer
+# coverage of the suspend/resume/evict machinery.  The workload uses bounded
+# retries and generous timeouts so it remains correct (no false failures) even
+# under the 3-5x slowdown of sanitizer builds.
+
+memgraph:
+  deployment:
+    externally_managed: false
+  args:
+    - "--experimental-enabled=hot-cold-tenants"
+    - "--storage-wal-enabled=true"
+    - "--storage-snapshot-interval-sec=300"
+    - "--data-recovery-on-startup=true"
+    - "--storage-hot-cold-min-hot-residency-sec=0"
+    - "--storage-hot-cold-eviction-enabled=true"
+    - "--storage-hot-cold-eviction-poll-interval-sec=1"
+    - "--storage-hot-cold-eviction-high-watermark-percent=2"
+    - "--storage-hot-cold-eviction-low-watermark-percent=1"
+    - "--storage-hot-cold-eviction-max-per-cycle=3"
+    - "--memory-limit=512"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: hot-cold-concurrency-stress
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/hot_cold/workload.py
+      script_args:
+        - "--endpoint"
+        - "127.0.0.1:7687"
+        - "--parallelism"
+        - "8"
+        - "--num-tenants"
+        - "6"
+        - "--duration-sec"
+        - "120"
+        - "--nodes-per-tx"
+        - "5"
+      timeout_min: 15
