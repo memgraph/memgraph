@@ -278,6 +278,13 @@ struct Gatekeeper {
     return std::nullopt;
   }
 
+  // Number of live Accessors (a coarse proxy for "connections + in-flight internal users").
+  std::optional<uint64_t> use_count() const {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    if (pimpl_->value_) return pimpl_->count_;
+    return std::nullopt;
+  }
+
   ~Gatekeeper() {
     if (!pimpl_) return;  // Moved out, nothing to do
     pimpl_->is_marked_for_deletion = true;

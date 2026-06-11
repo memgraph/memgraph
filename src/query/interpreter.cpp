@@ -220,6 +220,13 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
   auto &db_acc = *db_acc_;
+  // hot/cold: record tenant last-used timestamp for eviction ordering.  Gated on the experiment
+  // flag so that with HOT_COLD_TENANTS disabled this write is a strict no-op — preserving
+  // flag-OFF byte-identity (last_used_ns_ is only consumed by flag-gated SHOW DATABASES columns
+  // and the eviction scheduler).
+  if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+    db_acc->MarkUsed();
+  }
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
   switch (acc_type) {
@@ -8012,10 +8019,17 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   auto *db_handler = interpreter_context->dbms_handler;
   AuthQueryHandler *auth = interpreter_context->auth;
 
+  const bool hot_cold_enabled = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS);
+
   Callback callback;
-  callback.header = {"Name"};
-  callback.fn =
-      [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
+  callback.header = hot_cold_enabled ? std::vector<std::string>{"Name", "State", "Connections", "Idle seconds"}
+                                     : std::vector<std::string>{"Name"};
+  callback.fn = [auth,
+                 db_handler,
+                 hot_cold_enabled,
+                 user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
+    // Build the auth-filtered name list (preserving existing allowed/denied logic unchanged).
+    // gen_status populates `status` with single-element (Name) rows.
     std::vector<std::vector<TypedValue>> status;
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
@@ -8030,9 +8044,51 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       });
     };
 
+    if (!hot_cold_enabled) {
+      // Default (master) behavior: single-column "Name" output sourced from the hot/active map.
+      if (!user_or_role || !*user_or_role) {
+        // No user, return all
+        gen_status(db_handler->All(), std::vector<TypedValue>{});
+      } else {
+        // User has a subset of accessible dbs; this is synched with the SessionContextHandler
+        const auto &db_priv = auth->GetDatabasePrivileges(user_or_role->username().value(), user_or_role->rolenames());
+        const auto &allowed = db_priv[0][0];
+        const auto &denied = db_priv[0][1].ValueList();
+        if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
+          // All databases are allowed
+          gen_status(db_handler->All(), denied);
+        } else {
+          gen_status(allowed.ValueList(), denied);
+        }
+      }
+
+      return status;
+    }
+
+    // Hot/cold experiment enabled: emit the 4-column State/Connections/Idle shape.
+    // Collect per-tenant runtime stats and index by name for O(1) lookup below.
+    auto const runtime_infos = db_handler->TenantRuntimeInfos();
+    std::unordered_map<std::string, dbms::DbmsHandler::TenantRuntimeInfo> info_map;
+    info_map.reserve(runtime_infos.size());
+    for (auto const &info : runtime_infos) {
+      info_map.emplace(info.name, info);
+    }
+
+    // Snapshot steady_clock AFTER materializing runtime_infos (which froze each last_used_ns). steady_clock
+    // is monotonic, so sampling now guarantees steady_now_ns >= every snapshotted last_used_ns ⇒ idle_seconds
+    // is never negative even if a concurrent query stamps MarkUsed() during this call.
+    auto const steady_now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+
+    // The "all databases" name source is the full hot+cold tenant set (TenantRuntimeInfos includes
+    // suspended tenants), so cold tenants are surfaced by SHOW DATABASES. (db_handler->All() returns only
+    // the hot/active map, which would hide suspended tenants.)
+    std::vector<std::string> all_names;
+    all_names.reserve(runtime_infos.size());
+    for (auto const &info : runtime_infos) all_names.push_back(info.name);
+
     if (!user_or_role || !*user_or_role) {
       // No user, return all
-      gen_status(db_handler->All(), std::vector<TypedValue>{});
+      gen_status(all_names, std::vector<TypedValue>{});
     } else {
       // User has a subset of accessible dbs; this is synched with the SessionContextHandler
       const auto &db_priv = auth->GetDatabasePrivileges(user_or_role->username().value(), user_or_role->rolenames());
@@ -8040,10 +8096,28 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       const auto &denied = db_priv[0][1].ValueList();
       if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
         // All databases are allowed
-        gen_status(db_handler->All(), denied);
+        gen_status(all_names, denied);
       } else {
         gen_status(allowed.ValueList(), denied);
       }
+    }
+
+    // Expand each Name-only row to the full 4-column shape, pulling State/Connections/Idle from the
+    // per-tenant runtime info (cold tenants report State="cold", 0 connections, idle from the frozen stamp).
+    for (auto &row : status) {
+      auto const &name = row[0].ValueString();
+      auto it = info_map.find(std::string{name});
+      auto state = dbms::DbmsHandler::TenantState::READY;
+      uint64_t connections = 0;
+      double idle_seconds = 0.0;
+      if (it != info_map.end()) {
+        state = it->second.state;
+        connections = it->second.connections;
+        idle_seconds = static_cast<double>(steady_now_ns - it->second.last_used_ns) / 1e9;
+      }
+      row.emplace_back(TypedValue(std::string{dbms::DbmsHandler::TenantStateToString(state)}));
+      row.emplace_back(TypedValue(static_cast<int64_t>(connections)));
+      row.emplace_back(TypedValue(idle_seconds));
     }
 
     return status;

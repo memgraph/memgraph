@@ -150,6 +150,8 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                            db_arena_.get(),
                                            &db_embedding_memory_tracker_);
   }
+  // hot/cold: initialise to "now" so a freshly created DB is not reported as infinitely idle.
+  last_used_ns_.store(std::chrono::steady_clock::now().time_since_epoch().count(), std::memory_order_relaxed);
 }
 
 Database::DatabaseMetricsRegistration::~DatabaseMetricsRegistration() { metrics::Metrics().RemoveDatabase(uuid_); }

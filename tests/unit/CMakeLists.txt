@@ -985,6 +985,11 @@ if (MG_ENTERPRISE)
         SOURCES multi_tenancy.cpp
         LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
     )
+
+    add_unit_test(hot_cold_observability
+        SOURCES hot_cold_observability.cpp
+        LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+    )
 else ()
     add_unit_test(dbms_handler_community
         SOURCES dbms_handler_community.cpp

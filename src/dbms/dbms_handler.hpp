@@ -410,6 +410,63 @@ class DbmsHandler {
     return res;
   }
 
+  /// Lightweight per-tenant runtime stats for SHOW DATABASES and hot/cold idle detection.
+  /// Does NOT call the heavyweight GetInfo(); reads only the gatekeeper count and the last-used stamp.
+  ///
+  /// Caveat: `connections` equals Gatekeeper::count_, which counts *all* live Accessors — client
+  /// sessions/transactions *plus* transient internal users (async indexer, TTL, snapshot holding a
+  /// momentary DatabaseProtector). It is a useful proxy, not an exact session count. A precise
+  /// per-DB session count (iterating InterpreterContext::interpreters) is a later refinement.
+  /// Hot/cold lifecycle state surfaced by SHOW DATABASES. (SUSPENDING/RESUMING are transient internal
+  /// phases not currently surfaced; reheat is near-instant from the client's view.)
+  enum class TenantState : uint8_t { READY, COLD };
+
+  static constexpr std::string_view TenantStateToString(TenantState s) {
+    switch (s) {
+      case TenantState::READY:
+        return "ready";
+      case TenantState::COLD:
+        return "cold";
+    }
+    return "ready";
+  }
+
+  struct TenantRuntimeInfo {
+    std::string name;
+    uint64_t connections;       //!< gatekeeper accessor count (external holders + in-flight internal users); 0 if cold
+    int64_t last_used_ns;       //!< steady_clock nanoseconds of last transaction setup; 0 if never used
+    TenantState state;          //!< READY (hot, in active map) or COLD (suspended)
+    int64_t db_memory_tracked;  //!< per-DB tracked bytes (Database::DbMemoryUsage()); 0 if cold. For eviction ranking.
+  };
+
+  std::vector<TenantRuntimeInfo> TenantRuntimeInfos() {
+    std::vector<TenantRuntimeInfo> res;
+#ifdef MG_ENTERPRISE
+    auto rd = std::shared_lock{lock_};
+    for (auto &[name, db_gk] : db_handler_) {
+      auto const connections = db_gk.use_count().value_or(0);  // read BEFORE taking an accessor
+      int64_t last = 0;
+      int64_t mem = 0;
+      if (auto acc = db_gk.access()) {
+        last = acc->get()->LastUsedNs();
+        mem = acc->get()->DbMemoryUsage();
+      }
+      res.push_back({name, connections, last, TenantState::READY, mem});
+    }
+    // NOTE: cold (suspended) tenants are surfaced here once the suspend engine lands; this observability
+    // commit has no suspended_ registry yet, so only hot tenants are reported (all State=READY).
+#else
+    if (auto acc = db_gatekeeper_.access()) {
+      res.push_back({std::string{acc->get()->name()},
+                     db_gatekeeper_.use_count().value_or(0),
+                     acc->get()->LastUsedNs(),
+                     TenantState::READY,
+                     acc->get()->DbMemoryUsage()});
+    }
+#endif
+    return res;
+  }
+
   /***
    * @brief Live vertex/edge/disk/memory stats for metrics.
    *
