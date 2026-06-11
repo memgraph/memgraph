@@ -502,5 +502,78 @@ class TestOverlayWriteBack:
         assert by_person["A1"] != by_person["A3"], "A3 in sales -> different community"
 
 
+class TestBoltOverlaySerialization:
+    """An overlay node serializes over Bolt at its origin's identity (so a client maps it
+    back to the real node) with the merged property view; a synthetic node keeps its
+    synthetic id. The Bolt Node structure shape is unchanged - only which id and which
+    properties are written."""
+
+    def test_overlay_node_serializes_at_origin_id_with_merged_properties(self, connection):
+        """Each overlay node decodes with its origin's Bolt id and the origin's property
+        map (no override given, so the merged view equals the origin's properties)."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 1})-[:R]->(:N {id: 2, v: 2});")
+
+        reals = execute_and_fetch_all(cursor, "MATCH (m:N) RETURN m;")
+        real_by_pid = {node.properties["id"]: node for (node,) in reals}
+
+        rows = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            UNWIND g.nodes AS o
+            RETURN o;
+            """,
+        )
+
+        assert len(rows) == 2
+        for (overlay,) in rows:
+            real = real_by_pid[overlay.properties["id"]]
+            assert overlay.id == real.id, "overlay node must serialize at its origin's Bolt id"
+            assert overlay.properties == real.properties
+            assert overlay.labels == real.labels
+
+    def test_overlay_value_shadows_origin_in_serialized_map(self, connection):
+        """A construction-time override shadows the origin value in the serialized property
+        map, while the node still carries its origin's id."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 1})-[:R]->(:N {id: 2, v: 2});")
+
+        real_source = {
+            node.properties["id"]: node for (node,) in execute_and_fetch_all(cursor, "MATCH (m:N) RETURN m;")
+        }[1]
+
+        rows = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', sourceNodeProperties: {v: 999}}) AS g
+            UNWIND g.nodes AS o
+            RETURN o;
+            """,
+        )
+
+        source = next(o for (o,) in rows if o.properties["id"] == 1)
+        assert source.id == real_source.id
+        assert source.properties["v"] == 999, "overlay value shadows the origin in the serialized map"
+
+    def test_synthetic_node_keeps_synthetic_id(self, connection):
+        """A synthetic node (no origin) serializes with its own synthetic id, distinct from
+        any real node's id."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:Real);")
+
+        real = execute_and_fetch_all(cursor, "MATCH (r:Real) RETURN r;")[0][0]
+        synthetic = execute_and_fetch_all(cursor, "RETURN virtualNode(1, 'V', {x: 1}) AS n;")[0][0]
+
+        assert synthetic.id < 0, "synthetic gids count down from the top of the id space"
+        assert synthetic.id != real.id
+        assert synthetic.properties == {"x": 1}
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

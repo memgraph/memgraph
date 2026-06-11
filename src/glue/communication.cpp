@@ -139,7 +139,10 @@ communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage
 }
 
 communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db) {
-  auto id = communication::bolt::Id::FromUint(node.Gid().AsUint());
+  // An overlay node serializes at its origin's identity, so a click, expand, or edit in a client
+  // maps back to the real node. A synthetic node (no origin) keeps its synthetic id.
+  const auto gid = node.HasOrigin() ? node.Origin()->Gid() : node.Gid();
+  auto id = communication::bolt::Id::FromUint(gid.AsUint());
   std::vector<std::string> labels;
   labels.reserve(node.Labels().size());
   for (const auto &label : node.Labels()) labels.emplace_back(label);
