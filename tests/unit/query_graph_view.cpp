@@ -18,6 +18,9 @@
 #include "query/graph_view.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "query/virtual_graph.hpp"
+#include "query/virtual_graph_view.hpp"
+#include "query/virtual_node.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -109,6 +112,104 @@ TEST_F(GraphViewTest, ScanAllReadsThroughBoundView) {
   while (cursor->Pull(frame, context)) scanned.insert(frame[symbol].ValueVertex().Gid());
 
   EXPECT_EQ(scanned, bound_gids);
+}
+
+// A synthetic node carrying an import handle, so AssembleVirtualGraph can wire
+// edges to it by handle.
+VirtualNode HandledNode(int64_t handle, VirtualNode::label_list labels = {}) {
+  VirtualNode node{std::move(labels), {}};
+  node.SetHandle(handle);
+  return node;
+}
+
+class VirtualGraphViewTest : public ::testing::Test {
+ protected:
+  std::unique_ptr<storage::Storage> storage_ = std::make_unique<storage::InMemoryStorage>();
+
+  // A DbAccessor over an empty real graph, used only for the shared name space.
+  std::unique_ptr<storage::Storage::Accessor> acc_ = storage_->Access(storage::StorageAccessType::READ);
+  DbAccessor dba_{acc_.get()};
+};
+
+// The projection view scans exactly the nodes in the VirtualGraph.
+TEST_F(VirtualGraphViewTest, ViewYieldsAllNodes) {
+  std::vector<VirtualNode> nodes;
+  nodes.push_back(HandledNode(1, {"A"}));
+  nodes.push_back(HandledNode(2, {"B"}));
+  nodes.push_back(HandledNode(3, {"C"}));
+  std::set<Gid> expected{nodes[0].Gid(), nodes[1].Gid(), nodes[2].Gid()};
+
+  auto graph = AssembleVirtualGraph(nodes, {}, DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+  VirtualGraphView view{&graph, &dba_};
+
+  std::set<Gid> scanned;
+  for (const auto &node : view.Nodes()) scanned.insert(node.Gid());
+
+  EXPECT_EQ(scanned, expected);
+}
+
+// Out-edges and in-edges of a node are direction-respecting: a directed edge
+// appears among its source's out-edges and its target's in-edges only.
+TEST_F(VirtualGraphViewTest, ViewYieldsDirectedEdgesOfANode) {
+  std::vector<VirtualNode> nodes;
+  nodes.push_back(HandledNode(1, {"A"}));
+  nodes.push_back(HandledNode(2, {"B"}));
+  const auto src = nodes[0].Gid();
+  const auto dst = nodes[1].Gid();
+
+  std::vector<VirtualEdge> edges;
+  edges.emplace_back(int64_t{1}, int64_t{2}, "KNOWS");
+
+  auto graph = AssembleVirtualGraph(nodes, edges, DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+  VirtualGraphView view{&graph, &dba_};
+
+  ASSERT_EQ(view.OutEdges(src).size(), 1);
+  EXPECT_EQ(view.OutEdges(src)[0]->FromGid(), src);
+  EXPECT_EQ(view.OutEdges(src)[0]->ToGid(), dst);
+
+  ASSERT_EQ(view.InEdges(dst).size(), 1);
+  EXPECT_EQ(view.InEdges(dst)[0]->ToGid(), dst);
+
+  // The edge does not appear against the wrong endpoint or wrong direction.
+  EXPECT_TRUE(view.InEdges(src).empty());
+  EXPECT_TRUE(view.OutEdges(dst).empty());
+}
+
+// A self-loop is both an out-edge and an in-edge of its node.
+TEST_F(VirtualGraphViewTest, ViewYieldsSelfLoopInBothDirections) {
+  std::vector<VirtualNode> nodes;
+  nodes.push_back(HandledNode(1, {"A"}));
+  const auto self = nodes[0].Gid();
+
+  std::vector<VirtualEdge> edges;
+  edges.emplace_back(int64_t{1}, int64_t{1}, "SELF");
+
+  auto graph = AssembleVirtualGraph(nodes, edges, DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+  VirtualGraphView view{&graph, &dba_};
+
+  ASSERT_EQ(view.OutEdges(self).size(), 1);
+  ASSERT_EQ(view.InEdges(self).size(), 1);
+  EXPECT_EQ(view.OutEdges(self)[0]->Gid(), view.InEdges(self)[0]->Gid());
+  EXPECT_EQ(view.OutEdges(self)[0]->FromGid(), self);
+  EXPECT_EQ(view.OutEdges(self)[0]->ToGid(), self);
+}
+
+// Names resolve through the view to the same ids the shared accessor uses.
+TEST_F(VirtualGraphViewTest, NameMappingSharesTheRealNamespace) {
+  auto graph = AssembleVirtualGraph({}, {}, DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+  VirtualGraphView view{&graph, &dba_};
+
+  const auto label = view.NameToLabel("Person");
+  const auto prop = view.NameToProperty("name");
+  const auto edge_type = view.NameToEdgeType("KNOWS");
+
+  EXPECT_EQ(view.LabelToName(label), "Person");
+  EXPECT_EQ(view.PropertyToName(prop), "name");
+  EXPECT_EQ(view.EdgeTypeToName(edge_type), "KNOWS");
+
+  EXPECT_EQ(label, dba_.NameToLabel("Person"));
+  EXPECT_EQ(prop, dba_.NameToProperty("name"));
+  EXPECT_EQ(edge_type, dba_.NameToEdgeType("KNOWS"));
 }
 
 }  // namespace memgraph::query::test
