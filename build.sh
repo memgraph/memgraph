@@ -19,6 +19,9 @@ OPTIONS:
     --update-lockfile       Update conan.lock before installing dependencies
     --graph-info            Generate dependency graph as graph.html and exit
     --split-debug           Extract debug info into sidecar .debug files (requires RelWithDebInfo/Debug)
+    --profiling MODES       Comma-separated profiling build modes (e.g. --profiling fp,mem):
+                              fp  = retain frame pointers for low-overhead 'perf' (MG_PROFILE)
+                              mem = memory-profiling build, disables jemalloc (MG_MEMORY_PROFILE)
     --help                  Show this help message
 
 ENVIRONMENT VARIABLES:
@@ -67,6 +70,7 @@ update_lockfile=false
 graph_info=false
 RESERVE_CORES=0
 SPLIT_DEBUG=off
+PROFILING=""
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -117,6 +121,10 @@ while [[ $# -gt 0 ]]; do
             SPLIT_DEBUG=on
             shift
             ;;
+        --profiling)
+            PROFILING="$2"
+            shift 2
+            ;;
         --help|-h)
             show_help
             ;;
@@ -130,6 +138,19 @@ done
 
 if [[ "$SPLIT_DEBUG" == "on" ]]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMG_SPLIT_DEBUG=ON"
+fi
+
+# Map comma-separated --profiling tokens to CMake options.
+if [[ -n "$PROFILING" ]]; then
+    IFS=',' read -ra _profiling_modes <<< "$PROFILING"
+    for mode in "${_profiling_modes[@]}"; do
+        case "$mode" in
+            fp)  CMAKE_ARGS="$CMAKE_ARGS -DMG_PROFILE=ON" ;;
+            mem) CMAKE_ARGS="$CMAKE_ARGS -DMG_MEMORY_PROFILE=ON" ;;
+            "")  ;;
+            *)   echo "Error: unknown --profiling mode '$mode' (valid: fp, mem)"; exit 1 ;;
+        esac
+    done
 fi
 
 # Detect distro

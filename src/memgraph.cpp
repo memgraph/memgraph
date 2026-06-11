@@ -67,6 +67,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/build_info.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/readable_size.hpp"
@@ -288,6 +289,14 @@ int main(int argc, char **argv) {
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
   // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
+
+  {
+    const auto build_info = memgraph::utils::GetBuildInfo();
+    spdlog::info("Memgraph {} (build-id: {}, build-type: {})",
+                 build_info.version,
+                 build_info.build_id.empty() ? "unknown" : build_info.build_id,
+                 build_info.build_name);
+  }
 
   // Fail fast if --cluster-{cert,key,ca}-file are partially configured.
   // Must run after logger init so the fatal message is delivered.
