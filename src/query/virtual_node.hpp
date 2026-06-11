@@ -38,23 +38,25 @@ class VirtualNode final {
   using allocator_type = utils::Allocator<VirtualNode>;
   using label_list = utils::pmr::vector<utils::pmr::string>;
   using property_map = utils::pmr::unordered_map<storage::PropertyId, storage::PropertyValue>;
-  using hidden_keys = utils::pmr::vector<storage::PropertyId>;
+  using key_set = utils::pmr::vector<storage::PropertyId>;
+  using hidden_keys = key_set;
 
   VirtualNode(label_list labels, property_map properties, allocator_type alloc = {},
-              std::optional<VertexAccessor> origin = std::nullopt, hidden_keys hidden = {})
+              std::optional<VertexAccessor> origin = std::nullopt, hidden_keys hidden = {}, key_set overlay_bound = {})
       : gid_(NextSyntheticGid()),
         impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), std::move(origin), std::move(hidden),
-                                     alloc)) {}
+                                     std::move(overlay_bound), alloc)) {}
 
   VirtualNode(const VirtualNode &other, allocator_type alloc)
       : gid_(other.gid_),
         impl_(std::make_unique<Impl>(other.impl_->labels, other.impl_->properties, other.impl_->origin,
-                                     other.impl_->hidden, alloc)) {}
+                                     other.impl_->hidden, other.impl_->overlay_bound, alloc)) {}
 
   VirtualNode(VirtualNode &&other, allocator_type alloc)
       : gid_(other.gid_),
         impl_(std::make_unique<Impl>(std::move(other.impl_->labels), std::move(other.impl_->properties),
-                                     std::move(other.impl_->origin), std::move(other.impl_->hidden), alloc)) {}
+                                     std::move(other.impl_->origin), std::move(other.impl_->hidden),
+                                     std::move(other.impl_->overlay_bound), alloc)) {}
 
   VirtualNode(const VirtualNode &other) : VirtualNode(other, other.impl_->labels.get_allocator()) {}
 
@@ -88,6 +90,15 @@ class VirtualNode final {
     return std::find(impl_->hidden.begin(), impl_->hidden.end(), key) != impl_->hidden.end();
   }
 
+  // An overlay-bound key reads from and writes to this node's overlay store. A key is overlay-bound
+  // if it is declared so at construction (a 'overlay' propertyPolicy binding or a construction-time
+  // override value); every other key on an overlay node is origin-bound. Read source and write
+  // target are coupled to one store per key, so this single predicate decides both.
+  [[nodiscard]] auto IsOverlayBound(storage::PropertyId key) const noexcept -> bool {
+    return impl_->properties.find(key) != impl_->properties.end() ||
+           std::find(impl_->overlay_bound.begin(), impl_->overlay_bound.end(), key) != impl_->overlay_bound.end();
+  }
+
   // Read: hidden keys yield null; an overlay key shadows the origin; otherwise fall through to the
   // origin lazily (latest transaction view, never cached); otherwise null.
   [[nodiscard]] auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
@@ -103,11 +114,33 @@ class VirtualNode final {
     return storage::PropertyValue{};
   }
 
+  // Write: a synthetic node (no origin) always writes its overlay. On an overlay node, an
+  // overlay-bound key writes the overlay (compute-only, never persisted); an origin-bound or
+  // undeclared key persists to the origin vertex, and any stale overlay entry for that key is
+  // cleared so a later read does not shadow the just-persisted value.
   void SetProperty(storage::PropertyId key, storage::PropertyValue value) {
+    if (impl_->origin && !IsOverlayBound(key)) {
+      auto result = impl_->origin->SetProperty(key, value);
+      if (!result.has_value()) {
+        throw QueryRuntimeException("Writing a property to a projected node's origin failed.");
+      }
+      impl_->properties.erase(key);
+      return;
+    }
     impl_->properties.insert_or_assign(key, std::move(value));
   }
 
-  void RemoveProperty(storage::PropertyId key) { impl_->properties.erase(key); }
+  void RemoveProperty(storage::PropertyId key) {
+    if (impl_->origin && !IsOverlayBound(key)) {
+      auto result = impl_->origin->RemoveProperty(key);
+      if (!result.has_value()) {
+        throw QueryRuntimeException("Removing a property from a projected node's origin failed.");
+      }
+      impl_->properties.erase(key);
+      return;
+    }
+    impl_->properties.erase(key);
+  }
 
   void ClearProperties() { impl_->properties.clear(); }
 
@@ -140,17 +173,19 @@ class VirtualNode final {
     property_map properties;
     std::optional<VertexAccessor> origin;
     hidden_keys hidden;
+    key_set overlay_bound;
 
     Impl(const label_list &lbls, const property_map &props, const std::optional<VertexAccessor> &orig,
-         const hidden_keys &hid, allocator_type alloc)
-        : labels(lbls, alloc), properties(props, alloc), origin(orig), hidden(hid, alloc) {}
+         const hidden_keys &hid, const key_set &ovl, allocator_type alloc)
+        : labels(lbls, alloc), properties(props, alloc), origin(orig), hidden(hid, alloc), overlay_bound(ovl, alloc) {}
 
     Impl(label_list &&lbls, property_map &&props, std::optional<VertexAccessor> &&orig, hidden_keys &&hid,
-         allocator_type alloc)
+         key_set &&ovl, allocator_type alloc)
         : labels(std::move(lbls), alloc),
           properties(std::move(props), alloc),
           origin(std::move(orig)),
-          hidden(std::move(hid), alloc) {}
+          hidden(std::move(hid), alloc),
+          overlay_bound(std::move(ovl), alloc) {}
   };
 
   storage::Gid gid_;

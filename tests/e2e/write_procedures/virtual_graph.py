@@ -369,5 +369,138 @@ class TestVirtualNodeSet:
         execute_and_fetch_all(cursor, "WITH virtualNode(1, 'V', {a: 1}) AS n SET n = {c: 1} RETURN n;")
 
 
+class TestOverlayWriteBack:
+    """SET through a derive() overlay node routes per the static per-property binding:
+    a declared 'overlay' key mutates the overlay (compute-only, never persisted), while
+    an 'origin'-bound or undeclared key persists to the real origin vertex."""
+
+    def test_undeclared_key_persists_to_origin(self, connection):
+        """A SET to a key the projection does not declare targets the origin and persists
+        to the real node, observed by a follow-up MATCH in a separate query."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 1})-[:R]->(:N {id: 2, v: 2});")
+
+        execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            UNWIND g.nodes AS n
+            SET n.rank = 7
+            RETURN count(*);
+            """,
+        )
+
+        persisted = execute_and_fetch_all(cursor, "MATCH (m:N) RETURN m.id AS id, m.rank AS rank ORDER BY id;")
+        assert persisted == [(1, 7), (2, 7)]
+
+    def test_origin_bound_key_persists_to_origin(self, connection):
+        """A SET to a key bound 'origin' by propertyPolicy persists to the real node."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 1})-[:R]->(:N {id: 2, v: 2});")
+
+        execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {v: 'origin'}}) AS g
+            UNWIND g.nodes AS n
+            SET n.v = 99
+            RETURN count(*);
+            """,
+        )
+
+        persisted = execute_and_fetch_all(cursor, "MATCH (m:N) RETURN m.id AS id, m.v AS v ORDER BY id;")
+        assert persisted == [(1, 99), (2, 99)]
+
+    def test_overlay_key_updates_overlay_and_does_not_persist(self, connection):
+        """A SET to a key declared 'overlay' (with no origin override value) mutates the
+        overlay - the in-query read shows the new value - but the real node is untouched."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 1})-[:R]->(:N {id: 2, v: 2});")
+
+        in_query = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {v: 'overlay'}}) AS g
+            UNWIND g.nodes AS n
+            SET n.v = 99
+            RETURN collect(n.v) AS vs;
+            """,
+        )
+        assert in_query[0][0] == [99, 99]
+
+        persisted = execute_and_fetch_all(cursor, "MATCH (m:N) RETURN m.id AS id, m.v AS v ORDER BY id;")
+        assert persisted == [(1, 1), (2, 2)], "overlay write must not touch the real node"
+
+    def test_read_after_write_through_overlay_has_no_stale_shadow(self, connection):
+        """After an origin-bound write, reading the same key through the overlay node returns
+        the just-written value (read-through reflects the persisted write, no stale overlay)."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 1})-[:R]->(:N {id: 2, v: 2});")
+
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            UNWIND g.nodes AS n
+            SET n.v = n.v + 100
+            RETURN n.id AS id, n.v AS v ORDER BY id;
+            """,
+        )
+        assert results == [(1, 101), (2, 102)]
+
+        persisted = execute_and_fetch_all(cursor, "MATCH (m:N) RETURN m.id AS id, m.v AS v ORDER BY id;")
+        assert persisted == [(1, 101), (2, 102)]
+
+    def test_algorithm_write_back_persists_scores_onto_origin(self, connection):
+        """An algorithm-shaped procedure over a derive() projection yields overlay nodes; a
+        SET on a yielded node persists the computed score onto the real origin node."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(
+            cursor,
+            """
+            CREATE (a1:Person {name: 'A1', dept: 'eng'}),
+                   (a2:Person {name: 'A2', dept: 'eng'}),
+                   (a3:Person {name: 'A3', dept: 'sales'}),
+                   (c1:Company {name: 'ACME'}),
+                   (a1)-[:WORKS_AT]->(c1),
+                   (a2)-[:WORKS_AT]->(c1),
+                   (a3)-[:WORKS_AT]->(c1);
+            """,
+        )
+
+        execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(a:Person)-[:WORKS_AT]->(:Company)<-[:WORKS_AT]-(b:Person)
+            WHERE id(a) < id(b)
+            WITH derive(p, {
+                virtualEdgeType: 'COLLEAGUES',
+                sourceNodeProperties: {dept: a.dept},
+                targetNodeProperties: {dept: b.dept}
+            }) AS subgraph
+            CALL read.community_label(subgraph, 'dept') YIELD node, community_id
+            SET node.community = community_id
+            RETURN count(*);
+            """,
+        )
+
+        persisted = execute_and_fetch_all(
+            cursor, "MATCH (p:Person) RETURN p.name AS name, p.community AS community ORDER BY name;"
+        )
+        by_person = {name: community for name, community in persisted}
+        assert all(c is not None for c in by_person.values()), "community must persist on every real node"
+        assert by_person["A1"] == by_person["A2"], "A1 and A2 both in eng -> same community"
+        assert by_person["A1"] != by_person["A3"], "A3 in sales -> different community"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

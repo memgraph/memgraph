@@ -6792,10 +6792,15 @@ class AggregateCursor : public Cursor {
     // The overlay holds only the explicitly-overridden properties; every other property is read
     // through the origin lazily, so a projection never copies the origin's properties (e.g. vector
     // embeddings) unless they are actually read.
+    // overlay_bound names every key whose read and write target this node's overlay: the
+    // construction-time override keys below and the 'overlay' propertyPolicy bindings. Every other
+    // key on the resulting overlay node is origin-bound, so a write to it persists to the origin.
     VirtualNode::property_map overlay{alloc};
+    VirtualNode::key_set overlay_bound{alloc};
     if (options.find(props_key) != options.end()) {
       ApplyPropertyMap(options, props_key, [&](storage::PropertyId id, storage::PropertyValue pv) {
         overlay.insert_or_assign(id, std::move(pv));
+        overlay_bound.push_back(id);
       });
     }
 
@@ -6822,15 +6827,21 @@ class AggregateCursor : public Cursor {
           if (overlay.find(id) != overlay.end()) {
             throw QueryRuntimeException("derive() property '{}' is both overlaid and bound to origin.", name);
           }
-        } else if (value != "overlay") {
+        } else if (value == "overlay") {
+          overlay_bound.push_back(id);
+        } else {
           throw QueryRuntimeException(
               "derive() '{}' binding for '{}' must be 'origin', 'overlay', or 'hidden'.", kPropertyPolicy, name);
         }
       }
     }
 
-    return {
-        std::move(labels), std::move(overlay), alloc, std::optional<VertexAccessor>{real_vertex}, std::move(hidden)};
+    return {std::move(labels),
+            std::move(overlay),
+            alloc,
+            std::optional<VertexAccessor>{real_vertex},
+            std::move(hidden),
+            std::move(overlay_bound)};
   }
 
   // Collapses the path to a single synthetic edge between its endpoints. Intermediate vertices
