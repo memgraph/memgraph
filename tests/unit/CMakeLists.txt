@@ -436,6 +436,11 @@ add_unit_test(utils_file
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_stat
+    SOURCES utils_stat.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_math
     SOURCES utils_math.cpp
     LINK_TARGETS mg-utils
