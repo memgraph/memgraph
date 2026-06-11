@@ -494,7 +494,7 @@ set_property(TARGET pulsar PROPERTY INTERFACE_LINK_LIBRARIES pulsar-client-cpp::
 # targets available during the normal build graph.
 if(NOT DEFINED MGCONSOLE_GIT_TAG)
   # Default used by release/install_mgconsole.cmake.
-  set(MGCONSOLE_GIT_TAG "v1.5.0")
+  set(MGCONSOLE_GIT_TAG "v1.6.0")
 endif()
 add_custom_target(mgconsole-proj)
 add_custom_target(mgconsole)
