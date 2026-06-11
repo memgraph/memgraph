@@ -900,7 +900,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
+  FType<Or<Null, Vertex, Edge, Map>>("values", args, nargs);
 
   auto get_values = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector values(ctx.memory);
