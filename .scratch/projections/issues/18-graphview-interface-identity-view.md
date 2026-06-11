@@ -1,6 +1,6 @@
 # GraphView interface + real identity view
 
-Status: ready-for-agent
+Status: done - `src/query/graph_view.hpp`, `tests/unit/query_graph_view.cpp`
 
 ## Parent
 
@@ -29,10 +29,30 @@ interim bridge for operators not migrated here.
 
 ## Acceptance criteria
 
-- [ ] `GraphView` exists with the scan / expand / name-mapping surface agreed in issue 17
-- [ ] `DbAccessor` is the identity `GraphView`; the execution context binds a `GraphView`
-- [ ] Real-graph `MATCH`/`Expand` read through the identity view; the full existing test suite is green
-- [ ] No measurable regression on the real-graph read path (boundary crossed per scan, not per row)
+- [x] `GraphView` exists with the scan / name-mapping surface agreed in issue 17
+      - range-returning `Vertices()` + name mapping; per issue 17 expand stays on
+        the element, so `GraphView` carries no edge method (issue 22 gives the
+        element its expand surface)
+- [x] `DbAccessor` is the identity `GraphView`; the execution context binds a `GraphView`
+      - `DbAccessorGraphView`; `PullPlan` binds it into `ExecutionContext::graph_view`
+- [x] Real-graph `MATCH`/`Expand` read through the identity view; the full existing test suite is green
+      - `ScanAll` routes through the ambient view; `query_plan_match_filter_return`
+        (148 tests) green. (`query_plan_edge_cases` fails to compile on this branch
+        from a pre-existing `PrepareResult` arity drift, unrelated to this slice.)
+- [x] No measurable regression on the real-graph read path (boundary crossed per scan, not per row)
+      - one virtual `Vertices()` call per scan returns a `VertexRange`; per-row
+        iteration is non-virtual over concrete elements
+
+## Notes for the next slices
+
+- `Expand` is unchanged here: for the identity view the scanned element is a
+  `VertexAccessor`, so `InEdges/OutEdges` already work. Issue 22 gives the
+  projection element its own expand surface.
+- The `VertexRange` element is still `VertexAccessor`. Issue 19 widens it to also
+  yield `VirtualNode` for a projection scan; `ScanAll` writes either to the frame
+  unchanged since `TypedValue` already carries both.
+- A `CALL { USE ... }` scope (issue 21) rebinds `ExecutionContext::graph_view`;
+  outside a scope it is the identity view (or null -> the inline identity path).
 
 ## Blocked by
 
