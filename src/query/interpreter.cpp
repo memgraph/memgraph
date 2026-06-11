@@ -78,6 +78,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/graph_view.hpp"
 #include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
@@ -3093,6 +3094,8 @@ struct PullPlan {
   // manually by using this flag.
   bool has_unsent_results_ = false;
   metrics::DatabaseMetricHandles *metric_handles_;
+  // The ambient graph view bound into ctx_: the real graph seen as a GraphView.
+  DbAccessorGraphView identity_graph_view_;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
@@ -3116,7 +3119,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       user_resource_{std::move(user_resource)}
 #endif
       ,
-      metric_handles_(&metric_handles) {
+      metric_handles_(&metric_handles),
+      identity_graph_view_(dba) {
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
   ctx_.metric_handles = &metric_handles;
   if (hops_limit) {
@@ -3134,6 +3138,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.parallel_execution = parallel_execution;
 #endif
   ctx_.db_accessor = dba;
+  ctx_.graph_view = &identity_graph_view_;
   ctx_.db_arena_pool = db_arena_pool;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();

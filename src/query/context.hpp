@@ -39,6 +39,7 @@ namespace memgraph::query {
 
 class FineGrainedAuthChecker;
 class TriggerContextCollector;
+class GraphView;
 
 enum class TransactionStatus {
   IDLE,
@@ -114,6 +115,10 @@ struct StoppingContext {
 
 struct ExecutionContext {
   DbAccessor *db_accessor{nullptr};
+  // The ambient graph the read operators scan. When null the operators read the
+  // real graph directly (the identity view); a `CALL { USE ... }` scope binds a
+  // projection or subgraph view here for the block.
+  GraphView *graph_view{nullptr};
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   StoppingContext stopping_context;

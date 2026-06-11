@@ -13,11 +13,15 @@
 
 #include <set>
 
+#include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/graph_view.hpp"
+#include "query/interpret/frame.hpp"
+#include "query/plan/operator.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/memory.hpp"
 
 namespace memgraph::query::test {
 
@@ -72,6 +76,39 @@ TEST_F(GraphViewTest, NameMappingRoundTripsThroughView) {
   EXPECT_EQ(label, dba.NameToLabel("Person"));
   EXPECT_EQ(prop, dba.NameToProperty("name"));
   EXPECT_EQ(edge_type, dba.NameToEdgeType("KNOWS"));
+}
+
+// ScanAll scans the graph bound into the execution context, not the context's
+// own accessor. Binding a view over a populated graph while the accessor sees an
+// empty one, ScanAll must yield the populated graph's vertices.
+TEST_F(GraphViewTest, ScanAllReadsThroughBoundView) {
+  const auto bound_gids = InsertVertices(3);
+
+  // A second, empty storage that the context's own accessor points at.
+  auto empty_storage = std::make_unique<storage::InMemoryStorage>();
+  auto empty_acc = empty_storage->Access(storage::StorageAccessType::READ);
+  auto empty_dba = DbAccessor(empty_acc.get());
+
+  auto bound_acc = storage_->Access(storage::StorageAccessType::READ);
+  auto bound_dba = DbAccessor(bound_acc.get());
+  DbAccessorGraphView bound_view{&bound_dba};
+
+  SymbolTable symbol_table;
+  auto symbol = symbol_table.CreateSymbol("n", true);
+  auto scan_all = std::make_shared<plan::ScanAll>(nullptr, symbol, View::NEW);
+
+  memgraph::metrics::DatabaseMetricHandles metric_handles;
+  ExecutionContext context{.db_accessor = &empty_dba, .graph_view = &bound_view};
+  context.symbol_table = symbol_table;
+  context.evaluation_context.memory = memgraph::utils::NewDeleteResource();
+  context.metric_handles = &metric_handles;
+
+  Frame frame(symbol_table.max_position());
+  auto cursor = scan_all->MakeCursor(memgraph::utils::NewDeleteResource(), metric_handles);
+  std::set<Gid> scanned;
+  while (cursor->Pull(frame, context)) scanned.insert(frame[symbol].ValueVertex().Gid());
+
+  EXPECT_EQ(scanned, bound_gids);
 }
 
 }  // namespace memgraph::query::test

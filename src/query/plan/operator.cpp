@@ -47,6 +47,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/graph.hpp"
+#include "query/graph_view.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/parallel_state.hpp"
 #include "query/path.hpp"
@@ -1011,9 +1012,13 @@ ACCEPT_WITH_INPUT(ScanAll)
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_operator.Increment();
 
-  auto vertices = [this](Frame &, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_));
+  auto vertices = [this](Frame &, ExecutionContext &context) -> std::optional<VertexRange> {
+    // Scan through the ambient graph view. Without one bound, read the real
+    // graph directly - the identity view's behaviour, expressed inline.
+    if (context.graph_view != nullptr) {
+      return context.graph_view->Vertices(view_);
+    }
+    return VertexRange{context.db_accessor->Vertices(view_)};
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, *this, output_symbol_, input_->MakeCursor(mem, metric_handles), view_, std::move(vertices), "ScanAll");
