@@ -38,3 +38,18 @@ so the real special-case set is known. See the architecture-improvement skill.
 
 - `05-projection-from-lists`
 - `08-overlay-write-back`
+
+## Arc (ADR 0004)
+
+This is the **keystone** of the projections-query arc (issues 11, 14, 15). The
+unifying abstraction is concrete: **one rebindable, scan-capable graph accessor**
+that real / subgraph / projection all implement and the operators (`ScanAll`,
+`Expand`, ...) use polymorphically. The procedure path already proves it -
+`VirtualGraphDbAccessor` + the `mgp_graph.impl` variant rebind the ambient graph
+when a procedure is called with a projection. The work is to generalize that from
+the procedure boundary up into the Cypher operator layer (today operators use a
+concrete `DbAccessor *`, and `VirtualGraphDbAccessor` has no scan surface).
+
+Both blockers are now done, so this is unblocked. Sequence it **first**: 11 and
+14 (`USE`-scope) and most of 15 (functions reading the ambient graph) land on top
+of this seam.

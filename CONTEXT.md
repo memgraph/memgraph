@@ -15,6 +15,12 @@ words in issues, tests, and proposals rather than drifting to synonyms.
   per-property binding) or assembled by `virtualGraph(nodes, edges, config)` from
   lists of synthetic elements to import an external graph in one query.
 
+- **Graph scope** (`USE`) - a derived view (subgraph or projection) bound as the
+  ambient graph for a `CALL { ... }` block. Inside the scope, `MATCH`, built-in
+  functions, and writes resolve against that view instead of the real store, with
+  no view value threaded through the block. Binding the view, rather than
+  operating on it as a value, is how declarative Cypher runs over a derived view.
+
 - **Projected node** - the single value type for every node in a derived view
   (see `docs/adr/0001-projected-node.md`), realized by the C++ `VirtualNode`
   class. Holds an **optional origin** real vertex plus its own **overlay property

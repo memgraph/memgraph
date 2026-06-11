@@ -40,3 +40,20 @@ view). Once semantics are fixed this can spawn agent-ready implementation issues
 
 - `06-derive-overlay-read-through`
 - `03-virtual-node-constructor`
+
+## Arc (ADR 0004)
+
+Part of the projections-query arc. Split the audit in two:
+
+- **Topology functions** (`degree`, neighbours, `startNode`/`endNode` resolution)
+  read the *ambient graph*. Once the issue-16 accessor seam lands and `USE` binds
+  a projection, these resolve against the projection automatically - they fall out
+  of the keystone, not a per-function fix.
+- **Value functions** (`labels`, `properties`, `id`, `keys` over a standalone
+  virtual-node value) need the binding-aware behaviour this issue describes
+  (read-through, overlay shadows, hidden keys invisible) regardless of any scope.
+  Several already work (`labels`/`properties`/`id` are correct on virtual nodes
+  today); the residual is the hidden-key and per-binding edge cases.
+
+So this issue narrows to the value-function semantics; the topology half is
+absorbed by issue 16.

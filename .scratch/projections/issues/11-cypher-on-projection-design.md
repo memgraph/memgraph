@@ -50,3 +50,19 @@ a bounded v1 proposal, ready to spawn implementation issues.
 
 - `01-project-subgraph-constructor`
 - `06-derive-overlay-read-through`
+- `16-unify-node-kinds-reduce-special-cases` (the accessor seam this builds on)
+
+## Arc (ADR 0004)
+
+Unified with issue 14: `USE projection` is the same lever as a concise
+declarative surface - a projection is a **bindable graph scope**, not a value.
+Settled in a grilling session (ADR 0004):
+
+- A value names the projection (`derive`/`virtualGraph` unchanged); `USE` binds it
+  as the ambient graph for a `CALL { ... }` block. The body is **real nested
+  Cypher** the planner sees, never a query string (GDS deprecated exactly that).
+- Built on the issue-16 accessor seam, generalized from the procedure path's
+  `VirtualGraphDbAccessor` up into the operator layer.
+- **v1 confirmed:** read-only inner Cypher, single nesting, full-scan. In-scope
+  writes and deep nesting (the case-matrix + MVCC class) are a documented v2;
+  the write-back headline already works outside the scope via the binding.
