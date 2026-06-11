@@ -113,6 +113,10 @@ DEFINE_uint64(storage_hot_cold_min_hot_residency_sec, 60,
               "suspension (anti-thrash debounce).");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_hot_cold_max_concurrent_resumes, 2,
+              "Hot/cold: max concurrent background tenant resumes (resume executor width).");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

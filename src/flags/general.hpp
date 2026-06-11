@@ -69,6 +69,9 @@ DECLARE_uint64(storage_python_gc_cycle_sec);
 DECLARE_uint64(storage_hot_cold_min_hot_residency_sec);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_hot_cold_max_concurrent_resumes);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_properties_on_edges);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_snapshot_interval_sec);

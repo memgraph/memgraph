@@ -52,6 +52,7 @@
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/thread_pool.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
@@ -143,6 +144,13 @@ class DbmsHandler {
     MIN_RESIDENCY,          //!< tenant has not stayed hot long enough since last use (anti-thrash)
   };
   using SuspendResult = std::expected<void, SuspendError>;
+
+  // Hot/cold resume: reasons a tenant cannot be resumed (moved COLD -> HOT).
+  enum class ResumeError : uint8_t {
+    NON_EXISTENT,     //!< no such tenant in the map / suspended registry
+    RECOVERY_FAILED,  //!< recovery (or a pre-publish arm) threw; tenant stays COLD and retriable
+  };
+  using ResumeResult = std::expected<DatabaseAccess, ResumeError>;
 
   /**
    * @brief Initialize the handler.
@@ -344,6 +352,41 @@ class DbmsHandler {
    * @return SuspendResult — error describing why the tenant is not suspendable
    */
   SuspendResult Suspend(std::string_view name) { return Suspend_(name); }
+
+  /**
+   * @brief Set the pre-publish resume arm (runs on the recovered DatabaseAccess BEFORE the fresh
+   *        gatekeeper is published into the map). Used for triggers/streams/TTL re-arm. Default empty.
+   *        If it throws, the resume is aborted (RESUMING -> COLD) and the tenant stays retriable.
+   */
+  void SetOnResume(std::function<void(DatabaseAccess)> cb) { on_resume_ = std::move(cb); }
+
+  /**
+   * @brief Set the post-publish resume arm (runs AFTER the fresh gatekeeper is published).
+   *        Used for replication wiring. Default empty.
+   */
+  void SetOnResumeRepl(std::function<void(DatabaseAccess)> cb) { on_resume_repl_ = std::move(cb); }
+
+  /**
+   * @brief Resume (move COLD -> HOT) the named tenant, recovering its in-memory storage inline.
+   *
+   * Synchronous: recovery runs on the calling thread. Single-flight via the gatekeeper — concurrent
+   * callers poll until the winner publishes HOT. Test-only at runtime in this commit; the interpreter
+   * query-seam caller lands in a later commit.
+   *
+   * @param name tenant name
+   * @return ResumeResult — the HOT DatabaseAccess on success, or an error
+   */
+  ResumeResult Resume(std::string_view name) { return Resume_(name); }
+
+  /**
+   * @brief Fire-and-forget resume on the background resume executor.
+   *
+   * Errors are swallowed; on failure the tenant stays COLD and retriable. This is what the
+   * interpreter seam will call in a later commit.
+   *
+   * @param name tenant name
+   */
+  void KickResume(std::string_view name);
 #endif
 
   /**
@@ -698,6 +741,16 @@ class DbmsHandler {
   SuspendResult Suspend_(std::string_view name);
 
   /**
+   * @brief Implementation of Resume. See Resume() for semantics.
+   *
+   * Single-flight via the gatekeeper: the winner builds a fresh HOT gatekeeper OFF the map
+   * (recovery, no lock_), runs the pre-publish arm, then move-assigns it over the RESUMING shell
+   * under lock_. Losers poll Get(name) until HOT (bounded). On failure: abort_resume() (RESUMING ->
+   * COLD), leaving suspended_ intact so the resume is retriable.
+   */
+  ResumeResult Resume_(std::string_view name);
+
+  /**
    * @brief Create a new Database associated with the default database
    *
    * @return NewResultT context on success, error on failure
@@ -833,9 +886,17 @@ class DbmsHandler {
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::map<std::string, SuspendedEntry, std::less<>> suspended_;  //!< COLD tenant rebuild metadata; guarded by lock_
   std::function<bool()> is_replica_role_;                         //!< injected REPLICA-role check; unset => not replica
+  std::function<void(DatabaseAccess)> on_resume_;  //!< pre-publish resume arm (triggers/streams/TTL); empty default
+  std::function<void(DatabaseAccess)> on_resume_repl_;  //!< post-publish resume arm (replication); empty default
   // TODO: move to be common
   std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
   std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
+  // Background resume executor. DESTRUCTION ORDER (Finding D): declared AFTER db_handler_ so that
+  // reverse-order member destruction stops+joins the pool BEFORE db_handler_ (the map) is destroyed.
+  // In-flight KickResume jobs hold a raw Gatekeeper<Database>* into db_handler_; if the map died
+  // first those pointers would dangle (UAF). ~ThreadPool joins all workers, so by the time
+  // db_handler_ is destroyed no resume job is still touching it.
+  utils::ThreadPool resume_pool_;
 #endif
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
