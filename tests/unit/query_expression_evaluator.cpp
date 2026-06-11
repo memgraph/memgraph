@@ -3204,4 +3204,5 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
 
   EXPECT_TRUE(this->EvaluateFunction("DATETIME", TypedValue()).IsNull());
 }
+
 }  // namespace

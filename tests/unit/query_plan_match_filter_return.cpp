@@ -35,7 +35,10 @@
 #include "license/license.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
+#include "query/interpret/eval.hpp"
 #include "query/plan/operator.hpp"
+#include "query/virtual_edge.hpp"
+#include "query/virtual_node.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -4440,5 +4443,83 @@ TYPED_TEST(MatchReturnFixture, PropertyFGALicenseDisabledMeansNoRestriction) {
 
   ASSERT_EQ(results.size(), 1);
   EXPECT_EQ(results[0][0].ValueString(), "123");
+}
+
+TYPED_TEST(MatchReturnFixture, VirtualNodePropertyLookupRespectsPbac) {
+  auto prop_id = this->dba.NameToProperty("secret");
+
+  memgraph::query::VirtualNode::label_list labels;
+  labels.emplace_back("Person");
+  memgraph::query::VirtualNode::property_map props;
+  props.emplace(prop_id, memgraph::storage::PropertyValue(42));
+  memgraph::query::VirtualNode vn(std::move(labels), std::move(props));
+
+  memgraph::auth::User user{"vn_pbac"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  user.property_access_handler().label_properties().DenyGlobal("secret", memgraph::auth::PropertyPermissionType::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+
+  Frame frame{128};
+  memgraph::utils::MonotonicBufferResource mem{1024};
+  context.evaluation_context.memory = &mem;
+  context.evaluation_context.timestamp = memgraph::query::QueryTimestamp();
+  ExpressionEvaluator eval{&frame, context, memgraph::storage::View::OLD};
+
+  auto *identifier = this->storage.template Create<Identifier>("vn", true);
+  auto symbol = this->symbol_table.CreateSymbol("vn", true);
+  identifier->MapTo(symbol);
+  auto frame_writer = frame.GetFrameWriter(nullptr, &mem);
+  frame_writer.Write(symbol, TypedValue(vn));
+
+  auto *lookup = PROPERTY_LOOKUP(this->dba, identifier, "secret");
+  context.evaluation_context.properties = NamesToProperties(this->storage.properties_, &this->dba);
+  auto result = lookup->Accept(eval);
+
+  EXPECT_TRUE(result.IsNull()) << "VirtualNode property lookup should respect PBAC READ denial";
+}
+
+TYPED_TEST(MatchReturnFixture, VirtualEdgePropertyLookupRespectsPbac) {
+  auto prop_id = this->dba.NameToProperty("secret");
+
+  memgraph::query::VirtualNode::label_list labels;
+  labels.emplace_back("Person");
+  memgraph::query::VirtualNode::property_map node_props;
+  auto from = std::make_shared<memgraph::query::VirtualNode>(std::move(labels), std::move(node_props));
+
+  memgraph::query::VirtualNode::label_list labels2;
+  labels2.emplace_back("Person");
+  memgraph::query::VirtualNode::property_map node_props2;
+  auto to = std::make_shared<memgraph::query::VirtualNode>(std::move(labels2), std::move(node_props2));
+
+  memgraph::query::VirtualEdge ve(from, to, memgraph::utils::pmr::string("KNOWS"));
+  ve.SetProperty(prop_id, memgraph::storage::PropertyValue(42));
+
+  memgraph::auth::User user{"ve_pbac"};
+  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  user.property_access_handler().edge_type_properties().DenyGlobal("secret",
+                                                                   memgraph::auth::PropertyPermissionType::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+
+  Frame frame{128};
+  memgraph::utils::MonotonicBufferResource mem{1024};
+  context.evaluation_context.memory = &mem;
+  context.evaluation_context.timestamp = memgraph::query::QueryTimestamp();
+  ExpressionEvaluator eval{&frame, context, memgraph::storage::View::OLD};
+
+  auto *identifier = this->storage.template Create<Identifier>("ve", true);
+  auto symbol = this->symbol_table.CreateSymbol("ve", true);
+  identifier->MapTo(symbol);
+  auto frame_writer = frame.GetFrameWriter(nullptr, &mem);
+  frame_writer.Write(symbol, TypedValue(ve));
+
+  auto *lookup = PROPERTY_LOOKUP(this->dba, identifier, "secret");
+  context.evaluation_context.properties = NamesToProperties(this->storage.properties_, &this->dba);
+  auto result = lookup->Accept(eval);
+
+  EXPECT_TRUE(result.IsNull()) << "VirtualEdge property lookup should respect PBAC READ denial";
 }
 #endif

@@ -37,6 +37,9 @@
 
 namespace memgraph::query {
 
+class VirtualNode;
+class VirtualEdge;
+
 class FineGrainedAuthChecker;
 
 class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *> {
@@ -1069,6 +1072,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 #ifdef MG_ENTERPRISE
   bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
   bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
+  bool IsPropertyAllowed(VirtualNode const &vn, storage::PropertyId prop) const;
+  bool IsPropertyAllowed(VirtualEdge const &ve, storage::PropertyId prop) const;
+#else
+  template <typename T>
+  bool IsPropertyAllowed(T const &, storage::PropertyId) const {
+    return true;
+  }
 #endif
 
   template <class TRecordAccessor>
