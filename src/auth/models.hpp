@@ -433,6 +433,8 @@ struct PropertyAccessRule {
 };
 
 class PropertyAccessPermissions final {
+  friend PropertyAccessPermissions Merge(PropertyAccessPermissions const &, PropertyAccessPermissions const &);
+
  public:
   PropertyAccessPermissions() = default;
 
@@ -463,6 +465,10 @@ class PropertyAccessPermissions final {
   bool HasUnrestrictedAccess() const;
 
  private:
+  PropertyAccessPermissions(std::vector<PropertyAccessRule> rules,
+                            std::unordered_map<std::string, PropertyPermission> global)
+      : rules_(std::move(rules)), global_(std::move(global)) {}
+
   PropertyAccessRule &FindOrCreateRule(std::unordered_set<std::string> const &entities, MatchingMode matching_mode);
 
   std::vector<PropertyAccessRule> rules_;

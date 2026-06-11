@@ -927,32 +927,31 @@ PropertyAccessHandler PropertyAccessHandler::Deserialize(nlohmann::json const &d
 }
 
 PropertyAccessPermissions Merge(PropertyAccessPermissions const &first, PropertyAccessPermissions const &second) {
-  PropertyAccessPermissions result = first;
+  auto const merge_props = [](std::unordered_map<std::string, PropertyPermission> &dst,
+                              std::unordered_map<std::string, PropertyPermission> const &src) {
+    for (auto const &[prop, perm] : src) {
+      auto &d = dst[prop];
+      d.grants |= perm.grants;
+      d.denies |= perm.denies;
+    }
+  };
+
+  auto merged_rules = first.GetRules();
   for (auto const &rule : second.GetRules()) {
-    std::vector<std::string> const entities_vec(rule.entities.begin(), rule.entities.end());
-    for (auto const &[prop, perm] : rule.properties) {
-      for (auto type : {PropertyPermissionType::READ, PropertyPermissionType::WRITE}) {
-        auto second_level = CheckBit(perm, static_cast<uint8_t>(type));
-        if (second_level == PermissionLevel::DENY) {
-          result.Deny(rule.entities, prop, type, rule.matching_mode);
-        } else if (second_level == PermissionLevel::GRANT &&
-                   result.Has(entities_vec, prop, type) == PermissionLevel::NEUTRAL) {
-          result.Grant(rule.entities, prop, type, rule.matching_mode);
-        }
-      }
+    auto it = r::find_if(merged_rules, [&](auto const &r) {
+      return r.entities == rule.entities && r.matching_mode == rule.matching_mode;
+    });
+    if (it != merged_rules.end()) {
+      merge_props(it->properties, rule.properties);
+    } else {
+      merged_rules.push_back(rule);
     }
   }
-  for (auto const &[prop, perm] : second.GetGlobalRules()) {
-    for (auto type : {PropertyPermissionType::READ, PropertyPermissionType::WRITE}) {
-      auto second_level = CheckBit(perm, static_cast<uint8_t>(type));
-      if (second_level == PermissionLevel::DENY) {
-        result.DenyGlobal(prop, type);
-      } else if (second_level == PermissionLevel::GRANT && result.HasGlobal(prop, type) == PermissionLevel::NEUTRAL) {
-        result.GrantGlobal(prop, type);
-      }
-    }
-  }
-  return result;
+
+  auto merged_global = first.GetGlobalRules();
+  merge_props(merged_global, second.GetGlobalRules());
+
+  return {std::move(merged_rules), std::move(merged_global)};
 }
 
 #endif

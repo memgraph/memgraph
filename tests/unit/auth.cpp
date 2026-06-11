@@ -1652,6 +1652,26 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsMerge) {
     EXPECT_EQ(merged.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
     EXPECT_EQ(merged.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
   }
+
+  // Merge must be commutative for global deny + per-entity grant
+  {
+    PropertyAccessPermissions global_deny;
+    global_deny.DenyGlobal("ssn", PropertyPermissionType::READ);
+    PropertyAccessPermissions entity_grant;
+    entity_grant.Grant({"Employee"}, "ssn", PropertyPermissionType::READ);
+
+    EXPECT_EQ(Merge(global_deny, entity_grant), Merge(entity_grant, global_deny));
+  }
+
+  // Merge must be commutative for global grant + per-entity deny
+  {
+    PropertyAccessPermissions global_grant;
+    global_grant.GrantGlobal("ssn", PropertyPermissionType::READ);
+    PropertyAccessPermissions entity_deny;
+    entity_deny.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+
+    EXPECT_EQ(Merge(global_grant, entity_deny), Merge(entity_deny, global_grant));
+  }
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsReadWriteIndependence) {
