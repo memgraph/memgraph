@@ -2030,6 +2030,29 @@ TypedValue VirtualNodeCtor(const TypedValue *args, int64_t nargs, const Function
   return TypedValue(std::move(node), ctx.memory);
 }
 
+// virtualEdge(type, from, to) constructs a synthetic edge with a fresh synthetic gid. Each endpoint
+// is given as a virtual node (a resolved endpoint) or as a gid handle (an unresolved endpoint bound
+// to a node only when a projection is assembled from lists); the two forms may be mixed. A real
+// vertex is not an endpoint - wire a real node by passing its id() as the handle.
+TypedValue VirtualEdgeCtor(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<String, Or<Integer, Vertex>, Or<Integer, Vertex>>("virtualEdge", args, nargs);
+
+  auto resolve = [&](const TypedValue &endpoint) -> VirtualEdge::Endpoint {
+    if (endpoint.IsInt()) return endpoint.ValueInt();
+    if (endpoint.IsVirtualNode()) {
+      return std::allocate_shared<VirtualNode>(std::pmr::polymorphic_allocator<VirtualNode>(ctx.memory),
+                                               endpoint.ValueVirtualNode());
+    }
+    throw QueryRuntimeException(
+        "virtualEdge() endpoints must be a virtual node or a gid handle; to wire a real node, pass "
+        "its id() as the handle, e.g. virtualEdge('T', id(n1), id(n2)).");
+  };
+
+  utils::pmr::string edge_type{args[0].ValueString(), ctx.memory};
+  VirtualEdge edge{resolve(args[1]), resolve(args[2]), std::move(edge_type), VirtualEdge::allocator_type{ctx.memory}};
+  return TypedValue(std::move(edge), ctx.memory);
+}
+
 auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     // Predicate functions
     {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
@@ -2075,6 +2098,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
 
     // Virtual graph constructors. Not pure: each call mints a fresh synthetic gid.
     {"VIRTUALNODE", func_info{.func_ = VirtualNodeCtor, .is_pure_ = false}},
+    {"VIRTUALEDGE", func_info{.func_ = VirtualEdgeCtor, .is_pure_ = false}},
 
     // Mathematical functions - numeric
     {"ABS", func_info{.func_ = Abs, .is_pure_ = true}},

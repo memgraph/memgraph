@@ -180,6 +180,83 @@ class TestVirtualNodeConstructor:
         assert vnid != 1
 
 
+class TestVirtualEdgeConstructor:
+    def test_construct_between_virtual_nodes(self, connection):
+        """virtualEdge(type, from, to) given two virtual nodes wires an edge whose
+        endpoints are those nodes' synthetic ids; it carries its type and its own
+        synthetic id."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH virtualNode(1, 'A', {}) AS a, virtualNode(2, 'B', {}) AS b
+            WITH a, b, virtualEdge('KNOWS', a, b) AS e
+            RETURN e, id(a) AS aid, id(b) AS bid, id(e) AS eid, type(e) AS etype;
+            """,
+        )
+
+        assert len(results) == 1
+        e, aid, bid, eid, etype = results[0]
+        assert etype == "KNOWS"
+        assert e.type == "KNOWS"
+        # Endpoints are the nodes' synthetic ids; the edge carries its own synthetic id.
+        assert e.start_id == aid
+        assert e.end_id == bid
+        assert aid < 0 and bid < 0 and eid < 0
+
+    def test_construct_between_gid_handles(self, connection):
+        """virtualEdge(type, 1, 2) given gid handles wires an edge between those
+        gids; standalone it serializes with the handles as its endpoints, awaiting
+        binding to nodes at projection assembly."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            "WITH virtualEdge('LINKS', 1, 2) AS e RETURN e, id(e) AS eid, type(e) AS etype;",
+        )
+
+        assert len(results) == 1
+        e, eid, etype = results[0]
+        assert etype == "LINKS"
+        assert e.type == "LINKS"
+        assert e.start_id == 1
+        assert e.end_id == 2
+        assert eid < 0
+
+    def test_mixed_node_and_handle_endpoints(self, connection):
+        """The two endpoint forms may be mixed: one virtual node, one gid handle."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH virtualNode(7, 'A', {}) AS a
+            WITH a, virtualEdge('M', a, 2) AS e
+            RETURN e, id(a) AS aid;
+            """,
+        )
+
+        assert len(results) == 1
+        e, aid = results[0]
+        assert e.start_id == aid
+        assert aid < 0
+        assert e.end_id == 2
+
+    def test_real_vertex_endpoint_is_rejected(self, connection):
+        """A real vertex is not a valid endpoint; the error points at id() as the
+        way to wire a real node by handle."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:Real);")
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(cursor, "MATCH (r:Real) RETURN virtualEdge('T', r, r) AS e;")
+
+    def test_endpoint_node_of_unresolved_edge_errors(self, connection):
+        """startNode/endNode on an edge with an unresolved handle endpoint is an
+        error: it has no endpoint node until assembly binds it."""
+        cursor = connection.cursor()
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(cursor, "WITH virtualEdge('T', 1, 2) AS e RETURN startNode(e);")
+
+
 class TestDeriveOverlayReadThrough:
     def test_reads_origin_property_value(self, connection):
         """An overlay node from derive() with no property override reads its origin's
