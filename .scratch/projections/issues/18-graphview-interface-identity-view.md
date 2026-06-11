@@ -19,6 +19,14 @@ identity view and produce identical results. No projection path yet. The virtual
 boundary must be coarse (a view call yields a range; per-element reads stay on
 the concrete element) so the real read path is not regressed.
 
+The concrete shapes are fixed in `.scratch/projections/issue-17-use-scope-design.md`.
+Per that design, `Vertices()` returns a type-erased `VertexRange` (not the existing
+`VerticesIterable`); introducing that range and its common scan-element handle is
+part of this slice. The identity view's `VertexRange` is a pass-through over
+`DbAccessor::Vertices(view)` yielding `VertexAccessor`. `ScanAll` and `Expand`
+switch to reading `ExecutionContext::graph_view`; `db_accessor` stays as the
+interim bridge for operators not migrated here.
+
 ## Acceptance criteria
 
 - [ ] `GraphView` exists with the scan / expand / name-mapping surface agreed in issue 17

@@ -1,6 +1,6 @@
 # Design USE-scope: AST/plan mechanism + GraphView interface shape
 
-Status: ready-for-human
+Status: done - `.scratch/projections/issue-17-use-scope-design.md`
 
 ## Parent
 
@@ -30,11 +30,16 @@ interface shapes.
 
 ## Acceptance criteria
 
-- [ ] AST/plan representation of `CALL { USE <expr> ... }` decided and written down
-- [ ] Mechanism for binding the ambient `GraphView` to the scope, and where operators read it, decided
-- [ ] Read-only enforcement approach decided (which clauses error, and at which stage)
-- [ ] Full-scan planning inside a scope confirmed (no projection index/stat assumptions)
-- [ ] `GraphView` interface signature fixed (range-returning), enough to unblock the seam and scan-surface slices
+- [x] AST/plan representation of `CALL { USE <expr> ... }` decided and written down
+      - `use_graph_` on `CallSubquery`; a `BindGraphView` operator at the head of the subquery plan
+- [x] Mechanism for binding the ambient `GraphView` to the scope, and where operators read it, decided
+      - `ExecutionContext::graph_view`, rebound by `BindGraphView`, read by `ScanAll`/`Expand`; `db_accessor` kept as interim bridge
+- [x] Read-only enforcement approach decided (which clauses error, and at which stage)
+      - SymbolGenerator `in_use_scope` scope flag; write clauses and nested `USE` error at symbol generation
+- [x] Full-scan planning inside a scope confirmed (no projection index/stat assumptions)
+      - `ScanAll` + `Filter` only inside a scope
+- [x] `GraphView` interface signature fixed (range-returning), enough to unblock the seam and scan-surface slices
+      - range-returning `Vertices()` + name mapping, type-erased `VertexRange` over a common scan element
 
 ## Blocked by
 
