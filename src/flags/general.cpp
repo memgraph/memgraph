@@ -108,6 +108,11 @@ DEFINE_VALIDATED_uint64(storage_python_gc_cycle_sec, 180,
                         "Storage python full garbage collection interval (in seconds).", FLAG_IN_RANGE(1, 24UL * 3600));
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_hot_cold_min_hot_residency_sec, 60,
+              "Hot/cold: minimum seconds a tenant must stay hot after last use before it is eligible for "
+              "suspension (anti-thrash debounce).");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

@@ -216,6 +216,21 @@ class Storage {
 
   auto uuid() -> utils::UUID & { return config_.salient.uuid; }
 
+  // True iff this storage's durability mode keeps BOTH periodic snapshots AND a WAL
+  // chain — the precondition for hot/cold suspend (suspend tears down RAM and relies
+  // on {snapshot + WAL} on disk to recover). PERIODIC_SNAPSHOT-only or DISABLED is
+  // NOT suspendable.
+  [[nodiscard]] bool IsDurabilityCompleteForSuspend() const {
+    return config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  }
+
+  // True iff this storage is currently a replication participant on the MAIN side
+  // (has at least one registered replica). Hot/cold suspend is gated on this being
+  // false (cold tenants are never replicated — a per-instance, MAIN-local memory
+  // optimization). NOTE: this does NOT detect the REPLICA role; the dbms layer gates
+  // the replica-role case separately via an injected predicate.
+  [[nodiscard]] bool IsReplicationParticipant() const;
+
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   using Accessor = memgraph::storage::Accessor;

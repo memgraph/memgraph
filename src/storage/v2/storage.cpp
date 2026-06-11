@@ -192,6 +192,14 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 
+bool Storage::IsReplicationParticipant() const {
+  // A registered replica means there is at least one ReplicationStorageClient in
+  // the synchronized list. Read under the list's shared lock to match existing
+  // access patterns (e.g. GetReplicaState).
+  return repl_storage_state_.replication_storage_clients_.WithReadLock(
+      [](auto const &clients) { return !clients.empty(); });
+}
+
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {

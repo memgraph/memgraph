@@ -14,16 +14,22 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <system_error>
 #include <type_traits>
 #include <utility>
+
+#include "flags/general.hpp"
 
 #include "constants.hpp"
 #include "dbms/database.hpp"
@@ -124,6 +130,19 @@ class DbmsHandler {
   using NewResultT = std::expected<DatabaseAccess, NewError>;
   using DeleteResult = std::expected<void, DeleteError>;
   using RenameResult = std::expected<void, RenameError>;
+
+  // Hot/cold suspend: reasons a tenant cannot be suspended (moved HOT -> COLD).
+  enum class SuspendError : uint8_t {
+    DEFAULT_DB,             //!< the default database is never suspendable
+    NON_EXISTENT,           //!< no such tenant (or already cold)
+    NOT_IN_MEMORY,          //!< on-disk storage mode is not suspendable
+    DURABILITY_INCOMPLETE,  //!< durability mode is not {periodic snapshot + WAL}
+    REPLICATING,            //!< MAIN-side replication participant (has registered replicas)
+    REPLICA_ROLE,           //!< instance is a REPLICA (injected predicate)
+    ACTIVE_CONNECTIONS,     //!< another accessor is live; could not reach sole-accessor state
+    MIN_RESIDENCY,          //!< tenant has not stayed hot long enough since last use (anti-thrash)
+  };
+  using SuspendResult = std::expected<void, SuspendError>;
 
   /**
    * @brief Initialize the handler.
@@ -306,6 +325,25 @@ class DbmsHandler {
    * @return RenameResult error on failure
    */
   RenameResult Rename(std::string_view old_name, std::string_view new_name, system::Transaction *txn = nullptr);
+
+  /**
+   * @brief Inject the instance-level REPLICA-role predicate.
+   *
+   * The dbms layer cannot see the instance ReplicationRole, so memgraph.cpp wires this in.
+   * When unset (default), the instance is treated as NOT a replica.
+   */
+  void SetReplicaRoleCheck(std::function<bool()> cb) { is_replica_role_ = std::move(cb); }
+
+  /**
+   * @brief Suspend (move HOT -> COLD) the named tenant, tearing down its in-memory storage.
+   *
+   * The on-disk durability ({snapshot + WAL}) is left intact so a later resume can rebuild.
+   * Test-only at runtime in this commit; the query path lands behind the experiment flag later.
+   *
+   * @param name tenant name
+   * @return SuspendResult — error describing why the tenant is not suspendable
+   */
+  SuspendResult Suspend(std::string_view name) { return Suspend_(name); }
 #endif
 
   /**
@@ -444,17 +482,24 @@ class DbmsHandler {
 #ifdef MG_ENTERPRISE
     auto rd = std::shared_lock{lock_};
     for (auto &[name, db_gk] : db_handler_) {
-      auto const connections = db_gk.use_count().value_or(0);  // read BEFORE taking an accessor
-      int64_t last = 0;
-      int64_t mem = 0;
-      if (auto acc = db_gk.access()) {
-        last = acc->get()->LastUsedNs();
-        mem = acc->get()->DbMemoryUsage();
+      // A COLD shell (value_ == nullopt) reports from the suspended_ registry; a HOT gatekeeper
+      // reports live stats. Transient SUSPENDING/RESUMING gatekeepers that are not yet recorded
+      // in suspended_ are a sub-millisecond window and are skipped.
+      if (db_gk.state() == utils::GatekeeperState::HOT) {
+        auto const connections = db_gk.use_count().value_or(0);  // read BEFORE taking an accessor
+        int64_t last = 0;
+        int64_t mem = 0;
+        if (auto acc = db_gk.access()) {
+          last = acc->get()->LastUsedNs();
+          mem = acc->get()->DbMemoryUsage();
+        }
+        res.push_back({name, connections, last, TenantState::READY, mem});
+      } else if (auto it = suspended_.find(name); it != suspended_.end()) {
+        // COLD (or finished suspending and recorded): report from the rebuild metadata.
+        res.push_back({name, 0, it->second.last_used_ns, TenantState::COLD, 0});
       }
-      res.push_back({name, connections, last, TenantState::READY, mem});
+      // else: transient gatekeeper not yet in suspended_ — skip.
     }
-    // NOTE: cold (suspended) tenants are surfaced here once the suspend engine lands; this observability
-    // commit has no suspended_ registry yet, so only hot tenants are reported (all State=READY).
 #else
     if (auto acc = db_gatekeeper_.access()) {
       res.push_back({std::string{acc->get()->name()},
@@ -645,6 +690,14 @@ class DbmsHandler {
   DeleteResult Delete_(std::string_view db_name);
 
   /**
+   * @brief Implementation of Suspend. See Suspend() for semantics.
+   *
+   * Three phases: (A) eligibility + capture under shared lock_, (B) freeze (no lock_),
+   * (C) record metadata under lock_ then heavy teardown OUTSIDE lock_.
+   */
+  SuspendResult Suspend_(std::string_view name);
+
+  /**
    * @brief Create a new Database associated with the default database
    *
    * @return NewResultT context on success, error on failure
@@ -754,7 +807,11 @@ class DbmsHandler {
     // TODO Speed up
     for (auto &[_, db_gk] : db_handler_) {
       auto acc = db_gk.access();
-      if (acc->get()->uuid() == uuid) {
+      // A COLD shell's access() returns nullopt (state != HOT). Skip it: a COLD
+      // tenant is non-replicated by construction, so it is not reachable by UUID
+      // on the replication-only path that calls this overload.
+      if (!acc) continue;
+      if ((*acc)->uuid() == uuid) {
         return std::move(*acc);
       }
     }
@@ -763,9 +820,19 @@ class DbmsHandler {
 #endif
 
 #ifdef MG_ENTERPRISE
+  // Hot/cold: rebuild metadata for a suspended (COLD) tenant. The gatekeeper stays in
+  // db_handler_ as a COLD shell (value_ == nullopt); this holds what a later resume needs.
+  struct SuspendedEntry {
+    storage::SalientConfig salient;  //!< salient config to recreate the storage
+    std::filesystem::path rel_dir;   //!< durability dir relative to the instance root
+    int64_t last_used_ns;            //!< last-used stamp captured at suspend time
+  };
+
   mutable LockT lock_{utils::RWLock::Priority::READ};  //!< protective lock
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
+  std::map<std::string, SuspendedEntry, std::less<>> suspended_;  //!< COLD tenant rebuild metadata; guarded by lock_
+  std::function<bool()> is_replica_role_;                         //!< injected REPLICA-role check; unset => not replica
   // TODO: move to be common
   std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
   std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)

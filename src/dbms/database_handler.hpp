@@ -67,10 +67,14 @@ class DatabaseHandler : public Handler<Database> {
    * @return HandlerT::NewResult
    */
   HandlerT::NewResult New(storage::Config config) {
-    // Control that no one is using the same data directory
+    // Control that no one is using the same data directory.
+    // COLD shells have no readable config (access() == nullopt for non-HOT state),
+    // so skip them here. A freshly-created database always gets a unique UUID-derived
+    // directory, so it cannot collide with a suspended tenant's directory — skipping
+    // COLD shells in this liveness check is safe.
     if (std::ranges::any_of(*this, [&](auto &elem) {
           auto db_acc = elem.second.access();
-          MG_ASSERT(db_acc.has_value(), "Gatekeeper in invalid state");
+          if (!db_acc) return false;  // COLD shell: skip (no readable config)
           return db_acc->get()->config().durability.storage_directory == config.durability.storage_directory;
         })) {
       spdlog::info("Tried to generate new storage using a claimed directory.");

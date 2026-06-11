@@ -11,6 +11,7 @@
 
 #include "dbms/dbms_handler.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <shared_mutex>
@@ -24,6 +25,7 @@
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
@@ -593,6 +595,106 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   });
 
   return {};  // Success
+}
+
+DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
+  if (name == kDefaultDB) return std::unexpected{SuspendError::DEFAULT_DB};
+  if (is_replica_role_ && is_replica_role_()) return std::unexpected{SuspendError::REPLICA_ROLE};
+
+  SuspendedEntry entry;
+  utils::Gatekeeper<Database> *gk = nullptr;
+  std::optional<DatabaseAccess> acc;
+  {
+    // PHASE A — eligibility check + metadata capture + freeze, all under the shared lock_.
+    //
+    // BUG #1 FIX: try_begin_suspend() is called INSIDE this shared_lock scope (not after).
+    // Rationale: between releasing the shared lock and try_begin_suspend(), a concurrent
+    // DROP DATABASE (Delete -> DeferDelete) sees state HOT, moves `gk` out of the map, and
+    // erases it -> gk dangling -> heap-UAF on try_begin_suspend(). By calling
+    // try_begin_suspend() under the shared lock, the state transitions to SUSPENDING while
+    // lock_ is held; a concurrent Drop then acquires the exclusive lock_ (mutually exclusive
+    // with our shared lock), sees SUSPENDING, and returns DeleteError::USING without touching
+    // `gk` — so `gk` remains valid through the lock-free Phase B/C below.
+    //
+    // NOTE: try_begin_suspend() waits up to 100ms for count==1. Holding the shared lock_
+    // during that wait is acceptable: suspend is rare/background; accessor release and
+    // access() use the gatekeeper's own mutex, not lock_, so count can still drain; only
+    // exclusive-lock writers (Drop/New) briefly wait on lock_.
+    auto rd = std::shared_lock{lock_};
+    auto a = db_handler_.Get(name);  // nullopt if absent OR not HOT (already cold)
+    if (!a) return std::unexpected{SuspendError::NON_EXISTENT};
+    auto *db = a->get();
+    auto *st = db->storage();
+    // Suspend requires {periodic snapshot + WAL} durability (checked just below) AND a RUNTIME
+    // storage mode of IN_MEMORY_TRANSACTIONAL. The runtime-mode check is load-bearing and must NOT
+    // be replaced by the config: a tenant switched to IN_MEMORY_ANALYTICAL at runtime suppresses WAL
+    // (InitializeWalFile() returns false for analytical) and pauses the snapshot runner, yet
+    // IsDurabilityCompleteForSuspend() only inspects the creation-time config.durability.snapshot_wal_mode
+    // (which SetStorageMode never updates). Without this check, analytical-mode commits would pass the
+    // durability gate and be SILENTLY LOST when the storage is torn down on suspend. Rejecting anything
+    // that is not in-memory transactional covers both ON_DISK_TRANSACTIONAL and IN_MEMORY_ANALYTICAL.
+    if (st->GetStorageMode() != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      return std::unexpected{SuspendError::NOT_IN_MEMORY};
+    }
+    if (!st->IsDurabilityCompleteForSuspend()) return std::unexpected{SuspendError::DURABILITY_INCOMPLETE};
+    if (st->IsReplicationParticipant()) return std::unexpected{SuspendError::REPLICATING};
+
+    // Min-hot-residency debounce: tenant must have stayed hot long enough since last use.
+    const auto min_ns = static_cast<int64_t>(FLAGS_storage_hot_cold_min_hot_residency_sec) * 1'000'000'000LL;
+    const auto now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+    if (db->LastUsedNs() + min_ns > now_ns) return std::unexpected{SuspendError::MIN_RESIDENCY};
+
+    entry.salient = db->config().salient;
+    entry.rel_dir = std::filesystem::relative(db->config().durability.storage_directory,
+                                              default_config_.durability.storage_directory);
+    entry.last_used_ns = db->LastUsedNs();
+    gk = db_handler_.GetGatekeeper(name);  // stable pointer to the in-map gatekeeper
+    acc = std::move(*a);                   // hold the accessor across phases (count includes it)
+
+    // BUG #1 FIX: transition HOT -> SUSPENDING under the shared lock (LAST step in Phase A).
+    // On ACTIVE_CONNECTIONS the lock releases on scope exit — no transition happened, gk
+    // was not erased (Drop/New wait for exclusive lock_), so the raw pointer is not used
+    // again after the early return — safe.
+    if (!gk->try_begin_suspend()) return std::unexpected{SuspendError::ACTIVE_CONNECTIONS};
+  }
+  // State is now SUSPENDING. Concurrent Drop sees SUSPENDING and returns USING without
+  // erasing gk, so gk is valid for the rest of this function (lock-free Phase B/C).
+
+  // BUG #5 FIX: RAII rollback guard. If anything in the SUSPENDING window throws (or we
+  // return early on the repl re-check path below), abort_suspend() restores HOT so the
+  // gatekeeper is not permanently stuck SUSPENDING (which would hang ~Gatekeeper).
+  auto rollback = utils::OnScopeExit{[&] { gk->abort_suspend(); }};
+
+  // PHASE B — post-freeze checks (lock-free; gk is SUSPENDING so Drop is rejected).
+
+  // Post-freeze replication re-check (a RegisterReplica may have committed in the A->freeze window).
+  // On REPLICATING the rollback guard runs abort_suspend() automatically — do NOT call it manually.
+  if ((*acc)->storage()->IsReplicationParticipant()) {
+    return std::unexpected{SuspendError::REPLICATING};
+  }
+
+  // The Database dtor must NOT take an exit snapshot; abort any in-flight one.
+  (*acc)->storage()->DisableExitSnapshot();
+
+  // PHASE C — record metadata (lock_), then heavy teardown OUTSIDE lock_.
+  acc.reset();  // drop our accessor -> count == 0 (state still SUSPENDING)
+  {
+    auto wr = std::lock_guard{lock_};
+    suspended_.insert_or_assign(std::string{name}, std::move(entry));
+    // NOTE: insert_or_assign may throw bad_alloc (exactly under the memory pressure that
+    // triggers eviction). If it throws here, the rollback guard above calls abort_suspend()
+    // before propagating, preventing a permanently-stuck SUSPENDING state.
+  }
+
+  // Disable the rollback guard BEFORE calling finish_suspend(). finish_suspend() transitions
+  // SUSPENDING -> COLD; if the guard fired afterwards it would abort_suspend() on a non-SUSPENDING
+  // state and trip the debug assert.
+  rollback.Disable();
+
+  // OUTSIDE lock_: value_.reset() -> ~Database (stop threads, FinalizeWal, NO exit snapshot).
+  // The COLD shell stays in db_handler_ so a later resume can move-assign a fresh gatekeeper.
+  gk->finish_suspend();
+  return {};
 }
 
 void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir) {
