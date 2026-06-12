@@ -856,5 +856,51 @@ class TestBoltProvenanceTag:
             assert self.TAG not in o.properties, "a projection with non-literal options carries no tag"
 
 
+class TestUseScope:
+    def test_use_scope_scans_projection(self, connection):
+        """`CALL { USE g MATCH (n) ... }` runs the MATCH over the bound
+        projection, returning its nodes."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 10}), virtualNode(2, 'N', {x: 20})] AS nodes, [] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (n) RETURN n.x AS x }
+            RETURN x ORDER BY x;
+            """,
+        )
+        assert results == [(10,), (20,)]
+
+    def test_use_scope_is_scoped_to_the_projection(self, connection):
+        """The bound view applies inside the block only: a MATCH outside sees the
+        real graph, a MATCH inside sees the projection."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "CREATE (:Real), (:Real), (:Real);")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH (r) WITH count(r) AS real_count
+            WITH real_count, virtualGraph([virtualNode(1, 'N', {x: 10})], []) AS g
+            CALL { USE g MATCH (n) RETURN n.x AS x }
+            RETURN real_count, x;
+            """,
+        )
+        assert results == [(3, 10)]
+
+    def test_write_in_use_scope_errors(self, connection):
+        """A USE scope is read-only: a write clause inside it is rejected."""
+        cursor = connection.cursor()
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(
+                cursor,
+                """
+                WITH virtualGraph([virtualNode(1, 'N', {})], []) AS g
+                CALL { USE g CREATE (n) }
+                RETURN 1;
+                """,
+            )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
