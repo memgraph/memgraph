@@ -404,7 +404,7 @@ preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
 preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution | versionDirective ;
 
-versionDirective : VERSION versionName=literal ;
+versionDirective : VERSION versionName ;
 
 hopsLimit: HOPS LIMIT literal ;
 
@@ -799,9 +799,9 @@ versionManagementQuery : createVersionQuery
                        | dropVersionQuery
                        ;
 
-createVersionQuery : CREATE VERSION versionName=literal ;
+createVersionQuery : CREATE VERSION versionName ;
 
-useVersionQuery : USE VERSION versionName=literal ;
+useVersionQuery : USE VERSION versionName ;
 
 showVersionsQuery : SHOW VERSIONS ( FOR DATABASE db=symbolicName )? ;
 
@@ -809,7 +809,10 @@ showVersionBranchQuery : SHOW VERSION BRANCH ;
 
 showChangesQuery : SHOW VERSION DIFF ;
 
-dropVersionQuery : DROP VERSION versionName=literal ;
+dropVersionQuery : DROP VERSION versionName ;
+
+// A version name can be given as a string literal ("my-branch") or a bare symbolic name (my_branch).
+versionName : literal | symbolicName ;
 
 transactionIdList : transactionId ( ',' transactionId )* ;
 

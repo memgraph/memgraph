@@ -112,6 +112,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
@@ -3626,9 +3627,16 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
             // captured set (overlay replay + this query's writes, all relative to master) is the
             // new complete overlay.
             if (is_write_query && trigger_context_collector) {
+              // Capture only THIS query's changes (replay writes through the storage accessor and
+              // does not feed the query trigger collector), and append them to the version's op-log.
+              // The log accumulates across queries; replay applies it in order, so later ops win.
               auto overlay = CaptureVersionOverlay(dba, *trigger_context_collector);
-              storage::VersionDeltaStore store{version_path};
-              store.ReplaceAll(overlay);
+              if (!overlay.empty()) {
+                storage::VersionDeltaStore store{version_path};
+                for (const auto &delta : overlay) {
+                  store.Append(delta);
+                }
+              }
             }
             return QueryHandlerResult::ABORT;
           }
@@ -6348,6 +6356,32 @@ std::filesystem::path VersionsDir(CurrentDB &current_db) {
   return current_db.db_acc_->get()->config().durability.storage_directory / "versions";
 }
 
+// --- SHOW VERSION DIFF rendering helpers ---
+std::string RenderPropertyValue(const storage::PropertyValue &value) {
+  if (value.IsNull()) return "null";
+  if (value.IsBool()) return value.ValueBool() ? "true" : "false";
+  if (value.IsInt()) return std::to_string(value.ValueInt());
+  if (value.IsDouble()) return std::to_string(value.ValueDouble());
+  if (value.IsString()) return fmt::format("'{}'", std::string_view{value.ValueString()});
+  return "...";  // list / map / temporal — not expanded in the diff
+}
+
+// Renders an opaque PropertyStore buffer as "{name: value, ...}" (empty string if no properties).
+std::string RenderProperties(storage::Storage *storage, const std::string &buffer) {
+  if (buffer.empty()) return "";
+  auto properties = storage::PropertyStore::CreateFromBuffer(buffer).Properties();
+  if (properties.empty()) return "";
+  std::string out = "{";
+  bool first = true;
+  for (const auto &[property, value] : properties) {
+    if (!first) out += ", ";
+    first = false;
+    out += storage->PropertyToName(property) + ": " + RenderPropertyValue(value);
+  }
+  out += "}";
+  return out;
+}
+
 // All version commands are gated behind the startup-only --versioning-enabled flag.
 void EnsureVersioningEnabled() {
   if (!FLAGS_versioning_enabled) {
@@ -6626,32 +6660,46 @@ PreparedQuery PrepareShowChangesQuery(ParsedQuery parsed_query, bool in_explicit
       std::string entity = "vertex";
       std::string detail;
       switch (d.op) {
-        case storage::OverlayOp::kCreateVertex:
+        case storage::OverlayOp::kCreateVertex: {
           op = "CREATE_VERTEX";
+          for (auto label : d.labels) {
+            detail += ":" + storage->LabelToName(storage::LabelId::FromUint(label));
+          }
+          if (auto props = RenderProperties(storage, d.properties); !props.empty()) {
+            detail += (detail.empty() ? "" : " ") + props;
+          }
           break;
+        }
         case storage::OverlayOp::kDeleteVertex:
           op = "DELETE_VERTEX";
           break;
         case storage::OverlayOp::kAddLabel:
           op = "ADD_LABEL";
-          detail = storage->LabelToName(storage::LabelId::FromUint(d.label_id));
+          detail = ":" + storage->LabelToName(storage::LabelId::FromUint(d.label_id));
           break;
         case storage::OverlayOp::kRemoveLabel:
           op = "REMOVE_LABEL";
-          detail = storage->LabelToName(storage::LabelId::FromUint(d.label_id));
+          detail = ":" + storage->LabelToName(storage::LabelId::FromUint(d.label_id));
           break;
         case storage::OverlayOp::kSetVertexProperty:
           op = "SET_PROPERTY";
-          detail = storage->PropertyToName(storage::PropertyId::FromUint(d.property_id));
+          detail = fmt::format("{} = {}",
+                               storage->PropertyToName(storage::PropertyId::FromUint(d.property_id)),
+                               RenderPropertyValue(storage::PropertyStore::CreateFromBuffer(d.properties)
+                                                       .GetProperty(storage::PropertyId::FromUint(d.property_id))));
           break;
-        case storage::OverlayOp::kCreateEdge:
+        case storage::OverlayOp::kCreateEdge: {
           op = "CREATE_EDGE";
           entity = "edge";
           detail = fmt::format("{} ({}->{})",
                                storage->EdgeTypeToName(storage::EdgeTypeId::FromUint(d.edge_type_id)),
                                d.from_gid,
                                d.to_gid);
+          if (auto props = RenderProperties(storage, d.properties); !props.empty()) {
+            detail += " " + props;
+          }
           break;
+        }
         case storage::OverlayOp::kDeleteEdge:
           op = "DELETE_EDGE";
           entity = "edge";
@@ -6659,7 +6707,10 @@ PreparedQuery PrepareShowChangesQuery(ParsedQuery parsed_query, bool in_explicit
         case storage::OverlayOp::kSetEdgeProperty:
           op = "SET_PROPERTY";
           entity = "edge";
-          detail = storage->PropertyToName(storage::PropertyId::FromUint(d.property_id));
+          detail = fmt::format("{} = {}",
+                               storage->PropertyToName(storage::PropertyId::FromUint(d.property_id)),
+                               RenderPropertyValue(storage::PropertyStore::CreateFromBuffer(d.properties)
+                                                       .GetProperty(storage::PropertyId::FromUint(d.property_id))));
           break;
       }
       rows.push_back(
@@ -9627,11 +9678,18 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::
 // Before Prepare or during Prepare, but single-threaded.
 // TODO: Is there any cleanup?
 void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
+  // Reset the active version only on an actual tenant change. SetCurrentDB is re-invoked with the
+  // SAME database on ordinary queries (the bolt layer reconfigures per run — e.g. the access mode
+  // r/w changes between statements), and resetting unconditionally would wipe the session's active
+  // version between a USE VERSION and the next query.
+  const bool db_changed = !current_db_.db_acc_ || current_db_.db_acc_->get()->name() != db_name;
   // Can throw
   // do we lock here?
   current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(db_name), in_explicit_db);
   // Switching tenants always lands you on that database's master graph.
-  active_version_.reset();
+  if (db_changed) {
+    active_version_.reset();
+  }
 }
 #else
 // Default database only

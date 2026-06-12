@@ -568,10 +568,7 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
       if (pre_query_directives.version_) {
         throw SyntaxException("Version can be set only once in the USING statement.");
       }
-      if (!version_directive->versionName->StringLiteral()) {
-        throw SyntaxException("Version name must be a string literal.");
-      }
-      pre_query_directives.version_ = std::any_cast<Expression *>(version_directive->versionName->accept(this));
+      pre_query_directives.version_ = std::any_cast<Expression *>(version_directive->versionName()->accept(this));
     } else {
       throw SyntaxException("Unknown pre query directive!");
     }
@@ -1917,22 +1914,28 @@ antlrcpp::Any CypherMainVisitor::visitVersionManagementQuery(MemgraphCypher::Ver
   return query_;
 }
 
+antlrcpp::Any CypherMainVisitor::visitVersionName(MemgraphCypher::VersionNameContext *ctx) {
+  if (ctx->literal()) {
+    if (!ctx->literal()->StringLiteral()) {
+      throw SemanticException("Version name must be a string literal or a symbolic name.");
+    }
+    return std::any_cast<Expression *>(ctx->literal()->accept(this));
+  }
+  // Bare symbolic name -> treat as a string literal expression.
+  auto name = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+  return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(std::move(name)));
+}
+
 antlrcpp::Any CypherMainVisitor::visitCreateVersionQuery(MemgraphCypher::CreateVersionQueryContext *ctx) {
   auto *create_version = storage_->Create<CreateVersionQuery>();
-  if (!ctx->versionName || !ctx->versionName->StringLiteral()) {
-    throw SemanticException("Version name must be a string literal.");
-  }
-  create_version->version_name_ = std::any_cast<Expression *>(ctx->versionName->accept(this));
+  create_version->version_name_ = std::any_cast<Expression *>(ctx->versionName()->accept(this));
   query_ = create_version;
   return create_version;
 }
 
 antlrcpp::Any CypherMainVisitor::visitUseVersionQuery(MemgraphCypher::UseVersionQueryContext *ctx) {
   auto *use_version = storage_->Create<UseVersionQuery>();
-  if (!ctx->versionName || !ctx->versionName->StringLiteral()) {
-    throw SemanticException("Version name must be a string literal.");
-  }
-  use_version->version_name_ = std::any_cast<Expression *>(ctx->versionName->accept(this));
+  use_version->version_name_ = std::any_cast<Expression *>(ctx->versionName()->accept(this));
   query_ = use_version;
   return use_version;
 }
@@ -1960,10 +1963,7 @@ antlrcpp::Any CypherMainVisitor::visitShowChangesQuery(MemgraphCypher::ShowChang
 
 antlrcpp::Any CypherMainVisitor::visitDropVersionQuery(MemgraphCypher::DropVersionQueryContext *ctx) {
   auto *drop_version = storage_->Create<DropVersionQuery>();
-  if (!ctx->versionName || !ctx->versionName->StringLiteral()) {
-    throw SemanticException("Version name must be a string literal.");
-  }
-  drop_version->version_name_ = std::any_cast<Expression *>(ctx->versionName->accept(this));
+  drop_version->version_name_ = std::any_cast<Expression *>(ctx->versionName()->accept(this));
   query_ = drop_version;
   return drop_version;
 }

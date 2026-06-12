@@ -557,6 +557,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitVersionManagementQuery(MemgraphCypher::VersionManagementQueryContext *ctx) override;
 
   /**
+   * @return Expression* (a string PrimitiveLiteral for either a string literal or symbolic name)
+   */
+  antlrcpp::Any visitVersionName(MemgraphCypher::VersionNameContext *ctx) override;
+
+  /**
    * @return CreateVersionQuery*
    */
   antlrcpp::Any visitCreateVersionQuery(MemgraphCypher::CreateVersionQueryContext *ctx) override;
