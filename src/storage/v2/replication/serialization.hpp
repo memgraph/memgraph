@@ -88,6 +88,11 @@ class Decoder final : public durability::BaseDecoder {
 
   bool SkipExternalPropertyValue() override;
 
+  // Replicated deltas are integrity-protected by TCP; no CRC is accumulated (see Encoder above).
+  void ResetCrcAcc() override {}
+
+  auto CrcAccValue() -> uint32_t override { return 0; }
+
  private:
   slk::Reader *reader_;
 };
