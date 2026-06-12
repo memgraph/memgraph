@@ -21,8 +21,6 @@
 #include "utils/crc_accumulator.hpp"
 #include "utils/file.hpp"
 
-import memgraph.storage.property_value;
-
 namespace memgraph::storage::durability {
 
 /// Encoder interface class. Used to implement streams to different targets

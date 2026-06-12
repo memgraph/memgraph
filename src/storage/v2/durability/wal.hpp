@@ -41,8 +41,6 @@
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
-import memgraph.storage.property_value;
-
 namespace memgraph::storage {
 class NameIdMapper;
 }  // namespace memgraph::storage

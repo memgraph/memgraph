@@ -11,8 +11,6 @@
 
 #include "storage/v2/replication/serialization.hpp"
 
-import memgraph.storage.property_value;
-
 namespace memgraph::storage::replication {
 ////// Encoder //////
 void Encoder::WriteMarker(durability::Marker marker) { slk::Save(marker, builder_); }

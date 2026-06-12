@@ -45,8 +45,6 @@
 #include "utils/tag.hpp"
 #include "utils/variant_helpers.hpp"
 
-import memgraph.storage.property_value;
-
 namespace r = ranges;
 namespace rv = r::views;
 

@@ -21,8 +21,6 @@
 #include "utils/endian.hpp"
 #include "utils/temporal.hpp"
 
-import memgraph.storage.property_value;
-
 namespace memgraph::storage::durability {
 
 //////////////////////////
