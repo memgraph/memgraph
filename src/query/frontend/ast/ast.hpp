@@ -2095,6 +2095,9 @@ struct PreQueryDirectives {
   /// Parallel execution
   bool parallel_execution_{false};
   memgraph::query::Expression *num_threads_{nullptr};
+  /// One-shot version override (USING VERSION '<name>'): run this query on the named version
+  /// without changing the session's active version. Only valid from master.
+  memgraph::query::Expression *version_{nullptr};
 
   PreQueryDirectives Clone(AstStorage *storage) const {
     PreQueryDirectives object;
@@ -2106,6 +2109,7 @@ struct PreQueryDirectives {
     object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
     object.parallel_execution_ = parallel_execution_;
     object.num_threads_ = num_threads_ ? num_threads_->Clone(storage) : nullptr;
+    object.version_ = version_ ? version_->Clone(storage) : nullptr;
     return object;
   }
 };
@@ -3739,6 +3743,111 @@ class ShowNextSnapshotQuery : public memgraph::query::Query {
     auto *object = storage->Create<ShowNextSnapshotQuery>();
     return object;
   }
+};
+
+// Versioning: fork a named, writable, live-overlay version off the master graph.
+// Versions are per-database; their deltas persist under
+// <storage_dir>/databases/<db_uuid>/versions/<name>/ as a RocksDB instance.
+class CreateVersionQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  CreateVersionQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<CreateVersionQuery>();
+    object->version_name_ = version_name_ ? version_name_->Clone(storage) : nullptr;
+    return object;
+  }
+
+  Expression *version_name_{nullptr};
+};
+
+// Set the session's active version (governs both reads and writes).
+// 'master' selects the base graph.
+class UseVersionQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  UseVersionQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<UseVersionQuery>();
+    object->version_name_ = version_name_ ? version_name_->Clone(storage) : nullptr;
+    return object;
+  }
+
+  Expression *version_name_{nullptr};
+};
+
+// List the versions of a database (current DB when database_ is empty).
+class ShowVersionsQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowVersionsQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowVersionsQuery>();
+    object->database_ = database_;
+    return object;
+  }
+
+  std::string database_;
+};
+
+// Report the session's current version (the active branch, or 'master').
+class ShowVersionBranchQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowVersionBranchQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowVersionBranchQuery>();
+    return object;
+  }
+};
+
+// Dump the overlay delta-chain applied to the session's active version (SHOW VERSION DIFF).
+class ShowChangesQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowChangesQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowChangesQuery>();
+    return object;
+  }
+};
+
+// Discard a named version (removes its versions/<name>/ folder).
+class DropVersionQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  DropVersionQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropVersionQuery>();
+    object->version_name_ = version_name_ ? version_name_->Clone(storage) : nullptr;
+    return object;
+  }
+
+  Expression *version_name_{nullptr};
 };
 
 class StreamQuery : public memgraph::query::Query {

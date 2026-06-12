@@ -39,6 +39,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BOLT_SERVER
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
+                      | BRANCH
                       | BUILD
                       | CALL
                       | CALLABLE
@@ -67,6 +68,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DEMOTE
                       | DENY
                       | DESCRIPTION
+                      | DIFF
                       | DESCRIPTIONS
                       | DIRECTORY
                       | DISABLE
@@ -237,6 +239,8 @@ memgraphCypherKeyword : cypherKeyword
                       | VALUES
                       | VECTOR
                       | VERSION
+                      | VERSIONS
+                      | VERSIONING
                       | WEBSOCKET
                       | YIELD
                       | ZONEDDATETIME
@@ -278,6 +282,7 @@ query : cypherQuery
       | settingQuery
       | parameterQuery
       | versionQuery
+      | versionManagementQuery
       | showConfigQuery
       | showQueryCallableMappingsQuery
       | transactionQueueQuery
@@ -397,7 +402,9 @@ foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution | versionDirective ;
+
+versionDirective : VERSION versionName=literal ;
 
 hopsLimit: HOPS LIMIT literal ;
 
@@ -579,6 +586,7 @@ privilege : CREATE
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
           | RELOAD_TLS
+          | VERSIONING
           ;
 
 granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
@@ -782,6 +790,26 @@ showConfigQuery : SHOW CONFIG ;
 showQueryCallableMappingsQuery : SHOW QUERY CALLABLE MAPPINGS ;
 
 versionQuery : SHOW VERSION ;
+
+versionManagementQuery : createVersionQuery
+                       | useVersionQuery
+                       | showVersionsQuery
+                       | showVersionBranchQuery
+                       | showChangesQuery
+                       | dropVersionQuery
+                       ;
+
+createVersionQuery : CREATE VERSION versionName=literal ;
+
+useVersionQuery : USE VERSION versionName=literal ;
+
+showVersionsQuery : SHOW VERSIONS ( FOR DATABASE db=symbolicName )? ;
+
+showVersionBranchQuery : SHOW VERSION BRANCH ;
+
+showChangesQuery : SHOW VERSION DIFF ;
+
+dropVersionQuery : DROP VERSION versionName=literal ;
 
 transactionIdList : transactionId ( ',' transactionId )* ;
 

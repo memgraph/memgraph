@@ -335,6 +335,15 @@ class TriggerContextCollector {
   // but no collected data. Used for parallel execution branches.
   [[nodiscard]] TriggerContextCollector CreateEmptyWithSameConfig() const;
 
+  // --- Graph versioning support: read accumulated changes without consuming the collector
+  //     (TransformToTriggerContext is rvalue-only; versioning needs to inspect, then abort). ---
+  const Registry<VertexAccessor> &VersioningVertexRegistry() const { return vertex_registry_; }
+
+  const Registry<EdgeAccessor> &VersioningEdgeRegistry() const { return edge_registry_; }
+
+  // Net label changes per (vertex, label): true == added, false == removed.
+  std::vector<std::tuple<VertexAccessor, storage::LabelId, bool>> VersioningLabelChanges() const;
+
  private:
   template <detail::ObjectAccessor TAccessor>
   auto GetRegistry() const -> Registry<TAccessor> const & {

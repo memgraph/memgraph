@@ -87,7 +87,8 @@ class AuthQuery : public memgraph::query::Query {
     PARALLEL_EXECUTION,
     SERVER_SIDE_PARAMETERS,
     SERVER_SIDE_DESCRIPTIONS,
-    RELOAD_TLS
+    RELOAD_TLS,
+    VERSIONING
   };
 
   enum class FineGrainedPrivilege {
@@ -229,6 +230,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::SERVER_SIDE_PARAMETERS,
     AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS,
     AuthQuery::Privilege::RELOAD_TLS,
+    AuthQuery::Privilege::VERSIONING,
 };
 
 }  // namespace memgraph::query

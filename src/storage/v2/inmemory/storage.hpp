@@ -206,6 +206,15 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex() override;
 
+    // Versioning overlay replay: create a vertex/edge with a specific gid. Public wrappers over the
+    // protected recovery primitives, so the graph-versioning replay path can preserve gids.
+    std::optional<VertexAccessor> CreateVertexWithGid(storage::Gid gid) { return CreateVertexEx(gid); }
+
+    Result<EdgeAccessor> CreateEdgeWithGid(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
+                                           storage::Gid gid) {
+      return CreateEdgeEx(from, to, edge_type, gid);
+    }
+
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
     VerticesIterable Vertices(View view) override {

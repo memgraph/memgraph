@@ -146,6 +146,8 @@ std::string PermissionToString(Permission permission) {
       return "SERVER_SIDE_DESCRIPTIONS";
     case Permission::RELOAD_TLS:
       return "RELOAD_TLS";
+    case Permission::VERSIONING:
+      return "VERSIONING";
   }
 }
 

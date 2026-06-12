@@ -152,6 +152,19 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(VersionQuery & /*version_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
+  // Versioning management — all gated behind the dedicated VERSIONING privilege.
+  void Visit(CreateVersionQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
+
+  void Visit(UseVersionQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
+
+  void Visit(ShowVersionsQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
+
+  void Visit(ShowVersionBranchQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
+
+  void Visit(ShowChangesQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
+
+  void Visit(DropVersionQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
+
   void Visit(MultiDatabaseQuery &query) override {
     switch (query.action_) {
       case MultiDatabaseQuery::Action::CREATE:

@@ -99,6 +99,11 @@ DEFINE_uint64(memory_warning_threshold, 1024,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed in queries.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(versioning_enabled, false,
+            "Enable graph versioning mode (CREATE/USE/SHOW/DROP VERSION, SHOW VERSION BRANCH/DIFF, USING VERSION). "
+            "Startup-only: it intentionally cannot be changed at runtime.");
+
 // Storage flags.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",

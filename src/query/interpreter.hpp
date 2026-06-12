@@ -238,7 +238,8 @@ struct CurrentDB {
   CurrentDB &operator=(CurrentDB const &) = delete;
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
+                                bool force_change_collection = false);
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
@@ -314,6 +315,11 @@ class Interpreter final {
   bool expect_rollback_{false};
   std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
   std::optional<storage::ExternalPropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
+
+  // Session's active graph version (std::nullopt == master/base graph). Set by `USE VERSION`,
+  // governs which version's overlay reads/writes resolve against. Read by SHOW CHANGES and the
+  // (forthcoming) Cypher replay->query->rollback path.
+  std::optional<std::string> active_version_{};
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);

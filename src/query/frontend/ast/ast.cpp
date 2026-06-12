@@ -464,6 +464,25 @@ constexpr utils::TypeInfo query::SessionTraceQuery::kType{
 constexpr utils::TypeInfo query::SessionSettingQuery::kType{
     .id = utils::TypeId::AST_SESSION_SETTING_QUERY, .name = "SessionSettingQuery", .superclass = &query::Query::kType};
 
+constexpr utils::TypeInfo query::CreateVersionQuery::kType{
+    .id = utils::TypeId::AST_CREATE_VERSION_QUERY, .name = "CreateVersionQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::UseVersionQuery::kType{
+    .id = utils::TypeId::AST_USE_VERSION_QUERY, .name = "UseVersionQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowVersionsQuery::kType{
+    .id = utils::TypeId::AST_SHOW_VERSIONS_QUERY, .name = "ShowVersionsQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowVersionBranchQuery::kType{.id = utils::TypeId::AST_SHOW_VERSION_BRANCH_QUERY,
+                                                               .name = "ShowVersionBranchQuery",
+                                                               .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowChangesQuery::kType{
+    .id = utils::TypeId::AST_SHOW_CHANGES_QUERY, .name = "ShowChangesQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::DropVersionQuery::kType{
+    .id = utils::TypeId::AST_DROP_VERSION_QUERY, .name = "DropVersionQuery", .superclass = &query::Query::kType};
+
 constexpr utils::TypeInfo query::UserProfileQuery::kType{
     .id = utils::TypeId::AST_USER_PROFILE_QUERY, .name = "UserProfileQuery", .superclass = &query::Query::kType};
 

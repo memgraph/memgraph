@@ -146,6 +146,12 @@ class ParameterQuery;
 class DescriptionQuery;
 class ReloadSSLQuery;
 class ShowMemoryInfoQuery;
+class CreateVersionQuery;
+class UseVersionQuery;
+class ShowVersionsQuery;
+class ShowVersionBranchQuery;
+class ShowChangesQuery;
+class DropVersionQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -193,6 +199,7 @@ class QueryVisitor
           CoordinatorQuery, DropAllIndexesQuery, DropAllConstraintsQuery, DropGraphQuery, CreateEnumQuery,
           ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,
           ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery, SessionSettingQuery, UserProfileQuery, TenantProfileQuery,
-          ParameterQuery, DescriptionQuery, ReloadSSLQuery, ShowMemoryInfoQuery> {};
+          ParameterQuery, DescriptionQuery, ReloadSSLQuery, ShowMemoryInfoQuery, CreateVersionQuery, UseVersionQuery,
+          ShowVersionsQuery, ShowVersionBranchQuery, ShowChangesQuery, DropVersionQuery> {};
 
 }  // namespace memgraph::query

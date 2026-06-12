@@ -149,8 +149,17 @@ def main():
         coordinators=COORDINATORS,
         show_replicas=True,
         verify_up=True,
-        storage_info=["memory_res", "memory_limit"],
-        metrics_info=["FailedQuery", "TransientErrors"],
+        storage_info=["vertex_count", "edge_count", "memory_res", "memory_limit"],
+        metrics_info=[
+            "FailedQuery",
+            "TransientErrors",
+            "GCLatency_us_50p",
+            "GCLatency_us_90p",
+            "GCLatency_us_99p",
+            "GCSkiplistCleanupLatency_us_50p",
+            "GCSkiplistCleanupLatency_us_90p",
+            "GCSkiplistCleanupLatency_us_99p",
+        ],
         interval=2,
     )
 

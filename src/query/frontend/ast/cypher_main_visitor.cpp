@@ -564,6 +564,14 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         }
         pre_query_directives.num_threads_ = std::any_cast<Expression *>(num_threads->accept(this));
       }
+    } else if (auto *version_directive = pre_query_directive->versionDirective()) {
+      if (pre_query_directives.version_) {
+        throw SyntaxException("Version can be set only once in the USING statement.");
+      }
+      if (!version_directive->versionName->StringLiteral()) {
+        throw SyntaxException("Version name must be a string literal.");
+      }
+      pre_query_directives.version_ = std::any_cast<Expression *>(version_directive->versionName->accept(this));
     } else {
       throw SyntaxException("Unknown pre query directive!");
     }
@@ -1902,6 +1910,64 @@ antlrcpp::Any CypherMainVisitor::visitVersionQuery(MemgraphCypher::VersionQueryC
   return version_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitVersionManagementQuery(MemgraphCypher::VersionManagementQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "VersionManagementQuery should have exactly one child!");
+  // Each child visitor creates its concrete query and assigns query_; just propagate it.
+  ctx->children[0]->accept(this);
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateVersionQuery(MemgraphCypher::CreateVersionQueryContext *ctx) {
+  auto *create_version = storage_->Create<CreateVersionQuery>();
+  if (!ctx->versionName || !ctx->versionName->StringLiteral()) {
+    throw SemanticException("Version name must be a string literal.");
+  }
+  create_version->version_name_ = std::any_cast<Expression *>(ctx->versionName->accept(this));
+  query_ = create_version;
+  return create_version;
+}
+
+antlrcpp::Any CypherMainVisitor::visitUseVersionQuery(MemgraphCypher::UseVersionQueryContext *ctx) {
+  auto *use_version = storage_->Create<UseVersionQuery>();
+  if (!ctx->versionName || !ctx->versionName->StringLiteral()) {
+    throw SemanticException("Version name must be a string literal.");
+  }
+  use_version->version_name_ = std::any_cast<Expression *>(ctx->versionName->accept(this));
+  query_ = use_version;
+  return use_version;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowVersionsQuery(MemgraphCypher::ShowVersionsQueryContext *ctx) {
+  auto *show_versions = storage_->Create<ShowVersionsQuery>();
+  if (ctx->db) {
+    show_versions->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+  }
+  query_ = show_versions;
+  return show_versions;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowVersionBranchQuery(MemgraphCypher::ShowVersionBranchQueryContext * /*ctx*/) {
+  auto *show_version_branch = storage_->Create<ShowVersionBranchQuery>();
+  query_ = show_version_branch;
+  return show_version_branch;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowChangesQuery(MemgraphCypher::ShowChangesQueryContext * /*ctx*/) {
+  auto *show_changes = storage_->Create<ShowChangesQuery>();
+  query_ = show_changes;
+  return show_changes;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropVersionQuery(MemgraphCypher::DropVersionQueryContext *ctx) {
+  auto *drop_version = storage_->Create<DropVersionQuery>();
+  if (!ctx->versionName || !ctx->versionName->StringLiteral()) {
+    throw SemanticException("Version name must be a string literal.");
+  }
+  drop_version->version_name_ = std::any_cast<Expression *>(ctx->versionName->accept(this));
+  query_ = drop_version;
+  return drop_version;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
@@ -2709,6 +2775,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->PARALLEL_EXECUTION()) return AuthQuery::Privilege::PARALLEL_EXECUTION;
   if (ctx->SERVER_SIDE_PARAMETERS()) return AuthQuery::Privilege::SERVER_SIDE_PARAMETERS;
   if (ctx->RELOAD_TLS()) return AuthQuery::Privilege::RELOAD_TLS;
+  if (ctx->VERSIONING()) return AuthQuery::Privilege::VERSIONING;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

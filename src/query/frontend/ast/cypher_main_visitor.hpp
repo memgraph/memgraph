@@ -552,6 +552,41 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitVersionQuery(MemgraphCypher::VersionQueryContext *ctx) override;
 
   /**
+   * @return Query* (one of the version-management queries below)
+   */
+  antlrcpp::Any visitVersionManagementQuery(MemgraphCypher::VersionManagementQueryContext *ctx) override;
+
+  /**
+   * @return CreateVersionQuery*
+   */
+  antlrcpp::Any visitCreateVersionQuery(MemgraphCypher::CreateVersionQueryContext *ctx) override;
+
+  /**
+   * @return UseVersionQuery*
+   */
+  antlrcpp::Any visitUseVersionQuery(MemgraphCypher::UseVersionQueryContext *ctx) override;
+
+  /**
+   * @return ShowVersionsQuery*
+   */
+  antlrcpp::Any visitShowVersionsQuery(MemgraphCypher::ShowVersionsQueryContext *ctx) override;
+
+  /**
+   * @return ShowVersionBranchQuery*
+   */
+  antlrcpp::Any visitShowVersionBranchQuery(MemgraphCypher::ShowVersionBranchQueryContext *ctx) override;
+
+  /**
+   * @return ShowChangesQuery*
+   */
+  antlrcpp::Any visitShowChangesQuery(MemgraphCypher::ShowChangesQueryContext *ctx) override;
+
+  /**
+   * @return DropVersionQuery*
+   */
+  antlrcpp::Any visitDropVersionQuery(MemgraphCypher::DropVersionQueryContext *ctx) override;
+
+  /**
    * @return CypherUnion*
    */
   antlrcpp::Any visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) override;

@@ -1,0 +1,29 @@
+# Concurrent Edge Creation on Supernode (standalone)
+#
+# Creates a supernode and NUM_NODES regular nodes, then concurrently creates an
+# edge from the supernode to every regular node using parallel worker processes.
+# Stresses MVCC and garbage collection under heavy contention on a single
+# vertex's edge list; the monitor tracks GC latency metrics.
+
+memgraph:
+  deployment:
+    externally_managed: true
+  args: []
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: concurrent-edge-creation-on-supernode
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/concurrent_edge_creation_on_supernode/workload.py
+      timeout_min: 30
