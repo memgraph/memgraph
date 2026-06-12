@@ -1660,6 +1660,8 @@ std::optional<int64_t> ExtractIdValue(const TypedValue &value, bool expects_stri
     const auto *end = str.data() + str.size();
     auto [ptr, ec] = std::from_chars(str.data(), end, id);
     if (ec != std::errc{} || ptr != end) return std::nullopt;
+    // Only the canonical form can match ("042" parses to 42 but "042" != elementId of 42).
+    if (std::to_string(id) != std::string_view{str}) return std::nullopt;
     return id;
   }
   if (!value.IsNumeric()) return std::nullopt;
