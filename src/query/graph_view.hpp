@@ -14,34 +14,31 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 
 #include "query/db_accessor.hpp"
+#include "query/virtual_graph.hpp"
+#include "query/virtual_node.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/view.hpp"
 
 namespace memgraph::query {
 
-// A range over the vertices yielded by one scan of a GraphView. The boundary is
-// crossed once to obtain the range; iteration is then over concrete elements, so
-// the real-graph read path is not regressed per row.
-//
-// Today the range wraps the real accessor's VerticesIterable and yields
-// VertexAccessor. It is a distinct type (not VerticesIterable) so a projection
-// view can later widen what it yields without changing the operators that scan
-// through it.
-class VertexRange final {
-  VerticesIterable iterable_;
+// A range over a VirtualGraph's nodes, yielding each node by reference. The
+// VirtualGraph owns the nodes; the range only borrows its node map.
+class VirtualNodeRange final {
+  const VirtualGraph::node_map *nodes_;
 
  public:
-  explicit VertexRange(VerticesIterable iterable) : iterable_(std::move(iterable)) {}
+  explicit VirtualNodeRange(const VirtualGraph::node_map &nodes) : nodes_(&nodes) {}
 
   class Iterator final {
-    VerticesIterable::Iterator it_;
+    VirtualGraph::node_map::const_iterator it_;
 
    public:
-    explicit Iterator(VerticesIterable::Iterator it) : it_(std::move(it)) {}
+    explicit Iterator(VirtualGraph::node_map::const_iterator it) : it_(it) {}
 
-    VertexAccessor operator*() const { return *it_; }
+    const VirtualNode &operator*() const { return *it_->second; }
 
     Iterator &operator++() {
       ++it_;
@@ -53,9 +50,59 @@ class VertexRange final {
     bool operator!=(const Iterator &other) const { return it_ != other.it_; }
   };
 
-  Iterator begin() { return Iterator(iterable_.begin()); }
+  Iterator begin() const { return Iterator(nodes_->begin()); }
 
-  Iterator end() { return Iterator(iterable_.end()); }
+  Iterator end() const { return Iterator(nodes_->end()); }
+};
+
+// One scanned vertex: a real VertexAccessor (identity view) or a projection's
+// VirtualNode. Both are concrete - a scan iterates over these directly, the
+// virtual boundary having been crossed once to obtain the range. The frame
+// already carries both kinds as a TypedValue, so an operator writes either.
+using ScanVertex = std::variant<VertexAccessor, VirtualNode>;
+
+// A range over the vertices yielded by one scan of a GraphView. The boundary is
+// crossed once to obtain the range; iteration is then over concrete elements, so
+// the real-graph read path is not regressed per row. The identity view backs it
+// with the real accessor's VerticesIterable; a projection backs it with its
+// VirtualGraph's nodes.
+class VertexRange final {
+  std::variant<VerticesIterable, VirtualNodeRange> impl_;
+
+ public:
+  explicit VertexRange(VerticesIterable iterable) : impl_(std::move(iterable)) {}
+
+  explicit VertexRange(VirtualNodeRange iterable) : impl_(std::move(iterable)) {}
+
+  class Iterator final {
+    std::variant<VerticesIterable::Iterator, VirtualNodeRange::Iterator> it_;
+
+   public:
+    explicit Iterator(VerticesIterable::Iterator it) : it_(std::move(it)) {}
+
+    explicit Iterator(VirtualNodeRange::Iterator it) : it_(std::move(it)) {}
+
+    ScanVertex operator*() const {
+      return std::visit([](const auto &it) -> ScanVertex { return *it; }, it_);
+    }
+
+    Iterator &operator++() {
+      std::visit([](auto &it) { ++it; }, it_);
+      return *this;
+    }
+
+    bool operator==(const Iterator &other) const { return it_ == other.it_; }
+
+    bool operator!=(const Iterator &other) const { return it_ != other.it_; }
+  };
+
+  Iterator begin() {
+    return std::visit([](auto &iterable) { return Iterator(iterable.begin()); }, impl_);
+  }
+
+  Iterator end() {
+    return std::visit([](auto &iterable) { return Iterator(iterable.end()); }, impl_);
+  }
 };
 
 // The single graph abstraction the read operators run against: scan the vertices

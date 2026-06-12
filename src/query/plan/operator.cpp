@@ -843,6 +843,37 @@ VertexAccessor const &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame
   }
 }
 
+namespace {
+// A scan yields either a real VertexAccessor (label/index scans, and the
+// identity view) or a ScanVertex (the ambient GraphView, which may be a
+// projection). These helpers let the shared ScanAllCursor handle both.
+
+template <typename TWriter>
+void WriteScannedVertex(TWriter &writer, const Symbol &symbol, const VertexAccessor &vertex) {
+  writer.Write(symbol, vertex);
+}
+
+template <typename TWriter>
+void WriteScannedVertex(TWriter &writer, const Symbol &symbol, const ScanVertex &vertex) {
+  std::visit([&](const auto &v) { writer.Write(symbol, v); }, vertex);
+}
+
+#ifdef MG_ENTERPRISE
+bool ScannedVertexVisible(FineGrainedAuthChecker &checker, const VertexAccessor &vertex, storage::View view) {
+  return checker.Has(vertex, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+}
+
+bool ScannedVertexVisible(FineGrainedAuthChecker &checker, const ScanVertex &vertex, storage::View view) {
+  // A projection's VirtualNode carries no real-graph privileges, so it is always
+  // visible; a real vertex is checked.
+  if (const auto *real = std::get_if<VertexAccessor>(&vertex)) {
+    return checker.Has(*real, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+  }
+  return true;
+}
+#endif
+}  // namespace
+
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
@@ -880,7 +911,7 @@ class ScanAllCursor : public Cursor {
 #endif
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    frame_writer.Write(output_symbol_, *vertices_it_.value());
+    WriteScannedVertex(frame_writer, output_symbol_, *vertices_it_.value());
     ++vertices_it_.value();
     return true;
   }
@@ -888,8 +919,7 @@ class ScanAllCursor : public Cursor {
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_end_it_.value()) {
-      if (context.auth_checker->Has(
-              *vertices_it_.value(), view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+      if (ScannedVertexVisible(*context.auth_checker, *vertices_it_.value(), view_)) {
         return true;
       }
       ++vertices_it_.value();

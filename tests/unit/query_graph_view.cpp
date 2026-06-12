@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <set>
+#include <variant>
 
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -55,7 +56,7 @@ TEST_F(GraphViewTest, IdentityViewYieldsAllVertices) {
   DbAccessorGraphView view{&dba};
 
   std::set<Gid> scanned;
-  for (auto vertex : view.Vertices(View::NEW)) scanned.insert(vertex.Gid());
+  for (auto vertex : view.Vertices(View::NEW)) scanned.insert(std::get<VertexAccessor>(vertex).Gid());
 
   EXPECT_EQ(scanned, expected);
 }
@@ -192,6 +193,34 @@ TEST_F(VirtualGraphViewTest, ViewYieldsSelfLoopInBothDirections) {
   EXPECT_EQ(view.OutEdges(self)[0]->Gid(), view.InEdges(self)[0]->Gid());
   EXPECT_EQ(view.OutEdges(self)[0]->FromGid(), self);
   EXPECT_EQ(view.OutEdges(self)[0]->ToGid(), self);
+}
+
+// ScanAll routed through a bound projection view yields the projection's nodes
+// as VirtualNode values on the frame, the same operator that scans the real graph.
+TEST_F(VirtualGraphViewTest, ScanAllOverProjectionYieldsVirtualNodes) {
+  std::vector<VirtualNode> nodes;
+  nodes.push_back(HandledNode(1, {"A"}));
+  nodes.push_back(HandledNode(2, {"B"}));
+  std::set<Gid> expected{nodes[0].Gid(), nodes[1].Gid()};
+  auto graph = AssembleVirtualGraph(nodes, {}, DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+  VirtualGraphView view{&graph, &dba_};
+
+  SymbolTable symbol_table;
+  auto symbol = symbol_table.CreateSymbol("n", true);
+  auto scan_all = std::make_shared<plan::ScanAll>(nullptr, symbol, View::NEW);
+
+  memgraph::metrics::DatabaseMetricHandles metric_handles;
+  ExecutionContext context{.db_accessor = &dba_, .graph_view = &view};
+  context.symbol_table = symbol_table;
+  context.evaluation_context.memory = memgraph::utils::NewDeleteResource();
+  context.metric_handles = &metric_handles;
+
+  Frame frame(symbol_table.max_position());
+  auto cursor = scan_all->MakeCursor(memgraph::utils::NewDeleteResource(), metric_handles);
+  std::set<Gid> scanned;
+  while (cursor->Pull(frame, context)) scanned.insert(frame[symbol].ValueVirtualNode().Gid());
+
+  EXPECT_EQ(scanned, expected);
 }
 
 // Names resolve through the view to the same ids the shared accessor uses.
