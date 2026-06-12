@@ -6,7 +6,7 @@ ROOT_DIR="$SCRIPT_DIR/../../"
 MG_BUILD_DIR="$ROOT_DIR/build"
 
 # Use MGCONSOLE_TAG from environment if set, otherwise default to v1.5.0
-MGCONSOLE_TAG="${MGCONSOLE_TAG:-v1.5.0}"
+MGCONSOLE_TAG="${MGCONSOLE_TAG:-v1.6.0}"
 
 mkdir -pv build/mgconsole
 cd build/mgconsole

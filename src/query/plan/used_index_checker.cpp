@@ -91,11 +91,13 @@ PRE_VISIT(EdgeUniquenessFilter)
 PRE_VISIT(Merge)
 PRE_VISIT(Optional)
 
-bool UsedIndexChecker::PreVisit(Cartesian &op) {
-  op.left_op_->Accept(*this);
-  op.right_op_->Accept(*this);
-  return true;
-}
+// NOTE: For composite operators we intentionally return `true` WITHOUT
+// traversing children here. The operator's own `Accept` already descends into
+// every branch when `PreVisit` returns true. Traversing manually AND returning
+// true makes `Accept` re-traverse, which doubles the work at each binary node
+// and becomes exponential (2^N) over deeply nested operators such as the
+// Union/Distinct chain produced by a label disjunction over indexed labels.
+PRE_VISIT(Cartesian)
 
 PRE_VISIT(EmptyResult)
 PRE_VISIT(Produce)
@@ -107,11 +109,7 @@ PRE_VISIT(OrderBy)
 PRE_VISIT(Distinct)
 PRE_VISIT(PeriodicCommit)
 
-bool UsedIndexChecker::PreVisit(Union &op) {
-  op.left_op_->Accept(*this);
-  op.right_op_->Accept(*this);
-  return true;
-}
+PRE_VISIT(Union)
 
 PRE_VISIT(Unwind)
 
@@ -124,35 +122,15 @@ bool UsedIndexChecker::PreVisit(CallProcedure &op) {
 
 bool UsedIndexChecker::PreVisit([[maybe_unused]] Foreach &op) { return true; }
 
-bool UsedIndexChecker::PreVisit(Apply &op) {
-  op.input_->Accept(*this);
-  op.subquery_->Accept(*this);
-  return true;
-}
+PRE_VISIT(Apply)
 
-bool UsedIndexChecker::PreVisit(IndexedJoin &op) {
-  op.main_branch_->Accept(*this);
-  op.sub_branch_->Accept(*this);
-  return true;
-}
+PRE_VISIT(IndexedJoin)
 
-bool UsedIndexChecker::PreVisit(HashJoin &op) {
-  op.left_op_->Accept(*this);
-  op.right_op_->Accept(*this);
-  return true;
-}
+PRE_VISIT(HashJoin)
 
-bool UsedIndexChecker::PreVisit(PeriodicSubquery &op) {
-  op.input_->Accept(*this);
-  op.subquery_->Accept(*this);
-  return true;
-}
+PRE_VISIT(PeriodicSubquery)
 
-bool UsedIndexChecker::PreVisit(RollUpApply &op) {
-  op.input_->Accept(*this);
-  op.list_collection_branch_->Accept(*this);
-  return true;
-}
+PRE_VISIT(RollUpApply)
 
 #undef PRE_VISIT
 

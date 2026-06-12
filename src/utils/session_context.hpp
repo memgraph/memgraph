@@ -15,9 +15,12 @@
 #include <spdlog/common.h>
 #include <spdlog/spdlog.h>
 #include <cstdint>
+#include <functional>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace memgraph::logging {
@@ -43,17 +46,52 @@ class SessionLogContext {
 
   std::string_view session_uuid() const noexcept { return session_uuid_; }
 
+  // Effective auth user (empty when unauthenticated); shared with the trace tags.
+  std::string_view user() const noexcept { return user_; }
+
   void AppendTraceTags(fmt::memory_buffer &out) const {
     fmt::format_to(std::back_inserter(out), "[session={}]", session_uuid_);
     if (!user_.empty()) fmt::format_to(std::back_inserter(out), " [user={}]", user_);
     fmt::format_to(std::back_inserter(out), " [tx={}]", tx_id_);
   }
 
+  // Per-session overlay for runtime settings. Values are stored as raw strings;
+  // the flags::run_time::GetEffective* readers parse them to the right type.
+  void SetSetting(std::string_view key, std::string value) {
+    session_settings_overlay_.insert_or_assign(std::string{key}, std::move(value));
+  }
+
+  void ResetSetting(std::string_view key) {
+    // unordered_map::erase has no transparent overload; find (which does) then erase by iterator.
+    if (auto it = session_settings_overlay_.find(key); it != session_settings_overlay_.end()) {
+      session_settings_overlay_.erase(it);
+    }
+  }
+
+  // noexcept relies on transparent lookup: find(string_view) must not allocate a temporary
+  // std::string key (which could throw bad_alloc). Keep StringHash/equal_to<> transparent.
+  std::optional<std::string_view> GetSetting(std::string_view key) const noexcept {
+    auto it = session_settings_overlay_.find(key);
+    if (it == session_settings_overlay_.end()) return std::nullopt;
+    return std::string_view{it->second};
+  }
+
  private:
+  // Transparent hashing so reads/resets look up by string_view without allocating
+  // a temporary std::string on every query.
+  struct StringHash {
+    using is_transparent = void;
+
+    std::size_t operator()(std::string_view s) const noexcept { return std::hash<std::string_view>{}(s); }
+
+    std::size_t operator()(const std::string &s) const noexcept { return std::hash<std::string_view>{}(s); }
+  };
+
   std::string session_uuid_;
   std::string user_;
   uint64_t tx_id_ = 0;
   bool trace_enabled_ = false;
+  std::unordered_map<std::string, std::string, StringHash, std::equal_to<>> session_settings_overlay_;
 };
 
 namespace detail {
@@ -111,5 +149,15 @@ inline void EmitSessionTraceEvent(std::string_view msg) {
   buf.append(msg.data(), msg.data() + msg.size());
   spdlog::info(std::string_view{buf.data(), buf.size()});
 }
+
+// Emit a [slow-query] line at WARN. Caller gates on the duration threshold first
+// so plan rendering is never paid for under the threshold. Defined in the .cpp
+// to keep this widely-included header light.
+void EmitSlowQueryLog(std::string_view user, std::string_view db, std::string_view query, int64_t duration_ms,
+                      std::optional<std::string_view> plan);
+
+// Emit a [failed-query] line at ERROR. Caller gates on session attachment and the
+// log.failed_queries flag first.
+void EmitFailedQueryLog(std::string_view user, std::string_view db, std::string_view query, std::string_view error);
 
 }  // namespace memgraph::logging

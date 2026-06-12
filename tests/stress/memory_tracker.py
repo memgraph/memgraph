@@ -265,8 +265,11 @@ def run_monitor_cleanup(repetition_count: int, sleep_sec: float) -> None:
                     )
                     break
                 cnt_again -= 1
+                time.sleep(1.0)
             if not skip_failure:
-                log.info(memory_tracker, initial_diff, res_data)
+                log.info(
+                    f"Memory tracker is off: memory tracker={memory_tracker}, initial diff={initial_diff}, RES data={res_data}"
+                )
                 assert False, "Memory tracker is off by more than 10%, check logs for details"
 
         def run_cleanup():

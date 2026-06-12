@@ -70,6 +70,7 @@ target_sources(mg-storage-v2
         replication/rpc.cpp
         replication/serialization.cpp
         replication/slk.cpp
+        gc_status.cpp
         schema_info.cpp
         snapshot_progress.cpp
         storage.cpp

@@ -13,23 +13,24 @@
 
 namespace memgraph::storage {
 
-const char *SnapshotProgress::PhaseToString(Phase phase) {
+std::string_view SnapshotProgress::PhaseToString(Phase phase) {
+  using namespace std::string_view_literals;
   switch (phase) {
     using enum Phase;
     case IDLE:
-      return "idle";
+      return "idle"sv;
     case EDGES:
-      return "edges";
+      return "edges"sv;
     case VERTICES:
-      return "vertices";
+      return "vertices"sv;
     case INDICES:
-      return "indices";
+      return "indices"sv;
     case CONSTRAINTS:
-      return "constraints";
+      return "constraints"sv;
     case FINALIZING:
-      return "finalizing";
+      return "finalizing"sv;
   }
-  return "unknown";
+  return "unknown"sv;
 }
 
 }  // namespace memgraph::storage

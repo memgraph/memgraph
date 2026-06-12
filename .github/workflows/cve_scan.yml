@@ -3,32 +3,70 @@ concurrency:
   group: cve-scan-${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: true
 
+# The CVE scanning workflow lives in the memgraph/infra repo. This workflow
+# triggers the scan in infra via a `repository_dispatch` event (event_type
+# "cve-scan"); the scan itself runs in infra.
+#
+# Callers pick one of two modes:
+#   1. Daily-build mode — pass `date` (yyyymmdd). Image URLs are resolved by
+#      listing the daily-build S3 prefix.
+#   2. RC mode — pass `version` (X.Y.Z) and `rc_number` (e.g. rc1). Image URLs
+#      are constructed from the deterministic RC S3 layout. `mock` selects the
+#      mock-rc prefix.
+
 on:
   workflow_call:
     inputs:
       date:
         type: string
-        required: true
-        description: "Daily build date (yyyymmdd) to be scanned."
+        required: false
+        default: ''
+        description: "Daily-build mode: build date (yyyymmdd) to be scanned."
+      version:
+        type: string
+        required: false
+        default: ''
+        description: "RC mode: release version (X.Y.Z). Must be set together with `rc_number`."
+      rc_number:
+        type: string
+        required: false
+        default: ''
+        description: "RC mode: release candidate number (e.g. rc1). Must be set together with `version`."
+      mock:
+        type: boolean
+        required: false
+        default: false
+        description: "RC mode: scan the mock-rc artifacts instead of the real RC artifacts."
 
   workflow_dispatch:
     inputs:
       date:
         type: string
-        required: true
-        description: "Daily build date (yyyymmdd) to be scanned."
+        required: false
+        default: ''
+        description: "Daily-build mode: build date (yyyymmdd) to be scanned."
+      version:
+        type: string
+        required: false
+        default: ''
+        description: "RC mode: release version (X.Y.Z). Must be set together with `rc_number`."
+      rc_number:
+        type: string
+        required: false
+        default: ''
+        description: "RC mode: release candidate number (e.g. rc1). Must be set together with `version`."
+      mock:
+        type: boolean
+        required: false
+        default: false
+        description: "RC mode: scan the mock-rc artifacts instead of the real RC artifacts."
 
-run-name: CVE Scan for ${{ inputs.date }}
+run-name: CVE Scan for ${{ inputs.version != '' && format('v{0}-{1}', inputs.version, inputs.rc_number) || inputs.date }}
 
 jobs:
-  SetupCVEScan:
-    name: Setup CVE Scan
+  TriggerCVEScan:
+    name: Trigger CVE Scan in infra
     runs-on: ubuntu-latest
-    outputs:
-      mage_amd_url: ${{ steps.image_urls.outputs.MAGE_AMD_URL }}
-      mage_arm_url: ${{ steps.image_urls.outputs.MAGE_ARM_URL }}
-      memgraph_amd_url: ${{ steps.image_urls.outputs.MEMGRAPH_AMD_URL }}
-      memgraph_arm_url: ${{ steps.image_urls.outputs.MEMGRAPH_ARM_URL }}
     steps:
       - name: Checkout repository and submodules
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -44,51 +82,62 @@ jobs:
           aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-west-1
 
-      - name: Fetch URLS
-        id: image_urls
+      - name: Dispatch cve-scan to memgraph/infra
         env:
+          GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
           CURRENT_BUILD_DATE: ${{ inputs.date }}
+          VERSION: ${{ inputs.version }}
+          RC_NUMBER: ${{ inputs.rc_number }}
+          MOCK: ${{ inputs.mock }}
         run: |
-          mage_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'mage')"
-          mage_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'mage')"
-          memgraph_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'memgraph')"
-          memgraph_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'memgraph')"
+          if [[ -n "$VERSION" && -n "$RC_NUMBER" ]]; then
+            # RC mode: construct URLs from the deterministic RC S3 layout.
+            tag="v${VERSION}-${RC_NUMBER}"
+            memgraph_prefix="memgraph"
+            mage_prefix="mage"
+            if [[ "$MOCK" == "true" ]]; then
+              memgraph_prefix="memgraph-mock-rc"
+              mage_prefix="mage-mock-rc"
+            fi
+            base="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io"
+            memgraph_amd_url="${base}/${memgraph_prefix}/${tag}/docker/memgraph-${VERSION}-docker.tar.gz"
+            memgraph_arm_url="${base}/${memgraph_prefix}/${tag}/docker-aarch64/memgraph-${VERSION}-docker.tar.gz"
+            mage_amd_url="${base}/${mage_prefix}/${tag}/mage-${VERSION}.tar.gz"
+            mage_arm_url="${base}/${mage_prefix}/${tag}/mage-${VERSION}-arm64.tar.gz"
+          elif [[ -n "$CURRENT_BUILD_DATE" ]]; then
+            # Daily-build mode: resolve URLs by listing the daily-build S3 prefix.
+            mage_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'mage')"
+            mage_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'mage')"
+            memgraph_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'memgraph')"
+            memgraph_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'memgraph')"
+          else
+            echo "cve_scan: must pass either (version + rc_number) or date" >&2
+            exit 1
+          fi
 
           echo "MAGE arm64 URL: $mage_arm_url"
           echo "MAGE amd64 URL: $mage_amd_url"
           echo "Memgraph arm64 URL: $memgraph_arm_url"
           echo "Memgraph amd64 URL: $memgraph_amd_url"
 
-          echo "MAGE_ARM_URL=$mage_arm_url" >> $GITHUB_OUTPUT
-          echo "MAGE_AMD_URL=$mage_amd_url" >> $GITHUB_OUTPUT
-          echo "MEMGRAPH_ARM_URL=$memgraph_arm_url" >> $GITHUB_OUTPUT
-          echo "MEMGRAPH_AMD_URL=$memgraph_amd_url" >> $GITHUB_OUTPUT
+          # Build one dispatch payload covering all four images.
+          payload=$(jq -nc \
+            --arg mage_arm "$mage_arm_url" \
+            --arg mage_amd "$mage_amd_url" \
+            --arg memgraph_arm "$memgraph_arm_url" \
+            --arg memgraph_amd "$memgraph_amd_url" \
+            '{event_type: "cve-scan", client_payload: {scans: [
+              {arch: "arm", image_url: $mage_arm,     run_trivy: true, run_grype: true, send_slack_message: true},
+              {arch: "amd", image_url: $mage_amd,     run_trivy: true, run_grype: true, send_slack_message: true},
+              {arch: "arm", image_url: $memgraph_arm, run_trivy: true, run_grype: true, send_slack_message: true},
+              {arch: "amd", image_url: $memgraph_amd, run_trivy: true, run_grype: true, send_slack_message: true}
+            ]}}')
 
-  RunCVEScan:
-    name: Run CVE Scan
-    needs: [SetupCVEScan]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm
-            image_url: ${{ needs.SetupCVEScan.outputs.mage_arm_url }}
-            image_type: mage
-          - arch: amd
-            image_url: ${{ needs.SetupCVEScan.outputs.mage_amd_url }}
-            image_type: mage
-          - arch: arm
-            image_url: ${{ needs.SetupCVEScan.outputs.memgraph_arm_url }}
-            image_type: memgraph
-          - arch: amd
-            image_url: ${{ needs.SetupCVEScan.outputs.memgraph_amd_url }}
-            image_type: memgraph
-    uses: ./.github/workflows/reusable_cve_scan.yml
-    with:
-      arch: ${{ matrix.arch }}
-      image_url: ${{ matrix.image_url }}
-      image_type: ${{ matrix.image_type }}
-      run_trivy: true
-      run_grype: true
-      run_cbt: false  # TODO: enable cve-bin-tool database update job if re-enabled by default
-    secrets: inherit
+          echo "Dispatching cve-scan to memgraph/infra:"
+          echo "$payload" | jq .
+
+          curl --proto '=https' --tlsv1.2 -fsSL -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/repos/memgraph/infra/dispatches \
+            -d "$payload"

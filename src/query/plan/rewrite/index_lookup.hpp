@@ -36,6 +36,7 @@
 #include "frontend/ast/ast_storage.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/balanced_union.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "query/plan/rewrite/order_by_elimination.hpp"
 #include "storage/v2/id_types.hpp"
@@ -1740,7 +1741,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain
       // it in unions
       if ((!max_vertex_count || best_group.vertex_count <= *max_vertex_count) && !best_group.indices.empty()) {
-        std::unique_ptr<LogicalOperator> prev;
+        // Collect one index scan per disjoined label, then fold them into a
+        // balanced Union tree with a single deduplicating Distinct on top.
+        std::vector<std::unique_ptr<LogicalOperator>> scans;
+        scans.reserve(best_group.indices.size());
         metadata.labels_to_erase.reserve(best_group.indices.size());
         std::optional<std::vector<storage::PropertyPath>>
             filtered_property_ids;  // Used to check if all indices uses the same filter
@@ -1750,17 +1754,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           if (std::holds_alternative<LabelIx>(index)) {
             metadata.all_property_filters_same = false;
             metadata.labels_to_erase.push_back(std::get<LabelIx>(index));
-            auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view);
-            if (prev) {
-              auto union_op = std::make_unique<Union>(std::move(prev),
-                                                      std::move(scan),
-                                                      std::vector<Symbol>{node_symbol},
-                                                      std::vector<Symbol>{node_symbol},
-                                                      std::vector<Symbol>{node_symbol});
-              prev = std::make_unique<Distinct>(std::move(union_op), std::vector<Symbol>{node_symbol});
-            } else {
-              prev = std::move(scan);
-            }
+            scans.push_back(
+                std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view));
           } else {
             auto &label_property_index = std::get<LabelPropertyIndex>(index);
             metadata.labels_to_erase.push_back(label_property_index.label);
@@ -1789,20 +1784,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            std::move(expr_ranges),
                                                            view);
             label_property_index_scan->index_order_ = label_property_index.order;
-            if (prev) {
-              auto union_op = std::make_unique<Union>(std::move(prev),
-                                                      std::move(label_property_index_scan),
-                                                      std::vector<Symbol>{node_symbol},
-                                                      std::vector<Symbol>{node_symbol},
-                                                      std::vector<Symbol>{node_symbol});
-              prev = std::make_unique<Distinct>(std::move(union_op), std::vector<Symbol>{node_symbol});
-            } else {
-              prev = std::move(label_property_index_scan);
-            }
+            scans.push_back(std::move(label_property_index_scan));
           }
         }
         metadata.is_or_label_filter = true;
-        return ScanByIndexResult{std::move(prev), std::move(metadata)};
+        return ScanByIndexResult{BalancedDisjunctionUnion(std::move(scans), node_symbol), std::move(metadata)};
       }
     }
     return std::nullopt;

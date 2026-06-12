@@ -52,6 +52,8 @@ if [[ "$CUDA" == true && "$ARCH" != "amd64" ]]; then
 fi
 
 export PIP_BREAK_SYSTEM_PACKAGES=1
+export PIP_DEFAULT_TIMEOUT=120
+export PIP_RETRIES=8
 if [[ "$CUDA" == true && "$DEB_PACKAGE" == "false" ]]; then
   requirements_file="requirements-gpu.txt"
 else

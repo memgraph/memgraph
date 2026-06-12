@@ -206,6 +206,37 @@ def assert_global_metric_returns_near_baseline(cursor, key, baseline, tolerance_
     )
 
 
+def stable_metric_value(cursor, key, epsilon=64 * 1024, timeout=30.0, interval=0.5):
+    """Return a stable reading of *key* from metric_triplet.
+
+    Polls until two consecutive readings differ by at most *epsilon* bytes,
+    then returns the second (newer) reading.  If *timeout* expires before
+    stability is achieved the last reading is returned so the caller can
+    proceed — the test should NOT fail on stabilization timeout alone.
+
+    Args:
+        cursor: An open mgclient cursor used to issue SHOW STORAGE INFO.
+        key: The metric_triplet key to stabilize on.
+        epsilon: Maximum byte difference between two consecutive readings
+                 that counts as "stable".  Defaults to 64 KiB.
+        timeout: Maximum seconds to wait for stability.  Defaults to 30 s.
+        interval: Seconds between successive poll attempts.  Defaults to 0.5 s.
+
+    Returns:
+        The byte value of *key* from the most-recent metric_triplet reading.
+    """
+    prev = metric_triplet(cursor)[key]
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(interval)
+        curr = metric_triplet(cursor)[key]
+        if abs(curr - prev) <= epsilon:
+            return curr
+        prev = curr
+    debug_log(f"stable_metric_value: {key} did not stabilize within {timeout}s; proceeding with last value {prev}")
+    return prev
+
+
 def release_query_memory_hold(cursor, signal_id):
     debug_log(f"release proc start signal_id={signal_id}")
     rows = fetch_all(
@@ -713,11 +744,41 @@ def test_label_and_property_index_creation_grows_db_storage_memory():
     execute(cursor, "FREE MEMORY")
     execute(cursor, "FREE MEMORY")
 
+    # Stabilize the baseline: after FREE MEMORY the jemalloc arena may still be
+    # decaying committed pages back to the OS.  Poll until two consecutive readings
+    # agree within 64 KiB (or 30 s elapses) so a slow CI teardown does not inflate
+    # the 'before' sample and make the growth check appear as shrinkage.
+    before_storage = stable_metric_value(cursor, "db_storage_memory_tracked", epsilon=64 * 1024, timeout=30.0)
     before = metric_triplet(cursor)
-    debug_log(f"index create before db={db_name} metrics={before}")
+    # Overwrite with the stabilized reading so the growth assertions are consistent.
+    before["db_storage_memory_tracked"] = before_storage
+    before["db_memory_tracked"] = metric_triplet(cursor)["db_memory_tracked"]
+    debug_log(f"index create before (stabilized) db={db_name} metrics={before}")
+
     execute(cursor, "CREATE INDEX ON :Indexed;")
     execute(cursor, "CREATE INDEX ON :Indexed(value);")
-    after = metric_triplet(cursor)
+
+    # Wait for the index build to be reflected in the committed-page counter rather
+    # than asserting on a single-shot snapshot that may be taken before the arena
+    # has extended its committed pages.
+    after_holder: list[dict] = []
+
+    def _storage_grew() -> bool:
+        triplet = metric_triplet(cursor)
+        if triplet["db_storage_memory_tracked"] > before["db_storage_memory_tracked"]:
+            after_holder.append(triplet)
+            return True
+        return False
+
+    wait_until(
+        _storage_grew,
+        timeout=20.0,
+        message=(
+            f"db_storage_memory_tracked did not grow after CREATE INDEX "
+            f"(before={before['db_storage_memory_tracked']})"
+        ),
+    )
+    after = after_holder[0]
     debug_log(f"index create after db={db_name} metrics={after}")
 
     conn.close()

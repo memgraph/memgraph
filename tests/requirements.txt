@@ -16,7 +16,7 @@ numpy==1.26.4
 parse==1.18.0
 parse-type==0.5.2
 pulsar-client==3.5.0
-pyarrow==19.0.1
+pyarrow==24.0.0
 PyJWT==2.12.1
 pymgclient==1.5.2
 pyopenssl==26.0.0

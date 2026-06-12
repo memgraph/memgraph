@@ -65,6 +65,8 @@ class Memgraph(ConanFile):
         "jemalloc/*:enable_fill": False,
         "jemalloc/*:lg_page": "12",
         "jemalloc/*:lg_hugepage": "21",
+        # NOTE: percpu_arena can bind threads to per-DB arenas on hosts with sparse CPU
+        # sets (jemalloc#2054); guarded at runtime by EnsureCpuArenaCoverage() (db_arena.hpp).
         "jemalloc/*:malloc_conf": "retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
         "rapidcheck/*:enable_gtest": True,
         "rapidcheck/*:enable_gmock": True,

@@ -17,6 +17,7 @@
 
 #include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "storage/v2/gc_status.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
@@ -78,6 +79,40 @@ class StorageV2GcMetricsTest : public testing::Test {
  private:
   std::string db_name_;
 };
+
+TEST(StorageV2GcStatus, PhaseToString) {
+  using ms::GcPhase;
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::IDLE), "idle");
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::UNLINK), "unlink");
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::INDEX_CLEANUP), "index_cleanup");
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::DELETE), "delete");
+}
+
+// Start publishes run-state, SetPhase advances it, Reset clears every field.
+// The Reset check is the regression guard: it once cleared only some fields.
+TEST(StorageV2GcStatus, RunStateLifecycle) {
+  ms::GcProgress gc;
+  EXPECT_FALSE(gc.TryGetRunInfo().has_value());
+
+  gc.Start(/*is_periodic=*/false, /*is_exclusive=*/true);
+  auto info = gc.TryGetRunInfo();
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->phase, ms::GcPhase::UNLINK);
+  EXPECT_FALSE(info->periodic);
+  EXPECT_TRUE(info->exclusive_lock);
+  EXPECT_GT(info->start_time_us, 0);
+
+  gc.SetPhase(ms::GcPhase::INDEX_CLEANUP);
+  EXPECT_EQ(gc.TryGetRunInfo()->phase, ms::GcPhase::INDEX_CLEANUP);
+
+  gc.Reset();
+  EXPECT_FALSE(gc.TryGetRunInfo().has_value());
+  EXPECT_EQ(gc.phase.load(), ms::GcPhase::IDLE);
+  EXPECT_FALSE(gc.exclusive_lock.load());
+  EXPECT_FALSE(gc.periodic.load());
+  EXPECT_EQ(gc.start_time_us.load(), 0);
+  EXPECT_EQ(gc.start_steady_ms.load(), 0);
+}
 
 // TODO: The point of these is not to test GC fully, these are just simple
 // sanity checks. These will be superseded by a more sophisticated stress test

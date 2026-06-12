@@ -27,6 +27,7 @@
 #include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/string.hpp"
 
 #include "parameters/parameters.hpp"
@@ -224,6 +225,13 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
                                                PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
                                                plan::v2::QueryPlannerContext &planner_context,
                                                const std::vector<Identifier *> &predefined_identifiers) {
+  // Enforce the global memory limit during query preparation. Without this,
+  // MemoryTrackerCanThrow() is false here (the per-cursor
+  // OutOfMemoryExceptionEnablers only cover execution), so a runaway allocation
+  // while planning would bypass --memory-limit and let the kernel OOM-kill the
+  // whole server instead of aborting just the query.
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler const oom_exception_enabler;
+
   // Skip plan cache when using experimental v2 planner - plans may change as v2 evolves
   const bool use_plan_cache = plan_cache && !flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2);
   if (use_plan_cache) {

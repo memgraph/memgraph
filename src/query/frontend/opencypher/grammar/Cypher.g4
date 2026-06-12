@@ -227,17 +227,20 @@ expression9 : ( NOT )* expression8 ;
 
 expression8 : expression7 ( partialComparisonExpression )* ;
 
-expression7 : expression6 ( ( '+' expression6 ) | ( '-' expression6 ) )* ;
+// String, list and null predicates (IS NULL, IN, STARTS WITH, ...) bind looser
+// than arithmetic but tighter than comparison: a predicate applies to the whole
+// arithmetic expression to its left, not just the right-most operand.
+expression7 : expression6 ( stringAndNullOperators )* ;
 
-expression6 : expression5 ( ( '*' expression5 ) | ( '/' expression5 ) | ( '%' expression5 ) )* ;
+expression6 : expression5 ( ( '+' expression5 ) | ( '-' expression5 ) )* ;
 
-expression5 : expression4 ( '^' expression4 )* ;
+expression5 : expression4 ( ( '*' expression4 ) | ( '/' expression4 ) | ( '%' expression4 ) )* ;
 
-expression4 : ( ( '+' | '-' ) )* expression3a ;
+expression4 : expression3 ( '^' expression3 )* ;
 
-expression3a : expression2a ( stringAndNullOperators )* ;
+expression3 : ( ( '+' | '-' ) )* expression2a ;
 
-stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression2a) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
+stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression6) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
 
 expression2a : expression2b ( nodeLabels )? ;
 

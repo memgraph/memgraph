@@ -1,5 +1,5 @@
 name: 'Cancel run on merge_group failure'
-description: 'Cancels the current workflow run via the GitHub API. The caller must gate this with `if: failure() && github.event_name == ''merge_group''` because composite actions cannot read the calling job''s runtime status.'
+description: 'Emits an error annotation naming the failing job, then cancels the current workflow run via the GitHub API to fail fast. The annotation makes the real culprit identifiable in the run summary even though cancellation marks every job as cancelled. The caller must gate this with `if: failure() && github.event_name == ''merge_group''` because composite actions cannot read the calling job''s runtime status.'
 
 runs:
   using: 'composite'
@@ -10,9 +10,16 @@ runs:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
         RUN_ID: ${{ github.run_id }}
+        JOB: ${{ github.job }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         set -euo pipefail
-        echo "Cancelling workflow run ${RUN_ID} in ${GH_REPO} after merge_group job failure"
+        # Cancelling the run marks every still-running job as "cancelled", which
+        # hides which job actually failed. Emit an error annotation from this
+        # (the failing) job first: it is attributed to this job and shows up in
+        # the run summary, pointing reviewers at the real culprit.
+        echo "::error title=Merge queue fail-fast triggered by job '${JOB}'::Job '${JOB}' failed and is cancelling run ${RUN_ID} to fail fast. Other jobs reported as 'cancelled' were stopped as a side effect — '${JOB}' is the job that actually failed. ${RUN_URL}"
+        echo "Cancelling workflow run ${RUN_ID} in ${GH_REPO} after merge_group failure in job '${JOB}'"
         curl -fsSL -X POST \
           --proto '=https' --proto-redir '=https' \
           -H "Accept: application/vnd.github+json" \

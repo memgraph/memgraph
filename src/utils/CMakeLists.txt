@@ -46,6 +46,7 @@ target_sources(mg-utils
     priority_thread_pool.cpp
     resource_monitoring.cpp
     safe_string.cpp
+    session_context.cpp
     shared_quota.cpp
 
     PUBLIC
@@ -89,6 +90,9 @@ if (ENABLE_JEMALLOC)
 else()
   target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=0)
 endif()
+
+# Passed as a definition so build_info.cpp needn't include the generated version.hpp.
+target_compile_definitions(mg-utils PRIVATE MEMGRAPH_VERSION_STRING="${MEMGRAPH_VERSION}")
 
 
 add_library(mg-aws STATIC)
