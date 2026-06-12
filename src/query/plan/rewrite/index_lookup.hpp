@@ -1627,7 +1627,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto *value = filter.id_filter->value_;
         metadata.filters_to_erase.push_back(filter);
         metadata.expressions_to_mark_for_removal.push_back(filter.expression);
-        return ScanByIndexResult{std::make_shared<ScanAllById>(input, node_symbol, value, view), std::move(metadata)};
+        return ScanByIndexResult{
+            std::make_shared<ScanAllById>(input, node_symbol, value, view, filter.id_filter->expects_string_id_),
+            std::move(metadata)};
       }
     }
     // Now try to see if we can use label+property index. If not, try to use

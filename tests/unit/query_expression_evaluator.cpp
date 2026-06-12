@@ -31,6 +31,8 @@
 #include "query/path.hpp"
 #include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_edge.hpp"
+#include "query/virtual_node.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/enum.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -2585,6 +2587,21 @@ TYPED_TEST(FunctionTest, ElementId) {
   EXPECT_THROW(this->EvaluateFunction("ELEMENTID"), QueryRuntimeException);
   EXPECT_THROW(this->EvaluateFunction("ELEMENTID", 0), QueryRuntimeException);
   EXPECT_THROW(this->EvaluateFunction("ELEMENTID", va, *ea), QueryRuntimeException);
+}
+
+TYPED_TEST(FunctionTest, ElementIdVirtual) {
+  auto vn1 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L1"}, {}));
+  auto vn2 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L2"}, {}));
+  auto ve = memgraph::query::VirtualEdge(vn1, vn2, "ET");
+  // Virtual elements return their own (synthetic) gids, consistent with id().
+  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(*vn1)).ValueString(),
+            std::to_string(vn1->CypherId()).c_str());
+  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(*vn2)).ValueString(),
+            std::to_string(vn2->CypherId()).c_str());
+  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(ve)).ValueString(),
+            std::to_string(ve.Gid().AsInt()).c_str());
+  EXPECT_EQ(this->EvaluateFunction("ID", TypedValue(*vn1)).ValueInt(), vn1->CypherId());
+  EXPECT_EQ(this->EvaluateFunction("ID", TypedValue(ve)).ValueInt(), ve.Gid().AsInt());
 }
 
 TYPED_TEST(FunctionTest, ToStringNull) { EXPECT_TRUE(this->EvaluateFunction("TOSTRING", TypedValue()).IsNull()); }

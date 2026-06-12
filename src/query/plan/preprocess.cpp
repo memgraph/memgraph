@@ -273,8 +273,8 @@ PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
 PropertyFilter::PropertyFilter(Symbol symbol, PropertyIxPath properties, Type type)
     : symbol_(std::move(symbol)), property_ids_(std::move(properties)), type_(type) {}
 
-IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expression *value)
-    : symbol_(symbol), value_(value) {
+IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expression *value, bool expects_string_id)
+    : symbol_(symbol), value_(value), expects_string_id_(expects_string_id) {
   MG_ASSERT(value);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
@@ -739,12 +739,12 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto add_id_equal = [&](auto *maybe_id_fun, auto *val_expr) -> bool {
     auto *id_fun = utils::Downcast<Function>(maybe_id_fun);
     if (!id_fun) return false;
-    if (id_fun->function_name_ != kId) return false;
+    if (id_fun->function_name_ != kId && id_fun->function_name_ != kElementId) return false;
     if (id_fun->arguments_.size() != 1U) return false;
     auto *ident = utils::Downcast<Identifier>(id_fun->arguments_.front());
     if (!ident) return false;
     auto filter = make_filter(FilterInfo::Type::Id);
-    filter.id_filter.emplace(symbol_table, symbol_table.at(*ident), val_expr);
+    filter.id_filter.emplace(symbol_table, symbol_table.at(*ident), val_expr, id_fun->function_name_ == kElementId);
     all_filters_.emplace_back(filter);
     return true;
   };

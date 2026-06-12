@@ -2395,6 +2395,21 @@ TYPED_TEST(TestPlanner, ScanAllByEdgeId) {
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAllByEdgeId(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, ScanAllByElementId) {
+  // Test MATCH (n) WHERE elementId(n) = "42" RETURN n
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EQ(FN("elementId", IDENT("n")), LITERAL("42"))), RETURN("n")));
+  CheckPlan<TypeParam>(query, this->storage, ExpectScanAllById(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ScanAllByEdgeElementId) {
+  // Test MATCH ()-[r]->() WHERE elementId(r) = "42" RETURN r
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("r"), NODE("anon2"))),
+                                   WHERE(EQ(FN("elementId", IDENT("r")), LITERAL("42"))),
+                                   RETURN("r")));
+  CheckPlan<TypeParam>(query, this->storage, ExpectScanAllByEdgeId(), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, BfsToExisting) {
   // Test MATCH (n)-[r *bfs]-(m) WHERE id(m) = 42 RETURN r
   // Since the graph is empty its cheaper to use ScanAll

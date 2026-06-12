@@ -14,6 +14,7 @@
 #include "metrics/prometheus_metrics.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cstdint>
 #include <execution>
 #include <functional>
@@ -1648,9 +1649,29 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
   return object;
 }
 
+namespace {
+// Extracts the looked-up id from an evaluated id()/elementId() comparison
+// value; nullopt if the value can't match any id.
+std::optional<int64_t> ExtractIdValue(const TypedValue &value, bool expects_string_id) {
+  if (expects_string_id) {
+    if (!value.IsString()) return std::nullopt;
+    const auto &str = value.ValueString();
+    int64_t id{};
+    const auto *end = str.data() + str.size();
+    auto [ptr, ec] = std::from_chars(str.data(), end, id);
+    if (ec != std::errc{} || ptr != end) return std::nullopt;
+    return id;
+  }
+  if (!value.IsNumeric()) return std::nullopt;
+  int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
+  if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
+  return id;
+}
+}  // namespace
+
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
-                         storage::View view)
-    : ScanAll(input, output_symbol, view), expression_(expression) {
+                         storage::View view, bool expects_string_id)
+    : ScanAll(input, output_symbol, view), expression_(expression), expects_string_id_(expects_string_id) {
   MG_ASSERT(expression);
 }
 
@@ -1672,10 +1693,9 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem,
                                   context.user_or_role,
                                   context.triggering_user);
     auto value = expression_->Accept(evaluator);
-    if (!value.IsNumeric()) return std::nullopt;
-    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
-    if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
-    auto maybe_vertex = db->FindVertex(storage::Gid::FromInt(id), view_);
+    auto id = ExtractIdValue(value, expects_string_id_);
+    if (!id) return std::nullopt;
+    auto maybe_vertex = db->FindVertex(storage::Gid::FromInt(*id), view_);
     if (!maybe_vertex) return std::nullopt;
     return std::vector<VertexAccessor>{*maybe_vertex};
   };
@@ -1691,13 +1711,16 @@ std::unique_ptr<LogicalOperator> ScanAllById::Clone(AstStorage *storage) const {
   object->output_symbol_ = output_symbol_;
   object->view_ = view_;
   object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->expects_string_id_ = expects_string_id_;
   return object;
 }
 
 ScanAllByEdgeId::ScanAllByEdgeId(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
                                  Symbol node2_symbol, EdgeAtom::Direction direction, Expression *expression,
-                                 storage::View view)
-    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {}, view), expression_(expression) {
+                                 storage::View view, bool expects_string_id)
+    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {}, view),
+      expression_(expression),
+      expects_string_id_(expects_string_id) {
   MG_ASSERT(expression);
 }
 
@@ -1719,10 +1742,9 @@ UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem,
                                   context.user_or_role,
                                   context.triggering_user);
     auto value = expression_->Accept(evaluator);
-    if (!value.IsNumeric()) return std::nullopt;
-    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
-    if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
-    auto maybe_edge = db->FindEdge(storage::Gid::FromInt(id), view_);
+    auto id = ExtractIdValue(value, expects_string_id_);
+    if (!id) return std::nullopt;
+    auto maybe_edge = db->FindEdge(storage::Gid::FromInt(*id), view_);
     if (!maybe_edge) return std::nullopt;
     return std::vector<EdgeAccessor>{*maybe_edge};
   };
@@ -1740,6 +1762,7 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeId::Clone(AstStorage *storage) con
   object->common_ = common_;
   object->view_ = view_;
   object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->expects_string_id_ = expects_string_id_;
   return object;
 }
 
