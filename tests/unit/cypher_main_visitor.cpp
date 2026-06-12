@@ -39,6 +39,7 @@
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/rw_checker.hpp"
+#include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/parameters.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -7517,6 +7518,33 @@ TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
   TestInvalidQuery<SyntaxException>("MATCH (n) CALL (*, n) { RETURN 1 AS x } RETURN n", ast_generator);
 
   TestInvalidQuery<SyntaxException>("MATCH (n) CALL (n.prop) { RETURN 1 AS x } RETURN n", ast_generator);
+}
+
+TEST_P(CypherMainVisitorTest, CallSubqueryUseScope) {
+  auto &ast_generator = *GetParam();
+
+  auto symbol_table_of = [&](const std::string &query_string) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_string));
+    MG_ASSERT(query, "expected a cypher query");
+    return memgraph::query::MakeSymbolTable(query);
+  };
+
+  // A read-only USE scope passes semantic analysis.
+  EXPECT_NO_THROW(symbol_table_of("WITH 1 AS g CALL { USE g MATCH (n) RETURN n } RETURN n"));
+
+  // A write clause inside a USE scope is rejected.
+  EXPECT_THROW(symbol_table_of("WITH 1 AS g CALL { USE g CREATE (n) } RETURN 1"), SemanticException);
+  EXPECT_THROW(symbol_table_of("WITH 1 AS g, 2 AS n CALL (n) { USE g SET n.x = 1 } RETURN n"), SemanticException);
+  EXPECT_THROW(symbol_table_of("WITH 1 AS g, 2 AS n CALL (n) { USE g DELETE n } RETURN 1"), SemanticException);
+  EXPECT_THROW(symbol_table_of("WITH 1 AS g, 2 AS n CALL (n) { USE g REMOVE n.x } RETURN n"), SemanticException);
+
+  // A second level of USE nesting is rejected (v1 is single-level).
+  EXPECT_THROW(
+      symbol_table_of("WITH 1 AS g, 2 AS h CALL { USE g CALL { USE h MATCH (n) RETURN n } RETURN n } RETURN n"),
+      SemanticException);
+
+  // A plain nested subquery inside a USE scope is read-only too: its write is rejected.
+  EXPECT_THROW(symbol_table_of("WITH 1 AS g CALL { USE g CALL { CREATE (n) } RETURN 1 } RETURN 1"), SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, CallSubquery) {

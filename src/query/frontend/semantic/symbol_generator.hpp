@@ -16,6 +16,7 @@
 #pragma once
 
 #include <optional>
+#include <string_view>
 #include <vector>
 
 #include "query/exceptions.hpp"
@@ -76,6 +77,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Foreach &) override;
   bool PreVisit(SetProperty & /*set_property*/) override;
   bool PostVisit(SetProperty & /*set_property*/) override;
+  bool PreVisit(SetProperties & /*set_properties*/) override;
+  bool PreVisit(RemoveProperty & /*remove_property*/) override;
   bool PostVisit(RemoveProperty & /*remove_property*/) override;
   bool PreVisit(SetLabels &) override;
   bool PostVisit(SetLabels & /*set_labels*/) override;
@@ -153,6 +156,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_reduce{false};
     bool in_set_property{false};
     bool in_call_subquery{false};
+    // True anywhere inside a `CALL { USE ... }` scope. Inherited by nested
+    // scopes so a write nested in the block is still rejected. v1 USE scopes are
+    // read-only and single-level.
+    bool in_use_scope{false};
     bool has_return{false};
     bool in_set_labels{false};
     bool in_remove_labels{false};
@@ -185,6 +192,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
   bool HasSymbol(const std::string &name) const;
+
+  // Rejects a write clause inside a read-only `CALL { USE ... }` scope.
+  void RejectWriteInUseScope(std::string_view clause) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
