@@ -104,6 +104,7 @@ enum class TypeId : uint64_t {
   AGGREGATE_PARALLEL,
   PARALLEL_MERGE,
   ORDERBY_PARALLEL,
+  BIND_GRAPH_VIEW,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)

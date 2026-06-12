@@ -488,7 +488,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                       pending_comprehensions,
                                       write_occurred,
                                       call_sub->cypher_query_->pre_query_directives_.commit_frequency_,
-                                      scoped_variables);
+                                      scoped_variables,
+                                      call_sub->use_graph_);
             if (context.is_write_query && !has_periodic_commit) {
               input_op = std::make_unique<Accumulate>(
                   std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
@@ -1370,7 +1371,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       std::unique_ptr<LogicalOperator> last_op, std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
       AstStorage &storage, std::unordered_map<Symbol, PatternComprehensionMatching> & /*pending_comprehensions*/,
       bool /*write_occurred*/, Expression *commit_frequency,
-      const std::optional<std::unordered_set<Symbol>> &scoped_variables = std::nullopt) {
+      const std::optional<std::unordered_set<Symbol>> &scoped_variables = std::nullopt,
+      Expression *use_graph = nullptr) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));
@@ -1397,6 +1399,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto subquery_has_return = true;
     if (subquery_op->GetTypeInfo() == EmptyResult::kType) {
       subquery_has_return = false;
+    }
+
+    // `CALL { USE <expr> ... }`: bind the projection as the scope's ambient graph
+    // for the body's pulls.
+    if (use_graph != nullptr) {
+      subquery_op = std::make_unique<BindGraphView>(std::move(subquery_op), use_graph);
     }
 
     bool has_periodic_commit = commit_frequency != nullptr;

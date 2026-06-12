@@ -630,6 +630,17 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(BindGraphView &op) override {
+    prev_ops_.push_back(&op);
+    RewriteBranch(&op.input_);
+    return false;
+  }
+
+  bool PostVisit(BindGraphView & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PostVisit(Apply & /*op*/) override {
     prev_ops_.pop_back();
     return true;

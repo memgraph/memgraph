@@ -355,6 +355,34 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
   }
 }
 
+// `CALL { USE g MATCH (n) ... }` scans the bound projection's nodes.
+TYPED_TEST(InterpreterTest, CallUseScopeScansProjection) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 10}), virtualNode(2, 'N', {x: 20})] AS nodes, [] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n) RETURN n.x AS x } "
+      "RETURN x ORDER BY x");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader()[0], "x");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 10);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 20);
+}
+
+// The scope binds the projection inside the block only: a MATCH outside sees the
+// real graph, a MATCH inside sees the projection.
+TYPED_TEST(InterpreterTest, CallUseScopeIsScopedToTheProjection) {
+  this->Interpret("CREATE (:Real), (:Real), (:Real)");
+  auto stream = this->Interpret(
+      "MATCH (r) WITH count(r) AS real_count "
+      "WITH real_count, virtualGraph([virtualNode(1, 'N', {x: 10})], []) AS g "
+      "CALL { USE g MATCH (n) RETURN n.x AS x } "
+      "RETURN real_count, x");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 10);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);

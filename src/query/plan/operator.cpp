@@ -56,6 +56,7 @@
 #include "query/procedure/module.hpp"
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_graph_view.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
@@ -9027,6 +9028,92 @@ void Apply::ApplyCursor::Reset() {
   input_->Reset();
   subquery_->Reset();
   pull_input_ = true;
+}
+
+namespace {
+class BindGraphViewCursor : public Cursor {
+ public:
+  BindGraphViewCursor(const BindGraphView &self, utils::MemoryResource *mem,
+                      metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("BindGraphView");
+
+    AbortCheck(context);
+
+    // The bound graph value comes from the outer frame; evaluate it once per
+    // outer row (Reset clears it) and reuse the view for every pull of the body.
+    if (!view_) BindView(frame, context);
+
+    auto *const outer_view = context.graph_view;
+    context.graph_view = &*view_;
+    try {
+      const bool pulled = input_cursor_->Pull(frame, context);
+      context.graph_view = outer_view;
+      return pulled;
+    } catch (...) {
+      context.graph_view = outer_view;
+      throw;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    view_.reset();
+    graph_value_.reset();
+  }
+
+ private:
+  void BindView(Frame &frame, ExecutionContext &context) {
+    ExpressionEvaluator evaluator(&frame,
+                                  context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor,
+                                  storage::View::NEW,
+                                  context.frame_change_collector,
+                                  &context.number_of_hops,
+                                  context.user_or_role,
+                                  context.triggering_user);
+    graph_value_.emplace(self_.use_graph_->Accept(evaluator));
+    if (graph_value_->type() != TypedValue::Type::VirtualGraph) {
+      throw QueryRuntimeException("USE expects a projection value produced by virtualGraph().");
+    }
+    view_.emplace(&graph_value_->ValueVirtualGraph(), context.db_accessor);
+  }
+
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+  const BindGraphView &self_;
+  UniqueCursorPtr input_cursor_;
+  // graph_value_ owns the projection; view_ borrows it, so the two are bound and
+  // released together.
+  std::optional<TypedValue> graph_value_;
+  std::optional<VirtualGraphView> view_;
+};
+}  // namespace
+
+BindGraphView::BindGraphView(std::shared_ptr<LogicalOperator> input, Expression *use_graph)
+    : input_(input ? std::move(input) : std::make_shared<Once>()), use_graph_(use_graph) {}
+
+ACCEPT_WITH_INPUT(BindGraphView)
+
+UniqueCursorPtr BindGraphView::MakeCursor(utils::MemoryResource *mem,
+                                          metrics::DatabaseMetricHandles &metric_handles) const {
+  return MakeUniqueCursorPtr<BindGraphViewCursor>(mem, *this, mem, metric_handles);
+}
+
+std::vector<Symbol> BindGraphView::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+std::unique_ptr<LogicalOperator> BindGraphView::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<BindGraphView>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->use_graph_ = use_graph_ ? use_graph_->Clone(storage) : nullptr;
+  return object;
 }
 
 IndexedJoin::IndexedJoin(const std::shared_ptr<LogicalOperator> main_branch,

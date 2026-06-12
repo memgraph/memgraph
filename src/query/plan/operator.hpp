@@ -187,6 +187,7 @@ class ScanParallelByEdgePropertyValue;
 class ScanParallelByEdgePropertyRange;
 class ScanChunk;
 class ScanChunkByEdge;
+class BindGraphView;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
@@ -200,7 +201,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType,
     ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeTypePropertyValue,
     ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue,
-    ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge>;
+    ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge, BindGraphView>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -3045,6 +3046,39 @@ class Apply : public memgraph::query::plan::LogicalOperator {
     bool pull_input_{true};
     bool subquery_has_return_{true};
   };
+};
+
+/// Binds the ambient graph view for a `CALL { USE <expr> ... }` scope.
+///
+/// Wraps the subquery's plan. While pulling it, the bound graph expression is
+/// evaluated to a projection value and set as the execution context's ambient
+/// GraphView, so the read operators inside the scope run over the projection.
+/// The previous view is restored around each pull, so outside the scope the
+/// real graph is read.
+class BindGraphView : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  BindGraphView() = default;
+
+  BindGraphView(std::shared_ptr<LogicalOperator> input, Expression *use_graph);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  Expression *use_graph_{nullptr};
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
 /// Applies symbols from both join branches

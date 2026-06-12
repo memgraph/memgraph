@@ -795,6 +795,19 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(BindGraphView &op) override {
+    prev_ops_.push_back(&op);
+    // The body scans a projection, which exposes no index, so rewrite it as an
+    // isolated branch rather than pushing the outer query's index lookups in.
+    RewriteBranch(&op.input_);
+    return false;
+  }
+
+  bool PostVisit(BindGraphView & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(LoadCsv &op) override {
     prev_ops_.push_back(&op);
     return true;
