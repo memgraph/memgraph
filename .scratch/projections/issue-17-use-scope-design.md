@@ -18,9 +18,12 @@ top-level clause.
   the body:
 
   ```antlr
-  callSubquery : CALL ( '(' scopeClause? ')' )? useClause? '{' cypherQuery '}' ( periodicSubquery )? ;
+  callSubquery : CALL ( '(' scopeClause? ')' )? '{' useClause? cypherQuery '}' ( periodicSubquery )? ;
   useClause    : USE expression ;
   ```
+
+  `USE` is the leading clause *inside* the block (`CALL { USE g MATCH ... }`),
+  per the ADR 0004 example - not between `CALL` and `{`.
 
   `USE` becomes a keyword. `<expr>` is a general expression that must evaluate to
   a graph value (a `VirtualGraph` or `Graph` TypedValue) at runtime; it is
