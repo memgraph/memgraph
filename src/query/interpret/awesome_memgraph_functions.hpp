@@ -30,6 +30,7 @@ const char kStartsWith[] = "STARTSWITH";
 const char kEndsWith[] = "ENDSWITH";
 const char kContains[] = "CONTAINS";
 const char kId[] = "ID";
+const char kElementId[] = "ELEMENTID";
 }  // namespace
 
 struct FunctionContext {

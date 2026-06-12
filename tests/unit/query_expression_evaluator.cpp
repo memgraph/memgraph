@@ -2572,6 +2572,21 @@ TYPED_TEST(FunctionTest, Id) {
   EXPECT_THROW(this->EvaluateFunction("ID", va, *ea), QueryRuntimeException);
 }
 
+TYPED_TEST(FunctionTest, ElementId) {
+  auto va = this->dba.InsertVertex();
+  auto ea = this->dba.InsertEdge(&va, &va, this->dba.NameToEdgeType("edge"));
+  ASSERT_TRUE(ea.has_value());
+  auto vb = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+  EXPECT_TRUE(this->EvaluateFunction("ELEMENTID", TypedValue()).IsNull());
+  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", va).ValueString(), "0");
+  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", *ea).ValueString(), "0");
+  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", vb).ValueString(), "1");
+  EXPECT_THROW(this->EvaluateFunction("ELEMENTID"), QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("ELEMENTID", 0), QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("ELEMENTID", va, *ea), QueryRuntimeException);
+}
+
 TYPED_TEST(FunctionTest, ToStringNull) { EXPECT_TRUE(this->EvaluateFunction("TOSTRING", TypedValue()).IsNull()); }
 
 TYPED_TEST(FunctionTest, ToStringString) {
