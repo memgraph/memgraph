@@ -1291,9 +1291,6 @@ std::optional<RecoveryInfo> LoadWal(
 
   // Recover deltas
   wal.SetPosition(info.offset_deltas);
-  // Initialize() accumulated the magic + version bytes into the decoder's CRC accumulator and SetPosition() only seeks
-  // the file. Reset here so the first transaction's CRC starts at the first delta, matching EncodeTransactionStart.
-  wal.ResetCrcAcc();
   uint64_t deltas_applied = 0;
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
@@ -1964,16 +1961,6 @@ std::optional<RecoveryInfo> LoadWal(
         continue;
       }
 
-      if (auto *txn_end = std::get_if<WalTransactionEnd>(&delta.data_)) {
-        // The CRC trailer has just been consumed and folded into the accumulator, so an intact transaction now reduces
-        // to the fixed CRC residue.
-        if (txn_end->txn_crc.has_value() && !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
-          throw RecoveryFailure(
-              "Durability CRC mismatch (stored {}, residue {}).", *txn_end->txn_crc, wal.CrcAccValue());
-        }
-        wal.ResetCrcAcc();
-      }
-
       if (should_commit) {
         // First delta which is not WalTransactionStart -> allocate RecoveryInfo
         if (!ret) {
@@ -1988,13 +1975,7 @@ std::optional<RecoveryInfo> LoadWal(
       }
 
     } else {
-      // This delta should be skipped. SkipWalDeltaData returns true when the skipped delta was a transaction end; in
-      // that case reset the CRC accumulator so the next transaction starts clean, mirroring both the reset after a
-      // loaded transaction end and the reset done in EncodeTransactionStart on the write side. Without this, junk from
-      // skipped transactions (and the file header) leaks into the next loaded transaction's CRC.
-      if (SkipWalDeltaData(&wal, *version)) {
-        wal.ResetCrcAcc();
-      }
+      SkipWalDeltaData(&wal, *version);
     }
   }
 
