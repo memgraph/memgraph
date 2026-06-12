@@ -380,11 +380,7 @@ std::optional<uint64_t> Decoder::Initialize(const std::filesystem::path &path, c
   return utils::LittleEndianToHost(version_encoded);
 }
 
-bool Decoder::Read(uint8_t *data, size_t size) {
-  auto const res = file_.Read(data, size);
-  crc_acc.Update(data, size);
-  return res;
-}
+bool Decoder::Read(uint8_t *data, size_t size) { return file_.Read(data, size); }
 
 bool Decoder::Peek(uint8_t *data, size_t size) { return file_.Peek(data, size); }
 

@@ -113,7 +113,6 @@ class Encoder final : public BaseEncoder {
 class BaseDecoder {
  protected:
   ~BaseDecoder() = default;
-  utils::CrcAccumulator crc_acc;
 
  public:
   virtual std::optional<Marker> ReadMarker() = 0;
@@ -129,9 +128,8 @@ class BaseDecoder {
   virtual bool SkipString() = 0;
   virtual bool SkipExternalPropertyValue() = 0;
 
-  void ResetCrcAcc() { crc_acc.Reset(); }
-
-  auto CrcAccValue() const -> uint32_t { return crc_acc.Value(); }
+  virtual void ResetCrcAcc() = 0;
+  virtual auto CrcAccValue() -> uint32_t = 0;
 };
 
 /// Decoder that is used to read a generated snapshot/WAL.
@@ -161,6 +159,10 @@ class Decoder final : public BaseDecoder {
   std::optional<uint64_t> GetSize();
   std::optional<uint64_t> GetPosition();
   bool SetPosition(uint64_t position);
+
+  void ResetCrcAcc() override { file_.ResetCrc(); }
+
+  auto CrcAccValue() -> uint32_t override { return file_.CrcValue(); }
 
  private:
   utils::InputFile file_;
