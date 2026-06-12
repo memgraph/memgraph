@@ -7532,7 +7532,26 @@ TEST_P(CypherMainVisitorTest, CallSubquery) {
 
     const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
     ASSERT_TRUE(match);
+    // An ordinary subquery binds no scope graph.
+    EXPECT_EQ(call_subquery->use_graph_, nullptr);
     CheckRWType(query, kRead);
+  }
+
+  {
+    // `CALL { USE <expr> ... }` binds the expression as the subquery's scope graph.
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) CALL { USE g MATCH (m) RETURN m } RETURN n, m"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+    ASSERT_TRUE(call_subquery);
+
+    const auto *use_graph = dynamic_cast<Identifier *>(call_subquery->use_graph_);
+    ASSERT_TRUE(use_graph);
+    EXPECT_EQ(use_graph->name_, "g");
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+    const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
   }
 
   {

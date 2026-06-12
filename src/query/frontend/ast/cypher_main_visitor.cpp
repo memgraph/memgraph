@@ -4305,6 +4305,12 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
     }
   }
 
+  // `CALL { USE <expr> ... }` binds <expr> as the scope's ambient graph. The
+  // expression is resolved in the outer scope during semantic analysis.
+  if (auto *use_clause = ctx->useClause()) {
+    call_subquery->use_graph_ = std::any_cast<Expression *>(use_clause->expression()->accept(this));
+  }
+
   call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
 
   PreQueryDirectives pre_query_directives;

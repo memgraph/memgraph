@@ -4044,6 +4044,11 @@ class CallSubquery : public memgraph::query::Clause {
   // True if `CALL (*) { ... }` was used — import every variable currently in
   // the outer scope. When set, scoped_variables_ is left empty
   bool all_variables_scoped_{false};
+  // The graph bound for this subquery's scope by `CALL { USE <expr> ... }`.
+  // Null for an ordinary subquery; non-null binds <expr> (a projection or
+  // subgraph value, produced outside the block) as the scope's ambient graph.
+  // Resolved in the outer scope, so it is not visited by Accept.
+  Expression *use_graph_{nullptr};
 
   CallSubquery *Clone(AstStorage *storage) const override {
     CallSubquery *object = storage->Create<CallSubquery>();
@@ -4054,6 +4059,7 @@ class CallSubquery : public memgraph::query::Clause {
     }
     object->has_variable_scope_ = has_variable_scope_;
     object->all_variables_scoped_ = all_variables_scoped_;
+    object->use_graph_ = use_graph_ ? use_graph_->Clone(storage) : nullptr;
     return object;
   }
 

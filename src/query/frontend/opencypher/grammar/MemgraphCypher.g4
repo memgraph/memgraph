@@ -413,7 +413,9 @@ periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
 
 scopeClause : ASTERISK | variable ( ',' variable )* ;
 
-callSubquery : CALL ( '(' scopeClause? ')' )? '{' cypherQuery '}' ( periodicSubquery )? ;
+useClause : USE expression ;
+
+callSubquery : CALL ( '(' scopeClause? ')' )? '{' ( useClause )? cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
