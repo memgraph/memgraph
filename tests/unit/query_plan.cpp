@@ -2399,7 +2399,7 @@ TYPED_TEST(TestPlanner, ScanAllByElementId) {
   // Test MATCH (n) WHERE elementId(n) = "42" RETURN n
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EQ(FN("elementId", IDENT("n")), LITERAL("42"))), RETURN("n")));
-  CheckPlan<TypeParam>(query, this->storage, ExpectScanAllById(), ExpectProduce());
+  CheckPlan<TypeParam>(query, this->storage, ExpectScanAllById(/* expects_string_id */ true), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, ScanAllByEdgeElementId) {
@@ -2407,7 +2407,7 @@ TYPED_TEST(TestPlanner, ScanAllByEdgeElementId) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("r"), NODE("anon2"))),
                                    WHERE(EQ(FN("elementId", IDENT("r")), LITERAL("42"))),
                                    RETURN("r")));
-  CheckPlan<TypeParam>(query, this->storage, ExpectScanAllByEdgeId(), ExpectProduce());
+  CheckPlan<TypeParam>(query, this->storage, ExpectScanAllByEdgeId(/* expects_string_id */ true), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, BfsToExisting) {
