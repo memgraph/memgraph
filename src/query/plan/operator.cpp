@@ -4535,7 +4535,9 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
           "{{{}.{}}}", single_filter.property_filter->symbol_.name(), single_filter.property_filter->property_ids_);
     }
     case Type::Id: {
-      return fmt::format("id({})", single_filter.id_filter->symbol_.name());
+      return fmt::format("{}({})",
+                         single_filter.id_filter->expects_string_id_ ? "elementId" : "id",
+                         single_filter.id_filter->symbol_.name());
     }
     case Type::Pattern: {
       return "Pattern";
