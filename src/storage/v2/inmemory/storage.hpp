@@ -47,7 +47,6 @@
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
 
-import memgraph.storage.property_value;
 import memgraph.utils.aws;
 
 namespace memgraph::dbms {

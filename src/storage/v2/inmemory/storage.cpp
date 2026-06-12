@@ -70,7 +70,6 @@
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
 
-import memgraph.storage.property_value;
 import memgraph.utils.aws;
 
 namespace r = ranges;
