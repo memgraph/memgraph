@@ -1019,7 +1019,16 @@ int main(int argc, char **argv) {
       if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return;
       const int64_t limit = memgraph::flags::GetMemoryLimit();
       if (limit <= 0) return;
+      // Memory signal depends on the allocator:
+      //  - jemalloc build: total_memory_tracker is allocator-hooked and precise; RSS would over-report
+      //    because jemalloc retains dirty/decaying pages it has not yet returned to the OS.
+      //  - non-jemalloc build (system allocator, ASan/TSan): the tracker is not allocator-hooked and
+      //    under-reports, so use real resident memory (RSS via /proc/self/statm) as the truth.
+#if USE_JEMALLOC
       const int64_t usage = memgraph::utils::total_memory_tracker.Amount();
+#else
+      const int64_t usage = static_cast<int64_t>(memgraph::utils::GetMemoryRES());
+#endif
       const int64_t high = (limit / 100) * static_cast<int64_t>(FLAGS_storage_hot_cold_eviction_high_watermark_percent);
       if (usage <= high) return;  // below the high watermark — nothing to do
       const int64_t low = (limit / 100) * static_cast<int64_t>(FLAGS_storage_hot_cold_eviction_low_watermark_percent);
@@ -1028,8 +1037,8 @@ int main(int argc, char **argv) {
       const int64_t freed =
           dbms_handler->SuspendColdestIdleTenants(to_free, FLAGS_storage_hot_cold_eviction_max_per_cycle);
       if (freed > 0) {
-        spdlog::info(
-            "Hot/cold eviction cycle: usage {} > high {}, freed ~{} bytes (target {}).", usage, high, freed, to_free);
+        spdlog::info("Hot/cold eviction cycle: usage {} > high {}, freed ~{} bytes (target {}).", usage, high, freed,
+                     to_free);
       }
     });
     spdlog::info(

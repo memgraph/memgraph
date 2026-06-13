@@ -455,12 +455,14 @@ def _read_instance_log(test_name: str) -> str:
 def test_t5_auto_eviction_under_memory_pressure(test_name):
     """
     Verify that the automatic memory-watermark eviction scheduler suspends an idle
-    non-default tenant when tracked memory exceeds the high-watermark.
+    non-default tenant when memory usage exceeds the high-watermark. Usage is the max
+    of tracked allocations and real resident memory (RSS), so the trigger fires under
+    either kind of pressure.
 
     Setup:
     - 256 MiB memory limit; high-watermark = 1% (~2.6 MiB).  The Memgraph process
-      baseline easily exceeds 2.6 MiB of tracked allocation, so the scheduler will
-      fire on the very first poll tick (1 s interval).
+      baseline (tracked allocation AND RSS) easily exceeds 2.6 MiB, so the scheduler
+      will fire on the very first poll tick (1 s interval).
     - ``idle_db`` is created, populated (2 000 nodes), and then left completely idle.
     - The default ``memgraph`` DB is kept alive on ``conn_default`` but never writes,
       so it is NOT the coldest tenant and must never be auto-evicted (the scheduler
