@@ -1011,6 +1011,11 @@ if (MG_ENTERPRISE)
         LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
     )
 
+    add_unit_test(hot_cold_idle_reaper
+        SOURCES hot_cold_idle_reaper.cpp
+        LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+    )
+
     add_unit_test(hot_cold_eviction
         SOURCES hot_cold_eviction.cpp
         LINK_TARGETS mg-query mg-auth mg-glue mg-dbms

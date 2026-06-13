@@ -29,6 +29,7 @@
 #include "system/transaction.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/memory.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
 #include "utils/session_context.hpp"
 #include "utils/spin_lock.hpp"
@@ -332,7 +333,7 @@ class Interpreter final {
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
 
-  void ResetDB() { current_db_.ResetDB(); }
+  void ResetDB();
 
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
 #else
@@ -484,6 +485,43 @@ class Interpreter final {
    */
   std::optional<TxVerifier> TryAcquireForVerification();
 
+#ifdef MG_ENTERPRISE
+  // --- Hot/cold idle-session reaper support (HOT_COLD_TENANTS only) ---------------------------
+  // Mark this interpreter as a reapable Bolt session. Set once by SessionHL BEFORE the interpreter
+  // is registered in InterpreterContext::interpreters (the registration's lock publishes it). Stream
+  // consumers and internal interpreters leave this false so the reaper never touches their accessor.
+  void MarkReapable() noexcept { reapable_ = true; }
+
+  // Reaper entry point — called ONLY from the background reaper sweep, never the session thread.
+  // If this is a reapable session whose bound tenant has been idle (Database::LastUsedNs older than
+  // idle_timeout_ns) and is not the default DB, atomically claim REAPING from IDLE, release
+  // current_db_.db_acc_ (dropping the gatekeeper count so the tenant can suspend), and restore IDLE.
+  // Reads LastUsedNs only AFTER winning the CAS (so db_acc_ is stable). Returns true iff it reaped.
+  // Single CAS, never spins; never reaps a session that is mid-query or in an explicit transaction.
+  bool TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_ns);
+
+  // Query-entry claim (session thread, top of Prepare). Spin-waits while the reaper owns REAPING,
+  // then CAS IDLE->PREPARING. Returns true iff it performed the IDLE->PREPARING claim (false if
+  // status was already ACTIVE, e.g. a statement inside an explicit transaction — already owned).
+  // PREPARING (not ACTIVE) is used so a concurrent verifier cannot race current_transaction_ writes;
+  // SetupInterpreterTransaction's store(ACTIVE) later transitions PREPARING->ACTIVE.
+  bool TryClaimForQueryEntry();
+
+  // Counterpart to TryClaimForQueryEntry, run on Prepare exit (success or exception). If we claimed
+  // PREPARING at entry but no transaction was actually set up (early return / parse error before
+  // SetupInterpreterTransaction left status at PREPARING), restore IDLE so the session does not leak
+  // the claim — Bolt's HandleFailure does NOT call Abort(), so without this an unparseable query
+  // would wedge the session in PREPARING until the client sends RESET. If a transaction WAS set up
+  // (status is now ACTIVE, current_transaction_ engaged), leaves it to the normal commit/abort path.
+  void ReleaseEntryClaimIfUnused(bool claimed) noexcept;
+
+  // Release counterpart to the IDLE->PREPARING claim taken by the SESSION-DB mutators (SetCurrentDB /
+  // ResetDB), as opposed to the query-Prepare path above. Restores IDLE iff @p claimed. Kept separate
+  // from ReleaseEntryClaimIfUnused so the session-db path is decoupled from the query path's
+  // current_transaction_ handoff semantics (a fresh claim here always comes from IDLE => no txn).
+  void ReleaseDbAccessClaim_(bool claimed) noexcept;
+#endif
+
   std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
   // current_transaction_ is protected by the transaction_status_ atomic.
   // When transaction_status_ is VERIFYING, current_transaction_ is stable.
@@ -494,6 +532,14 @@ class Interpreter final {
   // is used for start_time; steady_clock for elapsed_ms (immune to NTP / manual clock jumps).
   std::chrono::system_clock::time_point transaction_start_time_{};
   std::chrono::steady_clock::time_point transaction_start_steady_{};
+
+#ifdef MG_ENTERPRISE
+  // True => reapable Bolt session (see MarkReapable). Written once before registration, then const;
+  // the registration lock on InterpreterContext::interpreters publishes it to the reaper thread.
+  // Idle duration is measured tenant-centrically via Database::LastUsedNs() (the HC-Evict ranking
+  // key), read by the reaper under REAPING ownership — no per-interpreter idle timestamp needed.
+  bool reapable_{false};
+#endif
 
   void ResetUser();
 
@@ -666,6 +712,17 @@ class Interpreter final {
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
+#ifdef MG_ENTERPRISE
+  // Idle-session reaper sync (HOT_COLD_TENANTS only): the BEGIN handler defers SetupInterpreterTransaction
+  // to Pull time, so on the explicit-BEGIN path transaction_status_ is still IDLE when we read db_acc_
+  // below — exactly the window in which the background reaper may release it. Claim the IDLE window
+  // (IDLE->PREPARING) before that read so the reaper is excluded; SetupInterpreterTransaction then
+  // transitions PREPARING->ACTIVE inside the handler. For every other query the status is already ACTIVE
+  // here, so the CAS is a no-op (returns false) and this is byte-identical to before. Flag-off: no claim.
+  const bool hc_reaper_armed = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS);
+  const bool entry_claimed = hc_reaper_armed && TryClaimForQueryEntry();
+  utils::OnScopeExit release_entry_claim{[this, entry_claimed]() { ReleaseEntryClaimIfUnused(entry_claimed); }};
+#endif
   // Update the TLS arena index used to route allocations to the correct database arena.
   // The previous arena is restored on scope exit so pool threads are unaffected.
   std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;

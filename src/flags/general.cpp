@@ -131,6 +131,12 @@ DEFINE_uint64(storage_hot_cold_eviction_low_watermark_percent, 70,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_hot_cold_eviction_max_per_cycle, 3,
               "Hot/cold: maximum number of tenants to evict per scheduler cycle.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_hot_cold_idle_session_timeout_sec, 0,
+              "Hot/cold: if > 0, release a connected-but-idle session's database accessor once its "
+              "tenant has been idle this many seconds, so a tenant pinned only by idle (e.g. pooled) "
+              "connections can be evicted. The connection stays open; the next query transparently "
+              "reheats the tenant. 0 disables the idle-session reaper.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");

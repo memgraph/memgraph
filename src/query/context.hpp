@@ -47,6 +47,17 @@ enum class TransactionStatus {
   TERMINATED,
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
+  // Query-entry claim state (HOT_COLD_TENANTS only): the session CAS-es IDLE->PREPARING at the top of
+  // Prepare, before it touches current_db_.db_acc_, then SetupInterpreterTransaction transitions
+  // PREPARING->ACTIVE once current_transaction_ is published. Distinct from ACTIVE so that a
+  // concurrent SHOW TRANSACTIONS (TryAcquireForVerification) does NOT engage the interpreter while it
+  // is still writing current_transaction_/start-time (which would race those reads). Excludes the
+  // reaper too (it claims REAPING only from IDLE). See the idle-session reaper.
+  PREPARING,
+  // Transient exclusive-ownership state entered by the hot/cold idle-session reaper (from IDLE only)
+  // while it releases this interpreter's connection-scoped db_acc_. The session honors it by
+  // spin-waiting at query entry. Reached only under HOT_COLD_TENANTS.
+  REAPING,
 };
 
 struct Scope {

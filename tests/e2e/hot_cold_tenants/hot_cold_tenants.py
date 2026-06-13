@@ -567,5 +567,93 @@ def test_t5_auto_eviction_under_memory_pressure(test_name):
     )
 
 
+# ---------------------------------------------------------------------------
+# T6 — idle-session reaper: an open-but-idle pooled connection no longer pins
+#      its tenant after the idle timeout, and transparently reheats on next use
+# ---------------------------------------------------------------------------
+
+# Reaper enabled with a short idle timeout; the eviction poll interval doubles as the reaper sweep
+# cadence (1s). Auto-eviction itself is left OFF — the reaper only releases the idle accessor; we
+# prove the release via a manual SUSPEND from a different connection succeeding.
+_REAPER_ARGS = [
+    "--bolt-port",
+    "7687",
+    "--log-level",
+    "TRACE",
+    "--experimental-enabled=hot-cold-tenants",
+    "--storage-wal-enabled=true",
+    "--storage-snapshot-interval-sec=300",
+    "--data-recovery-on-startup=true",
+    "--storage-hot-cold-min-hot-residency-sec=0",
+    "--storage-hot-cold-idle-session-timeout-sec=2",
+    "--storage-hot-cold-eviction-poll-interval-sec=1",
+]
+
+
+def instance_description_reaper(test_name: str) -> dict:
+    return {
+        "instance_reaper": {
+            "args": _REAPER_ARGS,
+            "log_file": f"{get_logs_path(file, test_name)}/instance_reaper.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_reaper",
+            "setup_queries": [],
+        },
+    }
+
+
+def test_t6_idle_session_reaper_unpins_then_reheats(test_name):
+    """
+    With the idle-session reaper enabled (idle timeout 2s), a connection that ran a query on db6 and
+    then sits OPEN and IDLE must, after the timeout, have its accessor released by the background
+    reaper — so a SUSPEND DATABASE db6 from a DIFFERENT connection succeeds despite db6 still having
+    an open connection. The idle connection is NOT dropped: a subsequent query on it block-and-resumes
+    db6 and reads the original data.
+    """
+    instances = instance_description_reaper(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    conn_default = connect(host="localhost", port=7687)
+    cursor_default = conn_default.cursor()
+    execute_and_fetch_all(cursor_default, "CREATE DATABASE db6")
+
+    # Idle (pooled) connection: switch to db6, write data, then go idle (do NOT close).
+    conn_idle = connect(host="localhost", port=7687)
+    cursor_idle = conn_idle.cursor()
+    execute_and_fetch_all(cursor_idle, "USE DATABASE db6")
+    execute_and_fetch_all(cursor_idle, "CREATE (:Node)")
+    execute_and_fetch_all(cursor_idle, "CREATE (:Node)")
+
+    # Immediately, the idle connection pins db6 -> SUSPEND must fail.
+    suspend_blocked = False
+    try:
+        execute_and_fetch_all(cursor_default, "SUSPEND DATABASE db6")
+    except Exception as exc:
+        suspend_blocked = "active connections" in str(exc).lower()
+    assert suspend_blocked, "SUSPEND db6 should initially fail (idle connection still pins it)"
+
+    # After the idle timeout the reaper releases the idle connection's accessor. Poll SUSPEND until it
+    # succeeds (bounded), proving the pin was dropped without closing the connection.
+    deadline = time.monotonic() + 20.0
+    suspended = False
+    last_err = ""
+    while time.monotonic() < deadline:
+        try:
+            res = execute_and_fetch_all(cursor_default, "SUSPEND DATABASE db6")
+            if res and "suspended" in res[0][0].lower():
+                suspended = True
+                break
+        except Exception as exc:
+            last_err = str(exc)
+        time.sleep(0.5)
+    assert suspended, f"reaper should have unpinned db6 so SUSPEND succeeds within 20s; last error: {last_err!r}"
+    assert _get_db_state(cursor_default, "db6") == "cold", "db6 should be cold after reaper-enabled SUSPEND"
+
+    # The idle connection was never closed: a fresh query on it block-and-resumes db6 and reads data.
+    count = execute_and_fetch_all(cursor_idle, "MATCH (n) RETURN count(n) AS c")
+    assert count[0][0] == 2, (
+        f"the pooled connection must transparently reheat db6 and read its 2 nodes, got {count[0][0]}"
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))

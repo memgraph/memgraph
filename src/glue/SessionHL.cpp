@@ -563,6 +563,10 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
     auto &user_or_role = interpreter_.user_or_role_;
     MultiDatabaseAuth(user_or_role.get(), db_name);
   });
+  // Mark this Bolt-session interpreter as reapable by the hot/cold idle-session reaper BEFORE it is
+  // registered below — the registration lock publishes the flag to the reaper thread. Stream-consumer
+  // and internal interpreters never call this, so the reaper never releases their accessor.
+  interpreter_.MarkReapable();
 #endif
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
 }

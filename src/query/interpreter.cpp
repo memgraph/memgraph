@@ -6633,6 +6633,10 @@ auto TransactionStatusToString(TransactionStatus status) -> char const * {
       return "committing";
     case TransactionStatus::STARTED_ROLLBACK:
       return "aborting";
+    case TransactionStatus::PREPARING:
+      return "preparing";
+    case TransactionStatus::REAPING:
+      return "reaping";
   }
   return "unknown";
 }
@@ -9457,7 +9461,18 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::
 void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
   // Can throw
   // do we lock here?
-  if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+  const bool hc = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS);
+  // Idle-session reaper sync (HOT_COLD_TENANTS only): this runs on the session thread BETWEEN queries
+  // (connect / bolt run-time `db` switch / logoff), where transaction_status_ is IDLE — exactly the
+  // window in which the background reaper can win IDLE->REAPING and reset() current_db_.db_acc_
+  // concurrently. Claim the IDLE window (IDLE->PREPARING, spin-waiting out a reaper that already holds
+  // REAPING) BEFORE touching db_acc_ below, and restore IDLE on the way out (incl. the throwing
+  // ResumeForSession path). Flag-off: no claim — the reaper never runs, so this is byte-identical to
+  // master. The query path (Prepare/Pull) is excluded by its own claim; these mutators are reached only
+  // off that path, so the claim here is the missing exclusion.
+  const bool claimed = hc && TryClaimForQueryEntry();
+  utils::OnScopeExit release{[this, claimed]() { ReleaseDbAccessClaim_(claimed); }};
+  if (hc) {
     // flag ON (connection-scoped): acquire and HOLD the accessor for the session, reheating the
     // tenant via block-and-resume if it is COLD. Mirrors the flag-OFF path but Resume-instead-of-Get.
     current_db_.SetCurrentDB(ResumeForSession(interpreter_context_->dbms_handler, db_name), in_explicit_db);
@@ -9466,6 +9481,15 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
   }
   // flag OFF: UNCHANGED — mint + pin the accessor for the whole session.
   current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(db_name), in_explicit_db);
+}
+
+void Interpreter::ResetDB() {
+  // Idle-session reaper sync: like SetCurrentDB, this mutates current_db_.db_acc_ from the session
+  // thread between queries (logoff / non-db connection / bolt `db` cleared), racing the reaper's
+  // db_acc_.reset(). Claim the IDLE window so the two cannot touch db_acc_ concurrently.
+  const bool claimed = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS) && TryClaimForQueryEntry();
+  utils::OnScopeExit release{[this, claimed]() { ReleaseDbAccessClaim_(claimed); }};
+  current_db_.ResetDB();
 }
 #else
 // Default database only
@@ -9773,6 +9797,17 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
+#ifdef MG_ENTERPRISE
+  // Idle-session reaper sync (HOT_COLD_TENANTS only): claim exclusive ownership of db_acc_ for the
+  // IDLE window of Prepare BEFORE the first db_acc_ read below, so the background reaper cannot
+  // release db_acc_ out from under us. TryClaimForQueryEntry spin-waits on REAPING and CAS-es
+  // IDLE->PREPARING (no-op when already inside an explicit transaction). The OnScopeExit restores
+  // IDLE only if we claimed and no transaction was set up (parse error / early return). Flag-off:
+  // no claim, byte-identical to master.
+  const bool hc_reaper_armed = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS);
+  const bool entry_claimed = hc_reaper_armed && TryClaimForQueryEntry();
+  utils::OnScopeExit release_entry_claim{[this, entry_claimed]() { ReleaseEntryClaimIfUnused(entry_claimed); }};
+#endif
   std::optional<memory::DbArenaScope> db_arena_scope;
   if (current_db_.db_acc_) {
     db_arena_scope.emplace(current_db_.db_acc_->get());
@@ -10454,6 +10489,84 @@ std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() 
   // CAS failed, return to avoid busy loops
   return std::nullopt;
 }
+
+#ifdef MG_ENTERPRISE
+bool Interpreter::TryClaimForQueryEntry() {
+  // Session thread, top of Prepare. Claim exclusive ownership of db_acc_ for the IDLE window by
+  // moving IDLE -> PREPARING. Spin-wait while the reaper owns REAPING. If status is already ACTIVE
+  // (a statement inside an explicit transaction) we already own it -> not a fresh claim.
+  TransactionStatus st = transaction_status_.load(std::memory_order_acquire);
+  for (;;) {
+    if (st == TransactionStatus::REAPING) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      st = transaction_status_.load(std::memory_order_acquire);
+      continue;
+    }
+    if (st != TransactionStatus::IDLE) return false;  // already owned (e.g. explicit-txn ACTIVE)
+    if (transaction_status_.compare_exchange_weak(
+            st, TransactionStatus::PREPARING, std::memory_order_acq_rel, std::memory_order_acquire)) {
+      return true;  // claimed IDLE -> PREPARING
+    }
+    // CAS failed: compare_exchange_weak refreshed `st`; loop.
+  }
+}
+
+void Interpreter::ReleaseEntryClaimIfUnused(bool claimed) noexcept {
+  if (!claimed) return;
+  // If a transaction was set up, SetupInterpreterTransaction already moved PREPARING -> ACTIVE and
+  // engaged current_transaction_; ownership is handed to the normal commit/abort lifecycle.
+  if (current_transaction_.has_value()) return;
+  // No transaction set up (parse error / early return / exception before SetupInterpreterTransaction).
+  // Restore IDLE only if we still hold the claim (status == PREPARING). A CAS, not a blind store: on an
+  // error path Abort() may already have driven the status to IDLE (and reset current_transaction_), after
+  // which the reaper can win its own CAS IDLE->REAPING. A blind store would clobber that REAPING window;
+  // the CAS instead fails and leaves whoever now owns the transition untouched. Verifiers and the reaper
+  // both ignore PREPARING, so when status really is still PREPARING this thread is its only writer.
+  TransactionStatus expected = TransactionStatus::PREPARING;
+  transaction_status_.compare_exchange_strong(
+      expected, TransactionStatus::IDLE, std::memory_order_acq_rel, std::memory_order_relaxed);
+}
+
+void Interpreter::ReleaseDbAccessClaim_(bool claimed) noexcept {
+  if (!claimed) return;
+  // A fresh claim here always came from IDLE (TryClaimForQueryEntry only CAS-es IDLE->PREPARING), so no
+  // transaction is engaged and this thread is the sole writer of the PREPARING->IDLE edge. Use a CAS
+  // rather than a blind store so that, if status somehow already moved on, we leave whoever now owns the
+  // transition untouched — the reaper and verifiers both ignore PREPARING.
+  TransactionStatus expected = TransactionStatus::PREPARING;
+  transaction_status_.compare_exchange_strong(
+      expected, TransactionStatus::IDLE, std::memory_order_acq_rel, std::memory_order_relaxed);
+}
+
+bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_ns) {
+  if (!reapable_) return false;
+  // Cheap pre-check: only an IDLE session is a candidate. No spin — if it is busy we catch it next tick.
+  if (transaction_status_.load(std::memory_order_acquire) != TransactionStatus::IDLE) return false;
+  // Single CAS IDLE -> REAPING. On failure the session just became active (or a verifier ran) — skip.
+  TransactionStatus expected = TransactionStatus::IDLE;
+  if (!transaction_status_.compare_exchange_strong(
+          expected, TransactionStatus::REAPING, std::memory_order_acq_rel, std::memory_order_acquire)) {
+    return false;
+  }
+  // We now own REAPING: the session cannot enter Prepare (it spin-waits on REAPING), so db_acc_ and
+  // in_explicit_transaction_ are stable. Decide whether to actually release, then always restore IDLE.
+  bool reaped = false;
+  // Belt-and-suspenders: never reap an explicit transaction (cannot occur from IDLE, but cheap).
+  // Only release a held accessor whose tenant is non-default and has been idle past the timeout.
+  if (!in_explicit_transaction_ && current_db_.db_acc_.has_value()) {
+    auto *db = current_db_.db_acc_->get();
+    const auto last_used_ns = static_cast<uint64_t>(db->LastUsedNs());
+    if (db->name() != dbms::kDefaultDB && now_ns > last_used_ns && (now_ns - last_used_ns) >= idle_timeout_ns) {
+      // Release the accessor (drops the gatekeeper count). current_db_name_ is kept so the next query
+      // transparently re-acquires via EnsureDbAccessForQuery (block-and-resume).
+      current_db_.db_acc_.reset();
+      reaped = true;
+    }
+  }
+  transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+  return reaped;
+}
+#endif
 
 namespace {
 

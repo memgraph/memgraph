@@ -336,6 +336,7 @@ int main(int argc, char **argv) {
 
   std::optional<memgraph::utils::Scheduler> python_gc_scheduler{std::nullopt};
   std::optional<memgraph::utils::Scheduler> hot_cold_eviction_scheduler{std::nullopt};
+  std::optional<memgraph::utils::Scheduler> hot_cold_idle_reaper_scheduler{std::nullopt};
   wchar_t *program_name{nullptr};
   PyThreadState *python_thread_state{nullptr};
 
@@ -1041,6 +1042,45 @@ int main(int argc, char **argv) {
 #endif  // MG_ENTERPRISE (hot/cold eviction scheduler)
 
 #ifdef MG_ENTERPRISE
+  // Hot/cold idle-session reaper. Independent of auto-eviction: it releases the database accessor held
+  // by a connected-but-idle Bolt session once that session's tenant has been idle past
+  // --storage-hot-cold-idle-session-timeout-sec, so a tenant pinned only by idle (e.g. pooled)
+  // connections drops to sole-accessor and becomes suspendable (by the eviction scheduler or a manual
+  // SUSPEND). The connection stays open; the next query block-and-resumes the tenant. Experiment-gated:
+  // flag-off sessions are not reapable (they never claim db_acc_ ownership at query entry), so the
+  // reaper must not run for them.
+  if (!is_coordinator_instance && dbms_handler.has_value() && FLAGS_storage_hot_cold_idle_session_timeout_sec > 0 &&
+      memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::HOT_COLD_TENANTS)) {
+    hot_cold_idle_reaper_scheduler.emplace();
+    // Sweep at the shared hot/cold background cadence (the eviction poll interval), bounded so the
+    // reaper still runs when auto-eviction is disabled.
+    const auto sweep_sec = std::max<uint64_t>(1, FLAGS_storage_hot_cold_eviction_poll_interval_sec);
+    hot_cold_idle_reaper_scheduler->SetInterval(std::chrono::seconds(sweep_sec));
+    hot_cold_idle_reaper_scheduler->Run("HC-Reaper", [&interpreter_context_]() {
+      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return;
+      const uint64_t timeout_ns = FLAGS_storage_hot_cold_idle_session_timeout_sec * 1'000'000'000ULL;
+      const auto now_ns = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+      uint64_t reaped = 0;
+      // Hold the interpreters lock for the sweep (mirrors ShowTransactions iteration). Each
+      // TryReapIdleDbAccessor call is non-blocking — a single CAS plus, at most, an accessor reset
+      // (a refcount decrement, no I/O) — so the critical section is short, and holding the lock
+      // prevents a session's SessionHL destructor from erasing+destroying an interpreter mid-reap
+      // (no dangling pointer).
+      interpreter_context_.interpreters.WithLock([&](auto &interpreters) {
+        for (auto *interpreter : interpreters) {
+          if (interpreter->TryReapIdleDbAccessor(now_ns, timeout_ns)) ++reaped;
+        }
+      });
+      if (reaped > 0) {
+        spdlog::info("Hot/cold idle-session reaper: released {} idle session accessor(s).", reaped);
+      }
+    });
+    spdlog::info("Hot/cold idle-session reaper started (idle timeout {}s, sweep {}s).",
+                 FLAGS_storage_hot_cold_idle_session_timeout_sec, sweep_sec);
+  }
+#endif  // MG_ENTERPRISE (hot/cold idle-session reaper)
+
+#ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
   // Needs to start after dbms_handler.RestoreTriggers has been run. Otherwise we have a deadlock:
   // This thread takes unique lock on dbms handler and waits for storage write access
@@ -1151,6 +1191,7 @@ int main(int argc, char **argv) {
                       &coordinator_state,
                       &metrics_server,
                       &hot_cold_eviction_scheduler,
+                      &hot_cold_idle_reaper_scheduler,
 #endif
                       is_coordinator_instance,
                       &websocket_server,
@@ -1195,6 +1236,10 @@ int main(int argc, char **argv) {
     if (hot_cold_eviction_scheduler) {
       spdlog::trace("Stopping hot/cold eviction scheduler");
       hot_cold_eviction_scheduler->Stop();
+    }
+    if (hot_cold_idle_reaper_scheduler) {
+      spdlog::trace("Stopping hot/cold idle-session reaper");
+      hot_cold_idle_reaper_scheduler->Stop();
     }
     if (dbms_handler.has_value()) {
       // Drain in-flight resumes BEFORE shutting down replication state (and tenant tasks): a resume
