@@ -3407,7 +3407,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // the "where" condition.
     auto expand_from_vertex = [this, &expand_vertex, &context, &restore_frame_state_after_expansion](
                                   const VertexAccessor &vertex, const TypedValue &weight, int64_t depth) {
-      if (self_.common_.direction != EdgeAtom::Direction::IN) {
+      if (effective_direction_ != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
@@ -3422,7 +3422,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           restore_frame_state_after_expansion();
         }
       }
-      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+      if (effective_direction_ != EdgeAtom::Direction::OUT) {
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
@@ -3440,6 +3440,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     };
 
     std::optional<VertexAccessor> start_vertex;
+    // The vertex expansion actually starts from. Equals `start_vertex` normally,
+    // but becomes the bound target when the expansion is reversed for selectivity.
+    std::optional<VertexAccessor> root_vertex;
 
     auto create_path = [this, &frame, &memory, &frame_writer]() {
       auto &current_level = traversal_stack_.back();
@@ -3448,7 +3451,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         auto &edges_on_frame = value.ValueList();  // Clean out the current stack
         if (current_level.empty()) {
           if (!edges_on_frame.empty()) {
-            if (!self_.is_reverse_) {
+            if (!effective_reverse_) {
               edges_on_frame.pop_back();
             } else {
               edges_on_frame.erase(edges_on_frame.begin());
@@ -3469,7 +3472,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       auto push_current_edge = [&](TypedValue &value) {
         auto &edges_on_frame = value.ValueList();
         // Edges order depends on direction of expansion
-        if (!self_.is_reverse_)
+        if (!effective_reverse_)
           edges_on_frame.emplace_back(current_edge);
         else
           edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
@@ -3496,9 +3499,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
       // Place destination node on the frame, handle existence flag
       if (self_.common_.existing_node) {
-        const auto &node = frame[self_.common_.node_symbol];
-        ExpectType(self_.common_.node_symbol, node, TypedValue::Type::Vertex);
-        if (node.ValueVertex() != next_vertex) return false;
+        // A complete path must end at the bound endpoint. That is the target
+        // when expanding forward, or the input vertex when the expansion was
+        // reversed - `existing_node_target_` holds whichever applies. Both
+        // endpoints are already bound on the frame, so nothing is written here.
+        if (!existing_node_target_ || existing_node_target_.value() != next_vertex) return false;
       } else {
         frame_writer.Write(self_.common_.node_symbol, next_vertex);
       }
@@ -3512,6 +3517,21 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         // Move the top element out instead of copying it - the entry carries a
         // TypedValue weight and a (potentially large) accumulated Path.
         auto [current_weight, current_depth, current_vertex, directed_edge, acc_path] = pq_.PopTop();
+
+        // Goal-directed termination: if the destination node is bound and we
+        // have already settled its shortest distance, every remaining entry has
+        // a weight >= current_weight, so none of them can be a prefix of a
+        // shortest path to the target. Stop expanding the rest of the graph.
+        if (target_cost_ && (current_weight > *target_cost_).ValueBool() && !are_equal(current_weight, *target_cost_)) {
+          ClearQueue();
+          break;
+        }
+        // First (hence cheapest) time we reach the bound target - record its
+        // distance. Entries with an equal weight are still processed so that all
+        // equally-shortest paths to the target are discovered.
+        if (existing_node_target_ && !target_cost_ && current_vertex == *existing_node_target_) {
+          target_cost_ = current_weight;
+        }
 
         const auto &[current_edge, direction, weight] = directed_edge;
         auto current_state = create_state(current_vertex, current_depth);
@@ -3580,11 +3600,50 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         start_vertex = vertex_value.ValueVertex();
 
+        // Default: expand forward from the input vertex in the written direction.
+        effective_direction_ = self_.common_.direction;
+        effective_reverse_ = self_.is_reverse_;
+        root_vertex = start_vertex;
+        existing_node_target_.reset();
+
         if (self_.common_.existing_node) {
           const auto &node = frame[self_.common_.node_symbol];
           // Due to optional matching the existing node could be null.
           // Skip expansion for such nodes.
           if (node.IsNull()) continue;
+          auto target = node.ValueVertex();
+          // Remember the bound destination so the traversal can stop as soon as
+          // all shortest paths to it have been found.
+          existing_node_target_ = target;
+
+          // Goal-directed direction selection: with both endpoints bound,
+          // expanding from the lower-degree endpoint can be dramatically cheaper
+          // on graphs with asymmetric fan-out. Skip for BOTH (inverting it is a
+          // no-op) and when an accumulated-path filter is present (its semantics
+          // depend on the order edges are appended to the path).
+          const bool reversible =
+              self_.common_.direction != EdgeAtom::Direction::BOTH && !self_.filter_lambda_.accumulated_path_symbol;
+          if (reversible) {
+            auto degree = [](const VertexAccessor &v, EdgeAtom::Direction dir) -> std::optional<size_t> {
+              auto res =
+                  dir == EdgeAtom::Direction::IN ? v.InDegree(storage::View::OLD) : v.OutDegree(storage::View::OLD);
+              if (!res) return std::nullopt;
+              return *res;
+            };
+            const auto inverted =
+                self_.common_.direction == EdgeAtom::Direction::IN ? EdgeAtom::Direction::OUT : EdgeAtom::Direction::IN;
+            auto fwd_degree = degree(*start_vertex, self_.common_.direction);
+            auto bwd_degree = degree(target, inverted);
+            if (fwd_degree && bwd_degree && bwd_degree.value() < fwd_degree.value()) {
+              // Expand backward from the target; a complete path must now end at
+              // the input vertex, and edges are inserted in reverse so the
+              // emitted path still reads input->target.
+              root_vertex = target;
+              existing_node_target_ = *start_vertex;
+              effective_direction_ = inverted;
+              effective_reverse_ = !self_.is_reverse_;
+            }
+          }
         }
 
         // Clear existing data structures.
@@ -3593,20 +3652,21 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         next_edges_.clear();
         traversal_stack_.clear();
         total_cost_.clear();
+        target_cost_.reset();
 
         if (self_.filter_lambda_.accumulated_path_symbol) {
           // Add initial vertex of path to the accumulated path
-          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(*start_vertex));
+          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(*root_vertex));
         }
 
         frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, TypedValue());
-        frame_writer.Write(self_.weight_lambda_->inner_node_symbol, *start_vertex);
+        frame_writer.Write(self_.weight_lambda_->inner_node_symbol, *root_vertex);
         TypedValue current_weight =
             CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
 
-        expand_from_vertex(*start_vertex, current_weight, 0);
-        cheapest_cost_[*start_vertex] = 0;
-        visited_cost_.emplace(*start_vertex,
+        expand_from_vertex(*root_vertex, current_weight, 0);
+        cheapest_cost_[*root_vertex] = 0;
+        visited_cost_.emplace(*root_vertex,
                               std::vector<std::pair<TypedValue, int64_t>>{std::make_pair(TypedValue(0, memory), 0)});
 
         auto new_vector = TypedValue::TVector(memory);
@@ -3620,8 +3680,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       create_DFS_traversal_tree();
 
       // DFS traversal tree is create,
-      if (start_vertex && next_edges_.contains({*start_vertex, 0})) {
-        auto [it, inserted] = next_edges_.try_emplace({*start_vertex, 0}, utils::pmr::list<DirectedEdge>(memory));
+      if (root_vertex && next_edges_.contains({*root_vertex, 0})) {
+        auto [it, inserted] = next_edges_.try_emplace({*root_vertex, 0}, utils::pmr::list<DirectedEdge>(memory));
         traversal_stack_.emplace_back(utils::pmr::list<DirectedEdge>(it->second, memory));
       }
     }
@@ -3636,6 +3696,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     next_edges_.clear();
     traversal_stack_.clear();
     total_cost_.clear();
+    existing_node_target_.reset();
+    target_cost_.reset();
+    effective_direction_ = self_.common_.direction;
+    effective_reverse_ = self_.is_reverse_;
     ClearQueue();
   }
 
@@ -3646,6 +3710,28 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   // Upper bound on the path length.
   int64_t upper_bound_{-1};
   bool upper_bound_set_{false};
+
+  // When the destination node is already bound (existing_node), we only care
+  // about shortest paths to that single target. Because edge weights are
+  // non-negative the priority queue pops entries in non-decreasing weight
+  // order, so once the target's shortest distance is known no entry with a
+  // strictly larger weight can be a prefix of a shortest path to it. These two
+  // fields drive that goal-directed early termination. `existing_node_target_`
+  // is the vertex a complete path must END at - the bound target when expanding
+  // forward, or the bound input vertex when the expansion is reversed (below).
+  std::optional<VertexAccessor> existing_node_target_;
+  std::optional<TypedValue> target_cost_;
+
+  // Per-input-row effective expansion direction and edge ordering. When both
+  // endpoints are bound we may expand from the lower-degree endpoint instead of
+  // the written start, which is orders of magnitude cheaper on graphs with
+  // asymmetric fan-out. Reversing only changes traversal order - edge weights
+  // sum commutatively so the resulting shortest-path set is identical, and
+  // `effective_reverse_` flips edge-list insertion so the emitted path still
+  // reads input->target. These mirror `self_.common_.direction` / `is_reverse_`
+  // but can be flipped at runtime, so the cursor's lambdas read them instead.
+  EdgeAtom::Direction effective_direction_{EdgeAtom::Direction::BOTH};
+  bool effective_reverse_{false};
 
   struct AspStateHash {
     size_t operator()(const std::pair<VertexAccessor, int64_t> &key) const {
