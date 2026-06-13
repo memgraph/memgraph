@@ -3759,10 +3759,14 @@ class CreateVersionQuery : public memgraph::query::Query {
   CreateVersionQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CreateVersionQuery>();
     object->version_name_ = version_name_ ? version_name_->Clone(storage) : nullptr;
+    object->description_ = description_ ? description_->Clone(storage) : nullptr;
+    object->parent_ = parent_ ? parent_->Clone(storage) : nullptr;
     return object;
   }
 
   Expression *version_name_{nullptr};
+  Expression *description_{nullptr};  // optional WITH DESCRIPTION '<str>' (nullptr => empty)
+  Expression *parent_{nullptr};       // required BRANCH FROM '<parent>' ('master' for a top-level branch)
 };
 
 // Set the session's active version (governs both reads and writes).
@@ -3813,6 +3817,21 @@ class ShowVersionBranchQuery : public memgraph::query::Query {
 
   ShowVersionBranchQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowVersionBranchQuery>();
+    return object;
+  }
+};
+
+// Return a synthetic graph of the version tree (master + branches) for visualization.
+class ShowVersioningGraphQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowVersioningGraphQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowVersioningGraphQuery>();
     return object;
   }
 };

@@ -1928,7 +1928,14 @@ antlrcpp::Any CypherMainVisitor::visitVersionName(MemgraphCypher::VersionNameCon
 
 antlrcpp::Any CypherMainVisitor::visitCreateVersionQuery(MemgraphCypher::CreateVersionQueryContext *ctx) {
   auto *create_version = storage_->Create<CreateVersionQuery>();
-  create_version->version_name_ = std::any_cast<Expression *>(ctx->versionName()->accept(this));
+  create_version->version_name_ = std::any_cast<Expression *>(ctx->childVersion->accept(this));
+  if (ctx->versionDescription) {
+    if (!ctx->versionDescription->StringLiteral()) {
+      throw SemanticException("Version description must be a string literal.");
+    }
+    create_version->description_ = std::any_cast<Expression *>(ctx->versionDescription->accept(this));
+  }
+  create_version->parent_ = std::any_cast<Expression *>(ctx->parentVersion->accept(this));
   query_ = create_version;
   return create_version;
 }
@@ -1953,6 +1960,13 @@ antlrcpp::Any CypherMainVisitor::visitShowVersionBranchQuery(MemgraphCypher::Sho
   auto *show_version_branch = storage_->Create<ShowVersionBranchQuery>();
   query_ = show_version_branch;
   return show_version_branch;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowVersioningGraphQuery(
+    MemgraphCypher::ShowVersioningGraphQueryContext * /*ctx*/) {
+  auto *show_versioning_graph = storage_->Create<ShowVersioningGraphQuery>();
+  query_ = show_versioning_graph;
+  return show_versioning_graph;
 }
 
 antlrcpp::Any CypherMainVisitor::visitShowChangesQuery(MemgraphCypher::ShowChangesQueryContext * /*ctx*/) {

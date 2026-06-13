@@ -34,6 +34,11 @@ class VirtualNode final {
   VirtualNode(label_list labels, property_map properties, allocator_type alloc = {})
       : gid_(NextSyntheticGid()), impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), alloc)) {}
 
+  // Construct with an explicit gid instead of an auto-assigned synthetic one (e.g. so a versioning
+  // node's id equals its version number). Caller is responsible for gid uniqueness within the result.
+  VirtualNode(storage::Gid gid, label_list labels, property_map properties, allocator_type alloc = {})
+      : gid_(gid), impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), alloc)) {}
+
   VirtualNode(const VirtualNode &other, allocator_type alloc)
       : gid_(other.gid_), impl_(std::make_unique<Impl>(other.impl_->labels, other.impl_->properties, alloc)) {}
 

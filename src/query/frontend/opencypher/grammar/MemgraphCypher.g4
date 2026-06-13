@@ -796,10 +796,11 @@ versionManagementQuery : createVersionQuery
                        | showVersionsQuery
                        | showVersionBranchQuery
                        | showChangesQuery
+                       | showVersioningGraphQuery
                        | dropVersionQuery
                        ;
 
-createVersionQuery : CREATE VERSION versionName ;
+createVersionQuery : CREATE VERSION childVersion=versionName ( WITH DESCRIPTION versionDescription=literal )? BRANCH FROM parentVersion=versionName ;
 
 useVersionQuery : USE VERSION versionName ;
 
@@ -808,6 +809,8 @@ showVersionsQuery : SHOW VERSIONS ( FOR DATABASE db=symbolicName )? ;
 showVersionBranchQuery : SHOW VERSION BRANCH ;
 
 showChangesQuery : SHOW VERSION DIFF ;
+
+showVersioningGraphQuery : SHOW VERSIONING GRAPH ;
 
 dropVersionQuery : DROP VERSION versionName ;
 

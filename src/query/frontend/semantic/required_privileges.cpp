@@ -161,6 +161,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(ShowVersionBranchQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
 
+  void Visit(ShowVersioningGraphQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
+
   void Visit(ShowChangesQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
 
   void Visit(DropVersionQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }

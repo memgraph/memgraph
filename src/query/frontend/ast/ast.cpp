@@ -477,6 +477,10 @@ constexpr utils::TypeInfo query::ShowVersionBranchQuery::kType{.id = utils::Type
                                                                .name = "ShowVersionBranchQuery",
                                                                .superclass = &query::Query::kType};
 
+constexpr utils::TypeInfo query::ShowVersioningGraphQuery::kType{.id = utils::TypeId::AST_SHOW_VERSIONING_GRAPH_QUERY,
+                                                                 .name = "ShowVersioningGraphQuery",
+                                                                 .superclass = &query::Query::kType};
+
 constexpr utils::TypeInfo query::ShowChangesQuery::kType{
     .id = utils::TypeId::AST_SHOW_CHANGES_QUERY, .name = "ShowChangesQuery", .superclass = &query::Query::kType};
 

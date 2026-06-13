@@ -89,6 +89,7 @@ target_sources(mg-storage-v2
         all_vertices_chunked_iterable.cpp
         edges_chunked_iterable.cpp
         versioning/version_delta_store.cpp
+        versioning/version_registry.cpp
 
         PUBLIC
         FILE_SET CXX_MODULES FILES

@@ -100,6 +100,8 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "query/version_overlay.hpp"
+#include "query/virtual_edge.hpp"
+#include "query/virtual_node.hpp"
 #include "replication/config.hpp"
 #include "replication/state.hpp"
 #include "spdlog/spdlog.h"
@@ -119,6 +121,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/versioning/version_delta_store.hpp"
+#include "storage/v2/versioning/version_registry.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
 #include "utils/compile_time.hpp"
@@ -3571,10 +3574,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // Versioning: when a version is active, the query runs against master with the version's overlay
   // replayed in, and is rolled back afterwards; writes are captured into the version's overlay store.
   const bool version_active = interpreter.active_version_.has_value();
-  std::filesystem::path version_path;
+  std::filesystem::path versions_dir;
+  std::string active_version_name;
   if (version_active) {
-    version_path =
-        current_db.db_acc_->get()->config().durability.storage_directory / "versions" / *interpreter.active_version_;
+    versions_dir = current_db.db_acc_->get()->config().durability.storage_directory / "versions";
+    active_version_name = *interpreter.active_version_;
   }
   const bool is_write_query = rw_type == RWType::W || rw_type == RWType::RW;
 
@@ -3607,32 +3611,36 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                         output_symbols = std::move(output_symbols),
                         summary,
                         version_active,
-                        version_path = std::move(version_path),
+                        versions_dir = std::move(versions_dir),
+                        active_version_name = std::move(active_version_name),
                         is_write_query,
                         trigger_context_collector,
                         dba,
                         replayed = false](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        // Replay the active version's overlay into master once, before the plan reads anything.
+        // Replay the active version's full ancestor chain (master -> ... -> parent -> leaf) into the
+        // transaction once, before the plan reads anything.
         if (version_active && !replayed) {
-          storage::VersionDeltaStore store{version_path};
-          ApplyVersionOverlay(dba, store.ReadAll());
+          for (const auto &ancestor : storage::VersionRegistry{versions_dir}.AncestorChain(active_version_name)) {
+            storage::VersionDeltaStore store{versions_dir / ancestor};
+            ApplyVersionOverlay(dba, store.ReadAll());
+          }
           // New command so the query's scans observe the replayed overlay as their View::OLD.
           dba->AdvanceCommand();
           replayed = true;
         }
         if (pull_plan->Pull(stream, n, output_symbols, summary)) {
           if (version_active) {
-            // Persist the query's writes into the version's overlay, then roll master back: the
-            // captured set (overlay replay + this query's writes, all relative to master) is the
-            // new complete overlay.
+            // Persist the query's writes into the leaf version's overlay, then roll master back: the
+            // captured set (this query's writes relative to the replayed state) is appended to the
+            // active version's op-log (parents are left untouched).
             if (is_write_query && trigger_context_collector) {
               // Capture only THIS query's changes (replay writes through the storage accessor and
               // does not feed the query trigger collector), and append them to the version's op-log.
               // The log accumulates across queries; replay applies it in order, so later ops win.
               auto overlay = CaptureVersionOverlay(dba, *trigger_context_collector);
               if (!overlay.empty()) {
-                storage::VersionDeltaStore store{version_path};
+                storage::VersionDeltaStore store{versions_dir / active_version_name};
                 for (const auto &delta : overlay) {
                   store.Append(delta);
                 }
@@ -6407,8 +6415,8 @@ std::string EvaluateVersionName(Expression *expr, const ParsedQuery &parsed_quer
   if (name == "master") {
     throw QueryRuntimeException("'master' is reserved for the base graph and cannot be used as a version name.");
   }
-  if (name == "." || name == ".." || name.find('/') != std::string::npos || name.find('\\') != std::string::npos) {
-    throw QueryRuntimeException("Version name must not contain path separators.");
+  if (name.front() == '.' || name.find('/') != std::string::npos || name.find('\\') != std::string::npos) {
+    throw QueryRuntimeException("Version name must not start with '.' or contain path separators.");
   }
   return name;
 }
@@ -6422,21 +6430,50 @@ PreparedQuery PrepareCreateVersionQuery(ParsedQuery parsed_query, bool in_explic
   MG_ASSERT(current_db.db_acc_, "Create Version query expects a current DB");
   auto *create_version = utils::Downcast<CreateVersionQuery>(parsed_query.query);
   const auto version_name = EvaluateVersionName(create_version->version_name_, parsed_query);
-  const auto version_path = VersionsDir(current_db) / version_name;
+  const auto versions_dir = VersionsDir(current_db);
+
+  // Evaluates a string-literal expression (description / parent name) to a std::string.
+  auto eval_string = [&](Expression *expr) -> std::string {
+    EvaluationContext evaluation_context;
+    evaluation_context.timestamp = QueryTimestamp();
+    evaluation_context.parameters = parsed_query.parameters;
+    auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+    const auto value = expr->Accept(evaluator);
+    if (!value.IsString()) {
+      throw QueryRuntimeException("Version name/description must be a string.");
+    }
+    return std::string{static_cast<std::string_view>(value.ValueString())};
+  };
+
+  // Optional WITH DESCRIPTION '<str>' (empty string when omitted).
+  const std::string description = create_version->description_ ? eval_string(create_version->description_) : "";
+  // Required BRANCH FROM '<parent>' ('master' for a top-level branch).
+  const std::string parent = eval_string(create_version->parent_);
 
   Callback callback;
-  callback.fn = [version_path]() mutable -> std::vector<std::vector<TypedValue>> {
+  callback.header = {"version", "number", "description", "parent"};
+  callback.fn = [versions_dir, version_name, description, parent]() mutable -> std::vector<std::vector<TypedValue>> {
+    const auto version_path = versions_dir / version_name;
     if (std::filesystem::exists(version_path)) {
-      throw QueryRuntimeException("Version '{}' already exists.", version_path.filename().string());
+      throw QueryRuntimeException("Version '{}' already exists.", version_name);
+    }
+    // The parent must be master or an already-existing version.
+    if (parent != "master" && !std::filesystem::exists(versions_dir / parent)) {
+      throw QueryRuntimeException("Parent version '{}' does not exist.", parent);
     }
     // Initialize the version's overlay store (creates the folder + its RocksDB instance). A fresh
-    // version has an empty op-log, so it reads identical to master until written to.
+    // version has an empty op-log, so it reads identical to its parent until written to.
     try {
       storage::VersionDeltaStore{version_path};
+      // Auto-assign a monotonic version number (master is 1; branches get 2, 3, ...).
+      const auto number = storage::VersionRegistry{versions_dir}.Add(version_name, description, parent);
+      return {{TypedValue{version_name},
+               TypedValue{static_cast<int64_t>(number)},
+               TypedValue{description},
+               TypedValue{parent}}};
     } catch (const kvstore::KVStoreError &e) {
-      throw QueryRuntimeException("Failed to create version '{}': {}.", version_path.filename().string(), e.what());
+      throw QueryRuntimeException("Failed to create version '{}': {}.", version_name, e.what());
     }
-    return {};
   };
 
   return PreparedQuery{
@@ -6462,20 +6499,21 @@ PreparedQuery PrepareDropVersionQuery(ParsedQuery parsed_query, bool in_explicit
     throw VersionInMulticommandTxException();
   }
   MG_ASSERT(current_db.db_acc_, "Drop Version query expects a current DB");
-  // TODO(versioning): reject when versioning-mode-enabled is off.
   auto *drop_version = utils::Downcast<DropVersionQuery>(parsed_query.query);
   const auto version_name = EvaluateVersionName(drop_version->version_name_, parsed_query);
-  const auto version_path = VersionsDir(current_db) / version_name;
+  const auto versions_dir = VersionsDir(current_db);
 
   Callback callback;
-  callback.fn = [version_path]() mutable -> std::vector<std::vector<TypedValue>> {
+  callback.fn = [versions_dir, version_name]() mutable -> std::vector<std::vector<TypedValue>> {
+    const auto version_path = versions_dir / version_name;
     if (!std::filesystem::exists(version_path)) {
-      throw QueryRuntimeException("Version '{}' does not exist.", version_path.filename().string());
+      throw QueryRuntimeException("Version '{}' does not exist.", version_name);
     }
     try {
       storage::VersionDeltaStore::Drop(version_path);
+      storage::VersionRegistry{versions_dir}.Remove(version_name);
     } catch (const kvstore::KVStoreError &e) {
-      throw QueryRuntimeException("Failed to drop version '{}': {}.", version_path.filename().string(), e.what());
+      throw QueryRuntimeException("Failed to drop version '{}': {}.", version_name, e.what());
     }
     return {};
   };
@@ -6519,17 +6557,28 @@ PreparedQuery PrepareShowVersionsQuery(ParsedQuery parsed_query, bool in_explici
   }
 
   Callback callback;
-  callback.header = {"name"};
+  callback.header = {"number", "version", "description"};
   callback.fn = [versions_dir]() mutable -> std::vector<std::vector<TypedValue>> {
-    std::vector<std::vector<TypedValue>> results;
+    // master is always version number 1 (no description); branches follow, ordered by their number.
+    struct Row {
+      uint64_t number;
+      std::string name;
+      std::string description;
+    };
+    std::vector<Row> versions{{storage::kMasterVersionNumber, "master", ""}};
     std::error_code ec;
-    if (!std::filesystem::exists(versions_dir, ec)) {
-      return results;
-    }
-    for (const auto &entry : std::filesystem::directory_iterator(versions_dir, ec)) {
-      if (entry.is_directory()) {
-        results.push_back({TypedValue{entry.path().filename().string()}});
+    if (std::filesystem::exists(versions_dir, ec)) {
+      for (auto &[name, info] : storage::VersionRegistry{versions_dir}.List()) {
+        versions.push_back({info.number, std::move(name), std::move(info.description)});
       }
+    }
+    std::ranges::sort(versions, {}, &Row::number);
+    std::vector<std::vector<TypedValue>> results;
+    results.reserve(versions.size());
+    for (auto &row : versions) {
+      results.push_back({TypedValue{static_cast<int64_t>(row.number)},
+                         TypedValue{std::move(row.name)},
+                         TypedValue{std::move(row.description)}});
     }
     return results;
   };
@@ -6552,17 +6601,120 @@ PreparedQuery PrepareShowVersionsQuery(ParsedQuery parsed_query, bool in_explici
 }
 
 PreparedQuery PrepareShowVersionBranchQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                            Interpreter &interpreter) {
+                                            CurrentDB &current_db, Interpreter &interpreter) {
   EnsureVersioningEnabled();
   if (in_explicit_transaction) {
     throw VersionInMulticommandTxException();
   }
+  MG_ASSERT(current_db.db_acc_, "Show Version Branch query expects a current DB");
 
   Callback callback;
-  callback.header = {"version"};
-  callback.fn = [&interpreter]() mutable -> std::vector<std::vector<TypedValue>> {
-    std::string current = interpreter.active_version_ ? *interpreter.active_version_ : std::string{"master"};
-    return {{TypedValue{std::move(current)}}};
+  callback.header = {"version", "number", "description"};
+  callback.fn = [&interpreter,
+                 versions_dir = VersionsDir(current_db)]() mutable -> std::vector<std::vector<TypedValue>> {
+    if (!interpreter.active_version_) {
+      return {{TypedValue{"master"}, TypedValue{static_cast<int64_t>(storage::kMasterVersionNumber)}, TypedValue{""}}};
+    }
+    const auto info = storage::VersionRegistry{versions_dir}.InfoOf(*interpreter.active_version_);
+    return {{TypedValue{*interpreter.active_version_},
+             info ? TypedValue{static_cast<int64_t>(info->number)} : TypedValue{},
+             TypedValue{info ? info->description : std::string{}}}};
+  };
+
+  return PreparedQuery{
+      .header = std::move(callback.header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          pull_plan = std::make_shared<PullPlanVector>(handler());
+        }
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::NOTHING;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
+}
+
+PreparedQuery PrepareShowVersioningGraphQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                              CurrentDB &current_db, Interpreter &interpreter) {
+  EnsureVersioningEnabled();
+  if (in_explicit_transaction) {
+    throw VersionInMulticommandTxException();
+  }
+  MG_ASSERT(current_db.db_acc_, "Show Versioning Graph query expects a current DB");
+  // Only the property name->id mapping is needed (resolved back to names by the result encoder);
+  // the nodes/edges themselves are purely virtual, so no graph transaction is required.
+  storage::Storage *db = current_db.db_acc_->get()->storage();
+  const auto versions_dir = VersionsDir(current_db);
+  const auto active_version = interpreter.active_version_;
+
+  Callback callback;
+  callback.header = {"element"};
+  callback.fn = [db, versions_dir, active_version]() mutable -> std::vector<std::vector<TypedValue>> {
+    const auto p_name = db->NameToProperty("name");
+    const auto p_description = db->NameToProperty("description");
+    const auto p_number = db->NameToProperty("number");
+    const auto p_changes = db->NameToProperty("number_of_changes");
+
+    auto make_node = [&](std::string_view name,
+                         std::string_view description,
+                         uint64_t number,
+                         uint64_t number_of_changes,
+                         bool is_current) -> std::shared_ptr<VirtualNode> {
+      VirtualNode::label_list labels;
+      labels.emplace_back("Version");
+      if (is_current) labels.emplace_back("CurrentVersion");
+      VirtualNode::property_map properties;
+      properties.emplace(p_name, storage::PropertyValue(name));
+      properties.emplace(p_description, storage::PropertyValue(description));
+      properties.emplace(p_number, storage::PropertyValue(static_cast<int64_t>(number)));
+      properties.emplace(p_changes, storage::PropertyValue(static_cast<int64_t>(number_of_changes)));
+      // Use the version number as the node's gid so the visualized id == the version number.
+      return std::make_shared<VirtualNode>(storage::Gid::FromUint(number), std::move(labels), std::move(properties));
+    };
+
+    std::vector<std::vector<TypedValue>> rows;
+    std::unordered_map<std::string, std::shared_ptr<VirtualNode>> nodes;
+
+    // master is the base graph: no overlay, so zero recorded changes.
+    nodes["master"] = make_node("master",
+                                "This is the master version of the graph",
+                                storage::kMasterVersionNumber,
+                                /*number_of_changes=*/0,
+                                !active_version.has_value());
+    rows.push_back({TypedValue{*nodes["master"]}});
+
+    std::error_code ec;
+    std::vector<std::pair<std::string, storage::VersionInfo>> branches;
+    if (std::filesystem::exists(versions_dir, ec)) {
+      branches = storage::VersionRegistry{versions_dir}.List();
+    }
+
+    // First pass: create a node per branch (so parents are available when wiring edges).
+    for (auto &[name, info] : branches) {
+      const bool is_current = active_version && *active_version == name;
+      // Number of overlay delta objects persisted for this version (its RocksDB op-log length).
+      uint64_t number_of_changes = 0;
+      try {
+        number_of_changes = storage::VersionDeltaStore{versions_dir / name}.Size();
+      } catch (const kvstore::KVStoreError & /*unused*/) {
+        // Store busy/unavailable (e.g. open by a concurrent query) — report 0 rather than fail.
+      }
+      nodes[name] = make_node(name, info.description, info.number, number_of_changes, is_current);
+      rows.push_back({TypedValue{*nodes[name]}});
+    }
+
+    // Second pass: connect each version to its parent (master or another branch).
+    for (auto &[name, info] : branches) {
+      const std::string parent = info.parent.empty() ? "master" : info.parent;
+      auto parent_it = nodes.find(parent);
+      if (parent_it == nodes.end()) continue;  // parent dropped/missing — skip the edge
+      rows.push_back({TypedValue{VirtualEdge{parent_it->second, nodes[name], utils::pmr::string{"BRANCHED_TO"}}}});
+    }
+    return rows;
   };
 
   return PreparedQuery{
@@ -9862,6 +10014,9 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(ShowVersionBranchQuery & /*unused*/) override {}
 
+  // Returns purely virtual nodes/edges (no real graph access); needs no storage transaction.
+  void Visit(ShowVersioningGraphQuery & /*unused*/) override {}
+
   void Visit(CreateVersionQuery & /*unused*/) override {}
 
   void Visit(DropVersionQuery & /*unused*/) override {}
@@ -10398,7 +10553,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareShowVersionsQuery(
           std::move(parsed_query), in_explicit_transaction_, current_db_, interpreter_context_);
     } else if (utils::Downcast<ShowVersionBranchQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowVersionBranchQuery(std::move(parsed_query), in_explicit_transaction_, *this);
+      prepared_query =
+          PrepareShowVersionBranchQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, *this);
+    } else if (utils::Downcast<ShowVersioningGraphQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareShowVersioningGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, *this);
     } else if (utils::Downcast<UseVersionQuery>(parsed_query.query)) {
       prepared_query = PrepareUseVersionQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, *this);
     } else if (utils::Downcast<ShowChangesQuery>(parsed_query.query)) {
