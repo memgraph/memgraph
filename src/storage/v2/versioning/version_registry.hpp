@@ -65,6 +65,9 @@ class VersionRegistry {
   // `name` itself. Excludes master. Used to replay overlays in order onto the base graph.
   std::vector<std::string> AncestorChain(const std::string &name) const;
 
+  // True if any version's parent is `name` (i.e. `name` has at least one child branch).
+  bool HasChildren(const std::string &name) const;
+
  private:
   static constexpr std::string_view kCounterKey = ".counter";
   std::unique_ptr<kvstore::KVStore> store_;

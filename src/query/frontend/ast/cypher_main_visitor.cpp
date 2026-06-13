@@ -1975,6 +1975,13 @@ antlrcpp::Any CypherMainVisitor::visitShowChangesQuery(MemgraphCypher::ShowChang
   return show_changes;
 }
 
+antlrcpp::Any CypherMainVisitor::visitMergeVersionQuery(MemgraphCypher::MergeVersionQueryContext *ctx) {
+  auto *merge_version = storage_->Create<MergeVersionQuery>();
+  merge_version->version_name_ = std::any_cast<Expression *>(ctx->versionName()->accept(this));
+  query_ = merge_version;
+  return merge_version;
+}
+
 antlrcpp::Any CypherMainVisitor::visitDropVersionQuery(MemgraphCypher::DropVersionQueryContext *ctx) {
   auto *drop_version = storage_->Create<DropVersionQuery>();
   drop_version->version_name_ = std::any_cast<Expression *>(ctx->versionName()->accept(this));

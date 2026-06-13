@@ -3851,6 +3851,24 @@ class ShowChangesQuery : public memgraph::query::Query {
   }
 };
 
+// Merge a leaf version's changes into its parent (then drop the version).
+class MergeVersionQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  MergeVersionQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<MergeVersionQuery>();
+    object->version_name_ = version_name_ ? version_name_->Clone(storage) : nullptr;
+    return object;
+  }
+
+  Expression *version_name_{nullptr};
+};
+
 // Discard a named version (removes its versions/<name>/ folder).
 class DropVersionQuery : public memgraph::query::Query {
  public:

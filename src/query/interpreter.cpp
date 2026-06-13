@@ -3582,6 +3582,16 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   }
   const bool is_write_query = rw_type == RWType::W || rw_type == RWType::RW;
 
+  // A version that has child branches is frozen: children replay its overlay as their base, so
+  // mutating it would silently change them. Reject writes (reads are still allowed).
+  if (version_active && is_write_query && storage::VersionRegistry{versions_dir}.HasChildren(active_version_name)) {
+    throw QueryRuntimeException(
+        "Version '{}' has child branches and is read-only. Writing would change the base of its children; create a "
+        "new branch from '{}' to make further changes.",
+        active_version_name,
+        active_version_name);
+  }
+
   auto pull_plan = std::make_shared<PullPlan>(plan,
                                               parsed_query.parameters,
                                               is_profile_query,
@@ -6491,6 +6501,99 @@ PreparedQuery PrepareCreateVersionQuery(ParsedQuery parsed_query, bool in_explic
       },
       .rw_type = RWType::NONE,
       .priority = utils::Priority::HIGH};
+}
+
+PreparedQuery PrepareMergeVersionQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
+                                       Interpreter &interpreter) {
+  EnsureVersioningEnabled();
+  if (in_explicit_transaction) {
+    throw VersionInMulticommandTxException();
+  }
+  MG_ASSERT(current_db.execution_db_accessor_, "Merge Version query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+  auto *merge_version = utils::Downcast<MergeVersionQuery>(parsed_query.query);
+  const auto version_name = EvaluateVersionName(merge_version->version_name_, parsed_query);  // rejects 'master'
+  const auto versions_dir = VersionsDir(current_db);
+
+  // You can only merge the version you're currently on.
+  if (interpreter.active_version_ != version_name) {
+    throw QueryRuntimeException(
+        "You must be on version '{}' to merge it. Run USE VERSION '{}' first.", version_name, version_name);
+  }
+
+  // Shared between the pull (which applies a master merge into the transaction) and the after-commit
+  // step (which folds a parent merge + deletes the version only once the master data is durable).
+  struct MergeState {
+    std::string parent;
+    bool into_master{false};
+    std::vector<storage::OverlayDelta> deltas;  // populated only for parent merges (applied post-commit)
+  };
+
+  auto state = std::make_shared<MergeState>();
+
+  Callback callback;
+  callback.header = {"merged", "into"};
+  callback.fn = [dba, versions_dir, version_name, state]() mutable -> std::vector<std::vector<TypedValue>> {
+    if (!std::filesystem::exists(versions_dir / version_name)) {
+      throw QueryRuntimeException("Version '{}' does not exist.", version_name);
+    }
+    storage::VersionRegistry registry{versions_dir};
+    if (registry.HasChildren(version_name)) {
+      throw QueryRuntimeException(
+          "Version '{}' has child branches and cannot be merged; merge or drop its children "
+          "first.",
+          version_name);
+    }
+    const auto info = registry.InfoOf(version_name);
+    state->parent = (info && !info->parent.empty()) ? info->parent : "master";
+    state->into_master = (state->parent == "master");
+
+    auto deltas = storage::VersionDeltaStore{versions_dir / version_name}.ReadAll();
+    if (state->into_master) {
+      // Apply the overlay onto master within the transaction; the autocommit COMMIT makes it durable,
+      // and only then does after_commit delete the version.
+      ApplyVersionOverlay(dba, deltas);
+    } else {
+      // Parent merge touches no master data; defer the op-log append to after_commit too.
+      state->deltas = std::move(deltas);
+    }
+    return {{TypedValue{version_name}, TypedValue{state->parent}}};
+  };
+
+  return PreparedQuery{
+      .header = std::move(callback.header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          pull_plan = std::make_shared<PullPlanVector>(handler());
+        }
+        if (pull_plan->Pull(stream, n)) {
+          // COMMIT persists a master merge; for a merge into a parent version the transaction is empty.
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::W,
+      .priority = utils::Priority::HIGH,
+      // Runs only after the master data is durably committed: fold a parent merge, drop the merged
+      // version, and reposition the session to the parent.
+      .after_commit =
+          [versions_dir, version_name, state, &interpreter]() {
+            if (!state->into_master) {
+              storage::VersionDeltaStore parent_store{versions_dir / state->parent};
+              for (const auto &delta : state->deltas) {
+                parent_store.Append(delta);
+              }
+            }
+            storage::VersionDeltaStore::Drop(versions_dir / version_name);
+            storage::VersionRegistry{versions_dir}.Remove(version_name);
+            if (state->into_master) {
+              interpreter.active_version_.reset();
+            } else {
+              interpreter.active_version_ = state->parent;
+            }
+          }};
 }
 
 PreparedQuery PrepareDropVersionQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
@@ -10019,6 +10122,9 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(CreateVersionQuery & /*unused*/) override {}
 
+  // Merge may apply the version's overlay to master and commit it, so it needs write access.
+  void Visit(MergeVersionQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::WRITE; }
+
   void Visit(DropVersionQuery & /*unused*/) override {}
 
   void Visit(ShowChangesQuery & /*unused*/) override {}
@@ -10562,6 +10668,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareUseVersionQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, *this);
     } else if (utils::Downcast<ShowChangesQuery>(parsed_query.query)) {
       prepared_query = PrepareShowChangesQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, *this);
+    } else if (utils::Downcast<MergeVersionQuery>(parsed_query.query)) {
+      prepared_query = PrepareMergeVersionQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, *this);
     } else if (utils::Downcast<StorageModeQuery>(parsed_query.query)) {
       prepared_query =
           PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, interpreter_context_);

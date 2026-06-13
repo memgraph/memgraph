@@ -215,6 +215,9 @@ struct PreparedQuery {
   // Lazily renders the EXPLAIN plan for the slow-query log; empty unless slow logging may
   // apply. Pull invokes it past the duration gate, while the plan's DbAccessor is alive.
   std::function<std::string()> slow_query_plan_renderer{};
+  // Optional action run exactly once, after a successful autocommit Commit() (not on abort/failure).
+  // Used by e.g. MERGE VERSION to delete the merged version only after its data is durably committed.
+  std::function<void()> after_commit{};
 };
 
 /**
@@ -729,9 +732,14 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       }
       if (!in_explicit_transaction_) {
         switch (*maybe_res) {
-          case QueryHandlerResult::COMMIT:
+          case QueryHandlerResult::COMMIT: {
+            // Move the action out first so it survives ResetInterpreter, and run it only if Commit()
+            // actually succeeds (a throwing Commit propagates to the catch below, skipping this).
+            auto after_commit = std::move(query_execution->prepared_query->after_commit);
             Commit();
+            if (after_commit) after_commit();
             break;
+          }
           case QueryHandlerResult::ABORT:
             Abort();
             break;

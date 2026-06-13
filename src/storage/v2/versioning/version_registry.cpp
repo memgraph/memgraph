@@ -81,6 +81,14 @@ std::vector<std::pair<std::string, VersionInfo>> VersionRegistry::List() const {
   return versions;
 }
 
+bool VersionRegistry::HasChildren(const std::string &name) const {
+  for (auto it = store_->begin(); it != store_->end(); ++it) {
+    if (!it->first.empty() && it->first.front() == '.') continue;  // skip reserved keys
+    if (DecodeInfo(it->second).parent == name) return true;
+  }
+  return false;
+}
+
 std::vector<std::string> VersionRegistry::AncestorChain(const std::string &name) const {
   std::vector<std::string> chain;
   std::unordered_set<std::string> seen;  // guard against accidental cycles

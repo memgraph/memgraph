@@ -797,6 +797,7 @@ versionManagementQuery : createVersionQuery
                        | showVersionBranchQuery
                        | showChangesQuery
                        | showVersioningGraphQuery
+                       | mergeVersionQuery
                        | dropVersionQuery
                        ;
 
@@ -811,6 +812,8 @@ showVersionBranchQuery : SHOW VERSION BRANCH ;
 showChangesQuery : SHOW VERSION DIFF ;
 
 showVersioningGraphQuery : SHOW VERSIONING GRAPH ;
+
+mergeVersionQuery : MERGE VERSION versionName ;
 
 dropVersionQuery : DROP VERSION versionName ;
 
