@@ -3265,6 +3265,27 @@ inline bool are_equal(const TypedValue &lhs, const TypedValue &rhs) {
 }
 }  // namespace
 
+// std::priority_queue::top() returns a const reference and pop() destroys the
+// element, so there is no way to move the top element out - extracting it always
+// copies. For the all-shortest-paths queue the elements are heavy (they carry a
+// TypedValue weight and an optional accumulated Path), so this copy is wasteful.
+// This adapter exposes the underlying container to move the top element out
+// before popping it.
+template <typename T, typename Container, typename Compare>
+class MovablePriorityQueue : public std::priority_queue<T, Container, Compare> {
+ public:
+  using std::priority_queue<T, Container, Compare>::priority_queue;
+
+  // Moves the top element out and pops it. Equivalent to top() followed by
+  // pop(), but without copying the element.
+  T PopTop() {
+    std::pop_heap(this->c.begin(), this->c.end(), this->comp);
+    T value = std::move(this->c.back());
+    this->c.pop_back();
+    return value;
+  }
+};
+
 class ExpandAllShortestPathsCursor : public query::plan::Cursor {
  public:
   ExpandAllShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem,
@@ -3488,8 +3509,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       while (!pq_.empty()) {
         AbortCheck(context);
 
-        auto [current_weight, current_depth, current_vertex, directed_edge, acc_path] = pq_.top();
-        pq_.pop();
+        // Move the top element out instead of copying it - the entry carries a
+        // TypedValue weight and a (potentially large) accumulated Path.
+        auto [current_weight, current_depth, current_vertex, directed_edge, acc_path] = pq_.PopTop();
 
         const auto &[current_edge, direction, weight] = directed_edge;
         auto current_state = create_state(current_vertex, current_depth);
@@ -3667,7 +3689,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
   // Priority queue - core element of the algorithm.
   // Stores: {weight, depth, next vertex, edge and direction}
-  std::priority_queue<
+  MovablePriorityQueue<
       std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge, std::optional<Path>>,
       utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge, std::optional<Path>>>,
       PriorityQueueComparator>
