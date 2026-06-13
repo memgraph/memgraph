@@ -136,6 +136,19 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
  */
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);
 
+/**
+ * @brief Get the runtime-settable hot/cold eviction watermark percents and max-per-cycle.
+ */
+uint64_t GetHotColdEvictionHighWatermarkPercent();
+uint64_t GetHotColdEvictionLowWatermarkPercent();
+uint64_t GetHotColdEvictionMaxPerCycle();
+
+/**
+ * @brief Attach/detach an observer to the hot/cold eviction poll-interval variable (live SetInterval).
+ */
+void HotColdEvictionPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);
+void HotColdEvictionPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);
+
 int64_t GetLogMinDurationMs();
 bool GetLogFailedQueries();
 bool GetLogQueryPlan();

@@ -657,5 +657,87 @@ def test_t6_idle_session_reaper_unpins_then_reheats(test_name):
     )
 
 
+# ---------------------------------------------------------------------------
+# T7 — runtime-settable eviction knobs (watermarks / max-per-cycle / poll-interval)
+# ---------------------------------------------------------------------------
+
+# Reuse the eviction instance config (eviction enabled + experiment) so the poll-interval observer is
+# actually attached to a running scheduler; the four settings are registered regardless of enablement.
+_RUNTIME_KNOBS_ARGS = list(_EVICTION_ARGS)
+
+
+def instance_description_runtime_knobs(test_name: str) -> dict:
+    return {
+        "instance_knobs": {
+            "args": _RUNTIME_KNOBS_ARGS,
+            "log_file": f"{get_logs_path(file, test_name)}/instance_knobs.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_knobs",
+            "setup_queries": [],
+        },
+    }
+
+
+_EVICTION_SETTING_KEYS = {
+    "high": "storage.hot_cold.eviction_high_watermark_percent",
+    "low": "storage.hot_cold.eviction_low_watermark_percent",
+    "max": "storage.hot_cold.eviction_max_per_cycle",
+    "poll": "storage.hot_cold.eviction_poll_interval_sec",
+}
+
+
+def test_t7_runtime_settable_eviction_knobs(test_name):
+    """
+    Verify the eviction knobs are runtime-settable via SET DATABASE SETTING and validated:
+    - SHOW DATABASE SETTING returns the CLI-configured values.
+    - Valid SET values round-trip (visible via SHOW).
+    - Out-of-range watermarks (0, >100), a zero poll-interval, and a non-numeric value are rejected.
+    """
+    instances = instance_description_runtime_knobs(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+    conn = connect(host="localhost", port=7687)
+    cursor = conn.cursor()
+
+    def show(key: str) -> str:
+        rows = execute_and_fetch_all(cursor, f"SHOW DATABASE SETTING '{key}'")
+        return str(rows[0][0])
+
+    def set_value(key: str, value: str):
+        execute_and_fetch_all(cursor, f"SET DATABASE SETTING '{key}' TO '{value}'")
+
+    # The _EVICTION_ARGS configure high=1, low=1, max=3, poll=1.
+    assert show(_EVICTION_SETTING_KEYS["high"]) == "1"
+    assert show(_EVICTION_SETTING_KEYS["low"]) == "1"
+    assert show(_EVICTION_SETTING_KEYS["max"]) == "3"
+    assert show(_EVICTION_SETTING_KEYS["poll"]) == "1"
+
+    # Valid runtime changes round-trip.
+    set_value(_EVICTION_SETTING_KEYS["high"], "90")
+    set_value(_EVICTION_SETTING_KEYS["low"], "60")
+    set_value(_EVICTION_SETTING_KEYS["max"], "7")
+    set_value(_EVICTION_SETTING_KEYS["poll"], "5")
+    assert show(_EVICTION_SETTING_KEYS["high"]) == "90"
+    assert show(_EVICTION_SETTING_KEYS["low"]) == "60"
+    assert show(_EVICTION_SETTING_KEYS["max"]) == "7"
+    assert show(_EVICTION_SETTING_KEYS["poll"]) == "5"
+
+    # Invalid values are rejected and leave the previous value intact.
+    for key, bad in [
+        (_EVICTION_SETTING_KEYS["high"], "0"),
+        (_EVICTION_SETTING_KEYS["high"], "150"),
+        (_EVICTION_SETTING_KEYS["low"], "101"),
+        (_EVICTION_SETTING_KEYS["poll"], "0"),
+        (_EVICTION_SETTING_KEYS["max"], "abc"),
+    ]:
+        with pytest.raises(Exception):
+            set_value(key, bad)
+    # The rejected writes did not mutate state.
+    assert show(_EVICTION_SETTING_KEYS["high"]) == "90"
+    assert show(_EVICTION_SETTING_KEYS["low"]) == "60"
+    assert show(_EVICTION_SETTING_KEYS["poll"]) == "5"
+    assert show(_EVICTION_SETTING_KEYS["max"]) == "7"
+
+    conn.close()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))

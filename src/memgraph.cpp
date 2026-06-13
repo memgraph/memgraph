@@ -70,6 +70,7 @@
 #include "utils/build_info.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/observer.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/scheduler.hpp"
@@ -336,6 +337,8 @@ int main(int argc, char **argv) {
 
   std::optional<memgraph::utils::Scheduler> python_gc_scheduler{std::nullopt};
   std::optional<memgraph::utils::Scheduler> hot_cold_eviction_scheduler{std::nullopt};
+  std::shared_ptr<memgraph::utils::Observer<memgraph::utils::SchedulerInterval>> hot_cold_eviction_interval_observer{
+      nullptr};
   std::optional<memgraph::utils::Scheduler> hot_cold_idle_reaper_scheduler{std::nullopt};
   wchar_t *program_name{nullptr};
   PyThreadState *python_thread_state{nullptr};
@@ -970,20 +973,10 @@ int main(int argc, char **argv) {
   // behaviour is completely unchanged.
   if (!is_coordinator_instance && dbms_handler.has_value() && FLAGS_storage_hot_cold_eviction_enabled &&
       memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::HOT_COLD_TENANTS)) {
-    // Sanity-check watermark percents at startup.  Misconfigured values won't crash the process
-    // but will make eviction either never fire (low >= high) or compute nonsensical byte targets.
-    if (FLAGS_storage_hot_cold_eviction_high_watermark_percent == 0 ||
-        FLAGS_storage_hot_cold_eviction_high_watermark_percent > 100) {
-      spdlog::warn(
-          "Hot/cold eviction: high_watermark_percent ({}) is outside (0,100]; eviction may not behave correctly.",
-          FLAGS_storage_hot_cold_eviction_high_watermark_percent);
-    }
-    if (FLAGS_storage_hot_cold_eviction_low_watermark_percent == 0 ||
-        FLAGS_storage_hot_cold_eviction_low_watermark_percent > 100) {
-      spdlog::warn(
-          "Hot/cold eviction: low_watermark_percent ({}) is outside (0,100]; eviction may not behave correctly.",
-          FLAGS_storage_hot_cold_eviction_low_watermark_percent);
-    }
+    // Watermark percents are range-validated [1,100] at gflags parse (DEFINE_VALIDATED_uint64) and on
+    // runtime SET, so an out-of-range value is rejected cleanly before here. Only the cross-field
+    // hysteresis case (low >= high — each valid on its own) is left to warn about. Eviction still fires
+    // with low >= high; it just collapses the band.
     if (FLAGS_storage_hot_cold_eviction_low_watermark_percent >=
         FLAGS_storage_hot_cold_eviction_high_watermark_percent) {
       spdlog::warn(
@@ -1029,18 +1022,39 @@ int main(int argc, char **argv) {
 #else
       const int64_t usage = static_cast<int64_t>(memgraph::utils::GetMemoryRES());
 #endif
-      const int64_t high = (limit / 100) * static_cast<int64_t>(FLAGS_storage_hot_cold_eviction_high_watermark_percent);
+      // Watermarks and max-per-cycle are runtime-settable (SET DATABASE SETTING); read the live values.
+      const int64_t high =
+          (limit / 100) * static_cast<int64_t>(memgraph::flags::run_time::GetHotColdEvictionHighWatermarkPercent());
       if (usage <= high) return;  // below the high watermark — nothing to do
-      const int64_t low = (limit / 100) * static_cast<int64_t>(FLAGS_storage_hot_cold_eviction_low_watermark_percent);
+      const int64_t low =
+          (limit / 100) * static_cast<int64_t>(memgraph::flags::run_time::GetHotColdEvictionLowWatermarkPercent());
       const int64_t to_free = usage - low;  // aim to drop back to the low watermark
       if (to_free <= 0) return;
       const int64_t freed =
-          dbms_handler->SuspendColdestIdleTenants(to_free, FLAGS_storage_hot_cold_eviction_max_per_cycle);
+          dbms_handler->SuspendColdestIdleTenants(to_free, memgraph::flags::run_time::GetHotColdEvictionMaxPerCycle());
       if (freed > 0) {
         spdlog::info("Hot/cold eviction cycle: usage {} > high {}, freed ~{} bytes (target {}).", usage, high, freed,
                      to_free);
       }
     });
+    // Make the poll-interval runtime-settable: attach an observer that calls SetInterval on the running
+    // scheduler whenever the storage.hot_cold.eviction_poll_interval_sec setting changes. Attach only
+    // registers the observer (it does NOT push the current value), so the explicit SetInterval above is
+    // the load-bearing initializer of the interval — do not remove it.
+    class EvictionIntervalObserver : public memgraph::utils::Observer<memgraph::utils::SchedulerInterval> {
+     public:
+      explicit EvictionIntervalObserver(memgraph::utils::Scheduler &scheduler) : scheduler_{&scheduler} {}
+      void Update(const memgraph::utils::SchedulerInterval &in) override {
+        scheduler_->SetInterval(in);
+        scheduler_->SpinOnce();
+      }
+
+     private:
+      memgraph::utils::Scheduler *scheduler_;
+    };
+    hot_cold_eviction_interval_observer =
+        std::make_shared<EvictionIntervalObserver>(*hot_cold_eviction_scheduler);
+    memgraph::flags::run_time::HotColdEvictionPeriodicAttach(hot_cold_eviction_interval_observer);
     spdlog::info(
         "Hot/cold memory-watermark eviction scheduler started (interval {}s, high {}%, low {}%, max {}/cycle).",
         FLAGS_storage_hot_cold_eviction_poll_interval_sec,
@@ -1200,6 +1214,7 @@ int main(int argc, char **argv) {
                       &coordinator_state,
                       &metrics_server,
                       &hot_cold_eviction_scheduler,
+                      &hot_cold_eviction_interval_observer,
                       &hot_cold_idle_reaper_scheduler,
 #endif
                       is_coordinator_instance,
@@ -1244,6 +1259,11 @@ int main(int argc, char **argv) {
     // SuspendColdestIdleTenants call can race with teardown of tenant tasks.
     if (hot_cold_eviction_scheduler) {
       spdlog::trace("Stopping hot/cold eviction scheduler");
+      // Detach the interval observer first so a late poll-interval setting change cannot call
+      // SetInterval on a scheduler that is being stopped/destroyed.
+      if (hot_cold_eviction_interval_observer) {
+        memgraph::flags::run_time::HotColdEvictionPeriodicDetach(hot_cold_eviction_interval_observer);
+      }
       hot_cold_eviction_scheduler->Stop();
     }
     if (hot_cold_idle_reaper_scheduler) {

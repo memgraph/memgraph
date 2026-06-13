@@ -120,14 +120,18 @@ DEFINE_uint64(storage_hot_cold_max_concurrent_resumes, 2,
 DEFINE_bool(storage_hot_cold_eviction_enabled, false,
             "Hot/cold: enable automatic RAM-pressure eviction of the coldest idle in-memory tenants.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(storage_hot_cold_eviction_poll_interval_sec, 30,
-              "Hot/cold: polling interval (seconds) for the memory-watermark eviction scheduler.");
+DEFINE_VALIDATED_uint64(storage_hot_cold_eviction_poll_interval_sec, 30,
+                        "Hot/cold: polling interval (seconds) for the memory-watermark eviction scheduler.",
+                        FLAG_IN_RANGE(1, std::numeric_limits<std::uint64_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(storage_hot_cold_eviction_high_watermark_percent, 85,
-              "Hot/cold: eviction triggers when tracked memory exceeds this percent of the memory limit.");
+DEFINE_VALIDATED_uint64(storage_hot_cold_eviction_high_watermark_percent, 85,
+                        "Hot/cold: eviction triggers when memory usage exceeds this percent of the memory limit.",
+                        FLAG_IN_RANGE(1, 100));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(storage_hot_cold_eviction_low_watermark_percent, 70,
-              "Hot/cold: eviction suspends tenants until tracked memory drops below this percent of the memory limit.");
+DEFINE_VALIDATED_uint64(
+    storage_hot_cold_eviction_low_watermark_percent, 70,
+    "Hot/cold: eviction suspends tenants until memory usage drops below this percent of the memory limit.",
+    FLAG_IN_RANGE(1, 100));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_hot_cold_eviction_max_per_cycle, 3,
               "Hot/cold: maximum number of tenants to evict per scheduler cycle.");

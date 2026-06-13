@@ -189,6 +189,15 @@ constexpr auto kLogMinDurationMsGFlagsKey = "log_min_duration_ms";
 constexpr auto kLogFailedQueriesGFlagsKey = "log_failed_queries";
 constexpr auto kLogQueryPlanGFlagsKey = "log_query_plan";
 
+constexpr auto kHotColdEvictionHighWatermarkSettingKey = "storage.hot_cold.eviction_high_watermark_percent";
+constexpr auto kHotColdEvictionHighWatermarkGFlagsKey = "storage_hot_cold_eviction_high_watermark_percent";
+constexpr auto kHotColdEvictionLowWatermarkSettingKey = "storage.hot_cold.eviction_low_watermark_percent";
+constexpr auto kHotColdEvictionLowWatermarkGFlagsKey = "storage_hot_cold_eviction_low_watermark_percent";
+constexpr auto kHotColdEvictionMaxPerCycleSettingKey = "storage.hot_cold.eviction_max_per_cycle";
+constexpr auto kHotColdEvictionMaxPerCycleGFlagsKey = "storage_hot_cold_eviction_max_per_cycle";
+constexpr auto kHotColdEvictionPollIntervalSettingKey = "storage.hot_cold.eviction_poll_interval_sec";
+constexpr auto kHotColdEvictionPollIntervalGFlagsKey = "storage_hot_cold_eviction_poll_interval_sec";
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
@@ -199,6 +208,9 @@ std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
+std::atomic<uint64_t> hot_cold_eviction_high_watermark_percent_{85};
+std::atomic<uint64_t> hot_cold_eviction_low_watermark_percent_{70};
+std::atomic<uint64_t> hot_cold_eviction_max_per_cycle_{3};
 std::atomic<int64_t> log_min_duration_ms_{-1};
 std::atomic<bool> log_failed_queries_{false};
 std::atomic<bool> log_query_plan_{true};
@@ -232,6 +244,11 @@ class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::S
  private:
   memgraph::utils::Synchronized<memgraph::utils::SchedulerInterval, memgraph::utils::RWSpinLock> periodic_;
 } snapshot_periodic_;
+
+// Drives the live poll-interval of the hot/cold eviction scheduler (see memgraph.cpp HC-Evict). A
+// separate instance from snapshot_periodic_ with the same machinery: SET DATABASE SETTING on the
+// poll-interval calls Modify() -> Notify(), and the scheduler's attached observer calls SetInterval().
+PeriodicObservable eviction_periodic_;
 
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
@@ -356,12 +373,25 @@ void Initialize(utils::Settings &settings) {
       const auto &val = update();
       post_update(val);
     };
-    // Register setting
-    settings.RegisterSetting(key, info.default_value, callback, std::move(validator));
+    // Register setting. Keep a copy of the validator for the restore-path guard below: the restore
+    // branch applies the persisted value WITHOUT going through SetValue (so its validation is skipped).
+    settings.RegisterSetting(key, info.default_value, callback, validator);
 
     if (restore && info.is_default) {
-      // No input from the user, restore persistent value from settings
-      callback();
+      // No input from the user: restore the persisted value. It bypasses SetValue's validation, so a
+      // corrupt / out-of-range persisted value (settings-store tamper, or a validator tightened across
+      // versions) would otherwise be applied silently — or crash a parsing post_update (e.g.
+      // ParseStringToUint64 on a non-numeric string). Validate it here; on failure warn and fall back to
+      // the compiled default (which RegisterSetting already asserted is valid).
+      const auto persisted = settings.GetValue(key);
+      if (persisted && validator(*persisted).has_value()) {
+        callback();
+      } else {
+        spdlog::warn("Persisted setting '{}' is invalid ('{}'); falling back to default '{}'.", key,
+                     persisted.value_or("<missing>"), info.default_value);
+        settings.SetValueForce(key, info.default_value);
+        callback();
+      }
     } else {
       // Override with current value - user defined a new value or the run-time flag is not persistent between starts
       settings.SetValue(key, info.current_value);
@@ -585,6 +615,58 @@ void Initialize(utils::Settings &settings) {
       kRestore,
       [](const std::string &val) { log_query_plan_.store(val == "true", std::memory_order_release); },
       ValidBoolStr);
+
+  /*
+   * Register hot/cold eviction knobs as runtime-settable + persistent. Watermarks are validated to
+   * (0,100]; the scheduler tolerates low >= high (collapses the hysteresis band) so no cross-check is
+   * enforced here (matches the lenient startup behaviour). The poll-interval drives a live scheduler
+   * interval change via the eviction_periodic_ observable (see memgraph.cpp).
+   */
+  const auto valid_watermark_percent = [](std::string_view in) -> utils::Settings::ValidatorResult {
+    try {
+      const auto v = utils::ParseStringToUint64(in);
+      if (v == 0 || v > 100) return std::unexpected{"watermark percent must be in range (0, 100]"};
+      return {};
+    } catch (utils::ParseException const &) {
+      return std::unexpected{"watermark percent must be a valid unsigned integer"};
+    }
+  };
+  register_flag(
+      kHotColdEvictionHighWatermarkGFlagsKey, kHotColdEvictionHighWatermarkSettingKey, kRestore,
+      [](std::string_view val) {
+        hot_cold_eviction_high_watermark_percent_.store(utils::ParseStringToUint64(val), std::memory_order_release);
+      },
+      valid_watermark_percent);
+  register_flag(
+      kHotColdEvictionLowWatermarkGFlagsKey, kHotColdEvictionLowWatermarkSettingKey, kRestore,
+      [](std::string_view val) {
+        hot_cold_eviction_low_watermark_percent_.store(utils::ParseStringToUint64(val), std::memory_order_release);
+      },
+      valid_watermark_percent);
+  register_flag(
+      kHotColdEvictionMaxPerCycleGFlagsKey, kHotColdEvictionMaxPerCycleSettingKey, kRestore,
+      [](std::string_view val) {
+        hot_cold_eviction_max_per_cycle_.store(utils::ParseStringToUint64(val), std::memory_order_release);
+      },
+      [](auto in) -> utils::Settings::ValidatorResult {
+        try {
+          utils::ParseStringToUint64(in);
+          return {};
+        } catch (utils::ParseException const &) {
+          return std::unexpected{"eviction_max_per_cycle must be a valid unsigned integer"};
+        }
+      });
+  register_flag(
+      kHotColdEvictionPollIntervalGFlagsKey, kHotColdEvictionPollIntervalSettingKey, kRestore,
+      [](std::string_view val) { eviction_periodic_.Modify(std::chrono::seconds{utils::ParseStringToUint64(val)}); },
+      [](auto in) -> utils::Settings::ValidatorResult {
+        try {
+          if (utils::ParseStringToUint64(in) == 0) return std::unexpected{"eviction_poll_interval_sec must be >= 1"};
+          return {};
+        } catch (utils::ParseException const &) {
+          return std::unexpected{"eviction_poll_interval_sec must be a valid unsigned integer"};
+        }
+      });
 }
 
 std::string GetServerName() {
@@ -657,6 +739,26 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
 
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Detach(observer);
+}
+
+uint64_t GetHotColdEvictionHighWatermarkPercent() {
+  return hot_cold_eviction_high_watermark_percent_.load(std::memory_order_acquire);
+}
+
+uint64_t GetHotColdEvictionLowWatermarkPercent() {
+  return hot_cold_eviction_low_watermark_percent_.load(std::memory_order_acquire);
+}
+
+uint64_t GetHotColdEvictionMaxPerCycle() {
+  return hot_cold_eviction_max_per_cycle_.load(std::memory_order_acquire);
+}
+
+void HotColdEvictionPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
+  eviction_periodic_.Attach(observer);
+}
+
+void HotColdEvictionPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
+  eviction_periodic_.Detach(observer);
 }
 
 int64_t GetLogMinDurationMs() { return log_min_duration_ms_.load(std::memory_order_acquire); }
