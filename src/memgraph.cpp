@@ -996,6 +996,26 @@ int main(int argc, char **argv) {
     hot_cold_eviction_scheduler.emplace();
     hot_cold_eviction_scheduler->SetInterval(std::chrono::seconds(FLAGS_storage_hot_cold_eviction_poll_interval_sec));
     hot_cold_eviction_scheduler->Run("HC-Evict", [&dbms_handler]() {
+      // Runtime license gate: hot/cold eviction acts on non-default tenants (multi-tenancy), an
+      // enterprise feature. The user-facing SUSPEND path is gated in PrepareMultiDatabaseQuery, but
+      // this background tick reaches SuspendColdestIdleTenants directly. Re-check each cycle (not
+      // just at registration) so eviction goes dormant when the license lapses and self-resumes
+      // when it returns. Skip (don't throw) — this runs on a scheduler thread.
+      //
+      // TODO(hot-cold): this stops *new* evictions, but tenants already suspended to COLD become
+      // unreachable while the license is lapsed. The user's only way back to a COLD tenant is the
+      // resume-on-cold seam (USE DATABASE -> block-and-resume), and that path is itself gated by the
+      // multi-tenancy license (accessing a non-default tenant requires enterprise), so a lapsed
+      // license strands COLD tenants' data until the license is restored. Decide and implement the
+      // intended behaviour, e.g. one of:
+      //   (a) on license loss, proactively resume all COLD tenants back to HOT (lose eviction, keep
+      //       data reachable); or
+      //   (b) allow resume of already-existing COLD tenants under a grace path even without a valid
+      //       license (entitlement is for *creating/evicting* tenants, not for reading existing
+      //       data); or
+      //   (c) document this as expected and surface a clear operator-facing warning + SHOW DATABASES
+      //       state so the stranding is diagnosable.
+      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return;
       const int64_t limit = memgraph::flags::GetMemoryLimit();
       if (limit <= 0) return;
       const int64_t usage = memgraph::utils::total_memory_tracker.Amount();
