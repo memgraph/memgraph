@@ -987,56 +987,12 @@ int main(int argc, char **argv) {
           FLAGS_storage_hot_cold_eviction_low_watermark_percent,
           FLAGS_storage_hot_cold_eviction_high_watermark_percent);
     }
+    // The eviction policy (license/experiment gating, memory signal, watermarks, SuspendColdestIdleTenants)
+    // lives in DbmsHandler::EvictForMemoryPressure — one source shared by this periodic scheduler and the
+    // make-room-on-resume path (called directly from Resume_), so no policy callback is injected here.
     hot_cold_eviction_scheduler.emplace();
     hot_cold_eviction_scheduler->SetInterval(std::chrono::seconds(FLAGS_storage_hot_cold_eviction_poll_interval_sec));
-    hot_cold_eviction_scheduler->Run("HC-Evict", [&dbms_handler]() {
-      // Runtime license gate: hot/cold eviction acts on non-default tenants (multi-tenancy), an
-      // enterprise feature. The user-facing SUSPEND path is gated in PrepareMultiDatabaseQuery, but
-      // this background tick reaches SuspendColdestIdleTenants directly. Re-check each cycle (not
-      // just at registration) so eviction goes dormant when the license lapses and self-resumes
-      // when it returns. Skip (don't throw) — this runs on a scheduler thread.
-      //
-      // TODO(hot-cold): this stops *new* evictions, but tenants already suspended to COLD become
-      // unreachable while the license is lapsed. The user's only way back to a COLD tenant is the
-      // resume-on-cold seam (USE DATABASE -> block-and-resume), and that path is itself gated by the
-      // multi-tenancy license (accessing a non-default tenant requires enterprise), so a lapsed
-      // license strands COLD tenants' data until the license is restored. Decide and implement the
-      // intended behaviour, e.g. one of:
-      //   (a) on license loss, proactively resume all COLD tenants back to HOT (lose eviction, keep
-      //       data reachable); or
-      //   (b) allow resume of already-existing COLD tenants under a grace path even without a valid
-      //       license (entitlement is for *creating/evicting* tenants, not for reading existing
-      //       data); or
-      //   (c) document this as expected and surface a clear operator-facing warning + SHOW DATABASES
-      //       state so the stranding is diagnosable.
-      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) return;
-      const int64_t limit = memgraph::flags::GetMemoryLimit();
-      if (limit <= 0) return;
-      // Memory signal depends on the allocator:
-      //  - jemalloc build: total_memory_tracker is allocator-hooked and precise; RSS would over-report
-      //    because jemalloc retains dirty/decaying pages it has not yet returned to the OS.
-      //  - non-jemalloc build (system allocator, ASan/TSan): the tracker is not allocator-hooked and
-      //    under-reports, so use real resident memory (RSS via /proc/self/statm) as the truth.
-#if USE_JEMALLOC
-      const int64_t usage = memgraph::utils::total_memory_tracker.Amount();
-#else
-      const int64_t usage = static_cast<int64_t>(memgraph::utils::GetMemoryRES());
-#endif
-      // Watermarks and max-per-cycle are runtime-settable (SET DATABASE SETTING); read the live values.
-      const int64_t high =
-          (limit / 100) * static_cast<int64_t>(memgraph::flags::run_time::GetHotColdEvictionHighWatermarkPercent());
-      if (usage <= high) return;  // below the high watermark — nothing to do
-      const int64_t low =
-          (limit / 100) * static_cast<int64_t>(memgraph::flags::run_time::GetHotColdEvictionLowWatermarkPercent());
-      const int64_t to_free = usage - low;  // aim to drop back to the low watermark
-      if (to_free <= 0) return;
-      const int64_t freed =
-          dbms_handler->SuspendColdestIdleTenants(to_free, memgraph::flags::run_time::GetHotColdEvictionMaxPerCycle());
-      if (freed > 0) {
-        spdlog::info("Hot/cold eviction cycle: usage {} > high {}, freed ~{} bytes (target {}).", usage, high, freed,
-                     to_free);
-      }
-    });
+    hot_cold_eviction_scheduler->Run("HC-Evict", [&dbms_handler]() { dbms_handler->EvictForMemoryPressure(); });
     // Make the poll-interval runtime-settable: attach an observer that calls SetInterval on the running
     // scheduler whenever the storage.hot_cold.eviction_poll_interval_sec setting changes. Attach only
     // registers the observer (it does NOT push the current value), so the explicit SetInterval above is

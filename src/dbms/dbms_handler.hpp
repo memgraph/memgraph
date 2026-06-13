@@ -422,9 +422,24 @@ class DbmsHandler {
    *
    * @param bytes_to_free stop evicting once this many estimated bytes have been freed
    * @param max_evictions hard cap on evictions per call
+   * @param exclude tenant name to skip entirely (e.g. the just-resumed tenant when called as the
+   *        make-room-on-resume arm: it is held by the resume thread and would only burn a 100 ms
+   *        try_begin_suspend timeout before being rejected). Empty = no exclusion.
    * @return int64_t estimated bytes freed (sum of DbMemoryUsage() of suspended tenants)
    */
-  int64_t SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t max_evictions);
+  int64_t SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t max_evictions, std::string_view exclude = {});
+
+  /**
+   * @brief One memory-pressure eviction cycle: if hot/cold eviction is enabled (+ experiment + license)
+   *        and memory usage is over the high watermark, suspend the coldest idle tenants down toward the
+   *        low watermark. The single policy shared by the periodic HC-Evict scheduler and the
+   *        make-room-on-resume path (Resume_). Self-gating: a cheap no-op (returns 0) when eviction is
+   *        disabled, so it is safe to call unconditionally. CALLER MUST NOT hold lock_.
+   *
+   * @param exclude tenant to skip (e.g. the just-resumed tenant, held by the resume thread)
+   * @return int64_t estimated bytes freed
+   */
+  int64_t EvictForMemoryPressure(std::string_view exclude = {});
 #endif
 
   /**

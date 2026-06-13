@@ -739,5 +739,96 @@ def test_t7_runtime_settable_eviction_knobs(test_name):
     conn.close()
 
 
+# ---------------------------------------------------------------------------
+# T8 — make-room-on-resume: reheating a COLD tenant under memory pressure evicts the coldest idle peer
+# ---------------------------------------------------------------------------
+
+# Eviction enabled, but the PERIODIC poll-interval is set huge (3600 s) so the background scheduler does
+# not fire during the test. Make-room-on-resume (synchronous, fired from the resume path) is the ONLY
+# eviction trigger exercised here, isolating it from the periodic scheduler.
+_MAKEROOM_ARGS = [
+    "--bolt-port",
+    "7687",
+    "--log-level",
+    "TRACE",
+    "--experimental-enabled=hot-cold-tenants",
+    "--storage-wal-enabled=true",
+    "--storage-snapshot-interval-sec=300",
+    "--data-recovery-on-startup=true",
+    "--storage-hot-cold-min-hot-residency-sec=0",
+    "--storage-hot-cold-eviction-enabled=true",
+    "--storage-hot-cold-eviction-poll-interval-sec=3600",  # periodic scheduler effectively OFF during test
+    "--storage-hot-cold-eviction-high-watermark-percent=1",
+    "--storage-hot-cold-eviction-low-watermark-percent=1",
+    "--storage-hot-cold-eviction-max-per-cycle=3",
+    "--memory-limit=256",  # high watermark ~2.6 MiB; process RSS always exceeds it -> resume always makes room
+]
+
+
+def instance_description_makeroom(test_name: str) -> dict:
+    return {
+        "instance_makeroom": {
+            "args": _MAKEROOM_ARGS,
+            "log_file": f"{get_logs_path(file, test_name)}/instance_makeroom.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_makeroom",
+            "setup_queries": [],
+        },
+    }
+
+
+def test_t8_make_room_on_resume_evicts_coldest_peer(test_name):
+    """
+    With the periodic eviction scheduler effectively disabled (poll = 3600 s), prove that reheating a
+    COLD tenant under memory pressure synchronously evicts the coldest idle PEER (make-room-on-resume):
+
+    1. Create + populate tenant_a and tenant_b; close their populate connections so both are HOT idle.
+    2. Manually SUSPEND tenant_a -> cold. tenant_b stays HOT and idle.
+    3. USE DATABASE tenant_a on a fresh connection: this block-and-resumes tenant_a. Memory is over the
+       1% high watermark (process RSS >> 2.6 MiB), so make-room fires post-publish and evicts the
+       coldest idle peer = tenant_b. tenant_a itself is protected (the resume still holds its accessor).
+    4. Assert tenant_b is 'cold' right after the USE returns (make-room is synchronous), while tenant_a
+       is 'ready'. The periodic scheduler (3600 s) cannot account for this within the test window.
+    """
+    instances = instance_description_makeroom(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    conn_default = connect(host="localhost", port=7687)
+    cursor_default = conn_default.cursor()
+
+    for name in ("tenant_a", "tenant_b"):
+        execute_and_fetch_all(cursor_default, f"CREATE DATABASE {name}")
+        conn_pop = mgclient.connect(host="localhost", port=7687)
+        conn_pop.autocommit = True
+        cur_pop = conn_pop.cursor()
+        cur_pop.execute(f"USE DATABASE {name}")
+        conn_pop.autocommit = False
+        cur_pop.execute("UNWIND range(1, 1000) AS i CREATE (:Pad {i: i})")
+        conn_pop.commit()
+        conn_pop.close()
+
+    # Both tenants are HOT and idle. Suspend tenant_a so the next USE has to resume it.
+    execute_and_fetch_all(cursor_default, "SUSPEND DATABASE tenant_a")
+    assert _wait_for_db_state(cursor_default, "tenant_a", "cold", timeout_s=5.0), "tenant_a should suspend to cold"
+    assert _get_db_state(cursor_default, "tenant_b") == "ready", "tenant_b must still be HOT before the resume"
+
+    # Resume tenant_a on a fresh connection: make-room fires post-publish and evicts the coldest peer.
+    conn_resume = mgclient.connect(host="localhost", port=7687)
+    conn_resume.autocommit = True
+    cur_resume = conn_resume.cursor()
+    cur_resume.execute("USE DATABASE tenant_a")
+    # Read tenant_a to confirm it reheated with data intact.
+    cur_resume.execute("MATCH (n) RETURN count(n) AS c")
+    a_count = cur_resume.fetchall()[0][0]
+    assert a_count == 1000, f"tenant_a must reheat with its 1000 nodes, got {a_count}"
+
+    # make-room is synchronous within the resume, so tenant_b is already cold (or becomes so promptly).
+    assert _wait_for_db_state(cursor_default, "tenant_b", "cold", timeout_s=5.0), (
+        "make-room-on-resume should have evicted the coldest idle peer tenant_b after resuming tenant_a"
+    )
+    assert _get_db_state(cursor_default, "tenant_a") == "ready", "the just-resumed tenant_a must stay HOT (protected)"
+
+    conn_resume.close()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))

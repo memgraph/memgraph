@@ -22,13 +22,18 @@
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "dbms/rpc.hpp"
+#include "flags/experimental.hpp"
+#include "flags/memory_limit.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/stat.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
@@ -826,7 +831,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
   return {};
 }
 
-int64_t DbmsHandler::SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t max_evictions) {
+int64_t DbmsHandler::SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t max_evictions, std::string_view exclude) {
 #ifdef MG_ENTERPRISE
   if (max_evictions == 0 || bytes_to_free <= 0) return 0;
 
@@ -842,6 +847,7 @@ int64_t DbmsHandler::SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t m
     auto rd = std::shared_lock{lock_};
     for (auto &[name, db_gk] : db_handler_) {
       if (name == kDefaultDB) continue;
+      if (!exclude.empty() && name == exclude) continue;  // e.g. the just-resumed tenant (held by the resume thread)
       if (db_gk.state() != utils::GatekeeperState::HOT) continue;
       auto acc = db_gk.access();  // transient; dropped at end of iteration
       if (!acc) continue;         // raced out of HOT
@@ -865,6 +871,47 @@ int64_t DbmsHandler::SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t m
 #else
   (void)bytes_to_free;
   (void)max_evictions;
+  (void)exclude;
+  return 0;
+#endif
+}
+
+int64_t DbmsHandler::EvictForMemoryPressure(std::string_view exclude) {
+#ifdef MG_ENTERPRISE
+  // Self-gating so the periodic HC-Evict scheduler and the make-room-on-resume path share ONE policy.
+  // Cheap early-outs first (this is called on every resume, so it must be ~free when eviction is off).
+  if (!FLAGS_storage_hot_cold_eviction_enabled) return 0;
+  if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) return 0;
+  // Eviction acts on non-default tenants (multi-tenancy = enterprise). Re-check each call so eviction
+  // goes dormant if the license lapses and self-resumes when it returns.
+  //
+  // TODO(hot-cold): a lapsed license stops *new* evictions but strands already-COLD tenants (the only
+  // path back is resume-on-cold, itself multi-tenancy-gated). Decide intended behaviour: (a) resume all
+  // COLD on license loss; (b) grace-path resume of existing COLD tenants; or (c) document + surface it.
+  if (!license::global_license_checker.IsEnterpriseValidFast()) return 0;
+
+  const int64_t limit = flags::GetMemoryLimit();
+  if (limit <= 0) return 0;
+  // Memory signal depends on the allocator: jemalloc build -> the allocator-hooked tracker is precise
+  // (RSS would over-report retained/decaying pages); otherwise -> real resident memory (RSS).
+#if USE_JEMALLOC
+  const int64_t usage = static_cast<int64_t>(utils::total_memory_tracker.Amount());
+#else
+  const int64_t usage = static_cast<int64_t>(utils::GetMemoryRES());
+#endif
+  const int64_t high = (limit / 100) * static_cast<int64_t>(flags::run_time::GetHotColdEvictionHighWatermarkPercent());
+  if (usage <= high) return 0;  // below the high watermark — nothing to do
+  const int64_t low = (limit / 100) * static_cast<int64_t>(flags::run_time::GetHotColdEvictionLowWatermarkPercent());
+  const int64_t to_free = usage - low;  // aim to drop back to the low watermark
+  if (to_free <= 0) return 0;
+  const int64_t freed = SuspendColdestIdleTenants(to_free, flags::run_time::GetHotColdEvictionMaxPerCycle(), exclude);
+  if (freed > 0) {
+    spdlog::info("Hot/cold eviction cycle: usage {} > high {}, freed ~{} bytes (target {}).", usage, high, freed,
+                 to_free);
+  }
+  return freed;
+#else
+  (void)exclude;
   return 0;
 #endif
 }
@@ -1004,6 +1051,16 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name) {
             "Resume: replication re-wiring failed for tenant '{}' after publish; the tenant is live "
             "(HOT) and data is intact, but replication wiring must be retried.",
             name);
+      }
+      // MAKE-ROOM-ON-RESUME: the tenant is now HOT. If memory is over the high watermark, evict the
+      // coldest idle tenants to bound peak after reheating a COLD tenant. `name` is excluded (we still
+      // hold `acc`, so the resumed tenant's count is >= 1 and it could not be suspended anyway). No
+      // lock_ is held here, and the eviction path (Suspend_) never re-enters Resume_, so there is no
+      // recursion. Best-effort: a failure must not fail the resume (the tenant is already live/intact).
+      try {
+        EvictForMemoryPressure(name);
+      } catch (...) {
+        spdlog::error("Resume: make-room eviction after reheating tenant '{}' threw; tenant is live (HOT).", name);
       }
       return acc;
     } catch (...) {
