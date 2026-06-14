@@ -1554,10 +1554,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             target_db = database_name;
             break;
         }
-        std::optional<dbms::DatabaseAccess> target_db_acc;
-        if (target_db) {
-          // Check that the db exists
-          target_db_acc = db_handler->Get(*target_db);
+        // Existence check only — auth->GetPrivileges reads pure KV metadata and never touches storage,
+        // so use the non-throwing, HOT+COLD-aware Contains() instead of Get() (which would reheat a
+        // COLD tenant). Mirrors the GRANT/DENY/REVOKE/SET-MAIN-DATABASE conversion.
+        if (target_db && !db_handler->Contains(*target_db)) {
+          throw QueryRuntimeException("Tried to retrieve an unknown database \"{}\".", *target_db);
         }
         return auth->GetPrivileges(user_or_role, target_db, entity_type);
 #else
@@ -1606,10 +1607,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             target_db = database_name;
             break;
         }
-        std::optional<dbms::DatabaseAccess> target_db_acc;
-        if (target_db) {
-          // Check that the db exists
-          target_db_acc = db_handler->Get(target_db.value());
+        // Existence check only — GetRolenamesForUser reads pure KV metadata; use Contains() (HOT+COLD,
+        // non-throwing) instead of Get() so a COLD tenant is not reheated.
+        if (target_db && !db_handler->Contains(*target_db)) {
+          throw QueryRuntimeException("Tried to retrieve an unknown database \"{}\".", *target_db);
         }
         auto rolenames = auth->GetRolenamesForUser(username, target_db);
 #else

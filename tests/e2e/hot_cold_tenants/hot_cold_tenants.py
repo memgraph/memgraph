@@ -1239,13 +1239,23 @@ def test_t11_auth_grants_on_cold_tenant(test_name):
       because auth commands only touch the KV metadata store — they never need to
       open the storage layer.
 
+      A follow-up fix extended Contains()-based guarding to two read-side commands that
+      previously also called the throwing Get():
+        - SHOW PRIVILEGES FOR <user> ON DATABASE <db>
+        - SHOW ROLE FOR <user> ON DATABASE <db>
+      Both are now covered by this test.
+
     This test verifies:
     1. GRANT DATABASE auth_db TO u1  — succeeds while auth_db is COLD.
     2. SET MAIN DATABASE auth_db FOR u1 — succeeds while auth_db is COLD.
     3. SHOW DATABASE PRIVILEGES FOR u1 — returns a row that includes "auth_db",
        proving the grant was persisted.
     4. REVOKE DATABASE auth_db FROM u1 — succeeds while auth_db is COLD.
-    5. After all four auth gestures, auth_db is STILL 'cold' (none of them reheated it).
+    5. SHOW PRIVILEGES FOR u1 ON DATABASE auth_db — must not raise against a COLD
+       tenant (read-side auth command now using Contains()).
+    6. SHOW ROLE FOR u1 ON DATABASE auth_db — must not raise against a COLD tenant
+       (read-side auth command now using Contains()).
+    7. After all six auth gestures, auth_db is STILL 'cold' (none of them reheated it).
 
     Connection strategy:
       conn_default is opened before any user is created so it retains admin privileges
@@ -1323,10 +1333,29 @@ def test_t11_auth_grants_on_cold_tenant(test_name):
     # 6d. REVOKE DATABASE auth_db FROM u1.
     execute_and_fetch_all(cursor_default, "REVOKE DATABASE auth_db FROM u1")
 
-    # Step 7: correctness bonus — auth gestures must NOT have reheated auth_db.
+    # 6e. SHOW PRIVILEGES FOR u1 ON DATABASE auth_db — read-side command, must NOT raise
+    # against a COLD tenant (fixed to use Contains() instead of the throwing Get()).
+    # Grammar: showPrivileges = SHOW PRIVILEGES FOR <userOrRole> (ON (MAIN|CURRENT|DATABASE <db>))?
+    # The assertion is absence-of-exception; we optionally inspect the result shape.
+    show_priv_rows = execute_and_fetch_all(cursor_default, "SHOW PRIVILEGES FOR u1 ON DATABASE auth_db")
+    assert isinstance(
+        show_priv_rows, list
+    ), f"SHOW PRIVILEGES FOR u1 ON DATABASE auth_db must return a list (got {type(show_priv_rows)!r})"
+
+    # 6f. SHOW ROLE FOR u1 ON DATABASE auth_db — read-side command, must NOT raise
+    # against a COLD tenant (fixed to use Contains() instead of the throwing Get()).
+    # Grammar: showRoleForUser = SHOW (ROLE|ROLES) FOR USER? <userOrRoleName> (ON (MAIN|CURRENT|DATABASE <db>))?
+    # USER keyword is optional per the grammar rule; 'FOR u1' is accepted.
+    show_role_rows = execute_and_fetch_all(cursor_default, "SHOW ROLE FOR u1 ON DATABASE auth_db")
+    assert isinstance(
+        show_role_rows, list
+    ), f"SHOW ROLE FOR u1 ON DATABASE auth_db must return a list (got {type(show_role_rows)!r})"
+
+    # Step 7: correctness bonus — all six auth gestures must NOT have reheated auth_db.
     state_after_auth = _get_db_state(cursor_default, "auth_db")
     assert state_after_auth == "cold", (
-        f"Auth gestures (GRANT/SET MAIN/REVOKE) must not reheat a COLD tenant, "
+        f"Auth gestures (GRANT/SET MAIN/SHOW DATABASE PRIVILEGES/REVOKE/"
+        f"SHOW PRIVILEGES ON DATABASE/SHOW ROLE ON DATABASE) must not reheat a COLD tenant, "
         f"but auth_db state is '{state_after_auth}' after the auth operations."
     )
 

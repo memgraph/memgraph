@@ -1078,7 +1078,10 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           // applies before the tenant is observable HOT.
           if (tenant_profiles_) {
             if (auto const profile_name = tenant_profiles_->GetProfileForDatabase(name)) {
-              if (auto const profile = tenant_profiles_->Get(*profile_name); profile && profile->memory_limit > 0) {
+              if (auto const profile = tenant_profiles_->Get(*profile_name); profile) {
+                // Apply unconditionally when a profile is attached: 0 == unlimited must still be
+                // asserted on the freshly-rebuilt storage. A `> 0` guard would silently skip an
+                // ALTER-to-unlimited that was made durable while the tenant was COLD.
                 acc.get()->SetTenantMemoryLimit(profile->memory_limit);
               }
             }
