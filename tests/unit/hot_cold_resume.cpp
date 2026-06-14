@@ -35,6 +35,7 @@
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -472,6 +473,52 @@ TEST_F(HotColdResumeTest, GetSuspendedHeartbeatInfoReflectsSuspendState) {
 TEST_F(HotColdResumeTest, GetSuspendedHeartbeatInfoUnknownReturnsNullopt) {
   auto info = DBMS().GetSuspendedHeartbeatInfo(memgraph::utils::UUID{});
   EXPECT_FALSE(info.has_value()) << "GetSuspendedHeartbeatInfo with an unknown UUID must return nullopt";
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot regression: SUSPEND writes a consolidating snapshot
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Count all regular files whose immediate parent directory is named kSnapshotDirectory
+// ("snapshots"). Walks the entire subtree of `root` so it covers all tenants.
+// Delta-based usage (after - before) isolates the files written by a single Suspend call.
+static std::size_t CountSnapshotFiles(const std::filesystem::path &root) {
+  std::size_t count = 0;
+  std::error_code ec;
+  for (const auto &entry : std::filesystem::recursive_directory_iterator(root, ec)) {
+    if (ec) break;  // tolerate a missing root (before first write)
+    if (!entry.is_regular_file(ec)) continue;
+    if (entry.path().parent_path().filename() == memgraph::storage::durability::kSnapshotDirectory) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+}  // namespace
+
+// Regression: DbmsHandler::Suspend_ now calls InMemoryStorage::CreateSnapshot before
+// tearing down the in-memory storage, so a fresh snapshot file must appear in the
+// tenant's snapshot directory as a direct result of SUSPEND.
+//
+// Harness note: MakeConfig sets snapshot_on_exit=false, so any snapshot file that
+// appears after Suspend() was written by the suspend-time CreateSnapshot call, not by
+// an incidental exit path. The periodic snapshot runner IS started (the {snapshot+WAL}
+// mode declares a default interval), but its first tick is minutes out, so it cannot fire
+// during this millisecond-scale test. EXPECT_GT(after, before) is therefore tight.
+TEST_F(HotColdResumeTest, SuspendWritesConsolidatingSnapshot) {
+  CreateAndPopulate("snap_db", 5);  // committed delta exists
+  const auto before = CountSnapshotFiles(data_directory);
+  ASSERT_TRUE(DBMS().Suspend("snap_db").has_value());
+  EXPECT_EQ(StateOf("snap_db"), memgraph::dbms::DbmsHandler::TenantState::COLD);
+  const auto after = CountSnapshotFiles(data_directory);
+  EXPECT_GT(after, before) << "SUSPEND must write a consolidating snapshot for snap_db";
+  // And recovery from that snapshot still yields the data:
+  auto res = DBMS().Resume("snap_db");
+  ASSERT_TRUE(res.has_value());
+  EXPECT_EQ(CountNodes(*res), 5);
 }
 
 // ---------------------------------------------------------------------------

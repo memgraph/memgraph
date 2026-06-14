@@ -30,6 +30,7 @@
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/inmemory/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -825,7 +826,22 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
     return std::unexpected{SuspendError::REPLICATING};
   }
 
+  // Consolidating snapshot at suspend: the tenant is frozen (no in-flight txns), so this captures the
+  // full committed state. On resume, recovery loads this snapshot and skips WAL files at/below its
+  // durable timestamp -> near-zero WAL replay (fast reheat). Best-effort: on failure the WAL is still
+  // finalized in the dtor (durability intact), reheat just replays the WAL delta. CreateSnapshot(force=
+  // false) returns NothingNewToWrite (no I/O) when nothing changed since the last periodic snapshot.
+  if (auto *inmem = dynamic_cast<storage::InMemoryStorage *>((*acc)->storage())) {
+    if (auto snap = inmem->CreateSnapshot(/*force=*/false, "suspend"); !snap.has_value()) {
+      spdlog::warn(
+          "hot/cold suspend: consolidating snapshot for '{}' was not written ({}); durability "
+          "intact via WAL, resume will replay the WAL delta.",
+          name,
+          storage::InMemoryStorage::CreateSnapshotErrorToString(snap.error()));
+    }
+  }
   // The Database dtor must NOT take an exit snapshot; abort any in-flight one.
+  // We just took the consolidating one above — a second exit snapshot from the dtor is unnecessary.
   (*acc)->storage()->DisableExitSnapshot();
 
   // Capture heartbeat metadata for the COLD-tenant heartbeat answer (replica path), so a suspended
