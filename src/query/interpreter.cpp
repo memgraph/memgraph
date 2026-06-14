@@ -1654,19 +1654,13 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           throw QueryException("Expected to be in a system transaction");
         }
 
-        try {
-          std::optional<memgraph::dbms::DatabaseAccess> db =
-              std::nullopt;  // Hold pointer to database to protect it until query is done
-          if (database != memgraph::auth::kAllDatabases) {
-            db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
-          }
-          auth->GrantDatabase(database,
-                              user_or_role,
-                              entity_type,
-                              &*interpreter->system_transaction_);  // Can throws query exception
-        } catch (memgraph::dbms::UnknownDatabaseException &e) {
-          throw QueryRuntimeException(e.what());
+        if (database != memgraph::auth::kAllDatabases && !db_handler->Contains(database)) {
+          throw QueryRuntimeException("Tried to retrieve an unknown database \"{}\".", database);
         }
+        auth->GrantDatabase(database,
+                            user_or_role,
+                            entity_type,
+                            &*interpreter->system_transaction_);  // Can throw query exception
 #else
       callback.fn = [] {
 #endif
@@ -1681,19 +1675,13 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           throw QueryException("Expected to be in a system transaction");
         }
 
-        try {
-          std::optional<memgraph::dbms::DatabaseAccess> db =
-              std::nullopt;  // Hold pointer to database to protect it until query is done
-          if (database != memgraph::auth::kAllDatabases) {
-            db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
-          }
-          auth->DenyDatabase(database,
-                             user_or_role,
-                             entity_type,
-                             &*interpreter->system_transaction_);  // Can throws query exception
-        } catch (memgraph::dbms::UnknownDatabaseException &e) {
-          throw QueryRuntimeException(e.what());
+        if (database != memgraph::auth::kAllDatabases && !db_handler->Contains(database)) {
+          throw QueryRuntimeException("Tried to retrieve an unknown database \"{}\".", database);
         }
+        auth->DenyDatabase(database,
+                           user_or_role,
+                           entity_type,
+                           &*interpreter->system_transaction_);  // Can throw query exception
 #else
       callback.fn = [] {
 #endif
@@ -1708,19 +1696,13 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           throw QueryException("Expected to be in a system transaction");
         }
 
-        try {
-          std::optional<memgraph::dbms::DatabaseAccess> db =
-              std::nullopt;  // Hold pointer to database to protect it until query is done
-          if (database != memgraph::auth::kAllDatabases) {
-            db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
-          }
-          auth->RevokeDatabase(database,
-                               user_or_role,
-                               entity_type,
-                               &*interpreter->system_transaction_);  // Can throws query exception
-        } catch (memgraph::dbms::UnknownDatabaseException &e) {
-          throw QueryRuntimeException(e.what());
+        if (database != memgraph::auth::kAllDatabases && !db_handler->Contains(database)) {
+          throw QueryRuntimeException("Tried to retrieve an unknown database \"{}\".", database);
         }
+        auth->RevokeDatabase(database,
+                             user_or_role,
+                             entity_type,
+                             &*interpreter->system_transaction_);  // Can throw query exception
 #else
       callback.fn = [] {
 #endif
@@ -1747,16 +1729,13 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           throw QueryException("Expected to be in a system transaction");
         }
 
-        try {
-          const auto db =
-              db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
-          auth->SetMainDatabase(database,
-                                user_or_role,
-                                entity_type,
-                                &*interpreter->system_transaction_);  // Can throws query exception
-        } catch (memgraph::dbms::UnknownDatabaseException &e) {
-          throw QueryRuntimeException(e.what());
+        if (!db_handler->Contains(database)) {
+          throw QueryRuntimeException("Tried to retrieve an unknown database \"{}\".", database);
         }
+        auth->SetMainDatabase(database,
+                              user_or_role,
+                              entity_type,
+                              &*interpreter->system_transaction_);  // Can throw query exception
 #else
       callback.fn = [] {
 #endif
