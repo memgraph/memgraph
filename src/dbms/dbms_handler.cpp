@@ -571,14 +571,9 @@ std::expected<void, TenantProfiles::AlterError> DbmsHandler::AlterTenantProfile(
   auto result = tenant_profiles_->Alter(name, memory_limit);
   if (!result) return std::unexpected{result.error()};
   for (const auto &db_name : *result) {
-    try {
-      auto db_acc = Get(db_name);
-      db_acc.get()->SetTenantMemoryLimit(memory_limit);
-    } catch (const UnknownDatabaseException &) {
-      // DB was dropped concurrently — the profile change is already durable and will not
-      // be re-applied on restart (the DB no longer exists). Skip gracefully.
-      spdlog::warn("AlterTenantProfile: database '{}' not found while applying profile '{}' — skipping", db_name, name);
-    }
+    // For COLD/RESUMING tenants the in-memory apply is a no-op here; Resume_ re-applies the
+    // durable profile limit on the next resume (FIX 1). No throwing Get() needed.
+    ApplyTenantMemoryLimitIfHot_(db_name, memory_limit);
   }
   if (sys_txn) {
     sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::ALTER, name, "", memory_limit);
@@ -599,10 +594,14 @@ std::expected<void, TenantProfiles::DropError> DbmsHandler::DropTenantProfile(st
 std::expected<void, TenantProfiles::AttachError> DbmsHandler::SetTenantProfileOnDatabase(std::string_view profile_name,
                                                                                          std::string_view db_name,
                                                                                          system::Transaction *sys_txn) {
-  auto db_acc = Get(db_name);
+  // Durable attach FIRST: on a COLD tenant the previous Get(db_name) threw UnknownDatabaseException
+  // before the profile was durably attached, meaning COLD tenants could never have a profile set.
+  // AttachToDatabase is a KVStore op independent of any DatabaseAccess.
   auto result = tenant_profiles_->AttachToDatabase(profile_name, db_name);
   if (!result) return std::unexpected{result.error()};
-  db_acc.get()->SetTenantMemoryLimit(*result);
+  // Apply limit in-memory only if the tenant is currently HOT. For COLD/RESUMING tenants this is a
+  // no-op; Resume_ re-applies the durable profile on next resume (FIX 1).
+  ApplyTenantMemoryLimitIfHot_(db_name, *result);
   if (sys_txn) {
     sys_txn->AddAction<TenantProfileAction>(
         TenantProfileAction::Action::SET_ON_DATABASE, profile_name, db_name, *result);
@@ -614,13 +613,23 @@ std::expected<void, TenantProfiles::DetachError> DbmsHandler::RemoveTenantProfil
     std::string_view db_name, system::Transaction *sys_txn) {
   auto result = tenant_profiles_->DetachFromDatabase(db_name);
   if (!result) return std::unexpected{result.error()};
-  auto db_acc = Get(db_name);
-  db_acc.get()->SetTenantMemoryLimit(0);
+  // Reset limit in-memory only if the tenant is currently HOT. For COLD/RESUMING tenants this is a
+  // no-op; the detach is already durable and Resume_ will see no profile attached (limit == 0).
+  ApplyTenantMemoryLimitIfHot_(db_name, 0);
   if (sys_txn) {
     sys_txn->AddAction<TenantProfileAction>(
         TenantProfileAction::Action::REMOVE_FROM_DATABASE, "", db_name, kUnusedMemoryLimit);
   }
   return {};
+}
+
+void DbmsHandler::ApplyTenantMemoryLimitIfHot_(std::string_view db_name, int64_t limit) {
+  auto rd = std::shared_lock{lock_};
+  if (auto *gk = db_handler_.GetGatekeeper(db_name)) {
+    if (auto acc = gk->access()) {  // nullopt unless HOT
+      acc->get()->SetTenantMemoryLimit(limit);
+    }
+  }
 }
 
 DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system::Transaction *txn) {
@@ -1061,6 +1070,19 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           // unique_ptr move transfers into the shell). The shell is RESUMING (access() refuses) and
           // we hold lock_, so no concurrent accessor can observe the half-moved state.
           auto wr = std::unique_lock{lock_};
+          // Re-apply the durable tenant-profile memory limit: a COLD resume rebuilds the storage via
+          // BuildDetached with hard-limit 0 (unlimited), so without this the resumed tenant would run
+          // unlimited until process restart. Done under lock_ (held here) so a concurrent profile
+          // mutation that skipped its in-memory apply (it saw the tenant RESUMING) cannot leave a stale
+          // limit. acc points at the fresh Database (not yet in db_handler_), so SetTenantMemoryLimit
+          // applies before the tenant is observable HOT.
+          if (tenant_profiles_) {
+            if (auto const profile_name = tenant_profiles_->GetProfileForDatabase(name)) {
+              if (auto const profile = tenant_profiles_->Get(*profile_name); profile && profile->memory_limit > 0) {
+                acc.get()->SetTenantMemoryLimit(profile->memory_limit);
+              }
+            }
+          }
           // BUG #2 FIX: the previous `suspended_.erase(std::string{name})` heap-allocated a
           // temporary std::string that could throw bad_alloc *after* the noexcept move-publish
           // committed the gatekeeper to HOT. The inner catch would then call abort_resume() on a

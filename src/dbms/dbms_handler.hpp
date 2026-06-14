@@ -838,6 +838,15 @@ class DbmsHandler {
   ResumeResult Resume_(std::string_view name, bool rewire_replication = true);
 
   /**
+   * @brief Apply `limit` to the tenant's in-memory hard limit IF it is currently HOT.
+   *
+   * For COLD/RESUMING tenants this is a no-op: the durable tenant_profiles_ store is the source of
+   * truth and Resume_ re-applies it on the next resume. Non-throwing (unlike Get()). Takes a shared
+   * lock on lock_ internally, so must NOT be called while lock_ is already held.
+   */
+  void ApplyTenantMemoryLimitIfHot_(std::string_view db_name, int64_t limit);
+
+  /**
    * @brief Create a new Database associated with the default database
    *
    * @return NewResultT context on success, error on failure
