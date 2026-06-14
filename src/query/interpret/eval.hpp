@@ -752,7 +752,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                                  GetHopsCounter(),
                                  user_or_role_,
                                  triggering_user_,
-                                 auth_checker_};
+#ifdef MG_ENTERPRISE
+                                 auth_checker_
+#else
+                                 nullptr
+#endif
+    };
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.

@@ -1019,12 +1019,14 @@ nlohmann::json Role::Serialize() const {
   return data;
 }
 
+#ifdef MG_ENTERPRISE
 namespace {
 void MigratePropertyAccessDefaults(PropertyAccessHandler &handler) {
   handler.label_properties().GrantGlobal("*", kAllPropertyPermissionTypes);
   handler.edge_type_properties().GrantGlobal("*", kAllPropertyPermissionTypes);
 }
 }  // namespace
+#endif
 
 Role Role::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
