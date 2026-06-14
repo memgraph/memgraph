@@ -1571,5 +1571,81 @@ def test_t12_promotion_resumes_cold_tenant(test_name):
     conn_new_main.close()
 
 
+# ---------------------------------------------------------------------------
+# T13 — a COLD tenant stays COLD across a process restart (cross-restart
+#       persistence), then reheats lazily with its data intact.
+# ---------------------------------------------------------------------------
+
+
+def test_t13_cold_tenant_survives_restart(test_name):
+    """
+    Suspend a tenant, restart the instance (keeping its data directory), and
+    verify the tenant comes back COLD (a lazy shell — NOT rebuilt hot), then
+    reheats on first access with its data intact.
+
+    Validates the cross-restart COLD-persistence feature:
+    - SUSPEND persists a COLD marker in the durability KVStore.
+    - After a restart, SHOW DATABASES reports the tenant as 'cold' (it was NOT
+      rebuilt HOT at startup — the whole point of the feature: zero RAM/replay
+      for a tenant that was evicted before the restart).
+    - USE DATABASE block-and-resumes the restored COLD shell, and the data
+      written before the suspend+restart survived.
+    """
+    instances = instance_description(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    # Create + populate db1.
+    conn_default = connect(host="localhost", port=7687)
+    cursor_default = conn_default.cursor()
+    execute_and_fetch_all(cursor_default, "CREATE DATABASE db1")
+
+    conn_work = connect(host="localhost", port=7687)
+    cursor_work = conn_work.cursor()
+    execute_and_fetch_all(cursor_work, "USE DATABASE db1")
+    for _ in range(5):
+        execute_and_fetch_all(cursor_work, "CREATE (:Node)")
+    count_before = execute_and_fetch_all(cursor_work, "MATCH (n) RETURN count(n) AS c")
+    assert count_before[0][0] == 5, f"Expected 5 nodes before suspend, got {count_before[0][0]}"
+    # Release the connection-scoped accessor so SUSPEND is not blocked by ACTIVE_CONNECTIONS.
+    conn_work.close()
+
+    # SUSPEND -> COLD (persists the COLD marker durably).
+    execute_and_fetch_all(cursor_default, "SUSPEND DATABASE db1")
+    assert _get_db_state(cursor_default, "db1") == "cold", "db1 should be COLD after SUSPEND"
+    conn_default.close()
+
+    # --- RESTART the instance, keeping its data directory. ---
+    interactive_mg_runner.stop_all(keep_directories=True)
+    interactive_mg_runner.start_all(instances, keep_directories=True)
+
+    conn_after = connect(host="localhost", port=7687)
+    cursor_after = conn_after.cursor()
+
+    # The tenant must recover COLD — NOT rebuilt HOT. SHOW DATABASES does not reheat, so a 'cold'
+    # state here proves the COLD marker persisted and the tenant came back as a lazy shell.
+    state_after_restart = _get_db_state(cursor_after, "db1")
+    assert state_after_restart == "cold", (
+        f"After restart db1 must recover COLD (lazy shell), got '{state_after_restart}'. "
+        "A 'ready' here means the tenant was rebuilt HOT at startup — cross-restart persistence broke."
+    )
+
+    # Lazily reheat via USE DATABASE (block-and-resume) and confirm the data survived.
+    conn_verify = connect(host="localhost", port=7687)
+    cursor_verify = conn_verify.cursor()
+    execute_and_fetch_all(cursor_verify, "USE DATABASE db1")
+    count_after = execute_and_fetch_all(cursor_verify, "MATCH (n) RETURN count(n) AS c")
+    assert count_after[0][0] == 5, (
+        f"Expected 5 nodes after restart+resume, got {count_after[0][0]} "
+        "(data loss across the cross-restart COLD recovery path)"
+    )
+
+    # And the tenant is now back to 'ready'.
+    assert _wait_for_db_state(
+        cursor_after, "db1", "ready", timeout_s=15.0
+    ), "db1 did not return to 'ready' after the post-restart lazy resume"
+    conn_verify.close()
+    conn_after.close()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
