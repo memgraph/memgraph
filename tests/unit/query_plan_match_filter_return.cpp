@@ -4522,4 +4522,131 @@ TYPED_TEST(MatchReturnFixture, VirtualEdgePropertyLookupRespectsPbac) {
 
   EXPECT_TRUE(result.IsNull()) << "VirtualEdge property lookup should respect PBAC READ denial";
 }
+
+TYPED_TEST(MatchReturnFixture, VirtualNodeKeysRespectsPbac) {
+  auto secret_id = this->dba.NameToProperty("secret");
+  auto visible_id = this->dba.NameToProperty("visible");
+
+  memgraph::query::VirtualNode::label_list labels;
+  labels.emplace_back("Person");
+  memgraph::query::VirtualNode::property_map props;
+  props.emplace(secret_id, memgraph::storage::PropertyValue(42));
+  props.emplace(visible_id, memgraph::storage::PropertyValue(99));
+  memgraph::query::VirtualNode vn(std::move(labels), std::move(props));
+
+  memgraph::auth::User user{"vn_keys_pbac"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
+  user.property_access_handler().label_properties().DenyGlobal("secret", memgraph::auth::PropertyPermissionType::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+
+  Frame frame{128};
+  memgraph::utils::MonotonicBufferResource mem{1024};
+  context.evaluation_context.memory = &mem;
+  context.evaluation_context.timestamp = memgraph::query::QueryTimestamp();
+  ExpressionEvaluator eval{&frame, context, memgraph::storage::View::OLD};
+
+  auto *identifier = this->storage.template Create<Identifier>("vn", true);
+  auto symbol = this->symbol_table.CreateSymbol("vn", true);
+  identifier->MapTo(symbol);
+  auto frame_writer = frame.GetFrameWriter(nullptr, &mem);
+  frame_writer.Write(symbol, TypedValue(vn));
+
+  auto *fn = this->storage.template Create<Function>("KEYS", std::vector<Expression *>{identifier});
+  auto result = fn->Accept(eval);
+
+  ASSERT_TRUE(result.IsList());
+  std::vector<std::string> key_names;
+  for (auto const &v : result.ValueList()) {
+    key_names.emplace_back(v.ValueString());
+  }
+  EXPECT_THAT(key_names, testing::UnorderedElementsAre("visible"));
+}
+
+TYPED_TEST(MatchReturnFixture, VirtualNodeValuesRespectsPbac) {
+  auto secret_id = this->dba.NameToProperty("secret");
+  auto visible_id = this->dba.NameToProperty("visible");
+
+  memgraph::query::VirtualNode::label_list labels;
+  labels.emplace_back("Person");
+  memgraph::query::VirtualNode::property_map props;
+  props.emplace(secret_id, memgraph::storage::PropertyValue(42));
+  props.emplace(visible_id, memgraph::storage::PropertyValue(99));
+  memgraph::query::VirtualNode vn(std::move(labels), std::move(props));
+
+  memgraph::auth::User user{"vn_vals_pbac"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
+  user.property_access_handler().label_properties().DenyGlobal("secret", memgraph::auth::PropertyPermissionType::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+
+  Frame frame{128};
+  memgraph::utils::MonotonicBufferResource mem{1024};
+  context.evaluation_context.memory = &mem;
+  context.evaluation_context.timestamp = memgraph::query::QueryTimestamp();
+  ExpressionEvaluator eval{&frame, context, memgraph::storage::View::OLD};
+
+  auto *identifier = this->storage.template Create<Identifier>("vn", true);
+  auto symbol = this->symbol_table.CreateSymbol("vn", true);
+  identifier->MapTo(symbol);
+  auto frame_writer = frame.GetFrameWriter(nullptr, &mem);
+  frame_writer.Write(symbol, TypedValue(vn));
+
+  auto *fn = this->storage.template Create<Function>("VALUES", std::vector<Expression *>{identifier});
+  auto result = fn->Accept(eval);
+
+  ASSERT_TRUE(result.IsList());
+  auto const &vals = result.ValueList();
+  ASSERT_EQ(vals.size(), 1);
+  EXPECT_EQ(vals[0].ValueInt(), 99);
+}
+
+TYPED_TEST(MatchReturnFixture, VirtualNodePropertiesRespectsPbac) {
+  auto secret_id = this->dba.NameToProperty("secret");
+  auto visible_id = this->dba.NameToProperty("visible");
+
+  memgraph::query::VirtualNode::label_list labels;
+  labels.emplace_back("Person");
+  memgraph::query::VirtualNode::property_map props;
+  props.emplace(secret_id, memgraph::storage::PropertyValue(42));
+  props.emplace(visible_id, memgraph::storage::PropertyValue(99));
+  memgraph::query::VirtualNode vn(std::move(labels), std::move(props));
+
+  memgraph::auth::User user{"vn_props_pbac"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
+  user.property_access_handler().label_properties().DenyGlobal("secret", memgraph::auth::PropertyPermissionType::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+
+  Frame frame{128};
+  memgraph::utils::MonotonicBufferResource mem{1024};
+  context.evaluation_context.memory = &mem;
+  context.evaluation_context.timestamp = memgraph::query::QueryTimestamp();
+  ExpressionEvaluator eval{&frame, context, memgraph::storage::View::OLD};
+
+  auto *identifier = this->storage.template Create<Identifier>("vn", true);
+  auto symbol = this->symbol_table.CreateSymbol("vn", true);
+  identifier->MapTo(symbol);
+  auto frame_writer = frame.GetFrameWriter(nullptr, &mem);
+  frame_writer.Write(symbol, TypedValue(vn));
+
+  auto *fn = this->storage.template Create<Function>("PROPERTIES", std::vector<Expression *>{identifier});
+  auto result = fn->Accept(eval);
+
+  ASSERT_TRUE(result.IsMap());
+  auto const &map = result.ValueMap();
+  ASSERT_EQ(map.size(), 2);
+  auto secret_it = map.find("secret");
+  ASSERT_NE(secret_it, map.end());
+  EXPECT_TRUE(secret_it->second.IsNull());
+  auto visible_it = map.find("visible");
+  ASSERT_NE(visible_it, map.end());
+  EXPECT_EQ(visible_it->second.ValueInt(), 99);
+}
 #endif

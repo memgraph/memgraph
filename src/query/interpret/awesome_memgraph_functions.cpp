@@ -20,6 +20,7 @@
 #include <iterator>
 #include <optional>
 #include <random>
+#include <ranges>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
@@ -42,6 +43,9 @@
 #include "utils/uuid.hpp"
 
 #include "absl/container/flat_hash_map.h"
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::query {
 namespace {
@@ -446,11 +450,22 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   return TypedValue(list.back(), ctx.memory);
 }
 
-const auto &VirtualProperties(const TypedValue &value) {
-  return value.IsVirtualNode() ? value.ValueVirtualNode().Properties() : value.ValueVirtualEdge().Properties();
+constexpr auto allow_all_properties = [](storage::PropertyId) { return true; };
+
+auto MakePropertyChecker(FineGrainedAuthChecker const *checker, VirtualNode const &vn, DbAccessor *dba) {
+  auto label_ids =
+      vn.Labels() | rv::transform([&](auto const &name) { return dba->NameToLabel(name); }) | r::to<std::vector>();
+  return [checker, label_ids = std::move(label_ids)](storage::PropertyId prop) {
+    return !checker || checker->HasPropertyPermission(label_ids, prop, AuthQuery::PropertyPermissionType::READ);
+  };
 }
 
-constexpr auto allow_all_properties = [](storage::PropertyId) { return true; };
+auto MakePropertyChecker(FineGrainedAuthChecker const *checker, VirtualEdge const &ve, DbAccessor *dba) {
+  auto edge_type_id = dba->NameToEdgeType(ve.EdgeTypeName());
+  return [checker, edge_type_id](storage::PropertyId prop) {
+    return !checker || checker->HasPropertyPermission(edge_type_id, prop, AuthQuery::PropertyPermissionType::READ);
+  };
+}
 
 TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
@@ -487,11 +502,32 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
-  } else if (value.IsVirtualNode() || value.IsVirtualEdge()) {
+  } else if (value.IsVirtualNode()) {
+    auto const &vn = value.ValueVirtualNode();
+    auto const is_allowed = MakePropertyChecker(checker, vn, dba);
     TypedValue::TMap properties(ctx.memory);
-    for (const auto &[prop_id, prop_value] : VirtualProperties(value)) {
-      properties.emplace(TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory),
-                         TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+    for (auto const &[prop_id, prop_value] : vn.Properties()) {
+      auto key = TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory);
+      if (is_allowed(prop_id)) {
+        properties.emplace(std::move(key),
+                           TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+      } else {
+        properties.emplace(std::move(key), TypedValue(ctx.memory));
+      }
+    }
+    return TypedValue(std::move(properties));
+  } else if (value.IsVirtualEdge()) {
+    auto const &ve = value.ValueVirtualEdge();
+    auto const is_allowed = MakePropertyChecker(checker, ve, dba);
+    TypedValue::TMap properties(ctx.memory);
+    for (auto const &[prop_id, prop_value] : ve.Properties()) {
+      auto key = TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory);
+      if (is_allowed(prop_id)) {
+        properties.emplace(std::move(key),
+                           TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+      } else {
+        properties.emplace(std::move(key), TypedValue(ctx.memory));
+      }
     }
     return TypedValue(std::move(properties));
   }
@@ -881,13 +917,22 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
       return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
     });
   }
-  if (value.IsVirtualNode() || value.IsVirtualEdge()) {
-    const auto &props = VirtualProperties(value);
+  if (value.IsVirtualNode()) {
+    auto const &vn = value.ValueVirtualNode();
+    auto const is_allowed = MakePropertyChecker(checker, vn, dba);
     TypedValue::TVector keys(ctx.memory);
-    keys.reserve(props.size());
-    std::ranges::transform(props, std::back_inserter(keys), [&](const auto &kv) {
-      return TypedValue(dba->PropertyToName(kv.first), ctx.memory);
-    });
+    for (auto const &[prop_id, prop_value] : vn.Properties()) {
+      if (is_allowed(prop_id)) keys.emplace_back(dba->PropertyToName(prop_id));
+    }
+    return TypedValue(std::move(keys));
+  }
+  if (value.IsVirtualEdge()) {
+    auto const &ve = value.ValueVirtualEdge();
+    auto const is_allowed = MakePropertyChecker(checker, ve, dba);
+    TypedValue::TVector keys(ctx.memory);
+    for (auto const &[prop_id, prop_value] : ve.Properties()) {
+      if (is_allowed(prop_id)) keys.emplace_back(dba->PropertyToName(prop_id));
+    }
     return TypedValue(std::move(keys));
   }
 
@@ -949,13 +994,26 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
       return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
     });
   }
-  if (value.IsVirtualNode() || value.IsVirtualEdge()) {
-    const auto &props = VirtualProperties(value);
+  auto *dba = ctx.db_accessor;
+  if (value.IsVirtualNode()) {
+    auto const &vn = value.ValueVirtualNode();
+    auto const is_allowed = MakePropertyChecker(checker, vn, dba);
     TypedValue::TVector values(ctx.memory);
-    values.reserve(props.size());
-    for (const auto &[prop_id, prop_value] : props) {
-      auto typed_value = TypedValue(prop_value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-      values.emplace_back(std::move(typed_value));
+    for (auto const &[prop_id, prop_value] : vn.Properties()) {
+      if (is_allowed(prop_id)) {
+        values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+      }
+    }
+    return TypedValue(std::move(values));
+  }
+  if (value.IsVirtualEdge()) {
+    auto const &ve = value.ValueVirtualEdge();
+    auto const is_allowed = MakePropertyChecker(checker, ve, dba);
+    TypedValue::TVector values(ctx.memory);
+    for (auto const &[prop_id, prop_value] : ve.Properties()) {
+      if (is_allowed(prop_id)) {
+        values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+      }
     }
     return TypedValue(std::move(values));
   }
