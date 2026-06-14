@@ -654,9 +654,9 @@ def test_t6_idle_session_reaper_unpins_then_reheats(test_name):
 
     # The idle connection was never closed: a fresh query on it block-and-resumes db6 and reads data.
     count = execute_and_fetch_all(cursor_idle, "MATCH (n) RETURN count(n) AS c")
-    assert count[0][0] == 2, (
-        f"the pooled connection must transparently reheat db6 and read its 2 nodes, got {count[0][0]}"
-    )
+    assert (
+        count[0][0] == 2
+    ), f"the pooled connection must transparently reheat db6 and read its 2 nodes, got {count[0][0]}"
 
 
 # ---------------------------------------------------------------------------
@@ -824,9 +824,9 @@ def test_t8_make_room_on_resume_evicts_coldest_peer(test_name):
     assert a_count == 1000, f"tenant_a must reheat with its 1000 nodes, got {a_count}"
 
     # make-room is synchronous within the resume, so tenant_b is already cold (or becomes so promptly).
-    assert _wait_for_db_state(cursor_default, "tenant_b", "cold", timeout_s=5.0), (
-        "make-room-on-resume should have evicted the coldest idle peer tenant_b after resuming tenant_a"
-    )
+    assert _wait_for_db_state(
+        cursor_default, "tenant_b", "cold", timeout_s=5.0
+    ), "make-room-on-resume should have evicted the coldest idle peer tenant_b after resuming tenant_a"
     assert _get_db_state(cursor_default, "tenant_a") == "ready", "the just-resumed tenant_a must stay HOT (protected)"
 
     conn_resume.close()
@@ -974,8 +974,7 @@ def test_t9_replica_resumes_cold_tenant_on_replication_traffic(test_name):
         time.sleep(0.5)
 
     assert suspended, (
-        f"Could not SUSPEND tenant1 on replica within {SUSPEND_RETRY_TIMEOUT_S}s. "
-        f"Last error: {last_suspend_err!r}"
+        f"Could not SUSPEND tenant1 on replica within {SUSPEND_RETRY_TIMEOUT_S}s. " f"Last error: {last_suspend_err!r}"
     )
 
     # -------------------------------------------------------------------------
@@ -1084,8 +1083,7 @@ def _scrape_metrics(port: int = _METRICS_PORT, timeout_s: float = 15.0, poll_s: 
             time.sleep(poll_s)
 
     raise AssertionError(
-        f"Metrics endpoint {url!r} did not become reachable within {timeout_s}s. "
-        f"Last error: {last_exc!r}"
+        f"Metrics endpoint {url!r} did not become reachable within {timeout_s}s. " f"Last error: {last_exc!r}"
     )
 
 
@@ -1166,9 +1164,9 @@ def test_t10_hot_cold_metrics_exported(test_name):
     assert "suspended" in suspend_result[0][0].lower(), f"Unexpected SUSPEND message: {suspend_result[0][0]!r}"
 
     # Poll until m_db reaches 'cold'.
-    assert _wait_for_db_state(cursor_default, "m_db", "cold", timeout_s=15.0), (
-        "m_db did not reach State='cold' within 15s after SUSPEND"
-    )
+    assert _wait_for_db_state(
+        cursor_default, "m_db", "cold", timeout_s=15.0
+    ), "m_db did not reach State='cold' within 15s after SUSPEND"
 
     # --- Scrape 1: after suspension ---
     metrics_text_after_suspend = _scrape_metrics()
@@ -1182,15 +1180,13 @@ def test_t10_hot_cold_metrics_exported(test_name):
 
     # suspended_tenants must be exactly 1 (only m_db is cold).
     suspended_val = _parse_metric_value(metrics_text_after_suspend, "memgraph_hot_cold_suspended_tenants")
-    assert suspended_val == 1.0, (
-        f"Expected memgraph_hot_cold_suspended_tenants == 1 after suspending m_db, got {suspended_val}"
-    )
+    assert (
+        suspended_val == 1.0
+    ), f"Expected memgraph_hot_cold_suspended_tenants == 1 after suspending m_db, got {suspended_val}"
 
     # suspends_total must be >= 1.
     suspends_val = _parse_metric_value(metrics_text_after_suspend, "memgraph_hot_cold_suspends_total")
-    assert suspends_val >= 1.0, (
-        f"Expected memgraph_hot_cold_suspends_total >= 1 after SUSPEND, got {suspends_val}"
-    )
+    assert suspends_val >= 1.0, f"Expected memgraph_hot_cold_suspends_total >= 1 after SUSPEND, got {suspends_val}"
 
     # Resume m_db.
     resume_result = execute_and_fetch_all(cursor_default, "RESUME DATABASE m_db")
@@ -1198,31 +1194,144 @@ def test_t10_hot_cold_metrics_exported(test_name):
     assert "resumed" in resume_result[0][0].lower(), f"Unexpected RESUME message: {resume_result[0][0]!r}"
 
     # Poll until m_db returns to 'ready'.
-    assert _wait_for_db_state(cursor_default, "m_db", "ready", timeout_s=15.0), (
-        "m_db did not return to State='ready' within 15s after RESUME"
-    )
+    assert _wait_for_db_state(
+        cursor_default, "m_db", "ready", timeout_s=15.0
+    ), "m_db did not return to State='ready' within 15s after RESUME"
 
     # --- Scrape 2: after resumption ---
     metrics_text_after_resume = _scrape_metrics()
 
     # suspended_tenants must now be 0.
     suspended_val_after = _parse_metric_value(metrics_text_after_resume, "memgraph_hot_cold_suspended_tenants")
-    assert suspended_val_after == 0.0, (
-        f"Expected memgraph_hot_cold_suspended_tenants == 0 after RESUME, got {suspended_val_after}"
-    )
+    assert (
+        suspended_val_after == 0.0
+    ), f"Expected memgraph_hot_cold_suspended_tenants == 0 after RESUME, got {suspended_val_after}"
 
     # resumes_total must be >= 1.
     resumes_val = _parse_metric_value(metrics_text_after_resume, "memgraph_hot_cold_resumes_total")
-    assert resumes_val >= 1.0, (
-        f"Expected memgraph_hot_cold_resumes_total >= 1 after RESUME, got {resumes_val}"
-    )
+    assert resumes_val >= 1.0, f"Expected memgraph_hot_cold_resumes_total >= 1 after RESUME, got {resumes_val}"
 
     # The resume-latency histogram must have observed at least one sample (proves the Observe path
     # fired on the successful resume — and independently confirms the histogram is exported).
     latency_count = _parse_metric_value(metrics_text_after_resume, "memgraph_hot_cold_resume_latency_seconds_count")
-    assert latency_count >= 1.0, (
-        f"Expected memgraph_hot_cold_resume_latency_seconds_count >= 1 after RESUME, got {latency_count}"
+    assert (
+        latency_count >= 1.0
+    ), f"Expected memgraph_hot_cold_resume_latency_seconds_count >= 1 after RESUME, got {latency_count}"
+
+
+# ---------------------------------------------------------------------------
+# T11 — GRANT/REVOKE DATABASE and SET MAIN DATABASE succeed on a COLD tenant
+#        without reheating it (metadata-only path via Contains())
+# ---------------------------------------------------------------------------
+
+
+def test_t11_auth_grants_on_cold_tenant(test_name):
+    """
+    Validate that multi-tenant auth commands succeed against a COLD (suspended) tenant
+    and do NOT reheat it.
+
+    Background:
+      Before the fix, GRANT DATABASE / REVOKE DATABASE / SET MAIN DATABASE used a
+      throwing DbmsHandler::Get() call as an existence guard.  Get() returns an error
+      for COLD tenants (the in-memory accessor is absent), so those commands raised
+      "Tried to retrieve an unknown database" on any suspended tenant.  The fix
+      switched the existence guard to the non-throwing, HOT+COLD-aware Contains(),
+      because auth commands only touch the KV metadata store — they never need to
+      open the storage layer.
+
+    This test verifies:
+    1. GRANT DATABASE auth_db TO u1  — succeeds while auth_db is COLD.
+    2. SET MAIN DATABASE auth_db FOR u1 — succeeds while auth_db is COLD.
+    3. SHOW DATABASE PRIVILEGES FOR u1 — returns a row that includes "auth_db",
+       proving the grant was persisted.
+    4. REVOKE DATABASE auth_db FROM u1 — succeeds while auth_db is COLD.
+    5. After all four auth gestures, auth_db is STILL 'cold' (none of them reheated it).
+
+    Connection strategy:
+      conn_default is opened before any user is created so it retains admin privileges
+      throughout the test (the canonical Memgraph pattern: an already-open admin
+      session is unaffected by the creation of the first user).  The short-lived work
+      connection is also opened before CREATE USER so it needs no credentials.
+    """
+    instances = instance_description(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    # Step 1: open the admin connection BEFORE any user is created (retains full admin).
+    conn_default = connect(host="localhost", port=7687)
+    cursor_default = conn_default.cursor()
+
+    # Step 2: create auth_db.
+    execute_and_fetch_all(cursor_default, "CREATE DATABASE auth_db")
+
+    # Step 3: populate auth_db via a separate work connection so it has durability
+    # content and zero remaining connections after we close it.  Opened before CREATE
+    # USER so no credentials are needed.
+    conn_work = connect(host="localhost", port=7687)
+    cursor_work = conn_work.cursor()
+    execute_and_fetch_all(cursor_work, "USE DATABASE auth_db")
+    execute_and_fetch_all(cursor_work, "CREATE (:N)")
+    conn_work.close()
+
+    # Step 4: create user (no password — matches the pattern in tests/e2e/auth/auth_queries.py).
+    execute_and_fetch_all(cursor_default, "CREATE USER u1")
+
+    # Step 5: suspend auth_db and wait for it to reach the COLD state.
+    suspend_result = execute_and_fetch_all(cursor_default, "SUSPEND DATABASE auth_db")
+    assert len(suspend_result) == 1, f"SUSPEND DATABASE should return 1 row, got {suspend_result!r}"
+    assert "suspended" in suspend_result[0][0].lower(), f"SUSPEND status message unexpected: {suspend_result[0][0]!r}"
+    assert _wait_for_db_state(
+        cursor_default, "auth_db", "cold", timeout_s=15.0
+    ), "auth_db did not reach State='cold' within 15s after SUSPEND"
+
+    # Step 6: auth commands while auth_db is COLD — each must succeed without raising.
+
+    # 6a. GRANT DATABASE auth_db TO u1
+    grant_rows = execute_and_fetch_all(cursor_default, "GRANT DATABASE auth_db TO u1")
+    # Some Memgraph versions return an empty result set; an exception would have failed the test.
+    _ = grant_rows  # result may be empty; absence of exception is the assertion.
+
+    # 6b. SET MAIN DATABASE auth_db FOR u1 (requires the grant above).
+    execute_and_fetch_all(cursor_default, "SET MAIN DATABASE auth_db FOR u1")
+
+    # 6c. SHOW DATABASE PRIVILEGES FOR u1 — must confirm auth_db is accessible.
+    # SHOW DATABASE PRIVILEGES FOR <user> returns rows of the form (grants, denies) where
+    # grants is either "*" (all databases) or a list of database names, and denies is a list.
+    # After GRANT DATABASE auth_db TO u1 + SET MAIN DATABASE auth_db FOR u1, auth_db must
+    # either appear by name in the grants list or the grants value must be "*" (wildcard =
+    # all databases, which includes auth_db).  Both forms confirm the grant was persisted and
+    # that Contains() correctly resolved auth_db in the COLD state.
+    priv_rows = execute_and_fetch_all(cursor_default, "SHOW DATABASE PRIVILEGES FOR u1")
+    assert len(priv_rows) > 0, f"SHOW DATABASE PRIVILEGES FOR u1 returned no rows: {priv_rows!r}"
+    grants_field = priv_rows[0][0]
+    denies_field = priv_rows[0][1]
+    # grants_field is either the string "*" (all databases) or a list of db names.
+    auth_db_accessible = (
+        grants_field == "*"
+        or (isinstance(grants_field, (list, tuple)) and "auth_db" in grants_field)
+        or "auth_db" in str(grants_field)
     )
+    assert auth_db_accessible, (
+        f"Expected SHOW DATABASE PRIVILEGES FOR u1 to grant access to auth_db "
+        f"(either explicitly or via '*'), got grants={grants_field!r}, denies={denies_field!r}. "
+        f"Full rows: {priv_rows!r}"
+    )
+    # auth_db must not be in the denies list (that would block access despite the grant).
+    assert "auth_db" not in str(
+        denies_field
+    ), f"auth_db must not appear in the denies list after GRANT, got denies={denies_field!r}"
+
+    # 6d. REVOKE DATABASE auth_db FROM u1.
+    execute_and_fetch_all(cursor_default, "REVOKE DATABASE auth_db FROM u1")
+
+    # Step 7: correctness bonus — auth gestures must NOT have reheated auth_db.
+    state_after_auth = _get_db_state(cursor_default, "auth_db")
+    assert state_after_auth == "cold", (
+        f"Auth gestures (GRANT/SET MAIN/REVOKE) must not reheat a COLD tenant, "
+        f"but auth_db state is '{state_after_auth}' after the auth operations."
+    )
+
+    # Step 8: cleanup.
+    conn_default.close()
 
 
 if __name__ == "__main__":
