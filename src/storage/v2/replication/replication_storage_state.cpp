@@ -52,4 +52,12 @@ void ReplicationStorageState::SaveLatestHistory() {
   history.emplace_back(epoch_.id(), new_ldt);
 }
 
+std::string ReplicationStorageState::LastEpochWithCommit(uint64_t const ldt) const {
+  if (!history.empty()) {
+    auto const &[history_epoch, history_ldt] = history.back();
+    return history_ldt != ldt ? std::string{epoch_.id()} : history_epoch;
+  }
+  return std::string{epoch_.id()};
+}
+
 }  // namespace memgraph::storage

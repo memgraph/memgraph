@@ -34,11 +34,13 @@
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
 
 namespace {
 
@@ -336,6 +338,98 @@ TEST_F(HotColdResumeTest, ResumePoolJoinsBeforeMapTeardown) {
   mg->dbms.KickResume("td_db");
   // Do NOT wait for HOT — destroy while the job may still be in-flight.
   EXPECT_NO_THROW(mg.reset());
+}
+
+// ---------------------------------------------------------------------------
+// ResumeByUUID: replica replication path (cold tenant resume by UUID)
+// ---------------------------------------------------------------------------
+
+// Resume a COLD tenant via its UUID (replication path). The resume must succeed, the returned
+// accessor must carry the original node count, and the tenant must be HOT afterwards.
+TEST_F(HotColdResumeTest, ResumeByUUIDRecoversData) {
+  constexpr int kNodes = 9;
+  CreateAndPopulate("uuid_db", kNodes);
+
+  // Capture UUID while the tenant is still HOT (Get throws if COLD).
+  const memgraph::utils::UUID uuid = DBMS().Get("uuid_db")->uuid();
+
+  ASSERT_TRUE(DBMS().Suspend("uuid_db").has_value());
+  EXPECT_EQ(StateOf("uuid_db"), memgraph::dbms::DbmsHandler::TenantState::COLD);
+
+  auto res = DBMS().ResumeByUUID(uuid);
+  ASSERT_TRUE(res.has_value()) << "ResumeByUUID should succeed for a known COLD tenant";
+  EXPECT_EQ(CountNodes(*res), kNodes) << "resumed accessor must carry the original node count";
+  EXPECT_EQ(StateOf("uuid_db"), memgraph::dbms::DbmsHandler::TenantState::READY);
+}
+
+// ResumeByUUID with an unknown UUID (not matching any COLD tenant) must return nullopt, not throw.
+TEST_F(HotColdResumeTest, ResumeByUUIDUnknownReturnsNullopt) {
+  // utils::UUID{} produces a random UUID guaranteed not to match any tenant in this harness.
+  auto res = DBMS().ResumeByUUID(memgraph::utils::UUID{});
+  EXPECT_FALSE(res.has_value()) << "ResumeByUUID with an unknown UUID must return nullopt";
+}
+
+// ---------------------------------------------------------------------------
+// GetSuspendedHeartbeatInfo: replica heartbeat answer without reheating
+// ---------------------------------------------------------------------------
+
+// GetSuspendedHeartbeatInfo must return the suspend-time commit metadata for a COLD tenant
+// WITHOUT resuming it. After the call, the tenant must still be COLD.
+TEST_F(HotColdResumeTest, GetSuspendedHeartbeatInfoReflectsSuspendState) {
+  constexpr int kNodes = 5;
+  CreateAndPopulate("hb_db", kNodes);
+
+  // Capture UUID + the LIVE heartbeat values (exactly what the live HeartbeatHandler would report)
+  // while the tenant is still HOT. The suspend-time capture must equal these (no commits happen in
+  // between in this single-threaded test), proving HOT and COLD heartbeats agree.
+  memgraph::utils::UUID uuid;
+  uint64_t live_ldt = 0;
+  uint64_t live_num_txns = 0;
+  std::string live_epoch;
+  {
+    auto acc = DBMS().Get("hb_db");
+    uuid = acc->uuid();
+    auto const &rss = acc->storage()->repl_storage_state_;
+    auto const ci = rss.commit_ts_info_.load(std::memory_order_acquire);
+    live_ldt = ci.ldt_;
+    live_num_txns = ci.num_committed_txns_;
+    live_epoch = rss.LastEpochWithCommit(ci.ldt_);
+  }
+
+  ASSERT_TRUE(DBMS().Suspend("hb_db").has_value());
+  ASSERT_EQ(StateOf("hb_db"), memgraph::dbms::DbmsHandler::TenantState::COLD);
+
+  auto info = DBMS().GetSuspendedHeartbeatInfo(uuid);
+  ASSERT_TRUE(info.has_value()) << "GetSuspendedHeartbeatInfo must return metadata for a known COLD tenant";
+
+  // Equivalence: the COLD answer must match the live pre-suspend values field-for-field.
+  EXPECT_EQ(info->last_durable_timestamp, live_ldt);
+  EXPECT_EQ(info->num_committed_txns, live_num_txns);
+  EXPECT_EQ(info->last_epoch, live_epoch);
+
+  // FinalizeCommitPhase increments num_committed_txns_ on the main storage even in a
+  // non-replicated harness (see InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase).
+  // last_durable_timestamp is stored as commit_ts_info_.ldt_ and is always > kTimestampInitialId
+  // (0) after at least one committed write transaction.
+  EXPECT_NE(info->last_durable_timestamp, memgraph::storage::kTimestampInitialId)
+      << "last_durable_timestamp must have advanced past the initial value after a committed write";
+  // num_committed_txns is incremented once per PrepareForCommitPhase in CreateAndPopulate.
+  // In a non-replicated harness this is >= 1.
+  EXPECT_GE(info->num_committed_txns, static_cast<uint64_t>(1))
+      << "at least one committed transaction must be reflected";
+  // last_epoch is the epoch string at suspend time; its content is harness-dependent (may be a
+  // random epoch UUID string in a non-replicated unit harness). Just assert it is accessible.
+  (void)info->last_epoch;  // no structural constraint in a non-replicated harness
+
+  // The call must NOT resume the tenant: it must still be COLD.
+  EXPECT_EQ(StateOf("hb_db"), memgraph::dbms::DbmsHandler::TenantState::COLD)
+      << "GetSuspendedHeartbeatInfo must not reheat the tenant";
+}
+
+// GetSuspendedHeartbeatInfo with an unknown UUID must return nullopt, not throw.
+TEST_F(HotColdResumeTest, GetSuspendedHeartbeatInfoUnknownReturnsNullopt) {
+  auto info = DBMS().GetSuspendedHeartbeatInfo(memgraph::utils::UUID{});
+  EXPECT_FALSE(info.has_value()) << "GetSuspendedHeartbeatInfo with an unknown UUID must return nullopt";
 }
 
 #endif  // MG_ENTERPRISE

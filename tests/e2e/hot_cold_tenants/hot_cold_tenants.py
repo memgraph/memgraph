@@ -830,5 +830,218 @@ def test_t8_make_room_on_resume_evicts_coldest_peer(test_name):
     conn_resume.close()
 
 
+# ---------------------------------------------------------------------------
+# T9 — replica-side hot/cold: COLD replica tenant reheats on replication traffic
+# ---------------------------------------------------------------------------
+
+_T9_BOLT_PORTS = {"main": 7687, "replica_1": 7688}
+_T9_REPLICATION_PORT = 10001
+
+
+def _hot_cold_args_for_port(bolt_port: int) -> list[str]:
+    """Return a copy of _HOT_COLD_ARGS_BASE with the --bolt-port value replaced."""
+    args = list(_HOT_COLD_ARGS_BASE)
+    # _HOT_COLD_ARGS_BASE layout: ["--bolt-port", "7687", ...]
+    bolt_idx = args.index("--bolt-port")
+    args[bolt_idx + 1] = str(bolt_port)
+    return args
+
+
+def instance_description_replication(test_name: str) -> dict:
+    """Return a 2-instance cluster description for the T9 replication test."""
+    return {
+        "replica_1": {
+            "args": _hot_cold_args_for_port(_T9_BOLT_PORTS["replica_1"]),
+            "log_file": f"{get_logs_path(file, test_name)}/replica_1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica_1",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {_T9_REPLICATION_PORT};",
+            ],
+        },
+        "main": {
+            "args": _hot_cold_args_for_port(_T9_BOLT_PORTS["main"]),
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{_T9_REPLICATION_PORT}';",
+            ],
+        },
+    }
+
+
+def test_t9_replica_resumes_cold_tenant_on_replication_traffic(test_name):
+    """
+    Prove the replica-side hot/cold replication MVP:
+
+    1. A tenant suspended (COLD) on a REPLICA is automatically resumed when the MAIN
+       replicates new writes to it, and ends up HOT with all data (old + new).
+    2. While cold, periodic heartbeats from main do NOT reheat it.
+
+    Setup:
+    - main on bolt 7687, replica_1 on bolt 7688, replication port 10001.
+    - Both instances use the hot-cold experimental args (WAL + snapshot-interval=300 +
+      data-recovery-on-startup=true + min-hot-residency=0).
+    - Replication mode: SYNC (so main's commit drives PrepareCommit to the replica
+      synchronously, which must resume the cold tenant to apply the WAL delta).
+
+    Steps:
+    1. Start both instances.
+    2. CREATE DATABASE tenant1 on main (replicated to replica).
+    3. Write 5 nodes into tenant1 on main.
+    4. Verify tenant1 has 5 nodes on the replica.
+    5. SUSPEND tenant1 on the replica (retry if replication apply accessor is still active).
+    6. Poll until tenant1 is 'cold' on the replica.
+    7. Sleep 4s and confirm tenant1 is STILL 'cold' (heartbeats must not reheat).
+    8. Write 4 more nodes (ids 6–9) into tenant1 on main; SYNC commit drives replica resume.
+    9. Poll until tenant1 is 'ready' on the replica (reheated by replication traffic).
+    10. Verify tenant1 has 9 nodes on the replica (old + new data intact).
+    """
+    instances = instance_description_replication(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    # -------------------------------------------------------------------------
+    # Step 2: create tenant1 on main (replicated automatically).
+    # -------------------------------------------------------------------------
+    main_default = connect(host="localhost", port=_T9_BOLT_PORTS["main"])
+    cursor_main_default = main_default.cursor()
+    execute_and_fetch_all(cursor_main_default, "CREATE DATABASE tenant1;")
+
+    # -------------------------------------------------------------------------
+    # Step 3: write 5 nodes into tenant1 on main.
+    # -------------------------------------------------------------------------
+    conn_main_t1 = connect(host="localhost", port=_T9_BOLT_PORTS["main"])
+    cursor_main_t1 = conn_main_t1.cursor()
+    execute_and_fetch_all(cursor_main_t1, "USE DATABASE tenant1;")
+    execute_and_fetch_all(cursor_main_t1, "UNWIND range(1, 5) AS i CREATE (:N {id: i});")
+
+    # -------------------------------------------------------------------------
+    # Step 4: verify tenant1 has 5 nodes on the replica.
+    # USE DATABASE tenant1 on the replica may block until the CREATE DATABASE
+    # replicates; retry in a bounded loop.
+    # -------------------------------------------------------------------------
+    REPLICA_SYNC_TIMEOUT_S = 30.0
+    deadline = time.monotonic() + REPLICA_SYNC_TIMEOUT_S
+    replica_count: int | None = None
+    last_replica_exc: Exception | None = None
+
+    while time.monotonic() < deadline:
+        try:
+            conn_replica_t1 = connect(host="localhost", port=_T9_BOLT_PORTS["replica_1"])
+            cursor_replica_t1 = conn_replica_t1.cursor()
+            execute_and_fetch_all(cursor_replica_t1, "USE DATABASE tenant1;")
+            rows = execute_and_fetch_all(cursor_replica_t1, "MATCH (n:N) RETURN count(n);")
+            replica_count = rows[0][0]
+            conn_replica_t1.close()
+            if replica_count == 5:
+                break
+        except Exception as exc:
+            last_replica_exc = exc
+        time.sleep(0.5)
+
+    assert replica_count == 5, (
+        f"Expected 5 nodes on replica after initial replication, got {replica_count!r}. "
+        f"Last exception: {last_replica_exc!r}"
+    )
+
+    # -------------------------------------------------------------------------
+    # Step 5: SUSPEND tenant1 on the replica.
+    # Close the main tenant1 session first (no longer needed until step 8).
+    # The replication-apply accessor may still be releasing; retry with a bounded loop.
+    # The replica's SHOW DATABASES cursor must live on the replica's default db.
+    # -------------------------------------------------------------------------
+    conn_main_t1.close()
+
+    replica_default = connect(host="localhost", port=_T9_BOLT_PORTS["replica_1"])
+    cursor_replica_default = replica_default.cursor()
+
+    SUSPEND_RETRY_TIMEOUT_S = 15.0
+    deadline_suspend = time.monotonic() + SUSPEND_RETRY_TIMEOUT_S
+    suspended = False
+    last_suspend_err = ""
+    while time.monotonic() < deadline_suspend:
+        try:
+            result = execute_and_fetch_all(cursor_replica_default, "SUSPEND DATABASE tenant1;")
+            if result and "suspended" in result[0][0].lower():
+                suspended = True
+                break
+        except Exception as exc:
+            last_suspend_err = str(exc)
+            if "active connections" not in last_suspend_err.lower():
+                # Unexpected error — re-raise immediately.
+                raise
+        time.sleep(0.5)
+
+    assert suspended, (
+        f"Could not SUSPEND tenant1 on replica within {SUSPEND_RETRY_TIMEOUT_S}s. "
+        f"Last error: {last_suspend_err!r}"
+    )
+
+    # -------------------------------------------------------------------------
+    # Step 6: poll until tenant1 is 'cold' on the replica.
+    # -------------------------------------------------------------------------
+    became_cold = _wait_for_db_state(cursor_replica_default, "tenant1", "cold", timeout_s=30.0)
+    assert became_cold, (
+        f"tenant1 did not reach State='cold' on replica within 30s after SUSPEND. "
+        f"Current state: {_get_db_state(cursor_replica_default, 'tenant1')!r}"
+    )
+
+    # -------------------------------------------------------------------------
+    # Step 7: heartbeat-no-reheat check.
+    # Sleep long enough for several main heartbeat cycles; tenant1 must remain cold.
+    # -------------------------------------------------------------------------
+    time.sleep(4.0)
+    state_after_heartbeats = _get_db_state(cursor_replica_default, "tenant1")
+    assert state_after_heartbeats == "cold", (
+        f"Periodic heartbeats from main must NOT reheat a cold replica tenant, "
+        f"but tenant1 state is '{state_after_heartbeats}' after 4s sleep."
+    )
+
+    # -------------------------------------------------------------------------
+    # Step 8: write 4 more nodes on main; SYNC commit drives PrepareCommit to the
+    # replica, which must resume tenant1 to apply the WAL delta.
+    # -------------------------------------------------------------------------
+    conn_main_t1_b = connect(host="localhost", port=_T9_BOLT_PORTS["main"])
+    cursor_main_t1_b = conn_main_t1_b.cursor()
+    execute_and_fetch_all(cursor_main_t1_b, "USE DATABASE tenant1;")
+    execute_and_fetch_all(cursor_main_t1_b, "UNWIND range(6, 9) AS i CREATE (:N {id: i});")
+    conn_main_t1_b.close()
+
+    # -------------------------------------------------------------------------
+    # Step 9: poll until tenant1 is 'ready' on the replica (reheated by traffic).
+    # -------------------------------------------------------------------------
+    reheated = _wait_for_db_state(cursor_replica_default, "tenant1", "ready", timeout_s=30.0)
+    assert reheated, (
+        f"tenant1 did not reheat to 'ready' on replica within 30s after replication traffic. "
+        f"Current state: {_get_db_state(cursor_replica_default, 'tenant1')!r}"
+    )
+
+    # -------------------------------------------------------------------------
+    # Step 10: verify all 9 nodes are present on the replica (old + new data intact).
+    # -------------------------------------------------------------------------
+    VERIFY_TIMEOUT_S = 30.0
+    deadline_verify = time.monotonic() + VERIFY_TIMEOUT_S
+    final_count: int | None = None
+    last_verify_exc: Exception | None = None
+
+    while time.monotonic() < deadline_verify:
+        try:
+            conn_replica_verify = connect(host="localhost", port=_T9_BOLT_PORTS["replica_1"])
+            cursor_replica_verify = conn_replica_verify.cursor()
+            execute_and_fetch_all(cursor_replica_verify, "USE DATABASE tenant1;")
+            rows = execute_and_fetch_all(cursor_replica_verify, "MATCH (n:N) RETURN count(n);")
+            final_count = rows[0][0]
+            conn_replica_verify.close()
+            if final_count == 9:
+                break
+        except Exception as exc:
+            last_verify_exc = exc
+        time.sleep(0.5)
+
+    assert final_count == 9, (
+        f"Expected 9 nodes on replica after reheat (5 original + 4 replicated), "
+        f"got {final_count!r}. Last exception: {last_verify_exc!r}"
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))

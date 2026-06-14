@@ -139,7 +139,6 @@ class DbmsHandler {
     NOT_IN_MEMORY,          //!< on-disk storage mode is not suspendable
     DURABILITY_INCOMPLETE,  //!< durability mode is not {periodic snapshot + WAL}
     REPLICATING,            //!< MAIN-side replication participant (has registered replicas)
-    REPLICA_ROLE,           //!< instance is a REPLICA (injected predicate)
     ACTIVE_CONNECTIONS,     //!< another accessor is live; could not reach sole-accessor state
     MIN_RESIDENCY,          //!< tenant has not stayed hot long enough since last use (anti-thrash)
   };
@@ -350,13 +349,12 @@ class DbmsHandler {
    */
   RenameResult Rename(std::string_view old_name, std::string_view new_name, system::Transaction *txn = nullptr);
 
-  /**
-   * @brief Inject the instance-level REPLICA-role predicate.
-   *
-   * The dbms layer cannot see the instance ReplicationRole, so memgraph.cpp wires this in.
-   * When unset (default), the instance is treated as NOT a replica.
-   */
-  void SetReplicaRoleCheck(std::function<bool()> cb) { is_replica_role_ = std::move(cb); }
+  // Heartbeat answer for a COLD tenant, served from suspend-time metadata (no resume).
+  struct SuspendedHeartbeatInfo {
+    uint64_t last_durable_timestamp;
+    uint64_t num_committed_txns;
+    std::string last_epoch;
+  };
 
   /**
    * @brief Suspend (move HOT -> COLD) the named tenant, tearing down its in-memory storage.
@@ -411,6 +409,26 @@ class DbmsHandler {
    *        an explicit early drain keeps shutdown ordering obvious.)
    */
   void ShutdownResumePool() { resume_pool_.ShutDown(); }
+
+  /**
+   * @brief Resume a COLD tenant identified by UUID (replica replication path). Scans the
+   *        suspended_ map for the entry whose salient.uuid matches, then resumes it by name.
+   *        Returns nullopt if no COLD tenant has that UUID (or the resume failed).
+   *        Reuses the single-flight Resume_ machinery.
+   *
+   * @param uuid UUID of the COLD tenant to resume
+   * @return DatabaseAccess on success; nullopt if not found or recovery failed
+   */
+  std::optional<DatabaseAccess> ResumeByUUID(const utils::UUID &uuid);
+
+  /**
+   * @brief Look up suspend-time heartbeat metadata for a COLD tenant by UUID, WITHOUT resuming it.
+   *        Returns nullopt if no COLD tenant has that UUID.
+   *
+   * @param uuid UUID of the COLD tenant to query
+   * @return SuspendedHeartbeatInfo on success; nullopt if not found
+   */
+  std::optional<SuspendedHeartbeatInfo> GetSuspendedHeartbeatInfo(const utils::UUID &uuid) const;
 
   /**
    * @brief Suspend the coldest idle HOT tenants until `bytes_to_free` bytes are freed (estimated)
@@ -812,7 +830,12 @@ class DbmsHandler {
    * under lock_. Losers poll Get(name) until HOT (bounded). On failure: abort_resume() (RESUMING ->
    * COLD), leaving suspended_ intact so the resume is retriable.
    */
-  ResumeResult Resume_(std::string_view name);
+  // rewire_replication: run the post-publish on_resume_repl_ arm (re-wire MAIN-side replication
+  // clients). MUST be false when called from the replica replication-apply path (ResumeByUUID):
+  // that path runs on the replication RPC thread, which already holds the repl_state read lock, and
+  // on_resume_repl_ takes the repl_state WRITE lock -> self-deadlock on the non-recursive RWSpinLock.
+  // (On a replica the hook is a no-op anyway, so skipping it is functionally free.)
+  ResumeResult Resume_(std::string_view name, bool rewire_replication = true);
 
   /**
    * @brief Create a new Database associated with the default database
@@ -943,13 +966,18 @@ class DbmsHandler {
     storage::SalientConfig salient;  //!< salient config to recreate the storage
     std::filesystem::path rel_dir;   //!< durability dir relative to the instance root
     int64_t last_used_ns;            //!< last-used stamp captured at suspend time
+    // Heartbeat metadata captured at suspend time so a replica can answer a HeartbeatRpc for a
+    // COLD tenant WITHOUT resuming it (resume-on-heartbeat would defeat eviction). Mirrors the
+    // fields HeartbeatHandler reads from a live storage's repl_storage_state_.
+    uint64_t last_durable_timestamp{0};  //!< repl_storage_state_.commit_ts_info_.ldt_ at suspend
+    uint64_t num_committed_txns{0};      //!< repl_storage_state_.commit_ts_info_.num_committed_txns_
+    std::string last_epoch;              //!< the "last epoch with a commit" string (see Suspend_)
   };
 
   mutable LockT lock_{utils::RWLock::Priority::READ};  //!< protective lock
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::map<std::string, SuspendedEntry, std::less<>> suspended_;  //!< COLD tenant rebuild metadata; guarded by lock_
-  std::function<bool()> is_replica_role_;                         //!< injected REPLICA-role check; unset => not replica
   std::function<void(DatabaseAccess)> on_resume_;  //!< pre-publish resume arm (triggers/streams/TTL); empty default
   std::function<void(DatabaseAccess)> on_resume_repl_;  //!< post-publish resume arm (replication); empty default
   // TODO: move to be common

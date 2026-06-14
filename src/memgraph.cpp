@@ -932,11 +932,15 @@ int main(int argc, char **argv) {
   // Placed here (after interpreter_context_ is initialized and modules/triggers/streams are restored)
   // so the callbacks can safely reference interpreter_context_.
   if (!is_coordinator_instance && dbms_handler.has_value()) {
-    // (a) Replica role check — used by Resume_ to skip replication wiring on replicas.
-    dbms_handler->SetReplicaRoleCheck([&repl_state]() { return repl_state->ReadLock()->IsReplica(); });
-
     // (b) PRE-publish hook — re-arm triggers, streams, and TTL for the resumed tenant, mirroring
     //     the per-DB body of DbmsHandler::RestoreTriggers / RestoreStreams called at startup.
+    //     LOCK CONSTRAINT: this hook can run on the replication RPC thread (a COLD tenant reheated by
+    //     incoming replication traffic via DbmsHandler::ResumeByUUID), which ALREADY holds the
+    //     repl_state READ lock. It must NOT acquire the repl_state WRITE lock (repl_state->Lock()):
+    //     that would self-deadlock on the non-recursive RWSpinLock. (This hook only reads repl_state
+    //     lazily inside the stored TTL user-check lambda, so it is safe; the (c) hook below, which
+    //     DOES take the write lock, is skipped on the ResumeByUUID path — see Resume_'s
+    //     rewire_replication parameter.)
     dbms_handler->SetOnResume([&interpreter_context_, &repl_state](memgraph::dbms::DatabaseAccess db_acc) {
       auto *ic = &interpreter_context_;
       // Triggers: needs a WRITE storage access + DbAccessor.
@@ -954,9 +958,11 @@ int main(int argc, char **argv) {
     });
 
     // (c) POST-publish hook — recover replication clients for the resumed tenant.
-    //     Cold tenants are non-replicated, so this is effectively a safety no-op for MVP.
     //     It mirrors RecoverStorageReplication so a tenant that had replicas before suspension
-    //     is re-connected on resume.
+    //     is re-connected on resume. Takes the repl_state WRITE lock, so it MUST NOT run on the
+    //     replication RPC thread (which holds the repl_state read lock): Resume_ skips this hook when
+    //     rewire_replication == false (the ResumeByUUID / replica-apply path). On a replica it is a
+    //     no-op anyway (acts only on RoleMainData), so skipping it there loses nothing.
     dbms_handler->SetOnResumeRepl([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
       auto locked = repl_state->Lock();
       if (auto *main_data = std::get_if<memgraph::replication::RoleMainData>(&locked->ReplicationData())) {

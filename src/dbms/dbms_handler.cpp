@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <shared_mutex>
 #include <thread>
 #include <vector>
@@ -733,7 +734,10 @@ DbmsHandler::DeleteResult DbmsHandler::DropCold_(std::string_view db_name, syste
 
 DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
   if (name == kDefaultDB) return std::unexpected{SuspendError::DEFAULT_DB};
-  if (is_replica_role_ && is_replica_role_()) return std::unexpected{SuspendError::REPLICA_ROLE};
+  // NOTE: a REPLICA may suspend tenants independently under its own memory pressure. This is safe
+  // because incoming replication traffic reheats a COLD tenant on demand (data/recovery RPCs resume
+  // it via GetDatabaseAccessorOrResume; HeartbeatRpc answers from suspend-time metadata without
+  // reheating). There is therefore no role gate here anymore.
 
   SuspendedEntry entry;
   utils::Gatekeeper<Database> *gk = nullptr;
@@ -782,6 +786,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
     entry.rel_dir = std::filesystem::relative(db->config().durability.storage_directory,
                                               default_config_.durability.storage_directory);
     entry.last_used_ns = db->LastUsedNs();
+
     gk = db_handler_.GetGatekeeper(name);  // stable pointer to the in-map gatekeeper
     acc = std::move(*a);                   // hold the accessor across phases (count includes it)
 
@@ -809,6 +814,20 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
 
   // The Database dtor must NOT take an exit snapshot; abort any in-flight one.
   (*acc)->storage()->DisableExitSnapshot();
+
+  // Capture heartbeat metadata for the COLD-tenant heartbeat answer (replica path), so a suspended
+  // tenant answers HeartbeatRpc from this snapshot without reheating. Done HERE (post-freeze) rather
+  // than in Phase A: the tenant is now SUSPENDING with count == 1 (try_begin_suspend drained all
+  // other accessors and access() refuses new ones), so no concurrent commit can advance ldt/epoch
+  // between this read and teardown — the captured values are exactly the last durable state. Uses
+  // the same ReplicationStorageState::LastEpochWithCommit the live HeartbeatHandler uses.
+  {
+    auto *st = (*acc)->storage();
+    auto const commit_info = st->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
+    entry.last_durable_timestamp = commit_info.ldt_;
+    entry.num_committed_txns = commit_info.num_committed_txns_;
+    entry.last_epoch = st->repl_storage_state_.LastEpochWithCommit(commit_info.ldt_);
+  }
 
   // PHASE C — record metadata (lock_), then heavy teardown OUTSIDE lock_.
   acc.reset();  // drop our accessor -> count == 0 (state still SUSPENDING)
@@ -916,7 +935,7 @@ int64_t DbmsHandler::EvictForMemoryPressure(std::string_view exclude) {
 #endif
 }
 
-DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name) {
+DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewire_replication) {
   // Outer loop: converts the former tail-recursion (loser sees COLD-fallback -> retry whole
   // function) into an iterative restart.  Each iteration is one full attempt: Phase A acquires
   // the single-flight token; the winner builds and publishes; a loser polls until the winner
@@ -1045,7 +1064,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name) {
       // Replication re-wiring is independently retriable, so on failure we log and return the live
       // accessor.
       try {
-        if (on_resume_repl_) on_resume_repl_(acc);  // POST-PUBLISH arm (replication)
+        // Skip on the replica replication-apply path (rewire_replication == false): the caller holds
+        // the repl_state read lock and this hook takes the repl_state write lock -> self-deadlock.
+        if (rewire_replication && on_resume_repl_) on_resume_repl_(acc);  // POST-PUBLISH arm (replication)
       } catch (...) {
         spdlog::error(
             "Resume: replication re-wiring failed for tenant '{}' after publish; the tenant is live "
@@ -1088,6 +1109,41 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
   }
   const auto &val = Durability::GenVal(config.salient.uuid, *rel_dir);
   durability_->Put(key, val);
+}
+
+std::optional<DbmsHandler::SuspendedHeartbeatInfo> DbmsHandler::GetSuspendedHeartbeatInfo(
+    const utils::UUID &uuid) const {
+  auto rd = std::shared_lock{lock_};
+  for (auto const &[_, entry] : suspended_) {
+    if (entry.salient.uuid == uuid) {
+      return SuspendedHeartbeatInfo{entry.last_durable_timestamp, entry.num_committed_txns, entry.last_epoch};
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<DatabaseAccess> DbmsHandler::ResumeByUUID(const utils::UUID &uuid) {
+  // Find the COLD tenant's name under the shared lock, then resume by name OUTSIDE the lock.
+  // Resume_ takes its own shared_lock; holding ours would self-deadlock on the rwlock.
+  std::string name;
+  {
+    auto rd = std::shared_lock{lock_};
+    bool found = false;
+    for (auto const &[n, entry] : suspended_) {
+      if (entry.salient.uuid == uuid) {
+        name = n;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return std::nullopt;
+  }
+  // rewire_replication=false: we are on the replication RPC thread which already holds the
+  // repl_state read lock; running on_resume_repl_ (which takes the repl_state write lock) here would
+  // self-deadlock. The hook is a no-op on a replica anyway.
+  auto res = Resume_(name, /*rewire_replication=*/false);  // single-flight; recovers from durability
+  if (!res) return std::nullopt;
+  return std::optional{std::move(*res)};
 }
 
 #endif

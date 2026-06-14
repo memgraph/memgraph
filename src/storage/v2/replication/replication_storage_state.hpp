@@ -46,6 +46,12 @@ struct ReplicationStorageState {
   // History
   void SaveLatestHistory();
 
+  // The epoch id of the last epoch that has a commit, for a given last-durable-timestamp `ldt`.
+  // If the newest history entry's commit timestamp differs from `ldt` (or history is empty), the
+  // last commit belongs to the current epoch. Shared by the live HeartbeatHandler and the hot/cold
+  // suspend-time metadata capture so HOT and COLD heartbeats answer identically.
+  std::string LastEpochWithCommit(uint64_t ldt) const;
+
   void Reset();
 
   template <typename F>

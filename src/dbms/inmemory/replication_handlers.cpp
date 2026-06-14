@@ -208,9 +208,33 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
     }
     return std::optional{std::move(acc)};
   } catch (const dbms::UnknownDatabaseException &) {
-    spdlog::warn("No database with UUID \"{}\" on replica!", std::string{uuid});
+    spdlog::trace("No database with UUID \"{}\" on replica!", std::string{uuid});
     return std::nullopt;
   }
+}
+
+// Like GetDatabaseAccessor, but if the tenant is COLD (independently suspended on this replica),
+// resume it on demand (recover from durability) before returning the accessor. Used by the
+// data/recovery RPC handlers so incoming deltas/recovery reheat a COLD tenant. The HeartbeatRpc
+// deliberately does NOT use this (it answers from suspend-time metadata to avoid reheating).
+std::optional<DatabaseAccess> GetDatabaseAccessorOrResume(dbms::DbmsHandler *dbms_handler, const utils::UUID &uuid) {
+#ifdef MG_ENTERPRISE
+  if (auto acc = GetDatabaseAccessor(dbms_handler, uuid)) return acc;
+  // Not HOT — try resume-by-uuid (nullopt if there is no COLD tenant with this UUID).
+  auto resumed = dbms_handler->ResumeByUUID(uuid);
+  if (!resumed) return std::nullopt;
+  // A COLD tenant is IN_MEMORY_TRANSACTIONAL by construction (Suspend_ gate), but re-validate to
+  // mirror GetDatabaseAccessor's contract for the caller.
+  const memory::DbArenaScope db_arena_scope{resumed->get()};
+  auto const *inmem_storage = static_cast<storage::InMemoryStorage *>(resumed->get()->storage());
+  if (!inmem_storage || inmem_storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    spdlog::error("Resumed database is not IN_MEMORY_TRANSACTIONAL.");
+    return std::nullopt;
+  }
+  return resumed;
+#else
+  return GetDatabaseAccessor(dbms_handler, uuid);
+#endif
 }
 
 void LogWrongMain(utils::UUID const &current_main_uuid, const utils::UUID &main_req_id, std::string_view rpc_req) {
@@ -360,6 +384,16 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   }
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   if (!db_acc) {
+#ifdef MG_ENTERPRISE
+    // The tenant may be COLD (independently suspended on this replica). Answer the heartbeat from
+    // suspend-time metadata WITHOUT resuming it — reheating on heartbeat would defeat eviction.
+    if (auto const info = dbms_handler->GetSuspendedHeartbeatInfo(req.uuid)) {
+      const storage::replication::HeartbeatRes res{true, info->last_durable_timestamp, info->last_epoch,
+                                                   info->num_committed_txns};
+      rpc::SendFinalResponse(res, request_version, res_builder);
+      return;
+    }
+#endif
     spdlog::warn("No database accessor");
     storage::replication::HeartbeatRes const res{false, 0, "", 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -370,13 +404,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   auto const *storage = db_acc->get()->storage();
   auto const commit_info = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
 
-  auto const last_epoch_with_commit = std::invoke([storage, ldt = commit_info.ldt_]() -> std::string {
-    if (auto const &history = storage->repl_storage_state_.history; !history.empty()) {
-      auto [history_epoch, history_ldt] = history.back();
-      return history_ldt != ldt ? std::string{storage->repl_storage_state_.epoch_.id()} : history_epoch;
-    }
-    return std::string{storage->repl_storage_state_.epoch_.id()};
-  });
+  auto const last_epoch_with_commit = storage->repl_storage_state_.LastEpochWithCommit(commit_info.ldt_);
 
   const storage::replication::HeartbeatRes res{
       true, commit_info.ldt_, last_epoch_with_commit, commit_info.num_committed_txns_};
@@ -420,7 +448,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     return;
   }
 
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
+  auto db_acc = GetDatabaseAccessorOrResume(dbms_handler, req.storage_uuid);
   if (!db_acc) {
     const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -502,7 +530,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     return;
   }
 
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
+  auto db_acc = GetDatabaseAccessorOrResume(dbms_handler, req.storage_uuid);
   if (!db_acc) {
     storage::replication::FinalizeCommitRes const res(false);
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -590,15 +618,18 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
                                                   slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
-  if (!db_acc) {
-    spdlog::error("Couldn't get database accessor in snapshot handler for request with storage_uuid {}",
-                  std::string{req.storage_uuid});
+  // Reject a wrong/stale main BEFORE resolving the accessor: GetDatabaseAccessorOrResume reheats a
+  // COLD tenant (disk recovery + RAM), so a rogue main must not be able to force that work only to
+  // be rejected. (PrepareCommitHandler checks main_uuid first for the same reason.)
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
-  if (current_main_uuid != req.main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
+  auto db_acc = GetDatabaseAccessorOrResume(dbms_handler, req.storage_uuid);
+  if (!db_acc) {
+    spdlog::error("Couldn't get database accessor in snapshot handler for request with storage_uuid {}",
+                  std::string{req.storage_uuid});
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
@@ -789,17 +820,18 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 
   storage::replication::WalFilesReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  // Reject a wrong/stale main BEFORE resolving the accessor (resume-on-demand reheats a COLD tenant).
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
+    rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
+    return;
+  }
+  auto db_acc = GetDatabaseAccessorOrResume(dbms_handler, req.uuid);
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in wal files handler for request storage_uuid {}",
                   std::string{req.uuid});
     const storage::replication::WalFilesRes res{std::nullopt, 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
-    return;
-  }
-  if (current_main_uuid != req.main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
-    rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
 
@@ -914,16 +946,16 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
 
   storage::replication::CurrentWalReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
-  if (!db_acc) {
-    spdlog::error("Couldn't get database accessor in current wal handler for request storage_uuid {}",
-                  std::string{req.uuid});
+  // Reject a wrong/stale main BEFORE resolving the accessor (resume-on-demand reheats a COLD tenant).
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
     rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
-
-  if (current_main_uuid != req.main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
+  auto db_acc = GetDatabaseAccessorOrResume(dbms_handler, req.uuid);
+  if (!db_acc) {
+    spdlog::error("Couldn't get database accessor in current wal handler for request storage_uuid {}",
+                  std::string{req.uuid});
     rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }

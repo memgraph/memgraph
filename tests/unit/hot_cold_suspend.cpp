@@ -166,18 +166,6 @@ TEST_F(HotColdSuspendTest, SuspendDurabilityIncompleteRejected) {
   EXPECT_EQ(res.error(), memgraph::dbms::DbmsHandler::SuspendError::DURABILITY_INCOMPLETE);
 }
 
-TEST_F(HotColdSuspendTest, SuspendOnReplicaRoleRejected) {
-  CreateAndPopulate("replica_db", 1);
-  DBMS().SetReplicaRoleCheck([] { return true; });
-
-  auto res = DBMS().Suspend("replica_db");
-  ASSERT_FALSE(res.has_value());
-  EXPECT_EQ(res.error(), memgraph::dbms::DbmsHandler::SuspendError::REPLICA_ROLE);
-
-  // Clear the injected predicate so the rest of the fixture behaves normally.
-  DBMS().SetReplicaRoleCheck({});
-}
-
 TEST_F(HotColdSuspendTest, SuspendWithinMinResidencyRejectsThenSucceeds) {
   // Large debounce window so a freshly-touched tenant is not yet eligible.
   FLAGS_storage_hot_cold_min_hot_residency_sec = 3600;

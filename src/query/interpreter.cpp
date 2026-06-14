@@ -7981,8 +7981,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                 case dbms::DbmsHandler::SuspendError::REPLICATING:
                   throw QueryRuntimeException(
                       "Cannot suspend {}: database has registered replicas (MAIN-side replication).", db_name);
-                case dbms::DbmsHandler::SuspendError::REPLICA_ROLE:
-                  throw QueryRuntimeException("Cannot suspend {}: this instance is a REPLICA.", db_name);
                 case dbms::DbmsHandler::SuspendError::ACTIVE_CONNECTIONS:
                   throw QueryRuntimeException(
                       "Cannot suspend {}: database has active connections; retry after all sessions close.", db_name);
