@@ -7899,6 +7899,215 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .rw_type = RWType::W,
           .db = query->db_name_};
     }
+    case MultiDatabaseQuery::Action::SUSPEND: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      if (interpreter.current_db_.name() != dbms::kDefaultDB) {
+        throw QueryRuntimeException(
+            "SUSPEND DATABASE can only be issued while connected to the default database \"{}\".", dbms::kDefaultDB);
+      }
+
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [db_name = query->db_name_,
+                            force = query->force_,
+                            db_handler,
+                            interpreter_context,
+                            interpreter = &interpreter](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+
+            std::vector<std::vector<TypedValue>> status;
+
+            try {
+              const auto success = db_handler->Suspend(db_name, force);
+              if (success) {
+                if (force) {
+                  // Best effort: terminate all interpreters still using the database so that its
+                  // in-memory storage can actually be released.
+                  interpreter_context->interpreters.WithLock(
+                      [db_name, interpreter_context, interpreter](auto &interpreters) {
+                        auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
+                          return user_or_role &&
+                                 user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
+                                                            db_name,
+                                                            &query::up_to_date_policy);
+                        };
+                        interpreter_context->TerminateTransactions(
+                            interpreters,
+                            InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
+                            interpreter->user_or_role_.get(),
+                            privilege_checker);
+                      });
+                }
+              } else {
+                switch (success.error()) {
+                  case dbms::SuspendError::DEFAULT_DB:
+                    throw QueryRuntimeException("Cannot suspend the default database.");
+                  case dbms::SuspendError::NON_EXISTENT:
+                    throw QueryRuntimeException("{} does not exist.", db_name);
+                  case dbms::SuspendError::ALREADY_SUSPENDED:
+                    throw QueryRuntimeException("{} is already suspended.", db_name);
+                  case dbms::SuspendError::USING:
+                    throw QueryRuntimeException(
+                        "Cannot suspend {}, it is currently being used. Retry with SUSPEND DATABASE {} FORCE.",
+                        db_name,
+                        db_name);
+                  case dbms::SuspendError::FAIL:
+                    throw QueryRuntimeException("Failed while suspending {}", db_name);
+                }
+              }
+            } catch (const utils::BasicException &e) {
+              throw QueryRuntimeException(e.what());
+            }
+
+            status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully suspended " + db_name)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::W,
+          .db = std::string(dbms::kSystemDB)};
+    }
+    case MultiDatabaseQuery::Action::RESUME: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      if (interpreter.current_db_.name() != dbms::kDefaultDB) {
+        throw QueryRuntimeException(
+            "RESUME DATABASE can only be issued while connected to the default database \"{}\".", dbms::kDefaultDB);
+      }
+
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [db_name = query->db_name_, db_handler, interpreter_context, interpreter = &interpreter](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+
+            std::vector<std::vector<TypedValue>> status;
+
+            try {
+              const auto success = db_handler->Resume(db_name, interpreter_context);
+              if (success) {
+                db_handler->Get(db_name)->storage()->ttl_.SetUserCheck([interpreter_context]() {
+                  const auto locked_repl_state = interpreter_context->repl_state->ReadLock();
+                  return locked_repl_state->IsMainWriteable();
+                });
+              } else {
+                switch (success.error()) {
+                  case dbms::ResumeError::NON_EXISTENT:
+                    throw QueryRuntimeException("{} does not exist.", db_name);
+                  case dbms::ResumeError::NOT_SUSPENDED:
+                    throw QueryRuntimeException("{} is not suspended.", db_name);
+                  case dbms::ResumeError::FAIL:
+                    throw QueryRuntimeException("Failed while resuming {}", db_name);
+                }
+              }
+            } catch (const utils::BasicException &e) {
+              throw QueryRuntimeException(e.what());
+            }
+
+            status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully resumed " + db_name)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::W,
+          .db = std::string(dbms::kSystemDB)};
+    }
+    case MultiDatabaseQuery::Action::RESTART: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      if (interpreter.current_db_.name() != dbms::kDefaultDB) {
+        throw QueryRuntimeException(
+            "RESTART DATABASE can only be issued while connected to the default database \"{}\".", dbms::kDefaultDB);
+      }
+
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [db_name = query->db_name_,
+                            force = query->force_,
+                            db_handler,
+                            interpreter_context,
+                            interpreter = &interpreter](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+
+            std::vector<std::vector<TypedValue>> status;
+
+            try {
+              if (force) {
+                // Terminate active transactions first so the synchronous teardown in Restart can
+                // acquire exclusive access to the database.
+                interpreter_context->interpreters.WithLock(
+                    [db_name, interpreter_context, interpreter](auto &interpreters) {
+                      auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
+                        return user_or_role &&
+                               user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
+                                                          db_name,
+                                                          &query::up_to_date_policy);
+                      };
+                      interpreter_context->TerminateTransactions(
+                          interpreters,
+                          InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
+                          interpreter->user_or_role_.get(),
+                          privilege_checker);
+                    });
+              }
+
+              const auto success = db_handler->Restart(db_name, interpreter_context);
+              if (!success) {
+                switch (success.error()) {
+                  case dbms::RestartError::DEFAULT_DB:
+                    throw QueryRuntimeException("Cannot restart the default database.");
+                  case dbms::RestartError::NON_EXISTENT:
+                    throw QueryRuntimeException("{} does not exist.", db_name);
+                  case dbms::RestartError::SUSPENDED:
+                    throw QueryRuntimeException(
+                        "{} is suspended. Run RESUME DATABASE {} to bring it online.", db_name, db_name);
+                  case dbms::RestartError::USING:
+                    throw QueryRuntimeException(
+                        "Cannot restart {}, it is currently being used. Retry with RESTART DATABASE {} FORCE.",
+                        db_name,
+                        db_name);
+                  case dbms::RestartError::FAIL:
+                    throw QueryRuntimeException("Failed while restarting {}", db_name);
+                }
+              }
+
+              db_handler->Get(db_name)->storage()->ttl_.SetUserCheck([interpreter_context]() {
+                const auto locked_repl_state = interpreter_context->repl_state->ReadLock();
+                return locked_repl_state->IsMainWriteable();
+              });
+            } catch (const utils::BasicException &e) {
+              throw QueryRuntimeException(e.what());
+            }
+
+            status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully restarted " + db_name)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::W,
+          .db = std::string(dbms::kSystemDB)};
+    }
   }
 #else
   // here to satisfy clang-tidy
@@ -8013,7 +8222,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  callback.header = {"Name"};
+  callback.header = {"Name", "Status"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
@@ -8022,7 +8231,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 
       status.reserve(all.size());
       for (const auto &name : all) {
-        status.push_back({TypedValue(name)});
+        TypedValue tv_name{name};
+        const bool suspended = db_handler->IsSuspended(tv_name.ValueString());
+        status.push_back({std::move(tv_name), TypedValue(suspended ? "suspended" : "online")});
       }
 
       std::erase_if(status, [&](auto const &row) {
@@ -8030,9 +8241,17 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       });
     };
 
+    // Live databases plus suspended (cold storage) ones, which are not present in the live handler.
+    auto all_databases = [&]() {
+      auto names = db_handler->All();
+      auto suspended = db_handler->Suspended();
+      names.insert(names.end(), std::make_move_iterator(suspended.begin()), std::make_move_iterator(suspended.end()));
+      return names;
+    };
+
     if (!user_or_role || !*user_or_role) {
       // No user, return all
-      gen_status(db_handler->All(), std::vector<TypedValue>{});
+      gen_status(all_databases(), std::vector<TypedValue>{});
     } else {
       // User has a subset of accessible dbs; this is synched with the SessionContextHandler
       const auto &db_priv = auth->GetDatabasePrivileges(user_or_role->username().value(), user_or_role->rolenames());
@@ -8040,7 +8259,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       const auto &denied = db_priv[0][1].ValueList();
       if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
         // All databases are allowed
-        gen_status(db_handler->All(), denied);
+        gen_status(all_databases(), denied);
       } else {
         gen_status(allowed.ValueList(), denied);
       }

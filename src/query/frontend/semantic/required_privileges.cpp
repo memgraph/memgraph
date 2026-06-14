@@ -159,10 +159,15 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
         break;
       case MultiDatabaseQuery::Action::DROP:
       case MultiDatabaseQuery::Action::RENAME:
+      case MultiDatabaseQuery::Action::SUSPEND:
+      case MultiDatabaseQuery::Action::RESTART:
         AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
         if (query.force_) {
           AddPrivilege(AuthQuery::Privilege::TRANSACTION_MANAGEMENT);
         }
+        break;
+      case MultiDatabaseQuery::Action::RESUME:
+        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
         break;
     }
   }
