@@ -393,6 +393,15 @@ class DbmsHandler {
   ResumeResult Resume(std::string_view name) { return Resume_(name); }
 
   /**
+   * @brief Resume every COLD tenant so a subsequent ForEach (e.g. epoch/timestamp update during
+   *        MAIN promotion) covers them. Uses rewire_replication=false (the caller, DoToMainPromotion,
+   *        holds the repl_state write lock and on_resume_repl_ would re-take it -> self-deadlock) and
+   *        make_room=false (serial resume must not let make-room re-evict an already-resumed peer).
+   *        Best-effort: a tenant that fails to resume is logged and left COLD.
+   */
+  void ResumeColdTenantsForPromotion();
+
+  /**
    * @brief Fire-and-forget resume on the background resume executor.
    *
    * Errors are swallowed; on failure the tenant stays COLD and retriable. This is what the
@@ -835,7 +844,7 @@ class DbmsHandler {
   // that path runs on the replication RPC thread, which already holds the repl_state read lock, and
   // on_resume_repl_ takes the repl_state WRITE lock -> self-deadlock on the non-recursive RWSpinLock.
   // (On a replica the hook is a no-op anyway, so skipping it is functionally free.)
-  ResumeResult Resume_(std::string_view name, bool rewire_replication = true);
+  ResumeResult Resume_(std::string_view name, bool rewire_replication = true, bool make_room = true);
 
   /**
    * @brief Apply `limit` to the tenant's in-memory hard limit IF it is currently HOT.

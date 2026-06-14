@@ -974,7 +974,7 @@ int64_t DbmsHandler::EvictForMemoryPressure(std::string_view exclude) {
 #endif
 }
 
-DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewire_replication) {
+DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewire_replication, bool make_room) {
   // Outer loop: converts the former tail-recursion (loser sees COLD-fallback -> retry whole
   // function) into an iterative restart.  Each iteration is one full attempt: Phase A acquires
   // the single-flight token; the winner builds and publishes; a loser polls until the winner
@@ -1147,10 +1147,12 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       // hold `acc`, so the resumed tenant's count is >= 1 and it could not be suspended anyway). No
       // lock_ is held here, and the eviction path (Suspend_) never re-enters Resume_, so there is no
       // recursion. Best-effort: a failure must not fail the resume (the tenant is already live/intact).
-      try {
-        EvictForMemoryPressure(name);
-      } catch (...) {
-        spdlog::error("Resume: make-room eviction after reheating tenant '{}' threw; tenant is live (HOT).", name);
+      if (make_room) {
+        try {
+          EvictForMemoryPressure(name);
+        } catch (...) {
+          spdlog::error("Resume: make-room eviction after reheating tenant '{}' threw; tenant is live (HOT).", name);
+        }
       }
       return acc;
     } catch (...) {
@@ -1214,6 +1216,25 @@ std::optional<DatabaseAccess> DbmsHandler::ResumeByUUID(const utils::UUID &uuid)
   auto res = Resume_(name, /*rewire_replication=*/false);  // single-flight; recovers from durability
   if (!res) return std::nullopt;
   return std::optional{std::move(*res)};
+}
+
+void DbmsHandler::ResumeColdTenantsForPromotion() {
+  // Snapshot COLD-tenant names under the lock, then resume outside it (Resume_ takes lock_ itself).
+  std::vector<std::string> cold_names;
+  {
+    auto rd = std::shared_lock{lock_};
+    cold_names.reserve(suspended_.size());
+    for (auto const &[name, _] : suspended_) cold_names.emplace_back(name);
+  }
+  for (auto const &name : cold_names) {
+    // rewire_replication=false: caller holds repl_state write lock. make_room=false: don't re-evict peers.
+    if (auto res = Resume_(name, /*rewire_replication=*/false, /*make_room=*/false); !res.has_value()) {
+      spdlog::warn(
+          "MAIN promotion: could not resume COLD tenant '{}' to update its epoch; it will keep "
+          "its pre-promotion epoch until next resume.",
+          name);
+    }
+  }
 }
 
 #endif

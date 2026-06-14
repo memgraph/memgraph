@@ -1363,5 +1363,213 @@ def test_t11_auth_grants_on_cold_tenant(test_name):
     conn_default.close()
 
 
+# ---------------------------------------------------------------------------
+# T12 — HA promotion correctly resumes a COLD tenant
+#        (guards DoToMainPromotion -> ResumeColdTenantsForPromotion)
+# ---------------------------------------------------------------------------
+
+
+def test_t12_promotion_resumes_cold_tenant(test_name):
+    """
+    Prove that promoting a replica to MAIN via ``SET REPLICATION ROLE TO MAIN``
+    correctly resumes any COLD (suspended) tenant so it becomes a fully
+    functional HOT tenant on the new MAIN.
+
+    Background:
+      ``DoToMainPromotion`` (replication_handler.cpp) updates each DB's epoch,
+      commit timestamp, and TTL via a ``ForEach`` loop.  ``ForEach`` skips COLD
+      tenants (their in-memory accessor is absent).  A COLD tenant on the promoted
+      replica therefore kept its pre-promotion epoch and stayed permanently COLD.
+
+      The fix calls ``dbms_handler_.ResumeColdTenantsForPromotion()`` *before* the
+      epoch-update loops, so every COLD tenant is synchronously resumed (becomes
+      HOT) and then receives the correct new epoch as part of
+      ``SET REPLICATION ROLE TO MAIN``.
+
+      Pre-fix: tenant1 stays 'cold' after promotion (epoch not updated, inaccessible).
+      Post-fix: tenant1 transitions to 'ready' after promotion (data intact, writable).
+
+    Cluster setup:
+      Reuses the same 2-instance description as T9 (``instance_description_replication``):
+        - main on bolt 7687, replica_1 on bolt 7688, replication port 10001.
+        - Both instances carry the hot-cold experimental args.
+        - Replication mode: SYNC.
+
+    Steps:
+      1. Start both instances.
+      2. Create tenant1 on main (replicated to replica).
+      3. Write 5 nodes into tenant1 on main.
+      4. Poll until tenant1 has 5 nodes on the replica (bounded retry: CREATE DATABASE
+         replication may lag slightly).
+      5. SUSPEND tenant1 on the replica (bounded retry: replication-apply accessor may
+         still be releasing); poll until State='cold'.
+      6. PROMOTE the replica to MAIN: ``SET REPLICATION ROLE TO MAIN`` on the replica's
+         default connection.  This invokes DoToMainPromotion.
+      7. KEY ASSERTION: poll ``_wait_for_db_state(..., "ready", timeout_s=30.0)`` —
+         promotion must have resumed the COLD tenant via ResumeColdTenantsForPromotion.
+         Pre-fix: this assertion FAILS (tenant1 stays 'cold').
+      8. DATA INTACT: fresh connection to the new main (port 7688); USE DATABASE tenant1;
+         MATCH (n:N) RETURN count(n); == 5.
+      9. WRITABLE AS NEW MAIN (epoch correct): write 2 more nodes (ids 6-7); verify
+         count == 7.  A write failure here would indicate the epoch was not correctly
+         updated (the pre-fix symptom for an epoch-stale tenant).
+
+    Note:
+      The eviction scheduler is NOT enabled in ``_HOT_COLD_ARGS_BASE``, so after
+      promotion tenant1 stays HOT — the 'ready' assertion is stable.
+    """
+    instances = instance_description_replication(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    # -------------------------------------------------------------------------
+    # Step 2: create tenant1 on main (replicated automatically).
+    # -------------------------------------------------------------------------
+    main_default = connect(host="localhost", port=_T9_BOLT_PORTS["main"])
+    cursor_main_default = main_default.cursor()
+    execute_and_fetch_all(cursor_main_default, "CREATE DATABASE tenant1;")
+
+    # -------------------------------------------------------------------------
+    # Step 3: write 5 nodes into tenant1 on main.
+    # -------------------------------------------------------------------------
+    conn_main_t1 = connect(host="localhost", port=_T9_BOLT_PORTS["main"])
+    cursor_main_t1 = conn_main_t1.cursor()
+    execute_and_fetch_all(cursor_main_t1, "USE DATABASE tenant1;")
+    execute_and_fetch_all(cursor_main_t1, "UNWIND range(1, 5) AS i CREATE (:N {id: i});")
+    conn_main_t1.close()
+
+    # -------------------------------------------------------------------------
+    # Step 4: poll until tenant1 has 5 nodes on the replica.
+    # USE DATABASE tenant1 on the replica may block until the CREATE DATABASE
+    # replicates; retry in a bounded loop (mirrors T9 step 4).
+    # -------------------------------------------------------------------------
+    REPLICA_SYNC_TIMEOUT_S = 30.0
+    deadline = time.monotonic() + REPLICA_SYNC_TIMEOUT_S
+    replica_count: int | None = None
+    last_replica_exc: Exception | None = None
+
+    while time.monotonic() < deadline:
+        try:
+            conn_replica_t1 = connect(host="localhost", port=_T9_BOLT_PORTS["replica_1"])
+            cursor_replica_t1 = conn_replica_t1.cursor()
+            execute_and_fetch_all(cursor_replica_t1, "USE DATABASE tenant1;")
+            rows = execute_and_fetch_all(cursor_replica_t1, "MATCH (n:N) RETURN count(n);")
+            replica_count = rows[0][0]
+            conn_replica_t1.close()
+            if replica_count == 5:
+                break
+        except Exception as exc:
+            last_replica_exc = exc
+        time.sleep(0.5)
+
+    assert replica_count == 5, (
+        f"Expected 5 nodes on replica after initial replication, got {replica_count!r}. "
+        f"Last exception: {last_replica_exc!r}"
+    )
+
+    # -------------------------------------------------------------------------
+    # Step 5: SUSPEND tenant1 on the replica.
+    # The replication-apply accessor may still be releasing; retry with a bounded
+    # loop tolerating 'active connections' errors (mirrors T9 step 5).
+    # The replica's SHOW DATABASES cursor must live on the replica's default db.
+    # -------------------------------------------------------------------------
+    replica_default = connect(host="localhost", port=_T9_BOLT_PORTS["replica_1"])
+    cursor_replica_default = replica_default.cursor()
+
+    SUSPEND_RETRY_TIMEOUT_S = 15.0
+    deadline_suspend = time.monotonic() + SUSPEND_RETRY_TIMEOUT_S
+    suspended = False
+    last_suspend_err = ""
+    while time.monotonic() < deadline_suspend:
+        try:
+            result = execute_and_fetch_all(cursor_replica_default, "SUSPEND DATABASE tenant1;")
+            if result and "suspended" in result[0][0].lower():
+                suspended = True
+                break
+        except Exception as exc:
+            last_suspend_err = str(exc)
+            if "active connections" not in last_suspend_err.lower():
+                raise
+        time.sleep(0.5)
+
+    assert suspended, (
+        f"Could not SUSPEND tenant1 on replica within {SUSPEND_RETRY_TIMEOUT_S}s. " f"Last error: {last_suspend_err!r}"
+    )
+
+    # Poll until tenant1 is confirmed cold before we attempt promotion.
+    became_cold = _wait_for_db_state(cursor_replica_default, "tenant1", "cold", timeout_s=30.0)
+    assert became_cold, (
+        f"tenant1 did not reach State='cold' on replica within 30s after SUSPEND. "
+        f"Current state: {_get_db_state(cursor_replica_default, 'tenant1')!r}"
+    )
+
+    # -------------------------------------------------------------------------
+    # Step 6: promote the replica to MAIN.
+    # SET REPLICATION ROLE TO MAIN invokes DoToMainPromotion, which calls
+    # ResumeColdTenantsForPromotion() (the fix) before updating epochs.
+    # -------------------------------------------------------------------------
+    execute_and_fetch_all(cursor_replica_default, "SET REPLICATION ROLE TO MAIN;")
+
+    # -------------------------------------------------------------------------
+    # Step 7: KEY ASSERTION — promotion must have resumed the COLD tenant.
+    # Pre-fix: tenant1 stays 'cold' (ResumeColdTenantsForPromotion missing).
+    # Post-fix: tenant1 becomes 'ready' within the promotion path.
+    # -------------------------------------------------------------------------
+    reheated = _wait_for_db_state(cursor_replica_default, "tenant1", "ready", timeout_s=30.0)
+    assert reheated, (
+        "promotion must resume the cold tenant (ResumeColdTenantsForPromotion); "
+        "pre-fix it stays cold. "
+        f"Current state after SET REPLICATION ROLE TO MAIN: "
+        f"{_get_db_state(cursor_replica_default, 'tenant1')!r}"
+    )
+
+    # -------------------------------------------------------------------------
+    # Step 8: data intact on the new main.
+    # A fresh connection to the former replica (now MAIN, port 7688).
+    # -------------------------------------------------------------------------
+    VERIFY_TIMEOUT_S = 30.0
+    deadline_verify = time.monotonic() + VERIFY_TIMEOUT_S
+    count_after_promotion: int | None = None
+    last_verify_exc: Exception | None = None
+    conn_new_main: mgclient.Connection | None = None
+
+    while time.monotonic() < deadline_verify:
+        try:
+            conn_new_main = connect(host="localhost", port=_T9_BOLT_PORTS["replica_1"])
+            cursor_new_main = conn_new_main.cursor()
+            execute_and_fetch_all(cursor_new_main, "USE DATABASE tenant1;")
+            rows = execute_and_fetch_all(cursor_new_main, "MATCH (n:N) RETURN count(n);")
+            count_after_promotion = rows[0][0]
+            break
+        except Exception as exc:
+            last_verify_exc = exc
+            if conn_new_main is not None:
+                try:
+                    conn_new_main.close()
+                except Exception:
+                    pass
+                conn_new_main = None
+        time.sleep(0.5)
+
+    assert count_after_promotion == 5, (
+        f"Expected 5 nodes on the new main after promotion, got {count_after_promotion!r}. "
+        f"Last exception: {last_verify_exc!r}"
+    )
+
+    # -------------------------------------------------------------------------
+    # Step 9: writable as the new MAIN (epoch correct).
+    # Write 2 more nodes (ids 6-7); a write failure proves the epoch was stale
+    # (the pre-fix symptom for an epoch-not-updated tenant after ForEach skip).
+    # -------------------------------------------------------------------------
+    assert conn_new_main is not None, "new-main connection should still be open from step 8"
+    execute_and_fetch_all(cursor_new_main, "UNWIND range(6, 7) AS i CREATE (:N {id: i});")
+    rows_final = execute_and_fetch_all(cursor_new_main, "MATCH (n:N) RETURN count(n);")
+    assert rows_final[0][0] == 7, (
+        f"Expected 7 nodes after writing 2 more on the promoted MAIN, got {rows_final[0][0]}. "
+        "A write failure or wrong count indicates the epoch was not correctly updated "
+        "during promotion (pre-fix symptom: ForEach skipped the cold tenant)."
+    )
+    conn_new_main.close()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))

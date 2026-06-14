@@ -267,6 +267,11 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     // because server has already been stopped
     dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
 
+    // Resume any COLD tenants so the epoch/timestamp/TTL ForEach loops below cover them. A COLD tenant
+    // skipped here would keep its pre-promotion epoch and be invisible to GetDatabasesHistories. Done
+    // after DestroyReplAccessor (no replica RPC thread can contend on suspended_) and before STEP 2.
+    dbms_handler_.ResumeColdTenantsForPromotion();
+
     // STEP 2) bring down all REPLICA servers
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
