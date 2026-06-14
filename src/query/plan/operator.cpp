@@ -9840,7 +9840,10 @@ class ScanParallelCursor : public Cursor {
     {
       const std::unique_lock lock(mutex_);
       if (all_pulled_) return false;  // Everything was pulled
-      if (index_ == 0 || index_ >= self_.num_threads_) {
+      // Pull a new input batch only once every chunk of the current batch has
+      // been handed out. Branches share `index_`, so many chunks per batch turn
+      // this into a dynamic work queue rather than a fixed per-thread split.
+      if (!chunks_ || index_ >= chunks_->size()) {
         if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
         chunks_.reset();
         const bool res = input_cursor_->Pull(*frame_, context);
@@ -9905,7 +9908,7 @@ UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem,
   auto get_chunks = [this](Frame & /*unused*/, ExecutionContext &context) {
     // Make sure chunks is valid for duration of the cursor
     auto *db = context.db_accessor;
-    return db->ChunkedVertices(view_, num_threads_);
+    return db->ChunkedVertices(view_, num_chunks());
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -9944,7 +9947,7 @@ UniqueCursorPtr ScanParallelByLabel::MakeCursor(utils::MemoryResource *mem,
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    return db->ChunkedVertices(view_, label_, num_threads_);
+    return db->ChunkedVertices(view_, label_, num_chunks());
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -9980,7 +9983,7 @@ UniqueCursorPtr ScanParallelByEdgeType::MakeCursor(utils::MemoryResource *mem,
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    return db->ChunkedEdges(view_, edge_type_, num_threads_);
+    return db->ChunkedEdges(view_, edge_type_, num_chunks());
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10041,7 +10044,7 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
                                label_,
                                properties_,
                                maybe_prop_value_ranges.value_or(std::vector<storage::PropertyValueRange>{}),
-                               num_threads_,
+                               num_chunks(),
                                index_order_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
@@ -10095,7 +10098,7 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    return db->ChunkedEdges(view_, edge_type_, property_, num_threads_);
+    return db->ChunkedEdges(view_, edge_type_, property_, num_chunks());
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10152,7 +10155,7 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
                                   context.triggering_user);
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
-    return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
+    return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_chunks());
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10201,7 +10204,7 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    return db->ChunkedEdges(view_, property_, num_threads_);
+    return db->ChunkedEdges(view_, property_, num_chunks());
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10241,7 +10244,7 @@ UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResourc
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
-    return db->ChunkedEdges(view_, property_, maybe_prop_value.value_or(storage::PropertyValue()), num_threads_);
+    return db->ChunkedEdges(view_, property_, maybe_prop_value.value_or(storage::PropertyValue()), num_chunks());
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10296,7 +10299,7 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
                                   context.triggering_user);
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
-    return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
+    return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_chunks());
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10393,11 +10396,11 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryRes
     auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
     if (!maybe_prop_value) {
       // Return empty chunks
-      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_chunks());
     }
     // Use range with equal bounds to simulate value lookup
     auto bound = utils::MakeBoundInclusive(*maybe_prop_value);
-    return db->ChunkedEdges(view_, edge_type_, property_, bound, bound, num_threads_);
+    return db->ChunkedEdges(view_, edge_type_, property_, bound, bound, num_chunks());
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));

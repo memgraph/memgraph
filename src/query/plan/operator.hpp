@@ -2043,6 +2043,17 @@ class ScanParallel : public memgraph::query::plan::LogicalOperator {
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
+  // Number of chunks to split the scan into. We deliberately oversubscribe
+  // relative to the thread count: branches pull chunks dynamically through a
+  // shared counter, so many small chunks act as a work-stealing queue and keep
+  // all threads busy even when downstream per-row cost is highly skewed (e.g.
+  // an all-shortest-paths expansion where some rows are far cheaper than
+  // others). The storage layer caps the chunk count at the number of matching
+  // elements, so a single-element scan still produces exactly one chunk.
+  static constexpr size_t kChunkOversubscription = 32;
+
+  size_t num_chunks() const { return num_threads_ * kChunkOversubscription; }
+
   std::shared_ptr<LogicalOperator> input_;
   storage::View view_;
   size_t num_threads_;
