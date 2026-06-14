@@ -24,6 +24,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <system_error>
 #include <type_traits>
@@ -148,6 +149,7 @@ class DbmsHandler {
   enum class ResumeError : uint8_t {
     NON_EXISTENT,     //!< no such tenant in the map / suspended registry
     RECOVERY_FAILED,  //!< recovery (or a pre-publish arm) threw; tenant stays COLD and retriable
+    RESUMING,         //!< resume-latency budget elapsed while recovery is still in flight; retriable
   };
   using ResumeResult = std::expected<DatabaseAccess, ResumeError>;
 
@@ -391,6 +393,26 @@ class DbmsHandler {
    * @return ResumeResult — the HOT DatabaseAccess on success, or an error
    */
   ResumeResult Resume(std::string_view name) { return Resume_(name); }
+
+  /**
+   * @brief Resume the named tenant, but bound how long the CALLER blocks (the resume-latency budget).
+   *
+   * Unlike Resume(), the heavy, non-interruptible recovery (BuildDetached/WAL replay) runs on the
+   * background resume executor instead of the calling thread. The caller kicks the background resume
+   * (deduplicated) and then polls for the tenant to go HOT, up to @p budget. This bounds how long a
+   * session-triggered resume (USE DATABASE / first query on a cold tenant) can stall a client on a
+   * large WAL replay.
+   *
+   * @param name   tenant name
+   * @param budget max time the caller waits for HOT before giving up. A zero budget is the legacy
+   *               synchronous path (recovery runs inline on the calling thread, no timeout).
+   * @return ResumeResult — HOT DatabaseAccess on success; ResumeError::RESUMING if the budget elapsed
+   *         while recovery is still in flight (retriable); ResumeError::RECOVERY_FAILED if the
+   *         background recovery already completed with failure; ResumeError::NON_EXISTENT if gone.
+   */
+  ResumeResult ResumeWithBudget(std::string_view name, std::chrono::milliseconds budget) {
+    return ResumeBudgeted_(name, budget);
+  }
 
   /**
    * @brief Resume every COLD tenant so a subsequent ForEach (e.g. epoch/timestamp update during
@@ -857,6 +879,20 @@ class DbmsHandler {
   ResumeResult Resume_(std::string_view name, bool rewire_replication = true, bool make_room = true);
 
   /**
+   * @brief Implementation of ResumeWithBudget. See ResumeWithBudget() for semantics.
+   *
+   * budget == 0  -> delegates to Resume_ (legacy synchronous recovery on the calling thread).
+   * budget  > 0  -> KickResume(name) (background winner runs the unbounded BuildDetached off the
+   *                 calling thread, deduplicated via inflight_resumes_), then polls Get(name) under a
+   *                 shared lock_ until HOT or the budget elapses. On budget expiry it distinguishes
+   *                 "still building" (RESUMING, retriable) from "background attempt already finished
+   *                 but tenant is not HOT" (RECOVERY_FAILED) by checking whether the dedup entry is
+   *                 still present — so a tenant whose recovery deterministically fails surfaces a
+   *                 terminal error instead of an endless "retry shortly".
+   */
+  ResumeResult ResumeBudgeted_(std::string_view name, std::chrono::milliseconds budget);
+
+  /**
    * @brief Apply `limit` to the tenant's in-memory hard limit IF it is currently HOT.
    *
    * For COLD/RESUMING tenants this is a no-op: the durable tenant_profiles_ store is the source of
@@ -1011,6 +1047,15 @@ class DbmsHandler {
   // TODO: move to be common
   std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
   std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
+  // Hot/cold: names with a KickResume job currently enqueued or running, so a retry storm of
+  // session-triggered resumes (ResumeBudgeted_) does not pile up duplicate tasks on resume_pool_
+  // or starve its slots with same-tenant losers. Guarded by its own leaf mutex inflight_resume_mtx_
+  // (always a leaf: KickResume inserts under it WITHOUT lock_ held, the job erases under it after
+  // Resume_ returns; ResumeBudgeted_ only reads it after releasing lock_). Declared BEFORE
+  // resume_pool_ so reverse-order destruction joins the pool (jobs erase their entry) before this
+  // set is destroyed.
+  mutable std::mutex inflight_resume_mtx_;
+  std::set<std::string, std::less<>> inflight_resumes_;
   // Background resume executor. DESTRUCTION ORDER (Finding D): declared AFTER db_handler_ so that
   // reverse-order member destruction stops+joins the pool BEFORE db_handler_ (the map) is destroyed.
   // In-flight KickResume jobs hold a raw Gatekeeper<Database>* into db_handler_; if the map died

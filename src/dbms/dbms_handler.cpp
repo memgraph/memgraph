@@ -1168,7 +1168,64 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
 
 void DbmsHandler::KickResume(std::string_view name) {
   // Fire-and-forget on the resume executor. Errors are swallowed; the tenant stays COLD + retriable.
-  resume_pool_.AddTask([this, key = std::string{name}]() { (void)Resume_(key); });
+  //
+  // DEDUP: record `name` as in-flight BEFORE enqueuing. The insert MUST happen here (under the leaf
+  // mutex, before AddTask) rather than inside the task body: if it were deferred into the task, two
+  // concurrent KickResume(name) callers could both observe an empty set and both enqueue, defeating
+  // the dedup. With a same-name job already queued/running we skip — single-flight in Resume_ would
+  // make the duplicate a no-op anyway, but skipping also avoids piling up tasks and starving the
+  // pool's slots with same-tenant losers under a client retry storm.
+  {
+    auto lock = std::lock_guard{inflight_resume_mtx_};
+    if (!inflight_resumes_.insert(std::string{name}).second) return;  // already in flight
+  }
+  resume_pool_.AddTask([this, key = std::string{name}]() {
+    // Erase the dedup entry whatever happens (success, RECOVERY_FAILED, or an unexpected throw) so a
+    // later resume of the same tenant is not permanently blocked from being kicked.
+    auto clear = utils::OnScopeExit{[this, &key]() {
+      auto lock = std::lock_guard{inflight_resume_mtx_};
+      inflight_resumes_.erase(key);
+    }};
+    (void)Resume_(key);
+  });
+}
+
+DbmsHandler::ResumeResult DbmsHandler::ResumeBudgeted_(std::string_view name, std::chrono::milliseconds budget) {
+  // budget == 0: legacy synchronous behavior — recovery runs inline on the calling thread, no timeout.
+  if (budget <= std::chrono::milliseconds{0}) return Resume_(name);
+
+  // budget > 0: move the unbounded BuildDetached/WAL-replay OFF the calling thread onto the background
+  // resume executor (deduplicated), then poll for HOT up to the budget. The calling (client) thread
+  // never wins the single-flight token and never runs recovery, so it can always return within budget.
+  KickResume(name);
+
+  constexpr auto kPollStep = std::chrono::milliseconds(5);
+  const auto deadline = std::chrono::steady_clock::now() + budget;
+  while (std::chrono::steady_clock::now() < deadline) {
+    {
+      auto rd = std::shared_lock{lock_};
+      if (auto a = db_handler_.Get(name)) return std::move(*a);                                 // published HOT
+      if (!db_handler_.GetGatekeeper(name)) return std::unexpected{ResumeError::NON_EXISTENT};  // dropped
+    }  // release lock_ before sleeping
+    std::this_thread::sleep_for(kPollStep);
+  }
+
+  // Budget elapsed. Final classification (lock_ released before touching the dedup leaf mutex to keep
+  // the leaf ordering: lock_ -> inflight_resume_mtx_, never the reverse).
+  {
+    auto rd = std::shared_lock{lock_};
+    if (auto a = db_handler_.Get(name)) return std::move(*a);  // raced to HOT just now
+    if (!db_handler_.GetGatekeeper(name)) return std::unexpected{ResumeError::NON_EXISTENT};
+  }
+  bool still_inflight = false;
+  {
+    auto lock = std::lock_guard{inflight_resume_mtx_};
+    still_inflight = inflight_resumes_.contains(name);
+  }
+  // If the background job is gone but the tenant is not HOT, the attempt already finished and rolled
+  // back to COLD: surface a terminal RECOVERY_FAILED so a tenant whose recovery deterministically
+  // fails does not loop forever on "retry shortly". Otherwise recovery is still in flight: RESUMING.
+  return std::unexpected{still_inflight ? ResumeError::RESUMING : ResumeError::RECOVERY_FAILED};
 }
 
 void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir) {

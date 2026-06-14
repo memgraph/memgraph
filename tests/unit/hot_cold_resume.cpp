@@ -548,4 +548,101 @@ TEST_F(HotColdResumeTest, MetricsReflectSuspendAndResume) {
   EXPECT_EQ(memgraph::metrics::Metrics().global.hot_cold_suspended_tenants->Value(), 0.0);
 }
 
+// ---------------------------------------------------------------------------
+// Resume-latency budget (ResumeWithBudget): bound how long a session-triggered
+// resume blocks the caller; the heavy recovery runs on the background executor.
+// ---------------------------------------------------------------------------
+
+// budget == 0 is the legacy synchronous path: recovery runs inline on the caller and the HOT
+// accessor (with recovered data) is returned directly.
+TEST_F(HotColdResumeTest, ResumeWithBudgetZeroIsSynchronous) {
+  constexpr int kNodes = 7;
+  CreateAndPopulate("budget_zero", kNodes);
+  ASSERT_TRUE(DBMS().Suspend("budget_zero").has_value());
+
+  auto res = DBMS().ResumeWithBudget("budget_zero", std::chrono::milliseconds{0});
+  ASSERT_TRUE(res.has_value()) << "zero budget must behave like the synchronous Resume()";
+  EXPECT_EQ(CountNodes(*res), kNodes);
+  EXPECT_EQ(StateOf("budget_zero"), memgraph::dbms::DbmsHandler::TenantState::READY);
+}
+
+// A generous budget reheats a cold tenant off the background executor and returns the HOT accessor.
+TEST_F(HotColdResumeTest, ResumeWithBudgetReheatsWithinBudget) {
+  constexpr int kNodes = 8;
+  CreateAndPopulate("budget_ok", kNodes);
+  ASSERT_TRUE(DBMS().Suspend("budget_ok").has_value());
+
+  auto res = DBMS().ResumeWithBudget("budget_ok", std::chrono::seconds{10});
+  ASSERT_TRUE(res.has_value()) << "a generous budget must resume within budget";
+  EXPECT_EQ(CountNodes(*res), kNodes);
+  EXPECT_EQ(StateOf("budget_ok"), memgraph::dbms::DbmsHandler::TenantState::READY);
+}
+
+// An unknown tenant resolves to NON_EXISTENT even on the budgeted path (the poll observes a missing
+// gatekeeper and returns immediately, without waiting out the budget).
+TEST_F(HotColdResumeTest, ResumeWithBudgetUnknownIsNonExistent) {
+  auto res = DBMS().ResumeWithBudget("does_not_exist", std::chrono::milliseconds{100});
+  ASSERT_FALSE(res.has_value());
+  EXPECT_EQ(res.error(), memgraph::dbms::DbmsHandler::ResumeError::NON_EXISTENT);
+}
+
+// When recovery is still in flight at the budget deadline, the caller gets a retriable RESUMING
+// (NOT a terminal failure). Once the slow arm releases, the background winner publishes HOT.
+TEST_F(HotColdResumeTest, ResumeWithBudgetTimesOutToResuming) {
+  constexpr int kNodes = 5;
+  CreateAndPopulate("budget_slow", kNodes);
+  ASSERT_TRUE(DBMS().Suspend("budget_slow").has_value());
+
+  std::atomic<bool> release{false};
+  DBMS().SetOnResume([&release](memgraph::dbms::DatabaseAccess) {
+    // Block the (background) winner's pre-publish arm until the test releases it, so the budgeted
+    // caller is guaranteed to hit its deadline while recovery is genuinely still in flight.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);  // safety cap
+    while (!release.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+  });
+
+  auto res = DBMS().ResumeWithBudget("budget_slow", std::chrono::milliseconds{150});
+  ASSERT_FALSE(res.has_value()) << "the budget must elapse while the slow arm is still blocking";
+  EXPECT_EQ(res.error(), memgraph::dbms::DbmsHandler::ResumeError::RESUMING);
+
+  // Release the slow arm; the in-flight background winner now finishes and publishes HOT.
+  release.store(true, std::memory_order_release);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (StateOf("budget_slow") != memgraph::dbms::DbmsHandler::TenantState::READY &&
+         std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  EXPECT_EQ(StateOf("budget_slow"), memgraph::dbms::DbmsHandler::TenantState::READY)
+      << "the background winner must publish HOT after the slow arm releases";
+  DBMS().SetOnResume({});
+}
+
+// When the background recovery deterministically FAILS (and has already rolled back to COLD by the
+// deadline), the budgeted caller gets a terminal RECOVERY_FAILED — not an endless RESUMING — so a
+// tenant with broken durability does not loop forever on "retry shortly".
+TEST_F(HotColdResumeTest, ResumeWithBudgetFailedRecoverySurfacesRecoveryFailed) {
+  constexpr int kNodes = 4;
+  CreateAndPopulate("budget_fail", kNodes);
+  ASSERT_TRUE(DBMS().Suspend("budget_fail").has_value());
+
+  // Fast, deterministic failure: the pre-publish arm throws immediately, so the background attempt
+  // finishes (rolls back to COLD, erases its in-flight dedup entry) well within the budget.
+  DBMS().SetOnResume(
+      [](memgraph::dbms::DatabaseAccess) { throw std::runtime_error("simulated deterministic recovery failure"); });
+
+  auto res = DBMS().ResumeWithBudget("budget_fail", std::chrono::milliseconds{500});
+  ASSERT_FALSE(res.has_value());
+  EXPECT_EQ(res.error(), memgraph::dbms::DbmsHandler::ResumeError::RECOVERY_FAILED)
+      << "a finished-and-failed background attempt must surface RECOVERY_FAILED, not RESUMING";
+  EXPECT_EQ(StateOf("budget_fail"), memgraph::dbms::DbmsHandler::TenantState::COLD);
+
+  // Retriable after the failure clears.
+  DBMS().SetOnResume({});
+  auto res2 = DBMS().ResumeWithBudget("budget_fail", std::chrono::seconds{10});
+  ASSERT_TRUE(res2.has_value()) << "resume must be retriable after the failure clears";
+  EXPECT_EQ(CountNodes(*res2), kNodes);
+}
+
 #endif  // MG_ENTERPRISE

@@ -82,6 +82,8 @@ DECLARE_uint64(storage_hot_cold_eviction_low_watermark_percent);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_hot_cold_eviction_max_per_cycle);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_hot_cold_resume_timeout_sec);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_hot_cold_idle_session_timeout_sec);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

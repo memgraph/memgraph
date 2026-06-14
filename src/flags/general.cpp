@@ -136,6 +136,14 @@ DEFINE_VALIDATED_uint64(
 DEFINE_uint64(storage_hot_cold_eviction_max_per_cycle, 3,
               "Hot/cold: maximum number of tenants to evict per scheduler cycle.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_hot_cold_resume_timeout_sec, 0,
+              "Hot/cold: if > 0, bound how long a session-triggered resume (USE DATABASE / first query "
+              "on a cold tenant) waits for the tenant to reheat. The heavy recovery runs on the background "
+              "resume executor; once the budget elapses the query returns a clean 'database is resuming, "
+              "retry shortly' error instead of blocking the client indefinitely on a large WAL replay. "
+              "0 keeps the legacy synchronous behavior (the client blocks until recovery completes).");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_hot_cold_idle_session_timeout_sec, 0,
               "Hot/cold: if > 0, release a connected-but-idle session's database accessor once its "
               "tenant has been idle this many seconds, so a tenant pinned only by idle (e.g. pooled) "

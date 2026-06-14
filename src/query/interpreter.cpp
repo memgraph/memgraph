@@ -3286,13 +3286,20 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
 // accessor increments the gatekeeper count, which blocks suspend for the session's lifetime — that
 // count is the suspend-safety mechanism for the connection-scoped model.
 dbms::DatabaseAccess ResumeForSession(dbms::DbmsHandler *dbms_handler, std::string_view db_name) {
-  auto res = dbms_handler->Resume(db_name);
+  // Resume-latency budget: when storage_hot_cold_resume_timeout_sec > 0, bound how long this
+  // (client) thread blocks waiting for a cold tenant to reheat — the heavy WAL replay runs on the
+  // background resume executor, and once the budget elapses we surface a clean retriable error
+  // instead of hanging the connection. A zero budget keeps the legacy synchronous resume.
+  const auto budget = std::chrono::seconds(FLAGS_storage_hot_cold_resume_timeout_sec);
+  auto res = dbms_handler->ResumeWithBudget(db_name, budget);
   if (res.has_value()) return std::move(*res);
   switch (res.error()) {
     case dbms::DbmsHandler::ResumeError::NON_EXISTENT:
       throw dbms::UnknownDatabaseException("Tried to retrieve an unknown database \"{}\".", db_name);
     case dbms::DbmsHandler::ResumeError::RECOVERY_FAILED:
       throw QueryException("Database '{}' failed to resume; check SHOW DATABASES and retry.", db_name);
+    case dbms::DbmsHandler::ResumeError::RESUMING:
+      throw QueryException("Database '{}' is resuming; retry shortly.", db_name);
   }
   throw QueryException("Database '{}' could not be acquired.", db_name);  // unreachable
 }
@@ -8015,6 +8022,12 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                 case dbms::DbmsHandler::ResumeError::RECOVERY_FAILED:
                   throw QueryRuntimeException(
                       "Cannot resume {}: recovery failed; database remains suspended and may be retried.", db_name);
+                case dbms::DbmsHandler::ResumeError::RESUMING:
+                  // Unreachable: the explicit RESUME DATABASE command uses the synchronous Resume()
+                  // path, which never returns RESUMING (that is only produced by the budgeted
+                  // session path). Handled for switch exhaustiveness.
+                  throw QueryRuntimeException("Cannot resume {}: database is already resuming; retry shortly.",
+                                              db_name);
               }
             }
 
