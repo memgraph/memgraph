@@ -832,7 +832,32 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
   // finalized in the dtor (durability intact), reheat just replays the WAL delta. CreateSnapshot(force=
   // false) returns NothingNewToWrite (no I/O) when nothing changed since the last periodic snapshot.
   if (auto *inmem = dynamic_cast<storage::InMemoryStorage *>((*acc)->storage())) {
-    if (auto snap = inmem->CreateSnapshot(/*force=*/false, "suspend"); !snap.has_value()) {
+    using CreateSnapshotError = storage::InMemoryStorage::CreateSnapshotError;
+    // A7: the periodic snapshot scheduler (snapshot_runner_) is NOT paused by the freeze, so a periodic
+    // snapshot can be mid-flight here -> CreateSnapshot returns AlreadyRunning (single-flight CAS). If
+    // we just skipped, DisableExitSnapshot() below would let teardown ABORT that in-flight periodic
+    // snapshot too (the dtor sets abort_snapshot_ when the exit snapshot is disabled) -> BOTH snapshots
+    // lost and resume replays the full WAL delta. Instead, briefly wait the in-flight snapshot out and
+    // retry: once it finishes the CAS frees and our call either writes the small frozen-state delta or
+    // returns NothingNewToWrite (the periodic snapshot already consolidated). The wait never sets
+    // abort_snapshot_, so the periodic snapshot completes normally. Bounded so a very large in-flight
+    // snapshot cannot stall the eviction thread indefinitely (timeout -> today's best-effort skip; WAL
+    // durability stays intact regardless). This is deadlock-free: lock_ is released by here and the
+    // gatekeeper mutex is not held (Phase B is lock-free).
+    constexpr auto kSnapPollStep = std::chrono::milliseconds(10);
+    constexpr auto kSnapWaitTimeout = std::chrono::seconds(10);
+    auto snap = inmem->CreateSnapshot(/*force=*/false, "suspend");
+    if (!snap.has_value() && snap.error() == CreateSnapshotError::AlreadyRunning) {
+      const auto snap_deadline = std::chrono::steady_clock::now() + kSnapWaitTimeout;
+      while (!snap.has_value() && snap.error() == CreateSnapshotError::AlreadyRunning &&
+             std::chrono::steady_clock::now() < snap_deadline) {
+        std::this_thread::sleep_for(kSnapPollStep);
+        snap = inmem->CreateSnapshot(/*force=*/false, "suspend");
+      }
+    }
+    // NothingNewToWrite is a success (an existing snapshot already covers the frozen state); only a
+    // genuine failure (incl. a timed-out AlreadyRunning) warrants the WAL-delta-on-resume warning.
+    if (!snap.has_value() && snap.error() != CreateSnapshotError::NothingNewToWrite) {
       spdlog::warn(
           "hot/cold suspend: consolidating snapshot for '{}' was not written ({}); durability "
           "intact via WAL, resume will replay the WAL delta.",
@@ -901,6 +926,14 @@ int64_t DbmsHandler::SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t m
   std::vector<Candidate> candidates;
   {
     // Snapshot eligible HOT tenants under a shared lock. Do NOT call Suspend_ here — it takes lock_.
+    //
+    // IDLE = stale LastUsedNs, which is stamped ONLY by interpreter query setup (Database::MarkUsed),
+    // NOT by background work (TTL, async indexer, GC). This is deliberate: a tenant whose only
+    // activity is TTL expiration is considered idle and IS eligible for eviction. Suspending it is
+    // safe — ~InMemoryStorage::StopAllBackgroundTasks() joins any in-flight TTL batch (Scheduler::Stop
+    // joins its thread) before freeing storage — but it means a COLD tenant's TTL is effectively
+    // PAUSED: expired rows are not deleted until the tenant is reheated (by a query / resume), at which
+    // point the resume arm re-arms TTL and it catches up. Accepted contract: cold == TTL paused.
     auto rd = std::shared_lock{lock_};
     for (auto &[name, db_gk] : db_handler_) {
       if (name == kDefaultDB) continue;
