@@ -36,7 +36,10 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/stat.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/timer.hpp"
 #include "utils/uuid.hpp"
+
+#include "metrics/prometheus_metrics.hpp"
 
 #include <mutex>
 
@@ -708,6 +711,7 @@ DbmsHandler::DeleteResult DbmsHandler::DropCold_(std::string_view db_name, syste
   // restart. db_handler_.Erase touches db_handler_.items_, not suspended_, so the iterator `it`
   // is still valid here; uuid/path were already copied above, so nothing below needs `it`.
   suspended_.erase(it);
+  metrics::Metrics().global.hot_cold_suspended_tenants->Set(static_cast<double>(suspended_.size()));
 
   // Remove from durability list (KVStore).
   if (durability_) durability_->Delete(Durability::GenKey(db_name));
@@ -834,6 +838,14 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
   {
     auto wr = std::lock_guard{lock_};
     suspended_.insert_or_assign(std::string{name}, std::move(entry));
+    // Metrics: the tenant is now committed to suspended_ (the suspend is effectively done — the
+    // following finish_suspend() is non-throwing). Bump the counter here, under lock_, rather than
+    // after finish_suspend(): if finish_suspend() were to throw, the entry is already in suspended_
+    // and the gauge below already reflects it, so the counter must agree. NOTE on the gauge: it is a
+    // process-global singleton; production runs exactly one DbmsHandler, so Set(suspended_.size())
+    // is the authoritative cold count (the multi-handler case exists only in unit tests).
+    metrics::Metrics().global.hot_cold_suspends_total->Increment();
+    metrics::Metrics().global.hot_cold_suspended_tenants->Set(static_cast<double>(suspended_.size()));
     // NOTE: insert_or_assign may throw bad_alloc (exactly under the memory pressure that
     // triggers eviction). If it throws here, the rollback guard above calls abort_suspend()
     // before propagating, preventing a permanently-stuck SUSPENDING state.
@@ -850,7 +862,8 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
   return {};
 }
 
-int64_t DbmsHandler::SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t max_evictions, std::string_view exclude) {
+int64_t DbmsHandler::SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t max_evictions,
+                                               std::string_view exclude) {
 #ifdef MG_ENTERPRISE
   if (max_evictions == 0 || bytes_to_free <= 0) return 0;
 
@@ -883,6 +896,7 @@ int64_t DbmsHandler::SuspendColdestIdleTenants(int64_t bytes_to_free, uint64_t m
       freed += c.bytes;
       ++evicted;
       spdlog::info("Hot/cold eviction: suspended idle tenant \"{}\" (~{} bytes).", c.name, c.bytes);
+      metrics::Metrics().global.hot_cold_evictions_total->Increment();
     }
     // On failure (active connections / min-residency / etc.) skip and try the next-coldest.
   }
@@ -925,8 +939,8 @@ int64_t DbmsHandler::EvictForMemoryPressure(std::string_view exclude) {
   if (to_free <= 0) return 0;
   const int64_t freed = SuspendColdestIdleTenants(to_free, flags::run_time::GetHotColdEvictionMaxPerCycle(), exclude);
   if (freed > 0) {
-    spdlog::info("Hot/cold eviction cycle: usage {} > high {}, freed ~{} bytes (target {}).", usage, high, freed,
-                 to_free);
+    spdlog::info(
+        "Hot/cold eviction cycle: usage {} > high {}, freed ~{} bytes (target {}).", usage, high, freed, to_free);
   }
   return freed;
 #else
@@ -1013,6 +1027,11 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         if (live_gk->state() != utils::GatekeeperState::COLD) {
           // Still RESUMING (timed out) or now HOT (raced just now — check once more).
           if (auto a = db_handler_.Get(name)) return std::move(*a);
+          // NOTE: do NOT bump hot_cold_resume_failures_total here. This is the LOSER giving up after
+          // waiting > kPollTimeout for another thread's in-flight resume — a wait-timeout, not a
+          // recovery failure. The actual recovery-failure paths (below) own that counter; counting
+          // here would raise false positives on every slow concurrent resume and double-count when
+          // the winner also fails.
           return std::unexpected{ResumeError::RECOVERY_FAILED};
         }
       }
@@ -1024,6 +1043,8 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
     // `fresh` is declared in the enclosing scope so that, on the throw path, the catch block can
     // release `acc` BEFORE `fresh` destructs. `~Gatekeeper` waits for count == 0, so an outstanding
     // `acc` (count == 1) would self-deadlock the fresh gatekeeper's destruction.
+    // Timer starts here — measures the full winner build + recovery + publish path.
+    utils::Timer resume_timer;
     try {
       storage::Config cfg = default_config_;
       cfg.salient = entry.salient;
@@ -1048,6 +1069,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           // nothrow — so the publish block cannot throw after the move commits.
           *gk = std::move(fresh);
           if (auto it = suspended_.find(name); it != suspended_.end()) suspended_.erase(it);
+          metrics::Metrics().global.hot_cold_suspended_tenants->Set(static_cast<double>(suspended_.size()));
         }
       } catch (...) {
         // PRE-PUBLISH failure: on_resume_ (or the publish itself) threw and the publish has NOT
@@ -1056,8 +1078,14 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         // on the outstanding accessor.
         acc.reset();
         gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
+        metrics::Metrics().global.hot_cold_resume_failures_total->Increment();
         return std::unexpected{ResumeError::RECOVERY_FAILED};
       }
+      // Publish succeeded: record the resume latency (excludes make-room eviction below) and
+      // increment the success counter.
+      metrics::Metrics().global.hot_cold_resumes_total->Increment();
+      metrics::Metrics().global.hot_cold_resume_latency_seconds->Observe(
+          resume_timer.Elapsed<std::chrono::duration<double>>().count());
       // POST-PUBLISH arm (replication). The tenant is ALREADY published HOT and erased from
       // suspended_; we must NOT abort_resume() here (the gatekeeper is no longer RESUMING — that
       // would assert in debug / force the tenant to COLD with no suspended_ entry = lost tenant).
@@ -1089,6 +1117,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       // unwound by the inner catch's rethrow path — but the inner catch does not rethrow). No live
       // accessor to release here.
       gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
+      metrics::Metrics().global.hot_cold_resume_failures_total->Increment();
       return std::unexpected{ResumeError::RECOVERY_FAILED};
     }
   }  // end outer while(true) — all winner exits are `return`, so this is unreachable but required

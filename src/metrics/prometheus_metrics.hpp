@@ -350,6 +350,14 @@ struct GlobalMetricHandles {
 
   // StorageInfo global/system level
   prometheus::Counter *show_storage_info;
+
+  // Hot/cold tenants
+  prometheus::Gauge *hot_cold_suspended_tenants;
+  prometheus::Counter *hot_cold_suspends_total;
+  prometheus::Counter *hot_cold_resumes_total;
+  prometheus::Counter *hot_cold_resume_failures_total;
+  prometheus::Counter *hot_cold_evictions_total;
+  prometheus::Histogram *hot_cold_resume_latency_seconds;
 };
 
 class PrometheusMetrics {
@@ -550,6 +558,14 @@ class PrometheusMetrics {
 
   // Per-database metric families — storage info
   prometheus::Family<prometheus::Counter> &show_storage_info_family_;
+
+  // Global metric families — hot/cold tenants
+  prometheus::Family<prometheus::Gauge> &hot_cold_suspended_tenants_family_;
+  prometheus::Family<prometheus::Counter> &hot_cold_suspends_family_;
+  prometheus::Family<prometheus::Counter> &hot_cold_resumes_family_;
+  prometheus::Family<prometheus::Counter> &hot_cold_resume_failures_family_;
+  prometheus::Family<prometheus::Counter> &hot_cold_evictions_family_;
+  prometheus::Family<prometheus::Histogram> &hot_cold_resume_latency_family_;
 
   // Global metric families — memory
   prometheus::Family<prometheus::Gauge> &memory_res_family_;

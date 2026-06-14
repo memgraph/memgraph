@@ -524,6 +524,31 @@ PrometheusMetrics::PrometheusMetrics()
                                     .Name("memgraph_show_storage_info_total")
                                     .Help("Number of times SHOW STORAGE INFO was called")
                                     .Register(registry_)},
+      // Hot/cold tenants (global)
+      hot_cold_suspended_tenants_family_{prometheus::BuildGauge()
+                                             .Name("memgraph_hot_cold_suspended_tenants")
+                                             .Help("Number of currently suspended (COLD) tenants")
+                                             .Register(registry_)},
+      hot_cold_suspends_family_{prometheus::BuildCounter()
+                                    .Name("memgraph_hot_cold_suspends_total")
+                                    .Help("Total number of tenant suspends (HOT->COLD)")
+                                    .Register(registry_)},
+      hot_cold_resumes_family_{prometheus::BuildCounter()
+                                   .Name("memgraph_hot_cold_resumes_total")
+                                   .Help("Total number of successful tenant resumes (COLD->HOT)")
+                                   .Register(registry_)},
+      hot_cold_resume_failures_family_{prometheus::BuildCounter()
+                                           .Name("memgraph_hot_cold_resume_failures_total")
+                                           .Help("Total number of failed tenant resume attempts")
+                                           .Register(registry_)},
+      hot_cold_evictions_family_{prometheus::BuildCounter()
+                                     .Name("memgraph_hot_cold_evictions_total")
+                                     .Help("Total number of tenants suspended by memory-pressure eviction")
+                                     .Register(registry_)},
+      hot_cold_resume_latency_family_{prometheus::BuildHistogram()
+                                          .Name("memgraph_hot_cold_resume_latency_seconds")
+                                          .Help("Latency of tenant resume (COLD->HOT recovery) in seconds")
+                                          .Register(registry_)},
       // Memory (global)
       memory_res_family_{prometheus::BuildGauge()
                              .Name("memgraph_memory_res_bytes")
@@ -893,6 +918,14 @@ PrometheusMetrics::PrometheusMetrics()
 
   // StorageInfo global/system level (no-db fallback, same family as per-db)
   global.show_storage_info = &show_storage_info_family_.Add(no_labels);
+
+  // Hot/cold tenants
+  global.hot_cold_suspended_tenants = &hot_cold_suspended_tenants_family_.Add(no_labels);
+  global.hot_cold_suspends_total = &hot_cold_suspends_family_.Add(no_labels);
+  global.hot_cold_resumes_total = &hot_cold_resumes_family_.Add(no_labels);
+  global.hot_cold_resume_failures_total = &hot_cold_resume_failures_family_.Add(no_labels);
+  global.hot_cold_evictions_total = &hot_cold_evictions_family_.Add(no_labels);
+  global.hot_cold_resume_latency_seconds = &hot_cold_resume_latency_family_.Add(no_labels, kLatencyBuckets);
 }
 
 void PrometheusMetrics::SetStorageSnapshotResolver(StorageSnapshotResolver resolver) {

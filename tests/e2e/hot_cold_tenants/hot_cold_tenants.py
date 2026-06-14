@@ -30,6 +30,8 @@ from __future__ import annotations
 import os
 import sys
 import time
+import urllib.error
+import urllib.request
 
 import interactive_mg_runner
 import mgclient
@@ -1040,6 +1042,186 @@ def test_t9_replica_resumes_cold_tenant_on_replication_traffic(test_name):
     assert final_count == 9, (
         f"Expected 9 nodes on replica after reheat (5 original + 4 replicated), "
         f"got {final_count!r}. Last exception: {last_verify_exc!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# T10 — hot/cold metrics are exported on the Prometheus/OpenMetrics endpoint
+# ---------------------------------------------------------------------------
+
+# Non-default metrics port: the default (9091) may be occupied by another local Memgraph
+# (e.g. a dev/knowledge-graph instance), which would make the scrape hit the wrong server.
+# The T10 instance is started with a matching --metrics-port below.
+_METRICS_PORT = 19091
+_HOT_COLD_METRIC_NAMES = [
+    "memgraph_hot_cold_suspended_tenants",
+    "memgraph_hot_cold_suspends_total",
+    "memgraph_hot_cold_resumes_total",
+    "memgraph_hot_cold_resume_failures_total",
+    "memgraph_hot_cold_evictions_total",
+    "memgraph_hot_cold_resume_latency_seconds",
+]
+
+
+def _scrape_metrics(port: int = _METRICS_PORT, timeout_s: float = 15.0, poll_s: float = 0.5) -> str:
+    """
+    GET http://localhost:{port}/metrics and return the response body as text.
+
+    Retries until *timeout_s* in case the HTTP server is not ready yet (it
+    starts slightly after the Bolt server is up).  Raises ``AssertionError``
+    if the endpoint never becomes reachable within the timeout.
+    """
+    url = f"http://localhost:{port}/metrics"
+    deadline = time.monotonic() + timeout_s
+    last_exc: Exception | None = None
+
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except (urllib.error.URLError, OSError) as exc:
+            last_exc = exc
+            time.sleep(poll_s)
+
+    raise AssertionError(
+        f"Metrics endpoint {url!r} did not become reachable within {timeout_s}s. "
+        f"Last error: {last_exc!r}"
+    )
+
+
+def _parse_metric_value(text: str, name: str) -> float:
+    """
+    Return the current value of *name* from an OpenMetrics/Prometheus text scrape.
+
+    Scans for the first non-comment line that starts with exactly ``name``
+    followed by a space (no labels).  The value field is the second
+    whitespace-separated token (index 1), tolerant to an optional timestamp.
+
+    Raises ``AssertionError`` if no matching data line is found.
+    """
+    for line in text.splitlines():
+        if line.startswith("#"):
+            continue
+        if line.startswith(name + " "):
+            parts = line.split()
+            # OpenMetrics format: metric_name value [timestamp]
+            return float(parts[1])
+
+    raise AssertionError(
+        f"Metric {name!r} not found in scrape output. "
+        f"Available lines (first 40):\n" + "\n".join(text.splitlines()[:40])
+    )
+
+
+def test_t10_hot_cold_metrics_exported(test_name):
+    """
+    Verify that all six hot/cold metrics are exported on the Prometheus/OpenMetrics
+    HTTP endpoint (default port 9091, path /metrics).
+
+    Steps:
+    1. Start a single hot-cold-enabled instance (bolt 7687).
+    2. Create + populate m_db; close the work connection.
+    3. SUSPEND m_db from the default connection; poll until State='cold'.
+    4. Scrape /metrics:
+       - All 6 metric names appear (HELP/TYPE lines count).
+       - memgraph_hot_cold_suspended_tenants == 1.
+       - memgraph_hot_cold_suspends_total >= 1.
+    5. RESUME m_db; poll until State='ready'.
+    6. Scrape /metrics again:
+       - memgraph_hot_cold_suspended_tenants == 0.
+       - memgraph_hot_cold_resumes_total >= 1.
+    """
+    # The metrics HTTP server defaults to --metrics-format=JSON, which serves a CURATED JSON object
+    # (no hot/cold metrics, not line-parseable). Force OpenMetrics so the Prometheus text endpoint
+    # (which auto-exports every registered metric, including our global hot/cold ones) is served.
+    instances = {
+        "instance_1": {
+            "args": _HOT_COLD_ARGS_BASE + ["--metrics-format=OpenMetrics", f"--metrics-port={_METRICS_PORT}"],
+            "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_1",
+            "setup_queries": [],
+        },
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    # Default connection (stays on the 'memgraph' system database throughout).
+    conn_default = connect(host="localhost", port=7687)
+    cursor_default = conn_default.cursor()
+
+    # Create m_db and write a few nodes.
+    execute_and_fetch_all(cursor_default, "CREATE DATABASE m_db")
+
+    conn_work = connect(host="localhost", port=7687)
+    cursor_work = conn_work.cursor()
+    execute_and_fetch_all(cursor_work, "USE DATABASE m_db")
+    execute_and_fetch_all(cursor_work, "CREATE (:Node {x: 1})")
+    execute_and_fetch_all(cursor_work, "CREATE (:Node {x: 2})")
+
+    # Close the work connection so m_db has zero active connections (suspend-eligible).
+    conn_work.close()
+
+    # Suspend m_db.
+    suspend_result = execute_and_fetch_all(cursor_default, "SUSPEND DATABASE m_db")
+    assert len(suspend_result) == 1, f"SUSPEND DATABASE should return 1 row, got {suspend_result!r}"
+    assert "suspended" in suspend_result[0][0].lower(), f"Unexpected SUSPEND message: {suspend_result[0][0]!r}"
+
+    # Poll until m_db reaches 'cold'.
+    assert _wait_for_db_state(cursor_default, "m_db", "cold", timeout_s=15.0), (
+        "m_db did not reach State='cold' within 15s after SUSPEND"
+    )
+
+    # --- Scrape 1: after suspension ---
+    metrics_text_after_suspend = _scrape_metrics()
+
+    # All 6 metric names must appear somewhere in the scrape output (HELP/TYPE lines are fine).
+    for metric_name in _HOT_COLD_METRIC_NAMES:
+        assert metric_name in metrics_text_after_suspend, (
+            f"Expected metric {metric_name!r} to appear in /metrics output after suspend, but it was absent. "
+            f"Scrape excerpt (first 60 lines):\n" + "\n".join(metrics_text_after_suspend.splitlines()[:60])
+        )
+
+    # suspended_tenants must be exactly 1 (only m_db is cold).
+    suspended_val = _parse_metric_value(metrics_text_after_suspend, "memgraph_hot_cold_suspended_tenants")
+    assert suspended_val == 1.0, (
+        f"Expected memgraph_hot_cold_suspended_tenants == 1 after suspending m_db, got {suspended_val}"
+    )
+
+    # suspends_total must be >= 1.
+    suspends_val = _parse_metric_value(metrics_text_after_suspend, "memgraph_hot_cold_suspends_total")
+    assert suspends_val >= 1.0, (
+        f"Expected memgraph_hot_cold_suspends_total >= 1 after SUSPEND, got {suspends_val}"
+    )
+
+    # Resume m_db.
+    resume_result = execute_and_fetch_all(cursor_default, "RESUME DATABASE m_db")
+    assert len(resume_result) == 1, f"RESUME DATABASE should return 1 row, got {resume_result!r}"
+    assert "resumed" in resume_result[0][0].lower(), f"Unexpected RESUME message: {resume_result[0][0]!r}"
+
+    # Poll until m_db returns to 'ready'.
+    assert _wait_for_db_state(cursor_default, "m_db", "ready", timeout_s=15.0), (
+        "m_db did not return to State='ready' within 15s after RESUME"
+    )
+
+    # --- Scrape 2: after resumption ---
+    metrics_text_after_resume = _scrape_metrics()
+
+    # suspended_tenants must now be 0.
+    suspended_val_after = _parse_metric_value(metrics_text_after_resume, "memgraph_hot_cold_suspended_tenants")
+    assert suspended_val_after == 0.0, (
+        f"Expected memgraph_hot_cold_suspended_tenants == 0 after RESUME, got {suspended_val_after}"
+    )
+
+    # resumes_total must be >= 1.
+    resumes_val = _parse_metric_value(metrics_text_after_resume, "memgraph_hot_cold_resumes_total")
+    assert resumes_val >= 1.0, (
+        f"Expected memgraph_hot_cold_resumes_total >= 1 after RESUME, got {resumes_val}"
+    )
+
+    # The resume-latency histogram must have observed at least one sample (proves the Observe path
+    # fired on the successful resume — and independently confirms the histogram is exported).
+    latency_count = _parse_metric_value(metrics_text_after_resume, "memgraph_hot_cold_resume_latency_seconds_count")
+    assert latency_count >= 1.0, (
+        f"Expected memgraph_hot_cold_resume_latency_seconds_count >= 1 after RESUME, got {latency_count}"
     )
 
 

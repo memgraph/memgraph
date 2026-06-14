@@ -31,6 +31,7 @@
 #include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
@@ -430,6 +431,33 @@ TEST_F(HotColdResumeTest, GetSuspendedHeartbeatInfoReflectsSuspendState) {
 TEST_F(HotColdResumeTest, GetSuspendedHeartbeatInfoUnknownReturnsNullopt) {
   auto info = DBMS().GetSuspendedHeartbeatInfo(memgraph::utils::UUID{});
   EXPECT_FALSE(info.has_value()) << "GetSuspendedHeartbeatInfo with an unknown UUID must return nullopt";
+}
+
+// ---------------------------------------------------------------------------
+// Prometheus metrics: suspend/resume operations bump the global counters
+// ---------------------------------------------------------------------------
+
+// Verify that Suspend() increments hot_cold_suspends_total and sets the gauge to 1,
+// and that Resume() increments hot_cold_resumes_total and resets the gauge to 0.
+// Counter assertions use deltas (capture before, compare after) because the process-wide
+// Meyers singleton accumulates across all tests in the binary.
+// Gauge assertions are absolute within this test because the gauge is Set() to
+// suspended_.size() on each mutation, so this test's own Suspend/Resume control it exactly.
+TEST_F(HotColdResumeTest, MetricsReflectSuspendAndResume) {
+  // Capture baseline counter values before this test mutates anything.
+  const double suspends0 = memgraph::metrics::Metrics().global.hot_cold_suspends_total->Value();
+  const double resumes0 = memgraph::metrics::Metrics().global.hot_cold_resumes_total->Value();
+
+  CreateAndPopulate("metrics_db", 4);
+
+  ASSERT_TRUE(DBMS().Suspend("metrics_db").has_value());
+  EXPECT_EQ(memgraph::metrics::Metrics().global.hot_cold_suspends_total->Value(), suspends0 + 1);
+  EXPECT_EQ(memgraph::metrics::Metrics().global.hot_cold_suspended_tenants->Value(), 1.0);
+
+  auto res = DBMS().Resume("metrics_db");
+  ASSERT_TRUE(res.has_value()) << "resume must succeed for metrics validation";
+  EXPECT_EQ(memgraph::metrics::Metrics().global.hot_cold_resumes_total->Value(), resumes0 + 1);
+  EXPECT_EQ(memgraph::metrics::Metrics().global.hot_cold_suspended_tenants->Value(), 0.0);
 }
 
 #endif  // MG_ENTERPRISE
