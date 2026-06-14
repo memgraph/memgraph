@@ -203,6 +203,47 @@ TEST_F(HotColdResumeTest, SuspendResumeCycleStable) {
 }
 
 // ---------------------------------------------------------------------------
+// Profile / memory-limit regression tests
+// ---------------------------------------------------------------------------
+
+// Regression: Resume() must re-apply the durable tenant-profile memory limit.
+// Before the fix, a COLD tenant resumed with hard-limit 0 (unlimited) because
+// the profile was looked up AFTER storage rebuild instead of being piped through it.
+TEST_F(HotColdResumeTest, ResumeReappliesTenantMemoryLimit) {
+  constexpr int64_t kLimit = 64 * 1024 * 1024;  // 64 MiB
+  CreateAndPopulate("limited_db", 3);
+  ASSERT_TRUE(DBMS().CreateTenantProfile("p", kLimit, nullptr).has_value());
+  ASSERT_TRUE(DBMS().SetTenantProfileOnDatabase("p", "limited_db", nullptr).has_value());
+  {
+    auto db_acc = DBMS().Get("limited_db");
+    EXPECT_EQ(db_acc->TenantMemoryLimit(), kLimit) << "limit applied while HOT";
+  }
+  ASSERT_TRUE(DBMS().Suspend("limited_db").has_value());
+  auto res = DBMS().Resume("limited_db");
+  ASSERT_TRUE(res.has_value()) << "resume must succeed";
+  // Before the fix the resumed tenant ran unlimited (0); fix re-applies the durable profile.
+  EXPECT_EQ(res.value()->TenantMemoryLimit(), kLimit) << "limit re-applied on resume";
+}
+
+// Regression: attaching a profile to a COLD tenant must succeed durably (not throw
+// because Get() was called before the durable AttachToDatabase write in the old code).
+// On the next Resume() the limit must land on the freshly rebuilt storage.
+TEST_F(HotColdResumeTest, SetProfileOnColdTenantAppliesOnResume) {
+  constexpr int64_t kLimit = 32 * 1024 * 1024;  // 32 MiB
+  CreateAndPopulate("cold_prof_db", 2);
+  ASSERT_TRUE(DBMS().Suspend("cold_prof_db").has_value());  // tenant is now COLD
+  ASSERT_TRUE(DBMS().CreateTenantProfile("cp", kLimit, nullptr).has_value());
+  // Before the fix this failed: SetTenantProfileOnDatabase called Get() (throws on COLD)
+  // BEFORE the durable AttachToDatabase, so the profile was never attached.
+  ASSERT_TRUE(DBMS().SetTenantProfileOnDatabase("cp", "cold_prof_db", nullptr).has_value())
+      << "attaching a profile to a COLD tenant must succeed durably";
+  EXPECT_EQ(DBMS().GetTenantProfileForDatabase("cold_prof_db"), std::optional<std::string>{"cp"});
+  auto res = DBMS().Resume("cold_prof_db");
+  ASSERT_TRUE(res.has_value()) << "resume must succeed after attaching profile while COLD";
+  EXPECT_EQ(res.value()->TenantMemoryLimit(), kLimit) << "profile attached while COLD applies on resume";
+}
+
+// ---------------------------------------------------------------------------
 // Concurrency: single-flight
 // ---------------------------------------------------------------------------
 
