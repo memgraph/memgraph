@@ -238,12 +238,22 @@ TEST_F(HotColdSuspendTest, RestartEquivalenceRecoversSuspendedTenantData) {
   ASSERT_TRUE(DBMS().Suspend("durable_db").has_value());
 
   // Build a FRESH DbmsHandler on the SAME data_directory with recover_on_startup=true.
-  // The tenant must recover with exactly kNodes nodes — proving suspend == durable.
   min_mg.reset();  // tear down the first handler (releases the data dir)
   min_mg.emplace(MakeConfig(data_directory, /*recover_on_startup=*/true));
 
-  auto db_acc = DBMS().Get("durable_db");
-  EXPECT_EQ(CountNodes(db_acc), kNodes);
+  // Cross-restart hot/cold: a tenant suspended before the restart now recovers COLD (a shell, no
+  // storage build), NOT hot — so Get() (which never reheats) would throw. It reheats lazily on
+  // Resume with exactly kNodes nodes, proving suspend == durable AND that the COLD state persisted.
+  std::optional<memgraph::dbms::DbmsHandler::TenantRuntimeInfo> info;
+  for (const auto &i : DBMS().TenantRuntimeInfos()) {
+    if (i.name == "durable_db") info = i;
+  }
+  ASSERT_TRUE(info.has_value()) << "the suspended tenant must be present after restart";
+  EXPECT_EQ(info->state, memgraph::dbms::DbmsHandler::TenantState::COLD)
+      << "a tenant suspended before restart must recover COLD, not HOT";
+  auto res = DBMS().Resume("durable_db");
+  ASSERT_TRUE(res.has_value()) << "the restored COLD tenant must reheat with its data intact";
+  EXPECT_EQ(CountNodes(*res), kNodes);
 }
 
 // ---------------------------------------------------------------------------

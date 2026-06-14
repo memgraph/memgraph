@@ -151,6 +151,22 @@ struct Durability {
     return json.dump();
   }
 
+  // Hot/cold cross-restart: persist that a tenant is COLD (suspended) plus the heartbeat metadata a
+  // restored COLD shell needs to answer a replica HeartbeatRpc WITHOUT reheating. Additive over
+  // GenVal: a value lacking the "cold" key (every pre-existing entry, and every hot tenant) reads as
+  // hot, so no durability version bump is required.
+  static auto GenColdVal(utils::UUID uuid, std::filesystem::path rel_dir, uint64_t last_durable_timestamp,
+                         uint64_t num_committed_txns, std::string_view last_epoch) {
+    nlohmann::json json;
+    json["uuid"] = uuid;
+    json["rel_dir"] = rel_dir;
+    json["cold"] = true;
+    json["last_durable_timestamp"] = last_durable_timestamp;
+    json["num_committed_txns"] = num_committed_txns;
+    json["last_epoch"] = last_epoch;
+    return json.dump();
+  }
+
   static void Migrate(kvstore::KVStore *durability, const std::filesystem::path &root) {
     const auto ver_val = durability->Get("version");
     const auto ver = VersionCheck(ver_val);
@@ -228,10 +244,40 @@ DbmsHandler::DbmsHandler(storage::Config config)
     auto json = nlohmann::json::parse(config_json);
     const auto uuid = json.at("uuid").get<utils::UUID>();
     const auto rel_dir = json.at("rel_dir").get<std::filesystem::path>();
+    // Register the directory FIRST (both hot and cold paths): the cleanup pass below deletes any
+    // on-disk database directory not in this set — a cold tenant's dir must be preserved.
+    directories.emplace(rel_dir.filename());
+
+    // Cross-restart hot/cold: a tenant that was COLD (suspended) before the restart comes back COLD —
+    // a gatekeeper shell + a suspended_ entry, with NO storage build / WAL replay. It is reheated
+    // lazily on first access via the resume engine. The default DB is never cold (it is excluded from
+    // eviction); force it HOT regardless of any stale marker.
+    if (json.value("cold", false) && name != kDefaultDB) {
+      spdlog::info("Restoring database {} as COLD (suspended) at {}.", name, rel_dir);
+      // Salient is reconstructed from default_config_ + name + uuid, exactly as New_ does for the HOT
+      // restart path (salient is intentionally not persisted; see GenVal). On lazy resume the storage
+      // recovery reads the on-disk snapshot/WAL using this salient, identical to a HOT restart.
+      auto salient = default_config_.salient;
+      salient.name = name;
+      salient.uuid = uuid;
+      SuspendedEntry entry{
+          .salient = std::move(salient),
+          .rel_dir = rel_dir,
+          .last_used_ns = std::chrono::steady_clock::now().time_since_epoch().count(),
+          .last_durable_timestamp = json.value("last_durable_timestamp", uint64_t{0}),
+          .num_committed_txns = json.value("num_committed_txns", uint64_t{0}),
+          .last_epoch = json.value("last_epoch", std::string{}),
+      };
+      MG_ASSERT(db_handler_.EmplaceColdShell(name), "Failed to create COLD shell for database {}.", name);
+      suspended_.insert_or_assign(std::string{name}, std::move(entry));
+      metrics::Metrics().global.hot_cold_suspended_tenants->Set(static_cast<double>(suspended_.size()));
+      spdlog::info("Database {} restored COLD.", name);
+      continue;
+    }
+
     spdlog::info("Restoring database {} at {}.", name, rel_dir);
     auto new_db = New_(name, uuid, nullptr, rel_dir);
     MG_ASSERT(new_db.has_value(), "Failed while creating database {}.", name);
-    directories.emplace(rel_dir.filename());
     spdlog::info("Database {} restored.", name);
   }
 
@@ -920,6 +966,14 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
   acc.reset();  // drop our accessor -> count == 0 (state still SUSPENDING)
   {
     auto wr = std::lock_guard{lock_};
+    // Cross-restart: persist the COLD marker + heartbeat metadata under lock_, atomically with the
+    // suspended_ insert, so it is race-free against a concurrent Resume_ (which clears the marker under
+    // the same lock_). Built from `entry` BEFORE it is moved below. Crash-safe: the committed data is
+    // already durable (flushed at commit + the consolidating snapshot above), so recovering this tenant
+    // COLD from disk loses nothing. A durability failure must NOT roll back the (in-memory) suspend nor
+    // throw — degrade to "recovers HOT after restart": catch + warn.
+    auto cold_val = Durability::GenColdVal(
+        entry.salient.uuid, entry.rel_dir, entry.last_durable_timestamp, entry.num_committed_txns, entry.last_epoch);
     suspended_.insert_or_assign(std::string{name}, std::move(entry));
     // Metrics: the tenant is now committed to suspended_ (the suspend is effectively done — the
     // following finish_suspend() is non-throwing). Bump the counter here, under lock_, rather than
@@ -932,6 +986,14 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
     // NOTE: insert_or_assign may throw bad_alloc (exactly under the memory pressure that
     // triggers eviction). If it throws here, the rollback guard above calls abort_suspend()
     // before propagating, preventing a permanently-stuck SUSPENDING state.
+    if (durability_) {
+      try {
+        durability_->Put(Durability::GenKey(name), cold_val);
+      } catch (...) {
+        spdlog::warn(
+            "hot/cold suspend: failed to persist the COLD marker for '{}'; it will recover HOT after a restart.", name);
+      }
+    }
   }
 
   // Disable the rollback guard BEFORE calling finish_suspend(). finish_suspend() transitions
@@ -1177,6 +1239,22 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           *gk = std::move(fresh);
           if (auto it = suspended_.find(name); it != suspended_.end()) suspended_.erase(it);
           metrics::Metrics().global.hot_cold_suspended_tenants->Set(static_cast<double>(suspended_.size()));
+          // Cross-restart: clear the COLD marker (rewrite the hot-form durability entry) under lock_,
+          // atomically with the suspended_.erase above, so a restart recovers this tenant HOT. MUST be
+          // wrapped: this block runs after the noexcept move-publish committed the gatekeeper to HOT,
+          // and a durability throw escaping into the outer catch would abort_resume() a now-HOT
+          // gatekeeper (corruption). On failure the tenant is HOT + intact and would merely recover
+          // COLD (then lazily resume) after a restart — safe.
+          if (durability_) {
+            try {
+              durability_->Put(Durability::GenKey(name), Durability::GenVal(entry.salient.uuid, entry.rel_dir));
+            } catch (...) {
+              spdlog::warn(
+                  "hot/cold resume: failed to clear the COLD marker for '{}'; it may recover COLD (then lazily "
+                  "resume) after a restart.",
+                  name);
+            }
+          }
         }
       } catch (...) {
         // PRE-PUBLISH failure: on_resume_ (or the publish itself) threw and the publish has NOT

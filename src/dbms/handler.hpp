@@ -83,6 +83,21 @@ class Handler {
   }
 
   /**
+   * @brief Emplace a COLD shell (a Gatekeeper with no managed value) at @p name.
+   *
+   * Used by hot/cold cross-restart recovery: a tenant that was suspended before the process restart
+   * is brought back COLD without building its storage. No Accessor is returned (a COLD shell mints
+   * none); the value is materialized lazily by the resume engine (begin_resume + move-assign HOT).
+   *
+   * @return true if inserted, false if an item with that name already exists.
+   */
+  bool EmplaceColdShell(std::string_view name) {
+    if (Has(name)) return false;
+    items_.emplace(std::piecewise_construct, std::forward_as_tuple(name), std::forward_as_tuple(utils::cold_shell));
+    return true;
+  }
+
+  /**
    * @brief Get pointer to context.
    *
    * @param name Name associated with the wanted context

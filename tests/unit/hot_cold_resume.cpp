@@ -17,6 +17,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -694,6 +695,84 @@ TEST_F(HotColdResumeTest, ResumeWithBudgetFailedRecoverySurfacesRecoveryFailed) 
   auto res2 = DBMS().ResumeWithBudget("budget_fail", std::chrono::seconds{10});
   ASSERT_TRUE(res2.has_value()) << "resume must be retriable after the failure clears";
   EXPECT_EQ(CountNodes(*res2), kNodes);
+}
+
+// ---------------------------------------------------------------------------
+// Cross-restart COLD persistence: a tenant suspended before a restart must
+// recover COLD (a shell, no storage build), then lazily resume with data.
+// ---------------------------------------------------------------------------
+
+// Tear down the whole DbmsHandler harness and rebuild it on the SAME data_directory (recover) — a
+// process restart in miniature. Does NOT wipe the directory (unlike fixture TearDown).
+void HotColdResumeTest_SimulateRestart(std::optional<MinMemgraph> &mg, const std::filesystem::path &dir) {
+  mg.reset();
+  mg.emplace(MakeConfig(dir, /*recover_on_startup=*/true));
+}
+
+TEST_F(HotColdResumeTest, ColdTenantRecoversColdAcrossRestart) {
+  constexpr int kNodes = 9;
+  CreateAndPopulate("xr_cold", kNodes);
+  ASSERT_TRUE(DBMS().Suspend("xr_cold").has_value());
+  ASSERT_EQ(StateOf("xr_cold"), memgraph::dbms::DbmsHandler::TenantState::COLD);
+
+  HotColdResumeTest_SimulateRestart(min_mg, data_directory);
+
+  // After the restart the tenant must come back COLD (a shell), NOT rebuilt HOT.
+  EXPECT_EQ(StateOf("xr_cold"), memgraph::dbms::DbmsHandler::TenantState::COLD)
+      << "a tenant suspended before restart must recover COLD, not HOT";
+
+  // And it must lazily resume with its data intact (recovered from the on-disk snapshot/WAL).
+  auto res = DBMS().Resume("xr_cold");
+  ASSERT_TRUE(res.has_value()) << "a restored COLD shell must be lazily resumable";
+  EXPECT_EQ(CountNodes(*res), kNodes);
+  EXPECT_EQ(StateOf("xr_cold"), memgraph::dbms::DbmsHandler::TenantState::READY);
+}
+
+TEST_F(HotColdResumeTest, HotTenantRecoversHotAcrossRestart) {
+  constexpr int kNodes = 6;
+  CreateAndPopulate("xr_hot", kNodes);  // left HOT (never suspended)
+
+  HotColdResumeTest_SimulateRestart(min_mg, data_directory);
+
+  // A never-suspended tenant keeps the legacy behavior: rebuilt HOT (READY) at startup, data intact.
+  EXPECT_EQ(StateOf("xr_hot"), memgraph::dbms::DbmsHandler::TenantState::READY)
+      << "a tenant that was HOT before restart must recover HOT";
+  auto acc = DBMS().Get("xr_hot");
+  EXPECT_EQ(CountNodes(acc), kNodes);
+}
+
+// A resume followed by suspend-then-restart still recovers COLD; and a suspend then resume (clearing
+// the marker) then restart recovers HOT — i.e. the persisted marker tracks the live state.
+TEST_F(HotColdResumeTest, ResumeClearsColdMarkerSoRestartIsHot) {
+  constexpr int kNodes = 4;
+  CreateAndPopulate("xr_toggle", kNodes);
+  ASSERT_TRUE(DBMS().Suspend("xr_toggle").has_value());
+  ASSERT_TRUE(DBMS().Resume("xr_toggle").has_value());  // back HOT — must clear the persisted marker
+
+  HotColdResumeTest_SimulateRestart(min_mg, data_directory);
+
+  EXPECT_EQ(StateOf("xr_toggle"), memgraph::dbms::DbmsHandler::TenantState::READY)
+      << "resume must clear the COLD marker so a later restart recovers HOT";
+  auto acc = DBMS().Get("xr_toggle");
+  EXPECT_EQ(CountNodes(acc), kNodes);
+}
+
+// The persisted heartbeat metadata is restored into suspended_ so a COLD tenant answers replica
+// heartbeats after a restart WITHOUT reheating (SuspendedDbInfos reads from suspended_).
+TEST_F(HotColdResumeTest, ColdHeartbeatMetadataPersistsAcrossRestart) {
+  constexpr int kNodes = 5;
+  CreateAndPopulate("xr_hb", kNodes);
+  const auto uuid_before = DBMS().Get("xr_hb")->storage()->uuid();
+  ASSERT_TRUE(DBMS().Suspend("xr_hb").has_value());
+
+  HotColdResumeTest_SimulateRestart(min_mg, data_directory);
+
+  // The restored COLD shell exposes its heartbeat metadata via SuspendedDbInfos, with the same UUID
+  // and a non-zero durable timestamp (the populated tenant committed a snapshot at suspend).
+  auto infos = DBMS().SuspendedDbInfos();
+  auto match = std::ranges::find_if(infos, [&](const auto &i) { return i.uuid == uuid_before; });
+  ASSERT_NE(match, infos.end()) << "restored COLD tenant must appear in SuspendedDbInfos";
+  EXPECT_GT(match->last_durable_timestamp, 0u) << "persisted last_durable_timestamp must survive the restart";
 }
 
 #endif  // MG_ENTERPRISE

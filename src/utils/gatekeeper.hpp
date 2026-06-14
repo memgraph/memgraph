@@ -113,10 +113,26 @@ struct GatekeeperGuardFor<T, std::void_t<typename T::GatekeeperGuard>> {
 // T can use GatekeeperState without forcing T to be complete.
 enum class GatekeeperState : uint8_t { HOT, SUSPENDING, COLD, RESUMING };
 
+// Tag to construct a Gatekeeper directly as a COLD shell (no managed value): used by hot/cold
+// cross-restart recovery to bring a previously-suspended tenant back COLD without building its
+// storage. The shell starts in COLD with count_ == 0, so a later begin_resume()/move-assign-HOT
+// completes the lazy reheat exactly as a runtime suspend would, and ~Gatekeeper destroys it cleanly
+// (its wait predicate — terminal state + drained count — is satisfied immediately).
+struct cold_shell_t {
+  explicit cold_shell_t() = default;
+};
+
+inline constexpr cold_shell_t cold_shell{};
+
 template <typename T>
 struct GKInternals {
   template <typename... Args>
   explicit GKInternals(Args &&...args) : value_{std::in_place, std::forward<Args>(args)...} {}
+
+  // COLD-shell construction: value_ stays nullopt, state_ starts COLD. Non-template so it is preferred
+  // over the variadic ctor for an exact cold_shell_t argument (which would otherwise try value_{in_place,
+  // cold_shell} and fail to compile for managed types with no such constructor).
+  explicit GKInternals(cold_shell_t /*tag*/) : state_{GatekeeperState::COLD} {}
 
   std::optional<T> value_;
   uint64_t count_ = 0;
