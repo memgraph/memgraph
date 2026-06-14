@@ -56,9 +56,28 @@ constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database 
 void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_acc) {
   spdlog::info("Restoring replication role.");
 
-  // Each individual client has already been restored and started. Here we just go through each database and start its
-  // client
+  // IDEMPOTENT (hot/cold resume + retry): a tenant resumed from COLD re-runs this to re-wire its
+  // MAIN-side replication clients, and the resume path may RETRY this on failure (a freshly-resumed
+  // tenant has no other reconciler that creates missing per-storage clients). Skip any replica that
+  // already has a live client so a retry only ADDS the missing ones: never a second client for the
+  // same replica (which would double-stream deltas), and never tears down a healthy/recovering one.
+  // The replica count is tiny, so a per-replica scan under the clients lock is cheap.
+  auto &clients = db_acc->storage()->repl_storage_state_.replication_storage_clients_;
   for (auto &instance_client : mainData.registered_replicas_) {
+    bool already_wired = false;
+    clients.WithLock([&](auto &storage_clients) {
+      for (auto const &c : storage_clients) {
+        if (c->Name() == instance_client.name_) {
+          already_wired = true;
+          break;
+        }
+      }
+    });
+    if (already_wired) {
+      spdlog::trace(
+          "Replica {} already wired for {}; skipping (idempotent restore).", instance_client.name_, db_acc->name());
+      continue;
+    }
     spdlog::info("Replica {} restoration started for {}.", instance_client.name_, db_acc->name());
     auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client, mainData.uuid_);
     auto *storage = db_acc->storage();
@@ -71,7 +90,7 @@ void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_a
       spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
                    instance_client.name_);
     }
-    db_acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock(
+    clients.WithLock(
         [client = std::move(client)](auto &storage_clients) mutable { storage_clients.push_back(std::move(client)); });
     spdlog::info("Replica {} restored for {}.", instance_client.name_, db_acc->name());
   }
@@ -1170,10 +1189,44 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         // the repl_state read lock and this hook takes the repl_state write lock -> self-deadlock.
         if (rewire_replication && on_resume_repl_) on_resume_repl_(acc);  // POST-PUBLISH arm (replication)
       } catch (...) {
-        spdlog::error(
-            "Resume: replication re-wiring failed for tenant '{}' after publish; the tenant is live "
-            "(HOT) and data is intact, but replication wiring must be retried.",
+        // The inline re-wire threw. The tenant is live (HOT) with intact data, but it would run
+        // UN-REPLICATED indefinitely: no periodic reconciler creates missing per-storage clients for
+        // an already-HOT tenant (the heartbeat FrequentCheck only repairs clients that already exist).
+        // Schedule a bounded background retry. RestoreReplication is idempotent (dedupe-by-name) so a
+        // retry only adds the missing clients. Capture a COPY of `acc` to pin the tenant HOT for the
+        // (bounded) retry window. Safe on resume_pool_: the worker holds no lock, on_resume_repl_ takes
+        // the repl_state WRITE lock cleanly, and ShutdownResumePool drains the pool before repl_state
+        // is destroyed (same lifetime contract KickResume already relies on).
+        spdlog::warn(
+            "Resume: replication re-wiring failed for tenant '{}' on the inline attempt; scheduling a "
+            "bounded background retry (tenant is live/HOT, data intact).",
             name);
+        // Capture a COPY of the callback (not `this->on_resume_repl_`) so the task is immune to a
+        // concurrent SetOnResumeRepl and reads no DbmsHandler member from the worker thread.
+        resume_pool_.AddTask([repl_cb = on_resume_repl_, acc, key = std::string{name}]() mutable {
+          constexpr int kMaxAttempts = 3;
+          auto backoff = std::chrono::milliseconds(200);
+          for (int attempt = 1; attempt <= kMaxAttempts; ++attempt) {
+            std::this_thread::sleep_for(backoff);
+            backoff *= 2;
+            try {
+              if (repl_cb) repl_cb(acc);
+              spdlog::info(
+                  "Resume: background replication re-wiring for tenant '{}' succeeded on attempt {}.", key, attempt);
+              return;
+            } catch (...) {
+              spdlog::warn("Resume: background replication re-wiring for tenant '{}' failed (attempt {}/{}).",
+                           key,
+                           attempt,
+                           kMaxAttempts);
+            }
+          }
+          spdlog::error(
+              "Resume: background replication re-wiring for tenant '{}' gave up after {} attempts; replication "
+              "must be re-established manually (data is intact and the tenant is live/HOT).",
+              key,
+              kMaxAttempts);
+        });
       }
       // MAKE-ROOM-ON-RESUME: the tenant is now HOT. If memory is over the high watermark, evict the
       // coldest idle tenants to bound peak after reheating a COLD tenant. `name` is excluded (we still

@@ -339,12 +339,15 @@ TEST_F(HotColdResumeTest, OnResumeReplFailureKeepsTenantHot) {
   ASSERT_TRUE(DBMS().Suspend("repl_fail_db").has_value());
   EXPECT_EQ(StateOf("repl_fail_db"), memgraph::dbms::DbmsHandler::TenantState::COLD);
 
-  // Normal pre-publish arm; the post-publish replication arm throws.
+  // Normal pre-publish arm; the post-publish replication arm always throws. Use a heap-allocated
+  // (shared_ptr) repl counter captured BY VALUE: the post-publish arm is now retried on the background
+  // resume_pool_, so a stack-by-ref capture would dangle once this test body returns before the
+  // bounded retry gives up.
   std::atomic<int> pre_publish_calls{0};
-  std::atomic<int> repl_calls{0};
+  auto repl_calls = std::make_shared<std::atomic<int>>(0);
   DBMS().SetOnResume([&pre_publish_calls](memgraph::dbms::DatabaseAccess) { ++pre_publish_calls; });
-  DBMS().SetOnResumeRepl([&repl_calls](memgraph::dbms::DatabaseAccess) {
-    ++repl_calls;
+  DBMS().SetOnResumeRepl([repl_calls](memgraph::dbms::DatabaseAccess) {
+    repl_calls->fetch_add(1);
     throw std::runtime_error("repl wiring failed");
   });
 
@@ -352,7 +355,7 @@ TEST_F(HotColdResumeTest, OnResumeReplFailureKeepsTenantHot) {
   // Resume must SUCCEED: the tenant is published HOT before the replication arm runs.
   ASSERT_TRUE(res.has_value()) << "post-publish repl failure must NOT fail the resume";
   EXPECT_EQ(pre_publish_calls.load(), 1);
-  EXPECT_EQ(repl_calls.load(), 1) << "the throwing post-publish arm must have been invoked";
+  EXPECT_GE(repl_calls->load(), 1) << "the throwing post-publish arm must have been invoked inline";
   // The returned accessor is HOT and carries the recovered data.
   EXPECT_EQ(CountNodes(*res), kNodes);
   // The tenant is READY (HOT) — NOT lost, NOT rolled back to COLD.
@@ -362,7 +365,43 @@ TEST_F(HotColdResumeTest, OnResumeReplFailureKeepsTenantHot) {
   auto acc = DBMS().Get("repl_fail_db");
   EXPECT_EQ(CountNodes(acc), kNodes);
 
+  // Drain the bounded background retry (inline attempt + 3 retries = 4 total) before tearing down, so
+  // no in-flight task touches the callback after we clear it.
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (repl_calls->load() < 4 && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  EXPECT_GE(repl_calls->load(), 4) << "inline failure must schedule a bounded background retry (3 attempts)";
+
   DBMS().SetOnResume({});
+  DBMS().SetOnResumeRepl({});
+}
+
+// The background retry must SUCCEED once the transient failure clears, re-wiring replication for a
+// tenant that would otherwise stay HOT-but-unreplicated (no other reconciler creates missing clients).
+TEST_F(HotColdResumeTest, OnResumeReplBackgroundRetrySucceeds) {
+  constexpr int kNodes = 5;
+  CreateAndPopulate("repl_retry_db", kNodes);
+  ASSERT_TRUE(DBMS().Suspend("repl_retry_db").has_value());
+
+  // Throw only on the FIRST (inline) call; succeed on the first background retry.
+  auto repl_calls = std::make_shared<std::atomic<int>>(0);
+  DBMS().SetOnResumeRepl([repl_calls](memgraph::dbms::DatabaseAccess) {
+    if (repl_calls->fetch_add(1) == 0) throw std::runtime_error("transient repl wiring failure");
+  });
+
+  auto res = DBMS().Resume("repl_retry_db");
+  ASSERT_TRUE(res.has_value()) << "resume succeeds (HOT) even though the inline repl arm throws";
+  EXPECT_EQ(CountNodes(*res), kNodes);
+
+  // The inline attempt threw (call 1); the bounded background retry must re-invoke and succeed (call 2).
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (repl_calls->load() < 2 && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  EXPECT_GE(repl_calls->load(), 2) << "background retry must re-invoke on_resume_repl_ after inline failure";
+  // It must STOP retrying after success (no 3rd call). Give it a beat past the next backoff.
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  EXPECT_EQ(repl_calls->load(), 2) << "retry must stop after the first success";
+
   DBMS().SetOnResumeRepl({});
 }
 
@@ -487,10 +526,22 @@ namespace {
 static std::size_t CountSnapshotFiles(const std::filesystem::path &root) {
   std::size_t count = 0;
   std::error_code ec;
-  for (const auto &entry : std::filesystem::recursive_directory_iterator(root, ec)) {
-    if (ec) break;  // tolerate a missing root (before first write)
-    if (!entry.is_regular_file(ec)) continue;
-    if (entry.path().parent_path().filename() == memgraph::storage::durability::kSnapshotDirectory) {
+  auto it = std::filesystem::recursive_directory_iterator(root, ec);
+  if (ec) return 0;  // root missing (before the first snapshot is ever written) — not an error
+  const std::filesystem::recursive_directory_iterator end{};
+  // Per-entry errors MUST NOT abort the whole walk: SUSPEND tears the storage down right after writing
+  // the snapshot, and the async file_retainer deletes WAL/retired files concurrently. A walk that
+  // `break`s on the first transient "file vanished mid-iteration" error can return before it ever
+  // reaches the databases/<uuid>/snapshots subtree -> the count flakes to 0 depending on walk order.
+  // Skip the offending entry and keep going instead.
+  for (; it != end; it.increment(ec)) {
+    if (ec) {
+      ec.clear();
+      continue;
+    }
+    std::error_code fec;
+    if (!it->is_regular_file(fec) || fec) continue;
+    if (it->path().parent_path().filename() == memgraph::storage::durability::kSnapshotDirectory) {
       ++count;
     }
   }
