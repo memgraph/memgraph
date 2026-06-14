@@ -1194,6 +1194,16 @@ std::optional<DbmsHandler::SuspendedHeartbeatInfo> DbmsHandler::GetSuspendedHear
   return std::nullopt;
 }
 
+std::vector<DbmsHandler::SuspendedDbInfo> DbmsHandler::SuspendedDbInfos() const {
+  auto rd = std::shared_lock{lock_};
+  std::vector<SuspendedDbInfo> out;
+  out.reserve(suspended_.size());
+  for (auto const &[_, entry] : suspended_) {
+    out.push_back({entry.salient.uuid, entry.last_durable_timestamp, entry.num_committed_txns});
+  }
+  return out;
+}
+
 std::optional<DatabaseAccess> DbmsHandler::ResumeByUUID(const utils::UUID &uuid) {
   // Find the COLD tenant's name under the shared lock, then resume by name OUTSIDE the lock.
   // Resume_ takes its own shared_lock; holding ours would self-deadlock on the rwlock.
@@ -1213,7 +1223,10 @@ std::optional<DatabaseAccess> DbmsHandler::ResumeByUUID(const utils::UUID &uuid)
   // rewire_replication=false: we are on the replication RPC thread which already holds the
   // repl_state read lock; running on_resume_repl_ (which takes the repl_state write lock) here would
   // self-deadlock. The hook is a no-op on a replica anyway.
-  auto res = Resume_(name, /*rewire_replication=*/false);  // single-flight; recovers from durability
+  // make_room=false: this reheat is driven by incoming replication traffic, so a make-room eviction
+  // here could suspend a peer tenant the MAIN is about to stream to (immediately reheated again) —
+  // pure churn on the replication-apply path. The periodic HC-Evict scheduler still bounds replica RAM.
+  auto res = Resume_(name, /*rewire_replication=*/false, /*make_room=*/false);  // single-flight; from durability
   if (!res) return std::nullopt;
   return std::optional{std::move(*res)};
 }

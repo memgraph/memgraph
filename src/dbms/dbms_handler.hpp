@@ -439,6 +439,16 @@ class DbmsHandler {
    */
   std::optional<SuspendedHeartbeatInfo> GetSuspendedHeartbeatInfo(const utils::UUID &uuid) const;
 
+  /// Per-COLD-tenant history snapshot for the coordinator (GetDatabasesHistories). COLD tenants are
+  /// absent from ForEach (db_gk.access() is nullopt), so this exposes their suspend-time metadata.
+  struct SuspendedDbInfo {
+    utils::UUID uuid;
+    uint64_t last_durable_timestamp;
+    uint64_t num_committed_txns;
+  };
+
+  std::vector<SuspendedDbInfo> SuspendedDbInfos() const;
+
   /**
    * @brief Suspend the coldest idle HOT tenants until `bytes_to_free` bytes are freed (estimated)
    *        or `max_evictions` tenants have been suspended, whichever comes first. Coldness is ranked

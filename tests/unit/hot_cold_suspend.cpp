@@ -320,6 +320,37 @@ TEST_F(HotColdSuspendTest, RenameColdRejected) {
   EXPECT_THROW((void)DBMS().Get("rename_cold_db_new"), memgraph::dbms::UnknownDatabaseException);
 }
 
+// ---------------------------------------------------------------------------
+// SuspendedDbInfos — coordinator history accessor for COLD tenants
+// ---------------------------------------------------------------------------
+
+TEST_F(HotColdSuspendTest, SuspendedDbInfosReportsColdTenant) {
+  // Populate a tenant with real commits so num_committed_txns is non-zero.
+  CreateAndPopulate("history_db", 3);
+
+  // Capture uuid while the tenant is still HOT (accessible via Get()).
+  memgraph::utils::UUID expected_uuid;
+  {
+    auto hot_acc = DBMS().Get("history_db");
+    expected_uuid = hot_acc->storage()->uuid();
+  }  // hot_acc released here — gatekeeper count returns to 1 so Suspend can proceed
+
+  ASSERT_TRUE(DBMS().Suspend("history_db").has_value());
+
+  // SuspendedDbInfos must report exactly one entry (only "history_db" was suspended; the default
+  // DB is never suspended).
+  auto infos = DBMS().SuspendedDbInfos();
+  ASSERT_EQ(infos.size(), 1U);
+
+  const auto &info = infos[0];
+  EXPECT_EQ(info.uuid, expected_uuid);
+  // num_committed_txns was incremented by CreateAndPopulate's commit, so must be > 0.
+  EXPECT_GT(info.num_committed_txns, 0U);
+  // last_durable_timestamp reflects the committed data flushed before suspend, so it must be > 0
+  // (EXPECT_GE(..., 0U) would be a tautology on an unsigned value).
+  EXPECT_GT(info.last_durable_timestamp, 0U);
+}
+
 // TODO(hot-cold): a deterministic test for the transitional (SUSPENDING/RESUMING) DROP/RENAME reject
 // (DeleteError::USING / RenameError::USING) requires holding a tenant mid-transition via a latch in
 // SetOnResume while another thread drops/renames. That is inherently racy to set up reliably in a

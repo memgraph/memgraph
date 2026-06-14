@@ -395,6 +395,9 @@ ReplicationHandler::GetDatabasesHistories(uint64_t const request_version) const 
       results.dbs_info.emplace_back(std::string{db_acc->storage()->uuid()},
                                     repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
     });
+    for (auto const &cold : dbms_handler_.SuspendedDbInfos()) {
+      results.dbs_info.emplace_back(std::string{cold.uuid}, cold.last_durable_timestamp);
+    }
     return coordination::GetDatabaseHistoriesResV1{results};
   }
 
@@ -407,6 +410,9 @@ ReplicationHandler::GetDatabasesHistories(uint64_t const request_version) const 
         std::string{db_acc->storage()->uuid()},
         repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
   });
+  for (auto const &cold : dbms_handler_.SuspendedDbInfos()) {
+    results.dbs_info.emplace_back(std::string{cold.uuid}, cold.num_committed_txns);
+  }
 
   return coordination::GetDatabaseHistoriesRes{results};
 }
