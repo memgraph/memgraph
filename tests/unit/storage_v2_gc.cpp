@@ -18,6 +18,7 @@
 
 #include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
@@ -1720,4 +1721,212 @@ TEST(StorageV2GcLightEdge, AnalyticalModeDeleteGoesToGraveyard) {
     EXPECT_TRUE(acc->FindVertex(v2_gid, ms::View::OLD).has_value());
   }
   // storage destructor runs here — must not crash or report sanitizer errors.
+}
+
+// Pin: analytical delete with a vector edge index present.
+// Verifies the consolidated single-pass path in need_full_scan_edges:
+//   - the deleted light edge is removed from the vector-edge index
+//   - the deleted light edge is routed to the graveyard (not leaked)
+//   - after GC the edge is gone and the index no longer contains the entry
+// This combination (light edge + analytical mode + vector edge index) was
+// previously untested; the two separate LightEdgeIterable passes in that
+// block have been merged into one, and this test pins the correctness of
+// that merged path.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2GcLightEdge, AnalyticalModeDeleteVectorEdgeIndexConsistency) {
+  // Storage: light edges enabled, no periodic GC (we drive it manually).
+  auto storage = std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::hours(24)},
+                 .salient = {.items = {.properties_on_edges = true, .storage_light_edge = true}}});
+  auto *mem_storage = static_cast<ms::InMemoryStorage *>(storage.get());
+
+  ms::Gid v1_gid, v2_gid;
+  ms::EdgeTypeId vec_et;
+  ms::PropertyId embedding_prop;
+
+  // Create two vertices and one edge with an embedding property.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    vec_et = acc->NameToEdgeType("VEC_ET");
+    embedding_prop = acc->NameToProperty("embedding");
+    auto edge_res = acc->CreateEdge(&v1, &v2, vec_et);
+    ASSERT_TRUE(edge_res.has_value());
+    // Store a 4-dimensional float vector as the embedding property.
+    ms::PropertyValue::list_t vec_list{
+        ms::PropertyValue{1.0}, ms::PropertyValue{0.0}, ms::PropertyValue{0.0}, ms::PropertyValue{0.0}};
+    ASSERT_TRUE(edge_res->SetProperty(embedding_prop, ms::PropertyValue{std::move(vec_list)}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Create a vector edge index on (VEC_ET, embedding).
+  {
+    auto acc = storage->UniqueAccess();
+    ms::VectorEdgeIndexSpec spec{.index_name = "test_vec_idx",
+                                 .edge_type_filter = ms::VectorEdgeTypeFilter{ms::VectorMatchMode::SINGLE, {vec_et}},
+                                 .property = embedding_prop,
+                                 .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                 .dimension = 4,
+                                 .resize_coefficient = 2,
+                                 .capacity = 16,
+                                 .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
+    ASSERT_TRUE(acc->CreateVectorEdgeIndex(spec).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Verify the index is registered before deletion.
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 1U);
+  }
+
+  // Switch to analytical mode and delete the edge.
+  mem_storage->SetStorageMode(ms::StorageMode::IN_MEMORY_ANALYTICAL);
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto edges = v1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+    auto edge = edges->edges[0];
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Switch back to transactional — triggers FreeMemory/GC (need_full_scan_edges path).
+  mem_storage->SetStorageMode(ms::StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+  // Explicit second GC pass to drain the graveyard.
+  {
+    auto main_guard = std::unique_lock{mem_storage->main_lock_};
+    mem_storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  // Edge must be gone; vertices intact.
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto edges = v1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    EXPECT_TRUE(edges->edges.empty());
+    EXPECT_TRUE(acc->FindVertex(v2_gid, ms::View::OLD).has_value());
+  }
+
+  // Vector edge index must still exist (not dropped) but must contain no entries
+  // for the deleted edge.  A vector search for the embedding that was stored
+  // should return an empty result-set (entry was cleaned by the GC pass).
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto results = acc->VectorIndexSearchOnEdges("test_vec_idx", 5, {1.0f, 0.0f, 0.0f, 0.0f});
+    EXPECT_TRUE(results.empty()) << "Vector edge index still references the deleted light edge after GC";
+  }
+
+  // Storage destructor must not crash or trip sanitizers.
+}
+
+// Flag-OFF counterpart of the test above: heavy edges (storage_light_edge =
+// false) deleted in analytical mode must still be removed from the vector edge
+// index by the need_full_scan_edges GC arm. This pins the master behavior that
+// the heavy-edge vector-index cleanup is flag-INDEPENDENT — a regression here
+// (folding that cleanup behind the light-edge gate) leaves a dangling Edge* in
+// the vector index and a vector search would dereference freed memory (UAF).
+TEST(StorageV2GcLightEdge, AnalyticalModeDeleteVectorEdgeIndexConsistencyHeavyEdge) {
+  // Storage: light edges DISABLED (heavy edges), no periodic GC (driven manually).
+  auto storage = std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::hours(24)},
+                 .salient = {.items = {.properties_on_edges = true, .storage_light_edge = false}}});
+  auto *mem_storage = static_cast<ms::InMemoryStorage *>(storage.get());
+
+  ms::Gid v1_gid, v2_gid;
+  ms::EdgeTypeId vec_et;
+  ms::PropertyId embedding_prop;
+
+  // Create two vertices and one heavy edge with an embedding property.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    vec_et = acc->NameToEdgeType("VEC_ET");
+    embedding_prop = acc->NameToProperty("embedding");
+    auto edge_res = acc->CreateEdge(&v1, &v2, vec_et);
+    ASSERT_TRUE(edge_res.has_value());
+    ms::PropertyValue::list_t vec_list{
+        ms::PropertyValue{1.0}, ms::PropertyValue{0.0}, ms::PropertyValue{0.0}, ms::PropertyValue{0.0}};
+    ASSERT_TRUE(edge_res->SetProperty(embedding_prop, ms::PropertyValue{std::move(vec_list)}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Create a vector edge index on (VEC_ET, embedding).
+  {
+    auto acc = storage->UniqueAccess();
+    ms::VectorEdgeIndexSpec spec{.index_name = "test_vec_idx",
+                                 .edge_type_filter = ms::VectorEdgeTypeFilter{ms::VectorMatchMode::SINGLE, {vec_et}},
+                                 .property = embedding_prop,
+                                 .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                 .dimension = 4,
+                                 .resize_coefficient = 2,
+                                 .capacity = 16,
+                                 .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
+    ASSERT_TRUE(acc->CreateVectorEdgeIndex(spec).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Verify the index is registered before deletion.
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 1U);
+  }
+
+  // Switch to analytical mode and delete the edge.
+  mem_storage->SetStorageMode(ms::StorageMode::IN_MEMORY_ANALYTICAL);
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto edges = v1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+    auto edge = edges->edges[0];
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Switch back to transactional — triggers FreeMemory/GC (need_full_scan_edges path).
+  mem_storage->SetStorageMode(ms::StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+  // Explicit second GC pass (heavy edges have no graveyard, but keeps the GC
+  // driving symmetric with the light-edge variant).
+  {
+    auto main_guard = std::unique_lock{mem_storage->main_lock_};
+    mem_storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  // Edge must be gone; vertices intact.
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto edges = v1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    EXPECT_TRUE(edges->edges.empty());
+    EXPECT_TRUE(acc->FindVertex(v2_gid, ms::View::OLD).has_value());
+  }
+
+  // Vector edge index must still exist but contain no entry for the deleted heavy
+  // edge. Pre-fix (cleanup folded behind the light gate) this search dereferenced
+  // a freed Edge*.
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto results = acc->VectorIndexSearchOnEdges("test_vec_idx", 5, {1.0f, 0.0f, 0.0f, 0.0f});
+    EXPECT_TRUE(results.empty()) << "Vector edge index still references the deleted heavy edge after GC";
+  }
+
+  // Storage destructor must not crash or trip sanitizers.
 }
