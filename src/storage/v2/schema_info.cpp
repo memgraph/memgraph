@@ -427,8 +427,8 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(
     }
     std::sort(labels_itr->begin(), labels_itr->end());
     node.update(info.ToJson(name_id_mapper, enum_store, [&](PropertyId prop) {
-      return node_property_predicate(labels, prop);
-    }));  // NOLINT(clang-analyzer-core.CallAndMessage)
+      return node_property_predicate(labels, prop);  // NOLINT(clang-analyzer-core.CallAndMessage)
+    }));
     nodes.emplace_back(std::move(node));
   }
 
@@ -452,8 +452,8 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(
     }
     std::sort(in_labels_itr->begin(), in_labels_itr->end());
     edge.update(info.ToJson(name_id_mapper, enum_store, [&](PropertyId prop) {
-      return edge_property_predicate(edge_type.type, prop);
-    }));  // NOLINT(clang-analyzer-core.CallAndMessage)
+      return edge_property_predicate(edge_type.type, prop);  // NOLINT(clang-analyzer-core.CallAndMessage)
+    }));
     edges.emplace_back(std::move(edge));
   }
 

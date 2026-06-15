@@ -44,9 +44,6 @@
 
 #include "absl/container/flat_hash_map.h"
 
-namespace r = std::ranges;
-namespace rv = r::views;
-
 namespace memgraph::query {
 namespace {
 
@@ -967,16 +964,16 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   if (value.IsVirtualNode()) {
     TypedValue::TVector values(ctx.memory);
     for (auto const &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
-      values.emplace_back(TypedValue(
-          prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));  // NOLINT(modernize-use-emplace)
+      // NOLINTNEXTLINE(modernize-use-emplace)
+      values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
     }
     return TypedValue(std::move(values));
   }
   if (value.IsVirtualEdge()) {
     TypedValue::TVector values(ctx.memory);
     for (auto const &[prop_id, prop_value] : value.ValueVirtualEdge().Properties()) {
-      values.emplace_back(TypedValue(
-          prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));  // NOLINT(modernize-use-emplace)
+      // NOLINTNEXTLINE(modernize-use-emplace)
+      values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
     }
     return TypedValue(std::move(values));
   }
