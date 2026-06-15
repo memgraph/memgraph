@@ -1549,6 +1549,80 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
   }
 }
 
+// Regression test for #4089. A label-property index scan reorders the value-bounds checks
+// ahead of the MVCC visibility checks so that a scan terminates at the value bound instead
+// of walking past entries created by concurrent transactions (which are invisible and sort
+// after the bound). This guards the correctness half of that reorder: entries invisible to
+// the scanning transaction must never be emitted, and visible in-range entries must never be
+// dropped, even when many invisible entries sit beyond the bound in the skip list.
+TYPED_TEST(IndexTest, LabelPropertyIndexConcurrentInvisibleEntries) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP();  // The fix is specific to the in-memory index scan.
+  } else {
+    {
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+
+    // Five visible in-range vertices: prop_val 0..4, with ids 0..4.
+    {
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
+      for (int i = 0; i < 5; ++i) {
+        auto vertex = this->CreateVertex(acc.get());
+        ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+        ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+      }
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+
+    // The scanning transaction starts here, so anything committed below is invisible to it.
+    auto scan_acc = this->storage->Access(memgraph::storage::WRITE);
+
+    // Concurrently commit entries that are invisible to scan_acc and inserted into the same
+    // skip list: many that sort far above any tested upper bound, plus one whose value (2)
+    // collides with a visible entry and must be excluded by the visibility filter.
+    {
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
+      for (int i = 0; i < 64; ++i) {
+        auto vertex = this->CreateVertex(acc.get());
+        ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+        ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(1000 + i)));
+      }
+      auto in_range = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(in_range.AddLabel(this->label1));
+      ASSERT_NO_ERROR(in_range.SetProperty(this->prop_val, PropertyValue(2)));
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+
+    // Point lookup on a value shared by a visible and an invisible entry: only the visible
+    // vertex (id 2) is returned.
+    EXPECT_THAT(this->GetIds(scan_acc->Vertices(this->label1,
+                                                std::array{PropertyPath{this->prop_val}},
+                                                std::array{pvr::Equal(PropertyValue(2))},
+                                                View::OLD)),
+                UnorderedElementsAre(2));
+
+    // Bounded range whose upper bound sorts below the invisible entries: returns exactly the
+    // visible in-range set, unaffected by the invisible entries beyond the bound.
+    EXPECT_THAT(
+        this->GetIds(scan_acc->Vertices(this->label1,
+                                        std::array{PropertyPath{this->prop_val}},
+                                        std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                              memgraph::utils::MakeBoundInclusive(PropertyValue(4)))},
+                                        View::OLD)),
+        UnorderedElementsAre(0, 1, 2, 3, 4));
+
+    // Unbounded-above scan: invisible entries beyond the visible range are filtered, not emitted.
+    EXPECT_THAT(this->GetIds(scan_acc->Vertices(
+                    this->label1,
+                    std::array{PropertyPath{this->prop_val}},
+                    std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)), std::nullopt)},
+                    View::OLD)),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
+  }
+}
+
 TYPED_TEST(IndexTest, ListOrderingNumericLists) {
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
     GTEST_SKIP() << "Skip this test for disk storage";

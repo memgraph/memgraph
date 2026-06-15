@@ -135,7 +135,10 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_
       continue;
     }
 
-    if (!IsValueIncludedByLowerBound(index_iterator->value, lower_bound)) continue;
+    if (!IsValueIncludedByLowerBound(index_iterator->value, lower_bound)) {
+      continue;
+    }
+
     if (!IsValueIncludedByUpperBound(index_iterator->value, upper_bound)) {
       index_iterator = end;
       break;

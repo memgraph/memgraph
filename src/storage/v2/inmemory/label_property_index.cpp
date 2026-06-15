@@ -233,6 +233,72 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
                         auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
                         const auto &upper_bound, auto &permutation_helper, memgraph::storage::Gid max_gid,
                         bool use_cache = true, bool reverse_iteration = false) {
+  // These definitions are loop-invariant (they depend only on the bounds and iteration
+  // direction, not on the current entry), so hoist them out of the per-entry loop.
+  enum class InBoundResult : uint8_t { UNDER, IN_BOUNDS, IN_BOUNDS_AT_UB, OVER };
+
+  auto const value_within_upper_bounds = [](std::optional<utils::Bound<PropertyValue>> const &ub,
+                                            PropertyValue const &cmp_value) -> InBoundResult {
+    if (ub) {
+      auto ub_cmp_res = cmp_value <=> ub->value();
+      if (is_gt(ub_cmp_res)) {
+        return InBoundResult::OVER;
+      }
+      if (is_eq(ub_cmp_res)) {
+        return ub->IsExclusive() ? InBoundResult::OVER : InBoundResult::IN_BOUNDS_AT_UB;
+      }
+    }
+    return InBoundResult::IN_BOUNDS;
+  };
+
+  auto const value_within_bounds = [&](std::optional<utils::Bound<PropertyValue>> const &lb,
+                                       std::optional<utils::Bound<PropertyValue>> const &ub,
+                                       PropertyValue const &cmp_value) -> InBoundResult {
+    if (lb) {
+      auto lb_cmp_res = cmp_value <=> lb->value();
+      if (is_lt(lb_cmp_res) || (lb->IsExclusive() && is_eq(lb_cmp_res))) {
+        return InBoundResult::UNDER;
+      }
+    }
+    return value_within_upper_bounds(ub, cmp_value);
+  };
+
+  enum class Result : uint8_t { Skip, NoMoreValidEntries, WithAllBounds };
+
+  // In ASC iteration: values increase, so UNDER → skip (will reach range), OVER → stop (past range).
+  // In DESC iteration: values decrease, so UNDER → stop (past range), OVER → skip (will reach range).
+  auto const out_of_range_below = reverse_iteration ? Result::NoMoreValidEntries : Result::Skip;
+  auto const out_of_range_above_all_at_boundary = reverse_iteration ? Result::Skip : Result::NoMoreValidEntries;
+  auto const out_of_range_above_not_at_boundary = Result::Skip;
+
+  // Captures index_iterator by reference, so it reads the current entry's values on each call.
+  auto bounds_checker = [&]() {
+    auto at_boundary_counter = 0;
+    for (auto level = 0U; level < lower_bound.size(); ++level) {
+      switch (value_within_bounds(lower_bound[level], upper_bound[level], index_iterator->values.values_[level])) {
+        case InBoundResult::UNDER: {
+          // At level 0, out_of_range_below is direction-dependent: ASC→Skip, DESC→NoMoreValidEntries.
+          // At level >= 1, a secondary property below range doesn't mean all remaining entries are invalid
+          // (the next entry may have a different primary value), so always Skip.
+          return level == 0 ? out_of_range_below : Result::Skip;
+        }
+        case InBoundResult::IN_BOUNDS: {
+          break;
+        }
+        case InBoundResult::IN_BOUNDS_AT_UB: {
+          ++at_boundary_counter;
+          break;
+        }
+        case InBoundResult::OVER: {
+          auto const all_preceeding_levels_at_boundary = at_boundary_counter == level;
+          return all_preceeding_levels_at_boundary ? out_of_range_above_all_at_boundary
+                                                   : out_of_range_above_not_at_boundary;
+        }
+      }
+    }
+    return Result::WithAllBounds;
+  };
+
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
       continue;
@@ -244,69 +310,6 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
       auto const all_null = ranges::all_of(prefix_values_only, [](PropertyValue const &pv) { return pv.IsNull(); });
       if (all_null) continue;
     }
-
-    enum class InBoundResult : uint8_t { UNDER, IN_BOUNDS, IN_BOUNDS_AT_UB, OVER };
-
-    auto const value_within_upper_bounds = [](std::optional<utils::Bound<PropertyValue>> const &ub,
-                                              PropertyValue const &cmp_value) -> InBoundResult {
-      if (ub) {
-        auto ub_cmp_res = cmp_value <=> ub->value();
-        if (is_gt(ub_cmp_res)) {
-          return InBoundResult::OVER;
-        }
-        if (is_eq(ub_cmp_res)) {
-          return ub->IsExclusive() ? InBoundResult::OVER : InBoundResult::IN_BOUNDS_AT_UB;
-        }
-      }
-      return InBoundResult::IN_BOUNDS;
-    };
-
-    auto const value_within_bounds = [&](std::optional<utils::Bound<PropertyValue>> const &lb,
-                                         std::optional<utils::Bound<PropertyValue>> const &ub,
-                                         PropertyValue const &cmp_value) -> InBoundResult {
-      if (lb) {
-        auto lb_cmp_res = cmp_value <=> lb->value();
-        if (is_lt(lb_cmp_res) || (lb->IsExclusive() && is_eq(lb_cmp_res))) {
-          return InBoundResult::UNDER;
-        }
-      }
-      return value_within_upper_bounds(ub, cmp_value);
-    };
-
-    enum class Result : uint8_t { Skip, NoMoreValidEntries, WithAllBounds };
-
-    // In ASC iteration: values increase, so UNDER → skip (will reach range), OVER → stop (past range).
-    // In DESC iteration: values decrease, so UNDER → stop (past range), OVER → skip (will reach range).
-    auto const out_of_range_below = reverse_iteration ? Result::NoMoreValidEntries : Result::Skip;
-    auto const out_of_range_above_all_at_boundary = reverse_iteration ? Result::Skip : Result::NoMoreValidEntries;
-    auto const out_of_range_above_not_at_boundary = Result::Skip;
-
-    auto bounds_checker = [&]() {
-      auto at_boundary_counter = 0;
-      for (auto level = 0U; level < lower_bound.size(); ++level) {
-        switch (value_within_bounds(lower_bound[level], upper_bound[level], index_iterator->values.values_[level])) {
-          case InBoundResult::UNDER: {
-            // At level 0, out_of_range_below is direction-dependent: ASC→Skip, DESC→NoMoreValidEntries.
-            // At level >= 1, a secondary property below range doesn't mean all remaining entries are invalid
-            // (the next entry may have a different primary value), so always Skip.
-            return level == 0 ? out_of_range_below : Result::Skip;
-          }
-          case InBoundResult::IN_BOUNDS: {
-            break;
-          }
-          case InBoundResult::IN_BOUNDS_AT_UB: {
-            ++at_boundary_counter;
-            break;
-          }
-          case InBoundResult::OVER: {
-            auto const all_preceeding_levels_at_boundary = at_boundary_counter == level;
-            return all_preceeding_levels_at_boundary ? out_of_range_above_all_at_boundary
-                                                     : out_of_range_above_not_at_boundary;
-          }
-        }
-      }
-      return Result::WithAllBounds;
-    };
 
     auto const res = bounds_checker();
     if (res == Result::Skip) {
