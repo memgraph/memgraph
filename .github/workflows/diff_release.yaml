@@ -97,6 +97,14 @@ jobs:
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
+
       - name: Build release binary
         run: |
           ./release/package/mgbuild.sh \
@@ -192,6 +200,33 @@ jobs:
           name: "Enterprise DEB package"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-west-1
+          MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+          MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+          MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+          CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+          CLUSTER_ENV: "ci-diff-release"
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
+      - name: Clean up core dumps
+        if: always()
+        continue-on-error: true
+        run: |
+          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
+          rm -rf /tmp/mg-cores/* 2>/dev/null || true
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -247,6 +282,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binary
         run: |
@@ -437,6 +480,33 @@ jobs:
           --github-run-number "${{ github.run_number }}" \
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-west-1
+          MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+          MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+          MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+          CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+          CLUSTER_ENV: "ci-diff-release"
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
+      - name: Clean up core dumps
+        if: always()
+        continue-on-error: true
+        run: |
+          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
+          rm -rf /tmp/mg-cores/* 2>/dev/null || true
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -492,6 +562,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binary
         run: |
@@ -574,6 +652,33 @@ jobs:
           name: "Test data(Release build)${{ env.RUN_ID }}"
           path: build/e2e/logs
 
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-west-1
+          MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+          MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+          MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+          CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+          CLUSTER_ENV: "ci-diff-release"
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
+      - name: Clean up core dumps
+        if: always()
+        continue-on-error: true
+        run: |
+          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
+          rm -rf /tmp/mg-cores/* 2>/dev/null || true
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -629,6 +734,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binary
         run: |
@@ -732,6 +845,33 @@ jobs:
           name: "Stress and Durability Test Logs${{ env.RUN_ID }}"
           path: build/stress/logs
 
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-west-1
+          MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+          MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+          MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+          CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+          CLUSTER_ENV: "ci-diff-release"
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
+      - name: Clean up core dumps
+        if: always()
+        continue-on-error: true
+        run: |
+          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
+          rm -rf /tmp/mg-cores/* 2>/dev/null || true
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -788,6 +928,14 @@ jobs:
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
+
       - name: Build release binary
         run: |
           ./release/package/mgbuild.sh \
@@ -843,6 +991,33 @@ jobs:
         with:
           name: "Query modules tests(Release build)${{ env.RUN_ID }}"
           path: build/memgraph-logs-query-modules
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-west-1
+          MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+          MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+          MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+          CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+          CLUSTER_ENV: "ci-diff-release"
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
+      - name: Clean up core dumps
+        if: always()
+        continue-on-error: true
+        run: |
+          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
+          rm -rf /tmp/mg-cores/* 2>/dev/null || true
 
       - name: Stop mgbuild container
         if: always()
