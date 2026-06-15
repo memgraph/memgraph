@@ -1665,8 +1665,11 @@ std::optional<int64_t> ExtractIdValue(const TypedValue &value, bool expects_stri
     return id;
   }
   if (!value.IsNumeric()) return std::nullopt;
-  int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
-  if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
+  if (value.IsInt()) return value.ValueInt();
+  const double d = value.ValueDouble();
+  const auto id = static_cast<int64_t>(d);
+  // Only doubles representing an exact integer can match.
+  if (static_cast<double>(id) != d) return std::nullopt;
   return id;
 }
 }  // namespace
