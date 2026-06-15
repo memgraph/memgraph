@@ -28,13 +28,22 @@
 
 namespace memgraph::query::plan {
 
-std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
+struct PlanHintsResult {
+  std::vector<std::string> hints;
+  // Number of ScanAll+Filter pairs where an index could have served the scan
+  // (per-operator, not per-query — a plan with N qualifying pairs increments by N).
+  std::size_t no_index_lookup_count{0};
+};
+
+PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
 
 class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
  public:
   explicit PlanHintsProvider(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
   std::vector<std::string> &hints() { return hints_; }
+
+  std::size_t no_index_lookup_count() const { return no_index_lookup_count_; }
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -372,6 +381,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
  private:
   const SymbolTable &symbol_table_;
   std::vector<std::string> hints_;
+  std::size_t no_index_lookup_count_{0};
 
   bool DefaultPreVisit() override { LOG_FATAL("Operator not implemented for providing plan hints!"); }
 
@@ -402,6 +412,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
                         scan_symbol.name(),
                         filtered_labels,
                         filtered_properties));
+        ++no_index_lookup_count_;
         return;
       }
 
@@ -411,6 +422,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
             "creating a label index.",
             scan_symbol.name(),
             filtered_labels));
+        ++no_index_lookup_count_;
         return;
       }
       return;

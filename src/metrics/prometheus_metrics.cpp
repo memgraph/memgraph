@@ -165,6 +165,11 @@ PrometheusMetrics::PrometheusMetrics()
                                    .Name("memgraph_read_write_queries_total")
                                    .Help("Total number of read-write queries")
                                    .Register(registry_)},
+      query_no_index_lookup_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_query_no_index_lookup_total")
+              .Help("Queries planned with ScanAll+Filter where an index could have served them")
+              .Register(registry_)},
       // Operators
       once_operator_family_{prometheus::BuildCounter()
                                 .Name("memgraph_once_operator_total")
@@ -1020,6 +1025,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .read_query = {&read_query_family_.Add(labels)},
                   .write_query = {&write_query_family_.Add(labels)},
                   .read_write_query = {&read_write_query_family_.Add(labels)},
+                  .query_no_index_lookup = {&query_no_index_lookup_family_.Add(labels)},
                   .deleted_nodes = {&deleted_nodes_family_.Add(labels)},
                   .deleted_edges = {&deleted_edges_family_.Add(labels)},
                   .show_schema = {&show_schema_family_.Add(labels)},
@@ -1133,6 +1139,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   read_query_family_.Remove(h.read_query.get());
   write_query_family_.Remove(h.write_query.get());
   read_write_query_family_.Remove(h.read_write_query.get());
+  query_no_index_lookup_family_.Remove(h.query_no_index_lookup.get());
   deleted_nodes_family_.Remove(h.deleted_nodes.get());
   deleted_edges_family_.Remove(h.deleted_edges.get());
   show_schema_family_.Remove(h.show_schema.get());
@@ -1569,6 +1576,9 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back({"ReadQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_query.Value())});
   out.push_back({"WriteQuery", "QueryType", "Counter", static_cast<int64_t>(h.write_query.Value())});
   out.push_back({"ReadWriteQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_write_query.Value())});
+
+  // Query (planner-level signals)
+  out.push_back({"QueryNoIndexLookup", "Query", "Counter", static_cast<int64_t>(h.query_no_index_lookup.Value())});
 
   // TTL
   out.push_back({"DeletedNodes", "TTL", "Counter", static_cast<int64_t>(h.deleted_nodes.Value())});

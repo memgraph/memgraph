@@ -46,7 +46,8 @@ class HintProviderSuite : public ::testing::Test {
   Symbol NextSymbol() { return symbol_table.CreateSymbol("Symbol" + std::to_string(symbol_count++), true); }
 
   void VerifyHintMessages(LogicalOperator *plan, const std::vector<std::string> &expected_messages) {
-    auto messages = ProvidePlanHints(plan, symbol_table);
+    auto const result = ProvidePlanHints(plan, symbol_table);
+    auto const &messages = result.hints;
 
     ASSERT_EQ(expected_messages.size(), messages.size());
 

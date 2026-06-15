@@ -117,6 +117,8 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "read_queries_total",
     "write_queries_total",
     "read_write_queries_total",
+    # Query / planner signals
+    "query_no_index_lookup_total",
     # TTL
     "deleted_nodes_total",
     "deleted_edges_total",
@@ -288,6 +290,53 @@ def test_openmetrics_per_db_transaction_counters(populated_databases):
     m = parse_openmetrics(scrape_openmetrics())
     assert om_get(m, "memgraph_committed_transactions_total", "memgraph") > 0
     assert om_get(m, "memgraph_committed_transactions_total", "db2") > 0
+
+
+def test_query_no_index_lookup_counter():
+    """Task 2: count ScanAll+Filter queries that could have used an index.
+
+    Uses a fresh label (Unindexed) so populated_databases' indexes don't apply.
+    EXPLAIN must not advance the counter; per-operator counting means a query with
+    N qualifying ScanAll+Filter pairs bumps by N.
+    """
+    conn = mgclient.connect(host="localhost", port=7687)
+    conn.autocommit = True
+    cursor = conn.cursor()
+    execute(cursor, "USE DATABASE memgraph")
+
+    def counter():
+        return om_get(parse_openmetrics(scrape_openmetrics()), "memgraph_query_no_index_lookup_total", "memgraph") or 0
+
+    baseline = counter()
+
+    execute(cursor, "MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
+    assert counter() == baseline + 1
+
+    execute(cursor, "MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
+    assert counter() == baseline + 2
+
+    # EXPLAIN must not advance the counter.
+    execute(cursor, "EXPLAIN MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
+    assert counter() == baseline + 2
+
+    # Creating the matching index stops further increments.
+    execute(cursor, "CREATE INDEX ON :Unindexed(name)")
+    try:
+        execute(cursor, "MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
+        assert counter() == baseline + 2
+    finally:
+        execute(cursor, "DROP INDEX ON :Unindexed(name)")
+
+    # Two qualifying ScanAll+Filter pairs via UNION → +2 (per-operator).
+    execute(
+        cursor,
+        "MATCH (n:UnindexedA) WHERE n.v = 1 RETURN n.v AS v "
+        "UNION ALL "
+        "MATCH (m:UnindexedB) WHERE m.v = 1 RETURN m.v AS v",
+    )
+    assert counter() == baseline + 4
+
+    conn.close()
 
 
 if __name__ == "__main__":

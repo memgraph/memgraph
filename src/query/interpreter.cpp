@@ -3590,9 +3590,14 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                 interpreter.query_planner_context());
 
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
-  for (const auto &hint : hints) {
+  for (const auto &hint : hints.hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
     memgraph::logging::EmitSessionTraceEvent(hint);
+  }
+  if (hints.no_index_lookup_count > 0) {
+    (*current_db.db_acc_)
+        ->metric_handles()
+        ->query_no_index_lookup.Increment(static_cast<double>(hints.no_index_lookup_count));
   }
 
   if (memgraph::logging::IsSessionTraceEnabled()) {
@@ -3721,7 +3726,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
                                              interpreter.query_planner_context());
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
-  for (const auto &hint : hints) {
+  for (const auto &hint : hints.hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
     memgraph::logging::EmitSessionTraceEvent(hint);
   }
@@ -3837,7 +3842,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   PrepareCaching(cypher_query_plan->ast_storage(), frame_change_collector);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
-  for (const auto &hint : hints) {
+  for (const auto &hint : hints.hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
     memgraph::logging::EmitSessionTraceEvent(hint);
   }
