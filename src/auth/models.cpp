@@ -944,10 +944,11 @@ Role::Role(const std::string &rolename, const Permissions &permissions)
 #ifdef MG_ENTERPRISE
 Role::Role(const std::string &rolename, const Permissions &permissions,
            FineGrainedAccessHandler fine_grained_access_handler, Databases db_access,
-           std::optional<UserImpersonation> usr_imp)
+           std::optional<UserImpersonation> usr_imp, PropertyAccessHandler property_access_handler)
     : rolename_(utils::ToLowerCase(rolename)),
       permissions_(permissions),
       fine_grained_access_handler_(std::move(fine_grained_access_handler)),
+      property_access_handler_(std::move(property_access_handler)),
       db_access_(std::move(db_access)),
       user_impersonation_{std::move(usr_imp)} {}
 #endif
@@ -1070,9 +1071,12 @@ Role Role::Deserialize(const nlohmann::json &data) {
     MigratePropertyAccessDefaults(property_access_handler);
   }
 
-  auto role = Role{
-      *role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access), std::move(usr_imp)};
-  role.property_access_handler_ = std::move(property_access_handler);
+  auto role = Role{*role_name_it,
+                   permissions,
+                   std::move(fine_grained_access_handler),
+                   std::move(db_access),
+                   std::move(usr_imp),
+                   std::move(property_access_handler)};
 #else
   auto role = Role{*role_name_it, permissions};
 #endif
@@ -1195,11 +1199,12 @@ User::User(const std::string &username, std::optional<HashedPassword> password_h
 #ifdef MG_ENTERPRISE
 User::User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
            FineGrainedAccessHandler fine_grained_access_handler, Databases db_access, utils::UUID uuid,
-           std::optional<UserImpersonation> usr_imp)
+           std::optional<UserImpersonation> usr_imp, PropertyAccessHandler property_access_handler)
     : username_(utils::ToLowerCase(username)),
       password_hash_(std::move(password_hash)),
       permissions_(permissions),
       fine_grained_access_handler_(std::move(fine_grained_access_handler)),
+      property_access_handler_(std::move(property_access_handler)),
       database_access_(std::move(db_access)),
       user_impersonation_{std::move(usr_imp)},
       uuid_(uuid) {}
@@ -1548,8 +1553,8 @@ User User::Deserialize(const nlohmann::json &data) {
                    std::move(fine_grained_access_handler),
                    std::move(db_access),
                    uuid,
-                   std::move(usr_imp)};
-  user.property_access_handler_ = std::move(property_access_handler);
+                   std::move(usr_imp),
+                   std::move(property_access_handler)};
   return user;
 #else
   return {*username_it, std::move(password_hash), permissions, uuid};

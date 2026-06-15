@@ -11,14 +11,13 @@
 
 #include "glue/communication.hpp"
 
-#include "query/auth_checker.hpp"
-
 #include <map>
 #include <string>
 #include <vector>
 
 #include "communication/bolt/v1/mg_types.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "query/auth_checker.hpp"
 #include "query/graph.hpp"
 #include "query/typed_value.hpp"
 #include "query/virtual_graph.hpp"

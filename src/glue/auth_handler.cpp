@@ -405,13 +405,10 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
       emit_prop_map(perms.GetGlobalRules(), global_entity_kind, true);
     }
     for (auto const &rule : perms.GetRules()) {
-      std::string entity_str;
       std::vector<std::string> sorted_entities(rule.entities.begin(), rule.entities.end());
       std::ranges::sort(sorted_entities);
-      for (auto const &e : sorted_entities) {
-        if (!entity_str.empty()) entity_str += ", ";
-        entity_str += fmt::format(":{}", e);
-      }
+      auto formatted = sorted_entities | std::views::transform([](auto const &e) { return fmt::format(":{}", e); });
+      auto entity_str = memgraph::utils::Join(formatted, ", ");
       if (rule.entities.size() > 1) {
         entity_str += rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY ? " (EXACTLY)" : " (ANY)";
       }

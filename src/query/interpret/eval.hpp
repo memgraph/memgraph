@@ -13,6 +13,7 @@
 #pragma once
 
 #include <algorithm>
+#include <concepts>
 #include <cstddef>
 #include <limits>
 #include <map>
@@ -1081,6 +1082,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   bool IsPropertyAllowed(VirtualEdge const &ve, storage::PropertyId prop) const;
 #else
   template <typename T>
+    requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor> || std::same_as<T, VirtualNode> ||
+             std::same_as<T, VirtualEdge>
   bool IsPropertyAllowed(T const &, storage::PropertyId) const {
     return true;
   }

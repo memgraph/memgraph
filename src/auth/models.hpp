@@ -600,7 +600,7 @@ class Role {
 #ifdef MG_ENTERPRISE
   Role(const std::string &rolename, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {},
-       std::optional<UserImpersonation> usr_imp = std::nullopt);
+       std::optional<UserImpersonation> usr_imp = std::nullopt, PropertyAccessHandler property_access_handler = {});
 #endif
   Role(const Role &) = default;
   Role &operator=(const Role &) = default;
@@ -895,7 +895,7 @@ class User final {
 #ifdef MG_ENTERPRISE
   User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {}, utils::UUID uuid = {},
-       std::optional<UserImpersonation> usr_imp = std::nullopt);
+       std::optional<UserImpersonation> usr_imp = std::nullopt, PropertyAccessHandler property_access_handler = {});
 #endif
   User(const User &) = default;
   User &operator=(const User &) = default;
