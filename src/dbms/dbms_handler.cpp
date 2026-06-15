@@ -90,8 +90,22 @@ void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_a
       spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
                    instance_client.name_);
     }
-    clients.WithLock(
-        [client = std::move(client)](auto &storage_clients) mutable { storage_clients.push_back(std::move(client)); });
+    // Atomic re-check + insert under a SINGLE lock to close the scan/push TOCTOU: the fast-path scan
+    // above and this push were previously two separate WithLock acquisitions, so two concurrent
+    // restores for the same db (e.g. a fresh resume racing a detached repl-retry task from a prior
+    // resume — the inflight_resumes_ dedup gates Resume_/KickResume but NOT those retry tasks) could
+    // both observe already_wired==false and both push a client for the same replica -> double-streamed
+    // deltas. Re-scanning by name inside the push lock makes the loser drop its just-built client.
+    clients.WithLock([&instance_client, client = std::move(client)](auto &storage_clients) mutable {
+      for (auto const &c : storage_clients) {
+        if (c->Name() == instance_client.name_) {
+          spdlog::trace("Replica {} wired concurrently for another restore; dropping the duplicate client.",
+                        instance_client.name_);
+          return;
+        }
+      }
+      storage_clients.push_back(std::move(client));
+    });
     spdlog::info("Replica {} restored for {}.", instance_client.name_, db_acc->name());
   }
   spdlog::info("Replication role restored to MAIN.");

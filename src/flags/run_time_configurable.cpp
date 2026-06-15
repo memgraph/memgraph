@@ -197,6 +197,8 @@ constexpr auto kHotColdEvictionMaxPerCycleSettingKey = "storage.hot_cold.evictio
 constexpr auto kHotColdEvictionMaxPerCycleGFlagsKey = "storage_hot_cold_eviction_max_per_cycle";
 constexpr auto kHotColdEvictionPollIntervalSettingKey = "storage.hot_cold.eviction_poll_interval_sec";
 constexpr auto kHotColdEvictionPollIntervalGFlagsKey = "storage_hot_cold_eviction_poll_interval_sec";
+constexpr auto kHotColdResumeTimeoutSettingKey = "storage.hot_cold.resume_timeout_sec";
+constexpr auto kHotColdResumeTimeoutGFlagsKey = "storage_hot_cold_resume_timeout_sec";
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
@@ -211,6 +213,7 @@ std::atomic<uint64_t> storage_access_timeout_sec_{1};
 std::atomic<uint64_t> hot_cold_eviction_high_watermark_percent_{85};
 std::atomic<uint64_t> hot_cold_eviction_low_watermark_percent_{70};
 std::atomic<uint64_t> hot_cold_eviction_max_per_cycle_{3};
+std::atomic<uint64_t> hot_cold_resume_timeout_sec_{0};
 std::atomic<int64_t> log_min_duration_ms_{-1};
 std::atomic<bool> log_failed_queries_{false};
 std::atomic<bool> log_query_plan_{true};
@@ -387,8 +390,10 @@ void Initialize(utils::Settings &settings) {
       if (persisted && validator(*persisted).has_value()) {
         callback();
       } else {
-        spdlog::warn("Persisted setting '{}' is invalid ('{}'); falling back to default '{}'.", key,
-                     persisted.value_or("<missing>"), info.default_value);
+        spdlog::warn("Persisted setting '{}' is invalid ('{}'); falling back to default '{}'.",
+                     key,
+                     persisted.value_or("<missing>"),
+                     info.default_value);
         settings.SetValueForce(key, info.default_value);
         callback();
       }
@@ -632,19 +637,25 @@ void Initialize(utils::Settings &settings) {
     }
   };
   register_flag(
-      kHotColdEvictionHighWatermarkGFlagsKey, kHotColdEvictionHighWatermarkSettingKey, kRestore,
+      kHotColdEvictionHighWatermarkGFlagsKey,
+      kHotColdEvictionHighWatermarkSettingKey,
+      kRestore,
       [](std::string_view val) {
         hot_cold_eviction_high_watermark_percent_.store(utils::ParseStringToUint64(val), std::memory_order_release);
       },
       valid_watermark_percent);
   register_flag(
-      kHotColdEvictionLowWatermarkGFlagsKey, kHotColdEvictionLowWatermarkSettingKey, kRestore,
+      kHotColdEvictionLowWatermarkGFlagsKey,
+      kHotColdEvictionLowWatermarkSettingKey,
+      kRestore,
       [](std::string_view val) {
         hot_cold_eviction_low_watermark_percent_.store(utils::ParseStringToUint64(val), std::memory_order_release);
       },
       valid_watermark_percent);
   register_flag(
-      kHotColdEvictionMaxPerCycleGFlagsKey, kHotColdEvictionMaxPerCycleSettingKey, kRestore,
+      kHotColdEvictionMaxPerCycleGFlagsKey,
+      kHotColdEvictionMaxPerCycleSettingKey,
+      kRestore,
       [](std::string_view val) {
         hot_cold_eviction_max_per_cycle_.store(utils::ParseStringToUint64(val), std::memory_order_release);
       },
@@ -657,7 +668,9 @@ void Initialize(utils::Settings &settings) {
         }
       });
   register_flag(
-      kHotColdEvictionPollIntervalGFlagsKey, kHotColdEvictionPollIntervalSettingKey, kRestore,
+      kHotColdEvictionPollIntervalGFlagsKey,
+      kHotColdEvictionPollIntervalSettingKey,
+      kRestore,
       [](std::string_view val) { eviction_periodic_.Modify(std::chrono::seconds{utils::ParseStringToUint64(val)}); },
       [](auto in) -> utils::Settings::ValidatorResult {
         try {
@@ -665,6 +678,21 @@ void Initialize(utils::Settings &settings) {
           return {};
         } catch (utils::ParseException const &) {
           return std::unexpected{"eviction_poll_interval_sec must be a valid unsigned integer"};
+        }
+      });
+  register_flag(
+      kHotColdResumeTimeoutGFlagsKey,
+      kHotColdResumeTimeoutSettingKey,
+      kRestore,
+      [](std::string_view val) {
+        hot_cold_resume_timeout_sec_.store(utils::ParseStringToUint64(val), std::memory_order_release);
+      },
+      [](auto in) -> utils::Settings::ValidatorResult {
+        try {
+          utils::ParseStringToUint64(in);
+          return {};
+        } catch (utils::ParseException const &) {
+          return std::unexpected{"resume_timeout_sec must be a valid unsigned integer"};
         }
       });
 }
@@ -749,9 +777,9 @@ uint64_t GetHotColdEvictionLowWatermarkPercent() {
   return hot_cold_eviction_low_watermark_percent_.load(std::memory_order_acquire);
 }
 
-uint64_t GetHotColdEvictionMaxPerCycle() {
-  return hot_cold_eviction_max_per_cycle_.load(std::memory_order_acquire);
-}
+uint64_t GetHotColdEvictionMaxPerCycle() { return hot_cold_eviction_max_per_cycle_.load(std::memory_order_acquire); }
+
+uint64_t GetHotColdResumeTimeoutSec() { return hot_cold_resume_timeout_sec_.load(std::memory_order_acquire); }
 
 void HotColdEvictionPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   eviction_periodic_.Attach(observer);

@@ -142,6 +142,7 @@ void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInte
 uint64_t GetHotColdEvictionHighWatermarkPercent();
 uint64_t GetHotColdEvictionLowWatermarkPercent();
 uint64_t GetHotColdEvictionMaxPerCycle();
+uint64_t GetHotColdResumeTimeoutSec();
 
 /**
  * @brief Attach/detach an observer to the hot/cold eviction poll-interval variable (live SetInterval).

@@ -3286,11 +3286,12 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
 // accessor increments the gatekeeper count, which blocks suspend for the session's lifetime — that
 // count is the suspend-safety mechanism for the connection-scoped model.
 dbms::DatabaseAccess ResumeForSession(dbms::DbmsHandler *dbms_handler, std::string_view db_name) {
-  // Resume-latency budget: when storage_hot_cold_resume_timeout_sec > 0, bound how long this
+  // Resume-latency budget: when storage.hot_cold.resume_timeout_sec > 0, bound how long this
   // (client) thread blocks waiting for a cold tenant to reheat — the heavy WAL replay runs on the
   // background resume executor, and once the budget elapses we surface a clean retriable error
-  // instead of hanging the connection. A zero budget keeps the legacy synchronous resume.
-  const auto budget = std::chrono::seconds(FLAGS_storage_hot_cold_resume_timeout_sec);
+  // instead of hanging the connection. A zero budget keeps the legacy synchronous resume. Read the
+  // runtime-settable value (SET DATABASE SETTING ... ; auto-persisted), not the raw startup gflag.
+  const auto budget = std::chrono::seconds(flags::run_time::GetHotColdResumeTimeoutSec());
   auto res = dbms_handler->ResumeWithBudget(db_name, budget);
   if (res.has_value()) return std::move(*res);
   switch (res.error()) {
