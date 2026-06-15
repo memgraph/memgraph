@@ -38,7 +38,7 @@ def test_return_allowed_property_is_visible():
     assert result[0][0] == "Alice"
 
 
-def test_properties_includes_denied_key_with_null_value():
+def test_properties_function_includes_denied_key_as_null():
     result = common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) RETURN properties(n) AS props;")
     assert len(result) == 1
     props = result[0][0]
@@ -67,7 +67,7 @@ def test_values_omits_denied_key():
     assert None not in vals
 
 
-def test_return_whole_node_redacts_denied_property():
+def test_bolt_serialized_node_omits_denied_property():
     result = common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) RETURN n;")
     assert len(result) == 1
     node = result[0][0]
