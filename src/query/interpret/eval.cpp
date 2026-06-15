@@ -162,11 +162,9 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       return {result, ctx_->memory};
     }
     case TypedValue::Type::VirtualEdge: {
-      const auto &ve = expression_result.ValueVirtualEdge();
-      for (const auto &[prop_id, prop_value] : ve.Properties()) {
+      for (auto const &[prop_id, prop_value] : expression_result.ValueVirtualEdge().Properties()) {
         result.emplace(TypedValue::TString(dba_->PropertyToName(prop_id), ctx_->memory),
-                       IsPropertyAllowed(ve, prop_id) ? TypedValue(prop_value, GetNameIdMapper(), ctx_->memory)
-                                                      : TypedValue(ctx_->memory));
+                       TypedValue(prop_value, GetNameIdMapper(), ctx_->memory));
       }
       return {result, ctx_->memory};
     }
@@ -241,11 +239,9 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       return {result, ctx_->memory};
     }
     case TypedValue::Type::VirtualNode: {
-      const auto &vn = expression_result.ValueVirtualNode();
-      for (const auto &[prop_id, prop_value] : vn.Properties()) {
+      for (auto const &[prop_id, prop_value] : expression_result.ValueVirtualNode().Properties()) {
         result.emplace(TypedValue::TString(dba_->PropertyToName(prop_id), ctx_->memory),
-                       IsPropertyAllowed(vn, prop_id) ? TypedValue(prop_value, GetNameIdMapper(), ctx_->memory)
-                                                      : TypedValue(ctx_->memory));
+                       TypedValue(prop_value, GetNameIdMapper(), ctx_->memory));
       }
       return {result, ctx_->memory};
     }
@@ -472,18 +468,14 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
                 ctx_->memory};
       }
     case TypedValue::Type::VirtualEdge: {
-      const auto &ve = expression_result_ptr->ValueVirtualEdge();
       auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
-      if (!IsPropertyAllowed(ve, prop_id)) return TypedValue{ctx_->memory};
-      auto prop_value = ve.GetProperty(prop_id);
+      auto prop_value = expression_result_ptr->ValueVirtualEdge().GetProperty(prop_id);
       if (prop_value.IsNull()) return TypedValue(ctx_->memory);
       return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
     }
     case TypedValue::Type::VirtualNode: {
-      const auto &vn = expression_result_ptr->ValueVirtualNode();
       auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
-      if (!IsPropertyAllowed(vn, prop_id)) return TypedValue{ctx_->memory};
-      auto prop_value = vn.GetProperty(prop_id);
+      auto prop_value = expression_result_ptr->ValueVirtualNode().GetProperty(prop_id);
       if (prop_value.IsNull()) return TypedValue(ctx_->memory);
       return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
     }
@@ -587,18 +579,6 @@ bool ExpressionEvaluator::IsPropertyAllowed(EdgeAccessor const &accessor, storag
   return auth_checker_->HasPropertyPermission(accessor.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
 }
 
-bool ExpressionEvaluator::IsPropertyAllowed(VirtualNode const &vn, storage::PropertyId prop) const {
-  if (!auth_checker_) return true;
-  auto const label_ids =
-      vn.Labels() | rv::transform([this](auto const &name) { return dba_->NameToLabel(name); }) | r::to<std::vector>();
-  return auth_checker_->HasPropertyPermission(label_ids, prop, AuthQuery::PropertyPermissionType::READ);
-}
-
-bool ExpressionEvaluator::IsPropertyAllowed(VirtualEdge const &ve, storage::PropertyId prop) const {
-  if (!auth_checker_) return true;
-  auto edge_type_id = dba_->NameToEdgeType(ve.EdgeTypeName());
-  return auth_checker_->HasPropertyPermission(edge_type_id, prop, AuthQuery::PropertyPermissionType::READ);
-}
 #endif
 
 }  // namespace memgraph::query

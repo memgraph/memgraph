@@ -6443,18 +6443,11 @@ class AggregateCursor : public Cursor {
   // this switch tracks if this has been performed
   bool pulled_all_input_{false};
   DbAccessor *db_accessor_{nullptr};
+  FineGrainedAuthChecker const *auth_checker_{nullptr};
 
-  /**
-   * Pulls from the input operator until exhausted and aggregates the
-   * results. If the input operator is not provided, a single call
-   * to ProcessOne is issued.
-   *
-   * Accumulation automatically groups the results so that `aggregation_`
-   * cache cardinality depends on number of
-   * aggregation results, and not on the number of inputs.
-   */
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
     db_accessor_ = context->db_accessor;
+    auth_checker_ = context->auth_checker.get();
     MG_ASSERT(db_accessor_, "Aggregation expects a current DB transaction");
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{frame, *context, storage::View::NEW, nullptr, &context->number_of_hops};
@@ -6748,11 +6741,20 @@ class AggregateCursor : public Cursor {
         properties.insert_or_assign(id, std::move(pv));
       });
     } else {
-      // no properties option -> inherit every property from the original vertex
       auto maybe_props = real_vertex.Properties(storage::View::NEW);
       if (!maybe_props) throw QueryRuntimeException("derive() could not read properties of a path vertex.");
-      for (auto &[id, pv] : *maybe_props) {
-        properties.insert_or_assign(id, std::move(pv));
+      if (auth_checker_) {
+        auto label_ids = labels | rv::transform([this](auto const &name) { return db_accessor_->NameToLabel(name); }) |
+                         r::to<std::vector>();
+        for (auto &[id, pv] : *maybe_props) {
+          if (auth_checker_->HasPropertyPermission(label_ids, id, AuthQuery::PropertyPermissionType::READ)) {
+            properties.insert_or_assign(id, std::move(pv));
+          }
+        }
+      } else {
+        for (auto &[id, pv] : *maybe_props) {
+          properties.insert_or_assign(id, std::move(pv));
+        }
       }
     }
     return {std::move(labels), std::move(properties), alloc};

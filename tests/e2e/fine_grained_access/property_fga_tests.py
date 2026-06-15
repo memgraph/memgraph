@@ -126,6 +126,25 @@ def test_path_filter_on_denied_property_returns_no_rows():
     assert len(result) == 0
 
 
+def test_derive_strips_denied_property():
+    result = common.execute_and_fetch_all(
+        user_cursor(),
+        """
+        MATCH p = (:Person {name: 'Start'})-[:KNOWS]->(:Employee)
+        WITH derive(p, {virtualEdgeType: 'V'}) AS g
+        UNWIND g.nodes AS n
+        WITH n WHERE 'Employee' IN labels(n)
+        RETURN keys(n) AS k, n.name AS name, n.ssn AS ssn
+        """,
+    )
+    assert len(result) == 1
+    keys = result[0][0]
+    assert "name" in keys
+    assert "ssn" not in keys
+    assert result[0][1] == "Alice"
+    assert result[0][2] is None
+
+
 def test_show_schema_info_omits_denied_properties():
     schema = json.loads(common.execute_and_fetch_all(user_cursor(), "SHOW SCHEMA INFO;")[0][0])
     employee = next(n for n in schema["nodes"] if "Employee" in n["labels"])

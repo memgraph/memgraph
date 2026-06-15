@@ -1078,12 +1078,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 #ifdef MG_ENTERPRISE
   bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
   bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
-  bool IsPropertyAllowed(VirtualNode const &vn, storage::PropertyId prop) const;
-  bool IsPropertyAllowed(VirtualEdge const &ve, storage::PropertyId prop) const;
 #else
   template <typename T>
-    requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor> || std::same_as<T, VirtualNode> ||
-             std::same_as<T, VirtualEdge>
+    requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor>
   bool IsPropertyAllowed(T const &, storage::PropertyId) const {
     return true;
   }
