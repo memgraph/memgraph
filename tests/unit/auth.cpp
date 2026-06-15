@@ -1421,7 +1421,6 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 TEST(AuthWithoutStorage, PropertyAccessPermissions) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;
-  using memgraph::auth::PropertyPermission;
   std::vector<std::string> const emp = {"Employee"};
   std::vector<std::string> const other = {"Other"};
 

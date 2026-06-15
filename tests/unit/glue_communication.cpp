@@ -11,13 +11,9 @@
 
 #include <gtest/gtest.h>
 
-#include <set>
-#include <string>
-#include <utility>
-
 #include "communication/bolt/v1/value.hpp"
 #include "glue/communication.hpp"
-#include "query/auth_checker.hpp"
+#include "helpers/stub_property_fga_checker.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
@@ -25,72 +21,7 @@
 
 namespace {
 
-class StubPropertyFGAChecker final : public memgraph::query::FineGrainedAuthChecker {
- public:
-  using DenySet = std::set<std::pair<std::string, std::string>>;
-
-  explicit StubPropertyFGAChecker(memgraph::storage::Storage const *storage, DenySet denied)
-      : storage_(storage), denied_(std::move(denied)) {}
-
-  bool Has(const memgraph::query::VertexAccessor &, memgraph::storage::View,
-           memgraph::query::AuthQuery::FineGrainedPrivilege) const override {
-    return true;
-  }
-
-  bool Has(const memgraph::query::EdgeAccessor &, memgraph::query::AuthQuery::FineGrainedPrivilege) const override {
-    return true;
-  }
-
-  bool Has(std::span<memgraph::storage::LabelId const>,
-           memgraph::query::AuthQuery::FineGrainedPrivilege) const override {
-    return true;
-  }
-
-  bool Has(memgraph::storage::EdgeTypeId const &, memgraph::query::AuthQuery::FineGrainedPrivilege) const override {
-    return true;
-  }
-
-  bool HasGlobalPrivilegeOnVertices(memgraph::query::AuthQuery::FineGrainedPrivilege) const override { return true; }
-
-  bool HasGlobalPrivilegeOnEdges(memgraph::query::AuthQuery::FineGrainedPrivilege) const override { return true; }
-
-  bool HasAllGlobalPrivilegesOnVertices() const override { return true; }
-
-  bool HasAllGlobalPrivilegesOnEdges() const override { return true; }
-
-  bool HasUnrestrictedAccessToVertices() const override { return true; }
-
-  bool HasUnrestrictedAccessToEdges() const override { return true; }
-
-  bool HasUnrestrictedAccessToVertexProperties() const override { return true; }
-
-  bool HasUnrestrictedAccessToEdgeTypeProperties() const override { return true; }
-
-  bool NeedsFineGrainedAuthChecker() const override { return !denied_.empty(); }
-
-  void MakeThreadSafe() const override {}
-
-  bool IsThreadSafe() const override { return true; }
-
-  bool HasPropertyPermission(std::span<memgraph::storage::LabelId const> labels, memgraph::storage::PropertyId property,
-                             memgraph::query::AuthQuery::PropertyPermissionType) const override {
-    auto const &prop_name = storage_->PropertyToName(property);
-    for (auto label : labels) {
-      if (denied_.contains({storage_->LabelToName(label), prop_name})) return false;
-    }
-    return true;
-  }
-
-  bool HasPropertyPermission(memgraph::storage::EdgeTypeId const &edge_type, memgraph::storage::PropertyId property,
-                             memgraph::query::AuthQuery::PropertyPermissionType) const override {
-    return !denied_.contains({storage_->EdgeTypeToName(edge_type), storage_->PropertyToName(property)});
-  }
-
- private:
-  memgraph::storage::Storage const *storage_;
-  DenySet denied_;
-};
-
+using StubPropertyFGAChecker = memgraph::tests::StubPropertyFGAChecker<memgraph::storage::Storage>;
 using BoltValueType = memgraph::communication::bolt::Value::Type;
 
 }  // namespace
