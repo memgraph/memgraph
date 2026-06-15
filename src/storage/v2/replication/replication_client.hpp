@@ -72,6 +72,8 @@ class ReplicaStream {
 
   auto DbArenaPool() const -> memory::ArenaPool *;
 
+  Storage *storage() const { return storage_; }
+
   auto encoder() -> replication::Encoder { return replication::Encoder{stream_.GetBuilder()}; }
 
   auto GetStreamHandler() -> rpc::Client::StreamHandler<replication::PrepareCommitRpc> && { return std::move(stream_); }

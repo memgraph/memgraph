@@ -364,6 +364,10 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::Unre
       // Drop the per-instance replication throughput series so the metric maps don't grow unbounded.
       metrics::Metrics().RemoveReplicationThroughput(name);
 
+      if (n_unregistered != 0) {
+        metrics::Metrics().RemoveReplicaInstanceMetrics(name);
+      }
+
       return n_unregistered != 0 ? query::UnregisterReplicaResult::SUCCESS
                                  : query::UnregisterReplicaResult::CANNOT_UNREGISTER;
     };
