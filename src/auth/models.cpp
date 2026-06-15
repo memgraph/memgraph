@@ -807,20 +807,10 @@ nlohmann::json SerializePropertyMap(std::unordered_map<std::string, PropertyPerm
 void DeserializePropertyMap(nlohmann::json const &props_json,
                             std::unordered_map<std::string, PropertyPermission> &out) {
   for (auto const &[prop, perm_json] : props_json.items()) {
-    if (perm_json.is_string()) {
-      auto const &perm_str = perm_json.get_ref<nlohmann::json::string_t const &>();
-      auto const type = PropertyPermissionType::READ;
-      auto const bit = static_cast<uint8_t>(type);
-      if (perm_str == "GRANT") {
-        out[prop].grants |= bit;
-      } else if (perm_str == "DENY") {
-        out[prop].denies |= bit;
-      }
-    } else if (perm_json.is_object()) {
-      auto &perm = out[prop];
-      perm.grants = perm_json.value("grants", uint8_t{0});
-      perm.denies = perm_json.value("denies", uint8_t{0});
-    }
+    if (!perm_json.is_object()) continue;
+    auto &perm = out[prop];
+    perm.grants = perm_json.value("grants", uint8_t{0});
+    perm.denies = perm_json.value("denies", uint8_t{0});
   }
 }
 }  // namespace
