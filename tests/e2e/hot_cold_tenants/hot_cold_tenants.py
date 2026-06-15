@@ -1809,5 +1809,55 @@ def test_t16_suspend_resume_error_paths(test_name):
     conn_default.close()
 
 
+def test_t17_show_storage_info_on_cold_tenant_clear_error(test_name):
+    """
+    HC-5 regression: SHOW STORAGE INFO ON DATABASE <cold> must surface an actionable
+    'suspended (COLD); RESUME it' error — NOT the misleading 'unknown database' /
+    'was not found' that Get() throws for a cold tenant (indistinguishable from a typo).
+    A genuinely missing database must still say 'was not found'. SHOW STORAGE INFO needs
+    resident storage, so the cold tenant must NOT be reheated by the query.
+    """
+    instances = instance_description(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    conn_default = connect(host="localhost", port=7687)
+    cursor_default = conn_default.cursor()
+    execute_and_fetch_all(cursor_default, "CREATE DATABASE info_db")
+
+    # Populate via a work connection, then close it so the tenant is suspendable.
+    conn_work = connect(host="localhost", port=7687)
+    cursor_work = conn_work.cursor()
+    execute_and_fetch_all(cursor_work, "USE DATABASE info_db")
+    execute_and_fetch_all(cursor_work, "CREATE (:Node)")
+    conn_work.close()
+
+    execute_and_fetch_all(cursor_default, "SUSPEND DATABASE info_db")
+
+    # SHOW STORAGE INFO on the COLD tenant: clear, cold-specific error (no reheat).
+    cold_err = ""
+    try:
+        execute_and_fetch_all(cursor_default, "SHOW STORAGE INFO ON DATABASE info_db")
+    except Exception as e:
+        cold_err = str(e).lower()
+    assert cold_err, "SHOW STORAGE INFO ON a cold tenant must error (no resident storage)"
+    assert "cold" in cold_err or "suspend" in cold_err, f"error must name the COLD/suspended state, got: {cold_err!r}"
+    assert "unknown" not in cold_err and "not found" not in cold_err, f"must not look like a missing DB, got: {cold_err!r}"
+
+    # The info query must NOT have reheated it: the tenant is still listed (and cold).
+    rows = execute_and_fetch_all(cursor_default, "SHOW DATABASES")
+    assert any(r[0] == "info_db" for r in rows), "info_db should still be listed after the info query"
+
+    # A genuinely missing database still reports 'not found'/'unknown'.
+    missing_err = ""
+    try:
+        execute_and_fetch_all(cursor_default, "SHOW STORAGE INFO ON DATABASE no_such_db")
+    except Exception as e:
+        missing_err = str(e).lower()
+    assert missing_err, "SHOW STORAGE INFO ON a missing database must error"
+    assert "not found" in missing_err or "unknown" in missing_err, f"missing DB must say not-found, got: {missing_err!r}"
+
+    conn_default.close()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
