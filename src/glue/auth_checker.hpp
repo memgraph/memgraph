@@ -30,10 +30,8 @@ class AuthChecker : public query::AuthChecker {
 
   std::shared_ptr<query::QueryUserOrRole> GenEmptyUser() const override;
 
-#ifdef MG_ENTERPRISE
   std::unique_ptr<query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(const query::QueryUserOrRole &user,
                                                                            const query::DbAccessor *dba) const override;
-#endif
 
   [[nodiscard]] static bool IsUserAuthorized(const auth::User &user,
                                              const std::vector<query::AuthQuery::Privilege> &privileges,

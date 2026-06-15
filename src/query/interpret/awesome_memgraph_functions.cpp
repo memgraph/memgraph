@@ -452,26 +452,24 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
 constexpr auto allow_all_properties = [](storage::PropertyId) { return true; };
 
-#ifdef MG_ENTERPRISE
-auto MakePropertyChecker(FineGrainedAuthChecker const *checker, VirtualNode const &vn, DbAccessor *dba) {
+std::function<bool(storage::PropertyId)> MakePropertyChecker(FineGrainedAuthChecker const *checker,
+                                                             VirtualNode const &vn, DbAccessor *dba) {
+  if (!checker) return allow_all_properties;
   auto label_ids =
       vn.Labels() | rv::transform([&](auto const &name) { return dba->NameToLabel(name); }) | r::to<std::vector>();
   return [checker, label_ids = std::move(label_ids)](storage::PropertyId prop) {
-    return !checker || checker->HasPropertyPermission(label_ids, prop, AuthQuery::PropertyPermissionType::READ);
+    return checker->HasPropertyPermission(label_ids, prop, AuthQuery::PropertyPermissionType::READ);
   };
 }
 
-auto MakePropertyChecker(FineGrainedAuthChecker const *checker, VirtualEdge const &ve, DbAccessor *dba) {
+std::function<bool(storage::PropertyId)> MakePropertyChecker(FineGrainedAuthChecker const *checker,
+                                                             VirtualEdge const &ve, DbAccessor *dba) {
+  if (!checker) return allow_all_properties;
   auto edge_type_id = dba->NameToEdgeType(ve.EdgeTypeName());
   return [checker, edge_type_id](storage::PropertyId prop) {
-    return !checker || checker->HasPropertyPermission(edge_type_id, prop, AuthQuery::PropertyPermissionType::READ);
+    return checker->HasPropertyPermission(edge_type_id, prop, AuthQuery::PropertyPermissionType::READ);
   };
 }
-#else
-auto MakePropertyChecker(auto const * /*checker*/, auto const & /*entity*/, auto * /*dba*/) {
-  return allow_all_properties;
-}
-#endif
 
 TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
@@ -540,7 +538,6 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_properties(vertex, allow_all_properties);
-#ifdef MG_ENTERPRISE
     auto maybe_labels = vertex.Labels(ctx.view);
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
@@ -548,19 +545,12 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
     return get_properties(vertex, [&](storage::PropertyId prop) {
       return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
     });
-#else
-    return get_properties(vertex, allow_all_properties);
-#endif
   }
   auto const &edge = value.ValueEdge();
   if (!checker) return get_properties(edge, allow_all_properties);
-#ifdef MG_ENTERPRISE
   return get_properties(edge, [&](storage::PropertyId prop) {
     return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
   });
-#else
-  return get_properties(edge, allow_all_properties);
-#endif
 }
 
 TypedValue RandomUuid(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
@@ -916,7 +906,6 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_keys(vertex, allow_all_properties);
-#ifdef MG_ENTERPRISE
     auto maybe_labels = vertex.Labels(ctx.view);
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
@@ -924,20 +913,13 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
     return get_keys(vertex, [&](storage::PropertyId prop) {
       return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
     });
-#else
-    return get_keys(vertex, allow_all_properties);
-#endif
   }
   if (value.IsEdge()) {
     auto const &edge = value.ValueEdge();
     if (!checker) return get_keys(edge, allow_all_properties);
-#ifdef MG_ENTERPRISE
     return get_keys(edge, [&](storage::PropertyId prop) {
       return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
     });
-#else
-    return get_keys(edge, allow_all_properties);
-#endif
   }
   if (value.IsVirtualNode()) {
     auto const &vn = value.ValueVirtualNode();
@@ -1001,7 +983,6 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_values(vertex, allow_all_properties);
-#ifdef MG_ENTERPRISE
     auto maybe_labels = vertex.Labels(ctx.view);
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
@@ -1009,20 +990,13 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     return get_values(vertex, [&](storage::PropertyId prop) {
       return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
     });
-#else
-    return get_values(vertex, allow_all_properties);
-#endif
   }
   if (value.IsEdge()) {
     auto const &edge = value.ValueEdge();
     if (!checker) return get_values(edge, allow_all_properties);
-#ifdef MG_ENTERPRISE
     return get_values(edge, [&](storage::PropertyId prop) {
       return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
     });
-#else
-    return get_values(edge, allow_all_properties);
-#endif
   }
   auto *dba = ctx.db_accessor;
   if (value.IsVirtualNode()) {
@@ -1031,7 +1005,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     TypedValue::TVector values(ctx.memory);
     for (auto const &[prop_id, prop_value] : vn.Properties()) {
       if (is_allowed(prop_id)) {
-        values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+        values.emplace_back(  // NOLINT(modernize-use-emplace)
+            TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
       }
     }
     return TypedValue(std::move(values));
@@ -1042,7 +1017,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     TypedValue::TVector values(ctx.memory);
     for (auto const &[prop_id, prop_value] : ve.Properties()) {
       if (is_allowed(prop_id)) {
-        values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+        values.emplace_back(  // NOLINT(modernize-use-emplace)
+            TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
       }
     }
     return TypedValue(std::move(values));

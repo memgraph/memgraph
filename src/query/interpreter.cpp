@@ -3914,8 +3914,8 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
   MG_ASSERT(current_db.execution_db_accessor_, "Dump query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-#ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker;
+#ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context->auth_checker && user_or_role &&
       *user_or_role) {
     auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
@@ -3924,10 +3924,8 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
       auth_checker = nullptr;
     }
   }
-  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_, std::move(auth_checker));
-#else
-  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_);
 #endif
+  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_, std::move(auth_checker));
   return PreparedQuery{
       .header = {"QUERY"},
       .privileges = std::move(parsed_query.required_privileges),

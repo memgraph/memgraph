@@ -1974,9 +1974,11 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
 
-  static void GrantAllPropertyAccess(memgraph::auth::User &user) {
+  static void GrantAllPropertyAccess([[maybe_unused]] memgraph::auth::User &user) {
+#ifdef MG_ENTERPRISE
     user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
     user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+#endif
   }
 
   void SetUp() override {
@@ -2442,9 +2444,11 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
 
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
 
-  static void GrantAllPropertyAccess(memgraph::auth::User &user) {
+  static void GrantAllPropertyAccess([[maybe_unused]] memgraph::auth::User &user) {
+#ifdef MG_ENTERPRISE
     user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
     user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+#endif
   }
 
   void SetUp() override {

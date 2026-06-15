@@ -118,9 +118,9 @@ std::shared_ptr<query::QueryUserOrRole> AuthChecker::GenEmptyUser() const {
   return std::make_shared<QueryUserOrRole>(auth_);
 }
 
-#ifdef MG_ENTERPRISE
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
     const query::QueryUserOrRole &user_or_role, const memgraph::query::DbAccessor *dba) const {
+#ifdef MG_ENTERPRISE
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
@@ -145,11 +145,11 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
   } catch (std::bad_cast &) {
     DMG_ASSERT(false, "Using a non-glue user in glue...");
   }
+#endif
 
-  // Should never get here
+  // Should never get here (enterprise) / always returns null (community)
   return {};
 }
-#endif
 
 bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,

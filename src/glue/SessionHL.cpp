@@ -376,8 +376,8 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
 
+    std::unique_ptr<memgraph::query::FineGrainedAuthChecker> auth_checker;  // NOLINT(misc-const-correctness)
 #ifdef MG_ENTERPRISE
-    std::unique_ptr<memgraph::query::FineGrainedAuthChecker> auth_checker;
     if (storage && interpreter_context_->auth_checker && interpreter_.user_or_role_ && *interpreter_.user_or_role_ &&
         interpreter_.current_db_.execution_db_accessor_) {
       auto *dba = &*interpreter_.current_db_.execution_db_accessor_;
@@ -387,10 +387,8 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
         auth_checker = nullptr;
       }
     }
-    TypedValueResultStream<TEncoder> stream(&encoder_, storage, auth_checker.get());
-#else
-    TypedValueResultStream<TEncoder> stream(&encoder_, storage, nullptr);
 #endif
+    TypedValueResultStream<TEncoder> stream(&encoder_, storage, auth_checker.get());
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);

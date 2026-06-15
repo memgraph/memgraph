@@ -25,9 +25,8 @@
 
 namespace memgraph::query {
 
-class FineGrainedAuthChecker;
-
 class DbAccessor;
+class FineGrainedAuthChecker;
 
 class AuthChecker {
  public:
@@ -38,10 +37,8 @@ class AuthChecker {
 
   virtual std::shared_ptr<QueryUserOrRole> GenEmptyUser() const = 0;
 
-#ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       const QueryUserOrRole &user, const DbAccessor *db_accessor) const = 0;
-#endif
 
  protected:
   AuthChecker() = default;
@@ -50,7 +47,7 @@ class AuthChecker {
   AuthChecker &operator=(const AuthChecker &) = default;
   AuthChecker &operator=(AuthChecker &&) noexcept = default;
 };
-#ifdef MG_ENTERPRISE
+
 class FineGrainedAuthChecker {
  public:
   virtual ~FineGrainedAuthChecker() = default;
@@ -174,7 +171,6 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
 
   bool IsThreadSafe() const override { return true; }
 };
-#endif
 
 class AllowEverythingAuthChecker final : public AuthChecker {
  public:
@@ -209,12 +205,10 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 
   std::shared_ptr<QueryUserOrRole> GenEmptyUser() const override { return std::make_shared<User>(); }
 
-#ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const QueryUserOrRole & /*user*/,
                                                                     const DbAccessor * /*dba*/) const override {
     return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }
-#endif
 };
 
 }  // namespace memgraph::query

@@ -3268,6 +3268,7 @@ TEST_F(AuthQueryHandlerFixture, DropRoleFailsIfAssignedToUserOnDatabase) {
 }
 #endif
 
+#ifdef MG_ENTERPRISE
 // Property Permission Tests
 
 TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnUser) {
@@ -3480,3 +3481,4 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesWildcardPropertyPermission) {
   EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
   EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO USER");
 }
+#endif

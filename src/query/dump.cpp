@@ -294,13 +294,11 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
     prop_value.ValueVectorIndexList() = std::move(vector);
   }
 
-#ifdef MG_ENTERPRISE
   if (auth_checker) {
     std::erase_if(*maybe_props, [&](auto const &kv) {
       return !auth_checker->HasPropertyPermission(*maybe_labels, kv.first, AuthQuery::PropertyPermissionType::READ);
     });
   }
-#endif
 
   DumpProperties(os, dba, *maybe_props, vertex.CypherId());
   *os << ");";
@@ -330,13 +328,11 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
         throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
-#ifdef MG_ENTERPRISE
   if (auth_checker) {
     std::erase_if(*maybe_props, [&](auto const &kv) {
       return !auth_checker->HasPropertyPermission(edge.EdgeType(), kv.first, AuthQuery::PropertyPermissionType::READ);
     });
   }
-#endif
   if (!maybe_props->empty()) {
     *os << " ";
     DumpProperties(os, dba, *maybe_props);
@@ -469,13 +465,11 @@ const char *triggerPhaseToString(TriggerPhase phase) {
 
 }  // namespace
 
-#ifdef MG_ENTERPRISE
 PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc,
                            std::unique_ptr<FineGrainedAuthChecker> auth_checker)
     : PullPlanDump(dba, std::move(db_acc), auth_checker.get()) {
   owned_auth_checker_ = std::move(auth_checker);
 }
-#endif
 
 PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc, FineGrainedAuthChecker const *auth_checker)
     : dba_(dba),
