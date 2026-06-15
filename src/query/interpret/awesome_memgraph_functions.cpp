@@ -1196,9 +1196,7 @@ TypedValue Counter(const TypedValue *args, int64_t nargs, const FunctionContext 
   return TypedValue(value, context.memory);
 }
 
-TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex, Edge>>("id", args, nargs);
-  const auto &arg = args[0];
+TypedValue IdOf(const TypedValue &arg, const FunctionContext &ctx) {
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (arg.IsVirtualNode()) {
@@ -1210,6 +1208,19 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
   } else {
     return TypedValue(arg.ValueEdge().CypherId(), ctx.memory);
   }
+}
+
+TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge>>("id", args, nargs);
+  return IdOf(args[0], ctx);
+}
+
+// Returns the id as a string for compatibility with external integrations.
+TypedValue ElementId(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge>>("elementId", args, nargs);
+  auto id = IdOf(args[0], ctx);
+  if (id.IsNull()) return id;
+  return TypedValue(std::to_string(id.ValueInt()), ctx.memory);
 }
 
 // Conversion core shared by toString and toStringOrNull; nullopt iff the enum can't be resolved to a name.
@@ -1991,6 +2002,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"ENDNODE", func_info{.func_ = EndNode, .is_pure_ = true}},
     {"HEAD", func_info{.func_ = Head, .is_pure_ = true}},
     {kId, func_info{.func_ = Id, .is_pure_ = true}},
+    {kElementId, func_info{.func_ = ElementId, .is_pure_ = true}},
     {"LAST", func_info{.func_ = Last, .is_pure_ = true}},
     {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true}},
     {"RANDOMUUID", func_info{.func_ = RandomUuid, .is_pure_ = false}},
