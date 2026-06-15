@@ -156,6 +156,9 @@ TYPED_TEST(MatchReturnFixture, ScanAllByIdString) {
   EXPECT_EQ(0, pull_count(LITERAL(vertex.Gid().AsInt()), true));   // number where string expected
   EXPECT_EQ(0, pull_count(LITERAL(id_str), false));                // string where number expected
   EXPECT_EQ(1, pull_count(LITERAL(vertex.Gid().AsInt()), false));  // id() path still works
+  const auto id_dbl = static_cast<double>(vertex.Gid().AsInt());
+  EXPECT_EQ(1, pull_count(LITERAL(id_dbl), false));        // exact-integer double matches
+  EXPECT_EQ(0, pull_count(LITERAL(id_dbl + 0.5), false));  // non-integer double matches nothing
 }
 
 TYPED_TEST(MatchReturnFixture, ScanAllByEdgeIdString) {
