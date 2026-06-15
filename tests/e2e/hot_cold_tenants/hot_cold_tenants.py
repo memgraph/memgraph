@@ -1647,5 +1647,167 @@ def test_t13_cold_tenant_survives_restart(test_name):
     conn_after.close()
 
 
+# ---------------------------------------------------------------------------
+# T14 — DROP DATABASE on a COLD (suspended) tenant
+#        (guards DbmsHandler::DropCold_ — drop without reheating)
+# ---------------------------------------------------------------------------
+
+
+def test_t14_drop_cold_tenant(test_name):
+    """
+    DROP DATABASE must succeed against a COLD (suspended) tenant WITHOUT first
+    reheating it (the DropCold_ path), fully remove it, and free the name for reuse.
+
+    Validates:
+    - SUSPEND -> 'cold', then DROP DATABASE succeeds on the cold tenant.
+    - SHOW DATABASES no longer lists the tenant.
+    - The name can be recreated as a fresh, empty tenant (no leftover data and no
+      stale suspended-registry entry survived the drop).
+    """
+    instances = instance_description(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    conn_default = connect(host="localhost", port=7687)
+    cursor_default = conn_default.cursor()
+    execute_and_fetch_all(cursor_default, "CREATE DATABASE drop_db")
+
+    # Populate via a work connection, then close it so the tenant has zero connections
+    # (a connection-scoped accessor would otherwise block SUSPEND with ACTIVE_CONNECTIONS).
+    conn_work = connect(host="localhost", port=7687)
+    cursor_work = conn_work.cursor()
+    execute_and_fetch_all(cursor_work, "USE DATABASE drop_db")
+    execute_and_fetch_all(cursor_work, "CREATE (:Node)")
+    execute_and_fetch_all(cursor_work, "CREATE (:Node)")
+    conn_work.close()
+
+    execute_and_fetch_all(cursor_default, "SUSPEND DATABASE drop_db")
+    assert _wait_for_db_state(
+        cursor_default, "drop_db", "cold", timeout_s=15.0
+    ), "drop_db did not reach State='cold' after SUSPEND"
+
+    # DROP the COLD tenant — must succeed (DropCold_), no reheat required.
+    execute_and_fetch_all(cursor_default, "DROP DATABASE drop_db")
+
+    # It must be gone from SHOW DATABASES.
+    assert (
+        _get_db_state(cursor_default, "drop_db") is None
+    ), "drop_db must not appear in SHOW DATABASES after DROP of a COLD tenant"
+
+    # The name is free again: recreating it yields a fresh, empty tenant (proves the
+    # on-disk dir and the suspended-registry entry were both removed by the drop).
+    execute_and_fetch_all(cursor_default, "CREATE DATABASE drop_db")
+    assert _wait_for_db_state(cursor_default, "drop_db", "ready", timeout_s=15.0), "recreated drop_db should be 'ready'"
+
+    conn_verify = connect(host="localhost", port=7687)
+    cursor_verify = conn_verify.cursor()
+    execute_and_fetch_all(cursor_verify, "USE DATABASE drop_db")
+    count = execute_and_fetch_all(cursor_verify, "MATCH (n) RETURN count(n) AS c")
+    assert count[0][0] == 0, f"recreated drop_db must be empty, got {count[0][0]} nodes (stale data survived DROP)"
+    conn_verify.close()
+    conn_default.close()
+
+
+# ---------------------------------------------------------------------------
+# T15 — RENAME DATABASE on a COLD tenant is rejected (state-aware guard)
+# ---------------------------------------------------------------------------
+
+
+def test_t15_rename_cold_tenant_rejected(test_name):
+    """
+    RENAME DATABASE must be REJECTED for a non-HOT (COLD/suspended) tenant: the
+    state-aware guard returns RenameError::USING, surfaced as "currently being used".
+    A HOT tenant renames normally (positive control, so the rejection is proven to be
+    the guard and not a generally-broken RENAME).
+    """
+    instances = instance_description(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    conn_default = connect(host="localhost", port=7687)
+    cursor_default = conn_default.cursor()
+
+    # --- Negative: RENAME of a COLD tenant is rejected ---
+    execute_and_fetch_all(cursor_default, "CREATE DATABASE rn_cold")
+    conn_work = connect(host="localhost", port=7687)
+    cursor_work = conn_work.cursor()
+    execute_and_fetch_all(cursor_work, "USE DATABASE rn_cold")
+    execute_and_fetch_all(cursor_work, "CREATE (:Node)")
+    conn_work.close()
+    execute_and_fetch_all(cursor_default, "SUSPEND DATABASE rn_cold")
+    assert _wait_for_db_state(cursor_default, "rn_cold", "cold", timeout_s=15.0), "rn_cold did not reach 'cold'"
+
+    rename_raised = False
+    rename_error_msg = ""
+    try:
+        execute_and_fetch_all(cursor_default, "RENAME DATABASE rn_cold TO rn_new")
+    except Exception as exc:
+        rename_raised = True
+        rename_error_msg = str(exc)
+    assert rename_raised, "Expected RENAME of a COLD tenant to be rejected"
+    assert (
+        "being used" in rename_error_msg.lower()
+    ), f"Expected RENAME rejection to mention the tenant is in use, got: {rename_error_msg!r}"
+
+    # The tenant is unchanged: still COLD, original name present, target name absent.
+    assert _get_db_state(cursor_default, "rn_cold") == "cold", "rn_cold must remain COLD after the rejected RENAME"
+    assert _get_db_state(cursor_default, "rn_new") is None, "the rejected RENAME must not have created rn_new"
+
+    # --- Positive control: a HOT tenant renames normally ---
+    execute_and_fetch_all(cursor_default, "CREATE DATABASE rn_hot")
+    assert _wait_for_db_state(cursor_default, "rn_hot", "ready", timeout_s=15.0), "rn_hot did not reach 'ready'"
+    execute_and_fetch_all(cursor_default, "RENAME DATABASE rn_hot TO rn_hot2")
+    assert _get_db_state(cursor_default, "rn_hot") is None, "old name must be gone after a successful RENAME"
+    assert _get_db_state(cursor_default, "rn_hot2") is not None, "new name must exist after a successful RENAME"
+    conn_default.close()
+
+
+# ---------------------------------------------------------------------------
+# T16 — SUSPEND/RESUME error paths (default DB, non-existent DB)
+# ---------------------------------------------------------------------------
+#
+# NOTE: SUSPEND/RESUME privilege enforcement (MULTI_DATABASE_EDIT) is intentionally
+# NOT covered here. It is a declarative 3-line mapping in required_privileges.cpp and
+# is enforced by the SAME generic multi-database authorization mechanism as
+# CREATE/DROP DATABASE (verified empirically: SUSPEND is rejected for a user without
+# the required access). That plumbing is not hot/cold-specific and belongs with the
+# generic multi-tenant auth e2e suite, not this feature suite.
+
+
+def test_t16_suspend_resume_error_paths(test_name):
+    """
+    SUSPEND/RESUME surface clean errors on the invalid targets:
+    - SUSPEND of the default 'memgraph' database is rejected (SuspendError::DEFAULT_DB).
+    - SUSPEND / RESUME of a non-existent database error (NON_EXISTENT) rather than
+      crashing or silently no-op-ing.
+    """
+    instances = instance_description(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+    conn_default = connect(host="localhost", port=7687)
+    cursor_default = conn_default.cursor()
+
+    # The default database cannot be suspended.
+    default_raised = False
+    try:
+        execute_and_fetch_all(cursor_default, "SUSPEND DATABASE memgraph")
+    except Exception:
+        default_raised = True
+    assert default_raised, "SUSPEND of the default 'memgraph' database must be rejected"
+
+    # A non-existent database errors on both SUSPEND and RESUME.
+    suspend_missing_raised = False
+    try:
+        execute_and_fetch_all(cursor_default, "SUSPEND DATABASE nope_db")
+    except Exception:
+        suspend_missing_raised = True
+    assert suspend_missing_raised, "SUSPEND of a non-existent database must error"
+
+    resume_missing_raised = False
+    try:
+        execute_and_fetch_all(cursor_default, "RESUME DATABASE nope_db")
+    except Exception:
+        resume_missing_raised = True
+    assert resume_missing_raised, "RESUME of a non-existent database must error"
+    conn_default.close()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
