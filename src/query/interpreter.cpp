@@ -7243,14 +7243,26 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                 license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
           }
 #ifdef MG_ENTERPRISE
-          auto db = dbms_handler->Get(db_name);
+          // Cold-aware (hot/cold tenants): Get() throws UnknownDatabaseException for BOTH a missing
+          // tenant AND an existing-but-COLD (suspended) one (its storage is not resident). Split the
+          // two so a suspended tenant gets an actionable message instead of a misleading "was not
+          // found". SHOW STORAGE INFO needs live in-memory stats, so we deliberately do NOT reheat here.
+          if (!dbms_handler->Contains(db_name)) {
+            throw QueryRuntimeException("Database '{}' was not found.", db_name);
+          }
+          try {
+            return dbms_handler->Get(db_name);
+          } catch (const dbms::UnknownDatabaseException &) {
+            throw QueryRuntimeException(
+                "Database '{}' is suspended (COLD); RESUME it before querying its storage info.", db_name);
+          }
 #else
           auto db = dbms_handler->Get();
-#endif
           if (!db) {
             throw QueryRuntimeException("Database '{}' was not found.", db_name);
           }
           return db;
+#endif
         }
         if (info_query->is_current_database_) {
           if (!current_db.db_acc_) {
