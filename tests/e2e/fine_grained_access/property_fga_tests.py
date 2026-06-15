@@ -292,6 +292,33 @@ def test_set_edge_property_denied_throws():
         common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {secret_code} ON EDGES OF TYPE :WORKS_AT FROM user;")
 
 
+def test_set_edge_property_allowed_succeeds():
+    """SET on edge property succeeds when user has SET PROPERTY permission."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {start_date} ON EDGES OF TYPE :WORKS_AT TO user;")
+    try:
+        common.execute_and_fetch_all(user_cursor(), "MATCH ()-[r:WORKS_AT]->() SET r.start_date = '2025-01-01';")
+        result = common.execute_and_fetch_all(admin_cursor(), "MATCH ()-[r:WORKS_AT]->() RETURN r.start_date;")
+        assert result[0][0] == "2025-01-01"
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH ()-[r:WORKS_AT]->() SET r.start_date = '2020-01-01';")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {start_date} ON EDGES OF TYPE :WORKS_AT FROM user;")
+
+
+def test_merge_node_denied_property_throws():
+    """MERGE with a denied property fails."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee TO user;")
+    try:
+        with pytest.raises(Exception, match="(?i)property"):
+            common.execute_and_fetch_all(user_cursor(), "MERGE (n:Employee {name: 'Eve', ssn: '999'});")
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n:Employee {name: 'Eve'}) DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee FROM user;")
+
+
 def test_role_merge_deny_wins():
     """User PBAC + two roles: deny from one role overrides grant from the other."""
     admin = admin_cursor()
