@@ -2884,6 +2884,10 @@ TYPED_TEST(FunctionTest, Replace) {
   EXPECT_TRUE(this->EvaluateFunction("REPLACE", "hello", TypedValue(), "w").IsNull());
   EXPECT_TRUE(this->EvaluateFunction("REPLACE", "hello", "l", TypedValue()).IsNull());
   EXPECT_EQ(this->EvaluateFunction("REPLACE", "hello", "l", "w").ValueString(), "hewwo");
+  EXPECT_EQ(this->EvaluateFunction("REPLACE", "A", "", "B").ValueString(), "BAB");
+  EXPECT_EQ(this->EvaluateFunction("REPLACE", "abc", "", "-").ValueString(), "-a-b-c-");
+  EXPECT_EQ(this->EvaluateFunction("REPLACE", "", "", "a").ValueString(), "a");
+  EXPECT_EQ(this->EvaluateFunction("REPLACE", "A", "", "").ValueString(), "A");
 
   EXPECT_THROW(this->EvaluateFunction("REPLACE", 1, "l", "w"), QueryRuntimeException);
   EXPECT_THROW(this->EvaluateFunction("REPLACE", "hello", 1, "w"), QueryRuntimeException);

@@ -186,6 +186,16 @@ template <class TAllocator>
 std::basic_string<char, std::char_traits<char>, TAllocator> *Replace(
     std::basic_string<char, std::char_traits<char>, TAllocator> *out, const std::string_view src,
     const std::string_view match, const std::string_view replacement) {
+  if (match.empty()) {  // empty match inserts replacement at every byte boundary, matching std::regex_replace
+    out->clear();
+    out->reserve(src.size() + (src.size() + 1) * replacement.size());
+    out->append(replacement);
+    for (const char c : src) {
+      out->push_back(c);
+      out->append(replacement);
+    }
+    return out;
+  }
   // TODO: This could be implemented much more efficiently.
   *out = src;
   for (size_t pos = out->find(match); pos != std::string::npos; pos = out->find(match, pos + replacement.size())) {
