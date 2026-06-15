@@ -3300,7 +3300,11 @@ dbms::DatabaseAccess ResumeForSession(dbms::DbmsHandler *dbms_handler, std::stri
     case dbms::DbmsHandler::ResumeError::RECOVERY_FAILED:
       throw QueryException("Database '{}' failed to resume; check SHOW DATABASES and retry.", db_name);
     case dbms::DbmsHandler::ResumeError::RESUMING:
-      throw QueryException("Database '{}' is resuming; retry shortly.", db_name);
+      // Retriable: the heavy reheat is in flight on the background resume executor and a prompt retry
+      // is expected to succeed. Throw RetryBasicException (NOT QueryException) so SessionHL surfaces
+      // it to Bolt as TransientError, which drivers auto-retry — QueryException maps to ClientError,
+      // which drivers treat as a permanent failure (no retry). See bolt ExceptionToErrorMessage.
+      throw RetryBasicException("Database '{}' is resuming; retry shortly.", db_name);
   }
   throw QueryException("Database '{}' could not be acquired.", db_name);  // unreachable
 }
