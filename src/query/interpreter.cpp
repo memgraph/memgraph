@@ -3925,11 +3925,11 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
     }
   }
 #endif
-  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_, std::move(auth_checker));
+  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_, auth_checker.get());
   return PreparedQuery{
       .header = {"QUERY"},
       .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [pull_plan = std::move(plan)](
+      .query_handler = [pull_plan = std::move(plan), auth = std::move(auth_checker)](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->Pull(stream, n)) {
           return QueryHandlerResult::COMMIT;

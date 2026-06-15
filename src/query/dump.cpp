@@ -465,12 +465,6 @@ const char *triggerPhaseToString(TriggerPhase phase) {
 
 }  // namespace
 
-PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc,
-                           std::unique_ptr<FineGrainedAuthChecker> auth_checker)
-    : PullPlanDump(dba, std::move(db_acc), auth_checker.get()) {
-  owned_auth_checker_ = std::move(auth_checker);
-}
-
 PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc, FineGrainedAuthChecker const *auth_checker)
     : dba_(dba),
       auth_checker_(auth_checker),
@@ -1207,7 +1201,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateDescriptionsPullChunk() {
 
 void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc,
                                  FineGrainedAuthChecker const *auth_checker) {
-  PullPlanDump(dba, db_acc, auth_checker).Pull(stream, {});
+  PullPlanDump(dba, std::move(db_acc), auth_checker).Pull(stream, {});
 }
 
 }  // namespace memgraph::query
