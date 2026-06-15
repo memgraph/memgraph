@@ -1,4 +1,4 @@
-// Copyright 2026 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,6 @@
 #include <cstdint>
 
 #include "query/context.hpp"
-#include "query/plan/operator.hpp"
 #include "query/plan/profile.hpp"
 #include "utils/likely.hpp"
 #include "utils/tsc.hpp"
@@ -39,6 +38,7 @@ class ScopedProfile {
       stats_->key = key;
       op.dba_ = context->db_accessor;
       stats_->name = op.ToString();
+      op.dba_ = nullptr;
     } else {
       stats_ = nullptr;
 
@@ -52,6 +52,7 @@ class ScopedProfile {
         stats_->key = key;
         op.dba_ = context->db_accessor;
         stats_->name = op.ToString();
+        op.dba_ = nullptr;
       } else {
         stats_ = &(*it);
       }
