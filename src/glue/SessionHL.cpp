@@ -87,7 +87,7 @@ template <typename TEncoder>
 class TypedValueResultStream {
  public:
   TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage,
-                         memgraph::query::FineGrainedAuthChecker const *auth_checker = nullptr)
+                         memgraph::query::FineGrainedAuthChecker const *auth_checker)
       : storage_{storage}, auth_checker_{auth_checker}, encoder_(encoder) {}
 
   void Result(const std::vector<memgraph::query::TypedValue> &values) {
@@ -590,7 +590,7 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
   auto *storage = db_acc ? db_acc->get()->storage() : nullptr;
   bolt_map_t decoded_summary;
   for (const auto &kv : summary) {
-    auto maybe_value = ToBoltValue(kv.second, storage, memgraph::storage::View::NEW);
+    auto maybe_value = ToBoltValue(kv.second, storage, memgraph::storage::View::NEW, nullptr);
     if (!maybe_value) {
       switch (maybe_value.error()) {
         case memgraph::storage::Error::DELETED_OBJECT:

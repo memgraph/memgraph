@@ -37,7 +37,7 @@ namespace memgraph::glue {
 /// @throw std::bad_alloc
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexAccessor &vertex,
                                                           const storage::Storage &db, storage::View view,
-                                                          query::FineGrainedAuthChecker const *auth_checker = nullptr);
+                                                          query::FineGrainedAuthChecker const *auth_checker);
 
 /// @param storage::EdgeAccessor for converting to communication::bolt::Edge.
 /// @param storage::Storage for getting edge type and property names.
@@ -46,7 +46,7 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
 /// @throw std::bad_alloc
 storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,
                                                       storage::View view,
-                                                      query::FineGrainedAuthChecker const *auth_checker = nullptr);
+                                                      query::FineGrainedAuthChecker const *auth_checker);
 
 /// @param query::Path for converting to communication::bolt::Path.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
@@ -75,7 +75,7 @@ communication::bolt::map_t ToBoltVirtualGraph(const query::VirtualGraph &vg, con
 /// @throw std::bad_alloc
 storage::Result<communication::bolt::Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db,
                                                         storage::View view,
-                                                        query::FineGrainedAuthChecker const *auth_checker = nullptr);
+                                                        query::FineGrainedAuthChecker const *auth_checker);
 
 query::TypedValue ToTypedValue(const communication::bolt::Value &value, storage::Storage const *storage);
 
