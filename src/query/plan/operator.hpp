@@ -1282,7 +1282,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   Expression *expression_;
   memgraph::query::plan::Filters all_filters_;
 
-  std::string SingleFilterName(const query::plan::FilterInfo &single_filter) const;
+  static std::string SingleFilterName(const query::plan::FilterInfo &single_filter);
 
   std::string ToString() const override;
 

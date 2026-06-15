@@ -4395,7 +4395,7 @@ std::unique_ptr<LogicalOperator> Filter::Clone(AstStorage *storage) const {
   return object;
 }
 
-std::string Filter::SingleFilterName(FilterInfo const &single_filter) const {
+std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
   using Type = query::plan::FilterInfo::Type;
   switch (single_filter.type) {
     case Type::Generic: {

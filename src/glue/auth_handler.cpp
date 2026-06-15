@@ -355,7 +355,10 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
       auto const read_bit = static_cast<uint8_t>(memgraph::auth::PropertyPermissionType::READ);
       auto const write_bit = static_cast<uint8_t>(memgraph::auth::PropertyPermissionType::WRITE);
 
-      std::vector<std::string> read_granted, read_denied, write_granted, write_denied;
+      std::vector<std::string> read_granted;
+      std::vector<std::string> read_denied;
+      std::vector<std::string> write_granted;
+      std::vector<std::string> write_denied;
       for (auto const &[prop, perm] : prop_map) {
         if (perm.grants & read_bit)
           read_granted.push_back(prop);
@@ -379,9 +382,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
         auto privilege = fmt::format("{} {{{}}} ON {}", type_label, prop_list, scope);
         auto description =
             fmt::format("{}PROPERTY PERMISSION {} TO {}", is_global ? "GLOBAL " : "", verb, user_or_role_str);
-        result.push_back({memgraph::query::TypedValue(std::move(privilege)),
+        result.push_back({memgraph::query::TypedValue(privilege),
                           memgraph::query::TypedValue(std::string(level)),
-                          memgraph::query::TypedValue(std::move(description))});
+                          memgraph::query::TypedValue(description)});
       };
 
       auto emit_level = [&](std::vector<std::string> const &read_props,
@@ -1432,7 +1435,7 @@ void AuthQueryHandler::GrantPropertyPermission(const std::string &user_or_role,
                          type,
                          system_tx,
                          [perm_type](auto &perms, auto const &entities, auto mm, auto const &prop) {
-                           bool is_global = entities.size() == 1 && entities[0] == "*";
+                           bool const is_global = entities.size() == 1 && entities[0] == "*";
                            if (is_global) {
                              perms.GrantGlobal(prop, perm_type);
                            } else {
@@ -1455,7 +1458,7 @@ void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
                          type,
                          system_tx,
                          [perm_type](auto &perms, auto const &entities, auto mm, auto const &prop) {
-                           bool is_global = entities.size() == 1 && entities[0] == "*";
+                           bool const is_global = entities.size() == 1 && entities[0] == "*";
                            if (is_global) {
                              perms.DenyGlobal(prop, perm_type);
                            } else {
@@ -1478,7 +1481,7 @@ void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
                          type,
                          system_tx,
                          [perm_type](auto &perms, auto const &entities, auto mm, auto const &prop) {
-                           bool is_global = entities.size() == 1 && entities[0] == "*";
+                           bool const is_global = entities.size() == 1 && entities[0] == "*";
                            if (is_global) {
                              perms.RevokeGlobal(prop, perm_type);
                            } else {

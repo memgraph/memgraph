@@ -1005,8 +1005,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     TypedValue::TVector values(ctx.memory);
     for (auto const &[prop_id, prop_value] : vn.Properties()) {
       if (is_allowed(prop_id)) {
-        values.emplace_back(  // NOLINT(modernize-use-emplace)
-            TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+        values.emplace_back(TypedValue(
+            prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));  // NOLINT(modernize-use-emplace)
       }
     }
     return TypedValue(std::move(values));
@@ -1017,8 +1017,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     TypedValue::TVector values(ctx.memory);
     for (auto const &[prop_id, prop_value] : ve.Properties()) {
       if (is_allowed(prop_id)) {
-        values.emplace_back(  // NOLINT(modernize-use-emplace)
-            TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+        values.emplace_back(TypedValue(
+            prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));  // NOLINT(modernize-use-emplace)
       }
     }
     return TypedValue(std::move(values));

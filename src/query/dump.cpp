@@ -468,7 +468,7 @@ const char *triggerPhaseToString(TriggerPhase phase) {
 PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc, FineGrainedAuthChecker const *auth_checker)
     : dba_(dba),
       auth_checker_(auth_checker),
-      db_acc_(db_acc),
+      db_acc_(std::move(db_acc)),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
       pull_chunks_{/*
                     * IMPORTANT: the order here must reflex the order in `src/storage/v2/durability/snapshot.cpp`

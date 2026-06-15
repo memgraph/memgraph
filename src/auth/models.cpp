@@ -679,7 +679,8 @@ PropertyAccessRule &PropertyAccessPermissions::FindOrCreateRule(std::unordered_s
   auto it = r::find_if(
       rules_, [&](auto const &rule) { return rule.entities == entities && rule.matching_mode == matching_mode; });
   if (it != rules_.end()) return *it;
-  return rules_.emplace_back(PropertyAccessRule{entities, matching_mode, {}});
+  return rules_.emplace_back(
+      PropertyAccessRule{.entities = entities, .matching_mode = matching_mode, .properties = {}});
 }
 
 void PropertyAccessPermissions::Grant(std::unordered_set<std::string> const &entities, std::string const &property,
