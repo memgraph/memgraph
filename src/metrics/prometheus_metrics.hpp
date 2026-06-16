@@ -364,7 +364,7 @@ class PrometheusMetrics {
 
   DatabaseMetricHandles AddDatabase(utils::UUID const &uuid, std::string_view name);
   void RemoveDatabase(utils::UUID const &uuid);
-  void RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
+  DatabaseMetricHandles RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
   void UpdateGauges();
 
   /// Thread-safe update of the global peak_memory_res_bytes gauge.

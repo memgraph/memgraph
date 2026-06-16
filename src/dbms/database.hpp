@@ -236,6 +236,10 @@ class Database {
 
   metrics::DatabaseMetricHandles *metric_handles() { return &metrics_.handles(); }
 
+  void RebindMetrics(utils::UUID uuid, metrics::DatabaseMetricHandles handles) {
+    metrics_.Rebind(uuid, std::move(handles));
+  }
+
  private:
   // Enforcement-only: caps total per-DB memory (tenant profile limit).
   // No parent — does not roll up to any global. Per-DB domain trackers list this
@@ -269,6 +273,11 @@ class Database {
     metrics::DatabaseMetricHandles const &handles() const { return handles_; }
 
     metrics::DatabaseMetricHandles &handles() { return handles_; }
+
+    void Rebind(utils::UUID uuid, metrics::DatabaseMetricHandles handles) {
+      uuid_ = uuid;
+      handles_ = std::move(handles);
+    }
 
    private:
     utils::UUID uuid_;
