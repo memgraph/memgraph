@@ -1031,7 +1031,7 @@ package_smoke_image() {
   # mgp_networkx, nxalg, wcc, graph_analyzer, etc.). Mirrors the pip
   # installs in release/docker/v7_deb.dockerfile. gssapi has no PyPI wheels
   # so it must be supplied as a pre-built wheel via --wheels-dir.
-  local pip_packages="cryptography==46.0.7 PyJWT==2.12.1 requests==2.32.5 \
+  local pip_packages="cryptography==49.0.0 PyJWT==2.13.0 requests==2.32.5 \
 ldap3==2.6 pyyaml==6.0.1 python3-saml==1.16.0 lxml==6.1.0 xmlsec==1.3.16 \
 gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==${networkx_version} gensim==4.4.0"
 
