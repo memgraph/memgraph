@@ -1471,11 +1471,17 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
           access_type = data.access_type ? std::optional(translate_access_type(*data.access_type)) : std::nullopt;
         },
-        [&](WalTransactionEnd const &) {
+        [&](WalTransactionEnd const &txn_end) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_accessor || commit_timestamp != delta_timestamp) {
             throw utils::BasicException("Invalid commit data!");
           }
+          // We don't do CRC verification on PrepareCommitRpc because we are already using TCP sockets
+          if (loading_wal && txn_end.txn_crc.has_value() && !utils::CrcAccumulator::Verify(decoder->CrcAccValue())) {
+            throw utils::BasicException(
+                "Replication WAL CRC mismatch (stored {}, residue {}).", *txn_end.txn_crc, decoder->CrcAccValue());
+          }
+          decoder->ResetCrcAcc();
 
           // Durability could take some time on replica
           rpc::SendInProgressMsg(res_builder);
@@ -1972,16 +1978,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
     };
-
-    if (auto const *txn_end = std::get_if<WalTransactionEnd>(&delta.data_)) {
-      // We don't do CRC verification on PrepareCommitRpc because we are already using TCP sockets
-      if (loading_wal && txn_end->txn_crc.has_value() && !utils::CrcAccumulator::Verify(decoder->CrcAccValue())) {
-        throw utils::BasicException(
-            "Replication WAL CRC mismatch (stored {}, residue {}).", *txn_end->txn_crc, decoder->CrcAccValue());
-      }
-      decoder->ResetCrcAcc();
-    }
-
     // If I received PrepareCommitRpc, deltas should be applied (loading_wal will be false)
     // If loading WAL file, WalTransactionStart is decision-maker whether to load the txn from WAL or not
     if (loading_wal && !should_commit) continue;

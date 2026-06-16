@@ -363,7 +363,7 @@ std::optional<uint64_t> ReadSize(Decoder *decoder) {
   if (!decoder->Read(reinterpret_cast<uint8_t *>(&size), sizeof(size))) return std::nullopt;
   size = utils::LittleEndianToHost(size);
   // Bound check
-  if (auto const file_size = decoder->GetSize(); !file_size || size >= *file_size) {
+  if (auto const file_size = decoder->GetSize(); size >= file_size) {
     return std::nullopt;
   }
   return size;
@@ -885,9 +885,9 @@ bool Decoder::SkipExternalPropertyValue() {
   }
 }
 
-std::optional<uint64_t> Decoder::GetSize() { return file_.GetSize(); }
+uint64_t Decoder::GetSize() { return file_.GetSize(); }
 
-std::optional<uint64_t> Decoder::GetPosition() { return file_.GetPosition(); }
+uint64_t Decoder::GetPosition() { return file_.GetPosition(); }
 
 bool Decoder::SetPosition(uint64_t position) { return !!file_.SetPosition(utils::InputFile::Position::SET, position); }
 

@@ -493,16 +493,14 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
 
 struct WalTxnDataPos {
   uint64_t commit_flag_wal_position_{0};  // position of the commit flag inside the transaction-start frame
-  uint64_t txn_end_wal_pos_{0};           // one-past-last byte of the CRC-protected region (start of the txn-end frame)
   uint64_t crc_wal_pos_{0};               // position of the stored CRC value inside the transaction-end frame
   uint32_t stored_crc_{0};                // the CRC value written at crc_wal_pos_ (kept in memory to patch in place)
 };
 
 /// Positions filled in when encoding the transaction end.
 struct WalTxnEndPos {
-  uint64_t txn_end_wal_pos_{0};  // start of the transaction-end frame == end of the CRC-protected region
-  uint64_t crc_wal_pos_{0};      // position where the CRC value is written
-  uint32_t stored_crc_{0};       // the CRC value written at crc_wal_pos_
+  uint64_t crc_wal_pos_{0};  // position where the CRC value is written
+  uint32_t stored_crc_{0};   // the CRC value written at crc_wal_pos_
 };
 
 /// Function used to encode the transaction start

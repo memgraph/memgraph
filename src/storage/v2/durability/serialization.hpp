@@ -156,8 +156,8 @@ class Decoder final : public BaseDecoder {
   bool SkipString() override;
   bool SkipExternalPropertyValue() override;
 
-  std::optional<uint64_t> GetSize();
-  std::optional<uint64_t> GetPosition();
+  uint64_t GetSize();
+  uint64_t GetPosition();
   bool SetPosition(uint64_t position);
 
   void ResetCrcAcc() override { file_.ResetCrc(); }

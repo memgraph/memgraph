@@ -4002,7 +4002,6 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Add a delta that indicates that the transaction is fully written to the WAL
   auto const txn_end_positions = mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
-  wal_txn_positions_.txn_end_wal_pos_ = txn_end_positions.txn_end_wal_pos_;
   wal_txn_positions_.crc_wal_pos_ = txn_end_positions.crc_wal_pos_;
   wal_txn_positions_.stored_crc_ = txn_end_positions.stored_crc_;
 

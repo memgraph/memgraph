@@ -288,11 +288,8 @@ size_t InputFile::GetPosition() {
   return file_position_;
 }
 
+// TODO: (andi) SetPosition is not safe w.r.t to CRC loading
 std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) {
-  // Settle the CRC over the bytes consumed so far while they are still available in the buffer; bytes skipped over by
-  // the seek itself are never folded.
-  FoldPendingCrc();
-
   // It would be wrong not to take into account buffering
   if (position == Position::RELATIVE_TO_CURRENT) {
     offset = static_cast<ssize_t>(GetPosition()) + offset;

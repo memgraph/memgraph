@@ -19,12 +19,6 @@ class CrcAccumulator {
  public:
   CrcAccumulator();
 
-  ~CrcAccumulator() = default;
-  CrcAccumulator(CrcAccumulator const &) = default;
-  CrcAccumulator &operator=(CrcAccumulator const &) = default;
-  CrcAccumulator(CrcAccumulator &&) = default;
-  CrcAccumulator &operator=(CrcAccumulator &&) = default;
-
   void Reset();
   auto Value() const -> uint32_t;
   void Update(const unsigned char *bytes, uint32_t len);
