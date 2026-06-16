@@ -402,8 +402,7 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
   auto const &permissions = GetCachedPropertyEdgeTypePermissions();
   auto const &edge_type_name = dba_->EdgeTypeToName(edge_type);
   auto const &prop_name = dba_->PropertyToName(property);
-  std::vector<std::string> entities = {edge_type_name};
-  auto level = permissions.Has(entities, prop_name, perm_type);
+  auto level = permissions.Has(std::span{&edge_type_name, 1}, prop_name, perm_type);
   return level == auth::PermissionLevel::GRANT;
 }
 
