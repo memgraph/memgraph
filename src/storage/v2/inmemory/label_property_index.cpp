@@ -238,14 +238,6 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
       continue;
     }
 
-    if (index_iterator->vertex->gid >= max_gid) {
-      continue;
-    }
-
-    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
-      continue;
-    }
-
     // Check the prefix has at least one non-null value
     if (!lower_bound.empty()) {
       auto const prefix_values_only = index_iterator->values.values_ | ranges::views::take(lower_bound.size());
@@ -323,6 +315,17 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
     if (res == Result::NoMoreValidEntries) {
       index_iterator = end;
       break;
+    }
+
+    // Visibility filters run after the value-bounds check: bounds depend only on the
+    // entry value, so checking them first lets the scan stop at the bound instead of
+    // walking past entries invisible to this transaction.
+    if (index_iterator->vertex->gid >= max_gid) {
+      continue;
+    }
+
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
+      continue;
     }
 
     if (CurrentVersionHasLabelProperties(*index_iterator->vertex,

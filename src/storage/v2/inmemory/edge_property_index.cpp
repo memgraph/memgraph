@@ -142,14 +142,6 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
       continue;
     }
 
-    if (index_iterator->edge->gid >= max_gid) {
-      continue;
-    }
-
-    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
-      continue;
-    }
-
     if (!IsValueIncludedByLowerBound(index_iterator->value, lower_bound)) {
       continue;
     }
@@ -157,6 +149,17 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
     if (!IsValueIncludedByUpperBound(index_iterator->value, upper_bound)) {
       index_iterator = end;
       break;
+    }
+
+    // Visibility filters run after the value-bounds check: bounds depend only on the
+    // entry value, so checking them first lets the scan stop at the bound instead of
+    // walking past entries invisible to this transaction.
+    if (index_iterator->edge->gid >= max_gid) {
+      continue;
+    }
+
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
+      continue;
     }
 
     if (!CurrentEdgeVersionHasProperty(*index_iterator->edge, property, index_iterator->value, transaction, view)) {
