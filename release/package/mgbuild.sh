@@ -2531,7 +2531,7 @@ check_core_dumps() {
   # Verify the runner is configured to produce analyzable Memgraph core dumps.
   # This is warn-only: it never fails the build, it just emits a GitHub warning
   # annotation so we can see which runners still need configuring.
-  local expected_core_pattern='/tmp/mg-cores/core.%e.%p.%t'
+  local expected_core_pattern='/tmp/mg-cores/core.%t.%P.%s'
   local cores_dir='/tmp/mg-cores'
   local ok=true
 

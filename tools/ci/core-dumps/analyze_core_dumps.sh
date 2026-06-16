@@ -76,16 +76,26 @@ mkdir -p "$OUT_DIR"
 count=0
 for core in "${cores[@]}"; do
   base="$(basename "$core")"
-  # Core filenames embed %e (the crashing thread's name), which can contain
-  # spaces and other characters that are awkward in S3 keys and URLs. Sanitize
-  # the trace filename to a URL-safe set so the uploaded object has a clean
-  # name; the original core path is still recorded in the trace header below.
-  safe_base="$(printf '%s' "$base" | tr -c 'A-Za-z0-9._-' '_')"
-  out="$OUT_DIR/${safe_base}.txt"
+  # Core files are named by kernel.core_pattern as `core.%t.%P.%s`
+  # (epoch seconds . global PID . signal). Derive a human-readable, URL-safe
+  # trace name from those fields, e.g. stacktrace_2026-06-16T14-57-32Z_pid18330_sig11.
+  # Fall back to a sanitized core name if the filename doesn't match the layout.
+  epoch=""; pid=""; sig=""; trace_name=""
+  if [[ "$base" =~ ^core\.([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    epoch="${BASH_REMATCH[1]}"
+    pid="${BASH_REMATCH[2]}"
+    sig="${BASH_REMATCH[3]}"
+    when="$(date -u -d "@${epoch}" +%Y-%m-%dT%H-%M-%SZ 2>/dev/null || true)"
+    [[ -n "$when" ]] && trace_name="stacktrace_${when}_pid${pid}_sig${sig}"
+  fi
+  [[ -z "$trace_name" ]] && trace_name="$(printf '%s' "$base" | tr -c 'A-Za-z0-9._-' '_')"
+  out="$OUT_DIR/${trace_name}.txt"
   echo "Analyzing $core -> $out"
   {
     echo "=== Memgraph CI core dump stack trace ==="
     echo "core:      $core"
+    [[ -n "$sig" ]] && echo "signal:    $sig"
+    [[ -n "$epoch" ]] && echo "crashed:   $(date -u -d "@${epoch}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "epoch ${epoch}")"
     echo "binary:    $BINARY"
     echo "generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "gdb:       $(gdb --version | head -n1)"
