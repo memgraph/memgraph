@@ -1492,6 +1492,42 @@ TEST(AuthWithoutStorage, PropertyAccessPermissions) {
   }
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissionsRevokeWildcardClearsAllProperties) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  std::vector<std::string> const emp = {"Employee"};
+
+  // REVOKE READ {*} should clear all READ grants, not just a literal "*" key
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
+    perms.Grant({"Employee"}, "salary", PropertyPermissionType::READ);
+    perms.Revoke({"Employee"}, "*", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+  }
+
+  // REVOKE READ {*} should clear all READ denies too
+  {
+    PropertyAccessPermissions perms;
+    perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+    perms.Deny({"Employee"}, "salary", PropertyPermissionType::READ);
+    perms.Revoke({"Employee"}, "*", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+  }
+
+  // REVOKE READ {*} should not affect WRITE bits
+  {
+    PropertyAccessPermissions perms;
+    perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
+    perms.Grant({"Employee"}, "name", PropertyPermissionType::WRITE);
+    perms.Revoke({"Employee"}, "*", PropertyPermissionType::READ);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+  }
+}
+
 TEST(AuthWithoutStorage, PropertyAccessPermissionsGrantWildcardClearsNamedGrants) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;

@@ -712,16 +712,24 @@ void PropertyAccessPermissions::Revoke(std::unordered_set<std::string> const &en
   auto it = r::find_if(
       rules_, [&](auto const &rule) { return rule.entities == entities && rule.matching_mode == matching_mode; });
   if (it == rules_.end()) return;
-  auto prop_it = it->properties.find(property);
-  if (prop_it == it->properties.end()) return;
   auto const bit = static_cast<uint8_t>(type);
-  prop_it->second.grants &= ~bit;
-  prop_it->second.denies &= ~bit;
-  if (prop_it->second.grants == 0 && prop_it->second.denies == 0) {
-    it->properties.erase(prop_it);
-    if (it->properties.empty()) {
-      rules_.erase(it);
+  if (property == "*") {
+    for (auto &[key, perm] : it->properties) {
+      perm.grants &= ~bit;
+      perm.denies &= ~bit;
     }
+    std::erase_if(it->properties, [](auto const &kv) { return kv.second.grants == 0 && kv.second.denies == 0; });
+  } else {
+    auto prop_it = it->properties.find(property);
+    if (prop_it == it->properties.end()) return;
+    prop_it->second.grants &= ~bit;
+    prop_it->second.denies &= ~bit;
+    if (prop_it->second.grants == 0 && prop_it->second.denies == 0) {
+      it->properties.erase(prop_it);
+    }
+  }
+  if (it->properties.empty()) {
+    rules_.erase(it);
   }
 }
 
