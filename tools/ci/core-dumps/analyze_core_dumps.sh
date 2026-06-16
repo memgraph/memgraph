@@ -77,11 +77,13 @@ count=0
 for core in "${cores[@]}"; do
   base="$(basename "$core")"
   # Core files are named by kernel.core_pattern as `core.%t.%P.%s`
-  # (epoch seconds . global PID . signal). Derive a human-readable, URL-safe
-  # trace name from those fields, e.g. stacktrace_2026-06-16T14-57-32Z_pid18330_sig11.
-  # Fall back to a sanitized core name if the filename doesn't match the layout.
+  # (epoch seconds . global PID . signal). When kernel.core_uses_pid=1 the kernel
+  # also appends a trailing `.PID`, so tolerate an optional extra numeric field.
+  # Derive a human-readable, URL-safe trace name from these fields, e.g.
+  # stacktrace_2026-06-16T14-57-32Z_pid18330_sig11. Fall back to a sanitized core
+  # name if the filename doesn't match the layout.
   epoch=""; pid=""; sig=""; trace_name=""
-  if [[ "$base" =~ ^core\.([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+  if [[ "$base" =~ ^core\.([0-9]+)\.([0-9]+)\.([0-9]+)(\.[0-9]+)?$ ]]; then
     epoch="${BASH_REMATCH[1]}"
     pid="${BASH_REMATCH[2]}"
     sig="${BASH_REMATCH[3]}"
