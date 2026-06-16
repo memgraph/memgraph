@@ -1,5 +1,5 @@
-cryptography==46.0.7
-PyJWT==2.12.1
+cryptography==49.0.0
+PyJWT==2.13.0
 requests==2.34.2
 ldap3==2.6
 pyyaml==6.0.1
