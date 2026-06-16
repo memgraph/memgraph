@@ -12,6 +12,7 @@ set -euo pipefail
 
 URL=""
 MESSAGE=""
+SIGNAL=""
 
 print_usage() {
   cat <<EOF
@@ -22,6 +23,7 @@ Pushes one log line to the VictoriaLogs Loki endpoint.
 Options:
   --url URL         HTTP URL of the uploaded stack trace (required)
   --message TEXT    Override the log message (default mentions the URL)
+  --signal N        Signal that killed Memgraph (adds signal/exit_status labels)
   -h, --help        Show this help
 
 Environment:
@@ -41,6 +43,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --url)     URL="$2"; shift 2 ;;
     --message) MESSAGE="$2"; shift 2 ;;
+    --signal)  SIGNAL="$2"; shift 2 ;;
     -h|--help) print_usage; exit 0 ;;
     *) echo "Error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;;
   esac
@@ -69,8 +72,27 @@ if [[ -z "$VLOGS_PUSH_URL" ]]; then
   VLOGS_PUSH_URL="${VLOGS_SCHEME}://${MONITORING_HOST}:${VLOGS_PORT}/insert/loki/api/v1/push"
 fi
 
+# Derive a human signal name and the conventional shell exit status (128 + signal).
+signal_name() {
+  case "$1" in
+    4) echo "SIGILL" ;; 6) echo "SIGABRT" ;; 7) echo "SIGBUS" ;;
+    8) echo "SIGFPE" ;; 9) echo "SIGKILL" ;; 11) echo "SIGSEGV" ;;
+    15) echo "SIGTERM" ;; *) echo "SIG${1}" ;;
+  esac
+}
+SIGNAL_NAME=""
+EXIT_STATUS=""
+if [[ -n "$SIGNAL" ]]; then
+  SIGNAL_NAME="$(signal_name "$SIGNAL")"
+  EXIT_STATUS="$((128 + SIGNAL))"
+fi
+
 if [[ -z "$MESSAGE" ]]; then
-  MESSAGE="Memgraph core dump captured in CI — stack trace: ${URL}"
+  if [[ -n "$SIGNAL" ]]; then
+    MESSAGE="Memgraph core dump captured in CI (signal ${SIGNAL} ${SIGNAL_NAME}, exit status ${EXIT_STATUS}) — stack trace: ${URL}"
+  else
+    MESSAGE="Memgraph core dump captured in CI — stack trace: ${URL}"
+  fi
 fi
 
 if ! command -v curl >/dev/null 2>&1; then
@@ -84,6 +106,7 @@ ts_ns="$(date +%s)000000000"
 # Build the JSON payload with python3 so labels/message are escaped safely.
 payload="$(CLUSTER_ID="$CLUSTER_ID" CLUSTER_ENV="$CLUSTER_ENV" \
   SERVICE_NAME="$SERVICE_NAME" STACK_TRACE_URL="$URL" \
+  SIGNAL="$SIGNAL" SIGNAL_NAME="$SIGNAL_NAME" EXIT_STATUS="$EXIT_STATUS" \
   MSG="$MESSAGE" TS_NS="$ts_ns" python3 - <<'PY'
 import json, os
 stream = {
@@ -97,6 +120,11 @@ stream = {
     "cluster_env": os.environ.get("CLUSTER_ENV", "ci"),
     "stack_trace_url": os.environ.get("STACK_TRACE_URL", ""),
 }
+# Only attach crash-signal labels when we actually know the signal.
+if os.environ.get("SIGNAL"):
+    stream["signal"] = os.environ["SIGNAL"]
+    stream["signal_name"] = os.environ.get("SIGNAL_NAME", "")
+    stream["exit_status"] = os.environ.get("EXIT_STATUS", "")
 payload = {"streams": [{"stream": stream,
                         "values": [[os.environ["TS_NS"], os.environ["MSG"]]]}]}
 print(json.dumps(payload))

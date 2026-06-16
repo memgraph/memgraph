@@ -95,10 +95,15 @@ if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
 fi
 
 # Best-effort monitoring ping (no-op when MONITORING_HOST is unset). One log
-# line per trace file, each carrying the direct URL to that file.
+# line per trace file, each carrying the direct URL to that file plus the crash
+# signal parsed from the trace filename (analyze names them ..._sig<N>.txt).
 if [[ -n "${MONITORING_HOST:-}" ]]; then
   for f in "${trace_files[@]}"; do
-    "$SCRIPT_DIR/ping_monitoring.sh" --url "${http_url}${f}" || \
+    ping_args=(--url "${http_url}${f}")
+    if [[ "$f" =~ _sig([0-9]+) ]]; then
+      ping_args+=(--signal "${BASH_REMATCH[1]}")
+    fi
+    "$SCRIPT_DIR/ping_monitoring.sh" "${ping_args[@]}" || \
       echo "Warning: monitoring ping failed for ${f} (continuing)." >&2
   done
 else
