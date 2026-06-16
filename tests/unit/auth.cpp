@@ -1492,6 +1492,50 @@ TEST(AuthWithoutStorage, PropertyAccessPermissions) {
   }
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissionsGrantWildcardClearsNamedGrants) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  std::vector<std::string> const emp = {"Employee"};
+
+  PropertyAccessPermissions perms;
+  perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
+  perms.Grant({"Employee"}, "salary", PropertyPermissionType::READ);
+  perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+
+  // Wildcard grant + named deny survive; named grants cleared
+  perms.Grant({"Employee"}, "*", PropertyPermissionType::READ);
+  auto const &rules = perms.GetRules();
+  ASSERT_EQ(rules.size(), 1);
+  EXPECT_EQ(rules[0].properties.size(), 2);
+  EXPECT_TRUE(rules[0].properties.contains("*"));
+  EXPECT_TRUE(rules[0].properties.contains("ssn"));
+  EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::GRANT);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsDenyWildcardClearsNamedDenies) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  std::vector<std::string> const emp = {"Employee"};
+
+  PropertyAccessPermissions perms;
+  perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+  perms.Deny({"Employee"}, "salary", PropertyPermissionType::READ);
+  perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
+
+  // Wildcard deny + named grant survive; named denies cleared
+  perms.Deny({"Employee"}, "*", PropertyPermissionType::READ);
+  auto const &rules = perms.GetRules();
+  ASSERT_EQ(rules.size(), 1);
+  EXPECT_EQ(rules[0].properties.size(), 2);
+  EXPECT_TRUE(rules[0].properties.contains("*"));
+  EXPECT_TRUE(rules[0].properties.contains("name"));
+  EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::DENY);
+}
+
 TEST(AuthWithoutStorage, PropertyAccessPermissionsMatchingAny) {
   using memgraph::auth::MatchingMode;
   using memgraph::auth::PermissionLevel;

@@ -690,6 +690,9 @@ void PropertyAccessPermissions::Grant(std::unordered_set<std::string> const &ent
   auto &perm = rule.properties[property];
   perm.grants |= bit;
   perm.denies &= ~bit;
+  if (property == "*") {
+    std::erase_if(rule.properties, [](auto const &kv) { return kv.first != "*" && kv.second.denies == 0; });
+  }
 }
 
 void PropertyAccessPermissions::Deny(std::unordered_set<std::string> const &entities, std::string const &property,
@@ -699,6 +702,9 @@ void PropertyAccessPermissions::Deny(std::unordered_set<std::string> const &enti
   auto &perm = rule.properties[property];
   perm.denies |= bit;
   perm.grants &= ~bit;
+  if (property == "*") {
+    std::erase_if(rule.properties, [](auto const &kv) { return kv.first != "*" && kv.second.grants == 0; });
+  }
 }
 
 void PropertyAccessPermissions::Revoke(std::unordered_set<std::string> const &entities, std::string const &property,
