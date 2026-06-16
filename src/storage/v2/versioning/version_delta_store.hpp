@@ -47,6 +47,11 @@ struct OverlayDelta {
   uint64_t to_gid{0};            // kCreateEdge
   std::string properties;        // opaque PropertyStore buffer (kSet*Property, kCreate*)
   std::vector<uint32_t> labels;  // kCreateVertex
+
+  // --- Provenance: who/when produced this delta. Same value across all deltas captured from one query. ---
+  uint64_t txn_start_timestamp{0};  // MVCC logical start timestamp of the producing transaction
+  uint64_t ledger_time_ns{0};       // wall-clock UTC nanoseconds-since-epoch when appended to the ledger
+  std::string query;                // the originating (unstripped) query text
 };
 
 // Persistent, ordered op-log of a single version's overlay, backed by its own RocksDB instance under

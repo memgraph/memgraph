@@ -142,6 +142,7 @@
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 #include "utils/timer.hpp"
+#include "utils/timestamp.hpp"
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
@@ -3592,6 +3593,20 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         active_version_name);
   }
 
+  // Master (the no-active-version case) is frozen for the same reason: every top-level branch replays
+  // master as its base, so writing to master would silently change what those branches see. Once any
+  // branch exists, master is read-only. Guarded by the feature flag + a registry-existence check so
+  // plain writes pay nothing when versioning is unused.
+  if (!version_active && is_write_query && FLAGS_versioning_enabled) {
+    const auto master_versions_dir = current_db.db_acc_->get()->config().durability.storage_directory / "versions";
+    if (std::filesystem::exists(master_versions_dir / ".registry") &&
+        storage::VersionRegistry{master_versions_dir}.HasChildren("master")) {
+      throw QueryRuntimeException(
+          "The master graph has branches and is read-only. Writing would change the base those branches replay "
+          "against; create a new branch from master to make further changes, or drop the branches first.");
+    }
+  }
+
   auto pull_plan = std::make_shared<PullPlan>(plan,
                                               parsed_query.parameters,
                                               is_profile_query,
@@ -3626,6 +3641,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                         is_write_query,
                         trigger_context_collector,
                         dba,
+                        query_string = parsed_query.query_string,
                         replayed = false](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // Replay the active version's full ancestor chain (master -> ... -> parent -> leaf) into the
@@ -3650,8 +3666,17 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
               // The log accumulates across queries; replay applies it in order, so later ops win.
               auto overlay = CaptureVersionOverlay(dba, *trigger_context_collector);
               if (!overlay.empty()) {
+                // Stamp provenance shared by every delta this query produced: the transaction's
+                // logical start timestamp, the wall-clock UTC instant of the append, and the query text.
+                const auto txn_start_timestamp = dba->GetStartTimestamp().value_or(0);
+                const auto now = utils::Timestamp::Now();
+                const auto ledger_time_ns = static_cast<uint64_t>(now.SecSinceTheEpoch()) * 1'000'000'000ULL +
+                                            static_cast<uint64_t>(now.NanoSec());
                 storage::VersionDeltaStore store{versions_dir / active_version_name};
-                for (const auto &delta : overlay) {
+                for (auto &delta : overlay) {
+                  delta.txn_start_timestamp = txn_start_timestamp;
+                  delta.ledger_time_ns = ledger_time_ns;
+                  delta.query = query_string;
                   store.Append(delta);
                 }
               }
@@ -6904,7 +6929,7 @@ PreparedQuery PrepareShowChangesQuery(ParsedQuery parsed_query, bool in_explicit
   const auto version_path = VersionsDir(current_db) / *interpreter.active_version_;
 
   Callback callback;
-  callback.header = {"op", "entity", "gid", "detail"};
+  callback.header = {"op", "entity", "gid", "detail", "txn_ts", "ledger_time", "query"};
   callback.fn = [version_path, storage]() mutable -> std::vector<std::vector<TypedValue>> {
     storage::VersionDeltaStore store{version_path};
     const auto deltas = store.ReadAll();
@@ -6968,8 +6993,16 @@ PreparedQuery PrepareShowChangesQuery(ParsedQuery parsed_query, bool in_explicit
                                                        .GetProperty(storage::PropertyId::FromUint(d.property_id))));
           break;
       }
-      rows.push_back(
-          {TypedValue{op}, TypedValue{entity}, TypedValue{static_cast<int64_t>(d.gid)}, TypedValue{std::move(detail)}});
+      // Render the wall-clock append instant as a UTC ISO8601 string (ledger_time_ns is nanoseconds-since-epoch).
+      const utils::Timestamp ledger_ts{static_cast<std::time_t>(d.ledger_time_ns / 1'000'000'000ULL),
+                                       static_cast<long>(d.ledger_time_ns % 1'000'000'000ULL)};
+      rows.push_back({TypedValue{op},
+                      TypedValue{entity},
+                      TypedValue{static_cast<int64_t>(d.gid)},
+                      TypedValue{std::move(detail)},
+                      TypedValue{static_cast<int64_t>(d.txn_start_timestamp)},
+                      TypedValue{ledger_ts.ToIso8601()},
+                      TypedValue{d.query}});
     }
     return rows;
   };

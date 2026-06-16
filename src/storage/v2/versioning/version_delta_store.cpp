@@ -84,6 +84,9 @@ std::string EncodeDelta(const OverlayDelta &d) {
   PutStr(out, d.properties);
   PutU32(out, static_cast<uint32_t>(d.labels.size()));
   for (auto label : d.labels) PutU32(out, label);
+  PutU64(out, d.txn_start_timestamp);
+  PutU64(out, d.ledger_time_ns);
+  PutStr(out, d.query);
   return out;
 }
 
@@ -101,6 +104,9 @@ OverlayDelta DecodeDelta(std::string_view value) {
   const auto label_count = r.U32();
   d.labels.reserve(label_count);
   for (uint32_t i = 0; i < label_count; ++i) d.labels.push_back(r.U32());
+  d.txn_start_timestamp = r.U64();
+  d.ledger_time_ns = r.U64();
+  d.query = r.Str();
   return d;
 }
 
