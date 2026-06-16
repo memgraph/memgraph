@@ -415,12 +415,27 @@ bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 #ifdef MG_ENTERPRISE
 enum class PropertyPermissionType : uint8_t { NONE = 0, READ = 0x01, WRITE = 0x02 };
 
-constexpr auto kAllPropertyPermissionTypes = static_cast<PropertyPermissionType>(
-    std::to_underlying(PropertyPermissionType::READ) | std::to_underlying(PropertyPermissionType::WRITE));
+constexpr PropertyPermissionType operator|(PropertyPermissionType a, PropertyPermissionType b) {
+  return static_cast<PropertyPermissionType>(std::to_underlying(a) | std::to_underlying(b));
+}
+
+constexpr PropertyPermissionType operator&(PropertyPermissionType a, PropertyPermissionType b) {
+  return static_cast<PropertyPermissionType>(std::to_underlying(a) & std::to_underlying(b));
+}
+
+constexpr PropertyPermissionType operator~(PropertyPermissionType a) {
+  return static_cast<PropertyPermissionType>(~std::to_underlying(a));
+}
+
+constexpr PropertyPermissionType &operator|=(PropertyPermissionType &a, PropertyPermissionType b) { return a = a | b; }
+
+constexpr PropertyPermissionType &operator&=(PropertyPermissionType &a, PropertyPermissionType b) { return a = a & b; }
+
+constexpr auto kAllPropertyPermissionTypes = PropertyPermissionType::READ | PropertyPermissionType::WRITE;
 
 struct PropertyPermission {
-  uint8_t grants{std::to_underlying(PropertyPermissionType::NONE)};
-  uint8_t denies{std::to_underlying(PropertyPermissionType::NONE)};
+  PropertyPermissionType grants{PropertyPermissionType::NONE};
+  PropertyPermissionType denies{PropertyPermissionType::NONE};
 
   bool operator==(PropertyPermission const &) const = default;
 };

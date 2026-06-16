@@ -667,9 +667,9 @@ bool operator!=(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 // PropertyAccessPermissions
 
 namespace {
-PermissionLevel CheckBit(PropertyPermission const &perm, uint8_t bit) {
-  if (perm.denies & bit) return PermissionLevel::DENY;
-  if (perm.grants & bit) return PermissionLevel::GRANT;
+PermissionLevel CheckBit(PropertyPermission const &perm, PropertyPermissionType bit) {
+  if ((perm.denies & bit) != PropertyPermissionType::NONE) return PermissionLevel::DENY;
+  if ((perm.grants & bit) != PropertyPermissionType::NONE) return PermissionLevel::GRANT;
   return PermissionLevel::NEUTRAL;
 }
 }  // namespace
@@ -685,25 +685,27 @@ PropertyAccessRule &PropertyAccessPermissions::FindOrCreateRule(std::unordered_s
 
 void PropertyAccessPermissions::Grant(std::unordered_set<std::string> const &entities, std::string const &property,
                                       PropertyPermissionType type, MatchingMode matching_mode) {
-  auto const bit = static_cast<uint8_t>(type);
+  auto const bit = type;
   auto &rule = FindOrCreateRule(entities, matching_mode);
   auto &perm = rule.properties[property];
   perm.grants |= bit;
   perm.denies &= ~bit;
   if (property == "*") {
-    std::erase_if(rule.properties, [](auto const &kv) { return kv.first != "*" && kv.second.denies == 0; });
+    std::erase_if(rule.properties,
+                  [](auto const &kv) { return kv.first != "*" && kv.second.denies == PropertyPermissionType::NONE; });
   }
 }
 
 void PropertyAccessPermissions::Deny(std::unordered_set<std::string> const &entities, std::string const &property,
                                      PropertyPermissionType type, MatchingMode matching_mode) {
-  auto const bit = static_cast<uint8_t>(type);
+  auto const bit = type;
   auto &rule = FindOrCreateRule(entities, matching_mode);
   auto &perm = rule.properties[property];
   perm.denies |= bit;
   perm.grants &= ~bit;
   if (property == "*") {
-    std::erase_if(rule.properties, [](auto const &kv) { return kv.first != "*" && kv.second.grants == 0; });
+    std::erase_if(rule.properties,
+                  [](auto const &kv) { return kv.first != "*" && kv.second.grants == PropertyPermissionType::NONE; });
   }
 }
 
@@ -712,19 +714,22 @@ void PropertyAccessPermissions::Revoke(std::unordered_set<std::string> const &en
   auto it = r::find_if(
       rules_, [&](auto const &rule) { return rule.entities == entities && rule.matching_mode == matching_mode; });
   if (it == rules_.end()) return;
-  auto const bit = static_cast<uint8_t>(type);
+  auto const bit = type;
   if (property == "*") {
     for (auto &[key, perm] : it->properties) {
       perm.grants &= ~bit;
       perm.denies &= ~bit;
     }
-    std::erase_if(it->properties, [](auto const &kv) { return kv.second.grants == 0 && kv.second.denies == 0; });
+    std::erase_if(it->properties, [](auto const &kv) {
+      return kv.second.grants == PropertyPermissionType::NONE && kv.second.denies == PropertyPermissionType::NONE;
+    });
   } else {
     auto prop_it = it->properties.find(property);
     if (prop_it == it->properties.end()) return;
     prop_it->second.grants &= ~bit;
     prop_it->second.denies &= ~bit;
-    if (prop_it->second.grants == 0 && prop_it->second.denies == 0) {
+    if (prop_it->second.grants == PropertyPermissionType::NONE &&
+        prop_it->second.denies == PropertyPermissionType::NONE) {
       it->properties.erase(prop_it);
     }
   }
@@ -734,14 +739,14 @@ void PropertyAccessPermissions::Revoke(std::unordered_set<std::string> const &en
 }
 
 void PropertyAccessPermissions::GrantGlobal(std::string const &property, PropertyPermissionType type) {
-  auto const bit = static_cast<uint8_t>(type);
+  auto const bit = type;
   auto &perm = global_[property];
   perm.grants |= bit;
   perm.denies &= ~bit;
 }
 
 void PropertyAccessPermissions::DenyGlobal(std::string const &property, PropertyPermissionType type) {
-  auto const bit = static_cast<uint8_t>(type);
+  auto const bit = type;
   auto &perm = global_[property];
   perm.denies |= bit;
   perm.grants &= ~bit;
@@ -750,17 +755,18 @@ void PropertyAccessPermissions::DenyGlobal(std::string const &property, Property
 void PropertyAccessPermissions::RevokeGlobal(std::string const &property, PropertyPermissionType type) {
   auto prop_it = global_.find(property);
   if (prop_it == global_.end()) return;
-  auto const bit = static_cast<uint8_t>(type);
+  auto const bit = type;
   prop_it->second.grants &= ~bit;
   prop_it->second.denies &= ~bit;
-  if (prop_it->second.grants == 0 && prop_it->second.denies == 0) {
+  if (prop_it->second.grants == PropertyPermissionType::NONE &&
+      prop_it->second.denies == PropertyPermissionType::NONE) {
     global_.erase(prop_it);
   }
 }
 
 namespace {
 PermissionLevel CheckPropertyMap(std::unordered_map<std::string, PropertyPermission> const &props,
-                                 std::string const &property, uint8_t bit) {
+                                 std::string const &property, PropertyPermissionType bit) {
   auto prop_it = props.find(property);
   if (prop_it != props.end()) {
     auto level = CheckBit(prop_it->second, bit);
@@ -776,7 +782,7 @@ PermissionLevel CheckPropertyMap(std::unordered_map<std::string, PropertyPermiss
 
 PermissionLevel PropertyAccessPermissions::Has(std::span<std::string const> entities, std::string const &property,
                                                PropertyPermissionType type) const {
-  auto const bit = static_cast<uint8_t>(type);
+  auto const bit = type;
 
   auto const rule_matches = [&](auto const &rule) -> bool {
     if (rule.matching_mode == MatchingMode::EXACTLY) {
@@ -807,14 +813,14 @@ PermissionLevel PropertyAccessPermissions::Has(std::span<std::string const> enti
 
 PermissionLevel PropertyAccessPermissions::HasGlobal(std::string const &property, PropertyPermissionType type) const {
   if (global_.empty()) return PermissionLevel::NEUTRAL;
-  return CheckPropertyMap(global_, property, static_cast<uint8_t>(type));
+  return CheckPropertyMap(global_, property, type);
 }
 
 namespace {
 nlohmann::json SerializePropertyMap(std::unordered_map<std::string, PropertyPermission> const &props) {
   nlohmann::json props_json = nlohmann::json::object();
   for (auto const &[prop, perm] : props) {
-    props_json[prop] = {{"grants", perm.grants}, {"denies", perm.denies}};
+    props_json[prop] = {{"grants", std::to_underlying(perm.grants)}, {"denies", std::to_underlying(perm.denies)}};
   }
   return props_json;
 }
@@ -824,8 +830,8 @@ void DeserializePropertyMap(nlohmann::json const &props_json,
   for (auto const &[prop, perm_json] : props_json.items()) {
     if (!perm_json.is_object()) continue;
     auto &perm = out[prop];
-    perm.grants = perm_json.value("grants", uint8_t{0});
-    perm.denies = perm_json.value("denies", uint8_t{0});
+    perm.grants = static_cast<PropertyPermissionType>(perm_json.value("grants", uint8_t{0}));
+    perm.denies = static_cast<PropertyPermissionType>(perm_json.value("denies", uint8_t{0}));
   }
 }
 }  // namespace
@@ -835,9 +841,7 @@ bool PropertyAccessPermissions::HasUnrestrictedAccess() const {
   if (global_.size() != 1) return false;
   auto it = global_.find("*");
   if (it == global_.end()) return false;
-  auto const all =
-      static_cast<uint8_t>(PropertyPermissionType::READ) | static_cast<uint8_t>(PropertyPermissionType::WRITE);
-  return (it->second.grants & all) == all && it->second.denies == 0;
+  return it->second.grants == kAllPropertyPermissionTypes && it->second.denies == PropertyPermissionType::NONE;
 }
 
 nlohmann::json PropertyAccessPermissions::Serialize() const {

@@ -2601,8 +2601,8 @@ AuthQuery *BuildPropertyPermissionQuery(AstStorage *storage, AuthQuery::Action a
   auth->action_ = action;
 
   for (auto *perm_type : perm_types->propertyPermissionType()) {
-    auth->property_permission_types_ |= static_cast<uint8_t>(
-        perm_type->READ() ? AuthQuery::PropertyPermissionType::READ : AuthQuery::PropertyPermissionType::WRITE);
+    auth->property_permission_types_ |=
+        perm_type->READ() ? AuthQuery::PropertyPermissionType::READ : AuthQuery::PropertyPermissionType::WRITE;
   }
 
   if (props->ASTERISK()) {

@@ -1882,10 +1882,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           }
         };
 
-        if (property_permission_types & static_cast<uint8_t>(AuthQuery::PropertyPermissionType::READ)) {
+        if ((property_permission_types & AuthQuery::PropertyPermissionType::READ) !=
+            AuthQuery::PropertyPermissionType::NONE) {
           dispatch(auth::PropertyPermissionType::READ);
         }
-        if (property_permission_types & static_cast<uint8_t>(AuthQuery::PropertyPermissionType::WRITE)) {
+        if ((property_permission_types & AuthQuery::PropertyPermissionType::WRITE) !=
+            AuthQuery::PropertyPermissionType::NONE) {
           dispatch(auth::PropertyPermissionType::WRITE);
         }
 

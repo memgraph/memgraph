@@ -2900,7 +2900,7 @@ struct AuthQueryChecker {
     return *this;
   }
 
-  AuthQueryChecker &WithPropertyPermissionTypes(uint8_t types) {
+  AuthQueryChecker &WithPropertyPermissionTypes(AuthQuery::PropertyPermissionType types) {
     property_permission_types_ = types;
     return *this;
   }
@@ -2947,7 +2947,7 @@ struct AuthQueryChecker {
   std::vector<std::string> property_entity_names_;
   AuthQuery::PropertyEntityKind property_entity_kind_{AuthQuery::PropertyEntityKind::NODE};
   AuthQuery::LabelMatchingMode property_matching_mode_{AuthQuery::LabelMatchingMode::ANY};
-  uint8_t property_permission_types_{0};
+  AuthQuery::PropertyPermissionType property_permission_types_{AuthQuery::PropertyPermissionType::NONE};
 };
 
 TEST_P(CypherMainVisitorTest, UserOrRoleName) {
@@ -4525,7 +4525,7 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
 
 TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
   auto &ast_generator = *GetParam();
-  auto const kRead = static_cast<uint8_t>(AuthQuery::PropertyPermissionType::READ);
+  auto const kRead = AuthQuery::PropertyPermissionType::READ;
 
   // GRANT READ with single property on nodes
   AuthQueryChecker(&ast_generator,
@@ -4574,7 +4574,7 @@ TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
 
 TEST_P(CypherMainVisitorTest, GrantPropertyMultiLabelMatchingModes) {
   auto &ast_generator = *GetParam();
-  auto const kRead = static_cast<uint8_t>(AuthQuery::PropertyPermissionType::READ);
+  auto const kRead = AuthQuery::PropertyPermissionType::READ;
 
   // Multi-label MATCHING ANY (default)
   AuthQueryChecker(&ast_generator,
@@ -4609,7 +4609,7 @@ TEST_P(CypherMainVisitorTest, GrantPropertyMultiLabelMatchingModes) {
 
 TEST_P(CypherMainVisitorTest, DenyPropertyReadPrivilege) {
   auto &ast_generator = *GetParam();
-  auto const kRead = static_cast<uint8_t>(AuthQuery::PropertyPermissionType::READ);
+  auto const kRead = AuthQuery::PropertyPermissionType::READ;
 
   AuthQueryChecker(&ast_generator,
                    "DENY READ {ssn} ON NODES CONTAINING LABELS :Employee TO user",
@@ -4633,7 +4633,7 @@ TEST_P(CypherMainVisitorTest, DenyPropertyReadPrivilege) {
 
 TEST_P(CypherMainVisitorTest, RevokePropertyReadPrivilege) {
   auto &ast_generator = *GetParam();
-  auto const kRead = static_cast<uint8_t>(AuthQuery::PropertyPermissionType::READ);
+  auto const kRead = AuthQuery::PropertyPermissionType::READ;
 
   AuthQueryChecker(&ast_generator,
                    "REVOKE READ {ssn} ON NODES CONTAINING LABELS :Employee FROM user",
@@ -4685,7 +4685,7 @@ TEST_P(CypherMainVisitorTest, GrantSetPropertyPermission) {
       .WithPropertyPermissions({"department", "title"})
       .WithPropertyEntityNames({"Employee"})
       .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
-      .WithPropertyPermissionTypes(static_cast<uint8_t>(AuthQuery::PropertyPermissionType::WRITE))
+      .WithPropertyPermissionTypes(AuthQuery::PropertyPermissionType::WRITE)
       .Check();
 
   AuthQueryChecker(&ast_generator,
@@ -4695,7 +4695,7 @@ TEST_P(CypherMainVisitorTest, GrantSetPropertyPermission) {
       .WithPropertyPermissions({"*"})
       .WithPropertyEntityNames({"PAID"})
       .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::EDGE)
-      .WithPropertyPermissionTypes(static_cast<uint8_t>(AuthQuery::PropertyPermissionType::WRITE))
+      .WithPropertyPermissionTypes(AuthQuery::PropertyPermissionType::WRITE)
       .Check();
 }
 
@@ -4709,7 +4709,7 @@ TEST_P(CypherMainVisitorTest, DenySetPropertyPermission) {
       .WithPropertyPermissions({"salary", "ssn"})
       .WithPropertyEntityNames({"Employee"})
       .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
-      .WithPropertyPermissionTypes(static_cast<uint8_t>(AuthQuery::PropertyPermissionType::WRITE))
+      .WithPropertyPermissionTypes(AuthQuery::PropertyPermissionType::WRITE)
       .Check();
 }
 
@@ -4723,15 +4723,14 @@ TEST_P(CypherMainVisitorTest, RevokeSetPropertyPermission) {
       .WithPropertyPermissions({"salary"})
       .WithPropertyEntityNames({"Employee"})
       .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
-      .WithPropertyPermissionTypes(static_cast<uint8_t>(AuthQuery::PropertyPermissionType::WRITE))
+      .WithPropertyPermissionTypes(AuthQuery::PropertyPermissionType::WRITE)
       .Check();
 }
 
 TEST_P(CypherMainVisitorTest, GrantCombinedReadSetPropertyPermission) {
   auto &ast_generator = *GetParam();
 
-  auto const both = static_cast<uint8_t>(AuthQuery::PropertyPermissionType::READ) |
-                    static_cast<uint8_t>(AuthQuery::PropertyPermissionType::WRITE);
+  auto const both = AuthQuery::PropertyPermissionType::READ | AuthQuery::PropertyPermissionType::WRITE;
 
   AuthQueryChecker(&ast_generator,
                    "GRANT READ, SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee TO user",

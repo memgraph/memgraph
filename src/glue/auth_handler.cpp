@@ -352,21 +352,22 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
     auto emit_prop_map = [&](std::unordered_map<std::string, memgraph::auth::PropertyPermission> const &prop_map,
                              std::string_view scope,
                              bool is_global) {
-      auto const read_bit = static_cast<uint8_t>(memgraph::auth::PropertyPermissionType::READ);
-      auto const write_bit = static_cast<uint8_t>(memgraph::auth::PropertyPermissionType::WRITE);
+      auto const read_bit = memgraph::auth::PropertyPermissionType::READ;
+      auto const write_bit = memgraph::auth::PropertyPermissionType::WRITE;
 
       std::vector<std::string> read_granted;
       std::vector<std::string> read_denied;
       std::vector<std::string> write_granted;
       std::vector<std::string> write_denied;
       for (auto const &[prop, perm] : prop_map) {
-        if (perm.grants & read_bit)
+        using PPT = memgraph::auth::PropertyPermissionType;
+        if ((perm.grants & read_bit) != PPT::NONE)
           read_granted.push_back(prop);
-        else if (perm.denies & read_bit)
+        else if ((perm.denies & read_bit) != PPT::NONE)
           read_denied.push_back(prop);
-        if (perm.grants & write_bit)
+        if ((perm.grants & write_bit) != PPT::NONE)
           write_granted.push_back(prop);
-        else if (perm.denies & write_bit)
+        else if ((perm.denies & write_bit) != PPT::NONE)
           write_denied.push_back(prop);
       }
       std::ranges::sort(read_granted);
