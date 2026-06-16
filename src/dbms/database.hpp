@@ -236,9 +236,7 @@ class Database {
 
   metrics::DatabaseMetricHandles *metric_handles() { return &metrics_.handles(); }
 
-  void RebindMetrics(utils::UUID uuid, metrics::DatabaseMetricHandles handles) {
-    metrics_.Rebind(uuid, std::move(handles));
-  }
+  void RebindMetrics(utils::UUID uuid, metrics::DatabaseMetricHandles handles) { metrics_.Rebind(uuid, handles); }
 
  private:
   // Enforcement-only: caps total per-DB memory (tenant profile limit).
@@ -261,7 +259,7 @@ class Database {
   class DatabaseMetricsRegistration {
    public:
     DatabaseMetricsRegistration(utils::UUID uuid, metrics::DatabaseMetricHandles handles)
-        : uuid_(uuid), handles_(std::move(handles)) {}
+        : uuid_(uuid), handles_(handles) {}
 
     ~DatabaseMetricsRegistration();
 
@@ -276,7 +274,7 @@ class Database {
 
     void Rebind(utils::UUID uuid, metrics::DatabaseMetricHandles handles) {
       uuid_ = uuid;
-      handles_ = std::move(handles);
+      handles_ = handles;
     }
 
    private:
