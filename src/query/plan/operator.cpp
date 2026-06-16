@@ -5370,7 +5370,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 #ifdef MG_ENTERPRISE
       if (context->auth_checker) {
         auto maybe_labels = rhs.ValueVertex().Labels(storage::View::NEW);
-        DMG_ASSERT(maybe_labels, "Labels must be readable, as we've read them already in SetPropertiesCursor::Pull");
+        if (!maybe_labels) ThrowVertexLabelsReadFailure(maybe_labels.error());
         mask_denied_properties(new_properties, [&](storage::PropertyId prop_id) {
           return context->auth_checker->HasPropertyPermission(
               *maybe_labels, prop_id, AuthQuery::PropertyPermissionType::READ);
