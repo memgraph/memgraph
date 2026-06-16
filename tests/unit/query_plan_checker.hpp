@@ -266,8 +266,31 @@ using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByEdgeType = OpChecker<ScanAllByEdgeType>;
-using ExpectScanAllByEdgeId = OpChecker<ScanAllByEdgeId>;
-using ExpectScanAllById = OpChecker<ScanAllById>;
+
+class ExpectScanAllByEdgeId : public OpChecker<ScanAllByEdgeId> {
+ public:
+  explicit ExpectScanAllByEdgeId(bool expects_string_id = false) : expects_string_id_(expects_string_id) {}
+
+  void ExpectOp(ScanAllByEdgeId &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.expects_string_id_, expects_string_id_);
+  }
+
+ private:
+  bool expects_string_id_;
+};
+
+class ExpectScanAllById : public OpChecker<ScanAllById> {
+ public:
+  explicit ExpectScanAllById(bool expects_string_id = false) : expects_string_id_(expects_string_id) {}
+
+  void ExpectOp(ScanAllById &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.expects_string_id_, expects_string_id_);
+  }
+
+ private:
+  bool expects_string_id_;
+};
+
 using ExpectExpand = OpChecker<Expand>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;

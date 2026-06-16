@@ -894,12 +894,14 @@ class ScanAllById : public memgraph::query::plan::ScanAll {
 
   ScanAllById() = default;
   ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
-              storage::View view = storage::View::OLD);
+              storage::View view = storage::View::OLD, bool expects_string_id = false);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   Expression *expression_;
+  /// True if the id value is a string (elementId) rather than a number (id).
+  bool expects_string_id_{false};
 
   std::string ToString() const override;
 
@@ -915,7 +917,7 @@ class ScanAllByEdgeId : public memgraph::query::plan::ScanAllByEdge {
   ScanAllByEdgeId() = default;
   ScanAllByEdgeId(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
                   Symbol node2_symbol, EdgeAtom::Direction direction, Expression *expression,
-                  storage::View view = storage::View::OLD);
+                  storage::View view = storage::View::OLD, bool expects_string_id = false);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
@@ -928,6 +930,8 @@ class ScanAllByEdgeId : public memgraph::query::plan::ScanAllByEdge {
   std::string ToString() const override;
 
   Expression *expression_;
+  /// True if the id value is a string (elementId) rather than a number (id).
+  bool expects_string_id_{false};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };

@@ -675,6 +675,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllById &op) {
   json self;
   self["name"] = "ScanAllById";
   self["output_symbol"] = ToJson(op.output_symbol_);
+  self["expects_string_id"] = op.expects_string_id_;
   op.input_->Accept(*this);
   self["input"] = PopOutput();
   output_ = std::move(self);
@@ -797,6 +798,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeId &op) {
   json self;
   self["name"] = "ScanAllByEdgeId";
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
+  self["expects_string_id"] = op.expects_string_id_;
   op.input_->Accept(*this);
   self["input"] = PopOutput();
   output_ = std::move(self);

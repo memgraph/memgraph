@@ -50,7 +50,7 @@ elif [[ ! -f "$SOURCE_DIR/build/generators/sbom/memgraph-sbom.cdx.json" && -n "$
   MG_TOOLCHAIN_ROOT=/opt/toolchain-v7 conan install \
     . \
     --build=missing \
-    -pr:h memgraph_template_profile \
+    -pr:h memgraph_toolchain_v7 \
     -pr:b memgraph_build_profile \
     -s build_type="$BUILD_TYPE" \
     -s:a os=Linux \

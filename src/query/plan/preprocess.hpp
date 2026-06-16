@@ -350,7 +350,7 @@ struct PointFilter {
 class IdFilter {
  public:
   /// Construct with Expression being the required value for ID.
-  IdFilter(const SymbolTable &, const Symbol &, Expression *);
+  IdFilter(const SymbolTable &, const Symbol &, Expression *, bool expects_string_id = false);
 
   /// Symbol whose id is looked up.
   Symbol symbol_;
@@ -358,6 +358,8 @@ class IdFilter {
   Expression *value_;
   /// True if the same symbol is used in expressions for value.
   bool is_symbol_in_value_{false};
+  /// True if the filter comes from elementId(), which compares against a string id.
+  bool expects_string_id_{false};
 };
 
 /// Stores additional information for a filter expression.

@@ -963,8 +963,14 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto *value = filter.id_filter->value_;
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
-      return std::make_unique<ScanAllByEdgeId>(
-          input, common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction, value, view);
+      return std::make_unique<ScanAllByEdgeId>(input,
+                                               common.edge_symbol,
+                                               common.node1_symbol,
+                                               common.node2_symbol,
+                                               common.direction,
+                                               value,
+                                               view,
+                                               filter.id_filter->expects_string_id_);
     }
 
     if (common.edge_types.size() > 1) {

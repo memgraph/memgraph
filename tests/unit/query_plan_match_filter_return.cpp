@@ -131,6 +131,73 @@ TYPED_TEST(MatchReturnFixture, MatchReturnPath) {
   EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(), results.begin()));
 }
 
+TYPED_TEST(MatchReturnFixture, ScanAllByIdString) {
+  // elementId(n) lookups use ScanAllById with expects_string_id, which must
+  // match only the canonical decimal string of the id.
+  auto vertex = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+  const auto id_str = std::to_string(vertex.Gid().AsInt());
+
+  auto pull_count = [&](Expression *expression, bool expects_string_id) {
+    auto sym = this->symbol_table.CreateSymbol("n", true);
+    auto scan =
+        std::make_shared<ScanAllById>(nullptr, sym, expression, memgraph::storage::View::OLD, expects_string_id);
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(sym))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce(scan, output);
+    auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
+    return PullAll(*produce, &context);
+  };
+
+  EXPECT_EQ(1, pull_count(LITERAL(id_str), true));
+  EXPECT_EQ(0, pull_count(LITERAL("0" + id_str), true));           // non-canonical form
+  EXPECT_EQ(0, pull_count(LITERAL(id_str + "abc"), true));         // trailing garbage
+  EXPECT_EQ(0, pull_count(LITERAL("abc"), true));                  // not a number
+  EXPECT_EQ(0, pull_count(LITERAL(vertex.Gid().AsInt()), true));   // number where string expected
+  EXPECT_EQ(0, pull_count(LITERAL(id_str), false));                // string where number expected
+  EXPECT_EQ(1, pull_count(LITERAL(vertex.Gid().AsInt()), false));  // id() path still works
+  const auto id_dbl = static_cast<double>(vertex.Gid().AsInt());
+  EXPECT_EQ(1, pull_count(LITERAL(id_dbl), false));        // exact-integer double matches
+  EXPECT_EQ(0, pull_count(LITERAL(id_dbl + 0.5), false));  // non-integer double matches nothing
+}
+
+TYPED_TEST(MatchReturnFixture, ScanAllByEdgeIdString) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Id based edge lookup is not implemented for on-disk storage";
+  }
+  auto v1 = this->dba.InsertVertex();
+  auto v2 = this->dba.InsertVertex();
+  auto edge = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("Type"));
+  ASSERT_TRUE(edge.has_value());
+  this->dba.AdvanceCommand();
+  const auto id_str = std::to_string(edge->Gid().AsInt());
+
+  auto pull_count = [&](Expression *expression, bool expects_string_id) {
+    auto edge_sym = this->symbol_table.CreateSymbol("r", true);
+    auto node1_sym = this->symbol_table.CreateSymbol("n1", true);
+    auto node2_sym = this->symbol_table.CreateSymbol("n2", true);
+    auto scan = std::make_shared<ScanAllByEdgeId>(nullptr,
+                                                  edge_sym,
+                                                  node1_sym,
+                                                  node2_sym,
+                                                  EdgeAtom::Direction::OUT,
+                                                  expression,
+                                                  memgraph::storage::View::OLD,
+                                                  expects_string_id);
+    auto output =
+        NEXPR("r", IDENT("r")->MapTo(edge_sym))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce(scan, output);
+    auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
+    return PullAll(*produce, &context);
+  };
+
+  // String matching itself is covered by ScanAllByIdString; this only checks
+  // the flag is honored by the edge operator and the lookup works.
+  EXPECT_EQ(1, pull_count(LITERAL(id_str), true));
+  EXPECT_EQ(0, pull_count(LITERAL(edge->Gid().AsInt()), true));
+  EXPECT_EQ(1, pull_count(LITERAL(edge->Gid().AsInt()), false));
+}
+
 #ifdef MG_ENTERPRISE
 TYPED_TEST(MatchReturnFixture, ScanAllWithAuthChecker) {
   std::string labelName = "l1";
