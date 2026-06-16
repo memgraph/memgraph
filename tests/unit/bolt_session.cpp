@@ -453,14 +453,14 @@ TEST(BoltSession, HandshakeWithVersionOffset) {
     ASSERT_EQ(session.version_.minor, 3);
     ASSERT_EQ(session.version_.major, 4);
   }
-  // This should pick 4.3 version since 4.4 and 4.5 are not existant
+  // This should pick 4.4 version since 4.5 is not existant
   {
     INIT_VARS;
     const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x05, 0x04, 0x00, 0x00,
                                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x04, 0x04};
     ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
-    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.minor, 4);
     ASSERT_EQ(session.version_.major, 4);
   }
   // With multiple offsets (added v5.2)
@@ -478,9 +478,9 @@ TEST(BoltSession, HandshakeWithVersionOffset) {
     INIT_VARS;
     const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x07, 0x06, 0x04, 0x00, 0x00,
                                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x04, 0x04};
     ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
-    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.minor, 4);
     ASSERT_EQ(session.version_.major, 4);
   }
   // Using offset but no version supported
