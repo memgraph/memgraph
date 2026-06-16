@@ -80,16 +80,27 @@ http_url="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${prefix}/"
 echo "Uploading $(find "$TRACES_DIR" -type f | wc -l) stack-trace file(s) to $s3_uri"
 aws s3 cp --recursive "$TRACES_DIR" "$s3_uri"
 
-echo "Stack traces available at: $http_url"
-# Surface the URL as a GitHub annotation when running in Actions.
+echo "Stack traces available under: $http_url"
+
+# Build the list of per-file URLs. The analyze step sanitizes trace filenames
+# to a URL-safe set, so the uploaded object names need no extra encoding and we
+# can point the log line / annotation directly at each individual file.
+mapfile -t trace_files < <(cd "$TRACES_DIR" && find . -type f -printf '%P\n' | sort)
+
+# Surface each file URL as a GitHub annotation when running in Actions.
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-  echo "::warning title=Memgraph core dump captured::Stack trace uploaded to ${http_url}"
+  for f in "${trace_files[@]}"; do
+    echo "::warning title=Memgraph core dump captured::Stack trace: ${http_url}${f}"
+  done
 fi
 
-# Best-effort monitoring ping (no-op when MONITORING_HOST is unset).
+# Best-effort monitoring ping (no-op when MONITORING_HOST is unset). One log
+# line per trace file, each carrying the direct URL to that file.
 if [[ -n "${MONITORING_HOST:-}" ]]; then
-  "$SCRIPT_DIR/ping_monitoring.sh" --url "$http_url" || \
-    echo "Warning: monitoring ping failed (continuing)." >&2
+  for f in "${trace_files[@]}"; do
+    "$SCRIPT_DIR/ping_monitoring.sh" --url "${http_url}${f}" || \
+      echo "Warning: monitoring ping failed for ${f} (continuing)." >&2
+  done
 else
   echo "monitoring host not set — skipping ping."
 fi

@@ -44,8 +44,12 @@ done
 # Activate the toolchain so gdb is available, unless gdb is already on PATH.
 if ! command -v gdb >/dev/null 2>&1; then
   if [[ -n "$TOOLCHAIN" && -f "/opt/toolchain-${TOOLCHAIN}/activate" ]]; then
+    # The toolchain activate script references zsh-only vars (e.g. $ZSH_NAME),
+    # which trips our `set -u`. Drop nounset just for the source, then restore.
+    set +u
     # shellcheck disable=SC1090
     source "/opt/toolchain-${TOOLCHAIN}/activate"
+    set -u
   fi
 fi
 
@@ -72,7 +76,12 @@ mkdir -p "$OUT_DIR"
 count=0
 for core in "${cores[@]}"; do
   base="$(basename "$core")"
-  out="$OUT_DIR/${base}.txt"
+  # Core filenames embed %e (the crashing thread's name), which can contain
+  # spaces and other characters that are awkward in S3 keys and URLs. Sanitize
+  # the trace filename to a URL-safe set so the uploaded object has a clean
+  # name; the original core path is still recorded in the trace header below.
+  safe_base="$(printf '%s' "$base" | tr -c 'A-Za-z0-9._-' '_')"
+  out="$OUT_DIR/${safe_base}.txt"
   echo "Analyzing $core -> $out"
   {
     echo "=== Memgraph CI core dump stack trace ==="
