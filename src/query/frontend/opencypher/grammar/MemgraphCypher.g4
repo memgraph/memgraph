@@ -180,6 +180,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REQUIRE
                       | RESET
                       | RESOURCE
+                      | REVERT
                       | REVOKE
                       | ROLE
                       | ROLES
@@ -212,6 +213,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TERMINATE
                       | TEXT
                       | TIMEOUT
+                      | TIMESTAMP
                       | TLS
                       | TO
                       | TOPICS
@@ -798,6 +800,7 @@ versionManagementQuery : createVersionQuery
                        | showChangesQuery
                        | showVersioningGraphQuery
                        | mergeVersionQuery
+                       | revertVersionQuery
                        | dropVersionQuery
                        ;
 
@@ -814,6 +817,8 @@ showChangesQuery : SHOW VERSION DIFF ;
 showVersioningGraphQuery : SHOW VERSIONING GRAPH ;
 
 mergeVersionQuery : MERGE VERSION versionName ;
+
+revertVersionQuery : REVERT VERSION COMMIT WITH TIMESTAMP commitTimestamp=literal ;
 
 dropVersionQuery : DROP VERSION versionName ;
 

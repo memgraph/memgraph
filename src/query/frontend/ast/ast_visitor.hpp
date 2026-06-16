@@ -153,6 +153,7 @@ class ShowVersionBranchQuery;
 class ShowVersioningGraphQuery;
 class ShowChangesQuery;
 class MergeVersionQuery;
+class RevertVersionQuery;
 class DropVersionQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
@@ -203,6 +204,6 @@ class QueryVisitor
           ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery, SessionSettingQuery, UserProfileQuery, TenantProfileQuery,
           ParameterQuery, DescriptionQuery, ReloadSSLQuery, ShowMemoryInfoQuery, CreateVersionQuery, UseVersionQuery,
           ShowVersionsQuery, ShowVersionBranchQuery, ShowVersioningGraphQuery, ShowChangesQuery, MergeVersionQuery,
-          DropVersionQuery> {};
+          RevertVersionQuery, DropVersionQuery> {};
 
 }  // namespace memgraph::query

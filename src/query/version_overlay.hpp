@@ -24,7 +24,12 @@ class TriggerContextCollector;
 // subsequent query observes the version's state. The caller is expected to abort the transaction
 // afterwards, leaving master untouched. In-memory storage only (uses CreateVertexEx/CreateEdgeEx
 // for gid preservation, which the on-disk accessor does not expose); throws otherwise.
-void ApplyVersionOverlay(DbAccessor *dba, const std::vector<storage::OverlayDelta> &deltas);
+//
+// When `strict` is true, a delta whose target object is missing (e.g. a SetProperty/AddLabel/Delete
+// on a vertex/edge that was never created in the replayed set) is treated as a conflict and throws,
+// rather than being silently skipped. Used by REVERT VERSION to dry-run-validate that pruning a
+// commit does not orphan surviving deltas; the normal read path uses the lenient default.
+void ApplyVersionOverlay(DbAccessor *dba, const std::vector<storage::OverlayDelta> &deltas, bool strict = false);
 
 // Recomputes a version's complete overlay from the changes a query made, as accumulated by
 // `collector`. Because replay + the query's own writes are all recorded relative to master

@@ -54,13 +54,19 @@ storage::InMemoryStorage::InMemoryAccessor *AsInMemory(DbAccessor *dba) {
 
 }  // namespace
 
-void ApplyVersionOverlay(DbAccessor *dba, const std::vector<storage::OverlayDelta> &deltas) {
+void ApplyVersionOverlay(DbAccessor *dba, const std::vector<storage::OverlayDelta> &deltas, bool strict) {
   using storage::EdgeTypeId;
   using storage::Gid;
   using storage::LabelId;
   using storage::View;
 
   auto *mem = AsInMemory(dba);
+
+  // In strict mode a missing target means the overlay is internally inconsistent (a referenced object
+  // was never created in the replayed set) — the caller (REVERT) wants this surfaced as a conflict.
+  const auto missing = [strict](std::string_view what) {
+    if (strict) ReplayError(what);
+  };
 
   for (const auto &delta : deltas) {
     switch (delta.op) {
@@ -77,22 +83,37 @@ void ApplyVersionOverlay(DbAccessor *dba, const std::vector<storage::OverlayDelt
       }
       case storage::OverlayOp::kDeleteVertex: {
         auto vertex = mem->FindVertex(Gid::FromUint(delta.gid), View::NEW);
-        if (vertex && !mem->DetachDeleteVertex(&*vertex).has_value()) ReplayError("delete vertex");
+        if (!vertex) {
+          missing("delete vertex: target missing");
+          break;
+        }
+        if (!mem->DetachDeleteVertex(&*vertex).has_value()) ReplayError("delete vertex");
         break;
       }
       case storage::OverlayOp::kAddLabel: {
         auto vertex = mem->FindVertex(Gid::FromUint(delta.gid), View::NEW);
-        if (vertex && !vertex->AddLabel(LabelId::FromUint(delta.label_id)).has_value()) ReplayError("add label");
+        if (!vertex) {
+          missing("add label: target vertex missing");
+          break;
+        }
+        if (!vertex->AddLabel(LabelId::FromUint(delta.label_id)).has_value()) ReplayError("add label");
         break;
       }
       case storage::OverlayOp::kRemoveLabel: {
         auto vertex = mem->FindVertex(Gid::FromUint(delta.gid), View::NEW);
-        if (vertex && !vertex->RemoveLabel(LabelId::FromUint(delta.label_id)).has_value()) ReplayError("remove label");
+        if (!vertex) {
+          missing("remove label: target vertex missing");
+          break;
+        }
+        if (!vertex->RemoveLabel(LabelId::FromUint(delta.label_id)).has_value()) ReplayError("remove label");
         break;
       }
       case storage::OverlayOp::kSetVertexProperty: {
         auto vertex = mem->FindVertex(Gid::FromUint(delta.gid), View::NEW);
-        if (!vertex) break;
+        if (!vertex) {
+          missing("set vertex property: target vertex missing");
+          break;
+        }
         for (const auto &[key, value] : BufferToStore(delta.properties).Properties()) {
           if (!vertex->SetProperty(key, value).has_value()) ReplayError("set vertex property");
         }
@@ -112,12 +133,19 @@ void ApplyVersionOverlay(DbAccessor *dba, const std::vector<storage::OverlayDelt
       }
       case storage::OverlayOp::kDeleteEdge: {
         auto edge = mem->FindEdge(Gid::FromUint(delta.gid), View::NEW);
-        if (edge && !mem->DeleteEdge(&*edge).has_value()) ReplayError("delete edge");
+        if (!edge) {
+          missing("delete edge: target missing");
+          break;
+        }
+        if (!mem->DeleteEdge(&*edge).has_value()) ReplayError("delete edge");
         break;
       }
       case storage::OverlayOp::kSetEdgeProperty: {
         auto edge = mem->FindEdge(Gid::FromUint(delta.gid), View::NEW);
-        if (!edge) break;
+        if (!edge) {
+          missing("set edge property: target edge missing");
+          break;
+        }
         for (const auto &[key, value] : BufferToStore(delta.properties).Properties()) {
           if (!edge->SetProperty(key, value).has_value()) ReplayError("set edge property");
         }

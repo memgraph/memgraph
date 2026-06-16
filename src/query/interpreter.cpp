@@ -6621,6 +6621,101 @@ PreparedQuery PrepareMergeVersionQuery(ParsedQuery parsed_query, bool in_explici
           }};
 }
 
+PreparedQuery PrepareRevertVersionQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
+                                        Interpreter &interpreter) {
+  EnsureVersioningEnabled();
+  if (in_explicit_transaction) {
+    throw VersionInMulticommandTxException();
+  }
+  MG_ASSERT(current_db.execution_db_accessor_, "Revert Version query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+  auto *revert_version = utils::Downcast<RevertVersionQuery>(parsed_query.query);
+
+  // Evaluate the commit timestamp: an integer literal equal to a delta's txn_start_timestamp.
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  const auto value = revert_version->commit_timestamp_->Accept(evaluator);
+  if (!value.IsInt()) {
+    throw QueryRuntimeException("Commit timestamp must be an integer.");
+  }
+  const auto commit_timestamp = static_cast<uint64_t>(value.ValueInt());
+
+  // Revert operates on the session's active version; master has no overlay to revert.
+  if (!interpreter.active_version_) {
+    throw QueryRuntimeException("No active version. Run USE VERSION '<name>' first.");
+  }
+  const auto version_name = *interpreter.active_version_;
+  const auto versions_dir = VersionsDir(current_db);
+
+  Callback callback;
+  callback.header = {"reverted_commit", "removed_deltas", "remaining_deltas"};
+  callback.fn = [dba, versions_dir, version_name, commit_timestamp]() mutable -> std::vector<std::vector<TypedValue>> {
+    if (!std::filesystem::exists(versions_dir / version_name)) {
+      throw QueryRuntimeException("Version '{}' does not exist.", version_name);
+    }
+    storage::VersionRegistry registry{versions_dir};
+    // A version with children is frozen: rewriting its overlay would change the base its children replay.
+    if (registry.HasChildren(version_name)) {
+      throw QueryRuntimeException(
+          "Version '{}' has child branches and cannot be reverted; merge or drop its children first.", version_name);
+    }
+
+    // Partition the op-log: drop every delta from the target commit, keep the rest in order.
+    auto all = storage::VersionDeltaStore{versions_dir / version_name}.ReadAll();
+    std::vector<storage::OverlayDelta> kept;
+    kept.reserve(all.size());
+    uint64_t removed = 0;
+    for (auto &delta : all) {
+      if (delta.txn_start_timestamp == commit_timestamp) {
+        ++removed;
+      } else {
+        kept.push_back(std::move(delta));
+      }
+    }
+    if (removed == 0) {
+      throw QueryRuntimeException("No commit with timestamp {} found in version '{}'.", commit_timestamp, version_name);
+    }
+
+    // Dry-run validation: replay the ancestor chain (lenient; ancestors are unchanged) followed by the
+    // pruned leaf overlay in strict mode. A strict-replay conflict means the revert would orphan a
+    // surviving delta, so we reject and persist nothing. The replay mutates only this transaction,
+    // which the query handler aborts; master is never touched.
+    for (const auto &ancestor : registry.AncestorChain(version_name)) {
+      if (ancestor == version_name) continue;  // the leaf is replayed below, pruned and strict
+      ApplyVersionOverlay(dba, storage::VersionDeltaStore{versions_dir / ancestor}.ReadAll(), /*strict=*/false);
+    }
+    ApplyVersionOverlay(dba, kept, /*strict=*/true);  // throws QueryRuntimeException on conflict
+
+    // Validation passed — persist the pruned op-log (sequence numbers reassigned).
+    const auto remaining = kept.size();
+    storage::VersionDeltaStore{versions_dir / version_name}.ReplaceAll(kept);
+
+    return {{TypedValue{static_cast<int64_t>(commit_timestamp)},
+             TypedValue{static_cast<int64_t>(removed)},
+             TypedValue{static_cast<int64_t>(remaining)}}};
+  };
+
+  return PreparedQuery{
+      .header = std::move(callback.header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          pull_plan = std::make_shared<PullPlanVector>(handler());
+        }
+        if (pull_plan->Pull(stream, n)) {
+          // The dry-run replay mutated only this transaction; discard it so master stays untouched.
+          // The durable effect (the pruned op-log) was already written to the version's RocksDB store.
+          return QueryHandlerResult::ABORT;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::W,
+      .priority = utils::Priority::HIGH};
+}
+
 PreparedQuery PrepareDropVersionQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
   EnsureVersioningEnabled();
   if (in_explicit_transaction) {
@@ -10158,6 +10253,9 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   // Merge may apply the version's overlay to master and commit it, so it needs write access.
   void Visit(MergeVersionQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::WRITE; }
 
+  // Revert dry-run-replays the pruned overlay through a (rolled-back) write accessor, so it needs one.
+  void Visit(RevertVersionQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::WRITE; }
+
   void Visit(DropVersionQuery & /*unused*/) override {}
 
   void Visit(ShowChangesQuery & /*unused*/) override {}
@@ -10686,6 +10784,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<CreateVersionQuery>(parsed_query.query)) {
       prepared_query = PrepareCreateVersionQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+    } else if (utils::Downcast<RevertVersionQuery>(parsed_query.query)) {
+      prepared_query = PrepareRevertVersionQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, *this);
     } else if (utils::Downcast<DropVersionQuery>(parsed_query.query)) {
       prepared_query = PrepareDropVersionQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<ShowVersionsQuery>(parsed_query.query)) {

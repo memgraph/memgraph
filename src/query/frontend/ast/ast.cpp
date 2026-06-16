@@ -487,6 +487,9 @@ constexpr utils::TypeInfo query::MergeVersionQuery::kType{
 constexpr utils::TypeInfo query::ShowChangesQuery::kType{
     .id = utils::TypeId::AST_SHOW_CHANGES_QUERY, .name = "ShowChangesQuery", .superclass = &query::Query::kType};
 
+constexpr utils::TypeInfo query::RevertVersionQuery::kType{
+    .id = utils::TypeId::AST_REVERT_VERSION_QUERY, .name = "RevertVersionQuery", .superclass = &query::Query::kType};
+
 constexpr utils::TypeInfo query::DropVersionQuery::kType{
     .id = utils::TypeId::AST_DROP_VERSION_QUERY, .name = "DropVersionQuery", .superclass = &query::Query::kType};
 

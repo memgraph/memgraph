@@ -597,6 +597,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitMergeVersionQuery(MemgraphCypher::MergeVersionQueryContext *ctx) override;
 
   /**
+   * @return RevertVersionQuery*
+   */
+  antlrcpp::Any visitRevertVersionQuery(MemgraphCypher::RevertVersionQueryContext *ctx) override;
+
+  /**
    * @return DropVersionQuery*
    */
   antlrcpp::Any visitDropVersionQuery(MemgraphCypher::DropVersionQueryContext *ctx) override;

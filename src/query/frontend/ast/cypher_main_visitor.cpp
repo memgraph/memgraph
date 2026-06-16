@@ -1982,6 +1982,13 @@ antlrcpp::Any CypherMainVisitor::visitMergeVersionQuery(MemgraphCypher::MergeVer
   return merge_version;
 }
 
+antlrcpp::Any CypherMainVisitor::visitRevertVersionQuery(MemgraphCypher::RevertVersionQueryContext *ctx) {
+  auto *revert_version = storage_->Create<RevertVersionQuery>();
+  revert_version->commit_timestamp_ = std::any_cast<Expression *>(ctx->commitTimestamp->accept(this));
+  query_ = revert_version;
+  return revert_version;
+}
+
 antlrcpp::Any CypherMainVisitor::visitDropVersionQuery(MemgraphCypher::DropVersionQueryContext *ctx) {
   auto *drop_version = storage_->Create<DropVersionQuery>();
   drop_version->version_name_ = std::any_cast<Expression *>(ctx->versionName()->accept(this));

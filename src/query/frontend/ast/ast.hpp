@@ -3869,6 +3869,26 @@ class MergeVersionQuery : public memgraph::query::Query {
   Expression *version_name_{nullptr};
 };
 
+// Revert a single committed transaction from the active version's overlay (REVERT VERSION COMMIT WITH
+// TIMESTAMP x). Drops every delta whose txn_start_timestamp equals the given commit timestamp, then
+// dry-run-replays the remaining overlay to reject the revert if it would orphan surviving deltas.
+class RevertVersionQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  RevertVersionQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<RevertVersionQuery>();
+    object->commit_timestamp_ = commit_timestamp_ ? commit_timestamp_->Clone(storage) : nullptr;
+    return object;
+  }
+
+  Expression *commit_timestamp_{nullptr};
+};
+
 // Discard a named version (removes its versions/<name>/ folder).
 class DropVersionQuery : public memgraph::query::Query {
  public:
