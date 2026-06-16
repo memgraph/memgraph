@@ -3481,4 +3481,35 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesWildcardPropertyPermission) {
   EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
   EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO USER");
 }
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesForUserIncludesRolePropertyPermissions) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+  auth_handler.CreateRole("analyst", nullptr);
+
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"ssn"},
+                                       {"Employee"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+
+  auth_handler.AddRoles(user_name, {"analyst"}, {}, nullptr);
+
+  auto privileges =
+      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {ssn} ON NODES CONTAINING LABELS :Employee");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO ROLE");
+}
 #endif

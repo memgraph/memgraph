@@ -1015,6 +1015,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);
         fine_grained_grants.append_range(ShowPropertyPermissions(user->property_access_handler(), "USER"));
+        for (auto const &role : user->roles()) {
+          fine_grained_grants.append_range(ShowPropertyPermissions(role.property_access_handler(), "ROLE"));
+        }
       }
 #endif
     } else if (role) {
