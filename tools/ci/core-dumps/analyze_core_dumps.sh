@@ -16,6 +16,7 @@ CORES_DIR="/tmp/mg-cores"
 BINARY="/home/mg/memgraph/build/memgraph"
 OUT_DIR="/tmp/mg-cores/stacktraces"
 TOOLCHAIN=""
+CORE_GLOB="core.*"
 
 print_usage() {
   cat <<EOF
@@ -26,6 +27,7 @@ Options:
   --binary PATH     Path to the Memgraph binary (default: $BINARY)
   --out-dir DIR     Directory to write stack traces to (default: $OUT_DIR)
   --toolchain VER   Toolchain version used to locate gdb (e.g. v7)
+  --core-glob PAT   Glob (relative to --cores-dir) matching cores (default: $CORE_GLOB)
   -h, --help        Show this help
 EOF
 }
@@ -36,6 +38,7 @@ while [[ $# -gt 0 ]]; do
     --binary)    BINARY="$2"; shift 2 ;;
     --out-dir)   OUT_DIR="$2"; shift 2 ;;
     --toolchain) TOOLCHAIN="$2"; shift 2 ;;
+    --core-glob) CORE_GLOB="$2"; shift 2 ;;
     -h|--help)   print_usage; exit 0 ;;
     *) echo "Error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;;
   esac
@@ -59,7 +62,8 @@ if ! command -v gdb >/dev/null 2>&1; then
 fi
 
 shopt -s nullglob
-cores=("$CORES_DIR"/core.*)
+# shellcheck disable=SC2206 # CORE_GLOB is intentionally a glob pattern
+cores=("$CORES_DIR"/$CORE_GLOB)
 shopt -u nullglob
 
 if [[ ${#cores[@]} -eq 0 ]]; then

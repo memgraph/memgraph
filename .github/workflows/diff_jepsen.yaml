@@ -71,6 +71,14 @@ jobs:
           --no-conan-cache \
           run
 
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
+
       - name: Build release binary
         run: |
           ./release/package/mgbuild.sh \
@@ -161,6 +169,37 @@ jobs:
         run: |
           cd tests/jepsen
           ./run.sh process-results
+
+      - name: Analyze Jepsen core dumps
+        if: always()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+          CLUSTER_ENV: "ci-jepsen"
+        run: |
+          # run.sh gathered the nodes' cores into tests/jepsen/cores as
+          # jepsen-n<i>_<date>_core.<...>. The mgbuild container is still up and
+          # has the toolchain gdb + the matching unstripped binary, so copy the
+          # cores in and produce stack traces + a monitoring ping. Raw cores are
+          # uploaded separately by the next step.
+          cores_dir="tests/jepsen/cores"
+          if [ ! -d "$cores_dir" ] || [ -z "$(ls -A "$cores_dir" 2>/dev/null)" ]; then
+            echo "No core dumps collected — skipping analysis."
+            exit 0
+          fi
+          container="mgbuild_${TOOLCHAIN}_${OS}"
+          docker exec -u root "$container" mkdir -p /tmp/mg-cores
+          docker cp "$cores_dir/." "$container":/tmp/mg-cores/
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --exec-user root \
+          --core-glob '*core.*' \
+          --upload-core false \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Upload Jepsen core dumps to S3
         if: always()

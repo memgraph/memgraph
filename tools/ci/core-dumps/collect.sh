@@ -22,6 +22,7 @@ CORES_DIR="/tmp/mg-cores"
 BINARY="/home/mg/memgraph/build/memgraph"
 BUILD_DIR="/home/mg/memgraph/build"
 EXEC_USER="mg"
+CORE_GLOB="core.*"
 UPLOAD_CORE="auto"
 CORE_SIZE_LIMIT="2"   # GiB
 
@@ -39,6 +40,7 @@ Options:
   --binary PATH         Memgraph binary inside the container (default: $BINARY)
   --build-dir DIR       Build dir inside the container (default: $BUILD_DIR)
   --exec-user USER      Container user to run gdb/tar/core ops as (default: $EXEC_USER)
+  --core-glob PAT       Glob (relative to --cores-dir) matching cores (default: $CORE_GLOB)
   --upload-core MODE    Upload core + build artifacts: true|false|auto (default: $UPLOAD_CORE)
                         auto uploads only cores <= --core-size-limit; true uploads
                         cores below a 1 TiB hard ceiling; false never uploads.
@@ -58,6 +60,7 @@ while [[ $# -gt 0 ]]; do
     --binary)          BINARY="$2"; shift 2 ;;
     --build-dir)       BUILD_DIR="$2"; shift 2 ;;
     --exec-user)       EXEC_USER="$2"; shift 2 ;;
+    --core-glob)       CORE_GLOB="$2"; shift 2 ;;
     --upload-core)     UPLOAD_CORE="$2"; shift 2 ;;
     --core-size-limit) CORE_SIZE_LIMIT="$2"; shift 2 ;;
     -h|--help)         print_usage; exit 0 ;;
@@ -90,7 +93,7 @@ fi
 
 # Any core dumps to handle?
 core_count="$(docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
-  "ls -1 ${CORES_DIR}/core.* 2>/dev/null | wc -l" 2>/dev/null || echo 0)"
+  "ls -1 ${CORES_DIR}/${CORE_GLOB} 2>/dev/null | wc -l" 2>/dev/null || echo 0)"
 if [[ "${core_count:-0}" -eq 0 ]]; then
   echo "No core dumps found in ${BUILD_CONTAINER}:${CORES_DIR} — nothing to collect."
   exit 0
@@ -106,7 +109,7 @@ container_out="${CORES_DIR}/stacktraces"
 docker cp "$SCRIPT_DIR/analyze_core_dumps.sh" "${BUILD_CONTAINER}:/tmp/analyze_core_dumps.sh" >/dev/null 2>&1 \
   || echo "Warning: could not copy analyze script into ${BUILD_CONTAINER}." >&2
 docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
-  "bash /tmp/analyze_core_dumps.sh --cores-dir '$CORES_DIR' --binary '$BINARY' --out-dir '$container_out' --toolchain '$TOOLCHAIN'" \
+  "bash /tmp/analyze_core_dumps.sh --cores-dir '$CORES_DIR' --binary '$BINARY' --out-dir '$container_out' --toolchain '$TOOLCHAIN' --core-glob '$CORE_GLOB'" \
   || echo "Warning: analyze step exited non-zero (continuing)." >&2
 
 # Copy the produced stack traces out to a host temp dir.
@@ -146,6 +149,7 @@ if [[ "$UPLOAD_CORE" != false ]]; then
     --mode "$UPLOAD_CORE" \
     --core-size-limit "$CORE_SIZE_LIMIT" \
     --exec-user "$EXEC_USER" \
+    --core-glob "$CORE_GLOB" \
     --url-out "$url_out" \
     || echo "Warning: core upload step exited non-zero (continuing)." >&2
   binaries_url="$(sed -n 's/^binaries_url=//p' "$url_out" 2>/dev/null | head -n1)"

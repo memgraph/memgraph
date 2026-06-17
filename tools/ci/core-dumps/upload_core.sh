@@ -35,6 +35,7 @@ MODE="auto"
 CORE_SIZE_LIMIT="2"   # GiB
 URL_OUT=""
 EXEC_USER="mg"
+CORE_GLOB="core.*"
 
 # Sizes are expressed in GiB. Hard safety ceiling for --mode true so a runaway /
 # corrupt core can't trigger an absurd upload.
@@ -55,6 +56,7 @@ Options:
   --mode MODE           true | false | auto (default: $MODE)
   --core-size-limit N   auto threshold in GiB (default: $CORE_SIZE_LIMIT)
   --exec-user USER      Container user to run stat/gzip/tar as (default: $EXEC_USER)
+  --core-glob PAT       Glob (relative to --cores-dir) matching cores (default: $CORE_GLOB)
   --url-out FILE        Write 'binaries_url=' / 'core_url=' lines for the caller
   -h, --help            Show this help
 EOF
@@ -71,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --mode)            MODE="$2"; shift 2 ;;
     --core-size-limit) CORE_SIZE_LIMIT="$2"; shift 2 ;;
     --exec-user)       EXEC_USER="$2"; shift 2 ;;
+    --core-glob)       CORE_GLOB="$2"; shift 2 ;;
     --url-out)         URL_OUT="$2"; shift 2 ;;
     -h|--help)         print_usage; exit 0 ;;
     *) echo "Error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;;
@@ -115,7 +118,7 @@ base_url="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${S3_PREFIX}"
 
 # Gather cores with their sizes and decide which are within the limit.
 mapfile -t core_lines < <(docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
-  "for f in ${CORES_DIR}/core.*; do [ -e \"\$f\" ] && stat -c '%s	%n' \"\$f\"; done" 2>/dev/null)
+  "for f in ${CORES_DIR}/${CORE_GLOB}; do [ -e \"\$f\" ] && stat -c '%s	%n' \"\$f\"; done" 2>/dev/null)
 
 eligible=()
 for line in "${core_lines[@]}"; do
