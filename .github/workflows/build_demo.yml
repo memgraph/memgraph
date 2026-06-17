@@ -1,0 +1,173 @@
+name: "Build Demo MAGE Images"
+
+# Builds MAGE prod images for amd64 and arm64 on workflow_dispatch and pushes a
+# multi-arch image to the memgraph/memgraph-demo-features Docker Hub repo under
+# the tag "{description}-pr{pr_number}". The tag is overwritten if it already
+# exists (docker push / docker manifest push overwrite by default). No tests are
+# run — this is purely for producing demo images quickly.
+
+on:
+  workflow_dispatch:
+    inputs:
+      description:
+        type: string
+        description: "Short description used in the image tag. Allowed characters: letters, digits, '.', '_', '-' (must start with a letter, digit or underscore). Final tag: {description}-pr{pr_number}"
+        required: true
+      pr_number:
+        type: string
+        description: "PR number used in the image tag (digits only)"
+        required: true
+      ref:
+        type: string
+        description: "MAGE branch or tag to build (defaults to the branch this workflow runs from)"
+        default: ''
+
+run-name: "Build demo MAGE: ${{ inputs.description }}-pr${{ inputs.pr_number }}"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.description }}-pr${{ inputs.pr_number }}
+  cancel-in-progress: true
+
+env:
+  DEMO_REPOSITORY: memgraph/memgraph-demo-features
+
+jobs:
+  Validate:
+    name: "Validate inputs"
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.validate.outputs.tag }}
+    steps:
+      - name: Validate description and PR number
+        id: validate
+        env:
+          DESCRIPTION: ${{ inputs.description }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # Restrict the description to characters that are valid in a Docker
+          # tag component and forbid a leading '.'/'-' so the final tag is
+          # always a well-formed reference.
+          if [[ ! "$DESCRIPTION" =~ ^[a-zA-Z0-9_][a-zA-Z0-9._-]*$ ]]; then
+            echo "::error::Invalid description '$DESCRIPTION'. Allowed characters: letters, digits, '.', '_', '-'; must start with a letter, digit or underscore."
+            exit 1
+          fi
+          if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid pr_number '$PR_NUMBER'. Must contain digits only."
+            exit 1
+          fi
+          tag="${DESCRIPTION}-pr${PR_NUMBER}"
+          # Docker tags are limited to 128 characters.
+          if (( ${#tag} > 128 )); then
+            echo "::error::Resulting tag '$tag' exceeds the 128 character Docker tag limit."
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Validated image tag: ${tag}"
+
+  BuildAmd:
+    name: "Build MAGE (amd)"
+    needs: Validate
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    secrets: inherit
+    with:
+      arch: amd
+      build_type: Release
+      build_docker_image: prod
+      push_to_s3: true
+      print_output_url: true
+      s3_dest_dir: mage-demo-features/pr${{ inputs.pr_number }}
+      run_tests: false
+      run_smoke_tests: false
+      ref: ${{ inputs.ref }}
+
+  BuildArm:
+    name: "Build MAGE (arm)"
+    needs: Validate
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    secrets: inherit
+    with:
+      arch: arm
+      build_type: Release
+      build_docker_image: prod
+      push_to_s3: true
+      print_output_url: true
+      s3_dest_dir: mage-demo-features/pr${{ inputs.pr_number }}
+      run_tests: false
+      run_smoke_tests: false
+      ref: ${{ inputs.ref }}
+
+  PushDemo:
+    name: "Push multi-arch demo image"
+    needs: [Validate, BuildAmd, BuildArm]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.Validate.outputs.tag }}
+      AMD_URL: ${{ needs.BuildAmd.outputs.s3_package_url }}
+      ARM_URL: ${{ needs.BuildArm.outputs.s3_package_url }}
+    steps:
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Load images, re-tag and push per-arch
+        run: |
+          set -euo pipefail
+          # The reusable workflow uploads the prod tarball to S3 and returns its
+          # public https URL. Convert that to an s3:// path so we can stream it
+          # through the AWS CLI directly into `docker load`.
+          load_and_push() {
+            local url="$1" arch_suffix="$2"
+            local s3_path="${url/https:\/\/s3.eu-west-1.amazonaws.com\//s3://}"
+            echo "Downloading and loading ${s3_path} ..."
+            # `docker load` prints "Loaded image: <repo>:<tag>" — capture it so
+            # we don't need to re-derive the internal MAGE image tag.
+            local loaded
+            loaded=$(aws s3 cp "$s3_path" - | docker load | sed -n 's/^Loaded image: //p' | tail -n1)
+            if [[ -z "$loaded" ]]; then
+              echo "::error::Failed to determine the loaded image name from ${s3_path}"
+              exit 1
+            fi
+            echo "Loaded ${loaded}"
+            docker tag "$loaded" "${DEMO_REPOSITORY}:${TAG}-${arch_suffix}"
+            docker push "${DEMO_REPOSITORY}:${TAG}-${arch_suffix}"
+          }
+          load_and_push "$AMD_URL" amd64
+          load_and_push "$ARM_URL" arm64
+
+      - name: Create and push multi-arch manifest
+        run: |
+          set -euo pipefail
+          # `docker manifest push` overwrites the remote tag if it already exists.
+          docker manifest create "${DEMO_REPOSITORY}:${TAG}" \
+            --amend "${DEMO_REPOSITORY}:${TAG}-amd64" \
+            --amend "${DEMO_REPOSITORY}:${TAG}-arm64"
+          docker manifest push "${DEMO_REPOSITORY}:${TAG}"
+          echo "::notice::Pushed ${DEMO_REPOSITORY}:${TAG} (amd64 + arm64)"
+
+      - name: Get Docker Hub token
+        run: |
+          dockerhub_token=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+          echo "dockerhub_token=${dockerhub_token}" >> $GITHUB_ENV
+
+      - name: Clean up temporary per-arch tags
+        if: always()
+        run: |
+          # The manifest list references the per-arch images by digest, so
+          # deleting the helper -amd64/-arm64 tags leaves the multi-arch tag
+          # intact while keeping the repo tidy.
+          sleep 5
+          for arch_suffix in amd64 arm64; do
+            echo "Deleting temporary tag ${TAG}-${arch_suffix} ..."
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" \
+              "https://hub.docker.com/v2/repositories/${DEMO_REPOSITORY}/tags/${TAG}-${arch_suffix}/" || true
+          done
