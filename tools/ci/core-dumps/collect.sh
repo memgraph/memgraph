@@ -39,7 +39,7 @@ Options:
   --cores-dir DIR       Core dump dir inside the container (default: $CORES_DIR)
   --binary PATH         Memgraph binary inside the container (default: $BINARY)
   --build-dir DIR       Build dir inside the container (default: $BUILD_DIR)
-  --upload-core         Also upload the core + build artifacts to S3 (ci-cores/)
+  --upload-core         Also upload the core + build artifacts alongside the traces
   -h, --help            Show this help
 EOF
 }
@@ -105,21 +105,40 @@ if ! docker cp "${BUILD_CONTAINER}:${container_out}/." "$host_out" 2>/dev/null; 
   exit 0
 fi
 
-"$SCRIPT_DIR/upload_stack_trace.sh" \
-  --traces-dir "$host_out" \
-  --run-id "$RUN_ID" \
-  --job-id "$JOB_ID" \
-  || echo "Warning: upload step exited non-zero (continuing)." >&2
+# Shared destination for everything from this crash: stack traces, and (with
+# --upload-core) the core dump and build artifacts all land in the same folder.
+bucket="deps.memgraph.io"
+region="${AWS_REGION:-eu-west-1}"
+if command -v openssl >/dev/null 2>&1; then
+  hash="$(openssl rand -hex 8)"
+else
+  hash="$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+fi
+s3_prefix="ci-stack-traces/${RUN_ID}/${JOB_ID}/${hash}"
+base_url="https://s3.${region}.amazonaws.com/${bucket}/${s3_prefix}"
 
-rm -rf "$host_out"
-
-# Optionally upload the raw core + build artifacts for offline gdb analysis.
+# Optionally upload the raw core + build artifacts first, so their URLs can be
+# attached to the monitoring log line emitted by the stack-trace upload.
+core_url=""
+binaries_url=""
 if [[ "$UPLOAD_CORE" == true ]]; then
   "$SCRIPT_DIR/upload_core.sh" \
     --build-container "$BUILD_CONTAINER" \
     --cores-dir "$CORES_DIR" \
     --build-dir "$BUILD_DIR" \
-    --run-id "$RUN_ID" \
-    --job-id "$JOB_ID" \
+    --s3-prefix "$s3_prefix" \
+    --bucket "$bucket" \
+    --region "$region" \
     || echo "Warning: core upload step exited non-zero (continuing)." >&2
+  binaries_url="${base_url}/binaries.tar.gz"
+  first_core="$(docker exec "$BUILD_CONTAINER" bash -c "ls -1 ${CORES_DIR}/core.* 2>/dev/null | head -n1" 2>/dev/null)"
+  [[ -n "$first_core" ]] && core_url="${base_url}/$(basename "$first_core").gz"
 fi
+
+stack_args=(--traces-dir "$host_out" --s3-prefix "$s3_prefix" --bucket "$bucket" --region "$region")
+[[ -n "$core_url" ]] && stack_args+=(--core-url "$core_url")
+[[ -n "$binaries_url" ]] && stack_args+=(--binaries-url "$binaries_url")
+"$SCRIPT_DIR/upload_stack_trace.sh" "${stack_args[@]}" \
+  || echo "Warning: upload step exited non-zero (continuing)." >&2
+
+rm -rf "$host_out"

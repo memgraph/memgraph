@@ -2,13 +2,15 @@
 # Upload a Memgraph core dump and the matching build artifacts to S3, so the
 # core can be loaded in gdb offline.
 #
-# This is deliberately separate from the packaging debug-symbol upload
-# (tools/ci/upload-debug-symbols.sh, which writes a build-id-keyed debuginfod
-# layout under s3://<bucket>/debug-symbols/). Here we keep a self-contained
-# bundle per crash under:
-#   s3://<bucket>/ci-cores/<run-id>/<job-id>/<hash>/
+# The destination prefix is handed in by collect.sh, so the core, the build
+# artifacts and the stack traces for one crash all share a folder:
+#   s3://<bucket>/<s3-prefix>/
 #     binaries.tar.gz   - memgraph + *.debug + *.so, retaining build/ structure
 #     <core>.gz         - the gzip-compressed core dump(s)
+#
+# This is deliberately the same folder as the stack traces but stays a separate
+# concern from the packaging debug-symbol upload (tools/ci/upload-debug-symbols.sh,
+# which writes a build-id-keyed debuginfod layout under .../debug-symbols/).
 #
 # Both the core and the binaries live inside the build container and the aws
 # CLI does not, so everything is streamed out of the container straight into
@@ -20,21 +22,19 @@ set -uo pipefail
 BUILD_CONTAINER=""
 CORES_DIR="/tmp/mg-cores"
 BUILD_DIR="/home/mg/memgraph/build"
-RUN_ID=""
-JOB_ID=""
+S3_PREFIX=""
 S3_BUCKET="deps.memgraph.io"
 S3_REGION="${AWS_REGION:-eu-west-1}"
 
 print_usage() {
   cat <<EOF
-Usage: upload_core.sh --build-container NAME --run-id ID --job-id ID [OPTIONS]
+Usage: upload_core.sh --build-container NAME --s3-prefix PREFIX [OPTIONS]
 
 Options:
   --build-container NM  Container holding the core + build artifacts (required)
+  --s3-prefix PREFIX    S3 key prefix to upload under (required)
   --cores-dir DIR       Core dump dir inside the container (default: $CORES_DIR)
   --build-dir DIR       Build dir inside the container (default: $BUILD_DIR)
-  --run-id ID           Workflow run id (required)
-  --job-id ID           Job identifier (required)
   --bucket NAME         S3 bucket (default: $S3_BUCKET)
   --region NAME         S3 region for the HTTP URL (default: $S3_REGION)
   -h, --help            Show this help
@@ -46,8 +46,7 @@ while [[ $# -gt 0 ]]; do
     --build-container) BUILD_CONTAINER="$2"; shift 2 ;;
     --cores-dir)       CORES_DIR="$2"; shift 2 ;;
     --build-dir)       BUILD_DIR="$2"; shift 2 ;;
-    --run-id)          RUN_ID="$2"; shift 2 ;;
-    --job-id)          JOB_ID="$2"; shift 2 ;;
+    --s3-prefix)       S3_PREFIX="$2"; shift 2 ;;
     --bucket)          S3_BUCKET="$2"; shift 2 ;;
     --region)          S3_REGION="$2"; shift 2 ;;
     -h|--help)         print_usage; exit 0 ;;
@@ -55,8 +54,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$BUILD_CONTAINER" || -z "$RUN_ID" || -z "$JOB_ID" ]]; then
-  echo "Error: --build-container, --run-id and --job-id are required" >&2
+if [[ -z "$BUILD_CONTAINER" || -z "$S3_PREFIX" ]]; then
+  echo "Error: --build-container and --s3-prefix are required" >&2
   exit 1
 fi
 
@@ -70,15 +69,8 @@ if ! docker inspect "$BUILD_CONTAINER" >/dev/null 2>&1; then
   exit 0
 fi
 
-# Random leaf so concurrent jobs / matrix legs / re-runs never collide.
-if command -v openssl >/dev/null 2>&1; then
-  hash="$(openssl rand -hex 8)"
-else
-  hash="$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-fi
-prefix="ci-cores/${RUN_ID}/${JOB_ID}/${hash}"
-base_uri="s3://${S3_BUCKET}/${prefix}"
-base_url="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${prefix}"
+base_uri="s3://${S3_BUCKET}/${S3_PREFIX}"
+base_url="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${S3_PREFIX}"
 
 # 1) The 445 MiB ELF set (binary + .debug sidecars + .so), tarred inside the
 #    container with build/-relative paths and streamed to S3 as one object.
@@ -88,7 +80,7 @@ echo "Uploading build artifacts (memgraph + *.debug + *.so) -> ${base_uri}/binar
 if docker exec -u mg "$BUILD_CONTAINER" bash -c \
      "cd '$build_parent' && find '$build_base' -type f \\( -name memgraph -o -name '*.debug' -o -name '*.so' \\) -print0 | tar --null -czf - -T -" \
      | aws s3 cp - "${base_uri}/binaries.tar.gz"; then
-  echo "  build artifacts uploaded."
+  echo "  build artifacts uploaded: ${base_url}/binaries.tar.gz"
 else
   echo "Warning: build artifact upload failed (continuing)." >&2
 fi

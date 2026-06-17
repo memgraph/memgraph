@@ -13,6 +13,8 @@ set -euo pipefail
 URL=""
 MESSAGE=""
 SIGNAL=""
+CORE_URL=""
+BINARIES_URL=""
 
 print_usage() {
   cat <<EOF
@@ -24,6 +26,8 @@ Options:
   --url URL         HTTP URL of the uploaded stack trace (required)
   --message TEXT    Override the log message (default mentions the URL)
   --signal N        Signal that killed Memgraph (adds signal/exit_status labels)
+  --core-url URL    Core dump URL (adds a core_url label)
+  --binaries-url URL  Build-artifacts URL (adds a binaries_url label)
   -h, --help        Show this help
 
 Environment:
@@ -41,10 +45,12 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --url)     URL="$2"; shift 2 ;;
-    --message) MESSAGE="$2"; shift 2 ;;
-    --signal)  SIGNAL="$2"; shift 2 ;;
-    -h|--help) print_usage; exit 0 ;;
+    --url)          URL="$2"; shift 2 ;;
+    --message)      MESSAGE="$2"; shift 2 ;;
+    --signal)       SIGNAL="$2"; shift 2 ;;
+    --core-url)     CORE_URL="$2"; shift 2 ;;
+    --binaries-url) BINARIES_URL="$2"; shift 2 ;;
+    -h|--help)      print_usage; exit 0 ;;
     *) echo "Error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;;
   esac
 done
@@ -107,6 +113,7 @@ ts_ns="$(date +%s)000000000"
 payload="$(CLUSTER_ID="$CLUSTER_ID" CLUSTER_ENV="$CLUSTER_ENV" \
   SERVICE_NAME="$SERVICE_NAME" STACK_TRACE_URL="$URL" \
   SIGNAL="$SIGNAL" SIGNAL_NAME="$SIGNAL_NAME" EXIT_STATUS="$EXIT_STATUS" \
+  CORE_URL="$CORE_URL" BINARIES_URL="$BINARIES_URL" \
   MSG="$MESSAGE" TS_NS="$ts_ns" python3 - <<'PY'
 import json, os
 stream = {
@@ -125,6 +132,11 @@ if os.environ.get("SIGNAL"):
     stream["signal"] = os.environ["SIGNAL"]
     stream["signal_name"] = os.environ.get("SIGNAL_NAME", "")
     stream["exit_status"] = os.environ.get("EXIT_STATUS", "")
+# Core dump / build-artifacts URLs are present only when --upload-core ran.
+if os.environ.get("CORE_URL"):
+    stream["core_url"] = os.environ["CORE_URL"]
+if os.environ.get("BINARIES_URL"):
+    stream["binaries_url"] = os.environ["BINARIES_URL"]
 payload = {"streams": [{"stream": stream,
                         "values": [[os.environ["TS_NS"], os.environ["MSG"]]]}]}
 print(json.dumps(payload))
