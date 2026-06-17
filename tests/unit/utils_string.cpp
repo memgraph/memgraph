@@ -67,6 +67,12 @@ TEST(String, Replace) {
   EXPECT_EQ(Replace("ababccab.", "ab", ""), "cc.");
   EXPECT_EQ(Replace("aabb", "ab", ""), "ab");
   EXPECT_EQ(Replace("ababcab.", "ab", "abab"), "ababababcabab.");
+  // Empty match inserts the replacement at every byte boundary (like std::regex_replace).
+  EXPECT_EQ(Replace("abc", "", "-"), "-a-b-c-");
+  EXPECT_EQ(Replace("A", "", "B"), "BAB");
+  EXPECT_EQ(Replace("", "", "a"), "a");
+  EXPECT_EQ(Replace("abc", "", ""), "abc");
+  EXPECT_EQ(Replace("", "", ""), "");
 }
 
 TEST(String, SplitNoLimit) {
