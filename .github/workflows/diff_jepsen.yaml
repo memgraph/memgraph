@@ -99,6 +99,39 @@ jobs:
           --arch $ARCH \
           copy --binary --use-make-install --dest-dir build
 
+      # TEMPORARY: validates the Jepsen core-dump pipeline by crashing memgraph
+      # INSIDE a Jepsen node. A node has no memgraph until a test deploys it, so
+      # we replicate run.sh's deployment (build/ is the make-install tree it uses,
+      # binary + libs in rpath layout) into one node, start memgraph there, and
+      # send it SIGSEGV to produce a core in /tmp/mg-cores. run.sh's collection
+      # and the "Analyze Jepsen core dumps" step then pick it up. Exits 1 so the
+      # job skips the tests and goes straight to results/collection/analysis.
+      # Remove (or gate) before merge.
+      - name: Trigger core dump in Jepsen node (CI validation)
+        run: |
+          set -uo pipefail
+          node="jepsen-n1"
+          docker exec -u root "$node" bash -c '
+            apt-get update -qq && apt-get install -y -qq python3 || true
+            rm -rf /opt/memgraph && mkdir -p /opt/memgraph
+            mkdir -p /tmp/mg-cores && chmod 1777 /tmp/mg-cores'
+          # Deploy the binary + its libs into the node (same layout run.sh uses).
+          docker cp build/. "$node:/opt/memgraph/"
+          # Start memgraph in the node, let it initialise, then crash it.
+          docker exec -u root "$node" bash -c '
+            cd /opt/memgraph
+            ulimit -c unlimited
+            ./memgraph --data-directory=/tmp/mg-data --bolt-port=7687 \
+              --telemetry-enabled=false --log-level=ERROR > /tmp/memgraph-crash.log 2>&1 &
+            pid=$!
+            sleep 15
+            kill -SEGV "$pid" 2>/dev/null || true
+            sleep 5
+            echo "Cores produced in node:"; ls -l /tmp/mg-cores/ 2>/dev/null || true
+            echo "--- memgraph log tail ---"; tail -n 20 /tmp/memgraph-crash.log 2>/dev/null || true'
+          echo "Exiting 1 so the job proceeds to core-dump collection/analysis."
+          exit 1
+
       - name: Run unit tests for Jepsen code
         run: |
           cd tests/jepsen
