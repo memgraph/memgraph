@@ -49,8 +49,13 @@ VersionInfo DecodeInfo(std::string_view value) {
 }
 }  // namespace
 
+std::recursive_mutex &VersioningStoreMutex() {
+  static std::recursive_mutex mutex;
+  return mutex;
+}
+
 VersionRegistry::VersionRegistry(const std::filesystem::path &versions_dir)
-    : store_(std::make_unique<kvstore::KVStore>(versions_dir / ".registry")) {}
+    : store_lock_(VersioningStoreMutex()), store_(std::make_unique<kvstore::KVStore>(versions_dir / ".registry")) {}
 
 uint64_t VersionRegistry::Add(const std::string &name, const std::string &description, const std::string &parent) {
   uint64_t next = kMasterVersionNumber + 1;  // branches start right after master

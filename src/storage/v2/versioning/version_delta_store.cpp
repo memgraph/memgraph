@@ -113,7 +113,7 @@ OverlayDelta DecodeDelta(std::string_view value) {
 }  // namespace
 
 VersionDeltaStore::VersionDeltaStore(std::filesystem::path path)
-    : store_(std::make_unique<kvstore::KVStore>(std::move(path))) {
+    : store_lock_(VersioningStoreMutex()), store_(std::make_unique<kvstore::KVStore>(std::move(path))) {
   // Resume the sequence counter past any previously stored deltas.
   next_seq_ = store_->Size(std::string{kDeltaPrefix});
 }
@@ -143,6 +143,8 @@ void VersionDeltaStore::ReplaceAll(const std::vector<OverlayDelta> &deltas) {
 }
 
 void VersionDeltaStore::Drop(const std::filesystem::path &path) {
+  // Serialize against any concurrent open of this store (the directory must not be open while removed).
+  std::lock_guard<std::recursive_mutex> guard(VersioningStoreMutex());
   std::error_code ec;
   std::filesystem::remove_all(path, ec);
   if (ec) {

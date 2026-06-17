@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -21,6 +22,7 @@
 #include <vector>
 
 #include "kvstore/kvstore.hpp"
+#include "storage/v2/versioning/versioning_lock.hpp"
 
 namespace memgraph::storage {
 
@@ -70,6 +72,9 @@ class VersionRegistry {
 
  private:
   static constexpr std::string_view kCounterKey = ".counter";
+  // Held for the object's lifetime; serializes versioning store opens (see versioning_lock.hpp).
+  // Declared before store_ so it is acquired before — and released after — the RocksDB instance.
+  std::unique_lock<std::recursive_mutex> store_lock_;
   std::unique_ptr<kvstore::KVStore> store_;
 };
 
