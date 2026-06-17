@@ -183,7 +183,7 @@ Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_i
 }
 
 void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
-                                                   Edge *edge) {
+                                                   EdgeRef edge) {
   edge_type_.CollectOnEdgeRemoval(edge_type, from_vertex, to_vertex, edge);
 }
 

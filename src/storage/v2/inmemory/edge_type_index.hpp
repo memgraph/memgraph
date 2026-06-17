@@ -36,7 +36,9 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Vertex *from_vertex;
     Vertex *to_vertex;
 
-    Edge *edge;  // TODO: Generalise to EdgeRef?
+    Edge *edge;  // Stays Edge* deliberately: the upstream abort tuple now carries EdgeRef,
+                 // but this index is only populated when properties_on_edges=true, where
+                 // the edge object is always materialised and a raw pointer is valid.
 
     uint64_t timestamp;
 
