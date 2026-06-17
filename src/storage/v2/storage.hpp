@@ -208,7 +208,7 @@ class Storage {
 
   virtual ~Storage() = default;
 
-  virtual void RebindMetricHandles(metrics::DatabaseMetricHandles new_handles) { metric_handles_ = new_handles; }
+  virtual void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) = 0;
 
   std::string name() const { return config_.salient.name.str(); }
 

@@ -914,6 +914,11 @@ StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(utils::UUID const &uui
 
 DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
   std::lock_guard const lock{databases_.mutex};
+  return AddDatabaseUnsafe(uuid, name);
+}
+
+// Unsafe variants assume the caller already holds databases_.mutex.
+DatabaseMetricHandles PrometheusMetrics::AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name) {
   if (name == dbms::kDefaultDB) {
     default_db_uuid_ = uuid;
   }
@@ -1039,6 +1044,10 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
 
 void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   std::lock_guard const lock{databases_.mutex};
+  RemoveDatabaseUnsafe(uuid);
+}
+
+void PrometheusMetrics::RemoveDatabaseUnsafe(utils::UUID const &uuid) {
   auto it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
   if (it == databases_.entries.end()) return;
   auto &h = it->handles;
@@ -1149,9 +1158,10 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
 }
 
 DatabaseMetricHandles PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID const &new_uuid) {
+  std::lock_guard const lock{databases_.mutex};
   if (!default_db_uuid_) return {};
-  RemoveDatabase(*default_db_uuid_);
-  return AddDatabase(new_uuid, dbms::kDefaultDB);
+  RemoveDatabaseUnsafe(*default_db_uuid_);
+  return AddDatabaseUnsafe(new_uuid, dbms::kDefaultDB);
 }
 
 void PrometheusMetrics::UpdateGauges() {

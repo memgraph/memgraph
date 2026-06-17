@@ -408,6 +408,9 @@ class PrometheusMetrics {
     DatabaseMetricHandles handles;
   };
 
+  void RemoveDatabaseUnsafe(utils::UUID const &uuid);
+  DatabaseMetricHandles AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name);
+
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 
   prometheus::Registry registry_;

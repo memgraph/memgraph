@@ -534,12 +534,14 @@ InMemoryStorage::~InMemoryStorage() {
   }
 }
 
-void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles new_handles) {
+void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) {
   gc_runner_.Pause();
+  snapshot_runner_.Pause();
   {
     std::lock_guard const gc_guard{gc_lock_};
     metric_handles_ = new_handles;
   }
+  snapshot_runner_.Resume();
   gc_runner_.Resume();
 }
 
