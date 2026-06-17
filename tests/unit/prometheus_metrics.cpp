@@ -203,7 +203,13 @@ TEST(PrometheusMetrics, RebindDefaultDatabaseUUIDUpdatesUuidLabel) {
   auto const label = FindUuidLabel(families, "memgraph_vertex_count", "memgraph");
   ASSERT_TRUE(label.has_value());
   EXPECT_EQ(*label, std::string(uuid_b)) << "uuid label should reflect the new UUID after rebind";
-  EXPECT_NE(*label, std::string(uuid_a)) << "old UUID should no longer appear in metrics";
+
+  auto const has_old_uuid = r::any_of(families, [&](auto const &family) {
+    return r::any_of(family.metric, [&](auto const &metric) {
+      return r::any_of(metric.label, [&](auto const &l) { return l.name == "uuid" && l.value == std::string(uuid_a); });
+    });
+  });
+  EXPECT_FALSE(has_old_uuid) << "old UUID series should be fully removed after rebind";
 }
 
 TEST(MetricHandles, GaugeHandleNullSafety) {
