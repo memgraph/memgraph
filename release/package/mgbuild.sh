@@ -2550,27 +2550,29 @@ check_core_dumps() {
     echo "  kernel.core_pattern OK: ${actual_core_pattern}"
   fi
 
-  # A zero core size soft limit silently disables core dumps.
-  local core_limit
-  core_limit="$(ulimit -c)"
-  if [[ "$core_limit" == "0" ]]; then
-    ok=false
-    echo "::warning title=Core dumps disabled by ulimit::core file size limit (ulimit -c) is 0; core dumps will be suppressed. Set 'ulimit -c unlimited' for the runner/test process."
-  else
-    echo "  core file size limit (ulimit -c) OK: ${core_limit}"
-  fi
-
-  # The crash writes into the container filesystem at $cores_dir, so make sure
-  # it exists and is world-writable there. Best-effort; warn if the container
-  # isn't up yet.
+  # The process that dumps is Memgraph running INSIDE the build container, so
+  # both the core size limit and the dump directory must be checked/prepared
+  # there. The host shell's ulimit is irrelevant to a containerized crash.
   if docker inspect "$build_container" >/dev/null 2>&1; then
+    # A zero core size soft limit silently disables core dumps.
+    local core_limit
+    core_limit="$(docker exec -u mg "$build_container" bash -c 'ulimit -c' 2>/dev/null)"
+    if [[ "$core_limit" == "0" ]]; then
+      ok=false
+      echo "::warning title=Core dumps disabled by ulimit::core file size limit (ulimit -c) is 0 inside ${build_container}; core dumps will be suppressed. Start the container with --ulimit core=-1."
+    else
+      echo "  core file size limit (ulimit -c) OK inside ${build_container}: ${core_limit}"
+    fi
+
+    # The crash writes into the container filesystem at $cores_dir, so make sure
+    # it exists and is world-writable there.
     if docker exec -u root "$build_container" bash -c "mkdir -p '$cores_dir' && chmod 1777 '$cores_dir'" >/dev/null 2>&1; then
       echo "  ${cores_dir} ready inside ${build_container}"
     else
       echo "::warning title=Core dump directory not writable::Could not create ${cores_dir} inside ${build_container}."
     fi
   else
-    echo "  Container ${build_container} not running yet; skipping in-container ${cores_dir} setup."
+    echo "  Container ${build_container} not running yet; skipping in-container ulimit/${cores_dir} checks."
   fi
 
   if [[ "$ok" == true ]]; then
