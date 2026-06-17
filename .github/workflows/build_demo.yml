@@ -7,13 +7,6 @@ name: "Build Demo MAGE Images"
 # run — this is purely for producing demo images quickly.
 
 on:
-  # TODO(temporary): push trigger so the workflow can be tested before it is
-  # merged to master. workflow_dispatch only becomes available once the file is
-  # on the default branch. Remove this `push` block (and the input fallbacks in
-  # the Validate job) before merging.
-  push:
-    branches:
-      - demo-release-workflow
   workflow_dispatch:
     inputs:
       description:
@@ -25,7 +18,7 @@ on:
         description: "PR number to build (digits only). The MAGE ref to build is inferred from this PR, and it is also used in the image tag."
         required: true
 
-run-name: "Build demo MAGE: ${{ inputs.description || 'demo-test' }}-pr${{ inputs.pr_number || '4279' }}"
+run-name: "Build demo MAGE: ${{ inputs.description }}-pr${{ inputs.pr_number }}"
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.description }}-pr${{ inputs.pr_number }}
@@ -46,11 +39,8 @@ jobs:
       - name: Validate inputs and resolve PR ref
         id: validate
         env:
-          # TODO(temporary): the `|| '...'` fallbacks let the push trigger test
-          # this workflow without dispatch inputs. Remove the fallbacks (and the
-          # push trigger) before merging.
-          DESCRIPTION: ${{ inputs.description || 'demo-test' }}
-          PR_NUMBER: ${{ inputs.pr_number || '4279' }}
+          DESCRIPTION: ${{ inputs.description }}
+          PR_NUMBER: ${{ inputs.pr_number }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
