@@ -7,6 +7,13 @@ name: "Build Demo MAGE Images"
 # run — this is purely for producing demo images quickly.
 
 on:
+  # TODO(temporary): push trigger so the workflow can be tested before it is
+  # merged to master. workflow_dispatch only becomes available once the file is
+  # on the default branch. Remove this `push` block (and the input fallbacks in
+  # the Validate job) before merging.
+  push:
+    branches:
+      - demo-release-workflow
   workflow_dispatch:
     inputs:
       description:
@@ -22,7 +29,7 @@ on:
         description: "MAGE branch or tag to build (defaults to the branch this workflow runs from)"
         default: ''
 
-run-name: "Build demo MAGE: ${{ inputs.description }}-pr${{ inputs.pr_number }}"
+run-name: "Build demo MAGE: ${{ inputs.description || 'demo-test' }}-pr${{ inputs.pr_number || '4279' }}"
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.description }}-pr${{ inputs.pr_number }}
@@ -37,12 +44,16 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.validate.outputs.tag }}
+      pr_number: ${{ steps.validate.outputs.pr_number }}
     steps:
       - name: Validate description and PR number
         id: validate
         env:
-          DESCRIPTION: ${{ inputs.description }}
-          PR_NUMBER: ${{ inputs.pr_number }}
+          # TODO(temporary): the `|| '...'` fallbacks let the push trigger test
+          # this workflow without dispatch inputs. Remove the fallbacks (and the
+          # push trigger) before merging.
+          DESCRIPTION: ${{ inputs.description || 'demo-test' }}
+          PR_NUMBER: ${{ inputs.pr_number || '4279' }}
         run: |
           set -euo pipefail
           # Restrict the description to characters that are valid in a Docker
@@ -63,6 +74,7 @@ jobs:
             exit 1
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "Validated image tag: ${tag}"
 
   BuildAmd:
@@ -76,7 +88,7 @@ jobs:
       build_docker_image: prod
       push_to_s3: true
       print_output_url: true
-      s3_dest_dir: mage-demo-features/pr${{ inputs.pr_number }}
+      s3_dest_dir: mage-demo-features/pr${{ needs.Validate.outputs.pr_number }}
       run_tests: false
       run_smoke_tests: false
       ref: ${{ inputs.ref }}
@@ -92,7 +104,7 @@ jobs:
       build_docker_image: prod
       push_to_s3: true
       print_output_url: true
-      s3_dest_dir: mage-demo-features/pr${{ inputs.pr_number }}
+      s3_dest_dir: mage-demo-features/pr${{ needs.Validate.outputs.pr_number }}
       run_tests: false
       run_smoke_tests: false
       ref: ${{ inputs.ref }}
