@@ -671,7 +671,141 @@ jobs:
         run: |
           ./tools/ci/wait-for-docker-images.sh
 
-      # --- prod variant tests ---
+      # --- debug variant tests (run FIRST) ---
+      # prod and debug ship the exact same memgraph binary, but only the debug
+      # image carries gdb + debug symbols, so a debug-image crash is the one we
+      # can fully analyze. We run it first so a crash is caught here (and prod is
+      # then skipped) rather than slipping through an un-analyzable prod run.
+      # memgraph is PID 1, so a crash exits the container — it is started WITHOUT
+      # --rm so the exited container (and its core) survive for collection.
+      - name: "Start container for e2e tests (debug)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        run: |
+          docker network create $MEMGRAPH_NETWORK || true
+
+          docker run -d \
+            --network $MEMGRAPH_NETWORK \
+            --name $MAGE_CONTAINER \
+            --ulimit core=-1 \
+            -p $MEMGRAPH_PORT:$MEMGRAPH_PORT \
+            -p 7444:7444 \
+            -p 9091:9091 \
+            -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
+            -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
+            -e OPENAI_API_KEY=$OPENAI_API_KEY \
+            ${DOCKER_REPOSITORY_NAME}:$DEBUG_IMAGE_TAG \
+            --telemetry-enabled=False \
+            --log-level=INFO \
+            --metrics-format=OpenMetrics
+
+          # Ensure the core dump dir exists in the container so a crashing
+          # memgraph can write a core here (kernel.core_pattern points at it).
+          docker exec -u root $MAGE_CONTAINER sh -c 'mkdir -p /tmp/mg-cores && chmod 1777 /tmp/mg-cores' || true
+
+      # TEMPORARY: validates the MAGE core-dump capture/analysis/upload/ping
+      # pipeline. Deliberately crashes memgraph in the debug container with a
+      # pathologically nested query (parser stack overflow). memgraph is PID 1,
+      # so this exits the container; we exit 1 so the job skips straight to
+      # "Collect core dumps (debug)". Remove (or gate) before merge.
+      - name: "Trigger core dump (CI pipeline validation, debug)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        run: |
+          # Wait for Bolt, then send the crash query (mgconsole is on PATH in the image).
+          for _ in $(seq 1 30); do
+            echo "RETURN 1;" | docker exec -i $MAGE_CONTAINER mgconsole --port $MEMGRAPH_PORT >/dev/null 2>&1 && break
+            sleep 1
+          done
+          python3 -c "n=200000; print('RETURN '+'('*n+'1'+')'*n+';')" \
+            | docker exec -i $MAGE_CONTAINER mgconsole --port $MEMGRAPH_PORT || true
+          echo "Triggered crash; exiting 1 so the job proceeds to core-dump collection."
+          exit 1
+
+      - name: "Run end-to-end tests (debug)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        env:
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
+            test-mage e2e
+
+      - name: "Run End-to-end correctness tests (debug)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        env:
+          PYTHONPATH: "$PWD/tests/e2e"
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
+            test-mage e2e-correctness \
+            --memgraph-port $MEMGRAPH_PORT \
+            --neo4j-port $NEO4J_PORT \
+            --neo4j-container $NEO4J_CONTAINER \
+            --mage-container $MAGE_CONTAINER \
+            --memgraph-network $MEMGRAPH_NETWORK
+
+      - name: "Run End-to-end migration tests (debug)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        env:
+          PYTHONPATH: "$PWD/e2e"
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
+            test-mage e2e-migration \
+            --mage-container $MAGE_CONTAINER \
+            --mysql-container $MYSQL_CONTAINER \
+            --postgresql-container $POSTGRESQL_CONTAINER \
+            --clean-env
+
+      - name: "Collect core dumps (debug)"
+        if: ${{ failure() && inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect_from_image.sh \
+          --source-container $MAGE_CONTAINER \
+          --image "${DOCKER_REPOSITORY_NAME}:${DEBUG_IMAGE_TAG}" \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
+      - name: "Stop container for e2e tests (debug)"
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') && always() }}
+        run: |
+          docker rm -f $MAGE_CONTAINER || true
+
+      # --- prod variant tests (run after debug; no core collection — same binary
+      # as debug, and the prod image has no gdb/symbols to analyze a core with) ---
       - name: "Start container for e2e tests (prod)"
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
@@ -760,97 +894,6 @@ jobs:
 
       - name: "Stop container for e2e tests (prod)"
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') && always() }}
-        run: |
-          docker stop $MAGE_CONTAINER || true
-
-      # --- debug variant tests (run after prod block so MAGE_CONTAINER is free) ---
-      - name: "Start container for e2e tests (debug)"
-        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
-        run: |
-          docker network create $MEMGRAPH_NETWORK || true
-
-          docker run -d \
-            --rm \
-            --network $MEMGRAPH_NETWORK \
-            --name $MAGE_CONTAINER \
-            -p $MEMGRAPH_PORT:$MEMGRAPH_PORT \
-            -p 7444:7444 \
-            -p 9091:9091 \
-            -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
-            -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
-            -e OPENAI_API_KEY=$OPENAI_API_KEY \
-            ${DOCKER_REPOSITORY_NAME}:$DEBUG_IMAGE_TAG \
-            --telemetry-enabled=False \
-            --log-level=INFO
-
-      - name: "Run end-to-end tests (debug)"
-        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
-        env:
-          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
-          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
-          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
-        run: |
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os "$OS" \
-            --arch $ARCH \
-            --build-type $BUILD_TYPE \
-            --cugraph $CUGRAPH \
-            --enable-monitoring \
-            --monitoring-host $MONITORING_HOST \
-            --cluster-id $CLUSTER_ID \
-            --cluster-env $CLUSTER_ENV \
-            test-mage e2e
-
-      - name: "Run End-to-end correctness tests (debug)"
-        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
-        env:
-          PYTHONPATH: "$PWD/tests/e2e"
-          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
-          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
-          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
-        run: |
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os "$OS" \
-            --arch $ARCH \
-            --build-type $BUILD_TYPE \
-            --enable-monitoring \
-            --monitoring-host $MONITORING_HOST \
-            --cluster-id $CLUSTER_ID \
-            --cluster-env $CLUSTER_ENV \
-            test-mage e2e-correctness \
-            --memgraph-port $MEMGRAPH_PORT \
-            --neo4j-port $NEO4J_PORT \
-            --neo4j-container $NEO4J_CONTAINER \
-            --mage-container $MAGE_CONTAINER \
-            --memgraph-network $MEMGRAPH_NETWORK
-
-      - name: "Run End-to-end migration tests (debug)"
-        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
-        env:
-          PYTHONPATH: "$PWD/e2e"
-          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
-          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
-          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
-        run: |
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os "$OS" \
-            --arch $ARCH \
-            --build-type $BUILD_TYPE \
-            --enable-monitoring \
-            --monitoring-host $MONITORING_HOST \
-            --cluster-id $CLUSTER_ID \
-            --cluster-env $CLUSTER_ENV \
-            test-mage e2e-migration \
-            --mage-container $MAGE_CONTAINER \
-            --mysql-container $MYSQL_CONTAINER \
-            --postgresql-container $POSTGRESQL_CONTAINER \
-            --clean-env
-
-      - name: "Stop container for e2e tests (debug)"
-        if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') && always() }}
         run: |
           docker stop $MAGE_CONTAINER || true
 

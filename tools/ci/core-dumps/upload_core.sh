@@ -34,6 +34,7 @@ S3_REGION="eu-west-1"
 MODE="auto"
 CORE_SIZE_LIMIT="2"   # GiB
 URL_OUT=""
+EXEC_USER="mg"
 
 # Sizes are expressed in GiB. Hard safety ceiling for --mode true so a runaway /
 # corrupt core can't trigger an absurd upload.
@@ -53,6 +54,7 @@ Options:
   --region NAME         S3 region for the HTTP URL (default: $S3_REGION)
   --mode MODE           true | false | auto (default: $MODE)
   --core-size-limit N   auto threshold in GiB (default: $CORE_SIZE_LIMIT)
+  --exec-user USER      Container user to run stat/gzip/tar as (default: $EXEC_USER)
   --url-out FILE        Write 'binaries_url=' / 'core_url=' lines for the caller
   -h, --help            Show this help
 EOF
@@ -68,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     --region)          S3_REGION="$2"; shift 2 ;;
     --mode)            MODE="$2"; shift 2 ;;
     --core-size-limit) CORE_SIZE_LIMIT="$2"; shift 2 ;;
+    --exec-user)       EXEC_USER="$2"; shift 2 ;;
     --url-out)         URL_OUT="$2"; shift 2 ;;
     -h|--help)         print_usage; exit 0 ;;
     *) echo "Error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;;
@@ -111,7 +114,7 @@ base_uri="s3://${S3_BUCKET}/${S3_PREFIX}"
 base_url="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${S3_PREFIX}"
 
 # Gather cores with their sizes and decide which are within the limit.
-mapfile -t core_lines < <(docker exec "$BUILD_CONTAINER" bash -c \
+mapfile -t core_lines < <(docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
   "for f in ${CORES_DIR}/core.*; do [ -e \"\$f\" ] && stat -c '%s	%n' \"\$f\"; done" 2>/dev/null)
 
 eligible=()
@@ -137,7 +140,7 @@ fi
 build_parent="$(dirname "$BUILD_DIR")"
 build_base="$(basename "$BUILD_DIR")"
 echo "Uploading build artifacts (memgraph + *.debug + *.so) -> ${base_uri}/binaries.tar.gz"
-if docker exec -u mg "$BUILD_CONTAINER" bash -c \
+if docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
      "cd '$build_parent' && find '$build_base' -type f \\( -name memgraph -o -name '*.debug' -o -name '*.so' \\) -print0 | tar --null -czf - -T -" \
      | aws s3 cp - "${base_uri}/binaries.tar.gz"; then
   echo "  build artifacts uploaded: ${base_url}/binaries.tar.gz"
@@ -154,7 +157,7 @@ for entry in "${eligible[@]}"; do
   core="${entry#*	}"
   cbase="$(basename "$core")"
   echo "Uploading core ${core} ($((raw_size / 1048576)) MiB raw) -> ${base_uri}/${cbase}.gz"
-  if docker exec "$BUILD_CONTAINER" sh -c "gzip -c '$core'" \
+  if docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" sh -c "gzip -c '$core'" \
        | aws s3 cp --expected-size "$raw_size" - "${base_uri}/${cbase}.gz"; then
     echo "  core uploaded: ${base_url}/${cbase}.gz"
     [[ -z "$first_core_url" ]] && first_core_url="${base_url}/${cbase}.gz"

@@ -21,7 +21,7 @@ BUILD_CONTAINER=""
 CORES_DIR="/tmp/mg-cores"
 BINARY="/home/mg/memgraph/build/memgraph"
 BUILD_DIR="/home/mg/memgraph/build"
-MGBUILD_ROOT_DIR="/home/mg/memgraph"
+EXEC_USER="mg"
 UPLOAD_CORE="auto"
 CORE_SIZE_LIMIT="2"   # GiB
 
@@ -38,6 +38,7 @@ Options:
   --cores-dir DIR       Core dump dir inside the container (default: $CORES_DIR)
   --binary PATH         Memgraph binary inside the container (default: $BINARY)
   --build-dir DIR       Build dir inside the container (default: $BUILD_DIR)
+  --exec-user USER      Container user to run gdb/tar/core ops as (default: $EXEC_USER)
   --upload-core MODE    Upload core + build artifacts: true|false|auto (default: $UPLOAD_CORE)
                         auto uploads only cores <= --core-size-limit; true uploads
                         cores below a 1 TiB hard ceiling; false never uploads.
@@ -56,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --cores-dir)       CORES_DIR="$2"; shift 2 ;;
     --binary)          BINARY="$2"; shift 2 ;;
     --build-dir)       BUILD_DIR="$2"; shift 2 ;;
+    --exec-user)       EXEC_USER="$2"; shift 2 ;;
     --upload-core)     UPLOAD_CORE="$2"; shift 2 ;;
     --core-size-limit) CORE_SIZE_LIMIT="$2"; shift 2 ;;
     -h|--help)         print_usage; exit 0 ;;
@@ -87,7 +89,7 @@ if ! docker inspect "$BUILD_CONTAINER" >/dev/null 2>&1; then
 fi
 
 # Any core dumps to handle?
-core_count="$(docker exec "$BUILD_CONTAINER" bash -c \
+core_count="$(docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
   "ls -1 ${CORES_DIR}/core.* 2>/dev/null | wc -l" 2>/dev/null || echo 0)"
 if [[ "${core_count:-0}" -eq 0 ]]; then
   echo "No core dumps found in ${BUILD_CONTAINER}:${CORES_DIR} — nothing to collect."
@@ -96,12 +98,15 @@ fi
 echo "Found $core_count core dump(s) in ${BUILD_CONTAINER}:${CORES_DIR}."
 
 container_out="${CORES_DIR}/stacktraces"
-analyze_script="${MGBUILD_ROOT_DIR}/tools/ci/core-dumps/analyze_core_dumps.sh"
 
-# Analyze inside the container as the mg user (binary + cores live there, and
-# gdb comes from the toolchain).
-docker exec -u mg "$BUILD_CONTAINER" bash -c \
-  "bash '$analyze_script' --cores-dir '$CORES_DIR' --binary '$BINARY' --out-dir '$container_out' --toolchain '$TOOLCHAIN'" \
+# Copy the analyze script into the container and run gdb there as $EXEC_USER.
+# Copying it in (rather than assuming the repo is present) lets this work for
+# any container: the mgbuild container, or a runtime image (e.g. the MAGE debug
+# image) where gdb + debug symbols are already installed.
+docker cp "$SCRIPT_DIR/analyze_core_dumps.sh" "${BUILD_CONTAINER}:/tmp/analyze_core_dumps.sh" >/dev/null 2>&1 \
+  || echo "Warning: could not copy analyze script into ${BUILD_CONTAINER}." >&2
+docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
+  "bash /tmp/analyze_core_dumps.sh --cores-dir '$CORES_DIR' --binary '$BINARY' --out-dir '$container_out' --toolchain '$TOOLCHAIN'" \
   || echo "Warning: analyze step exited non-zero (continuing)." >&2
 
 # Copy the produced stack traces out to a host temp dir.
@@ -140,6 +145,7 @@ if [[ "$UPLOAD_CORE" != false ]]; then
     --region "$region" \
     --mode "$UPLOAD_CORE" \
     --core-size-limit "$CORE_SIZE_LIMIT" \
+    --exec-user "$EXEC_USER" \
     --url-out "$url_out" \
     || echo "Warning: core upload step exited non-zero (continuing)." >&2
   binaries_url="$(sed -n 's/^binaries_url=//p' "$url_out" 2>/dev/null | head -n1)"
