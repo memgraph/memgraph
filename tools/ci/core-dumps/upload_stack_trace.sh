@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -
 TRACES_DIR=""
 S3_PREFIX=""
 S3_BUCKET="deps.memgraph.io"
-S3_REGION="${AWS_REGION:-eu-west-1}"
+S3_REGION="eu-west-1"
 CORE_URL=""
 BINARIES_URL=""
 
