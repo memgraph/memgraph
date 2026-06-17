@@ -52,6 +52,8 @@ class DiskStorage final : public Storage {
 
   ~DiskStorage() override;
 
+  // No synchronization needed: only called from DbmsHandler::Update() on a clean
+  // storage (zero committed transactions), so no concurrent readers exist.
   void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) override {
     metric_handles_ = new_handles;
   }
