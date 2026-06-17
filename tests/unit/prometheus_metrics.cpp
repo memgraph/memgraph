@@ -28,13 +28,15 @@
 
 namespace {
 
+namespace r = std::ranges;
+
 std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &families, std::string_view name,
                                  std::string_view db_name) {
   for (auto const &family : families) {
     if (family.name != name) continue;
     for (auto const &metric : family.metric) {
       auto const has_db_label =
-          std::ranges::any_of(metric.label, [&](auto const &l) { return l.name == "database" && l.value == db_name; });
+          r::any_of(metric.label, [&](auto const &l) { return l.name == "database" && l.value == db_name; });
       if (!has_db_label) continue;
       if (family.type == prometheus::MetricType::Gauge) return metric.gauge.value;
       if (family.type == prometheus::MetricType::Counter) return metric.counter.value;
@@ -49,9 +51,9 @@ std::optional<std::string> FindUuidLabel(std::vector<prometheus::MetricFamily> c
     if (family.name != name) continue;
     for (auto const &metric : family.metric) {
       auto const has_db_label =
-          std::ranges::any_of(metric.label, [&](auto const &l) { return l.name == "database" && l.value == db_name; });
+          r::any_of(metric.label, [&](auto const &l) { return l.name == "database" && l.value == db_name; });
       if (!has_db_label) continue;
-      auto const it = std::ranges::find_if(metric.label, [](auto const &l) { return l.name == "uuid"; });
+      auto const it = r::find_if(metric.label, [](auto const &l) { return l.name == "uuid"; });
       if (it != metric.label.end()) return it->value;
     }
   }

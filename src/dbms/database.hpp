@@ -236,7 +236,9 @@ class Database {
 
   metrics::DatabaseMetricHandles *metric_handles() { return &metrics_.handles(); }
 
-  void RebindMetrics(utils::UUID uuid, metrics::DatabaseMetricHandles handles) { metrics_.Rebind(uuid, handles); }
+  void RebindMetrics(utils::UUID const &uuid, metrics::DatabaseMetricHandles const &handles) {
+    metrics_.Rebind(uuid, handles);
+  }
 
  private:
   // Enforcement-only: caps total per-DB memory (tenant profile limit).
@@ -272,7 +274,7 @@ class Database {
 
     metrics::DatabaseMetricHandles &handles() { return handles_; }
 
-    void Rebind(utils::UUID uuid, metrics::DatabaseMetricHandles handles) {
+    void Rebind(utils::UUID const &uuid, metrics::DatabaseMetricHandles const &handles) {
       uuid_ = uuid;
       handles_ = handles;
     }
