@@ -223,13 +223,15 @@ jobs:
           MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
           CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
           CLUSTER_ENV: "ci-diff-release"
+        # --upload-core also uploads the core + build artifacts to S3 (ci-cores/).
         run: |
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --run-id "${{ github.run_id }}" \
-          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+          --job-id "${{ github.job }}-${{ github.run_attempt }}" \
+          --upload-core
 
       - name: Clean up core dumps
         if: always()

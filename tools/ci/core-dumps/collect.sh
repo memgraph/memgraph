@@ -21,7 +21,9 @@ JOB_ID=""
 BUILD_CONTAINER=""
 CORES_DIR="/tmp/mg-cores"
 BINARY="/home/mg/memgraph/build/memgraph"
+BUILD_DIR="/home/mg/memgraph/build"
 MGBUILD_ROOT_DIR="/home/mg/memgraph"
+UPLOAD_CORE=false
 
 print_usage() {
   cat <<EOF
@@ -36,6 +38,8 @@ Options:
   --build-container NM  Override the container name (default: mgbuild_<tc>_<os>)
   --cores-dir DIR       Core dump dir inside the container (default: $CORES_DIR)
   --binary PATH         Memgraph binary inside the container (default: $BINARY)
+  --build-dir DIR       Build dir inside the container (default: $BUILD_DIR)
+  --upload-core         Also upload the core + build artifacts to S3 (ci-cores/)
   -h, --help            Show this help
 EOF
 }
@@ -50,6 +54,8 @@ while [[ $# -gt 0 ]]; do
     --build-container) BUILD_CONTAINER="$2"; shift 2 ;;
     --cores-dir)       CORES_DIR="$2"; shift 2 ;;
     --binary)          BINARY="$2"; shift 2 ;;
+    --build-dir)       BUILD_DIR="$2"; shift 2 ;;
+    --upload-core)     UPLOAD_CORE=true; shift 1 ;;
     -h|--help)         print_usage; exit 0 ;;
     *) echo "Error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;;
   esac
@@ -106,3 +112,14 @@ fi
   || echo "Warning: upload step exited non-zero (continuing)." >&2
 
 rm -rf "$host_out"
+
+# Optionally upload the raw core + build artifacts for offline gdb analysis.
+if [[ "$UPLOAD_CORE" == true ]]; then
+  "$SCRIPT_DIR/upload_core.sh" \
+    --build-container "$BUILD_CONTAINER" \
+    --cores-dir "$CORES_DIR" \
+    --build-dir "$BUILD_DIR" \
+    --run-id "$RUN_ID" \
+    --job-id "$JOB_ID" \
+    || echo "Warning: core upload step exited non-zero (continuing)." >&2
+fi
