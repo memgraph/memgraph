@@ -22,12 +22,8 @@ on:
         required: true
       pr_number:
         type: string
-        description: "PR number used in the image tag (digits only)"
+        description: "PR number to build (digits only). The MAGE ref to build is inferred from this PR, and it is also used in the image tag."
         required: true
-      ref:
-        type: string
-        description: "MAGE branch or tag to build (defaults to the branch this workflow runs from)"
-        default: ''
 
 run-name: "Build demo MAGE: ${{ inputs.description || 'demo-test' }}-pr${{ inputs.pr_number || '4279' }}"
 
@@ -45,8 +41,9 @@ jobs:
     outputs:
       tag: ${{ steps.validate.outputs.tag }}
       pr_number: ${{ steps.validate.outputs.pr_number }}
+      ref: ${{ steps.validate.outputs.ref }}
     steps:
-      - name: Validate description and PR number
+      - name: Validate inputs and resolve PR ref
         id: validate
         env:
           # TODO(temporary): the `|| '...'` fallbacks let the push trigger test
@@ -54,6 +51,7 @@ jobs:
           # push trigger) before merging.
           DESCRIPTION: ${{ inputs.description || 'demo-test' }}
           PR_NUMBER: ${{ inputs.pr_number || '4279' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           # Restrict the description to characters that are valid in a Docker
@@ -67,6 +65,16 @@ jobs:
             echo "::error::Invalid pr_number '$PR_NUMBER'. Must contain digits only."
             exit 1
           fi
+          # Confirm the PR exists (and surface its head branch for the log) so a
+          # typo'd number fails here instead of deep inside the build's checkout.
+          if ! head_label=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefName --jq '.headRefName' 2>/dev/null); then
+            echo "::error::Could not find PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}."
+            exit 1
+          fi
+          # Build from the PR head via the refs/pull/<n>/head ref that GitHub
+          # maintains — works for same-repo and fork PRs without guessing the
+          # branch name. actions/checkout fetches this ref directly.
+          ref="refs/pull/${PR_NUMBER}/head"
           tag="${DESCRIPTION}-pr${PR_NUMBER}"
           # Docker tags are limited to 128 characters.
           if (( ${#tag} > 128 )); then
@@ -75,7 +83,8 @@ jobs:
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "Validated image tag: ${tag}"
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+          echo "Validated image tag: ${tag} (building ${ref}, PR head branch '${head_label}')"
 
   BuildAmd:
     name: "Build MAGE (amd)"
@@ -91,7 +100,7 @@ jobs:
       s3_dest_dir: mage-demo-features/pr${{ needs.Validate.outputs.pr_number }}
       run_tests: false
       run_smoke_tests: false
-      ref: ${{ inputs.ref }}
+      ref: ${{ needs.Validate.outputs.ref }}
 
   BuildArm:
     name: "Build MAGE (arm)"
@@ -107,7 +116,7 @@ jobs:
       s3_dest_dir: mage-demo-features/pr${{ needs.Validate.outputs.pr_number }}
       run_tests: false
       run_smoke_tests: false
-      ref: ${{ inputs.ref }}
+      ref: ${{ needs.Validate.outputs.ref }}
 
   PushDemo:
     name: "Push multi-arch demo image"
