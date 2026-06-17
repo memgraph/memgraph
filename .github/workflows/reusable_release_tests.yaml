@@ -154,13 +154,6 @@ jobs:
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
-      - name: Clean up core dumps
-        if: always()
-        continue-on-error: true
-        run: |
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
-
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -291,13 +284,6 @@ jobs:
           --os $OS \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
-
-      - name: Clean up core dumps
-        if: always()
-        continue-on-error: true
-        run: |
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
 
       - name: Stop mgbuild container
         if: always()
@@ -467,13 +453,6 @@ jobs:
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
-      - name: Clean up core dumps
-        if: always()
-        continue-on-error: true
-        run: |
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
-
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -593,13 +572,6 @@ jobs:
           --os $OS \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
-
-      - name: Clean up core dumps
-        if: always()
-        continue-on-error: true
-        run: |
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
 
       - name: Stop mgbuild container
         if: always()
@@ -750,13 +722,6 @@ jobs:
           --os $OS \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
-
-      - name: Clean up core dumps
-        if: always()
-        continue-on-error: true
-        run: |
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
 
       - name: Stop mgbuild container
         if: always()
@@ -913,13 +878,6 @@ jobs:
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
-      - name: Clean up core dumps
-        if: always()
-        continue-on-error: true
-        run: |
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
-
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -1059,13 +1017,6 @@ jobs:
           --os $OS \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
-
-      - name: Clean up core dumps
-        if: always()
-        continue-on-error: true
-        run: |
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
 
       - name: Stop mgbuild container
         if: always()
@@ -1210,13 +1161,6 @@ jobs:
           --os $OS \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
-
-      - name: Clean up core dumps
-        if: always()
-        continue-on-error: true
-        run: |
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
 
       - name: Stop mgbuild container
         if: always()
@@ -1391,13 +1335,6 @@ jobs:
           --os $OS \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
-
-      - name: Clean up core dumps
-        if: always()
-        continue-on-error: true
-        run: |
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
 
       - name: Stop mgbuild container
         if: always()
@@ -1687,13 +1624,6 @@ jobs:
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
-      - name: Clean up core dumps
-        if: always()
-        continue-on-error: true
-        run: |
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
-
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -1811,13 +1741,6 @@ jobs:
           --os $OS \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
-
-      - name: Clean up core dumps
-        if: always()
-        continue-on-error: true
-        run: |
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} rm -rf /tmp/mg-cores/* 2>/dev/null || true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
 
       - name: Stop mgbuild container
         if: always()
