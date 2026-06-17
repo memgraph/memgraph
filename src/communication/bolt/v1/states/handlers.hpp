@@ -513,7 +513,10 @@ State HandleGoodbye() {
 
 template <typename TSession, int bolt_major, int bolt_minor = 0>
 auto ReadDB(TSession &session) -> std::optional<std::string> {
-  if constexpr (bolt_major == 5) {
+  // The ROUTE message carries the database name differently across Bolt versions: 4.3 sends it as a standalone
+  // string field, while 4.4+ (and all of 5.x) moved it inside the trailing `extra` map. The third struct field
+  // must be consumed regardless so the decoder stays aligned, hence the explicit branch per layout.
+  if constexpr (bolt_major == 5 || (bolt_major == 4 && bolt_minor >= 4)) {
     Value extra;
     if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
       spdlog::trace("Couldn't read extra field!");

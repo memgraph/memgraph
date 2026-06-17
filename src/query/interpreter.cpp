@@ -9203,24 +9203,12 @@ void Interpreter::RollbackTransaction() {
 }
 
 #ifdef MG_ENTERPRISE
-auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::optional<std::string> const &db)
-    -> RouteResult {
+auto Interpreter::Route(std::optional<std::string> const &db) -> RouteResult {
   if (!interpreter_context_->coordinator_state_) {
     throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
   }
   if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsDataInstance()) {
-    auto const &address = routing.find("address");
-    if (address == routing.end()) {
-      throw QueryException("Routing table must contain address field.");
-    }
-
-    auto result = RouteResult{};
-    if (interpreter_context_->repl_state->ReadLock()->IsMain()) {
-      result.servers.emplace_back(std::vector<std::string>{address->second}, "WRITE");
-    } else {
-      result.servers.emplace_back(std::vector<std::string>{address->second}, "READ");
-    }
-    return result;
+    throw QueryException("Cannot fetch routing table from a data instance!");
   }
 
   auto const db_name = db.has_value() ? *db : dbms::kDefaultDB;

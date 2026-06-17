@@ -51,8 +51,8 @@ inline std::vector<std::string> StringifySupportedVersions(uint8_t *data) {
 }
 
 inline bool CopyProtocolInformationIfSupported(uint16_t version, uint8_t *protocol) {
-  const auto *supported_version = std::find(std::begin(kSupportedVersions), std::end(kSupportedVersions), version);
-  if (supported_version != std::end(kSupportedVersions)) {
+  const auto *supported_version = std::ranges::find(kSupportedVersions, version);
+  if (supported_version != std::ranges::end(kSupportedVersions)) {
     std::memcpy(protocol, &version, sizeof(version));
     return true;
   }

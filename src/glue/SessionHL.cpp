@@ -447,19 +447,14 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
 }
 
 #ifdef MG_ENTERPRISE
-auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/,
+auto SessionHL::Route(bolt_map_t const & /*routing*/, std::vector<bolt_value_t> const & /*bookmarks*/,
                       std::optional<std::string> const &db, bolt_map_t const &
                       /*extra*/) -> bolt_map_t {
-  auto const routing_map =
-      ranges::views::transform(routing,
-                               [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
-      ranges::to<std::map<std::string, std::string>>();
-
   if (db) {
     spdlog::trace("Handling routing request for the database: {}", *db);
   }
 
-  auto routing_table_res = interpreter_.Route(routing_map, db);
+  auto routing_table_res = interpreter_.Route(db);
 
   auto create_server = [](auto const &server_info) -> bolt_value_t {
     auto const &[addresses, role] = server_info;

@@ -139,7 +139,10 @@ State StateExecutingRun(TSession &session, State state) {
       return RunHandlerV1(signature, session, state, marker);
     case 4: {
       memgraph::metrics::Metrics().global.bolt_messages->Increment();
-      if (session.version_.minor >= 3) {
+      if (session.version_.minor == 4) {
+        return RunHandlerV4<TSession, 4>(signature, session, state, marker);
+      }
+      if (session.version_.minor == 3) {
         return RunHandlerV4<TSession, 3>(signature, session, state, marker);
       }
       if (session.version_.minor >= 1) {
