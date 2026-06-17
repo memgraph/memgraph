@@ -208,6 +208,9 @@ class Storage {
 
   virtual ~Storage() = default;
 
+  /// Replace the stored metric handles with @p new_handles.
+  /// Only safe on a clean storage with zero committed transactions — no indices,
+  /// constraints, TTL, or in-flight transactions may hold copies of the old handles.
   virtual void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) = 0;
 
   std::string name() const { return config_.salient.name.str(); }

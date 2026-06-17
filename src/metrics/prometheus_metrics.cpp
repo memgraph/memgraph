@@ -1047,6 +1047,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   RemoveDatabaseUnsafe(uuid);
 }
 
+// Unsafe variants assume the caller already holds databases_.mutex.
 void PrometheusMetrics::RemoveDatabaseUnsafe(utils::UUID const &uuid) {
   auto it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
   if (it == databases_.entries.end()) return;

@@ -209,7 +209,6 @@ class DbmsHandler {
       // Default db cannot be deleted and remade, have to just update the UUID
       storage->config_.salient.uuid = config.uuid;
       if (storage->config_.register_metrics) {
-        storage->RebindMetricHandles({});
         auto new_handles = metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
         storage->RebindMetricHandles(new_handles);
         db->RebindMetrics(config.uuid, new_handles);
