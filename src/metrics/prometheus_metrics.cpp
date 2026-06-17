@@ -1161,7 +1161,8 @@ void PrometheusMetrics::RemoveDatabaseUnsafe(utils::UUID const &uuid) {
 DatabaseMetricHandles PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID const &new_uuid) {
   std::lock_guard const lock{databases_.mutex};
   if (!default_db_uuid_) return {};
-  RemoveDatabaseUnsafe(*default_db_uuid_);
+  auto const old_uuid = *default_db_uuid_;
+  RemoveDatabaseUnsafe(old_uuid);
   return AddDatabaseUnsafe(new_uuid, dbms::kDefaultDB);
 }
 
