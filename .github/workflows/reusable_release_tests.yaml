@@ -151,7 +151,6 @@ jobs:
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --arch $ARCH \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
@@ -290,7 +289,6 @@ jobs:
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --arch $ARCH \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
@@ -466,7 +464,6 @@ jobs:
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --arch $ARCH \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
@@ -594,7 +591,6 @@ jobs:
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --arch $ARCH \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
@@ -752,7 +748,6 @@ jobs:
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --arch $ARCH \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
@@ -915,7 +910,6 @@ jobs:
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --arch $ARCH \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
@@ -1063,7 +1057,6 @@ jobs:
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --arch $ARCH \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
@@ -1215,7 +1208,6 @@ jobs:
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --arch $ARCH \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
@@ -1397,7 +1389,6 @@ jobs:
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --arch $ARCH \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
@@ -1693,7 +1684,6 @@ jobs:
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --arch $ARCH \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
@@ -1819,7 +1809,6 @@ jobs:
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --arch $ARCH \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 

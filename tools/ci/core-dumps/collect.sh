@@ -15,7 +15,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -
 
 TOOLCHAIN="v7"
 OS=""
-ARCH=""
 RUN_ID=""
 JOB_ID=""
 BUILD_CONTAINER=""
@@ -23,7 +22,8 @@ CORES_DIR="/tmp/mg-cores"
 BINARY="/home/mg/memgraph/build/memgraph"
 BUILD_DIR="/home/mg/memgraph/build"
 MGBUILD_ROOT_DIR="/home/mg/memgraph"
-UPLOAD_CORE=false
+UPLOAD_CORE="auto"
+CORE_SIZE_LIMIT="2GiB"
 
 print_usage() {
   cat <<EOF
@@ -32,14 +32,16 @@ Usage: collect.sh --run-id ID --job-id ID [OPTIONS]
 Options:
   --toolchain VER       Toolchain version (default: $TOOLCHAIN)
   --os NAME             Operating system (used to derive the container name)
-  --arch NAME           Architecture (accepted for symmetry; unused for name)
   --run-id ID           Workflow run id (required)
   --job-id ID           Job identifier (required)
   --build-container NM  Override the container name (default: mgbuild_<tc>_<os>)
   --cores-dir DIR       Core dump dir inside the container (default: $CORES_DIR)
   --binary PATH         Memgraph binary inside the container (default: $BINARY)
   --build-dir DIR       Build dir inside the container (default: $BUILD_DIR)
-  --upload-core         Also upload the core + build artifacts alongside the traces
+  --upload-core MODE    Upload core + build artifacts: true|false|auto (default: $UPLOAD_CORE)
+                        auto uploads only cores <= --core-size-limit; true uploads
+                        cores below a 1 TiB hard ceiling; false never uploads.
+  --core-size-limit SZ  auto upload threshold, e.g. 2GiB / 512MiB / bytes (default: $CORE_SIZE_LIMIT)
   -h, --help            Show this help
 EOF
 }
@@ -48,14 +50,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --toolchain)       TOOLCHAIN="$2"; shift 2 ;;
     --os)              OS="$2"; shift 2 ;;
-    --arch)            ARCH="$2"; shift 2 ;;  # shellcheck disable=SC2034 # accepted for symmetry
     --run-id)          RUN_ID="$2"; shift 2 ;;
     --job-id)          JOB_ID="$2"; shift 2 ;;
     --build-container) BUILD_CONTAINER="$2"; shift 2 ;;
     --cores-dir)       CORES_DIR="$2"; shift 2 ;;
     --binary)          BINARY="$2"; shift 2 ;;
     --build-dir)       BUILD_DIR="$2"; shift 2 ;;
-    --upload-core)     UPLOAD_CORE=true; shift 1 ;;
+    --upload-core)     UPLOAD_CORE="$2"; shift 2 ;;
+    --core-size-limit) CORE_SIZE_LIMIT="$2"; shift 2 ;;
     -h|--help)         print_usage; exit 0 ;;
     *) echo "Error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;;
   esac
@@ -65,6 +67,11 @@ if [[ -z "$RUN_ID" || -z "$JOB_ID" ]]; then
   echo "Error: --run-id and --job-id are required" >&2
   exit 1
 fi
+
+case "$UPLOAD_CORE" in
+  true|false|auto) ;;
+  *) echo "Error: --upload-core must be true, false or auto (got '$UPLOAD_CORE')" >&2; exit 1 ;;
+esac
 
 if [[ -z "$BUILD_CONTAINER" ]]; then
   if [[ -z "$OS" ]]; then
@@ -115,13 +122,15 @@ else
   hash="$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 fi
 s3_prefix="ci-stack-traces/${RUN_ID}/${JOB_ID}/${hash}"
-base_url="https://s3.${region}.amazonaws.com/${bucket}/${s3_prefix}"
 
-# Optionally upload the raw core + build artifacts first, so their URLs can be
-# attached to the monitoring log line emitted by the stack-trace upload.
+# Optionally upload the raw core + build artifacts first; upload_core.sh applies
+# the size policy and reports back (via --url-out) the URLs it actually produced,
+# so we can attach them to the monitoring log line emitted below. They stay
+# empty when nothing was uploaded (mode=false, or the core exceeded the limit).
 core_url=""
 binaries_url=""
-if [[ "$UPLOAD_CORE" == true ]]; then
+if [[ "$UPLOAD_CORE" != false ]]; then
+  url_out="$(mktemp)"
   "$SCRIPT_DIR/upload_core.sh" \
     --build-container "$BUILD_CONTAINER" \
     --cores-dir "$CORES_DIR" \
@@ -129,10 +138,13 @@ if [[ "$UPLOAD_CORE" == true ]]; then
     --s3-prefix "$s3_prefix" \
     --bucket "$bucket" \
     --region "$region" \
+    --mode "$UPLOAD_CORE" \
+    --core-size-limit "$CORE_SIZE_LIMIT" \
+    --url-out "$url_out" \
     || echo "Warning: core upload step exited non-zero (continuing)." >&2
-  binaries_url="${base_url}/binaries.tar.gz"
-  first_core="$(docker exec "$BUILD_CONTAINER" bash -c "ls -1 ${CORES_DIR}/core.* 2>/dev/null | head -n1" 2>/dev/null)"
-  [[ -n "$first_core" ]] && core_url="${base_url}/$(basename "$first_core").gz"
+  binaries_url="$(sed -n 's/^binaries_url=//p' "$url_out" 2>/dev/null | head -n1)"
+  core_url="$(sed -n 's/^core_url=//p' "$url_out" 2>/dev/null | head -n1)"
+  rm -f "$url_out"
 fi
 
 stack_args=(--traces-dir "$host_out" --s3-prefix "$s3_prefix" --bucket "$bucket" --region "$region")

@@ -8,9 +8,15 @@
 #     binaries.tar.gz   - memgraph + *.debug + *.so, retaining build/ structure
 #     <core>.gz         - the gzip-compressed core dump(s)
 #
-# This is deliberately the same folder as the stack traces but stays a separate
-# concern from the packaging debug-symbol upload (tools/ci/upload-debug-symbols.sh,
-# which writes a build-id-keyed debuginfod layout under .../debug-symbols/).
+# Whether the core uploads depends on --mode and its size:
+#   false  - never upload
+#   auto   - upload only cores <= --core-size-limit (default 2 GiB)
+#   true   - upload cores below a 1 TiB hard safety ceiling
+# The build-artifacts tarball is uploaded only when at least one core uploads
+# (binaries are useless without a core to load them against).
+#
+# This stays a separate concern from the packaging debug-symbol upload
+# (tools/ci/upload-debug-symbols.sh, the build-id-keyed debuginfod layout).
 #
 # Both the core and the binaries live inside the build container and the aws
 # CLI does not, so everything is streamed out of the container straight into
@@ -25,6 +31,13 @@ BUILD_DIR="/home/mg/memgraph/build"
 S3_PREFIX=""
 S3_BUCKET="deps.memgraph.io"
 S3_REGION="${AWS_REGION:-eu-west-1}"
+MODE="auto"
+CORE_SIZE_LIMIT="2GiB"
+URL_OUT=""
+
+# Hard safety ceiling for --mode true, so a runaway/corrupt core can't trigger
+# an absurd upload.
+HARD_LIMIT_BYTES=$((1024 * 1024 * 1024 * 1024))  # 1 TiB
 
 print_usage() {
   cat <<EOF
@@ -37,8 +50,26 @@ Options:
   --build-dir DIR       Build dir inside the container (default: $BUILD_DIR)
   --bucket NAME         S3 bucket (default: $S3_BUCKET)
   --region NAME         S3 region for the HTTP URL (default: $S3_REGION)
+  --mode MODE           true | false | auto (default: $MODE)
+  --core-size-limit SZ  auto threshold, e.g. 2GiB / 512MiB / bytes (default: $CORE_SIZE_LIMIT)
+  --url-out FILE        Write 'binaries_url=' / 'core_url=' lines for the caller
   -h, --help            Show this help
 EOF
+}
+
+# Parse a human size (binary units: KiB/MiB/GiB/TiB, or plain bytes) to bytes.
+# Prints nothing on a malformed value.
+parse_size() {
+  if [[ "$1" =~ ^([0-9]+)([KkMmGgTt]?)i?[Bb]?$ ]]; then
+    local num="${BASH_REMATCH[1]}" unit="${BASH_REMATCH[2],,}"
+    case "$unit" in
+      k) echo $((num * 1024)) ;;
+      m) echo $((num * 1024 * 1024)) ;;
+      g) echo $((num * 1024 * 1024 * 1024)) ;;
+      t) echo $((num * 1024 * 1024 * 1024 * 1024)) ;;
+      *) echo "$num" ;;
+    esac
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -49,15 +80,35 @@ while [[ $# -gt 0 ]]; do
     --s3-prefix)       S3_PREFIX="$2"; shift 2 ;;
     --bucket)          S3_BUCKET="$2"; shift 2 ;;
     --region)          S3_REGION="$2"; shift 2 ;;
+    --mode)            MODE="$2"; shift 2 ;;
+    --core-size-limit) CORE_SIZE_LIMIT="$2"; shift 2 ;;
+    --url-out)         URL_OUT="$2"; shift 2 ;;
     -h|--help)         print_usage; exit 0 ;;
     *) echo "Error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;;
   esac
 done
 
+# Always start the url-out file empty so the caller never reads stale URLs.
+[[ -n "$URL_OUT" ]] && : > "$URL_OUT"
+
 if [[ -z "$BUILD_CONTAINER" || -z "$S3_PREFIX" ]]; then
   echo "Error: --build-container and --s3-prefix are required" >&2
   exit 1
 fi
+
+# Resolve the effective size limit from the mode.
+case "$MODE" in
+  false) echo "Core upload mode=false — skipping core and build-artifact upload."; exit 0 ;;
+  true)  limit_bytes=$HARD_LIMIT_BYTES ;;
+  auto)
+    limit_bytes="$(parse_size "$CORE_SIZE_LIMIT")"
+    if [[ -z "$limit_bytes" ]]; then
+      echo "Error: invalid --core-size-limit '$CORE_SIZE_LIMIT'" >&2
+      exit 1
+    fi
+    ;;
+  *) echo "Error: --mode must be true, false or auto (got '$MODE')" >&2; exit 1 ;;
+esac
 
 if ! command -v aws >/dev/null 2>&1; then
   echo "Error: aws CLI not found — cannot upload core." >&2
@@ -72,8 +123,30 @@ fi
 base_uri="s3://${S3_BUCKET}/${S3_PREFIX}"
 base_url="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${S3_PREFIX}"
 
-# 1) The 445 MiB ELF set (binary + .debug sidecars + .so), tarred inside the
-#    container with build/-relative paths and streamed to S3 as one object.
+# Gather cores with their sizes and decide which are within the limit.
+mapfile -t core_lines < <(docker exec "$BUILD_CONTAINER" bash -c \
+  "for f in ${CORES_DIR}/core.*; do [ -e \"\$f\" ] && stat -c '%s	%n' \"\$f\"; done" 2>/dev/null)
+
+eligible=()
+for line in "${core_lines[@]}"; do
+  [[ -z "$line" ]] && continue
+  size="${line%%	*}"
+  path="${line#*	}"
+  if (( size <= limit_bytes )); then
+    eligible+=("${size}	${path}")
+  else
+    echo "Skipping core ${path} ($((size / 1048576)) MiB) — exceeds limit ($((limit_bytes / 1048576)) MiB, mode=${MODE})."
+  fi
+done
+
+if [[ ${#eligible[@]} -eq 0 ]]; then
+  echo "No core within the size limit — skipping core and build-artifact upload."
+  exit 0
+fi
+
+# 1) The ELF set (binary + .debug sidecars + .so), tarred inside the container
+#    with build/-relative paths and streamed to S3 as one object. Only now that
+#    at least one core qualifies.
 build_parent="$(dirname "$BUILD_DIR")"
 build_base="$(basename "$BUILD_DIR")"
 echo "Uploading build artifacts (memgraph + *.debug + *.so) -> ${base_uri}/binaries.tar.gz"
@@ -85,21 +158,30 @@ else
   echo "Warning: build artifact upload failed (continuing)." >&2
 fi
 
-# 2) The core dump(s): gzip-compressed inside the container and streamed out.
-#    --expected-size uses the raw size as an upper bound so aws sizes multipart
-#    parts correctly for large (>50 GB) streams; overestimating is harmless.
-while IFS= read -r core; do
-  [[ -z "$core" ]] && continue
+# 2) The eligible core(s): gzip-compressed inside the container and streamed
+#    out. --expected-size uses the raw size as an upper bound so aws sizes
+#    multipart parts correctly for large streams; overestimating is harmless.
+first_core_url=""
+for entry in "${eligible[@]}"; do
+  raw_size="${entry%%	*}"
+  core="${entry#*	}"
   cbase="$(basename "$core")"
-  raw_size="$(docker exec "$BUILD_CONTAINER" stat -c %s "$core" 2>/dev/null || echo 0)"
   echo "Uploading core ${core} ($((raw_size / 1048576)) MiB raw) -> ${base_uri}/${cbase}.gz"
   if docker exec "$BUILD_CONTAINER" sh -c "gzip -c '$core'" \
        | aws s3 cp --expected-size "$raw_size" - "${base_uri}/${cbase}.gz"; then
     echo "  core uploaded: ${base_url}/${cbase}.gz"
+    [[ -z "$first_core_url" ]] && first_core_url="${base_url}/${cbase}.gz"
   else
     echo "Warning: core upload failed for ${core} (continuing)." >&2
   fi
-done < <(docker exec "$BUILD_CONTAINER" bash -c "ls -1 ${CORES_DIR}/core.* 2>/dev/null")
+done
+
+if [[ -n "$URL_OUT" ]]; then
+  {
+    echo "binaries_url=${base_url}/binaries.tar.gz"
+    echo "core_url=${first_core_url}"
+  } > "$URL_OUT"
+fi
 
 echo "Core bundle available under: ${base_url}/"
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
