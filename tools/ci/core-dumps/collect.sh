@@ -23,7 +23,7 @@ BINARY="/home/mg/memgraph/build/memgraph"
 BUILD_DIR="/home/mg/memgraph/build"
 MGBUILD_ROOT_DIR="/home/mg/memgraph"
 UPLOAD_CORE="auto"
-CORE_SIZE_LIMIT="2GiB"
+CORE_SIZE_LIMIT="2"   # GiB
 
 print_usage() {
   cat <<EOF
@@ -41,7 +41,7 @@ Options:
   --upload-core MODE    Upload core + build artifacts: true|false|auto (default: $UPLOAD_CORE)
                         auto uploads only cores <= --core-size-limit; true uploads
                         cores below a 1 TiB hard ceiling; false never uploads.
-  --core-size-limit SZ  auto upload threshold, e.g. 2GiB / 512MiB / bytes (default: $CORE_SIZE_LIMIT)
+  --core-size-limit N   auto upload threshold in GiB (default: $CORE_SIZE_LIMIT)
   -h, --help            Show this help
 EOF
 }

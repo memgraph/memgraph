@@ -32,12 +32,13 @@ S3_PREFIX=""
 S3_BUCKET="deps.memgraph.io"
 S3_REGION="${AWS_REGION:-eu-west-1}"
 MODE="auto"
-CORE_SIZE_LIMIT="2GiB"
+CORE_SIZE_LIMIT="2"   # GiB
 URL_OUT=""
 
-# Hard safety ceiling for --mode true, so a runaway/corrupt core can't trigger
-# an absurd upload.
-HARD_LIMIT_BYTES=$((1024 * 1024 * 1024 * 1024))  # 1 TiB
+# Sizes are expressed in GiB. Hard safety ceiling for --mode true so a runaway /
+# corrupt core can't trigger an absurd upload.
+HARD_LIMIT_GIB=1024   # 1 TiB
+GIB=$((1024 * 1024 * 1024))
 
 print_usage() {
   cat <<EOF
@@ -51,25 +52,10 @@ Options:
   --bucket NAME         S3 bucket (default: $S3_BUCKET)
   --region NAME         S3 region for the HTTP URL (default: $S3_REGION)
   --mode MODE           true | false | auto (default: $MODE)
-  --core-size-limit SZ  auto threshold, e.g. 2GiB / 512MiB / bytes (default: $CORE_SIZE_LIMIT)
+  --core-size-limit N   auto threshold in GiB (default: $CORE_SIZE_LIMIT)
   --url-out FILE        Write 'binaries_url=' / 'core_url=' lines for the caller
   -h, --help            Show this help
 EOF
-}
-
-# Parse a human size (binary units: KiB/MiB/GiB/TiB, or plain bytes) to bytes.
-# Prints nothing on a malformed value.
-parse_size() {
-  if [[ "$1" =~ ^([0-9]+)([KkMmGgTt]?)i?[Bb]?$ ]]; then
-    local num="${BASH_REMATCH[1]}" unit="${BASH_REMATCH[2],,}"
-    case "$unit" in
-      k) echo $((num * 1024)) ;;
-      m) echo $((num * 1024 * 1024)) ;;
-      g) echo $((num * 1024 * 1024 * 1024)) ;;
-      t) echo $((num * 1024 * 1024 * 1024 * 1024)) ;;
-      *) echo "$num" ;;
-    esac
-  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -96,19 +82,20 @@ if [[ -z "$BUILD_CONTAINER" || -z "$S3_PREFIX" ]]; then
   exit 1
 fi
 
-# Resolve the effective size limit from the mode.
+# Resolve the effective size limit (in GiB) from the mode, then to bytes.
 case "$MODE" in
   false) echo "Core upload mode=false — skipping core and build-artifact upload."; exit 0 ;;
-  true)  limit_bytes=$HARD_LIMIT_BYTES ;;
+  true)  limit_gib=$HARD_LIMIT_GIB ;;
   auto)
-    limit_bytes="$(parse_size "$CORE_SIZE_LIMIT")"
-    if [[ -z "$limit_bytes" ]]; then
-      echo "Error: invalid --core-size-limit '$CORE_SIZE_LIMIT'" >&2
+    if [[ ! "$CORE_SIZE_LIMIT" =~ ^[0-9]+$ ]]; then
+      echo "Error: --core-size-limit must be an integer number of GiB (got '$CORE_SIZE_LIMIT')" >&2
       exit 1
     fi
+    limit_gib=$CORE_SIZE_LIMIT
     ;;
   *) echo "Error: --mode must be true, false or auto (got '$MODE')" >&2; exit 1 ;;
 esac
+limit_bytes=$(( limit_gib * GIB ))
 
 if ! command -v aws >/dev/null 2>&1; then
   echo "Error: aws CLI not found — cannot upload core." >&2
@@ -135,7 +122,7 @@ for line in "${core_lines[@]}"; do
   if (( size <= limit_bytes )); then
     eligible+=("${size}	${path}")
   else
-    echo "Skipping core ${path} ($((size / 1048576)) MiB) — exceeds limit ($((limit_bytes / 1048576)) MiB, mode=${MODE})."
+    echo "Skipping core ${path} ($((size / 1048576)) MiB) — exceeds limit (${limit_gib} GiB, mode=${MODE})."
   fi
 done
 
