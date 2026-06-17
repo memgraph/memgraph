@@ -83,8 +83,8 @@ jobs:
     secrets: inherit
     with:
       arch: amd
-      build_type: Release
-      build_docker_image: prod
+      build_type: RelWithDebInfo
+      build_docker_image: debug
       push_to_s3: true
       print_output_url: true
       s3_dest_dir: mage-demo-features/pr${{ needs.Validate.outputs.pr_number }}
@@ -99,8 +99,8 @@ jobs:
     secrets: inherit
     with:
       arch: arm
-      build_type: Release
-      build_docker_image: prod
+      build_type: RelWithDebInfo
+      build_docker_image: debug
       push_to_s3: true
       print_output_url: true
       s3_dest_dir: mage-demo-features/pr${{ needs.Validate.outputs.pr_number }}
