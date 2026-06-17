@@ -534,6 +534,15 @@ InMemoryStorage::~InMemoryStorage() {
   }
 }
 
+void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles new_handles) {
+  gc_runner_.Pause();
+  {
+    std::lock_guard const gc_guard{gc_lock_};
+    metric_handles_ = new_handles;
+  }
+  gc_runner_.Resume();
+}
+
 void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change) {
   if (config_.track_label_counts) {
     auto label_counts_acc = label_counts_.Lock();

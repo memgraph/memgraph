@@ -1149,8 +1149,8 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
 }
 
 DatabaseMetricHandles PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID const &new_uuid) {
-  auto const old_uuid = *default_db_uuid_;
-  RemoveDatabase(old_uuid);
+  if (!default_db_uuid_) return {};
+  RemoveDatabase(*default_db_uuid_);
   return AddDatabase(new_uuid, dbms::kDefaultDB);
 }
 
