@@ -72,7 +72,7 @@ s3_uri="s3://${S3_BUCKET}/${S3_PREFIX}/"
 http_url="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${S3_PREFIX}/"
 
 echo "Uploading $(find "$TRACES_DIR" -type f | wc -l) stack-trace file(s) to $s3_uri"
-aws s3 cp --recursive "$TRACES_DIR" "$s3_uri"
+aws s3 cp --region "$S3_REGION" --recursive "$TRACES_DIR" "$s3_uri"
 
 echo "Stack traces available under: $http_url"
 

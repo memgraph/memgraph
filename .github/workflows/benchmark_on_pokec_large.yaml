@@ -7,6 +7,15 @@ concurrency:
 on:
   workflow_dispatch:
 
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-benchmark-pokec-large"
+
 jobs:
   benchmark_on_pokec_large:
     name: "Benchmark on pokec large dataset"
@@ -119,15 +128,6 @@ jobs:
         - name: Collect core dumps
           if: failure()
           continue-on-error: true
-          env:
-            AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-            AWS_REGION: eu-west-1
-            MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
-            MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
-            MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
-            CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
-            CLUSTER_ENV: "ci-benchmark-pokec-large"
           run: |
             ./tools/ci/core-dumps/collect.sh \
             --toolchain $TOOLCHAIN \

@@ -44,6 +44,8 @@ env:
   MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
   CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
   CLUSTER_ENV: "ci-stress-tests"
+  AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
 
 jobs:
   stress_test_standalone:
@@ -164,15 +166,6 @@ jobs:
       - name: Collect core dumps
         if: failure()
         continue-on-error: true
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: eu-west-1
-          MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
-          MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
-          MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
-          CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
-          CLUSTER_ENV: "ci-stress-tests"
         run: |
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
@@ -292,9 +285,6 @@ jobs:
           --cluster-env $CLUSTER_ENV \
           --service-name stress-native-ha \
           test-memgraph stress-native-ha
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
 
       - name: Copy stress test logs
         if: always()
@@ -316,15 +306,6 @@ jobs:
       - name: Collect core dumps
         if: failure()
         continue-on-error: true
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: eu-west-1
-          MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
-          MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
-          MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
-          CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
-          CLUSTER_ENV: "ci-stress-tests"
         run: |
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
@@ -462,9 +443,6 @@ jobs:
       - name: Collect core dumps
         if: failure()
         continue-on-error: true
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
         run: |
           # The ha/docker deployment bind-mounts /tmp/mg-cores from each memgraph
           # container, so cores land on the host and survive container teardown.

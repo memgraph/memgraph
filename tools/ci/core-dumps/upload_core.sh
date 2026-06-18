@@ -145,7 +145,7 @@ build_base="$(basename "$BUILD_DIR")"
 echo "Uploading build artifacts (memgraph + *.debug + *.so) -> ${base_uri}/binaries.tar.gz"
 if docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
      "cd '$build_parent' && find '$build_base' -type f \\( -name memgraph -o -name '*.debug' -o -name '*.so' \\) -print0 | tar --null -czf - -T -" \
-     | aws s3 cp - "${base_uri}/binaries.tar.gz"; then
+     | aws s3 cp --region "$S3_REGION" - "${base_uri}/binaries.tar.gz"; then
   echo "  build artifacts uploaded: ${base_url}/binaries.tar.gz"
 else
   echo "Warning: build artifact upload failed (continuing)." >&2
@@ -161,7 +161,7 @@ for entry in "${eligible[@]}"; do
   cbase="$(basename "$core")"
   echo "Uploading core ${core} ($((raw_size / 1048576)) MiB raw) -> ${base_uri}/${cbase}.gz"
   if docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" sh -c "gzip -c '$core'" \
-       | aws s3 cp --expected-size "$raw_size" - "${base_uri}/${cbase}.gz"; then
+       | aws s3 cp --region "$S3_REGION" --expected-size "$raw_size" - "${base_uri}/${cbase}.gz"; then
     echo "  core uploaded: ${base_url}/${cbase}.gz"
     [[ -z "$first_core_url" ]] && first_core_url="${base_url}/${cbase}.gz"
   else
