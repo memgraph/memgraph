@@ -178,5 +178,5 @@ fi
 
 echo "Core bundle available under: ${base_url}/"
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-  echo "::warning title=Memgraph core dump uploaded::Core + binaries bundle: ${base_url}/"
+  echo "::warning title=Memgraph core dump uploaded::Core dump: ${first_core_url:-(upload failed)}%0ABinaries: ${base_url}/binaries.tar.gz"
 fi
