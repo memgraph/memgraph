@@ -447,6 +447,25 @@ class DbmsHandler {
     }
     return {std::move(configs), std::move(stats)};
   }
+
+  /**
+   * @brief C10 (PR-1 / RE-9′): eager-epoch rewrite for COLD tenants on MAIN promotion.
+   *
+   * ForEach/All() skip COLD tenants (no-value gatekeeper -> access() nullopt), so the promotion epoch
+   * loop never reaches them and a resumed cold tenant would otherwise keep its pre-promotion (disk)
+   * epoch -> the replica continuous-history check fails -> spurious DIVERGED after failover. This
+   * iterates suspended_ DIRECTLY, appending the promotion boundary (current_epoch, last_durable_ts) to
+   * each entry's epoch_history and setting current_epoch = @p new_epoch_id, then rewriting the durable
+   * COLD marker. Resume_ later restores history+epoch verbatim (RE-9′). Metadata-only: no force-resume.
+   *
+   * Lock discipline (PR-1′): takes ONLY lock_ + KVStore Put, never repl_state — the caller
+   * (DoToMainPromotion) holds the repl_state write lock, so acquiring it here would deadlock. The
+   * reverse edge (lock_ -> repl_state via on_resume_repl_) lives only in the resume path, which this
+   * does not use. Pre-C10 V2 entries (has_epoch_meta == false) are left untouched.
+   *
+   * @param new_epoch_id the single new epoch id generated for all tenants at promotion
+   */
+  void PromoteColdTenants(std::string_view new_epoch_id);
 #endif
 
   /**
@@ -676,8 +695,13 @@ class DbmsHandler {
     // Heartbeat metadata captured at suspend time (P4 — for C7 replication).
     uint64_t last_durable_timestamp{0};  //!< repl_storage_state_.commit_ts_info_.ldt_ at suspend
     uint64_t num_committed_txns{0};      //!< repl_storage_state_.commit_ts_info_.num_committed_txns_
-    std::string last_epoch;              //!< the "last epoch with a commit" string
-    storage::StorageInfo cold_stats;     //!< P4 — last-hot stats snapshot
+    // C10 (RE-9′): the FULL replication epoch state captured at suspend, so a promotion can rewrite it
+    // and a resume can restore it verbatim (a single epoch string is insufficient — the replica
+    // continuous-history check needs the whole deque; see PromoteColdTenants + Resume_).
+    std::string current_epoch;            //!< repl_storage_state_.epoch_.id() at suspend (post-promotion: new epoch)
+    storage::EpochHistory epoch_history;  //!< copy of repl_storage_state_.history at suspend
+    bool has_epoch_meta{false};           //!< false for pre-C10 V2 cold entries (no epoch fields) — skip override
+    storage::StorageInfo cold_stats;      //!< P4 — last-hot stats snapshot
   };
 
   /// @brief Implementation of Suspend. See Suspend() for semantics.

@@ -45,7 +45,7 @@ void ReplicationStorageState::SaveLatestHistory() {
   }
 
   // Generate new epoch id and save the last one to the history.
-  if (constexpr uint16_t kEpochHistoryRetention = 1000; history.size() == kEpochHistoryRetention) {
+  if (history.size() == kEpochHistoryRetention) {
     history.pop_front();
   }
 

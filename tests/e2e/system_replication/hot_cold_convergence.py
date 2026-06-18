@@ -27,6 +27,14 @@
 #        resumes with all data intact. This is a single-instance test (no replication) exercised by
 #        test_cross_restart_hot_only_recovery.
 #
+#   C10 — eager-epoch promotion: when a node holding a COLD tenant is promoted to MAIN, the new epoch
+#        is written into the cold tenant's durable metadata (PromoteColdTenants, since ForEach skips
+#        cold tenants) WITH the pre-promotion epoch appended to the epoch history. A later RESUME runs
+#        the new epoch, and a replica that still holds the tenant at the OLD epoch finds that old epoch
+#        in the new MAIN's continuous history -> it converges instead of diverging. Exercised by
+#        test_promotion_eager_epoch_convergence (the negative control: without the history boundary the
+#        old-epoch replica would DIVERGE and never converge).
+#
 # COLD is observed without relying on the (later, C11) cold-aware SHOW: accessing a COLD tenant
 # trips the query seam in DbmsHandler::Get_, which raises "... is suspended (cold); run RESUME ...".
 
@@ -47,7 +55,9 @@ interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_r
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 BOLT_PORTS = {"main": 7687, "replica_1": 7688}
-REPLICATION_PORTS = {"replica_1": 10001}
+# replica_1 is the original replica; "main" gets a replication port too because the C10 test demotes
+# the old MAIN to a REPLICA of the promoted node (manual failover).
+REPLICATION_PORTS = {"replica_1": 10001, "main": 10002}
 file = "hot_cold_convergence"
 
 HOT_COLD_FLAG = "--experimental-enabled=hot-cold-tenants"
@@ -259,6 +269,71 @@ def test_cross_restart_hot_only_recovery(connection, test_name):
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
     assert tenant_probe(main_cursor, "A")() == 7, "the cold tenant must resume with all data after a restart"
+
+
+def test_promotion_eager_epoch_convergence(connection, test_name):
+    # C10: promote a node that holds a COLD tenant, then prove a replica still at the pre-promotion
+    # epoch converges (continuous history) instead of diverging.
+    #
+    #   1. main + replica_1, tenant A replicated, both HOT at epoch E1.
+    #   2. SUSPEND A -> both COLD; A's data sits on disk at E1 on both.
+    #   3. Kill main. replica_1 is the survivor, holding COLD A at E1.
+    #   4. Promote replica_1 -> MAIN: DoToMainPromotion mints a new epoch E2 and PromoteColdTenants
+    #      rewrites A's durable cold metadata to E2 WITH (E1, ldt) appended to its epoch history (the
+    #      C10 path; the ForEach epoch loop alone would skip the cold tenant).
+    #   5. RESUME A on the new MAIN -> HOT at E2, data intact, history carrying the E1 boundary.
+    #   6. Restart the old main as a REPLICA of the new MAIN. It still holds A at E1. The new MAIN's
+    #      continuous-history check finds E1 in A's history -> continuous -> the replica converges to
+    #      the new MAIN's data. WITHOUT the C10 boundary, the replica at E1 would be flagged a branching
+    #      point (DIVERGED_FROM_MAIN) and never converge -> this assertion would time out (the negative
+    #      control that gives the test teeth).
+    instances = {
+        "replica_1": replica_args(test_name, recovery=True),
+        "main": main_args(test_name, recovery=True),
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    set_replica_role(replica_cursor)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    register_replica(main_cursor, sync=True)
+
+    # Tenant A: replicated to the HOT replica at epoch E1.
+    create_and_populate(main_cursor, "A", 6)
+    mg_sleep_and_assert(6, tenant_probe(replica_cursor, "A"))
+
+    # SUSPEND A -> both copies COLD at E1.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
+    mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "A"))
+
+    # Kill the old MAIN (keep its data dir: it returns as a replica still holding A at E1).
+    interactive_mg_runner.kill(instances, "main", keep_directories=True)
+
+    # Promote the survivor (replica_1) to MAIN. This is the C10 trigger: DoToMainPromotion generates a
+    # new epoch and PromoteColdTenants rewrites the COLD tenant's durable epoch + history boundary.
+    execute_and_fetch_all(replica_cursor, "SET REPLICATION ROLE TO MAIN;")
+
+    # RESUME A on the new MAIN: it runs the new epoch E2, data intact, history holds the E1 boundary.
+    execute_and_fetch_all(replica_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(replica_cursor, "RESUME DATABASE A;")
+    mg_sleep_and_assert(6, tenant_probe(replica_cursor, "A"))
+
+    # Bring the old MAIN back and demote it to a REPLICA of the new MAIN. It recovers A (COLD) at E1
+    # from its own disk; --replication-restore-state is OFF so it does not try to resurrect its old
+    # MAIN role / stale replica registration.
+    interactive_mg_runner.start(instances, "main")
+    # Tag this connection "replica": the old main is demoted below, and the connection fixture's
+    # teardown only write-cleans a "main" (replicas reject writes). kill_all wipes the dirs regardless.
+    old_main_cursor = connection(BOLT_PORTS["main"], "replica").cursor()
+    execute_and_fetch_all(old_main_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['main']};")
+
+    # The new MAIN registers the old main as a replica; SystemRecovery resumes A on it and streams the
+    # data. The continuous-history check accepts E1 (it is in A's history on the new MAIN), so the
+    # replica converges to 6 nodes rather than diverging.
+    execute_and_fetch_all(replica_cursor, f"REGISTER REPLICA old_main SYNC TO '127.0.0.1:{REPLICATION_PORTS['main']}';")
+    mg_sleep_and_assert(6, tenant_probe(old_main_cursor, "A"))
 
 
 if __name__ == "__main__":

@@ -35,6 +35,11 @@ class ReplicaStream;
 
 using EpochHistory = std::deque<std::pair<std::string, uint64_t>>;
 
+// Max number of prior epochs retained in EpochHistory before the oldest is dropped. Shared so the
+// HOT path (SaveLatestHistory) and the hot/cold COLD path (DbmsHandler::PromoteColdTenants) bound the
+// deque identically.
+inline constexpr uint16_t kEpochHistoryRetention = 1000;
+
 struct ReplicationStorageState {
   // Only MAIN can send
   auto StartPrepareCommitPhase(uint64_t durability_commit_timestamp, Storage *storage, CommitArgs const &commit_args)

@@ -394,6 +394,98 @@ TEST_F(HotColdResume, CrossRestartResumedTenantRecoversHot) {
   EXPECT_EQ(CountNodes(acc), kNodes);
 }
 
+// C10 (RE-9′): a COLD tenant whose durable epoch metadata was rewritten by PromoteColdTenants (eager
+// promotion) runs the NEW epoch after a restart+resume, and its epoch history carries the promotion
+// boundary (the pre-promotion epoch). Without this, a lagging replica reconnecting at the old epoch
+// would fail MAIN's continuous-history check and spuriously DIVERGE after failover.
+TEST_F(HotColdResume, CrossRestartPromotedColdTenantRunsNewEpoch) {
+  constexpr int kNodes = 6;
+  auto cold = CreateAndPopulate("promoted_cold", kNodes);
+
+  // Capture the pre-promotion epoch (E1) from the live HOT storage.
+  std::string e1;
+  {
+    auto acc = handler_->Get(cold);
+    e1 = std::string{acc->storage()->repl_storage_state_.epoch_.id()};
+  }
+  ASSERT_FALSE(e1.empty());
+
+  ASSERT_TRUE(handler_->Suspend(cold).has_value());
+
+  // Eager-epoch promotion: rewrite the COLD tenant's durable epoch metadata to a new epoch (this is
+  // what DoToMainPromotion calls for cold tenants the ForEach epoch loop cannot reach). Metadata-only.
+  const std::string e2 = "c10-promotion-epoch";
+  handler_->PromoteColdTenants(e2);
+
+  Restart();
+
+  // Promotion is metadata-only: the tenant is still COLD after the restart (no resume happened).
+  EXPECT_FALSE(InAll(cold)) << "a promoted-but-not-resumed cold tenant must recover COLD";
+
+  auto resumed = handler_->Resume(cold);
+  ASSERT_TRUE(resumed.has_value());
+  EXPECT_EQ(CountNodes(resumed.value()), kNodes) << "data survives suspend -> promote -> restart -> resume";
+
+  auto &rss = resumed.value()->storage()->repl_storage_state_;
+  EXPECT_EQ(std::string{rss.epoch_.id()}, e2)
+      << "the resumed tenant must run the post-promotion epoch, not the disk-recovered one (RE-9′)";
+  ASSERT_FALSE(rss.history.empty()) << "the promotion boundary must be present in the epoch history";
+  EXPECT_EQ(rss.history.back().first, e1)
+      << "the epoch history must carry the pre-promotion epoch as the promotion boundary (continuous history)";
+}
+
+// C10: a COLD tenant restarted+resumed WITHOUT a promotion keeps its original epoch — the RE-9′ resume
+// override restores the captured epoch verbatim and must not corrupt or rotate it.
+TEST_F(HotColdResume, CrossRestartColdTenantWithoutPromotionKeepsEpoch) {
+  constexpr int kNodes = 3;
+  auto cold = CreateAndPopulate("unpromoted_cold", kNodes);
+
+  std::string e1;
+  {
+    auto acc = handler_->Get(cold);
+    e1 = std::string{acc->storage()->repl_storage_state_.epoch_.id()};
+  }
+  ASSERT_FALSE(e1.empty());
+
+  ASSERT_TRUE(handler_->Suspend(cold).has_value());
+  Restart();
+  auto resumed = handler_->Resume(cold);
+  ASSERT_TRUE(resumed.has_value());
+  EXPECT_EQ(CountNodes(resumed.value()), kNodes);
+
+  auto &rss = resumed.value()->storage()->repl_storage_state_;
+  EXPECT_EQ(std::string{rss.epoch_.id()}, e1) << "a non-promoted resume must preserve the original epoch";
+}
+
+// C10 (race): a promotion that lands in the resume's off-lock BuildDetached window must win. The
+// on_resume_ hook fires after BuildDetached and before the publish lock, so promoting from inside it
+// rewrites the in-map suspended_ entry to a new epoch AFTER the resume copied the (now stale) entry in
+// Phase A. The resume must re-read the entry under the publish lock and apply the PROMOTED epoch, not
+// the stale Phase-A snapshot. (Deterministically fails if the override uses the Phase-A copy.)
+TEST_F(HotColdResume, PromotionDuringResumeAppliesPromotedEpoch) {
+  constexpr int kNodes = 5;
+  auto cold = CreateAndPopulate("promote_during_resume", kNodes);
+
+  std::string e1;
+  {
+    auto acc = handler_->Get(cold);
+    e1 = std::string{acc->storage()->repl_storage_state_.epoch_.id()};
+  }
+  ASSERT_TRUE(handler_->Suspend(cold).has_value());
+
+  const std::string e2 = "epoch-promoted-mid-resume";
+  handler_->SetOnResume([&](memgraph::dbms::DatabaseAccess) { handler_->PromoteColdTenants(e2); });
+  auto resumed = handler_->Resume(cold);
+  handler_->SetOnResume({});
+  ASSERT_TRUE(resumed.has_value());
+
+  auto &rss = resumed.value()->storage()->repl_storage_state_;
+  EXPECT_EQ(std::string{rss.epoch_.id()}, e2)
+      << "a promotion racing the resume's build window must win (epoch re-read under the publish lock)";
+  ASSERT_FALSE(rss.history.empty());
+  EXPECT_EQ(rss.history.back().first, e1) << "the promotion boundary must still carry the pre-promotion epoch";
+}
+
 #else
 
 #include <gtest/gtest.h>
