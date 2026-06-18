@@ -8008,9 +8008,12 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler = [db_name = query->db_name_, db_handler](
+          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-            auto result = db_handler->Suspend(db_name);
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+            auto result = db_handler->Suspend(db_name, &*interpreter->system_transaction_);
             if (!result) {
               switch (result.error()) {
                 case dbms::DbmsHandler::SuspendError::DEFAULT_DB:
@@ -8056,9 +8059,12 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler = [db_name = query->db_name_, db_handler](
+          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-            auto result = db_handler->Resume(db_name);
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+            auto result = db_handler->Resume(db_name, &*interpreter->system_transaction_);
             if (!result) {
               switch (result.error()) {
                 case dbms::DbmsHandler::ResumeError::NON_EXISTENT:

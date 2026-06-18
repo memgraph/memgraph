@@ -42,6 +42,7 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
+#include "system/system.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
 namespace fs = std::filesystem;
@@ -227,6 +228,33 @@ TEST_F(HotColdResume, ConcurrentResumeSingleFlight) {
   EXPECT_TRUE(InAll(name));
 
   handler_->SetOnResume({});
+}
+
+// C6 routing: suspend/resume driven through a real system::Transaction must record their actions and
+// complete the HOT -> COLD -> HOT round-trip. Committing the transaction (DoNothing on a node with no
+// replicas) drives the action's DoDurability + the system-ts finalize without dropping data.
+TEST_F(HotColdResume, SuspendResumeThroughSystemTransaction) {
+  constexpr int kNodes = 5;
+  auto name = CreateAndPopulate("sys_tx_route", kNodes);
+
+  memgraph::system::System sys;
+  {
+    auto txn = sys.TryCreateTransaction();
+    ASSERT_TRUE(txn.has_value());
+    ASSERT_TRUE(handler_->Suspend(name, &*txn).has_value()) << "Suspend via a system transaction must succeed";
+    txn->Commit(memgraph::system::DoNothing{});
+  }
+  EXPECT_FALSE(InAll(name)) << "Tenant must be COLD after a system-transaction suspend";
+
+  {
+    auto txn = sys.TryCreateTransaction();
+    ASSERT_TRUE(txn.has_value());
+    auto result = handler_->Resume(name, &*txn);
+    ASSERT_TRUE(result.has_value()) << "Resume via a system transaction must succeed";
+    txn->Commit(memgraph::system::DoNothing{});
+    EXPECT_EQ(CountNodes(result.value()), kNodes) << "Data must survive the system-transaction round-trip";
+  }
+  EXPECT_TRUE(InAll(name)) << "Tenant must be HOT after a system-transaction resume";
 }
 
 #else

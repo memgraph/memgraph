@@ -337,9 +337,11 @@ class DbmsHandler {
    * {snapshot + WAL} artifacts. This is a blocking call (waits for sole-accessor state).
    *
    * @param name tenant database name
+   * @param txn  originating system transaction; the suspend is recorded as a system action so it is
+   *             ordered + replicated like CREATE/DROP DATABASE. nullptr for node-local callers.
    * @return SuspendResult — error describing why the tenant is not suspendable
    */
-  SuspendResult Suspend(std::string_view name) { return Suspend_(name); }
+  SuspendResult Suspend(std::string_view name, system::Transaction *txn = nullptr) { return Suspend_(name, txn); }
 
   /**
    * @brief Set the pre-publish resume arm (runs on the recovered DatabaseAccess BEFORE the fresh
@@ -362,9 +364,13 @@ class DbmsHandler {
    * no budget: the caller blocks for the full recovery.
    *
    * @param name tenant database name
+   * @param txn  originating system transaction; the resume is recorded as a system action so it is
+   *             ordered + replicated like CREATE/DROP DATABASE. nullptr for node-local callers.
    * @return ResumeResult — the HOT DatabaseAccess on success, or an error
    */
-  ResumeResult Resume(std::string_view name) { return Resume_(name); }
+  ResumeResult Resume(std::string_view name, system::Transaction *txn = nullptr) {
+    return Resume_(name, /*rewire_replication=*/true, txn);
+  }
 #endif
 
   /**
@@ -599,7 +605,8 @@ class DbmsHandler {
   };
 
   /// @brief Implementation of Suspend. See Suspend() for semantics.
-  SuspendResult Suspend_(std::string_view name);
+  /// On success records a SuspendDatabase system action on @p txn (if non-null) for ordered replication.
+  SuspendResult Suspend_(std::string_view name, system::Transaction *txn = nullptr);
 
   /**
    * @brief Implementation of Resume. See Resume() for semantics.
@@ -609,8 +616,11 @@ class DbmsHandler {
    * that caller already holds the repl_state read lock and on_resume_repl_ would re-take it as a
    * write lock -> self-deadlock on the non-recursive RWSpinLock. Default true keeps the node-local
    * (test + query-seam) callers unchanged.
+   *
+   * txn: originating system transaction; on success records a ResumeDatabase system action (if
+   * non-null) for ordered replication. Default nullptr keeps node-local callers unchanged.
    */
-  ResumeResult Resume_(std::string_view name, bool rewire_replication = true);
+  ResumeResult Resume_(std::string_view name, bool rewire_replication = true, system::Transaction *txn = nullptr);
 
   /**
    * @brief return the storage directory of the associated database
