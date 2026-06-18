@@ -179,7 +179,9 @@ void StorageInfoForEachField(Self &s, Visit &&visit) {
 struct ColdTenantRecovery {
   SalientConfig salient;
   StorageInfo stats;
-  bool has_epoch_meta{false};  // placed before the string/deque members to avoid tail padding
+  bool has_epoch_meta{false};          // placed before the string/deque members to avoid tail padding
+  uint64_t last_durable_timestamp{0};  // MAIN's as-of-suspend LDT; the promotion-boundary ts a converged
+                                       // replica must use (NOT its own local LDT) — see PromoteColdTenants
   std::string current_epoch;
   EpochHistory epoch_history;
 };

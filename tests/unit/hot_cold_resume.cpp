@@ -539,10 +539,14 @@ TEST_F(HotColdResume, AppliedWireEpochDrivesColdPromotionBoundary) {
 
   // MAIN's authoritative epoch metadata, distinct from anything the local storage would produce.
   const std::string wire_epoch = "main-wire-epoch-E2";
+  // holistic-review #2: a distinct as-of-suspend LDT that the local suspend would never produce, so the
+  // promotion boundary's timestamp proves it used MAIN's APPLIED LDT, not the replica's local one.
+  constexpr uint64_t wire_ldt = 271828;
   memgraph::storage::ColdTenantRecovery meta;
   meta.current_epoch = wire_epoch;
   meta.epoch_history = memgraph::storage::EpochHistory{{"main-wire-epoch-E1", 99}};
   meta.has_epoch_meta = true;
+  meta.last_durable_timestamp = wire_ldt;
   handler_->ApplyColdRecoveryMeta(cold, meta);
 
   // The applied wire epoch overrode the local disk epoch in the suspended_ entry.
@@ -574,6 +578,8 @@ TEST_F(HotColdResume, AppliedWireEpochDrivesColdPromotionBoundary) {
       EXPECT_EQ(c.epoch_history.back().first, wire_epoch)
           << "the promotion boundary must be MAIN's APPLIED wire epoch, not the stale local disk epoch";
       EXPECT_NE(c.epoch_history.back().first, local_epoch);
+      EXPECT_EQ(c.epoch_history.back().second, wire_ldt)
+          << "the promotion boundary timestamp must be MAIN's APPLIED LDT, not the replica's local one (#2)";
       found = true;
     }
   }

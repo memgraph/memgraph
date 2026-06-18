@@ -32,6 +32,12 @@ namespace memgraph::flags {
 enum class Experiments : uint8_t {
   NONE = 0,
   PLANNER_V2 = 1 << 0,
+  // Hot/cold tenants (SUSPEND/RESUME DATABASE). This flag is RESTART-ONLY (read once at startup) and MUST
+  // be set consistently across every member of a replication cluster. A flag-enabled MAIN with a
+  // flag-disabled replica is unsupported: the replica still applies the MAIN's suspend RPCs (so the data
+  // streams stay consistent), leaving it holding COLD tenants it cannot surface or RESUME locally; if such
+  // a replica is promoted before a restart those tenants are stranded until the next boot (which reheats
+  // them HOT). The engine logs a loud warning on promotion in that case — see DbmsHandler::PromoteColdTenants.
   HOT_COLD_TENANTS = 1 << 1,
 };
 

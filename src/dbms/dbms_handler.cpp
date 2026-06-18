@@ -1372,6 +1372,23 @@ void DbmsHandler::PromoteColdTenants(std::string_view new_epoch_id) {
   // PR-1′ lock discipline: holds ONLY lock_ + KVStore Put; never acquires repl_state (the caller holds
   // the repl_state write lock). The durable Put is the same small metadata write SU-6 does under lock_.
   auto wr = std::lock_guard{lock_};
+
+  // Holistic-review #1 (LOW): the hot-cold-tenants experiment flag is RESTART-ONLY and must be set
+  // consistently across every cluster member. A flag-OFF node only holds COLD tenants if it followed a
+  // flag-ON MAIN's SUSPEND (C15 applies the RPC without gating). Promoting such a node WHILE flag-off
+  // strands those tenants in-process — RESUME is flag-gated and SHOW DATABASES hides cold shells — until
+  // its next restart, where C14 unconditionally reheats them HOT. That is a flag-inconsistent cluster
+  // (unsupported); warn loudly so the operator fixes the flag rather than chasing a "vanished" tenant. We
+  // still rewrite the epochs below: the reheat on the next boot recovers the (now-promoted) epoch.
+  if (!suspended_.empty() && !flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+    spdlog::warn(
+        "Promoting to MAIN with {} suspended (cold) tenant(s) while the hot-cold-tenants experiment is "
+        "DISABLED on this node — a flag-inconsistent cluster (flag-enabled MAIN + flag-disabled replica). "
+        "These tenants cannot be RESUMEd until this node restarts (which recovers them HOT). Set "
+        "--experimental-enabled=hot-cold-tenants consistently across all cluster members.",
+        suspended_.size());
+  }
+
   for (auto &[name, entry] : suspended_) {
     // Skip pre-C10 V2 entries (no captured epoch) — mutating them would write a phantom "" boundary,
     // and resume leaves their disk-recovered epoch intact anyway (has_epoch_meta == false).

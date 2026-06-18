@@ -268,8 +268,11 @@ void SuspendDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &syste
     if (result) {
       res = SuspendDatabaseRes(SuspendDatabaseRes::Result::SUCCESS);
       spdlog::debug("SuspendDatabaseHandler: SUCCESS");
-    } else if (result.error() == DbmsHandler::SuspendError::NON_EXISTENT) {
-      // Idempotent re-apply: the tenant is already COLD (or absent on this replica). Nothing to do.
+    } else if (result.error() == DbmsHandler::SuspendError::NON_EXISTENT && dbms_handler.IsKnownTenant(req.uuid)) {
+      // Holistic-review #3: NON_EXISTENT means "not HOT". Only treat it as an idempotent NO_NEED when the
+      // tenant is KNOWN (already COLD) — i.e. genuinely already in the target state. If the tenant is
+      // unknown entirely, this is a divergence (MAIN suspended a tenant this replica is missing); leave
+      // the apply FAILURE so the replica latches BEHIND and SystemRecovery (C8) supplies it.
       res = SuspendDatabaseRes(SuspendDatabaseRes::Result::NO_NEED);
     }
     // Any other error (e.g. ACTIVE_CONNECTIONS bounded-drain timeout) leaves FAILURE. SY-2: the
@@ -328,8 +331,11 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     if (result) {
       res = ResumeDatabaseRes(ResumeDatabaseRes::Result::SUCCESS);
       spdlog::debug("ResumeDatabaseHandler: SUCCESS");
-    } else if (result.error() == DbmsHandler::ResumeError::NON_EXISTENT) {
-      // Idempotent re-apply: not in the suspended-set (already HOT on this replica, or unknown).
+    } else if (result.error() == DbmsHandler::ResumeError::NON_EXISTENT && dbms_handler.IsKnownTenant(req.uuid)) {
+      // Holistic-review #3: NON_EXISTENT means "not in the suspended-set". Only treat it as an idempotent
+      // NO_NEED when the tenant is KNOWN (already HOT here). If it is unknown entirely, this is a
+      // divergence (MAIN resumed a tenant this replica is missing); leave the apply FAILURE so the replica
+      // latches BEHIND and SystemRecovery (C8) supplies it.
       res = ResumeDatabaseRes(ResumeDatabaseRes::Result::NO_NEED);
     }
     // RECOVERY_FAILED leaves FAILURE -> diverge-then-reconcile via SystemRecovery (C8).

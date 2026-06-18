@@ -424,10 +424,22 @@ struct Gatekeeper {
     // above calls notify_all() so this wait cannot lose a wakeup.
     {
       auto lock = std::unique_lock{pimpl_->mutex_};
-      pimpl_->cv_.wait(lock, [this] {
+      auto const terminal_and_drained = [this] {
         return (pimpl_->state_ == GatekeeperState::HOT || pimpl_->state_ == GatekeeperState::COLD) &&
                pimpl_->count_ == 0;
-      });
+      };
+      // Behaviour-preserving diagnosability: keep waiting unboundedly for the real condition (a slow
+      // accessor drain on shutdown is legitimate and must not be cut short), but if it has not been met
+      // after a generous interval, log WHY. Destroying a gatekeeper stuck in SUSPENDING/RESUMING is a
+      // caller ordering error that would otherwise hang here silently forever with no diagnostic.
+      while (!pimpl_->cv_.wait_for(lock, std::chrono::seconds{30}, terminal_and_drained)) {
+        spdlog::warn(
+            "~Gatekeeper has waited >30s for a terminal state and a drained accessor count (state={}, "
+            "count={}). A graceful destruction during SUSPENDING/RESUMING is a caller ordering error — "
+            "in-flight transitions must be quiesced before destroying.",
+            static_cast<int>(pimpl_->state_),
+            pimpl_->count_);
+      }
     }
     // Opt-in lifetime guard around object destruction.
     typename GatekeeperGuardFor<T>::type guard;

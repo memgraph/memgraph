@@ -88,6 +88,7 @@ void Save(const memgraph::storage::ColdTenantRecovery &self, memgraph::slk::Buil
   memgraph::slk::Save(history_size, builder);
   for (const auto &entry : self.epoch_history) memgraph::slk::Save(entry, builder);
   memgraph::slk::Save(self.has_epoch_meta, builder);
+  memgraph::slk::Save(self.last_durable_timestamp, builder);
 }
 
 void Load(memgraph::storage::ColdTenantRecovery *self, memgraph::slk::Reader *reader) {
@@ -103,6 +104,7 @@ void Load(memgraph::storage::ColdTenantRecovery *self, memgraph::slk::Reader *re
     self->epoch_history.push_back(std::move(entry));
   }
   memgraph::slk::Load(&self->has_epoch_meta, reader);
+  memgraph::slk::Load(&self->last_durable_timestamp, reader);
 }
 
 // Serialize code for SystemRecoveryReqV1

@@ -335,6 +335,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   cold.current_epoch = "epoch-E2";
   cold.epoch_history = memgraph::storage::EpochHistory{{"epoch-E1", 42}, {"epoch-E0", 7}};
   cold.has_epoch_meta = true;
+  cold.last_durable_timestamp = 314159;  // holistic-review #2: LDT must round-trip for the promotion boundary
 
   auto stream =
       client.Stream<memgraph::replication::SystemRecoveryRpc>(memgraph::utils::UUID{},
@@ -367,4 +368,5 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   EXPECT_EQ(seen_cold[0].epoch_history[0].second, 42U);
   EXPECT_EQ(seen_cold[0].epoch_history[1].first, "epoch-E0");
   EXPECT_EQ(seen_cold[0].epoch_history[1].second, 7U);
+  EXPECT_EQ(seen_cold[0].last_durable_timestamp, 314159U);
 }

@@ -409,6 +409,30 @@ class DbmsHandler {
   }
 
   /**
+   * @brief Holistic-review #3: does this node know @p uuid AT ALL — HOT (db_handler_) or COLD (suspended_)?
+   *
+   * The replica suspend/resume apply handlers resolve a UUID via SuspendByUUID/ResumeByUUID, which return
+   * NON_EXISTENT both when the tenant is ALREADY in the target state (idempotent re-apply -> NO_NEED) and
+   * when it is missing ENTIRELY (genuine divergence). Mapping both to NO_NEED would silently score the
+   * divergent case as success, so MAIN never latches this replica BEHIND and SystemRecovery never fires to
+   * supply the missing tenant. This predicate lets the handler tell the two apart: known -> NO_NEED;
+   * unknown -> leave the apply FAILURE so the replica reconciles via SystemRecovery (C8).
+   */
+  // NOT const: probing a HOT tenant's uuid mints (and immediately drops) a gatekeeper accessor, exactly
+  // as SuspendByUUID does — Gatekeeper::access() is non-const because it transiently bumps the count.
+  bool IsKnownTenant(const utils::UUID &uuid) {
+    auto rd = std::shared_lock{lock_};
+    for (auto &[n, db_gk] : db_handler_) {
+      auto acc = db_gk.access();  // nullopt for a COLD shell — those are matched via suspended_ below
+      if (acc && acc->get()->uuid() == uuid) return true;
+    }
+    for (const auto &[n, entry] : suspended_) {
+      if (entry.salient.uuid == uuid) return true;
+    }
+    return false;
+  }
+
+  /**
    * @brief C11: atomic, de-duplicated HOT ∪ COLD tenant set for cold-aware SHOW DATABASES.
    *
    * All()/ForEach skip COLD shells, so a suspended tenant would otherwise vanish from SHOW DATABASES.
@@ -522,6 +546,11 @@ class DbmsHandler {
       it->second.current_epoch = meta.current_epoch;
       it->second.epoch_history = meta.epoch_history;
       it->second.has_epoch_meta = true;
+      // Holistic-review #2: also adopt MAIN's as-of-suspend LDT. PromoteColdTenants emplaces the
+      // promotion boundary as (current_epoch, last_durable_timestamp); without MAIN's LDT a converged
+      // replica would pair MAIN's epoch with its OWN local LDT -> a phantom/garbled boundary ts that a
+      // downstream replica's continuous-history check can reject (spurious DIVERGED).
+      it->second.last_durable_timestamp = meta.last_durable_timestamp;
     }
   }
 
@@ -539,6 +568,7 @@ class DbmsHandler {
       out.push_back(storage::ColdTenantRecovery{.salient = entry.salient,
                                                 .stats = entry.cold_stats,
                                                 .has_epoch_meta = entry.has_epoch_meta,
+                                                .last_durable_timestamp = entry.last_durable_timestamp,
                                                 .current_epoch = entry.current_epoch,
                                                 .epoch_history = entry.epoch_history});
     }
@@ -1021,7 +1051,12 @@ class DbmsHandler {
   mutable LockT lock_{utils::RWLock::Priority::READ};  //!< protective lock
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
-  std::map<std::string, SuspendedEntry, std::less<>> suspended_;  //!< COLD tenant rebuild metadata; guarded by lock_
+  // COLD tenant rebuild metadata; guarded by lock_. The transparent std::less<> comparator is LOAD-BEARING
+  // for the Resume_ publish block's noexcept guarantee: that block does suspended_.find(name) (string_view,
+  // no temporary std::string -> no allocation) AFTER the gatekeeper has been committed HOT, so it must not
+  // throw. Do NOT change this to std::less<std::string> — find(string_view) would then construct a
+  // std::string key and could throw bad_alloc inside the noexcept window (holistic-review #6).
+  std::map<std::string, SuspendedEntry, std::less<>> suspended_;
   // TODO: move to be common
   std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
   std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
