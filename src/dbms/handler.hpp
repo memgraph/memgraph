@@ -101,6 +101,35 @@ class Handler {
   }
 
   /**
+   * @brief Erase a COLD-shell entry (no live value) directly.
+   *
+   * Unlike TryDelete (which needs a live HOT accessor and throws for an unknown name),
+   * this removes a suspended tenant's gatekeeper by name. Safe ONLY when the gatekeeper
+   * is strictly in the COLD state: count==0 and no transition in flight. Callers MUST
+   * ensure the tenant is COLD before calling (DeleteCold_ does the state check under
+   * lock_ so by the time EraseColdShell is reached the invariant already holds).
+   *
+   * Defense-in-depth: refuse to erase anything that is not strictly COLD. A HOT tenant
+   * (state HOT) takes the wrong path; a SUSPENDING/RESUMING tenant mid-transition would
+   * make ~Gatekeeper block forever waiting for a terminal state while the caller holds
+   * lock_ — deadlock. This check is the backstop that prevents that scenario even if the
+   * caller's own state check is bypassed or races.
+   *
+   * @param name Name associated with the COLD shell to erase
+   * @return true if erased, false if absent or if the entry is not in the COLD state
+   */
+  bool EraseColdShell(std::string_view name) {
+    auto itr = items_.find(name);
+    if (itr == items_.end()) return false;
+    // Refuse anything not strictly COLD: a HOT value, or a SUSPENDING/RESUMING shell
+    // mid-transition. Erasing a RESUMING/SUSPENDING gatekeeper would block ~Gatekeeper
+    // forever (it waits for a terminal state) while the caller holds lock_ -> deadlock.
+    if (itr->second.state() != utils::GatekeeperState::COLD) return false;
+    items_.erase(itr);
+    return true;
+  }
+
+  /**
    * @brief Get pointer to context.
    *
    * @param name Name associated with the wanted context

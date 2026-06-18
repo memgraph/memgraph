@@ -8017,6 +8017,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                     throw QueryRuntimeException("Failed while renaming {}", old_name);
                   case dbms::RenameError::SAME_NAME:
                     throw QueryRuntimeException("New name cannot be the same as the old name.");
+                  case dbms::RenameError::SUSPENDED:
+                    throw QueryRuntimeException("Cannot rename database {}: it is suspended (cold). RESUME it first.",
+                                                old_name);
                 }
               }
             } catch (const utils::BasicException &e) {

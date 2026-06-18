@@ -954,6 +954,18 @@ class DbmsHandler {
   // TODO: new overload of Delete_ with DatabaseAccess
   DeleteResult Delete_(std::string_view db_name);
 
+  // Drop a COLD (suspended) tenant: erases suspended_ entry, durable cold marker, on-disk data dir,
+  // cold shell, and tenant-profile attachment. Returns the dropped UUID on success, or DeleteError
+  // on failure. Possible errors:
+  //   NON_EXISTENT — `name` is not in suspended_ (defensive; callers usually guard on .contains()).
+  //   USING        — the tenant's gatekeeper is not strictly COLD (RESUMING or SUSPENDING mid-
+  //                  transition). A concurrent Resume_ holds the COLD->RESUMING token; erasing the
+  //                  gatekeeper now would block ~Gatekeeper waiting for a terminal state while the
+  //                  caller holds lock_ -> deadlock. The DROP is rejected as retriable — the resume
+  //                  will complete (HOT) or abort (COLD), and a retry or the user can re-issue DROP.
+  // Caller must hold lock_ (write).
+  std::expected<utils::UUID, DeleteError> DeleteCold_(std::string_view name);
+
   /**
    * @brief Create a new Database associated with the default database
    *

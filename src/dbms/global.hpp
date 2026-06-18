@@ -40,6 +40,7 @@ enum class RenameError : uint8_t {
   USING,
   FAIL,
   SAME_NAME,
+  SUSPENDED,
 };
 #endif
 

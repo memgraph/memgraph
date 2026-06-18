@@ -512,6 +512,17 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     return std::unexpected{DeleteError::DEFAULT_DB};
   }
 
+  // Cold-tenant fast path: drop a COLD (suspended) tenant directly without going through the HOT
+  // gatekeeper path (which returns NON_EXISTENT for a no-value shell).
+  if (suspended_.contains(db_name)) {
+    auto res = DeleteCold_(db_name);
+    if (!res) return std::unexpected{res.error()};
+    if (transaction) {
+      transaction->AddAction<DropDatabase>(*res);
+    }
+    return {};
+  }
+
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
   if (!conf) {
@@ -559,6 +570,16 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
 DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::Transaction *transaction) {
   auto wr = std::lock_guard(lock_);
 
+  // Cold-tenant fast path.
+  if (suspended_.contains(db_name)) {
+    auto res = DeleteCold_(db_name);
+    if (!res) return std::unexpected{res.error()};
+    if (transaction) {
+      transaction->AddAction<DropDatabase>(*res);
+    }
+    return {};
+  }
+
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
   if (!conf) {
@@ -578,11 +599,25 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
 
 DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
   auto wr = std::lock_guard(lock_);
+  if (suspended_.contains(db_name)) {
+    auto res = DeleteCold_(db_name);
+    if (!res) return std::unexpected{res.error()};
+    return {};
+  }
   return Delete_(db_name);
 }
 
 DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
   auto wr = std::lock_guard(lock_);
+  // Cold-tenant fast path: scan suspended_ by uuid (replica apply path — no transaction arg).
+  {
+    auto it = std::ranges::find_if(suspended_, [&](auto const &kv) { return kv.second.salient.uuid == uuid; });
+    if (it != suspended_.end()) {
+      auto res = DeleteCold_(it->first);
+      if (!res) return std::unexpected{res.error()};
+      return {};
+    }
+  }
   std::string db_name;
   try {
     const auto db = Get_(uuid);
@@ -604,6 +639,13 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
 
   if (old_name == new_name) {
     return std::unexpected{RenameError::SAME_NAME};
+  }
+
+  // H2: a COLD (suspended) tenant cannot be renamed. Its gatekeeper is a no-value shell, so
+  // db_handler_.Rename would move the shell and the subsequent Get(new_name) MG_ASSERT would abort
+  // the process. Renaming a suspended tenant is not supported — RESUME it first.
+  if (suspended_.contains(old_name)) {
+    return std::unexpected{RenameError::SUSPENDED};
   }
 
   // Perform the rename operation in the handler
@@ -791,6 +833,41 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system
     }
   }
   return new_db;
+}
+
+std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_view name) {
+  auto it = suspended_.find(name);
+  if (it == suspended_.end()) return std::unexpected{DeleteError::NON_EXISTENT};
+
+  // A DROP may only proceed when the tenant is strictly COLD. If it is mid-transition
+  // (RESUMING or SUSPENDING) a concurrent operation holds or has handed off the gatekeeper;
+  // erasing now would block ~Gatekeeper waiting for a terminal state while the caller holds
+  // lock_ -> permanent deadlock. Reject as retriable (USING): the in-flight transition will
+  // finish (RESUMING -> HOT, SUSPENDING -> COLD or HOT) and the DROP can be retried.
+  //
+  // This is the load-bearing enforcement of the invariant the Resume_ comment at Phase A
+  // (~1300-1304) previously only claimed: "a concurrent DROP sees RESUMING and refuses to erase."
+  // That invariant is NOW enforced here under the same exclusive lock_ the DROP path holds.
+  auto *gk = db_handler_.GetGatekeeper(name);
+  if (!gk || gk->state() != utils::GatekeeperState::COLD) {
+    return std::unexpected{DeleteError::USING};
+  }
+
+  const auto uuid = it->second.salient.uuid;
+  const auto data_dir = default_config_.durability.storage_directory / it->second.rel_dir;
+  suspended_.erase(it);
+  db_handler_.EraseColdShell(name);  // guaranteed to succeed: we just verified state==COLD above
+  if (durability_) durability_->Delete(Durability::GenKey(name));
+  std::error_code ec;
+  (void)std::filesystem::remove_all(data_dir, ec);
+  if (ec) {
+    spdlog::error(R"(Failed to clean disk while dropping suspended database "{}" at {})", name, data_dir.string());
+  }
+  if (tenant_profiles_) {
+    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(name);
+  }
+  metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
+  return uuid;
 }
 
 DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
@@ -1242,8 +1319,11 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       // begin_resume() is called INSIDE this shared-lock scope (not after): between releasing the
       // lock and begin_resume(), a concurrent DROP of a COLD tenant (under exclusive lock_) could
       // erase the COLD shell, leaving `gk` dangling -> begin_resume() would be a UAF. By transitioning
-      // COLD -> RESUMING while lock_ is held, a concurrent Drop then takes the exclusive lock, sees
-      // RESUMING, and refuses to erase — so `gk` stays valid through the slow off-lock build/publish.
+      // COLD -> RESUMING while lock_ is held, a concurrent DROP then takes the exclusive lock and calls
+      // DeleteCold_ which checks gk->state() — if not strictly COLD (it is RESUMING) DeleteCold_
+      // returns USING and refuses to erase — so `gk` stays valid through the slow off-lock build/publish.
+      // This invariant is ENFORCED inside DeleteCold_/EraseColdShell (not merely claimed): both functions
+      // check state() under the caller's exclusive lock_ before touching items_ or suspended_.
       auto rd = std::shared_lock{lock_};
       if (auto a = db_handler_.Get(name)) return std::move(*a);  // already HOT (raced) — share its accessor
       gk = db_handler_.GetGatekeeper(name);                      // stable pointer to the in-map gatekeeper

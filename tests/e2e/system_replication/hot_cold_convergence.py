@@ -1135,5 +1135,116 @@ def test_ttl_restarts_after_resume(connection, test_name):
     assert tenant_probe(main_cursor, "A")() == 3, "permanent nodes must survive after TTL reaping post-resume"
 
 
+def test_drop_cold_tenant_converges(connection, test_name):
+    # H1 (replica DropDatabaseRpc → cold-aware Delete(uuid)):
+    #   Before the fix, a replica that held tenant A COLD would never process a DropDatabaseRpc issued
+    #   while A was suspended, because the delete path only walked the HOT set. The replica was left
+    #   with a cold ghost that tenant_probe returned as "COLD" forever rather than "MISSING".
+    #   After the fix, DropDatabaseRpc calls a cold-aware Delete(uuid) that also reaps the cold shell.
+    #
+    # H4 (SystemRecovery leftover-delete sees COLD):
+    #   This path is exercised by the companion test below; see test_drop_cold_tenant_while_replica_down_converges.
+    #
+    # Phase 1 — online drop (H1 replica apply path):
+    #   MAIN suspends A then drops it while the replica is online. The DropDatabaseRpc must cause the
+    #   replica to remove the cold ghost; tenant_probe must transition from "COLD" to "MISSING".
+    instances = {
+        "replica_1": replica_args(test_name, recovery=False),
+        "main": main_args(test_name),
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    set_replica_role(replica_cursor)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    # SYNC: the DROP must complete on the replica before returning to MAIN, so the "MISSING" assertion
+    # does not race the RPC in-flight.
+    register_replica(main_cursor, sync=True)
+
+    # Create + populate tenant A on MAIN; it replicates to the (HOT) replica.
+    create_and_populate(main_cursor, "A", 5)
+    mg_sleep_and_assert(5, tenant_probe(replica_cursor, "A"))
+
+    # SUSPEND A on MAIN -> replica copy torn down to COLD (C7 SuspendDatabaseRpc).
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
+    mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "A"))
+    # MAIN's own copy is COLD too.
+    assert tenant_probe(main_cursor, "A")() == "COLD"
+
+    # DROP A on MAIN while it is COLD. This must succeed locally (H1 local cold-aware drop), and the
+    # DropDatabaseRpc sent to the replica must remove the cold ghost there too (H1 replica apply path).
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "DROP DATABASE A;")
+
+    # Replica must have reaped the cold ghost (pre-fix: stays "COLD" forever).
+    mg_sleep_and_assert("MISSING", tenant_probe(replica_cursor, "A"))
+    # MAIN's own view must also be "MISSING".
+    assert tenant_probe(main_cursor, "A")() == "MISSING"
+
+
+def test_drop_cold_tenant_while_replica_down_converges(connection, test_name):
+    # H4 (SystemRecovery leftover-delete sees COLD):
+    #   Before the fix, the V3 SystemRecovery leftover-delete loop only walked MAIN's HOT set when
+    #   seeding the "tenants MAIN no longer has" set. A tenant dropped while it was COLD was absent from
+    #   both MAIN's HOT set and MAIN's COLD set at reconnect time (it had already been destroyed), so the
+    #   replica's cold ghost was never included in the leftover-delete and survived indefinitely.
+    #   After the fix, the leftover-delete seeds from HOT∪COLD (including the cross-restart COLD recovery
+    #   of B from the replica's own disk), so it reaps the ghost on reconnect.
+    #
+    # Sequence:
+    #   1. Fresh instances; replica registered ASYNC.
+    #   2. Create + populate tenant B; wait replica HOT.
+    #   3. SUSPEND B on MAIN; wait replica COLD.
+    #   4. Kill the replica (keep its data dir so it recovers B COLD on restart via --data-recovery-on-startup).
+    #   5. DROP B on MAIN while the replica is offline (DropDatabaseRpc lost).
+    #   6. Restart the replica; it recovers B as a COLD shell from its own disk.
+    #   7. On reconnect MAIN runs SystemRecovery (V3); the H4 leftover-delete seeds from HOT∪COLD and
+    #      includes B (which MAIN no longer holds at all) -> the replica reaps the cold ghost.
+    #   8. tenant_probe must converge to "MISSING".
+    instances = {
+        "replica_1": replica_args(test_name, recovery=True),
+        "main": main_args(test_name),
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    set_replica_role(replica_cursor)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    # ASYNC: DROP must not block on the down replica.
+    register_replica(main_cursor, sync=False)
+
+    create_and_populate(main_cursor, "B", 6)
+    mg_sleep_and_assert(6, tenant_probe(replica_cursor, "B"))
+
+    # SUSPEND B on MAIN; wait for the replica copy to go COLD.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE B;")
+    mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "B"))
+    assert tenant_probe(main_cursor, "B")() == "COLD"
+
+    # Take the replica down; keep its data directory so it recovers B COLD from disk on restart.
+    interactive_mg_runner.kill(instances, "replica_1", keep_directories=True)
+
+    # DROP B on MAIN while the replica is offline. The DropDatabaseRpc is lost; only the V3
+    # SystemRecovery leftover-delete can reap the cold ghost on the next reconnect (H4).
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "DROP DATABASE B;")
+    assert tenant_probe(main_cursor, "B")() == "MISSING"
+
+    # Restart the replica with recovery flags. It recovers B as a COLD shell from its own disk
+    # (--data-recovery-on-startup) and restores its REPLICA role (--replication-restore-state-on-startup)
+    # so MAIN reconnects and runs SystemRecovery (V3).
+    interactive_mg_runner.start(instances, "replica_1")
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+
+    # H4: the SystemRecovery leftover-delete now seeds from HOT∪COLD. MAIN holds neither a HOT nor a
+    # COLD copy of B (it was dropped), so B is in the leftover set, and the replica reaps the cold ghost.
+    # Pre-fix: the ghost survived as "COLD" forever because the leftover-delete only walked the HOT set.
+    mg_sleep_and_assert("MISSING", tenant_probe(replica_cursor, "B"))
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

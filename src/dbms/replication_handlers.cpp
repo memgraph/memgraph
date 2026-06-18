@@ -414,8 +414,17 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   // C16 (MED2): the COLD set arrives as one ColdTenantRecovery per tenant (salient + stats + epoch),
   // so the salient<->stats pairing is structural — the earlier mismatched-length guard is gone.
 
-  // HOT names currently active on this replica (All() excludes COLD shells — a no-value gatekeeper).
-  auto old = dbms_handler.All();
+  // H4: seed the leftover-delete set from HOT *and* COLD tenants. All() skips COLD shells, so a
+  // tenant MAIN has dropped while this replica holds it COLD would otherwise be in neither the
+  // incoming sets nor `old` and would never be reconciled away (permanent divergence). The DROP of
+  // a COLD tenant is handled cold-aware by Delete() (see DeleteCold_). AllWithHotColdStatus() is
+  // de-duplicated (a SUSPENDING-transient tenant is listed once, as COLD).
+  std::vector<std::string> old;
+  {
+    auto hot_cold = dbms_handler.AllWithHotColdStatus();
+    old.reserve(hot_cold.size());
+    for (auto &[name, _status] : hot_cold) old.emplace_back(std::move(name));
+  }
 
   // Check/create the incoming HOT dbs.
   for (const auto &config : database_configs) {

@@ -28,9 +28,12 @@
 #ifdef MG_ENTERPRISE
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <thread>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -262,6 +265,39 @@ TEST_F(HotColdSuspend, ResumeInvokesOnResumeArm) {
   }  // release the resumed accessor before TearDown resets the handler (~Gatekeeper waits for count==0)
 }
 
+// H1: DROP DATABASE on a COLD (suspended) tenant must clean up (suspended_ entry, durable cold
+// marker, data dir, cold shell) and succeed — not bail with NON_EXISTENT and leak the tenant (which
+// then re-materializes on restart). After the drop the name must be reusable.
+TEST_F(HotColdSuspend, DropColdTenantCleansUp) {
+  auto name = CreateTenant("drop_cold");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+  ASSERT_TRUE(handler_->IsSuspended(name));
+
+  // Delete(std::string_view) is the single-arg, no-transaction drop entry point.
+  auto del = handler_->Delete(name);
+  EXPECT_TRUE(del.has_value()) << "DROP of a COLD tenant must succeed";
+  EXPECT_FALSE(handler_->IsSuspended(name)) << "the suspended_ entry must be erased";
+  // Get() on a non-existent tenant throws UnknownDatabaseException — same pattern as
+  // SuspendSuccessMakesColdShellInaccessible above.
+  EXPECT_THROW(handler_->Get(name), std::exception) << "the cold shell must be gone";
+
+  // The durable cold marker + data dir are gone, so the name is reusable.
+  auto recreate = handler_->New(name);
+  EXPECT_TRUE(recreate.has_value()) << "name must be reusable after dropping the cold tenant";
+}
+
+// H2: RENAME DATABASE on a COLD tenant must be rejected with RenameError::SUSPENDED, NOT abort the
+// process (pre-fix it tripped MG_ASSERT after moving the no-value shell).
+TEST_F(HotColdSuspend, RenameColdTenantRejected) {
+  auto name = CreateTenant("rename_cold");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  auto res = handler_->Rename(name, "rename_cold_new", nullptr);
+  ASSERT_FALSE(res.has_value());
+  EXPECT_EQ(res.error(), memgraph::dbms::RenameError::SUSPENDED);
+  EXPECT_TRUE(handler_->IsSuspended(name)) << "a rejected rename must leave the tenant COLD under its old name";
+}
+
 // Two independent tenants can be suspended; each goes COLD without affecting the
 // other or the default DB.
 TEST_F(HotColdSuspend, SuspendMultipleTenants) {
@@ -277,6 +313,57 @@ TEST_F(HotColdSuspend, SuspendMultipleTenants) {
   EXPECT_FALSE(InAll(b));
   EXPECT_THROW(handler_->Get(a), std::exception);
   EXPECT_THROW(handler_->Get(b), std::exception);
+}
+
+// H1-concurrency / deadlock regression: a concurrent DROP DATABASE while a Resume is parked in its
+// on_resume_ arm (state == RESUMING, suspended_ still holds the entry) must be rejected with
+// DeleteError::USING and must NOT deadlock. The resumer must complete to HOT after the rejected DROP.
+//
+// Reproduces the race window exactly:
+//   1. Suspend the tenant (COLD, suspended_ populated).
+//   2. Install an on_resume_ arm that parks (spin) until the main thread has attempted the DROP.
+//   3. Spawn a thread that calls Resume() — it wins COLD->RESUMING, enters on_resume_, parks.
+//   4. Main thread calls Delete(name) under exclusive lock_: DeleteCold_ sees state==RESUMING ->
+//      returns USING. Without the fix, DeleteCold_ would erase the gatekeeper and ~Gatekeeper
+//      would block forever (deadlock) because the resumer can never reach the publish block.
+//   5. Release the park flag, join the resumer — it must complete to HOT.
+TEST_F(HotColdSuspend, DropDuringResumeRejectedNotDeadlock) {
+  auto name = CreateTenant("drop_during_resume");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  std::atomic<bool> in_arm{false};
+  std::atomic<bool> release{false};
+
+  // on_resume_ runs AFTER begin_resume() (state==RESUMING) and BEFORE publish (suspended_ still
+  // populated) — exactly the race window. Park here until the main thread has attempted the DROP.
+  handler_->SetOnResume([&](memgraph::dbms::DatabaseAccess) {
+    in_arm.store(true, std::memory_order_release);
+    while (!release.load(std::memory_order_acquire)) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+  });
+
+  std::thread resumer([&] { (void)handler_->Resume(name); });
+
+  // Wait until the resumer is parked inside the on_resume_ arm (state == RESUMING).
+  while (!in_arm.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+
+  // Attempt a DROP while the tenant is RESUMING. Must return USING (retriable), NOT deadlock.
+  auto del = handler_->Delete(name);
+  EXPECT_FALSE(del.has_value()) << "DROP during resume must be rejected (not succeed or deadlock)";
+  EXPECT_EQ(del.error(), memgraph::dbms::DeleteError::USING) << "DROP during RESUMING must return USING (retriable)";
+
+  // Release the parked resumer and wait for it to complete.
+  release.store(true, std::memory_order_release);
+  resumer.join();
+
+  // The resume must have completed: the tenant is now HOT and reachable via All().
+  EXPECT_TRUE(InAll(name)) << "the resume must complete to HOT after the rejected DROP";
+
+  // Clean up the resumed accessor before TearDown resets the handler.
+  // (Get() returns the HOT accessor; letting it drop here avoids a ~Gatekeeper wait.)
 }
 
 #else
