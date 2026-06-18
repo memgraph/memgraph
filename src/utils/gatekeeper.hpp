@@ -155,6 +155,12 @@ struct Gatekeeper {
   Gatekeeper(Gatekeeper const &) = delete;
   Gatekeeper(Gatekeeper &&) noexcept = default;
   Gatekeeper &operator=(Gatekeeper const &) = delete;
+  // LOAD-BEARING for hot/cold deadlock-freedom: the defaulted move-assign tears the OLD state down by
+  // resetting `pimpl_` (a unique_ptr), which runs ~GKInternals — a plain, NON-blocking destructor. It
+  // does NOT run ~Gatekeeper (whose teardown blocks until count == 0 + a terminal state). DbmsHandler's
+  // RESUME publish (`*gk = std::move(fresh)`) relies on this: it overwrites a RESUMING shell while
+  // holding the handler lock_, and would deadlock if overwriting instead invoked the blocking
+  // ~Gatekeeper. Keep this `= default` (and keep ~GKInternals non-blocking) or that publish path hangs.
   Gatekeeper &operator=(Gatekeeper &&) noexcept = default;
 
   struct Accessor {

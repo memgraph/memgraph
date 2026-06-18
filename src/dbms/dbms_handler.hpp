@@ -136,7 +136,6 @@ class DbmsHandler {
     NON_EXISTENT,           //!< no such tenant (or already cold)
     NOT_IN_MEMORY,          //!< on-disk storage mode is not suspendable
     DURABILITY_INCOMPLETE,  //!< durability mode is not {periodic snapshot + WAL}
-    REPLICATING,            //!< MAIN-side replication participant (has registered replicas)
     ACTIVE_CONNECTIONS,     //!< another accessor is live; could not reach sole-accessor state
   };
   using SuspendResult = std::expected<void, SuspendError>;

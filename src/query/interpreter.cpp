@@ -8067,9 +8067,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   throw QueryRuntimeException(
                       "Database {} does not have periodic snapshot+WAL durability enabled; cannot suspend safely.",
                       db_name);
-                case dbms::DbmsHandler::SuspendError::REPLICATING:
-                  throw QueryRuntimeException(
-                      "Database {} has active replication replicas; cannot suspend while replicating.", db_name);
                 case dbms::DbmsHandler::SuspendError::ACTIVE_CONNECTIONS:
                   throw QueryRuntimeException("Database {} has active connections; cannot suspend while in use.",
                                               db_name);

@@ -353,9 +353,10 @@ namespace {
 // SR-1′(2): force-suspend a tenant on the replica during recovery. On a replica the only transient
 // suspend failure is ACTIVE_CONNECTIONS (a background accessor — GC/periodic-snapshot — still live;
 // no client write conns exist, and a data-delta accessor cannot be in flight because the same
-// single-threaded RPC server is currently running this recovery). MIN_RESIDENCY no longer exists and
-// REPLICATING cannot fire on a replica. The engine's try_begin_suspend() already waits 100ms for
-// count==1; this bounded outer retry covers a slow background accessor. On timeout the caller flags
+// single-threaded RPC server is currently running this recovery). The other SuspendError reasons are
+// structurally unreachable here (DEFAULT_DB/NOT_IN_MEMORY/DURABILITY_INCOMPLETE are config-fixed, and
+// there is no MAIN-side replication-participant gate). The engine's try_begin_suspend() already waits
+// 100ms for count==1; this bounded outer retry covers a slow background accessor. On timeout the caller flags
 // BEHIND and the whole recovery is retried (SY-2 diverge-then-reconcile).
 bool ForceSuspendForRecovery(DbmsHandler &dbms_handler, std::string_view name) {
   constexpr auto kRetryStep = std::chrono::milliseconds(20);

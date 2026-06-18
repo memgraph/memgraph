@@ -1407,6 +1407,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
             rss.history = std::move(it->second.epoch_history);
             rss.epoch_.SetEpoch(std::move(it->second.current_epoch));
           }
+          // Overwriting the RESUMING shell here is deadlock-free because Gatekeeper's move-assign tears
+          // the old state down via ~GKInternals (non-blocking), NOT the count-waiting ~Gatekeeper — see
+          // the load-bearing note on Gatekeeper::operator=(Gatekeeper&&) in utils/gatekeeper.hpp.
           *gk = std::move(fresh);
           if (it != suspended_.end()) suspended_.erase(it);
           // F2: the tenant is now HOT. Counter increment + gauge set are atomic/non-throwing, so they
