@@ -362,15 +362,18 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
     }
     if (recovered) {
       spdlog::info("Database {} restored.", name);
-      // C14: the reheat is sticky for free — a successful New_ already rewrote the durable entry HOT
-      // (New_ -> UpdateDurability -> GenVal, no cold key), so a future restart recovers HOT directly.
-      // Idempotent: a crash before that Put just re-enters the reheat path next boot (same snapshot).
+    } else if (name == kDefaultDB) {
+      // The default database is the system database (it backs auth, multi-tenancy metadata, etc.) and is
+      // never suspendable. It MUST come up or the instance must fail loudly — leaving it cold would make
+      // SetupDefault_ silently recreate it with a fresh UUID. A recovery failure here is fatal, exactly as
+      // on a single-tenant instance.
+      MG_ASSERT(recovered, "Failed while recovering the default database; aborting.");
     } else {
       // Leave-cold: emplace a COLD shell so the process stays up and the tenant is resumable later.
-      // This is the boot-OOM safety valve — the instance starts DEGRADED rather than aborting. The
-      // durable entry is left HOT (no cold marker) so a future restart retries HOT recovery; the
-      // metadata is rebuilt from defaults (no heartbeat/cold_stats for a failed recovery). Tag the
-      // in-memory entry with WHY it is cold so SHOW surfaces the degraded marker.
+      // The instance starts DEGRADED rather than aborting. The durable entry is left HOT (no cold marker)
+      // so a future restart retries HOT recovery; the metadata is rebuilt from defaults (no
+      // heartbeat/cold_stats for a failed recovery). Tag the in-memory entry with WHY it is cold so SHOW
+      // surfaces the degraded marker.
       db_handler_.EmplaceColdShell(name);
       auto entry = make_cold_entry(name, uuid, rel_dir, json);
       entry.cold_reason = reason;

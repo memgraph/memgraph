@@ -51,7 +51,6 @@
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
-#include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/isolation_level.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -139,10 +138,6 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
-
-#ifdef MG_ENTERPRISE
-#include "flags/experimental.hpp"
-#endif
 
 import memgraph.utils.aws;
 
