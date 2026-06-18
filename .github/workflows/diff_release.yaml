@@ -223,9 +223,6 @@ jobs:
           MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
           CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
           CLUSTER_ENV: "ci-diff-release"
-        # --upload-core true also uploads the core + build artifacts alongside the
-        # traces. 'true' (not the default 'auto') so the large validation core is
-        # uploaded despite exceeding the 2 GiB auto threshold.
         run: |
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \

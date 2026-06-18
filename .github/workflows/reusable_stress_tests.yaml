@@ -475,7 +475,14 @@ jobs:
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}" \
           --upload-core true
-          rm -rf /tmp/mg-cores/* 2>/dev/null || true
+
+      - name: Clean up core dumps
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/core-dumps/clean_host_cores.sh \
+          --cores-dir /tmp/mg-cores \
+          --image "$MEMGRAPH_IMAGE"
 
       - name: Upload stress test logs
         if: always()
