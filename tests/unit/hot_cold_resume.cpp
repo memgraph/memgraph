@@ -69,7 +69,7 @@ class HotColdResume : public ::testing::Test {
     // the flag, but C14's restore loop does: with the flag OFF a durable COLD marker is reheated HOT.
     // Enable it here so the cross-restart tests exercise the COLD-stays-COLD path; the C14 flag-off
     // reheat test toggles it off explicitly.
-    memgraph::flags::SetExperimental(memgraph::flags::Experiments::HOT_COLD_TENANTS);
+    memgraph::flags::SetExperimental(memgraph::flags::Experiments::HOT_COLD_DATABASES);
     handler_ = std::make_unique<DbmsHandler>(conf_);
   }
 
@@ -364,7 +364,7 @@ TEST_F(HotColdResume, CrossRestartColdTenantStaysColdHotTenantRecovers) {
   Restart();
 
   // F2: the boot restore loop set the cold-tenant gauge once, to this fresh handler's cold count (1).
-  EXPECT_DOUBLE_EQ(memgraph::metrics::Metrics().global.cold_tenants->Value(), 1.0)
+  EXPECT_DOUBLE_EQ(memgraph::metrics::Metrics().global.cold_databases->Value(), 1.0)
       << "the cold-tenant gauge must reflect the one tenant restored COLD on boot";
 
   // The cold tenant is restored as a COLD shell: not in All(), and Get() trips the cold seam.
@@ -596,18 +596,18 @@ TEST_F(HotColdResume, AppliedWireEpochDrivesColdPromotionBoundary) {
 //     sole tenant is cold, 0 once resumed.
 TEST_F(HotColdResume, SuspendResumeMoveObservabilityMetrics) {
   auto &m = memgraph::metrics::Metrics().global;
-  const double suspends0 = m.tenant_suspends->Value();
-  const double resumes0 = m.tenant_resumes->Value();
+  const double suspends0 = m.database_suspends->Value();
+  const double resumes0 = m.database_resumes->Value();
 
   auto t = CreateAndPopulate("metrics_tenant", 3);
   ASSERT_TRUE(handler_->Suspend(t).has_value());
-  EXPECT_DOUBLE_EQ(m.tenant_suspends->Value() - suspends0, 1.0)
+  EXPECT_DOUBLE_EQ(m.database_suspends->Value() - suspends0, 1.0)
       << "a successful SUSPEND increments the suspends counter";
-  EXPECT_DOUBLE_EQ(m.cold_tenants->Value(), 1.0) << "the cold-tenant gauge reflects the one suspended tenant";
+  EXPECT_DOUBLE_EQ(m.cold_databases->Value(), 1.0) << "the cold-tenant gauge reflects the one suspended tenant";
 
   ASSERT_TRUE(handler_->Resume(t).has_value());
-  EXPECT_DOUBLE_EQ(m.tenant_resumes->Value() - resumes0, 1.0) << "a successful RESUME increments the resumes counter";
-  EXPECT_DOUBLE_EQ(m.cold_tenants->Value(), 0.0) << "the cold-tenant gauge returns to zero after resume";
+  EXPECT_DOUBLE_EQ(m.database_resumes->Value() - resumes0, 1.0) << "a successful RESUME increments the resumes counter";
+  EXPECT_DOUBLE_EQ(m.cold_databases->Value(), 0.0) << "the cold-tenant gauge returns to zero after resume";
 }
 
 // C12: a tenant whose HOT recovery FAILS at boot must be left COLD (not abort the process) and marked
@@ -630,7 +630,7 @@ TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
 
   // F2: a non-OOM recovery failure increments the generic boot-recovery-failure counter (delta, since
   // the counter is a process-global monotonic singleton shared across tests in this binary).
-  const double boot_fail0 = memgraph::metrics::Metrics().global.tenant_boot_recovery_failures->Value();
+  const double boot_fail0 = memgraph::metrics::Metrics().global.database_boot_recovery_failures->Value();
 
   // Tear down (flush + close), corrupt the bad tenant's durability, then reconstruct so its recovery
   // throws while the good tenant recovers cleanly.
@@ -638,7 +638,7 @@ TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
   CorruptTenantDurability(bad_uuid);
   handler_ = std::make_unique<DbmsHandler>(conf_);
 
-  EXPECT_DOUBLE_EQ(memgraph::metrics::Metrics().global.tenant_boot_recovery_failures->Value() - boot_fail0, 1.0)
+  EXPECT_DOUBLE_EQ(memgraph::metrics::Metrics().global.database_boot_recovery_failures->Value() - boot_fail0, 1.0)
       << "a failed (non-OOM) hot recovery at boot must increment the boot-recovery-failure counter";
 
   // The corrupt tenant is left COLD (process did not abort) with a 'recovery failed' SHOW marker.
@@ -664,7 +664,7 @@ TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
 }
 
 // T3 / H3 (R1 byte-identical): the C12 boot-OOM leave-cold valve is INTENTIONALLY flag-gated. With the
-// hot-cold-tenants experiment DISABLED, a HOT tenant whose boot recovery FAILS must ABORT the process
+// hot-cold-databases experiment DISABLED, a HOT tenant whose boot recovery FAILS must ABORT the process
 // (MG_ASSERT) exactly like non-experimental master, NOT silently boot degraded by leaving the tenant
 // cold. This is the negative control for BootRecoveryFailureLeavesTenantColdWithMarker (which proves the
 // flag-ON survival): identical corruption, opposite outcome, gated solely on the experiment flag. Without
@@ -727,7 +727,7 @@ TEST_F(HotColdResume, FlagOffRestartReheatsColdTenantHot) {
   EXPECT_TRUE(InAll(t)) << "the durable marker must have been flipped HOT, so it stays HOT";
 
   // Re-enabling the experiment + restart does NOT re-suspend it (suspension is explicit-only).
-  memgraph::flags::SetExperimental(memgraph::flags::Experiments::HOT_COLD_TENANTS);
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::HOT_COLD_DATABASES);
   Restart();
   EXPECT_TRUE(InAll(t)) << "re-enabling the experiment must not auto-re-suspend a reheated tenant";
   EXPECT_FALSE(handler_->IsSuspended(t));

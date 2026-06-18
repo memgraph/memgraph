@@ -7306,7 +7306,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       // the Get_ cold seam (reverses HC-5). The numbers are MAIN's as-of-suspend snapshot; physical
       // fields (memory/disk) are MAIN-relative and labelled COLD (R11). Gated on the experiment so
       // behavior is unchanged for users who have not opted in.
-      if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS) && info_query->database_) {
+      if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_DATABASES) && info_query->database_) {
         if (auto cold = dbms_handler->GetColdShowInfo(*info_query->database_)) {
           const auto &db_name = *info_query->database_;
           if (!license::global_license_checker.IsEnterpriseValidFast() && db_name != dbms::kDefaultDB) {
@@ -8037,10 +8037,10 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .db = query->db_name_};
     }
     case MultiDatabaseQuery::Action::SUSPEND: {
-      if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+      if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_DATABASES)) {
         throw QueryRuntimeException(
-            "SUSPEND DATABASE requires the hot-cold-tenants experiment "
-            "(--experimental-enabled=hot-cold-tenants).");
+            "SUSPEND DATABASE requires the hot-cold-databases experiment "
+            "(--experimental-enabled=hot-cold-databases).");
       }
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
@@ -8085,10 +8085,10 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .db = query->db_name_};
     }
     case MultiDatabaseQuery::Action::RESUME: {
-      if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+      if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_DATABASES)) {
         throw QueryRuntimeException(
-            "RESUME DATABASE requires the hot-cold-tenants experiment "
-            "(--experimental-enabled=hot-cold-tenants).");
+            "RESUME DATABASE requires the hot-cold-databases experiment "
+            "(--experimental-enabled=hot-cold-databases).");
       }
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
@@ -8239,11 +8239,11 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  // C11: with the hot-cold-tenants experiment ENABLED, SHOW DATABASES gains a "status" column
+  // C11: with the hot-cold-databases experiment ENABLED, SHOW DATABASES gains a "status" column
   // (HOT/COLD) and lists COLD tenants (which are excluded from All() as no-value shells, so they would
   // otherwise vanish). Gated on the flag so output is byte-identical to before for users who have not
   // opted into the experiment (no tenant can be COLD without the flag anyway — SUSPEND is gated).
-  const bool hot_cold = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS);
+  const bool hot_cold = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_DATABASES);
   callback.header = hot_cold ? std::vector<std::string>{"Name", "status"} : std::vector<std::string>{"Name"};
   callback.fn = [auth,
                  db_handler,

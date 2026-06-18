@@ -23,7 +23,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "dbms/rpc.hpp"
-#include "flags/experimental.hpp"  // C14: AreExperimentsEnabled(HOT_COLD_TENANTS) for flag-off cold reheat
+#include "flags/experimental.hpp"  // C14: AreExperimentsEnabled(HOT_COLD_DATABASES) for flag-off cold reheat
 #include "license/license.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -290,7 +290,7 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
   bool durability_view_incomplete = false;
   // C14: a COLD marker is honored only while the experiment is enabled. With it disabled, a cold tenant
   // is reheated HOT (see below) instead of becoming an invisible, unrecoverable shell.
-  const bool hot_cold_enabled = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS);
+  const bool hot_cold_enabled = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_DATABASES);
   auto it = durability_->begin(std::string(kDBPrefix));
   auto end = durability_->end(std::string(kDBPrefix));
   for (; it != end; ++it) {
@@ -331,13 +331,13 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
         spdlog::info("Suspended (cold) database {} restored.", name);
         continue;
       }
-      // C14 (HIGH): the tenant is durably COLD but the hot-cold-tenants experiment is now disabled.
+      // C14 (HIGH): the tenant is durably COLD but the hot-cold-databases experiment is now disabled.
       // Recover it HOT from its (intact) cold data dir so it does not silently vanish and become
       // unrecoverable (RESUME is flag-gated). Suspension is explicit-only (product point 1), so the
       // durable marker is flipped to HOT below on success — re-enabling the experiment will NOT
       // re-suspend it.
       spdlog::warn(
-          "Database {} was SUSPENDED (cold) under the hot-cold-tenants experiment, which is now disabled; "
+          "Database {} was SUSPENDED (cold) under the hot-cold-databases experiment, which is now disabled; "
           "recovering it HOT. Re-enabling the experiment will not re-suspend it.",
           name);
       // fall through to the HOT path
@@ -362,7 +362,7 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
       reason = SuspendedEntry::ColdReason::kRecoveryFailedOom;
       spdlog::error(
           "OUT OF MEMORY while recovering database {} ({}). Leaving it SUSPENDED (cold): the instance is "
-          "starting DEGRADED — this tenant is unavailable until memory is freed and it is RESUMEd (or the "
+          "starting DEGRADED — this database is unavailable until memory is freed and it is RESUMEd (or the "
           "instance is restarted with more memory). SHOW DATABASES marks it 'recovery failed: out of memory'.",
           name,
           e.what());
@@ -370,7 +370,7 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
       reason = SuspendedEntry::ColdReason::kRecoveryFailedOom;
       spdlog::error(
           "OUT OF MEMORY (bad_alloc) while recovering database {} ({}). Leaving it SUSPENDED (cold); the "
-          "instance is starting DEGRADED and this tenant is resumable once memory frees up.",
+          "instance is starting DEGRADED and this database is resumable once memory frees up.",
           name,
           e.what());
     } catch (const std::exception &e) {
@@ -396,19 +396,19 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
       // F2: surface tenants left cold by a failed hot recovery; the OOM split mirrors the C12 degraded
       // marker so ops can alert on a degraded boot.
       if (reason == SuspendedEntry::ColdReason::kRecoveryFailedOom) {
-        metrics::Metrics().global.tenant_boot_recovery_oom_failures->Increment();
+        metrics::Metrics().global.database_boot_recovery_oom_failures->Increment();
       } else {
-        metrics::Metrics().global.tenant_boot_recovery_failures->Increment();
+        metrics::Metrics().global.database_boot_recovery_failures->Increment();
       }
     } else {
       // R1 invariant: flag OFF — restore master's abort-on-recovery-failure behaviour.
       // The leave-cold valve (EmplaceColdShell + suspended_) is only available when the
-      // hot-cold-tenants experiment is enabled. Flag-off, a boot recovery failure must terminate
+      // hot-cold-databases experiment is enabled. Flag-off, a boot recovery failure must terminate
       // rather than silently booting degraded, matching the behaviour of non-experimental master
       // (`auto new_db = New_(...); MG_ASSERT(new_db.has_value(), ...)`).
       MG_ASSERT(recovered,
-                "Failed while recovering database {}; the hot-cold-tenants experiment is disabled, so "
-                "leaving a tenant suspended (cold) is not available. Aborting to match "
+                "Failed while recovering database {}; the hot-cold-databases experiment is disabled, so "
+                "leaving a database suspended (cold) is not available. Aborting to match "
                 "non-experimental behaviour.",
                 name);
     }
@@ -416,7 +416,7 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
   // F2: set the cold-tenant gauge ONCE after the restore loop (a per-iteration Set would be repeatedly
   // overwritten; no scrape endpoint is live during construction anyway). Covers both the cold-shell and
   // failed-recovery leave-cold paths above.
-  metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
+  metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
 
   /*
    * DATABASES CLEAN UP
@@ -866,7 +866,7 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
   if (tenant_profiles_) {
     [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(name);
   }
-  metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
+  metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
   return uuid;
 }
 
@@ -1135,14 +1135,14 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
       // durability-complete gate protects a USER-initiated SUSPEND from creating an unrecoverable cold
       // tenant; in recovery the tenant is already COLD on MAIN, and the consolidating snapshot at
       // suspend is written unconditionally and read back on resume, so the tenant stays recoverable.
-      // Reachable only when this replica's durability differs from MAIN's (e.g. the hot-cold-tenants
+      // Reachable only when this replica's durability differs from MAIN's (e.g. the hot-cold-databases
       // flag/WAL config is inconsistent across the cluster) — bypass with a loud warning rather than
       // failing recovery and stalling the replica in a BEHIND retry loop.
       spdlog::warn(
-          "Force-suspending tenant {} during recovery although its local durability is incomplete "
+          "Force-suspending database {} during recovery although its local durability is incomplete "
           "(periodic snapshot + WAL not enabled here). It remains recoverable (the consolidating "
           "snapshot is still written), but this usually means the durability/experiment config differs "
-          "from MAIN — align hot-cold-tenants and durability flags across the cluster.",
+          "from MAIN — align hot-cold-databases and durability flags across the cluster.",
           name);
     }
     // SU-REPL-1: NO IsReplicationParticipant() guard. Hot/cold is a system-replicated operation
@@ -1258,8 +1258,8 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     suspended_.insert_or_assign(std::string{name}, std::move(entry));
     // F2: the tenant is now COLD. Counts every successful Suspend_ (user SUSPEND, replica RPC apply, and
     // recovery force-suspend all funnel through here); the gauge tracks the live cold-set size.
-    metrics::Metrics().global.tenant_suspends->Increment();
-    metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
+    metrics::Metrics().global.database_suspends->Increment();
+    metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
     // SU-6 / C9: persist the durable COLD marker under the SAME lock_ as the suspended_ insert so a
     // concurrent Resume_ cannot observe a half state. A Put failure degrades to a warning and never
     // rolls back or throws (the in-memory teardown still proceeds; MAIN's data stays durable on disk).
@@ -1268,7 +1268,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
         durability_->Put(Durability::GenKey(name), cold_val);
       } catch (const std::exception &e) {
         spdlog::warn(
-            "hot/cold suspend: failed to persist the cold durability marker for '{}' ({}); the tenant is "
+            "hot/cold suspend: failed to persist the cold durability marker for '{}' ({}); the database is "
             "suspended in memory but will recover HOT on restart.",
             name,
             e.what());
@@ -1299,7 +1299,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // Done only after the local teardown commits; the replica wire is filled in C7.
   if (txn) txn->AddAction<SuspendDatabase>(tenant_uuid);
 
-  spdlog::info("hot/cold: tenant '{}' suspended (HOT -> COLD)", name);
+  spdlog::info("hot/cold: database '{}' suspended (HOT -> COLD)", name);
   return {};
 }
 
@@ -1415,8 +1415,8 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           // F2: the tenant is now HOT. Counter increment + gauge set are atomic/non-throwing, so they
           // do not break the publish block's no-throw guarantee; done under lock_ so the gauge reads a
           // consistent suspended_ size.
-          metrics::Metrics().global.tenant_resumes->Increment();
-          metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
+          metrics::Metrics().global.database_resumes->Increment();
+          metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
         }
       } catch (...) {
         // PRE-PUBLISH failure: on_resume_ threw and the publish has NOT happened — `fresh` is still
@@ -1440,7 +1440,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
             durability_->Put(Durability::GenKey(name), Durability::GenVal(entry.salient.uuid, entry.rel_dir));
           } catch (const std::exception &e) {
             spdlog::warn(
-                "hot/cold resume: failed to clear the cold durability marker for '{}' ({}); the tenant is live "
+                "hot/cold resume: failed to clear the cold durability marker for '{}' ({}); the database is live "
                 "(HOT) but may recover COLD on restart (resumable).",
                 name,
                 e.what());
@@ -1457,7 +1457,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         if (rewire_replication && on_resume_repl_) on_resume_repl_(acc);
       } catch (...) {
         spdlog::warn(
-            "hot/cold resume: replication re-wiring for tenant '{}' threw; tenant is live (HOT) and data is "
+            "hot/cold resume: replication re-wiring for database '{}' threw; database is live (HOT) and data is "
             "intact, but it may run un-replicated until replication is re-established.",
             name);
       }
@@ -1465,7 +1465,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       // Reached only on the winner's successful publish; the replica wire is filled in C7.
       if (txn) txn->AddAction<ResumeDatabase>(entry.salient.uuid);
 
-      spdlog::info("hot/cold: tenant '{}' resumed (COLD -> HOT)", name);
+      spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
       return acc;
     } catch (...) {
       // Recovery (BuildDetached) threw before `acc`/`fresh` existed. No live accessor to release.
@@ -1524,19 +1524,19 @@ void DbmsHandler::PromoteColdTenants(std::string_view new_epoch_id) {
   // the repl_state write lock). The durable Put is the same small metadata write SU-6 does under lock_.
   auto wr = std::lock_guard{lock_};
 
-  // Holistic-review #1 (LOW): the hot-cold-tenants experiment flag is RESTART-ONLY and must be set
+  // Holistic-review #1 (LOW): the hot-cold-databases experiment flag is RESTART-ONLY and must be set
   // consistently across every cluster member. A flag-OFF node only holds COLD tenants if it followed a
   // flag-ON MAIN's SUSPEND (C15 applies the RPC without gating). Promoting such a node WHILE flag-off
   // strands those tenants in-process — RESUME is flag-gated and SHOW DATABASES hides cold shells — until
   // its next restart, where C14 unconditionally reheats them HOT. That is a flag-inconsistent cluster
   // (unsupported); warn loudly so the operator fixes the flag rather than chasing a "vanished" tenant. We
   // still rewrite the epochs below: the reheat on the next boot recovers the (now-promoted) epoch.
-  if (!suspended_.empty() && !flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+  if (!suspended_.empty() && !flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_DATABASES)) {
     spdlog::warn(
-        "Promoting to MAIN with {} suspended (cold) tenant(s) while the hot-cold-tenants experiment is "
+        "Promoting to MAIN with {} suspended (cold) database(s) while the hot-cold-databases experiment is "
         "DISABLED on this node — a flag-inconsistent cluster (flag-enabled MAIN + flag-disabled replica). "
-        "These tenants cannot be RESUMEd until this node restarts (which recovers them HOT). Set "
-        "--experimental-enabled=hot-cold-tenants consistently across all cluster members.",
+        "These databases cannot be RESUMEd until this node restarts (which recovers them HOT). Set "
+        "--experimental-enabled=hot-cold-databases consistently across all cluster members.",
         suspended_.size());
   }
 
@@ -1567,10 +1567,10 @@ void DbmsHandler::PromoteColdTenants(std::string_view new_epoch_id) {
       } catch (const std::exception &e) {
         // Best-effort, like SU-6: the in-memory entry already carries the new epoch (a resume in this
         // process is correct); only a restart-before-persist would recover the pre-promotion epoch.
-        spdlog::warn("hot/cold promotion: failed to persist new epoch for cold tenant '{}' ({}).", name, e.what());
+        spdlog::warn("hot/cold promotion: failed to persist new epoch for cold database '{}' ({}).", name, e.what());
       }
     }
-    spdlog::trace("hot/cold promotion: cold tenant '{}' epoch rewritten to {}", name, new_epoch_id);
+    spdlog::trace("hot/cold promotion: cold database '{}' epoch rewritten to {}", name, new_epoch_id);
   }
 }
 #endif  // MG_ENTERPRISE

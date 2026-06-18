@@ -15,14 +15,14 @@
 #       and suspend/resume state transitions.
 #
 # NOTE: v2 re-scoped the feature to MANUAL suspend/resume only.  All
-# auto-eviction machinery was deleted.  Only --experimental-enabled=hot-cold-tenants
+# auto-eviction machinery was deleted.  Only --experimental-enabled=hot-cold-databases
 # enables the feature.
 
 memgraph:
   deployment:
     externally_managed: false
   args:
-    - "--experimental-enabled=hot-cold-tenants"
+    - "--experimental-enabled=hot-cold-databases"
     - "--storage-wal-enabled=true"
     - "--storage-snapshot-interval-sec=300"
     - "--data-recovery-on-startup=true"

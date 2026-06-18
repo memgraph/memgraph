@@ -69,7 +69,7 @@ BOLT_PORTS = {"main": 7687, "replica_1": 7688}
 REPLICATION_PORTS = {"replica_1": 10001, "main": 10002}
 file = "hot_cold_convergence"
 
-HOT_COLD_FLAG = "--experimental-enabled=hot-cold-tenants"
+HOT_COLD_FLAG = "--experimental-enabled=hot-cold-databases"
 
 
 @pytest.fixture

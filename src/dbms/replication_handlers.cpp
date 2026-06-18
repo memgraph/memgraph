@@ -38,13 +38,13 @@ namespace {
 // But following a feature whose experiment flag is OFF locally is almost certainly a misconfiguration,
 // so surface it once. The flag must be set consistently across the cluster.
 void WarnHotColdFlagMismatchOnce() {
-  if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) return;
+  if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_DATABASES)) return;
   static std::once_flag warned;
   std::call_once(warned, [] {
     spdlog::warn(
-        "Received a hot/cold SUSPEND/RESUME replication message from MAIN, but the hot-cold-tenants "
+        "Received a hot/cold SUSPEND/RESUME replication message from MAIN, but the hot-cold-databases "
         "experiment is DISABLED on this instance. Following MAIN's hot/cold state regardless (a replica "
-        "mirrors MAIN). Set --experimental-enabled=hot-cold-tenants consistently across the cluster.");
+        "mirrors MAIN). Set --experimental-enabled=hot-cold-databases consistently across the cluster.");
   });
 }
 }  // namespace
@@ -281,9 +281,10 @@ void SuspendDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &syste
     // SystemRecovery (C8).
   } catch (const std::exception &e) {
     // FAILURE: log so a diverged replica (SY-2) has a diagnostic anchor.
-    spdlog::error("SuspendDatabaseHandler: failed to apply suspend for tenant {}: {}", std::string{req.uuid}, e.what());
+    spdlog::error(
+        "SuspendDatabaseHandler: failed to apply suspend for database {}: {}", std::string{req.uuid}, e.what());
   } catch (...) {
-    spdlog::error("SuspendDatabaseHandler: failed to apply suspend for tenant {}", std::string{req.uuid});
+    spdlog::error("SuspendDatabaseHandler: failed to apply suspend for database {}", std::string{req.uuid});
   }
 
   rpc::SendFinalResponse(res, request_version, res_builder);
@@ -341,9 +342,9 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     // RECOVERY_FAILED leaves FAILURE -> diverge-then-reconcile via SystemRecovery (C8).
   } catch (const std::exception &e) {
     // FAILURE: log so a diverged replica (SY-2) has a diagnostic anchor.
-    spdlog::error("ResumeDatabaseHandler: failed to apply resume for tenant {}: {}", std::string{req.uuid}, e.what());
+    spdlog::error("ResumeDatabaseHandler: failed to apply resume for database {}: {}", std::string{req.uuid}, e.what());
   } catch (...) {
-    spdlog::error("ResumeDatabaseHandler: failed to apply resume for tenant {}", std::string{req.uuid});
+    spdlog::error("ResumeDatabaseHandler: failed to apply resume for database {}", std::string{req.uuid});
   }
 
   rpc::SendFinalResponse(res, request_version, res_builder);
@@ -434,7 +435,7 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     // UnknownDatabaseException on the COLD shell, so resume it (rewire=false) first.
     if (dbms_handler.IsSuspended(name)) {
       if (!dbms_handler.ResumeForRecovery(name).has_value()) {
-        spdlog::debug("SystemRecoveryHandler: failed to resume COLD tenant \"{}\" to match MAIN (HOT).", name);
+        spdlog::debug("SystemRecoveryHandler: failed to resume COLD database \"{}\" to match MAIN (HOT).", name);
         return false;
       }
     }
@@ -470,15 +471,15 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     // missing tenant and is a no-op-ish salient refresh for an existing HOT one.
     try {
       if (!dbms_handler.Update(config)) {
-        spdlog::debug("SystemRecoveryHandler: failed to materialize tenant \"{}\" before suspend.", name);
+        spdlog::debug("SystemRecoveryHandler: failed to materialize database \"{}\" before suspend.", name);
         return false;
       }
     } catch (const UnknownDatabaseException &) {
-      spdlog::debug("SystemRecoveryHandler: UnknownDatabaseException creating COLD tenant \"{}\".", name);
+      spdlog::debug("SystemRecoveryHandler: UnknownDatabaseException creating COLD database \"{}\".", name);
       return false;
     }
     if (!ForceSuspendForRecovery(dbms_handler, name)) {
-      spdlog::debug("SystemRecoveryHandler: failed to suspend tenant \"{}\" to match MAIN (COLD).", name);
+      spdlog::debug("SystemRecoveryHandler: failed to suspend database \"{}\" to match MAIN (COLD).", name);
       return false;
     }
     dbms_handler.ApplyColdRecoveryMeta(name, cold);

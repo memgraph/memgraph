@@ -38,7 +38,7 @@ enum class Experiments : uint8_t {
   // streams stay consistent), leaving it holding COLD tenants it cannot surface or RESUME locally; if such
   // a replica is promoted before a restart those tenants are stranded until the next boot (which reheats
   // them HOT). The engine logs a loud warning on promotion in that case — see DbmsHandler::PromoteColdTenants.
-  HOT_COLD_TENANTS = 1 << 1,
+  HOT_COLD_DATABASES = 1 << 1,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);

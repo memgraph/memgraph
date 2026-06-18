@@ -215,7 +215,7 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
     // self-contained reheat. This barrier lets a data delta that arrives for a still-COLD tenant
     // (reconnect/lag, before the RESUME system delta is applied) be applied rather than dropped.
     if (auto resumed = dbms_handler->ResumeByUUID(uuid); resumed.has_value()) {
-      spdlog::info("Replica reheated COLD tenant \"{}\" to apply an incoming delta (DD-1).", std::string{uuid});
+      spdlog::info("Replica reheated COLD database \"{}\" to apply an incoming delta (DD-1).", std::string{uuid});
       auto &acc = resumed.value();
       const memory::DbArenaScope db_arena_scope{acc.get()};
       auto const *inmem_storage = static_cast<storage::InMemoryStorage *>(acc.get()->storage());

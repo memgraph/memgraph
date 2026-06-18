@@ -16,7 +16,7 @@
 # --storage-hot-cold-eviction-high-watermark-percent,
 # --storage-hot-cold-eviction-low-watermark-percent, and
 # --storage-hot-cold-eviction-max-per-cycle no longer exist and must NOT be
-# passed. Only --experimental-enabled=hot-cold-tenants enables the feature.
+# passed. Only --experimental-enabled=hot-cold-databases enables the feature.
 #
 # Final integrity check: each worker accumulates a local committed count; after
 # the run every tenant is resumed and the on-disk node count must match the
@@ -31,7 +31,7 @@ memgraph:
   deployment:
     externally_managed: false
   args:
-    - "--experimental-enabled=hot-cold-tenants"
+    - "--experimental-enabled=hot-cold-databases"
     - "--storage-wal-enabled=true"
     - "--storage-snapshot-interval-sec=300"
     - "--data-recovery-on-startup=true"
