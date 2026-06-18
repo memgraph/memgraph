@@ -291,6 +291,27 @@ TEST_F(HotColdResume, SuspendResumeByUnknownUUIDRejected) {
   EXPECT_EQ(r.error(), DbmsHandler::ResumeError::NON_EXISTENT);
 }
 
+// C8 regression: creating a NEW tenant while another is COLD must not abort. New()'s data-directory
+// collision scan iterates every gatekeeper; a COLD shell yields no accessor, and the old MG_ASSERT
+// there aborted the process. This is the C8 replica-recovery steady state (materialize an absent
+// tenant while a COLD shell exists), and also a plain CREATE-while-suspended.
+TEST_F(HotColdResume, CreateTenantWhileAnotherSuspended) {
+  auto cold = CreateAndPopulate("cold_one", 3);
+  ASSERT_TRUE(handler_->Suspend(cold).has_value());
+  EXPECT_FALSE(InAll(cold)) << "first tenant must be COLD";
+
+  // New() runs the collision scan across all gatekeepers, including the COLD shell.
+  auto fresh = handler_->New("fresh_one");
+  ASSERT_TRUE(fresh.has_value()) << "creating a tenant while another is COLD must succeed (no abort)";
+  EXPECT_TRUE(InAll("fresh_one"));
+  EXPECT_FALSE(InAll(cold)) << "the COLD tenant stays COLD";
+
+  // And the COLD tenant still resumes cleanly afterward.
+  auto resumed = handler_->Resume(cold);
+  ASSERT_TRUE(resumed.has_value());
+  EXPECT_EQ(CountNodes(resumed.value()), 3);
+}
+
 #else
 
 #include <gtest/gtest.h>

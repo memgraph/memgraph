@@ -37,7 +37,12 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
 void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                            uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
-bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs);
+// C8: reconcile this replica to MAIN's authoritative hot/cold sets. database_configs = HOT salient
+// configs; cold_configs[i]/cold_stats[i] = the COLD set (salient + MAIN's as-of-suspend stats).
+// Converges {HOT ∪ COLD} to match MAIN (SR-1 / SR-1′). Returns false on a non-transient failure.
+bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs,
+                           const std::vector<storage::SalientConfig> &cold_configs,
+                           const std::vector<storage::StorageInfo> &cold_stats);
 
 // RPC registration
 void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,

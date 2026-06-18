@@ -11,6 +11,9 @@
 
 #include "dbms/replication_handlers.hpp"
 
+#include <chrono>
+#include <thread>
+
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/rpc.hpp"
@@ -314,7 +317,41 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
-bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs) {
+namespace {
+// SR-1′(2): force-suspend a tenant on the replica during recovery. On a replica the only transient
+// suspend failure is ACTIVE_CONNECTIONS (a background accessor — GC/periodic-snapshot — still live;
+// no client write conns exist, and a data-delta accessor cannot be in flight because the same
+// single-threaded RPC server is currently running this recovery). MIN_RESIDENCY no longer exists and
+// REPLICATING cannot fire on a replica. The engine's try_begin_suspend() already waits 100ms for
+// count==1; this bounded outer retry covers a slow background accessor. On timeout the caller flags
+// BEHIND and the whole recovery is retried (SY-2 diverge-then-reconcile).
+bool ForceSuspendForRecovery(DbmsHandler &dbms_handler, std::string_view name) {
+  constexpr auto kRetryStep = std::chrono::milliseconds(20);
+  // Bounded so it does not hold the single-threaded replica RPC server (heartbeat/WAL deltas) for
+  // long: the engine's try_begin_suspend() already waits 100ms/attempt, the accessor being drained is
+  // a background GC/snapshot one (drains in well under a second), and the outer BEHIND->reconcile loop
+  // retries the whole recovery anyway, so a short cap costs at most one extra cheap retry.
+  constexpr auto kTimeout = std::chrono::seconds(2);
+  const auto deadline = std::chrono::steady_clock::now() + kTimeout;
+  while (true) {
+    auto res = dbms_handler.Suspend(name);
+    if (res.has_value()) return true;
+    if (res.error() != DbmsHandler::SuspendError::ACTIVE_CONNECTIONS) {
+      spdlog::debug("SystemRecoveryHandler: suspend of \"{}\" failed (non-transient).", name);
+      return false;
+    }
+    if (std::chrono::steady_clock::now() >= deadline) {
+      spdlog::debug("SystemRecoveryHandler: suspend of \"{}\" timed out draining accessors.", name);
+      return false;
+    }
+    std::this_thread::sleep_for(kRetryStep);
+  }
+}
+}  // namespace
+
+bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs,
+                           const std::vector<storage::SalientConfig> &cold_configs,
+                           const std::vector<storage::StorageInfo> &cold_stats) {
   /*
    * NO LICENSE
    */
@@ -339,24 +376,75 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   /*
    * MULTI-TENANCY
    */
-  // Get all current dbs
+  // The COLD set arrives as two independently length-prefixed SLK vectors; the loop below indexes
+  // cold_stats[i] by cold_configs's index. A truncated/skewed payload that breaks the 1:1 pairing
+  // would be an out-of-bounds read, so reject it (false -> caller flags BEHIND -> retry).
+  if (cold_configs.size() != cold_stats.size()) {
+    spdlog::error("SystemRecoveryHandler: mismatched COLD set ({} configs vs {} stats); flagging BEHIND.",
+                  cold_configs.size(),
+                  cold_stats.size());
+    return false;
+  }
+
+  // HOT names currently active on this replica (All() excludes COLD shells — a no-value gatekeeper).
   auto old = dbms_handler.All();
-  // Check/create the incoming dbs
+
+  // Check/create the incoming HOT dbs.
   for (const auto &config : database_configs) {
-    // Missing db
+    const auto name = std::string{*config.name.str_view()};
+    // SR-1′(1): MAIN lists this name HOT but the replica holds it COLD. Update() would throw
+    // UnknownDatabaseException on the COLD shell, so resume it (rewire=false) first.
+    if (dbms_handler.IsSuspended(name)) {
+      if (!dbms_handler.ResumeForRecovery(name).has_value()) {
+        spdlog::debug("SystemRecoveryHandler: failed to resume COLD tenant \"{}\" to match MAIN (HOT).", name);
+        return false;
+      }
+    }
     try {
       if (!dbms_handler.Update(config)) {
-        spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", *config.name.str_view());
+        spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", name);
         return false;
       }
     } catch (const UnknownDatabaseException &) {
       spdlog::debug("SystemRecoveryHandler: UnknownDatabaseException");
       return false;
     }
-    std::erase(old, *config.name.str_view());
+    std::erase(old, name);
   }
 
-  // Delete all the leftover old dbs
+  // Reconcile the incoming COLD set: each named tenant must end as a COLD shell carrying MAIN's stats.
+  for (std::size_t i = 0; i < cold_configs.size(); ++i) {
+    const auto &config = cold_configs[i];
+    const auto name = std::string{*config.name.str_view()};
+    // SR-1: exempt COLD names from the leftover-delete loop below — a replica-HOT tenant that MAIN
+    // now lists COLD must be reconciled to COLD, not dropped.
+    std::erase(old, name);
+
+    if (dbms_handler.IsSuspended(name)) {
+      // Already COLD here — only refresh MAIN's as-of-suspend stats snapshot (R11).
+      dbms_handler.SetColdStats(name, cold_stats[i]);
+      continue;
+    }
+
+    // Currently HOT (force-suspend) or absent (create HOT first, then suspend). Update() creates a
+    // missing tenant and is a no-op-ish salient refresh for an existing HOT one.
+    try {
+      if (!dbms_handler.Update(config)) {
+        spdlog::debug("SystemRecoveryHandler: failed to materialize tenant \"{}\" before suspend.", name);
+        return false;
+      }
+    } catch (const UnknownDatabaseException &) {
+      spdlog::debug("SystemRecoveryHandler: UnknownDatabaseException creating COLD tenant \"{}\".", name);
+      return false;
+    }
+    if (!ForceSuspendForRecovery(dbms_handler, name)) {
+      spdlog::debug("SystemRecoveryHandler: failed to suspend tenant \"{}\" to match MAIN (COLD).", name);
+      return false;
+    }
+    dbms_handler.SetColdStats(name, cold_stats[i]);
+  }
+
+  // Delete all the leftover old dbs (neither incoming HOT nor COLD).
   for (const auto &remove_db : old) {
     const auto del = dbms_handler.Delete(remove_db);
     if (!del) {

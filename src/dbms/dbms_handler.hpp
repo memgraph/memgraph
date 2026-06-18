@@ -395,6 +395,58 @@ class DbmsHandler {
    *         this UUID (e.g. it was never suspended, or was already resumed by a racing caller).
    */
   ResumeResult ResumeByUUID(utils::UUID uuid, system::Transaction *txn = nullptr);
+
+  /**
+   * @brief True iff @p name currently holds a COLD shell (is in the suspended-set).
+   *
+   * Replica SystemRecovery reconcile uses this to branch: a name MAIN lists HOT that this replica
+   * holds COLD must be resumed before Update() (SR-1′(1)); a name MAIN lists COLD that is already
+   * suspended here is already converged.
+   */
+  bool IsSuspended(std::string_view name) const {
+    auto rd = std::shared_lock{lock_};
+    return suspended_.contains(name);
+  }
+
+  /**
+   * @brief Resume a COLD tenant during replica SystemRecovery (rewire_replication=false).
+   *
+   * SR-1′(1): when MAIN's incoming HOT config names a tenant this replica holds COLD, Update() would
+   * throw UnknownDatabaseException on the COLD shell. Resume it first. rewire=false because recovery
+   * runs in the replica apply context (SY-1: on_resume_repl_ would re-take the repl_state lock).
+   */
+  ResumeResult ResumeForRecovery(std::string_view name) { return Resume_(name, /*rewire_replication=*/false); }
+
+  /**
+   * @brief Overwrite a suspended tenant's cold_stats with MAIN's as-of-suspend snapshot (R11).
+   *
+   * After a replica force-suspends/creates a COLD shell during recovery it captures its own stats;
+   * this replaces them with MAIN's so SHOW on the replica reflects MAIN's labeled snapshot. No-op if
+   * @p name is not suspended.
+   */
+  void SetColdStats(std::string_view name, const storage::StorageInfo &stats) {
+    auto wr = std::lock_guard{lock_};
+    if (auto it = suspended_.find(name); it != suspended_.end()) it->second.cold_stats = stats;
+  }
+
+  /**
+   * @brief Snapshot the COLD set for the SystemRecovery payload: parallel (salient, cold_stats)
+   *        vectors built from suspended_. Called on MAIN inside the system-transaction guard so the
+   *        COLD set is coherent with the HOT ForEach as-of forced_group_timestamp (SR-1).
+   */
+  std::pair<std::vector<storage::SalientConfig>, std::vector<storage::StorageInfo>> SuspendedConfigsForRecovery()
+      const {
+    auto rd = std::shared_lock{lock_};
+    std::vector<storage::SalientConfig> configs;
+    std::vector<storage::StorageInfo> stats;
+    configs.reserve(suspended_.size());
+    stats.reserve(suspended_.size());
+    for (const auto &[name, entry] : suspended_) {
+      configs.push_back(entry.salient);
+      stats.push_back(entry.cold_stats);
+    }
+    return {std::move(configs), std::move(stats)};
+  }
 #endif
 
   /**

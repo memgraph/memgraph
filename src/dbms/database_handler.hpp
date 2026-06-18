@@ -69,8 +69,13 @@ class DatabaseHandler : public Handler<Database> {
   HandlerT::NewResult New(storage::Config config) {
     // Control that no one is using the same data directory
     if (std::ranges::any_of(*this, [&](auto &elem) {
+          // A hot/cold COLD shell is a no-value gatekeeper (access() == nullopt). It does not hold a
+          // live storage claiming a directory (its durable dir is unique, UUID-derived, and a resume
+          // rebuilds via BuildDetached, never New()), so it cannot collide — skip it. MG_ASSERTing
+          // has_value() here would abort whenever New() runs with any tenant suspended (e.g. the C8
+          // replica reconcile materializing an absent COLD tenant, or a plain CREATE DATABASE).
           auto db_acc = elem.second.access();
-          MG_ASSERT(db_acc.has_value(), "Gatekeeper in invalid state");
+          if (!db_acc) return false;
           return db_acc->get()->config().durability.storage_directory == config.durability.storage_directory;
         })) {
       spdlog::info("Tried to generate new storage using a claimed directory.");

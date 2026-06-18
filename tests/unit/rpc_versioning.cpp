@@ -286,3 +286,78 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
     EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
   }
 }
+
+// SystemRecoveryRpc V3 (hot/cold): the COLD set (parallel SalientConfig + StorageInfo vectors)
+// survives the SLK round-trip, including the freshly-added StorageInfo serializer.
+TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  std::vector<memgraph::storage::SalientConfig> seen_cold_configs;
+  std::vector<memgraph::storage::StorageInfo> seen_cold_stats;
+  rpc_server.Register<memgraph::replication::SystemRecoveryRpc>(
+      [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::replication::SystemRecoveryReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        seen_cold_configs = req.cold_database_configs;
+        seen_cold_stats = req.cold_database_stats;
+        memgraph::replication::SystemRecoveryRes const res(memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+
+  memgraph::storage::SalientConfig cold_cfg{};
+  cold_cfg.name = "cold_tenant";
+  cold_cfg.uuid = memgraph::utils::UUID{};
+  cold_cfg.storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+
+  memgraph::storage::StorageInfo cold_info{};
+  cold_info.vertex_count = 123;
+  cold_info.edge_count = 456;
+  cold_info.average_degree = 2.5;
+  cold_info.memory_res = 7890;
+  cold_info.storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+  cold_info.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION;
+  cold_info.durability_wal_enabled = true;
+  cold_info.schema_vertex_count = 9;
+
+  auto stream =
+      client.Stream<memgraph::replication::SystemRecoveryRpc>(memgraph::utils::UUID{},
+                                                              0,
+                                                              std::vector<memgraph::storage::SalientConfig>{},
+                                                              memgraph::auth::Auth::Config{},
+                                                              std::vector<memgraph::auth::User>{},
+                                                              std::vector<memgraph::auth::Role>{},
+                                                              std::vector<memgraph::auth::UserProfiles::Profile>{},
+                                                              std::vector<memgraph::parameters::ParameterInfo>{},
+                                                              std::vector{cold_cfg},
+                                                              std::vector{cold_info});
+  auto reply = stream.SendAndWait();
+  EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+
+  ASSERT_EQ(seen_cold_configs.size(), 1U);
+  ASSERT_EQ(seen_cold_stats.size(), 1U);
+  EXPECT_EQ(*seen_cold_configs[0].name.str_view(), "cold_tenant");
+  EXPECT_EQ(seen_cold_configs[0].storage_mode, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  EXPECT_EQ(seen_cold_stats[0].vertex_count, 123U);
+  EXPECT_EQ(seen_cold_stats[0].edge_count, 456U);
+  EXPECT_DOUBLE_EQ(seen_cold_stats[0].average_degree, 2.5);
+  EXPECT_EQ(seen_cold_stats[0].memory_res, 7890U);
+  EXPECT_EQ(seen_cold_stats[0].isolation_level, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+  EXPECT_TRUE(seen_cold_stats[0].durability_wal_enabled);
+  EXPECT_EQ(seen_cold_stats[0].schema_vertex_count, 9U);
+}
