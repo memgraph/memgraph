@@ -131,6 +131,13 @@ jobs:
             sleep 5
             echo "Cores produced in node:"; ls -l /tmp/mg-cores/ 2>/dev/null || true
             echo "--- memgraph log tail ---"; tail -n 20 /tmp/memgraph-crash.log 2>/dev/null || true'
+          # Collect the core into tests/jepsen/cores (where the Analyze step
+          # looks). In a real run, run.sh process-results does this from the
+          # nodes; here no workload ran, so its collection is skipped (it bails
+          # early on the empty results store) — so copy it out directly.
+          mkdir -p tests/jepsen/cores
+          core="$(docker exec "$node" bash -c 'ls -1 /tmp/mg-cores/core.* 2>/dev/null | head -n1')"
+          [ -n "$core" ] && docker cp "${node}:${core}" "tests/jepsen/cores/${node}_$(basename "$core")"
           echo "Exiting 1 so the job proceeds to core-dump collection/analysis."
           exit 1
 
