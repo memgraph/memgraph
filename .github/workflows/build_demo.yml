@@ -1,6 +1,6 @@
 name: "Build Demo MAGE Images"
 
-# Builds MAGE prod images for amd64 and arm64 on workflow_dispatch and pushes a
+# Builds MAGE debug images (RelWithDebInfo) for amd64 and arm64 on workflow_dispatch and pushes a
 # multi-arch image to the memgraph/memgraph-demo-features Docker Hub repo under
 # the tag "{description}-pr{pr_number}". The tag is overwritten if it already
 # exists (docker push / docker manifest push overwrite by default). No tests are
@@ -133,7 +133,7 @@ jobs:
       - name: Load images, re-tag and push per-arch
         run: |
           set -euo pipefail
-          # The reusable workflow uploads the prod tarball to S3 and returns its
+          # The reusable workflow uploads the image tarball to S3 and returns its
           # public https URL. Convert that to an s3:// path so we can stream it
           # through the AWS CLI directly into `docker load`.
           load_and_push() {
