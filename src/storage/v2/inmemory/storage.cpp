@@ -534,11 +534,6 @@ InMemoryStorage::~InMemoryStorage() {
   }
 }
 
-// NOTE: This only updates metric_handles_. Other copies of GaugeHandle/CounterHandle
-// (indices_, constraints_, ttl_, in-flight transactions) are NOT updated. This is safe
-// because this method is only called from DbmsHandler::Update() which requires the storage
-// to have zero committed transactions (clean/fresh instance), so no indices, constraints,
-// TTL, or transactions exist to hold stale handles.
 void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) {
   MG_ASSERT(repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ == kTimestampInitialId,
             "RebindMetricHandles can only be used on an empty database");
@@ -547,6 +542,9 @@ void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &
   {
     std::lock_guard const gc_guard{gc_lock_};
     metric_handles_ = new_handles;
+    indices_.RebindMetricHandles(new_handles);
+    constraints_.RebindMetricHandles(new_handles);
+    ttl_.RebindMetricHandles(new_handles.deleted_nodes, new_handles.deleted_edges);
   }
   snapshot_runner_.Resume();
   gc_runner_.Resume();

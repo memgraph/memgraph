@@ -62,6 +62,8 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
  public:
   explicit InMemoryEdgePropertyIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
+  void SetGauge(metrics::GaugeHandle gauge) { gauge_ = gauge; }
+
   struct IndividualIndex {
     explicit IndividualIndex() : skip_list_{} {}
 
