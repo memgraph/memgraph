@@ -28,13 +28,13 @@ class QueryGenerator {
       if (i > 0) q += ' ';
       switch (pick(3)) {
         case 0:
-          q += GenerateCreate();
+          q += Create();
           break;
         case 1:
-          q += GenerateMatch();
+          q += Match();
           break;
         default:
-          q += GenerateReturn();
+          q += Return();
           break;
       }
     }
@@ -65,7 +65,7 @@ class QueryGenerator {
   static constexpr char const *kProps[] = {"name", "age", "id", "active"};
   static constexpr size_t kNumProps = 4;
 
-  std::string GenerateNodePattern() {
+  std::string NodePattern() {
     std::string s = "(";
     bool const has_var = pick(2);
     if (has_var) s += kVars[pick(kNumVars)];
@@ -77,15 +77,15 @@ class QueryGenerator {
       s += " {";
       s += kProps[pick(kNumProps)];
       s += ": ";
-      s += GenerateLiteral();
+      s += Literal();
       s += '}';
     }
     s += ')';
     return s;
   }
 
-  std::string GeneratePattern() {
-    auto s = GenerateNodePattern();
+  std::string PatternElement() {
+    auto s = NodePattern();
     if (pick(2)) {
       s += "-[";
       if (pick(2)) s += kVars[pick(kNumVars)];
@@ -94,15 +94,15 @@ class QueryGenerator {
         s += kRelTypes[pick(kNumRelTypes)];
       }
       s += "]->";
-      s += GenerateNodePattern();
+      s += NodePattern();
     }
     return s;
   }
 
-  std::string GenerateCreate() { return "CREATE " + GeneratePattern(); }
+  std::string Create() { return "CREATE " + PatternElement(); }
 
-  std::string GenerateMatch() {
-    std::string s = "MATCH " + GeneratePattern();
+  std::string Match() {
+    std::string s = "MATCH " + PatternElement();
     if (pick(3) == 0) {
       s += " WHERE ";
       s += kVars[pick(kNumVars)];
@@ -119,12 +119,12 @@ class QueryGenerator {
           s += " <> ";
           break;
       }
-      s += GenerateLiteral();
+      s += Literal();
     }
     return s;
   }
 
-  std::string GenerateReturn() {
+  std::string Return() {
     if (pick(2)) return "RETURN *";
     std::string s = "RETURN ";
     s += kVars[pick(kNumVars)];
@@ -135,7 +135,7 @@ class QueryGenerator {
     return s;
   }
 
-  std::string GenerateLiteral() {
+  std::string Literal() {
     switch (pick(3)) {
       case 0:
         return std::to_string(pick(100));
