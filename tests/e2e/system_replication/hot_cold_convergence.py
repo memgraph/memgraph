@@ -45,7 +45,10 @@
 # the SHOW surfaces are cold-aware (per product point 1: cold access is an error, not a reheat).
 
 import os
+import random
 import sys
+import threading
+import time
 
 import interactive_mg_runner
 import mgclient
@@ -379,6 +382,180 @@ def test_promotion_eager_epoch_convergence(connection, test_name):
     # replica converges to 6 nodes rather than diverging.
     execute_and_fetch_all(replica_cursor, f"REGISTER REPLICA old_main SYNC TO '127.0.0.1:{REPLICATION_PORTS['main']}';")
     mg_sleep_and_assert(6, tenant_probe(old_main_cursor, "A"))
+
+
+# The client-facing errors that are EXPECTED under the concurrent suspend/resume + memory-ceiling stress.
+# Each is a benign, retriable outcome of the race, NOT a bug. An error whose text matches NONE of these is
+# treated as a real failure — this is the core "OOM / contention surfaces a retriable error, never a crash
+# or a terminate" assertion (product point 7). These are the v2 markers only: the v1 auto-machinery markers
+# ("is resuming", "not been hot long enough") were deleted when the feature was rescoped.
+EXPECTED_STRESS_MARKERS = (
+    "is suspended (cold)",  # a writer touched a tenant a suspender just took COLD
+    "active connections",  # SUSPEND lost the race to a writer still holding the tenant
+    "does not exist or is already cold",  # SUSPEND raced another suspender / tenant already COLD
+    "does not exist or is not suspended",  # RESUME raced a writer / another resumer; tenant already HOT
+    "failed to recover while resuming",  # RESUME hit OOM mid-rebuild; left COLD, retriable
+    "memory limit exceeded",  # an allocation tripped the hard memory ceiling
+    "multiple concurrent system queries are not supported",  # SUSPEND and RESUME collided on the system tx
+)
+
+
+def _classify(exc, unexpected):
+    """Record exc as a real failure unless its text matches a known retriable stress marker."""
+    msg = str(exc).lower()
+    if not any(marker in msg for marker in EXPECTED_STRESS_MARKERS):
+        unexpected.append(f"{type(exc).__name__}: {exc}")
+
+
+def test_concurrent_suspend_resume_under_memory_ceiling(connection, test_name):
+    # C13: the stress matrix (product point 7 — "audit + stress-test every bad_alloc/crash point"). A single
+    # MAIN under a hard memory ceiling runs concurrent allocating writers against several tenants WHILE a
+    # suspender and a resumer churn those tenants HOT <-> COLD. The feature must stay crash-free and
+    # lossless: every error a client sees must be one of the known retriable outcomes (cold access,
+    # lost-the-race SUSPEND/RESUME, OOM, concurrent-system-query) — never a terminate, a tenant stranded in
+    # a half-SUSPENDING/half-RESUMING limbo, or lost committed data. After the churn, every tenant resumed
+    # HOT must hold EXACTLY the nodes its writer knows it durably committed.
+    #
+    # The companion exception-safety audit (commit message / design §19) proves the suspend/resume paths are
+    # OOM-safe by construction; this test is the runtime backstop that the proof holds under real contention.
+    instances = {
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+                HOT_COLD_FLAG,
+                # Hard ceiling (MiB): low enough that the concurrent transient allocators below trip it,
+                # high enough that all tenants boot and stay HOT at their (small, counted) final size.
+                "--memory-limit=512",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [],
+        }
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    tenants = ["A", "B", "C", "D"]
+    base = 5  # baseline committed nodes per tenant before the churn starts
+    setup_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    for t in tenants:
+        create_and_populate(setup_cursor, t, base)
+    execute_and_fetch_all(setup_cursor, "USE DATABASE memgraph;")
+
+    committed = {t: base for t in tenants}  # writers extend this on every durable commit
+    committed_lock = threading.Lock()
+    unexpected = []  # any non-allowlisted error => real failure
+    suspends_ok = [0]
+    resumes_ok = [0]
+    stop = threading.Event()
+
+    BATCH = 25  # nodes per committed tx
+    BIG = "x" * 128  # property payload
+    # Cap the COUNTED writes per tenant so the final all-HOT footprint is provably tiny and always fits the
+    # ceiling: 4 tenants x CAP nodes x ~350 B (128 B payload + node/property overhead) ~= 2.8 MiB total,
+    # three orders of magnitude under the 512 MiB limit. (The ceiling pressure comes from the transient
+    # allocator in step (a), NOT from committed data; and that allocator is joined before the final RESUME
+    # loop below, so the loop never competes with it for memory.) Past the cap the writer keeps cycling
+    # (still pressuring memory + giving suspends a window) but stops growing the durable set.
+    CAP = 2000
+
+    def writer(t):
+        cur = connection(BOLT_PORTS["main"], "main").cursor()
+        while not stop.is_set():
+            # (a) Memory pressure on the always-HOT default DB: build a large transient list server-side.
+            #     ~96 MiB per call; with four writers concurrently this crosses the 512 MiB ceiling and
+            #     some calls trip OOM ("memory limit exceeded") — which must surface as a retriable error,
+            #     not a crash. It commits nothing, so it never affects the data-loss accounting.
+            try:
+                execute_and_fetch_all(cur, "WITH range(1, 6000000) AS r RETURN size(r);")
+            except mgclient.DatabaseError as e:
+                _classify(e, unexpected)
+            # (b) A modest, counted write to the tenant — only when it is HOT and below the cap. On success
+            #     (autocommit) the batch is durably committed, so we count it; any race/OOM error is
+            #     classified and skipped. A 25-node CREATE is far too small to trip the ceiling, so there is
+            #     effectively no post-commit-error window that could leave the server ahead of the count.
+            try:
+                with committed_lock:
+                    grow = committed[t] < CAP
+                execute_and_fetch_all(cur, f"USE DATABASE {t};")
+                if grow:
+                    execute_and_fetch_all(cur, f"UNWIND range(1, {BATCH}) AS i CREATE (n:N {{v: '{BIG}'}});")
+                    with committed_lock:
+                        committed[t] += BATCH
+            except mgclient.DatabaseError as e:
+                _classify(e, unexpected)
+            finally:
+                # Release the tenant so a suspender can reach sole-accessor (an open session pins it HOT).
+                try:
+                    execute_and_fetch_all(cur, "USE DATABASE memgraph;")
+                except mgclient.DatabaseError:
+                    pass
+
+    def churner(action, counter):
+        cur = connection(BOLT_PORTS["main"], "main").cursor()
+        while not stop.is_set():
+            t = random.choice(tenants)
+            try:
+                execute_and_fetch_all(cur, f"{action} DATABASE {t};")
+                counter[0] += 1
+            except mgclient.DatabaseError as e:
+                _classify(e, unexpected)
+            time.sleep(0.03)
+
+    threads = [threading.Thread(target=writer, args=(t,)) for t in tenants]
+    threads.append(threading.Thread(target=churner, args=("SUSPEND", suspends_ok)))
+    threads.append(threading.Thread(target=churner, args=("RESUME", resumes_ok)))
+    for th in threads:
+        th.start()
+    time.sleep(12)  # bounded churn window
+    stop.set()
+    for th in threads:
+        th.join(timeout=30)
+    # Every worker must have actually stopped before we read the shared counters / committed map and start
+    # the single-threaded data-loss phase — a thread still alive here would race that phase (and a worker
+    # wedged in a 30s+ server call is itself a failure worth surfacing loudly).
+    assert all(not th.is_alive() for th in threads), "a stress worker did not stop within the join timeout"
+
+    # 1. NO CRASH: a fresh connection still works and the control DB is responsive.
+    live = connection(BOLT_PORTS["main"], "main").cursor()
+    assert execute_and_fetch_all(live, "RETURN 1;")[0][0] == 1, "MAIN must still be alive after the stress"
+
+    # 2. NO UNEXPECTED ERROR: every client error during the run was a known retriable outcome (this is the
+    #    "OOM/contention is never a terminate or a hard failure" assertion).
+    assert not unexpected, f"non-retriable error(s) surfaced during the stress: {unexpected[:10]}"
+
+    # 3. The contention was actually exercised (otherwise the test is vacuously green).
+    assert suspends_ok[0] > 0, "no SUSPEND ever succeeded — the suspend/resume race was not exercised"
+    assert resumes_ok[0] > 0, "no RESUME ever succeeded — the suspend/resume race was not exercised"
+
+    # 4. NO DATA LOSS: resume every tenant HOT and assert it holds EXACTLY the nodes the writer committed.
+    #    RESUME is retried (via mg_sleep_and_assert) because a stray concurrent-system-query tail or a
+    #    transient recovery-OOM can make a single attempt fail; the steady state must converge.
+    execute_and_fetch_all(live, "USE DATABASE memgraph;")
+    for t in tenants:
+
+        def resumed_count(tt=t):
+            def f():
+                try:
+                    execute_and_fetch_all(live, f"RESUME DATABASE {tt};")
+                except mgclient.DatabaseError as e:
+                    low = str(e).lower()
+                    # "not suspended" => already HOT (fine); "failed to recover" => retriable; else unexpected.
+                    if "not suspended" not in low and "failed to recover" not in low:
+                        raise
+                finally:
+                    try:
+                        execute_and_fetch_all(live, "USE DATABASE memgraph;")
+                    except mgclient.DatabaseError:
+                        pass
+                return tenant_probe(live, tt)()
+
+            return f
+
+        with committed_lock:
+            expected = committed[t]
+        mg_sleep_and_assert(expected, resumed_count(), max_duration=30)
 
 
 if __name__ == "__main__":
