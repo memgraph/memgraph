@@ -1572,6 +1572,32 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsDenyWildcardClearsNamedDenies)
   EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::DENY);
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissionsDenyWildcardPreservesNamedDenyOnOtherBit) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  std::vector<std::string> const emp = {"Employee"};
+
+  PropertyAccessPermissions perms;
+  perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+
+  perms.Deny({"Employee"}, "*", PropertyPermissionType::WRITE);
+  EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::WRITE), PermissionLevel::DENY);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsGrantWildcardPreservesNamedGrantOnOtherBit) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  std::vector<std::string> const emp = {"Employee"};
+
+  PropertyAccessPermissions perms;
+  perms.Grant({"Employee"}, "ssn", PropertyPermissionType::READ);
+
+  perms.Grant({"Employee"}, "*", PropertyPermissionType::WRITE);
+  EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+}
+
 TEST(AuthWithoutStorage, PropertyAccessPermissionsMatchingAny) {
   using memgraph::auth::MatchingMode;
   using memgraph::auth::PermissionLevel;

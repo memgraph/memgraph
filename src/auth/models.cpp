@@ -685,27 +685,35 @@ PropertyAccessRule &PropertyAccessPermissions::FindOrCreateRule(std::unordered_s
 
 void PropertyAccessPermissions::Grant(std::unordered_set<std::string> const &entities, std::string const &property,
                                       PropertyPermissionType type, MatchingMode matching_mode) {
-  auto const bit = type;
   auto &rule = FindOrCreateRule(entities, matching_mode);
   auto &perm = rule.properties[property];
-  perm.grants |= bit;
-  perm.denies &= ~bit;
+  perm.grants |= type;
+  perm.denies &= ~type;
   if (property == "*") {
-    std::erase_if(rule.properties,
-                  [](auto const &kv) { return kv.first != "*" && kv.second.denies == PropertyPermissionType::NONE; });
+    for (auto &[key, p] : rule.properties) {
+      if (key != "*") p.grants &= ~type;
+    }
+    std::erase_if(rule.properties, [](auto const &kv) {
+      return kv.first != "*" && kv.second.grants == PropertyPermissionType::NONE &&
+             kv.second.denies == PropertyPermissionType::NONE;
+    });
   }
 }
 
 void PropertyAccessPermissions::Deny(std::unordered_set<std::string> const &entities, std::string const &property,
                                      PropertyPermissionType type, MatchingMode matching_mode) {
-  auto const bit = type;
   auto &rule = FindOrCreateRule(entities, matching_mode);
   auto &perm = rule.properties[property];
-  perm.denies |= bit;
-  perm.grants &= ~bit;
+  perm.denies |= type;
+  perm.grants &= ~type;
   if (property == "*") {
-    std::erase_if(rule.properties,
-                  [](auto const &kv) { return kv.first != "*" && kv.second.grants == PropertyPermissionType::NONE; });
+    for (auto &[key, p] : rule.properties) {
+      if (key != "*") p.denies &= ~type;
+    }
+    std::erase_if(rule.properties, [](auto const &kv) {
+      return kv.first != "*" && kv.second.grants == PropertyPermissionType::NONE &&
+             kv.second.denies == PropertyPermissionType::NONE;
+    });
   }
 }
 
@@ -714,11 +722,10 @@ void PropertyAccessPermissions::Revoke(std::unordered_set<std::string> const &en
   auto it = r::find_if(
       rules_, [&](auto const &rule) { return rule.entities == entities && rule.matching_mode == matching_mode; });
   if (it == rules_.end()) return;
-  auto const bit = type;
   if (property == "*") {
     for (auto &[key, perm] : it->properties) {
-      perm.grants &= ~bit;
-      perm.denies &= ~bit;
+      perm.grants &= ~type;
+      perm.denies &= ~type;
     }
     std::erase_if(it->properties, [](auto const &kv) {
       return kv.second.grants == PropertyPermissionType::NONE && kv.second.denies == PropertyPermissionType::NONE;
@@ -726,8 +733,8 @@ void PropertyAccessPermissions::Revoke(std::unordered_set<std::string> const &en
   } else {
     auto prop_it = it->properties.find(property);
     if (prop_it == it->properties.end()) return;
-    prop_it->second.grants &= ~bit;
-    prop_it->second.denies &= ~bit;
+    prop_it->second.grants &= ~type;
+    prop_it->second.denies &= ~type;
     if (prop_it->second.grants == PropertyPermissionType::NONE &&
         prop_it->second.denies == PropertyPermissionType::NONE) {
       it->properties.erase(prop_it);
@@ -739,25 +746,22 @@ void PropertyAccessPermissions::Revoke(std::unordered_set<std::string> const &en
 }
 
 void PropertyAccessPermissions::GrantGlobal(std::string const &property, PropertyPermissionType type) {
-  auto const bit = type;
   auto &perm = global_[property];
-  perm.grants |= bit;
-  perm.denies &= ~bit;
+  perm.grants |= type;
+  perm.denies &= ~type;
 }
 
 void PropertyAccessPermissions::DenyGlobal(std::string const &property, PropertyPermissionType type) {
-  auto const bit = type;
   auto &perm = global_[property];
-  perm.denies |= bit;
-  perm.grants &= ~bit;
+  perm.denies |= type;
+  perm.grants &= ~type;
 }
 
 void PropertyAccessPermissions::RevokeGlobal(std::string const &property, PropertyPermissionType type) {
   auto prop_it = global_.find(property);
   if (prop_it == global_.end()) return;
-  auto const bit = type;
-  prop_it->second.grants &= ~bit;
-  prop_it->second.denies &= ~bit;
+  prop_it->second.grants &= ~type;
+  prop_it->second.denies &= ~type;
   if (prop_it->second.grants == PropertyPermissionType::NONE &&
       prop_it->second.denies == PropertyPermissionType::NONE) {
     global_.erase(prop_it);
@@ -782,8 +786,6 @@ PermissionLevel CheckPropertyMap(std::unordered_map<std::string, PropertyPermiss
 
 PermissionLevel PropertyAccessPermissions::Has(std::span<std::string const> entities, std::string const &property,
                                                PropertyPermissionType type) const {
-  auto const bit = type;
-
   auto const rule_matches = [&](auto const &rule) -> bool {
     if (rule.matching_mode == MatchingMode::EXACTLY) {
       return rule.entities.size() == entities.size() &&
@@ -796,7 +798,7 @@ PermissionLevel PropertyAccessPermissions::Has(std::span<std::string const> enti
 
   for (auto const &rule : rules_) {
     if (rule_matches(rule)) {
-      auto level = CheckPropertyMap(rule.properties, property, bit);
+      auto level = CheckPropertyMap(rule.properties, property, type);
       if (level == PermissionLevel::DENY) return PermissionLevel::DENY;
       if (level == PermissionLevel::GRANT) any_grant = true;
     }
@@ -805,7 +807,7 @@ PermissionLevel PropertyAccessPermissions::Has(std::span<std::string const> enti
   if (any_grant) return PermissionLevel::GRANT;
 
   if (!global_.empty()) {
-    return CheckPropertyMap(global_, property, bit);
+    return CheckPropertyMap(global_, property, type);
   }
 
   return PermissionLevel::NEUTRAL;
