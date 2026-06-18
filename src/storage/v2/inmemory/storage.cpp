@@ -541,7 +541,7 @@ InMemoryStorage::~InMemoryStorage() {
 // TTL, or transactions exist to hold stale handles.
 void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) {
   MG_ASSERT(repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ == kTimestampInitialId,
-            "RebindMetricHandles can only be used on a empty database");
+            "RebindMetricHandles can only be used on an empty database");
   gc_runner_.Pause();
   snapshot_runner_.Pause();
   {
