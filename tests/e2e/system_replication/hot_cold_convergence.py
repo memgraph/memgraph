@@ -35,8 +35,14 @@
 #        test_promotion_eager_epoch_convergence (the negative control: without the history boundary the
 #        old-epoch replica would DIVERGE and never converge).
 #
-# COLD is observed without relying on the (later, C11) cold-aware SHOW: accessing a COLD tenant
-# trips the query seam in DbmsHandler::Get_, which raises "... is suspended (cold); run RESUME ...".
+#   C11 — hot/cold is observable: SHOW DATABASES lists a COLD tenant with a HOT/COLD status column
+#        (it would otherwise vanish, being excluded from All()), and SHOW STORAGE INFO ON <cold>
+#        serves the durable as-of-suspend snapshot instead of erroring (reverses HC-5). Exercised by
+#        test_cold_aware_show.
+#
+# Note: querying DATA on a COLD tenant (USE DATABASE + MATCH) still trips the query seam in
+# DbmsHandler::Get_ ("... is suspended (cold); run RESUME ..."), which tenant_probe relies on — only
+# the SHOW surfaces are cold-aware (per product point 1: cold access is an error, not a reheat).
 
 import os
 import sys
@@ -269,6 +275,45 @@ def test_cross_restart_hot_only_recovery(connection, test_name):
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
     assert tenant_probe(main_cursor, "A")() == 7, "the cold tenant must resume with all data after a restart"
+
+
+def test_cold_aware_show(connection, test_name):
+    # C11: a single MAIN. After SUSPEND, the cold tenant must remain VISIBLE in SHOW DATABASES (tagged
+    # COLD) and SHOW STORAGE INFO ON <cold> must serve its as-of-suspend snapshot instead of erroring
+    # (HC-5 reversed). RESUME flips it back to HOT.
+    instances = {"main": main_args(test_name)}
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    create_and_populate(main_cursor, "A", 8)
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+
+    # While HOT: SHOW DATABASES tags A as HOT.
+    rows = dict((r[0], r[1]) for r in execute_and_fetch_all(main_cursor, "SHOW DATABASES;"))
+    assert rows.get("A") == "HOT" and rows.get("memgraph") == "HOT", rows
+
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
+
+    # COLD: A must still appear in SHOW DATABASES, now tagged COLD (it is excluded from All()).
+    rows = dict((r[0], r[1]) for r in execute_and_fetch_all(main_cursor, "SHOW DATABASES;"))
+    assert rows.get("A") == "COLD", f"a suspended tenant must remain visible as COLD: {rows}"
+    assert rows.get("memgraph") == "HOT", rows
+
+    # SHOW STORAGE INFO ON <cold> serves the as-of-suspend snapshot (does NOT raise the cold seam).
+    info = dict((r[0], r[1]) for r in execute_and_fetch_all(main_cursor, "SHOW STORAGE INFO ON DATABASE A;"))
+    assert info.get("vertex_count") == 8, f"cold SHOW STORAGE INFO must carry the as-of-suspend count: {info}"
+    assert "COLD" in str(info.get("status", "")), f"cold storage info must be labelled a snapshot: {info}"
+    assert info.get("name") == "A", info
+
+    # Querying DATA on the cold tenant still errors (cold access is an error, not a reheat).
+    assert tenant_probe(main_cursor, "A")() == "COLD"
+
+    # RESUME -> HOT again in SHOW DATABASES.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
+    rows = dict((r[0], r[1]) for r in execute_and_fetch_all(main_cursor, "SHOW DATABASES;"))
+    assert rows.get("A") == "HOT", f"a resumed tenant must be HOT again: {rows}"
+    assert tenant_probe(main_cursor, "A")() == 8
 
 
 def test_promotion_eager_epoch_convergence(connection, test_name):

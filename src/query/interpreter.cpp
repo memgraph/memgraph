@@ -7301,6 +7301,43 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       }
 #endif
       auto *dbms_handler = interpreter_context->dbms_handler;
+#ifdef MG_ENTERPRISE
+      // C11: SHOW STORAGE INFO ON <cold> serves the durable as-of-suspend snapshot instead of tripping
+      // the Get_ cold seam (reverses HC-5). The numbers are MAIN's as-of-suspend snapshot; physical
+      // fields (memory/disk) are MAIN-relative and labelled COLD (R11). Gated on the experiment so
+      // behavior is unchanged for users who have not opted in.
+      if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS) && info_query->database_) {
+        if (auto cold = dbms_handler->GetColdShowInfo(*info_query->database_)) {
+          const auto &db_name = *info_query->database_;
+          if (!license::global_license_checker.IsEnterpriseValidFast() && db_name != dbms::kDefaultDB) {
+            throw QueryRuntimeException(license::LicenseCheckErrorToString(
+                license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
+          }
+          handler = [db_name,
+                     cold = std::move(*cold)]() -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
+            const auto &s = cold.stats;
+            const std::vector<std::vector<TypedValue>> results{
+                {TypedValue("name"), TypedValue(db_name)},
+                {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(cold.uuid))},
+                {TypedValue("status"), TypedValue("COLD (as-of-suspend snapshot)")},
+                {TypedValue("storage_mode"), TypedValue(StorageModeToString(s.storage_mode))},
+                {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(s.vertex_count))},
+                {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(s.edge_count))},
+                {TypedValue("average_degree"), TypedValue(s.average_degree)},
+                {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(s.disk_usage)))},
+                {TypedValue("graph_memory_tracked"),
+                 TypedValue(utils::GetReadableSize(static_cast<double>(s.memory_res)))},
+                {TypedValue("tenant_peak_memory_tracked"),
+                 TypedValue(utils::GetReadableSize(static_cast<double>(s.peak_memory_res)))},
+                {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(s.isolation_level))},
+            };
+            return std::pair{results, QueryHandlerResult::NOTHING};
+          };
+          header = {"storage info", "value"};
+          break;
+        }
+      }
+#endif
       auto resolve_database = [&]() -> std::optional<dbms::DatabaseAccess> {
         if (info_query->database_) {
           const auto &db_name = *info_query->database_;
@@ -8202,16 +8239,46 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  callback.header = {"Name"};
-  callback.fn =
-      [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
+  // C11: with the hot-cold-tenants experiment ENABLED, SHOW DATABASES gains a "status" column
+  // (HOT/COLD) and lists COLD tenants (which are excluded from All() as no-value shells, so they would
+  // otherwise vanish). Gated on the flag so output is byte-identical to before for users who have not
+  // opted into the experiment (no tenant can be COLD without the flag anyway — SUSPEND is gated).
+  const bool hot_cold = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS);
+  callback.header = hot_cold ? std::vector<std::string>{"Name", "status"} : std::vector<std::string>{"Name"};
+  callback.fn = [auth,
+                 db_handler,
+                 hot_cold,
+                 user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
+
+    // C11: one atomic, de-duplicated read of the HOT ∪ COLD set (only when the experiment is on). The
+    // name list (unrestricted paths) and the name->COLD map (tagging any path, incl. the auth
+    // allowed-list) both derive from this single snapshot — no per-row locks, and no duplicate row for
+    // a tenant caught mid-suspend (AllWithHotColdStatus de-dups: suspended_ wins).
+    std::vector<std::string> all_names;
+    std::unordered_map<std::string, bool> is_cold;
+    if (hot_cold) {
+      for (auto &[name, cold] : db_handler->AllWithHotColdStatus()) {
+        all_names.push_back(name);
+        is_cold.emplace(std::move(name), cold);
+      }
+    } else {
+      all_names = db_handler->All();
+    }
+
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
 
       status.reserve(all.size());
       for (const auto &name : all) {
-        status.push_back({TypedValue(name)});
+        // `name` is a std::string (all_names) or a TypedValue (auth allowed-list); normalize.
+        const std::string ns{TypedValue(name).ValueString()};
+        if (hot_cold) {
+          auto it = is_cold.find(ns);
+          status.push_back({TypedValue(ns), TypedValue(it != is_cold.end() && it->second ? "COLD" : "HOT")});
+        } else {
+          status.push_back({TypedValue(ns)});
+        }
       }
 
       std::erase_if(status, [&](auto const &row) {
@@ -8221,7 +8288,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 
     if (!user_or_role || !*user_or_role) {
       // No user, return all
-      gen_status(db_handler->All(), std::vector<TypedValue>{});
+      gen_status(std::move(all_names), std::vector<TypedValue>{});
     } else {
       // User has a subset of accessible dbs; this is synched with the SessionContextHandler
       const auto &db_priv = auth->GetDatabasePrivileges(user_or_role->username().value(), user_or_role->rolenames());
@@ -8229,7 +8296,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       const auto &denied = db_priv[0][1].ValueList();
       if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
         // All databases are allowed
-        gen_status(db_handler->All(), denied);
+        gen_status(std::move(all_names), denied);
       } else {
         gen_status(allowed.ValueList(), denied);
       }

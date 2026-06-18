@@ -409,6 +409,48 @@ class DbmsHandler {
   }
 
   /**
+   * @brief C11: atomic, de-duplicated HOT ∪ COLD tenant set for cold-aware SHOW DATABASES.
+   *
+   * All()/ForEach skip COLD shells, so a suspended tenant would otherwise vanish from SHOW DATABASES.
+   * This reads db_handler_ (HOT) and suspended_ (COLD) under a SINGLE shared_lock and returns each
+   * tenant once as (name, is_cold). De-dup matters: during the SUSPENDING transient a tenant is briefly
+   * in BOTH db_handler_ (value_ still live -> passes Handler::All()) and suspended_, because
+   * Suspend_ inserts into suspended_ under lock_ but calls finish_suspend() (which nulls value_) AFTER
+   * releasing the lock. suspended_ takes precedence (the tenant is on its way COLD), so it is listed
+   * once, as COLD — never duplicated.
+   */
+  std::vector<std::pair<std::string, bool>> AllWithHotColdStatus() const {
+    auto rd = std::shared_lock{lock_};
+    std::vector<std::pair<std::string, bool>> out;
+    out.reserve(suspended_.size() + db_handler_.size());
+    for (const auto &[name, entry] : suspended_) out.emplace_back(name, /*is_cold=*/true);
+    for (auto &name : db_handler_.All()) {  // HOT names only (Handler::All() skips no-value shells)
+      if (!suspended_.contains(name)) out.emplace_back(std::move(name), /*is_cold=*/false);
+    }
+    return out;
+  }
+
+  /// C11: minimal projection of a COLD tenant for SHOW STORAGE INFO ON <cold> (reverses HC-5).
+  struct ColdShowInfo {
+    utils::UUID uuid;
+    storage::StorageInfo stats;  //!< as-of-suspend snapshot (on MAIN); physical fields are MAIN-relative (R11)
+  };
+
+  /**
+   * @brief C11: fetch a COLD tenant's as-of-suspend snapshot by name (nullopt if not suspended).
+   *
+   * Lets SHOW STORAGE INFO ON <cold> serve the durable cold_stats instead of tripping the Get_ cold
+   * seam (HC-5). The numbers are MAIN's as-of-suspend snapshot, labeled as such by the caller (R11).
+   */
+  std::optional<ColdShowInfo> GetColdShowInfo(std::string_view name) const {
+    auto rd = std::shared_lock{lock_};
+    if (auto it = suspended_.find(name); it != suspended_.end()) {
+      return ColdShowInfo{.uuid = it->second.salient.uuid, .stats = it->second.cold_stats};
+    }
+    return std::nullopt;
+  }
+
+  /**
    * @brief Resume a COLD tenant during replica SystemRecovery (rewire_replication=false).
    *
    * SR-1′(1): when MAIN's incoming HOT config names a tenant this replica holds COLD, Update() would
