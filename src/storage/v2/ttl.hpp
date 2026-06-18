@@ -231,6 +231,11 @@ class TTL final {
    */
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
 
+  void RebindMetricHandles(metrics::CounterHandle deleted_nodes, metrics::CounterHandle deleted_edges) {
+    deleted_nodes_ = deleted_nodes;
+    deleted_edges_ = deleted_edges;
+  }
+
  private:
   utils::Scheduler ttl_;  //!< background thread
   TtlInfo info_{};        //!< configuration
@@ -328,6 +333,8 @@ class TTL final {
                    std::optional<std::chrono::system_clock::time_point> = std::nullopt) {}
 
   void SetUserCheck(std::function<bool()>) {}
+
+  void RebindMetricHandles(metrics::CounterHandle, metrics::CounterHandle) {}
 
   bool Restore() { return false; }
 };

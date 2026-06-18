@@ -36,6 +36,8 @@ class TypeConstraints {
  public:
   explicit TypeConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
+  void SetGauge(metrics::GaugeHandle gauge) { gauge_ = gauge; }
+
   struct MultipleThreadsConstraintValidation {
     std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
                                                   const LabelId &label, const PropertyId &property);
