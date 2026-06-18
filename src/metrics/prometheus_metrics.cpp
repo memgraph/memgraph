@@ -533,6 +533,29 @@ PrometheusMetrics::PrometheusMetrics()
                                   .Name("memgraph_peak_memory_res_bytes")
                                   .Help("Peak resident memory usage in bytes")
                                   .Register(registry_)},
+      // Hot/cold tenants (global)
+      tenant_suspends_family_{prometheus::BuildCounter()
+                                  .Name("memgraph_tenant_suspends_total")
+                                  .Help("Number of successful tenant SUSPEND operations")
+                                  .Register(registry_)},
+      tenant_resumes_family_{prometheus::BuildCounter()
+                                 .Name("memgraph_tenant_resumes_total")
+                                 .Help("Number of successful tenant RESUME operations")
+                                 .Register(registry_)},
+      cold_tenants_family_{prometheus::BuildGauge()
+                               .Name("memgraph_cold_tenants")
+                               .Help("Current number of suspended (cold) tenants")
+                               .Register(registry_)},
+      tenant_boot_recovery_failures_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_tenant_boot_recovery_failures_total")
+              .Help("Number of tenants left cold because their hot recovery failed at startup")
+              .Register(registry_)},
+      tenant_boot_recovery_oom_failures_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_tenant_boot_recovery_oom_failures_total")
+              .Help("Number of tenants left cold because their hot recovery ran out of memory at startup")
+              .Register(registry_)},
       // HighAvailability counters
       successful_failovers_family_{prometheus::BuildCounter()
                                        .Name("memgraph_successful_failovers_total")
@@ -817,6 +840,12 @@ PrometheusMetrics::PrometheusMetrics()
 
   global.memory_res_bytes = &memory_res_family_.Add(no_labels);
   global.peak_memory_res_bytes = &peak_memory_res_family_.Add(no_labels);
+
+  global.tenant_suspends = &tenant_suspends_family_.Add(no_labels);
+  global.tenant_resumes = &tenant_resumes_family_.Add(no_labels);
+  global.cold_tenants = &cold_tenants_family_.Add(no_labels);
+  global.tenant_boot_recovery_failures = &tenant_boot_recovery_failures_family_.Add(no_labels);
+  global.tenant_boot_recovery_oom_failures = &tenant_boot_recovery_oom_failures_family_.Add(no_labels);
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
@@ -1997,6 +2026,19 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   // Memory (global only)
   out.push_back({"MemoryRes", "Memory", "Gauge", static_cast<int64_t>(global.memory_res_bytes->Value())});
   out.push_back({"PeakMemoryRes", "Memory", "Gauge", static_cast<int64_t>(global.peak_memory_res_bytes->Value())});
+
+  // Hot/cold tenants (global only)
+  out.push_back({"TenantSuspends", "HotCold", "Counter", static_cast<int64_t>(global.tenant_suspends->Value())});
+  out.push_back({"TenantResumes", "HotCold", "Counter", static_cast<int64_t>(global.tenant_resumes->Value())});
+  out.push_back({"ColdTenants", "HotCold", "Gauge", static_cast<int64_t>(global.cold_tenants->Value())});
+  out.push_back({"TenantBootRecoveryFailures",
+                 "HotCold",
+                 "Counter",
+                 static_cast<int64_t>(global.tenant_boot_recovery_failures->Value())});
+  out.push_back({"TenantBootRecoveryOomFailures",
+                 "HotCold",
+                 "Counter",
+                 static_cast<int64_t>(global.tenant_boot_recovery_oom_failures->Value())});
 
   // Session
   out.push_back({"ActiveSessions", "Session", "Gauge", static_cast<int64_t>(global.active_sessions->Value())});

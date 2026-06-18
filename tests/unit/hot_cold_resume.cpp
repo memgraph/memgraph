@@ -576,6 +576,30 @@ TEST_F(HotColdResume, AppliedWireEpochDrivesColdPromotionBoundary) {
   ASSERT_TRUE(found);
 }
 
+// F2 (observability): a successful SUSPEND/RESUME pair moves the global hot/cold Prometheus metrics — the
+// suspends/resumes counters and the cold-tenant gauge.
+//   - The counters are process-global monotonic singletons shared across every test in this binary, so
+//     assert on DELTAS captured around the operation.
+//   - The gauge is SET to the live DbmsHandler's suspended_ size (in production there is exactly one
+//     handler, so the gauge is globally accurate). This test owns the only live handler, whose fresh
+//     data dir restores zero cold tenants, so the gauge reads its absolute suspended_ size: 1 while the
+//     sole tenant is cold, 0 once resumed.
+TEST_F(HotColdResume, SuspendResumeMoveObservabilityMetrics) {
+  auto &m = memgraph::metrics::Metrics().global;
+  const double suspends0 = m.tenant_suspends->Value();
+  const double resumes0 = m.tenant_resumes->Value();
+
+  auto t = CreateAndPopulate("metrics_tenant", 3);
+  ASSERT_TRUE(handler_->Suspend(t).has_value());
+  EXPECT_DOUBLE_EQ(m.tenant_suspends->Value() - suspends0, 1.0)
+      << "a successful SUSPEND increments the suspends counter";
+  EXPECT_DOUBLE_EQ(m.cold_tenants->Value(), 1.0) << "the cold-tenant gauge reflects the one suspended tenant";
+
+  ASSERT_TRUE(handler_->Resume(t).has_value());
+  EXPECT_DOUBLE_EQ(m.tenant_resumes->Value() - resumes0, 1.0) << "a successful RESUME increments the resumes counter";
+  EXPECT_DOUBLE_EQ(m.cold_tenants->Value(), 0.0) << "the cold-tenant gauge returns to zero after resume";
+}
+
 // C12: a tenant whose HOT recovery FAILS at boot must be left COLD (not abort the process) and marked
 // with a 'recovery failed' status in the cold-aware SHOW surface — degraded-but-alive. An intact
 // tenant in the same boot must recover HOT with its data. (The OOM-specific branch shares this exact

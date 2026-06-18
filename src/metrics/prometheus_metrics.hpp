@@ -279,6 +279,16 @@ struct GlobalMetricHandles {
   prometheus::Gauge *memory_res_bytes;
   prometheus::Gauge *peak_memory_res_bytes;
 
+  // Hot/cold tenants (global — the cold set is process-wide, not per-database since a COLD tenant has no
+  // live storage to attribute a per-db series to). suspends/resumes count user-driven operations; the
+  // gauge tracks the current COLD set size; the boot-recovery counters surface tenants left COLD because
+  // their HOT recovery failed at startup (the OOM split mirrors the C12 degraded-boot safety valve).
+  prometheus::Counter *tenant_suspends;
+  prometheus::Counter *tenant_resumes;
+  prometheus::Gauge *cold_tenants;
+  prometheus::Counter *tenant_boot_recovery_failures;
+  prometheus::Counter *tenant_boot_recovery_oom_failures;
+
   // Transaction (global) — incremented when no per-db context is available
   prometheus::Counter *transient_errors;
   prometheus::Counter *failed_query;
@@ -554,6 +564,13 @@ class PrometheusMetrics {
   // Global metric families — memory
   prometheus::Family<prometheus::Gauge> &memory_res_family_;
   prometheus::Family<prometheus::Gauge> &peak_memory_res_family_;
+
+  // Global metric families — hot/cold tenants
+  prometheus::Family<prometheus::Counter> &tenant_suspends_family_;
+  prometheus::Family<prometheus::Counter> &tenant_resumes_family_;
+  prometheus::Family<prometheus::Gauge> &cold_tenants_family_;
+  prometheus::Family<prometheus::Counter> &tenant_boot_recovery_failures_family_;
+  prometheus::Family<prometheus::Counter> &tenant_boot_recovery_oom_failures_family_;
 
   // No separate global families needed — global no-db counters reuse the per-db families with no label
 

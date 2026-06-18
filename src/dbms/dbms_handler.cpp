@@ -355,6 +355,9 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
         spdlog::info("Restoring suspended (cold) database {} at {}.", name, rel_dir);
         db_handler_.EmplaceColdShell(name);
         suspended_.insert_or_assign(std::string{name}, make_cold_entry(name, uuid, rel_dir, json));
+        // F2: a tenant recovered straight to COLD from disk — not a SUSPEND op, so the gauge tracks it
+        // but the suspends counter does not.
+        metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
         spdlog::info("Suspended (cold) database {} restored.", name);
         continue;
       }
@@ -418,6 +421,14 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
       auto entry = make_cold_entry(name, uuid, rel_dir, json);
       entry.cold_reason = reason;
       suspended_.insert_or_assign(std::string{name}, std::move(entry));
+      // F2: surface tenants left cold by a failed hot recovery; the OOM split mirrors the C12 degraded
+      // marker so ops can alert on a degraded boot.
+      if (reason == SuspendedEntry::ColdReason::kRecoveryFailedOom) {
+        metrics::Metrics().global.tenant_boot_recovery_oom_failures->Increment();
+      } else {
+        metrics::Metrics().global.tenant_boot_recovery_failures->Increment();
+      }
+      metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
     }
   }
 
@@ -1138,6 +1149,10 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   {
     auto wr = std::lock_guard{lock_};
     suspended_.insert_or_assign(std::string{name}, std::move(entry));
+    // F2: the tenant is now COLD. Counts every successful Suspend_ (user SUSPEND, replica RPC apply, and
+    // recovery force-suspend all funnel through here); the gauge tracks the live cold-set size.
+    metrics::Metrics().global.tenant_suspends->Increment();
+    metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
     // SU-6 / C9: persist the durable COLD marker under the SAME lock_ as the suspended_ insert so a
     // concurrent Resume_ cannot observe a half state. A Put failure degrades to a warning and never
     // rolls back or throws (the in-memory teardown still proceeds; MAIN's data stays durable on disk).
@@ -1274,6 +1289,11 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           }
           *gk = std::move(fresh);
           if (it != suspended_.end()) suspended_.erase(it);
+          // F2: the tenant is now HOT. Counter increment + gauge set are atomic/non-throwing, so they
+          // do not break the publish block's no-throw guarantee; done under lock_ so the gauge reads a
+          // consistent suspended_ size.
+          metrics::Metrics().global.tenant_resumes->Increment();
+          metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
         }
       } catch (...) {
         // PRE-PUBLISH failure: on_resume_ threw and the publish has NOT happened — `fresh` is still
