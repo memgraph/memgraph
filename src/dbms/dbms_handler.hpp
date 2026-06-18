@@ -503,34 +503,46 @@ class DbmsHandler {
   }
 
   /**
-   * @brief Overwrite a suspended tenant's cold_stats with MAIN's as-of-suspend snapshot (R11).
+   * @brief C16 (MED2): apply MAIN's authoritative cold metadata to a suspended tenant during recovery.
    *
-   * After a replica force-suspends/creates a COLD shell during recovery it captures its own stats;
-   * this replaces them with MAIN's so SHOW on the replica reflects MAIN's labeled snapshot. No-op if
-   * @p name is not suspended.
+   * Overwrites cold_stats with MAIN's as-of-suspend snapshot (R11) AND, when MAIN recorded epoch
+   * metadata (has_epoch_meta — a post-C10 cold entry), the current_epoch + epoch_history too. The epoch
+   * matters because a replica that converges a tenant via SystemRecovery (rather than the ordered
+   * SuspendDatabaseRpc) and is LATER promoted must append the correct continuous-history boundary in
+   * PromoteColdTenants; without MAIN's epoch it would keep its disk-recovered one and emit a phantom
+   * boundary -> spurious DIVERGED downstream. has_epoch_meta=false (pre-C10) leaves the local epoch
+   * intact (R15 tolerant). No-op if @p name is not suspended.
    */
-  void SetColdStats(std::string_view name, const storage::StorageInfo &stats) {
+  void ApplyColdRecoveryMeta(std::string_view name, const storage::ColdTenantRecovery &meta) {
     auto wr = std::lock_guard{lock_};
-    if (auto it = suspended_.find(name); it != suspended_.end()) it->second.cold_stats = stats;
+    auto it = suspended_.find(name);
+    if (it == suspended_.end()) return;
+    it->second.cold_stats = meta.stats;
+    if (meta.has_epoch_meta) {
+      it->second.current_epoch = meta.current_epoch;
+      it->second.epoch_history = meta.epoch_history;
+      it->second.has_epoch_meta = true;
+    }
   }
 
   /**
-   * @brief Snapshot the COLD set for the SystemRecovery payload: parallel (salient, cold_stats)
-   *        vectors built from suspended_. Called on MAIN inside the system-transaction guard so the
-   *        COLD set is coherent with the HOT ForEach as-of forced_group_timestamp (SR-1).
+   * @brief Snapshot the COLD set for the SystemRecovery payload: one ColdTenantRecovery per suspended
+   *        tenant (salient + cold_stats + epoch metadata), built from suspended_. Called on MAIN inside
+   *        the system-transaction guard so the COLD set is coherent with the HOT ForEach as-of
+   *        forced_group_timestamp (SR-1).
    */
-  std::pair<std::vector<storage::SalientConfig>, std::vector<storage::StorageInfo>> SuspendedConfigsForRecovery()
-      const {
+  std::vector<storage::ColdTenantRecovery> SuspendedConfigsForRecovery() const {
     auto rd = std::shared_lock{lock_};
-    std::vector<storage::SalientConfig> configs;
-    std::vector<storage::StorageInfo> stats;
-    configs.reserve(suspended_.size());
-    stats.reserve(suspended_.size());
+    std::vector<storage::ColdTenantRecovery> out;
+    out.reserve(suspended_.size());
     for (const auto &[name, entry] : suspended_) {
-      configs.push_back(entry.salient);
-      stats.push_back(entry.cold_stats);
+      out.push_back(storage::ColdTenantRecovery{.salient = entry.salient,
+                                                .stats = entry.cold_stats,
+                                                .has_epoch_meta = entry.has_epoch_meta,
+                                                .current_epoch = entry.current_epoch,
+                                                .epoch_history = entry.epoch_history});
     }
-    return {std::move(configs), std::move(stats)};
+    return out;
   }
 
   /**

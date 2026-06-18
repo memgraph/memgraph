@@ -94,6 +94,35 @@ void Load(memgraph::storage::StorageInfo *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->schema_edge_count, reader);
 }
 
+// C16 (MED2): one COLD tenant's recovery payload — salient + as-of-suspend stats + epoch metadata.
+void Save(const memgraph::storage::ColdTenantRecovery &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.salient, builder);
+  memgraph::slk::Save(self.stats, builder);
+  memgraph::slk::Save(self.current_epoch, builder);
+  // EpochHistory is a std::deque (no direct slk support). Serialize element-by-element in the SAME wire
+  // layout slk uses for a std::vector (uint64 size + each (epoch, ldt) pair) so the format is unchanged,
+  // without materializing an intermediate vector copy.
+  const uint64_t history_size = self.epoch_history.size();
+  memgraph::slk::Save(history_size, builder);
+  for (const auto &entry : self.epoch_history) memgraph::slk::Save(entry, builder);
+  memgraph::slk::Save(self.has_epoch_meta, builder);
+}
+
+void Load(memgraph::storage::ColdTenantRecovery *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->salient, reader);
+  memgraph::slk::Load(&self->stats, reader);
+  memgraph::slk::Load(&self->current_epoch, reader);
+  uint64_t history_size = 0;
+  memgraph::slk::Load(&history_size, reader);
+  self->epoch_history.clear();
+  for (uint64_t i = 0; i < history_size; ++i) {
+    std::pair<std::string, uint64_t> entry;
+    memgraph::slk::Load(&entry, reader);
+    self->epoch_history.push_back(std::move(entry));
+  }
+  memgraph::slk::Load(&self->has_epoch_meta, reader);
+}
+
 // Serialize code for SystemRecoveryReqV1
 void Save(const memgraph::replication::SystemRecoveryReqV1 &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
@@ -148,8 +177,7 @@ void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::B
   memgraph::slk::Save(self.roles, builder);
   memgraph::slk::Save(self.profiles, builder);
   memgraph::slk::Save(self.parameters, builder);
-  memgraph::slk::Save(self.cold_database_configs, builder);
-  memgraph::slk::Save(self.cold_database_stats, builder);
+  memgraph::slk::Save(self.cold_databases, builder);
 }
 
 void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
@@ -161,8 +189,7 @@ void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->roles, reader);
   memgraph::slk::Load(&self->profiles, reader);
   memgraph::slk::Load(&self->parameters, reader);
-  memgraph::slk::Load(&self->cold_database_configs, reader);
-  memgraph::slk::Load(&self->cold_database_stats, reader);
+  memgraph::slk::Load(&self->cold_databases, reader);
 }
 
 // Serialize code for SystemRecoveryResV1 (same layout as Res)

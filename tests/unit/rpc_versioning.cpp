@@ -287,8 +287,9 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
   }
 }
 
-// SystemRecoveryRpc V3 (hot/cold): the COLD set (parallel SalientConfig + StorageInfo vectors)
-// survives the SLK round-trip, including the freshly-added StorageInfo serializer.
+// SystemRecoveryRpc V3 (hot/cold): the COLD set (a vector of ColdTenantRecovery: salient + StorageInfo
+// + epoch metadata) survives the SLK round-trip, including the StorageInfo serializer and the C16
+// epoch fields (current_epoch + epoch_history deque-as-pairs + has_epoch_meta).
 TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   Endpoint const endpoint{"localhost", port};
 
@@ -299,8 +300,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
     rpc_server.AwaitShutdown();
   }};
 
-  std::vector<memgraph::storage::SalientConfig> seen_cold_configs;
-  std::vector<memgraph::storage::StorageInfo> seen_cold_stats;
+  std::vector<memgraph::storage::ColdTenantRecovery> seen_cold;
   rpc_server.Register<memgraph::replication::SystemRecoveryRpc>(
       [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
           uint64_t const request_version,
@@ -308,8 +308,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
           auto *res_builder) {
         memgraph::replication::SystemRecoveryReq req;
         memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
-        seen_cold_configs = req.cold_database_configs;
-        seen_cold_stats = req.cold_database_stats;
+        seen_cold = req.cold_databases;
         memgraph::replication::SystemRecoveryRes const res(memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
@@ -320,20 +319,22 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   ClientContext client_context;
   Client client{endpoint, &client_context};
 
-  memgraph::storage::SalientConfig cold_cfg{};
-  cold_cfg.name = "cold_tenant";
-  cold_cfg.uuid = memgraph::utils::UUID{};
-  cold_cfg.storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
-
-  memgraph::storage::StorageInfo cold_info{};
-  cold_info.vertex_count = 123;
-  cold_info.edge_count = 456;
-  cold_info.average_degree = 2.5;
-  cold_info.memory_res = 7890;
-  cold_info.storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
-  cold_info.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION;
-  cold_info.durability_wal_enabled = true;
-  cold_info.schema_vertex_count = 9;
+  memgraph::storage::ColdTenantRecovery cold{};
+  cold.salient.name = "cold_tenant";
+  cold.salient.uuid = memgraph::utils::UUID{};
+  cold.salient.storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+  cold.stats.vertex_count = 123;
+  cold.stats.edge_count = 456;
+  cold.stats.average_degree = 2.5;
+  cold.stats.memory_res = 7890;
+  cold.stats.storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+  cold.stats.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION;
+  cold.stats.durability_wal_enabled = true;
+  cold.stats.schema_vertex_count = 9;
+  // C16: epoch metadata must round-trip too.
+  cold.current_epoch = "epoch-E2";
+  cold.epoch_history = memgraph::storage::EpochHistory{{"epoch-E1", 42}, {"epoch-E0", 7}};
+  cold.has_epoch_meta = true;
 
   auto stream =
       client.Stream<memgraph::replication::SystemRecoveryRpc>(memgraph::utils::UUID{},
@@ -344,20 +345,26 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
                                                               std::vector<memgraph::auth::Role>{},
                                                               std::vector<memgraph::auth::UserProfiles::Profile>{},
                                                               std::vector<memgraph::parameters::ParameterInfo>{},
-                                                              std::vector{cold_cfg},
-                                                              std::vector{cold_info});
+                                                              std::vector{cold});
   auto reply = stream.SendAndWait();
   EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
 
-  ASSERT_EQ(seen_cold_configs.size(), 1U);
-  ASSERT_EQ(seen_cold_stats.size(), 1U);
-  EXPECT_EQ(*seen_cold_configs[0].name.str_view(), "cold_tenant");
-  EXPECT_EQ(seen_cold_configs[0].storage_mode, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
-  EXPECT_EQ(seen_cold_stats[0].vertex_count, 123U);
-  EXPECT_EQ(seen_cold_stats[0].edge_count, 456U);
-  EXPECT_DOUBLE_EQ(seen_cold_stats[0].average_degree, 2.5);
-  EXPECT_EQ(seen_cold_stats[0].memory_res, 7890U);
-  EXPECT_EQ(seen_cold_stats[0].isolation_level, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
-  EXPECT_TRUE(seen_cold_stats[0].durability_wal_enabled);
-  EXPECT_EQ(seen_cold_stats[0].schema_vertex_count, 9U);
+  ASSERT_EQ(seen_cold.size(), 1U);
+  EXPECT_EQ(*seen_cold[0].salient.name.str_view(), "cold_tenant");
+  EXPECT_EQ(seen_cold[0].salient.storage_mode, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  EXPECT_EQ(seen_cold[0].stats.vertex_count, 123U);
+  EXPECT_EQ(seen_cold[0].stats.edge_count, 456U);
+  EXPECT_DOUBLE_EQ(seen_cold[0].stats.average_degree, 2.5);
+  EXPECT_EQ(seen_cold[0].stats.memory_res, 7890U);
+  EXPECT_EQ(seen_cold[0].stats.isolation_level, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+  EXPECT_TRUE(seen_cold[0].stats.durability_wal_enabled);
+  EXPECT_EQ(seen_cold[0].stats.schema_vertex_count, 9U);
+  // C16 epoch round-trip:
+  EXPECT_TRUE(seen_cold[0].has_epoch_meta);
+  EXPECT_EQ(seen_cold[0].current_epoch, "epoch-E2");
+  ASSERT_EQ(seen_cold[0].epoch_history.size(), 2U);
+  EXPECT_EQ(seen_cold[0].epoch_history[0].first, "epoch-E1");
+  EXPECT_EQ(seen_cold[0].epoch_history[0].second, 42U);
+  EXPECT_EQ(seen_cold[0].epoch_history[1].first, "epoch-E0");
+  EXPECT_EQ(seen_cold[0].epoch_history[1].second, 7U);
 }

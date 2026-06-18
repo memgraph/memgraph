@@ -385,12 +385,11 @@ TEST_F(HotColdResume, CrossRestartColdTenantStaysColdHotTenantRecovers) {
   // the public recovery snapshot) carries the as-of-suspend vertex_count. This exercises the 23-field
   // StatsToJson/StatsFromJson path end-to-end across the restart.
   {
-    auto [configs, stats] = handler_->SuspendedConfigsForRecovery();
-    ASSERT_EQ(configs.size(), stats.size());
+    auto cold_set = handler_->SuspendedConfigsForRecovery();
     bool found_cold_stats = false;
-    for (size_t i = 0; i < configs.size(); ++i) {
-      if (configs[i].name.str() == cold) {
-        EXPECT_EQ(stats[i].vertex_count, static_cast<uint64_t>(kColdNodes))
+    for (const auto &c : cold_set) {
+      if (c.salient.name.str() == cold) {
+        EXPECT_EQ(c.stats.vertex_count, static_cast<uint64_t>(kColdNodes))
             << "the durably-restored cold_stats must carry the as-of-suspend vertex_count";
         found_cold_stats = true;
       }
@@ -512,6 +511,69 @@ TEST_F(HotColdResume, PromotionDuringResumeAppliesPromotedEpoch) {
       << "a promotion racing the resume's build window must win (epoch re-read under the publish lock)";
   ASSERT_FALSE(rss.history.empty());
   EXPECT_EQ(rss.history.back().first, e1) << "the promotion boundary must still carry the pre-promotion epoch";
+}
+
+// C16 (MED2): on a replica, a cold tenant's epoch metadata arrives over the V3 SystemRecovery wire and is
+// installed by ApplyColdRecoveryMeta, OVERRIDING the local disk-recovered epoch. A subsequent eager
+// promotion (PromoteColdTenants) must then build its continuity boundary from MAIN's APPLIED epoch, not the
+// stale local one — otherwise a replica promoted after reconnect would emit a phantom boundary and a lagging
+// downstream replica would spuriously DIVERGE on MAIN's continuous-history check. This proves the
+// producer -> wire -> consumer epoch (ColdTenantRecovery.current_epoch) is honored end to end on the consumer.
+TEST_F(HotColdResume, AppliedWireEpochDrivesColdPromotionBoundary) {
+  constexpr int kNodes = 4;
+  auto cold = CreateAndPopulate("wire_epoch_cold", kNodes);
+
+  // Capture the local disk epoch so we can prove the wire value WINS over it.
+  std::string local_epoch;
+  {
+    auto acc = handler_->Get(cold);
+    local_epoch = std::string{acc->storage()->repl_storage_state_.epoch_.id()};
+  }
+  ASSERT_FALSE(local_epoch.empty());
+
+  ASSERT_TRUE(handler_->Suspend(cold).has_value());
+
+  // MAIN's authoritative epoch metadata, distinct from anything the local storage would produce.
+  const std::string wire_epoch = "main-wire-epoch-E2";
+  memgraph::storage::ColdTenantRecovery meta;
+  meta.current_epoch = wire_epoch;
+  meta.epoch_history = memgraph::storage::EpochHistory{{"main-wire-epoch-E1", 99}};
+  meta.has_epoch_meta = true;
+  handler_->ApplyColdRecoveryMeta(cold, meta);
+
+  // The applied wire epoch overrode the local disk epoch in the suspended_ entry.
+  {
+    auto cold_set = handler_->SuspendedConfigsForRecovery();
+    bool found = false;
+    for (const auto &c : cold_set) {
+      if (c.salient.name.str() == cold) {
+        EXPECT_EQ(c.current_epoch, wire_epoch)
+            << "ApplyColdRecoveryMeta must install MAIN's epoch over the local disk one";
+        EXPECT_NE(c.current_epoch, local_epoch);
+        EXPECT_TRUE(c.has_epoch_meta);
+        found = true;
+      }
+    }
+    ASSERT_TRUE(found) << "the suspended tenant must appear in the recovery snapshot";
+  }
+
+  // Eager promotion must build its boundary from the APPLIED wire epoch, not the stale local one.
+  const std::string new_epoch = "main-wire-epoch-E3";
+  handler_->PromoteColdTenants(new_epoch);
+
+  auto cold_set = handler_->SuspendedConfigsForRecovery();
+  bool found = false;
+  for (const auto &c : cold_set) {
+    if (c.salient.name.str() == cold) {
+      EXPECT_EQ(c.current_epoch, new_epoch) << "promotion must move the cold entry to the new epoch";
+      ASSERT_FALSE(c.epoch_history.empty());
+      EXPECT_EQ(c.epoch_history.back().first, wire_epoch)
+          << "the promotion boundary must be MAIN's APPLIED wire epoch, not the stale local disk epoch";
+      EXPECT_NE(c.epoch_history.back().first, local_epoch);
+      found = true;
+    }
+  }
+  ASSERT_TRUE(found);
 }
 
 // C12: a tenant whose HOT recovery FAILS at boot must be left COLD (not abort the process) and marked

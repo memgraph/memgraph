@@ -380,8 +380,7 @@ bool ForceSuspendForRecovery(DbmsHandler &dbms_handler, std::string_view name) {
 }  // namespace
 
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs,
-                           const std::vector<storage::SalientConfig> &cold_configs,
-                           const std::vector<storage::StorageInfo> &cold_stats) {
+                           const std::vector<storage::ColdTenantRecovery> &cold_databases) {
   /*
    * NO LICENSE
    */
@@ -406,15 +405,8 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   /*
    * MULTI-TENANCY
    */
-  // The COLD set arrives as two independently length-prefixed SLK vectors; the loop below indexes
-  // cold_stats[i] by cold_configs's index. A truncated/skewed payload that breaks the 1:1 pairing
-  // would be an out-of-bounds read, so reject it (false -> caller flags BEHIND -> retry).
-  if (cold_configs.size() != cold_stats.size()) {
-    spdlog::error("SystemRecoveryHandler: mismatched COLD set ({} configs vs {} stats); flagging BEHIND.",
-                  cold_configs.size(),
-                  cold_stats.size());
-    return false;
-  }
+  // C16 (MED2): the COLD set arrives as one ColdTenantRecovery per tenant (salient + stats + epoch),
+  // so the salient<->stats pairing is structural — the earlier mismatched-length guard is gone.
 
   // HOT names currently active on this replica (All() excludes COLD shells — a no-value gatekeeper).
   auto old = dbms_handler.All();
@@ -442,17 +434,19 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     std::erase(old, name);
   }
 
-  // Reconcile the incoming COLD set: each named tenant must end as a COLD shell carrying MAIN's stats.
-  for (std::size_t i = 0; i < cold_configs.size(); ++i) {
-    const auto &config = cold_configs[i];
+  // Reconcile the incoming COLD set: each named tenant must end as a COLD shell carrying MAIN's stats
+  // and epoch metadata.
+  for (const auto &cold : cold_databases) {
+    const auto &config = cold.salient;
     const auto name = std::string{*config.name.str_view()};
     // SR-1: exempt COLD names from the leftover-delete loop below — a replica-HOT tenant that MAIN
     // now lists COLD must be reconciled to COLD, not dropped.
     std::erase(old, name);
 
     if (dbms_handler.IsSuspended(name)) {
-      // Already COLD here — only refresh MAIN's as-of-suspend stats snapshot (R11).
-      dbms_handler.SetColdStats(name, cold_stats[i]);
+      // Already COLD here — refresh MAIN's as-of-suspend stats snapshot (R11) AND epoch metadata
+      // (C16/MED2): a converged-then-promoted replica needs MAIN's epoch to record the right boundary.
+      dbms_handler.ApplyColdRecoveryMeta(name, cold);
       continue;
     }
 
@@ -471,7 +465,7 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
       spdlog::debug("SystemRecoveryHandler: failed to suspend tenant \"{}\" to match MAIN (COLD).", name);
       return false;
     }
-    dbms_handler.SetColdStats(name, cold_stats[i]);
+    dbms_handler.ApplyColdRecoveryMeta(name, cold);
   }
 
   // Delete all the leftover old dbs (neither incoming HOT nor COLD).

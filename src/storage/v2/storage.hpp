@@ -134,6 +134,22 @@ struct StorageInfo {
   uint64_t schema_edge_count;
 };
 
+// Hot/cold (C16): the per-COLD-tenant recovery payload carried in SystemRecoveryReq V3 so a
+// reconnecting/lagging replica converges to MAIN's authoritative {HOT ∪ COLD} set WITH the correct
+// epoch. Replaces the earlier two parallel (salient, stats) vectors; bundling them keeps the 1:1
+// pairing structural (no length-mismatch guard) and adds the epoch metadata MAIN needs so a
+// SystemRecovery-converged-then-promoted replica appends the right continuous-history boundary.
+// Composed of storage:: types only, so it can sit in both the dbms and replication_handler signatures
+// without a layer cycle. `has_epoch_meta` is false for a pre-C10 cold entry (no epoch recorded) — the
+// replica then leaves its disk-recovered epoch intact (R15 tolerant).
+struct ColdTenantRecovery {
+  SalientConfig salient;
+  StorageInfo stats;
+  bool has_epoch_meta{false};  // placed before the string/deque members to avoid tail padding
+  std::string current_epoch;
+  EpochHistory epoch_history;
+};
+
 static inline nlohmann::json ToJson(const StorageInfo &info) {
   nlohmann::json res;
 

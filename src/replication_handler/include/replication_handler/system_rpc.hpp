@@ -95,10 +95,12 @@ struct SystemRecoveryReqV2 {
   std::vector<parameters::ParameterInfo> parameters;
 };
 
-// V3 (hot/cold tenants): adds the COLD set as two parallel vectors so a reconnecting/lagging replica
-// converges to MAIN's authoritative {HOT ∪ COLD} set. cold_database_configs[i] is the salient config
-// of a suspended tenant; cold_database_stats[i] is MAIN's as-of-suspend stats snapshot (R11). Carried
-// as storage:: types only (no replication:: type) so the dbms reconcile signature stays cycle-free.
+// V3 (hot/cold tenants): adds the COLD set as a vector of ColdTenantRecovery so a reconnecting/lagging
+// replica converges to MAIN's authoritative {HOT ∪ COLD} set. Each entry carries a suspended tenant's
+// salient config, MAIN's as-of-suspend stats snapshot (R11), AND its epoch metadata (C16/MED2) so a
+// SystemRecovery-converged-then-promoted replica records the correct continuous-history boundary.
+// ColdTenantRecovery is composed of storage:: types only, so the dbms reconcile signature stays
+// cycle-free.
 struct SystemRecoveryReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_REQ, .name = "SystemRecoveryReq"};
   static constexpr uint64_t kVersion{3};
@@ -112,8 +114,7 @@ struct SystemRecoveryReq {
                     std::vector<auth::User> users, std::vector<auth::Role> roles,
                     std::vector<auth::UserProfiles::Profile> profiles,
                     std::vector<parameters::ParameterInfo> parameters = {},
-                    std::vector<storage::SalientConfig> cold_database_configs = {},
-                    std::vector<storage::StorageInfo> cold_database_stats = {})
+                    std::vector<storage::ColdTenantRecovery> cold_databases = {})
       : main_uuid(main_uuid),
         forced_group_timestamp{forced_group_timestamp},
         database_configs(std::move(database_configs)),
@@ -122,8 +123,7 @@ struct SystemRecoveryReq {
         roles{std::move(roles)},
         profiles{std::move(profiles)},
         parameters{std::move(parameters)},
-        cold_database_configs{std::move(cold_database_configs)},
-        cold_database_stats{std::move(cold_database_stats)} {}
+        cold_databases{std::move(cold_databases)} {}
 
   static SystemRecoveryReq Upgrade(SystemRecoveryReqV2 const &v2) {
     return SystemRecoveryReq{v2.main_uuid,
@@ -134,7 +134,6 @@ struct SystemRecoveryReq {
                              v2.roles,
                              v2.profiles,
                              v2.parameters,
-                             {},
                              {}};
   }
 
@@ -146,8 +145,9 @@ struct SystemRecoveryReq {
   std::vector<auth::Role> roles;
   std::vector<auth::UserProfiles::Profile> profiles;
   std::vector<parameters::ParameterInfo> parameters;
-  std::vector<storage::SalientConfig> cold_database_configs;
-  std::vector<storage::StorageInfo> cold_database_stats;
+  // C16 (MED2): one payload per COLD tenant (salient + as-of-suspend stats + epoch metadata). Replaces
+  // the earlier parallel cold_database_configs/cold_database_stats vectors.
+  std::vector<storage::ColdTenantRecovery> cold_databases;
 };
 
 struct SystemRecoveryResV1 {
@@ -212,6 +212,8 @@ using SystemRecoveryRpc = rpc::RequestResponse<SystemRecoveryReq, SystemRecovery
 namespace memgraph::slk {
 void Save(const memgraph::storage::StorageInfo &self, memgraph::slk::Builder *builder);
 void Load(memgraph::storage::StorageInfo *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::storage::ColdTenantRecovery &self, memgraph::slk::Builder *builder);
+void Load(memgraph::storage::ColdTenantRecovery *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::SystemRecoveryReqV1 &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::SystemRecoveryReqV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::SystemRecoveryReqV2 &self, memgraph::slk::Builder *builder);
