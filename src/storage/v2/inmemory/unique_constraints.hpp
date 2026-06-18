@@ -38,6 +38,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
  public:
   explicit InMemoryUniqueConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
+  void SetGauge(metrics::GaugeHandle gauge) { gauge_ = gauge; }
+
   struct Entry {
     std::vector<PropertyValue> values;
     const Vertex *vertex;
