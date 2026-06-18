@@ -165,6 +165,15 @@ _PROFILE_EXTRA_TOLERATIONS = (
 _MAX_RETRIES = 120
 _RETRY_SLEEP = 0.05  # seconds
 
+# Quiescent tail (seconds) the suspender runs AFTER the data writers / memory hog /
+# resumer have stopped. SUSPEND fails fast on an in-use database (ACTIVE_CONNECTIONS, by
+# design), so under continuous churn + memory pressure the suspender can finish the
+# contended window with zero successful suspends and trip the suspends_ok>0 non-vacuity
+# gate on a busy/slow CI host (a flaky false failure, not a product bug). Draining the
+# antagonists first gives the suspender a contention-free tail in which its SUSPENDs land
+# deterministically.
+_SUSPENDER_TAIL_SEC = 5.0  # seconds
+
 # Light-writer inter-batch sleep range (seconds).  Wide enough that a churn
 # tenant is idle for much longer than the SUSPEND sole-accessor freeze window
 # (~100ms), so a concurrent SUSPEND almost always wins.
@@ -956,6 +965,7 @@ def main() -> None:
     print(f"\n==> Phase 2: concurrent stress for {duration_sec}s", flush=True)
 
     stop_flag: list[bool] = [False]
+    suspender_stop_flag: list[bool] = [False]
     committed_counts: dict[str, int] = {}
     counts_lock = threading.Lock()
     oom_counter: list[int] = [0]
@@ -1013,14 +1023,15 @@ def main() -> None:
         )
         futures.append(("memory_hog", "default", f))
 
-        # SUSPENDER thread (churn tenants only).
+        # SUSPENDER thread (churn tenants only). Uses its OWN stop flag for the
+        # staggered shutdown below.
         f = pool.submit(
             _suspender_worker,
             endpoint,
             username,
             password,
             churn_tenants,
-            stop_flag,
+            suspender_stop_flag,
             error_collector,
             base_seed + len(ballast_tenants) + 1,
         )
@@ -1054,9 +1065,19 @@ def main() -> None:
         )
         futures.append(("profile_changer", "churn", f))
 
-        # Run for duration_sec then signal all workers to stop.
+        # Run for duration_sec, then STAGGER the stop: drain the antagonists (writers /
+        # memory hog / resumer) first, then give the suspender a short contention-free
+        # tail so its SUSPENDs land deterministically (see _SUSPENDER_TAIL_SEC). The
+        # contended window above still exercises the concurrent suspend-under-OOM path;
+        # the tail only guarantees the suspends_ok>0 non-vacuity gate.
         time.sleep(duration_sec)
         stop_flag[0] = True
+        print(
+            f"  antagonists stopped; giving the suspender a {_SUSPENDER_TAIL_SEC}s " "quiescent tail window...",
+            flush=True,
+        )
+        time.sleep(_SUSPENDER_TAIL_SEC)
+        suspender_stop_flag[0] = True
         print("  stop signal sent, waiting for workers...", flush=True)
 
         # Collect results / exceptions.

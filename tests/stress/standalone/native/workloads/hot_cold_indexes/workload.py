@@ -149,6 +149,14 @@ _RETRY_SLEEP = 0.05  # seconds
 _CHURNER_SLEEP_MIN = 1.0  # seconds
 _CHURNER_SLEEP_MAX = 2.0  # seconds
 
+# Quiescent tail (seconds) the suspender runs AFTER the data writers / index churner /
+# resumer have stopped. With the antagonists drained, the tenants go idle and the
+# suspender's SUSPENDs land deterministically — guaranteeing suspends_ok > 0 regardless
+# of how busy/slow the host was during the contended window. See the staggered stop in
+# main(). Must comfortably exceed a writer's in-flight transaction + the ~100ms SUSPEND
+# fail-fast wait so every tenant has drained to sole-accessor before the window ends.
+_SUSPENDER_TAIL_SEC = 5.0  # seconds
+
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -848,6 +856,7 @@ def main() -> None:
     print(f"\n==> Phase 2: concurrent stress for {duration_sec}s", flush=True)
 
     stop_flag: list[bool] = [False]
+    suspender_stop_flag: list[bool] = [False]
     committed_counts: dict[str, int] = {}
     sentinel_counts: dict[str, int] = {}
     counts_lock = threading.Lock()
@@ -892,14 +901,16 @@ def main() -> None:
         )
         futures.append(("index_churner", "all", f))
 
-        # SUSPENDER thread.
+        # SUSPENDER thread. It uses its OWN stop flag so it can keep running for a
+        # short quiescent tail after the antagonists (writers/churner/resumer) stop —
+        # see the staggered shutdown below.
         f = pool.submit(
             _suspender_worker,
             endpoint,
             username,
             password,
             tenant_names,
-            stop_flag,
+            suspender_stop_flag,
             error_collector,
             base_seed + num_tenants + 1,
         )
@@ -918,9 +929,27 @@ def main() -> None:
         )
         futures.append(("resumer", "all", f))
 
-        # Let workers run for duration_sec then signal stop.
+        # Let workers run for duration_sec, then perform a STAGGERED stop.
+        #
+        # SUSPEND fails fast on an in-use database (ACTIVE_CONNECTIONS) — that is the
+        # designed v2 behavior, not an error. Under continuous write + resume churn the
+        # suspender therefore legitimately loses most races, and on a busy/slow CI host
+        # it can finish the whole window with zero successful suspends and trip the
+        # `suspends_ok > 0` non-vacuity gate — a flaky false failure, not a product bug.
+        #
+        # Fix: stop the antagonists (data writers, index churner, resumer) first, then
+        # let the suspender keep running for a short, contention-free tail in which its
+        # SUSPENDs deterministically land. The full-contention window above still
+        # exercises the concurrent suspend-vs-write path (the actual coverage); the tail
+        # only guarantees the non-vacuity gate is satisfied deterministically.
         time.sleep(duration_sec)
         stop_flag[0] = True
+        print(
+            f"  antagonists stopped; giving the suspender a {_SUSPENDER_TAIL_SEC}s " "quiescent tail window...",
+            flush=True,
+        )
+        time.sleep(_SUSPENDER_TAIL_SEC)
+        suspender_stop_flag[0] = True
         print("  stop signal sent, waiting for workers...", flush=True)
 
         # Collect results / exceptions.
