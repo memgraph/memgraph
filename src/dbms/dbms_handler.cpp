@@ -322,7 +322,6 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
     directories.emplace(rel_dir.filename());
 
     const bool is_cold = json.value("cold", false);
-    bool reheat_cold = false;  // C14: a cold marker recovered HOT because the experiment is off
     if (is_cold) {
       if (hot_cold_enabled) {
         // COLD: metadata-only shell, no storage build.
@@ -344,7 +343,6 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
           "Database {} was SUSPENDED (cold) under the hot-cold-tenants experiment, which is now disabled; "
           "recovering it HOT. Re-enabling the experiment will not re-suspend it.",
           name);
-      reheat_cold = true;
       // fall through to the HOT path
     }
 
