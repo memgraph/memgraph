@@ -439,12 +439,17 @@ struct Gatekeeper {
       // after a generous interval, log WHY. Destroying a gatekeeper stuck in SUSPENDING/RESUMING is a
       // caller ordering error that would otherwise hang here silently forever with no diagnostic.
       while (!pimpl_->cv_.wait_for(lock, std::chrono::seconds{30}, terminal_and_drained)) {
-        spdlog::warn(
-            "~Gatekeeper has waited >30s for a terminal state and a drained accessor count (state={}, "
-            "count={}). A graceful destruction during SUSPENDING/RESUMING is a caller ordering error — "
-            "in-flight transitions must be quiesced before destroying.",
-            static_cast<int>(pimpl_->state_),
-            pimpl_->count_);
+        // spdlog can throw (formatting, sink I/O); a destructor is implicitly noexcept, so an escaping
+        // exception would call std::terminate. Swallow it — the wait condition is what matters here.
+        try {
+          spdlog::warn(
+              "~Gatekeeper has waited >30s for a terminal state and a drained accessor count (state={}, "
+              "count={}). A graceful destruction during SUSPENDING/RESUMING is a caller ordering error — "
+              "in-flight transitions must be quiesced before destroying.",
+              static_cast<int>(pimpl_->state_),
+              pimpl_->count_);
+        } catch (...) {  // NOLINT(bugprone-empty-catch)
+        }
       }
     }
     // Opt-in lifetime guard around object destruction.
