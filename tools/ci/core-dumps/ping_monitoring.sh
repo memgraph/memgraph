@@ -10,6 +10,8 @@
 # Best-effort: failures here must never fail the CI job.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
 URL=""
 MESSAGE=""
 SIGNAL=""
@@ -109,39 +111,13 @@ fi
 # Loki push API expects nanosecond unix timestamps as strings.
 ts_ns="$(date +%s)000000000"
 
-# Build the JSON payload with python3 so labels/message are escaped safely.
+# Build the JSON payload with python3 (build_loki_payload.py) so labels/message
+# are escaped safely. Fields are passed via the environment, not the argv/shell.
 payload="$(CLUSTER_ID="$CLUSTER_ID" CLUSTER_ENV="$CLUSTER_ENV" \
   SERVICE_NAME="$SERVICE_NAME" STACK_TRACE_URL="$URL" \
   SIGNAL="$SIGNAL" SIGNAL_NAME="$SIGNAL_NAME" EXIT_STATUS="$EXIT_STATUS" \
   CORE_URL="$CORE_URL" BINARIES_URL="$BINARIES_URL" \
-  MSG="$MESSAGE" TS_NS="$ts_ns" python3 - <<'PY'
-import json, os
-stream = {
-    "app": "memgraph",
-    "job": "memgraph",
-    "role": "ci",
-    "namespace": "ci",
-    "level": "fatal",
-    "cluster_id": os.environ.get("CLUSTER_ID", ""),
-    "service_name": os.environ.get("SERVICE_NAME", "memgraph"),
-    "cluster_env": os.environ.get("CLUSTER_ENV", "ci"),
-    "stack_trace_url": os.environ.get("STACK_TRACE_URL", ""),
-}
-# Only attach crash-signal labels when we actually know the signal.
-if os.environ.get("SIGNAL"):
-    stream["signal"] = os.environ["SIGNAL"]
-    stream["signal_name"] = os.environ.get("SIGNAL_NAME", "")
-    stream["exit_status"] = os.environ.get("EXIT_STATUS", "")
-# Core dump / build-artifacts URLs are present only when --upload-core ran.
-if os.environ.get("CORE_URL"):
-    stream["core_url"] = os.environ["CORE_URL"]
-if os.environ.get("BINARIES_URL"):
-    stream["binaries_url"] = os.environ["BINARIES_URL"]
-payload = {"streams": [{"stream": stream,
-                        "values": [[os.environ["TS_NS"], os.environ["MSG"]]]}]}
-print(json.dumps(payload))
-PY
-)"
+  MSG="$MESSAGE" TS_NS="$ts_ns" python3 "$SCRIPT_DIR/build_loki_payload.py")"
 
 auth_args=()
 if [[ -n "$MONITORING_USERNAME" && -n "$MONITORING_PASSWORD" ]]; then
