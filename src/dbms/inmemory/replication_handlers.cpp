@@ -207,6 +207,25 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
     }
     return std::optional{std::move(acc)};
   } catch (const dbms::UnknownDatabaseException &) {
+#ifdef MG_ENTERPRISE
+    // DD-1 / R1': a data or recovery RPC referenced a tenant that is not HOT on this replica. If it
+    // is a known COLD (suspended) tenant, reheat it from disk INLINE on this (single-threaded) RPC
+    // thread — never by waiting for another RPC, which would self-deadlock the one server thread.
+    // ResumeByUUID runs synchronous local recovery (snapshot + WAL), so this is a bounded,
+    // self-contained reheat. This barrier lets a data delta that arrives for a still-COLD tenant
+    // (reconnect/lag, before the RESUME system delta is applied) be applied rather than dropped.
+    if (auto resumed = dbms_handler->ResumeByUUID(uuid); resumed.has_value()) {
+      spdlog::info("Replica reheated COLD tenant \"{}\" to apply an incoming delta (DD-1).", std::string{uuid});
+      auto &acc = resumed.value();
+      const memory::DbArenaScope db_arena_scope{acc.get()};
+      auto const *inmem_storage = static_cast<storage::InMemoryStorage *>(acc.get()->storage());
+      if (!inmem_storage || inmem_storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        spdlog::error("Database is not IN_MEMORY_TRANSACTIONAL.");
+        return std::nullopt;
+      }
+      return std::optional{std::move(acc)};
+    }
+#endif
     spdlog::warn("No database with UUID \"{}\" on replica!", std::string{uuid});
     return std::nullopt;
   }
@@ -569,6 +588,14 @@ void InMemoryReplicationHandlers::DestroyReplAccessor() {
   if (two_pc_cache_.commit_accessor_) {
     two_pc_cache_.commit_accessor_->AbortAndResetCommitTs();
     two_pc_cache_.commit_accessor_.reset();
+  }
+}
+
+void InMemoryReplicationHandlers::AbortTwoPCForTenant(utils::UUID const &uuid) {
+  // TD-3': single global 2PC slot — only abort it when the cached accessor is this tenant's, else a
+  // pending 2PC for a different tenant would be wrongly dropped. uuid() == storage_->uuid().
+  if (two_pc_cache_.commit_accessor_ && two_pc_cache_.commit_accessor_->uuid() == uuid) {
+    DestroyReplAccessor();
   }
 }
 

@@ -11,9 +11,11 @@
 
 #include "dbms/dbms_handler.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <ranges>
 #include <shared_mutex>
 #include <thread>
 
@@ -679,11 +681,9 @@ void DbmsHandler::RestoreTriggers(query::InterpreterContext *ic) {
 
 #ifdef MG_ENTERPRISE
 // Hot/cold SUSPEND as a system action. Recording it makes SUSPEND participate in the system
-// transaction — serialized + system-timestamped exactly like CREATE/DROP DATABASE. The replica
-// wire (SuspendDatabaseRpc + replica apply handler) lands in C7; until then DoReplication is a
-// no-op and suspend stays node-local. This is safe: SUSPEND is rejected while the tenant replicates
-// (SuspendError::REPLICATING), so a MAIN with replicas never reaches this path and no delta is
-// silently dropped.
+// transaction — serialized + system-timestamped exactly like CREATE/DROP DATABASE. DoReplication
+// streams a SuspendDatabaseRpc to each replica, which applies its own teardown (in system-timestamp
+// order) so the replica's copy is torn down to a COLD shell to match MAIN.
 struct SuspendDatabase : memgraph::system::ISystemAction {
   explicit SuspendDatabase(utils::UUID uuid) : uuid_{uuid} {}
 
@@ -691,22 +691,25 @@ struct SuspendDatabase : memgraph::system::ISystemAction {
 
   bool ShouldReplicateInCommunity() const override { return false; }
 
-  bool DoReplication(replication::ReplicationClient & /*client*/, const utils::UUID & /*main_uuid*/,
-                     memgraph::system::Transaction const & /*txn*/) const override {
-    (void)uuid_;  // C7 replaces this stub with:
-    // client.StreamAndFinalizeDelta<storage::replication::SuspendDatabaseRpc>(check, main_uuid,
-    //     txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
-    return true;
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const storage::replication::SuspendDatabaseRes &response) {
+      return response.result != storage::replication::SuspendDatabaseRes::Result::FAILURE;
+    };
+
+    return client.StreamAndFinalizeDelta<storage::replication::SuspendDatabaseRpc>(
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
   }
 
   void PostReplication(replication::RoleMainData & /*mainData*/) const override {}
 
  private:
-  utils::UUID uuid_;  // tenant id; consumed by the C7 replica wire
+  utils::UUID uuid_;
 };
 
-// Hot/cold RESUME as a system action. See SuspendDatabase above. The replica resumes from its own
-// on-disk artifacts by UUID; the wire + apply handler land in C7.
+// Hot/cold RESUME as a system action. See SuspendDatabase above. DoReplication streams a
+// ResumeDatabaseRpc; the replica rebuilds its own copy (COLD -> HOT) from its on-disk artifacts
+// identified by UUID, in system-timestamp order.
 struct ResumeDatabase : memgraph::system::ISystemAction {
   explicit ResumeDatabase(utils::UUID uuid) : uuid_{uuid} {}
 
@@ -714,18 +717,20 @@ struct ResumeDatabase : memgraph::system::ISystemAction {
 
   bool ShouldReplicateInCommunity() const override { return false; }
 
-  bool DoReplication(replication::ReplicationClient & /*client*/, const utils::UUID & /*main_uuid*/,
-                     memgraph::system::Transaction const & /*txn*/) const override {
-    (void)uuid_;  // C7 replaces this stub with:
-    // client.StreamAndFinalizeDelta<storage::replication::ResumeDatabaseRpc>(check, main_uuid,
-    //     txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
-    return true;
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const storage::replication::ResumeDatabaseRes &response) {
+      return response.result != storage::replication::ResumeDatabaseRes::Result::FAILURE;
+    };
+
+    return client.StreamAndFinalizeDelta<storage::replication::ResumeDatabaseRpc>(
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
   }
 
   void PostReplication(replication::RoleMainData & /*mainData*/) const override {}
 
  private:
-  utils::UUID uuid_;  // tenant id; consumed by the C7 replica wire
+  utils::UUID uuid_;
 };
 
 DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::Transaction *txn) {
@@ -766,7 +771,14 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
       return std::unexpected{SuspendError::NOT_IN_MEMORY};
     }
     if (!st->IsDurabilityCompleteForSuspend()) return std::unexpected{SuspendError::DURABILITY_INCOMPLETE};
-    if (st->IsReplicationParticipant()) return std::unexpected{SuspendError::REPLICATING};
+    // SU-REPL-1: NO IsReplicationParticipant() guard. Hot/cold is a system-replicated operation
+    // (sibling of CREATE/DROP DATABASE): suspending a tenant that has replicas is the SUPPORTED flow
+    // — the SuspendDatabase system action streams a SuspendDatabaseRpc so each replica tears down its
+    // own copy in system-timestamp order. The earlier "reject while replicating" guard encoded only
+    // the v1 node-local limitation (no wire to tell replicas) and protects no MAIN-local invariant:
+    // IsDurabilityCompleteForSuspend() + the freeze-to-count==1 below already guarantee MAIN's state
+    // is fully durable before teardown. On a replica this predicate is false anyway (replication
+    // storage clients live on MAIN), so the path is identical there.
 
     entry.salient = db->config().salient;
     entry.rel_dir = std::filesystem::relative(db->config().durability.storage_directory,
@@ -782,18 +794,14 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // State is now SUSPENDING. Concurrent Drop sees SUSPENDING and returns USING without
   // erasing gk, so gk is valid for the rest of this function (lock-free Phase B/C).
 
-  // SU-2 / BUG #5 FIX: RAII rollback guard. If anything in the SUSPENDING window throws (or we
-  // return early on the repl re-check path below), abort_suspend() restores HOT so the
-  // gatekeeper is not permanently stuck SUSPENDING (which would hang ~Gatekeeper).
+  // SU-2 / BUG #5 FIX: RAII rollback guard. If anything in the SUSPENDING window throws,
+  // abort_suspend() restores HOT so the gatekeeper is not permanently stuck SUSPENDING (which would
+  // hang ~Gatekeeper).
   auto rollback = utils::OnScopeExit{[&] { gk->abort_suspend(); }};
 
-  // PHASE B — post-freeze checks (lock-free; gk is SUSPENDING so Drop is rejected).
-
-  // SU-3 continued: Post-freeze replication re-check (a RegisterReplica may have committed
-  // in the A->freeze window). On REPLICATING the rollback guard runs abort_suspend() automatically.
-  if ((*acc)->storage()->IsReplicationParticipant()) {
-    return std::unexpected{SuspendError::REPLICATING};
-  }
+  // PHASE B — post-freeze work (lock-free; gk is SUSPENDING so Drop is rejected).
+  // SU-REPL-1: no post-freeze IsReplicationParticipant() re-check either — see Phase A. A
+  // RegisterReplica racing into the A->freeze window only adds replicas, which is now allowed.
 
   // SU-4 / A7: Consolidating snapshot at suspend. The tenant is frozen (no in-flight txns), so
   // this captures the full committed state. On resume, recovery loads this snapshot and skips WAL
@@ -985,6 +993,44 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       return std::unexpected{ResumeError::RECOVERY_FAILED};
     }
   }  // end outer while(true) — all winner exits are `return`, so falling out is unreachable
+}
+
+DbmsHandler::SuspendResult DbmsHandler::SuspendByUUID(utils::UUID uuid, system::Transaction *txn) {
+  // Resolve UUID -> name from the HOT set, then drop the lock before delegating to Suspend_ (which
+  // re-acquires lock_ and freezes the tenant; holding an accessor here would keep count > 1 and make
+  // try_begin_suspend() fail). A COLD shell has no accessor, so it is correctly not matched — a
+  // SuspendDatabaseRpc for an already-COLD tenant resolves to NON_EXISTENT and the handler treats it
+  // as NO_NEED (idempotent re-apply).
+  std::string name;
+  {
+    auto rd = std::shared_lock{lock_};
+    bool found = false;
+    for (auto &[n, db_gk] : db_handler_) {
+      auto acc = db_gk.access();  // nullopt for a non-HOT (COLD) shell
+      if (acc && acc->get()->uuid() == uuid) {
+        name = n;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return std::unexpected{SuspendError::NON_EXISTENT};
+  }
+  return Suspend_(name, txn);
+}
+
+DbmsHandler::ResumeResult DbmsHandler::ResumeByUUID(utils::UUID uuid, system::Transaction *txn) {
+  // Resolve UUID -> name from the suspended-set, then delegate to Resume_ with rewire_replication
+  // false (SY-1: the apply / DD-1-barrier caller holds the repl_state read lock). The lock is dropped
+  // before Resume_ re-acquires it; Resume_ re-validates the COLD shell under its own lock, so the
+  // brief TOCTOU is benign (a racing resume just makes Resume_ observe HOT and share the accessor).
+  std::string name;
+  {
+    auto rd = std::shared_lock{lock_};
+    auto it = std::ranges::find_if(suspended_, [&](auto const &kv) { return kv.second.salient.uuid == uuid; });
+    if (it == suspended_.end()) return std::unexpected{ResumeError::NON_EXISTENT};
+    name = it->first;
+  }
+  return Resume_(name, /*rewire_replication=*/false, txn);
 }
 #endif  // MG_ENTERPRISE
 

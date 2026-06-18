@@ -12,6 +12,7 @@
 #include "dbms/replication_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/rpc.hpp"
 #include "license/license.hpp"
 #include "system/state.hpp"
@@ -191,6 +192,123 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   } catch (...) {
     // Failure
     spdlog::trace(R"(RenameDatabaseHandler: Failed to rename database "{}" to "{}".)", req.old_name, req.new_name);
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+void SuspendDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
+                            uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using memgraph::storage::replication::SuspendDatabaseRes;
+  SuspendDatabaseRes res(SuspendDatabaseRes::Result::FAILURE);
+
+  // Ignore if no license
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::error(
+        "Handling SuspendDatabase, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW LICENSE INFO.");
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  memgraph::storage::replication::SuspendDatabaseReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::SuspendDatabaseReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("SuspendDatabaseHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  try {
+    // TD-3': drop any cached 2PC accessor belonging to THIS tenant before teardown. The accessor is
+    // storage-level (not gatekeeper-counted), so the suspend freeze would not drain it, and tearing
+    // down the storage with it still cached would dangle it.
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(req.uuid);
+
+    // SY-1: no repl_state lock held (we follow the DropDatabase pattern). SY-2: SuspendByUUID ->
+    // Suspend_ uses the gatekeeper's bounded count==1 drain. On a replica IsReplicationParticipant()
+    // is false so no guard bypass is needed.
+    auto result = dbms_handler.SuspendByUUID(req.uuid);
+    if (result) {
+      res = SuspendDatabaseRes(SuspendDatabaseRes::Result::SUCCESS);
+      spdlog::debug("SuspendDatabaseHandler: SUCCESS");
+    } else if (result.error() == DbmsHandler::SuspendError::NON_EXISTENT) {
+      // Idempotent re-apply: the tenant is already COLD (or absent on this replica). Nothing to do.
+      res = SuspendDatabaseRes(SuspendDatabaseRes::Result::NO_NEED);
+    }
+    // Any other error (e.g. ACTIVE_CONNECTIONS bounded-drain timeout) leaves FAILURE. SY-2: the
+    // replica does NOT silently diverge — the system timestamp still advances via FinalizeSystemTxRpc
+    // and the failed apply flags this replica BEHIND, so it reconciles on the next ordered re-sync /
+    // SystemRecovery (C8).
+  } catch (const std::exception &e) {
+    // FAILURE: log so a diverged replica (SY-2) has a diagnostic anchor.
+    spdlog::error("SuspendDatabaseHandler: failed to apply suspend for tenant {}: {}", std::string{req.uuid}, e.what());
+  } catch (...) {
+    spdlog::error("SuspendDatabaseHandler: failed to apply suspend for tenant {}", std::string{req.uuid});
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using memgraph::storage::replication::ResumeDatabaseRes;
+  ResumeDatabaseRes res(ResumeDatabaseRes::Result::FAILURE);
+
+  // Ignore if no license
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::error(
+        "Handling ResumeDatabase, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW LICENSE INFO.");
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  memgraph::storage::replication::ResumeDatabaseReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::ResumeDatabaseReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("ResumeDatabaseHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  try {
+    // SY-1: ResumeByUUID -> Resume_(rewire_replication=false). The apply thread holds no repl_state
+    // lock, so the post-publish replication arm (which would take a repl_state write lock) is skipped.
+    auto result = dbms_handler.ResumeByUUID(req.uuid);
+    if (result) {
+      res = ResumeDatabaseRes(ResumeDatabaseRes::Result::SUCCESS);
+      spdlog::debug("ResumeDatabaseHandler: SUCCESS");
+    } else if (result.error() == DbmsHandler::ResumeError::NON_EXISTENT) {
+      // Idempotent re-apply: not in the suspended-set (already HOT on this replica, or unknown).
+      res = ResumeDatabaseRes(ResumeDatabaseRes::Result::NO_NEED);
+    }
+    // RECOVERY_FAILED leaves FAILURE -> diverge-then-reconcile via SystemRecovery (C8).
+  } catch (const std::exception &e) {
+    // FAILURE: log so a diverged replica (SY-2) has a diagnostic anchor.
+    spdlog::error("ResumeDatabaseHandler: failed to apply resume for tenant {}: {}", std::string{req.uuid}, e.what());
+  } catch (...) {
+    spdlog::error("ResumeDatabaseHandler: failed to apply resume for tenant {}", std::string{req.uuid});
   }
 
   rpc::SendFinalResponse(res, request_version, res_builder);
@@ -398,6 +516,22 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
           auto *req_reader,
           auto *res_builder) mutable {
         RenameDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::SuspendDatabaseRpc>(
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
+        SuspendDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::ResumeDatabaseRpc>(
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
+        ResumeDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::TenantProfileRpc>(
       [&data, system_state_access, &dbms_handler](

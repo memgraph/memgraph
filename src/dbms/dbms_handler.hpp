@@ -371,6 +371,30 @@ class DbmsHandler {
   ResumeResult Resume(std::string_view name, system::Transaction *txn = nullptr) {
     return Resume_(name, /*rewire_replication=*/true, txn);
   }
+
+  /**
+   * @brief Suspend a tenant identified by UUID (replica-apply path for SuspendDatabaseRpc).
+   *
+   * Resolves the UUID to a name (the apply handler only has the UUID from the wire), then runs the
+   * same node-local Suspend_ as MAIN. On a replica IsReplicationParticipant() is false, so no guard
+   * bypass is needed; SY-2 bounded drain is the gatekeeper's try_begin_suspend() count==1 wait.
+   *
+   * @return SuspendResult — NON_EXISTENT if no HOT tenant has this UUID.
+   */
+  SuspendResult SuspendByUUID(utils::UUID uuid, system::Transaction *txn = nullptr);
+
+  /**
+   * @brief Resume a tenant identified by UUID (replica-apply path for ResumeDatabaseRpc and the
+   *        DD-1 inline self-resume barrier in GetDatabaseAccessor).
+   *
+   * Resolves the UUID to a name from the suspended-set, then runs Resume_ with
+   * rewire_replication=false (SY-1: the caller holds the repl_state read lock; the post-publish
+   * replication arm would re-take it as a write lock -> self-deadlock).
+   *
+   * @return ResumeResult — the HOT DatabaseAccess on success, NON_EXISTENT if no COLD tenant has
+   *         this UUID (e.g. it was never suspended, or was already resumed by a racing caller).
+   */
+  ResumeResult ResumeByUUID(utils::UUID uuid, system::Transaction *txn = nullptr);
 #endif
 
   /**
@@ -802,7 +826,11 @@ class DbmsHandler {
     // TODO Speed up
     for (auto &[_, db_gk] : db_handler_) {
       auto acc = db_gk.access();
-      if (acc->get()->uuid() == uuid) {
+      // Skip non-HOT shells: a COLD (suspended) tenant keeps an in-map gatekeeper, but access()
+      // returns nullopt (it is not HOT). Dereferencing it would be UB. A COLD tenant is correctly
+      // "not found by UUID" here — the caller (e.g. the replica DD-1 barrier) falls back to
+      // ResumeByUUID, which reheats it from disk.
+      if (acc && acc->get()->uuid() == uuid) {
         return std::move(*acc);
       }
     }

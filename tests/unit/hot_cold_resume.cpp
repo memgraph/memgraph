@@ -257,6 +257,40 @@ TEST_F(HotColdResume, SuspendResumeThroughSystemTransaction) {
   EXPECT_TRUE(InAll(name)) << "Tenant must be HOT after a system-transaction resume";
 }
 
+// C7 engine: the by-UUID entrypoints (used by the replica Suspend/ResumeDatabaseRpc apply handlers,
+// which only carry the tenant UUID on the wire) complete the HOT -> COLD -> HOT round-trip and
+// recover data, identically to the by-name path. Resolved UUID -> name internally.
+TEST_F(HotColdResume, SuspendResumeByUUIDRoundTrip) {
+  constexpr int kNodes = 4;
+  auto name = CreateAndPopulate("by_uuid", kNodes);
+  memgraph::utils::UUID uuid;
+  {
+    auto acc = handler_->Get(name);
+    uuid = acc->config().salient.uuid;
+  }
+
+  ASSERT_TRUE(handler_->SuspendByUUID(uuid).has_value()) << "SuspendByUUID must succeed for a HOT tenant";
+  EXPECT_FALSE(InAll(name)) << "Tenant must be COLD after SuspendByUUID";
+
+  auto result = handler_->ResumeByUUID(uuid);
+  ASSERT_TRUE(result.has_value()) << "ResumeByUUID must succeed for a COLD tenant";
+  EXPECT_EQ(CountNodes(result.value()), kNodes) << "Data must survive the by-UUID round-trip";
+  EXPECT_TRUE(InAll(name)) << "Tenant must be HOT after ResumeByUUID";
+}
+
+// An unknown UUID is rejected cleanly (NON_EXISTENT, not a crash) by both by-UUID entrypoints — this
+// is the idempotent re-apply path the replica handlers map to NO_NEED.
+TEST_F(HotColdResume, SuspendResumeByUnknownUUIDRejected) {
+  const memgraph::utils::UUID unknown{};
+  auto s = handler_->SuspendByUUID(unknown);
+  ASSERT_FALSE(s.has_value());
+  EXPECT_EQ(s.error(), DbmsHandler::SuspendError::NON_EXISTENT);
+
+  auto r = handler_->ResumeByUUID(unknown);
+  ASSERT_FALSE(r.has_value());
+  EXPECT_EQ(r.error(), DbmsHandler::ResumeError::NON_EXISTENT);
+}
+
 #else
 
 #include <gtest/gtest.h>
