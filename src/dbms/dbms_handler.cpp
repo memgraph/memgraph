@@ -328,9 +328,6 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
         spdlog::info("Restoring suspended (cold) database {} at {}.", name, rel_dir);
         db_handler_.EmplaceColdShell(name);
         suspended_.insert_or_assign(std::string{name}, make_cold_entry(name, uuid, rel_dir, json));
-        // F2: a tenant recovered straight to COLD from disk — not a SUSPEND op, so the gauge tracks it
-        // but the suspends counter does not.
-        metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
         spdlog::info("Suspended (cold) database {} restored.", name);
         continue;
       }
@@ -400,9 +397,12 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
       } else {
         metrics::Metrics().global.tenant_boot_recovery_failures->Increment();
       }
-      metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
     }
   }
+  // F2: set the cold-tenant gauge ONCE after the restore loop (a per-iteration Set would be repeatedly
+  // overwritten; no scrape endpoint is live during construction anyway). Covers both the cold-shell and
+  // failed-recovery leave-cold paths above.
+  metrics::Metrics().global.cold_tenants->Set(static_cast<double>(suspended_.size()));
 
   /*
    * DATABASES CLEAN UP

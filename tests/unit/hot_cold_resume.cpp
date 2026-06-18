@@ -363,6 +363,10 @@ TEST_F(HotColdResume, CrossRestartColdTenantStaysColdHotTenantRecovers) {
 
   Restart();
 
+  // F2: the boot restore loop set the cold-tenant gauge once, to this fresh handler's cold count (1).
+  EXPECT_DOUBLE_EQ(memgraph::metrics::Metrics().global.cold_tenants->Value(), 1.0)
+      << "the cold-tenant gauge must reflect the one tenant restored COLD on boot";
+
   // The cold tenant is restored as a COLD shell: not in All(), and Get() trips the cold seam.
   EXPECT_FALSE(InAll(cold)) << "a tenant suspended before restart must recover COLD";
   EXPECT_THROW(
@@ -618,11 +622,18 @@ TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
     bad_uuid = static_cast<std::string>(acc->storage()->uuid());
   }
 
+  // F2: a non-OOM recovery failure increments the generic boot-recovery-failure counter (delta, since
+  // the counter is a process-global monotonic singleton shared across tests in this binary).
+  const double boot_fail0 = memgraph::metrics::Metrics().global.tenant_boot_recovery_failures->Value();
+
   // Tear down (flush + close), corrupt the bad tenant's durability, then reconstruct so its recovery
   // throws while the good tenant recovers cleanly.
   handler_.reset();
   CorruptTenantDurability(bad_uuid);
   handler_ = std::make_unique<DbmsHandler>(conf_);
+
+  EXPECT_DOUBLE_EQ(memgraph::metrics::Metrics().global.tenant_boot_recovery_failures->Value() - boot_fail0, 1.0)
+      << "a failed (non-OOM) hot recovery at boot must increment the boot-recovery-failure counter";
 
   // The corrupt tenant is left COLD (process did not abort) with a 'recovery failed' SHOW marker.
   EXPECT_TRUE(handler_->IsSuspended(bad)) << "a tenant whose recovery fails must be left COLD, not dropped";
