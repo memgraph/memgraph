@@ -381,11 +381,14 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
       // C14: the reheat is sticky for free — a successful New_ already rewrote the durable entry HOT
       // (New_ -> UpdateDurability -> GenVal, no cold key), so a future restart recovers HOT directly.
       // Idempotent: a crash before that Put just re-enters the reheat path next boot (same snapshot).
-    } else {
-      // Leave-cold: emplace a COLD shell so the process stays up and the tenant is resumable later.
-      // The durable entry is left HOT (no cold marker) so a future restart retries HOT recovery; the
-      // metadata is rebuilt from defaults (no heartbeat/cold_stats available for a failed recovery).
+    } else if (hot_cold_enabled) {
+      // Leave-cold (flag ON only): emplace a COLD shell so the process stays up and the tenant is
+      // resumable later. This is the C12 boot-OOM safety valve — the instance starts DEGRADED rather
+      // than aborting. The durable entry is left HOT (no cold marker) so a future restart retries HOT
+      // recovery; the metadata is rebuilt from defaults (no heartbeat/cold_stats for a failed recovery).
       // C12: tag the in-memory entry with WHY it is cold so SHOW surfaces the degraded marker.
+      // NOTE: this block is intentionally flag-gated. When hot_cold_enabled is FALSE the else arm below
+      // restores master's abort-on-recovery-failure behaviour to preserve the R1 flag-off invariant.
       db_handler_.EmplaceColdShell(name);
       auto entry = make_cold_entry(name, uuid, rel_dir, json);
       entry.cold_reason = reason;
@@ -397,6 +400,17 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
       } else {
         metrics::Metrics().global.tenant_boot_recovery_failures->Increment();
       }
+    } else {
+      // R1 invariant: flag OFF — restore master's abort-on-recovery-failure behaviour.
+      // The leave-cold valve (EmplaceColdShell + suspended_) is only available when the
+      // hot-cold-tenants experiment is enabled. Flag-off, a boot recovery failure must terminate
+      // rather than silently booting degraded, matching the behaviour of non-experimental master
+      // (`auto new_db = New_(...); MG_ASSERT(new_db.has_value(), ...)`).
+      MG_ASSERT(recovered,
+                "Failed while recovering database {}; the hot-cold-tenants experiment is disabled, so "
+                "leaving a tenant suspended (cold) is not available. Aborting to match "
+                "non-experimental behaviour.",
+                name);
     }
   }
   // F2: set the cold-tenant gauge ONCE after the restore loop (a per-iteration Set would be repeatedly
