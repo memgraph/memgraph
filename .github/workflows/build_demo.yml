@@ -55,15 +55,23 @@ jobs:
             echo "::error::Invalid pr_number '$PR_NUMBER'. Must contain digits only."
             exit 1
           fi
-          # Confirm the PR exists (and surface its head branch for the log) so a
+          # Confirm the PR exists (and grab its head branch + fork status) so a
           # typo'd number fails here instead of deep inside the build's checkout.
-          if ! head_label=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefName --jq '.headRefName' 2>/dev/null); then
+          if ! pr_json=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefName,isCrossRepository 2>/dev/null); then
             echo "::error::Could not find PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}."
             exit 1
           fi
+          head_label=$(jq -r '.headRefName' <<<"$pr_json")
+          # Reject fork PRs: the reusable build runs the PR's own build scripts on
+          # a self-hosted runner with repository secrets (Docker Hub, S3, Conan,
+          # license) in the environment. Building untrusted fork code there is a
+          # secret-exfiltration vector, so only same-repo PRs are allowed.
+          if [[ "$(jq -r '.isCrossRepository' <<<"$pr_json")" == "true" ]]; then
+            echo "::error::PR #${PR_NUMBER} is from a fork. Demo images can only be built from PRs in ${GITHUB_REPOSITORY} (building fork code with secrets on self-hosted runners is unsafe)."
+            exit 1
+          fi
           # Build from the PR head via the refs/pull/<n>/head ref that GitHub
-          # maintains — works for same-repo and fork PRs without guessing the
-          # branch name. actions/checkout fetches this ref directly.
+          # maintains. actions/checkout fetches this ref directly.
           ref="refs/pull/${PR_NUMBER}/head"
           tag="${DESCRIPTION}-pr${PR_NUMBER}"
           # Docker tags are limited to 128 characters.
