@@ -805,6 +805,11 @@ add_unit_test(storage_v2_schema_info
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_config
+    SOURCES storage_v2_config.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(replication_server
     SOURCES replication_server.cpp
     LINK_TARGETS mg::storage Boost::filesystem

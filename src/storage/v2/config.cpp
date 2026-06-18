@@ -23,6 +23,7 @@ void to_json(nlohmann::json &data, SalientConfig::Items const &items) {
       {"enable_edges_metadata", items.enable_edges_metadata},
       {"enable_label_index_auto_creation", items.enable_label_index_auto_creation},
       {"enable_edge_type_index_auto_creation", items.enable_edge_type_index_auto_creation},
+      {"storage_light_edge", items.storage_light_edge},
       {"property_store_compression_enabled", items.property_store_compression_enabled},
   };
 }
@@ -34,6 +35,10 @@ void from_json(const nlohmann::json &data, SalientConfig::Items &items) {
   data.at("enable_schema_info").get_to(items.enable_schema_info);
   data.at("enable_label_index_auto_creation").get_to(items.enable_label_index_auto_creation);
   data.at("enable_edge_type_index_auto_creation").get_to(items.enable_edge_type_index_auto_creation);
+  // Single lookup; key may be absent in durability files written before the flag existed.
+  if (auto it = data.find("storage_light_edge"); it != data.end()) {
+    it->get_to(items.storage_light_edge);
+  }
   data.at("property_store_compression_enabled").get_to(items.property_store_compression_enabled);
 }
 
