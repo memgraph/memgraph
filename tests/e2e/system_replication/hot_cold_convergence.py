@@ -1333,5 +1333,113 @@ def test_main_crash_in_suspend_gap_converges(connection, test_name):
     mg_sleep_and_assert(7, tenant_probe(replica_cursor, "A"))
 
 
+def test_suspend_resume_requires_multi_database_edit(connection, test_name):
+    # R2: SUSPEND/RESUME DATABASE are gated on the MULTI_DATABASE_EDIT privilege (same as
+    # CREATE/DROP/RENAME DATABASE; required_privileges.cpp). This is the negative control the unit
+    # suite lacks: a user WITHOUT MULTI_DATABASE_EDIT must be denied, and granting it must flip the
+    # query to allowed (so the privilege is the actual gate, not some other check).
+    instances = {"main": main_args(test_name)}
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    # Before any user exists the connection is the implicit admin: do the data + user setup here.
+    admin_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    create_and_populate(admin_cursor, "A", 5)
+    execute_and_fetch_all(admin_cursor, "USE DATABASE memgraph;")
+    # NB: "admin" is a built-in role name (ambiguous in GRANT), so the admin user is named dbadmin.
+    execute_and_fetch_all(admin_cursor, "CREATE USER dbadmin IDENTIFIED BY 'dbadmin';")
+    execute_and_fetch_all(admin_cursor, "GRANT ALL PRIVILEGES TO dbadmin;")
+    execute_and_fetch_all(admin_cursor, "GRANT DATABASE * TO dbadmin;")
+
+    # Creating the first user downgrades the anonymous connection; reconnect as the real admin.
+    admin_cursor = connection(BOLT_PORTS["main"], "main", username="dbadmin", password="dbadmin").cursor()
+    # `limited` gets database access to A but NOT the MULTI_DATABASE_EDIT privilege. Granting DATABASE *
+    # rules out "no DB access" as the reason for denial, isolating MULTI_DATABASE_EDIT as the gate.
+    execute_and_fetch_all(admin_cursor, "CREATE USER limited IDENTIFIED BY 'limited';")
+    execute_and_fetch_all(admin_cursor, "GRANT DATABASE * TO limited;")
+
+    limited_cursor = connection(BOLT_PORTS["main"], "main", username="limited", password="limited").cursor()
+    for query in ("SUSPEND DATABASE A;", "RESUME DATABASE A;"):
+        with pytest.raises(mgclient.DatabaseError) as exc:
+            execute_and_fetch_all(limited_cursor, query)
+        assert (
+            "not authorized" in str(exc.value).lower()
+        ), f"{query} must be denied without MULTI_DATABASE_EDIT: {exc.value}"
+
+    # A is untouched by the denied attempts — still HOT.
+    rows = dict((r[0], r[1]) for r in execute_and_fetch_all(admin_cursor, "SHOW DATABASES;"))
+    assert rows.get("A") == "HOT", f"a denied SUSPEND must not change state: {rows}"
+
+    # Grant the privilege; the same user can now suspend and resume.
+    execute_and_fetch_all(admin_cursor, "GRANT MULTI_DATABASE_EDIT TO limited;")
+    limited_cursor = connection(BOLT_PORTS["main"], "main", username="limited", password="limited").cursor()
+    execute_and_fetch_all(limited_cursor, "SUSPEND DATABASE A;")
+    rows = dict((r[0], r[1]) for r in execute_and_fetch_all(admin_cursor, "SHOW DATABASES;"))
+    assert rows.get("A") == "COLD", f"SUSPEND must succeed once MULTI_DATABASE_EDIT is granted: {rows}"
+    execute_and_fetch_all(limited_cursor, "RESUME DATABASE A;")
+
+    # Verify (and make dbadmin the LAST connection, so the conftest teardown's DETACH DELETE runs as a
+    # privileged user rather than `limited`).
+    admin_cursor = connection(BOLT_PORTS["main"], "main", username="dbadmin", password="dbadmin").cursor()
+    assert tenant_probe(admin_cursor, "A")() == 5, "RESUME must rebuild A with its data once privileged"
+
+
+def test_suspend_is_isolated_from_other_databases(connection, test_name):
+    # R7: suspending database A must not disturb a concurrently-active database B. A live writer hammers
+    # B with committed transactions while A is suspended (and resumed) underneath it; B must see zero
+    # disruption — every write commits, B stays HOT, and its final count equals the committed total.
+    instances = {"main": main_args(test_name)}
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    create_and_populate(main_cursor, "A", 9)
+    create_and_populate(main_cursor, "B", 4)  # B starts with 4 nodes
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+
+    stop = threading.Event()
+    committed = {"n": 0}
+    errors = []
+
+    def hammer_b():
+        # Independent session pinned to B for the whole run. It must never observe A's suspend.
+        conn = connection(BOLT_PORTS["main"], "main")
+        cur = conn.cursor()
+        try:
+            execute_and_fetch_all(cur, "USE DATABASE B;")
+            while not stop.is_set():
+                try:
+                    execute_and_fetch_all(cur, "CREATE ();")
+                    committed["n"] += 1
+                except Exception as e:  # noqa: BLE001 — any disruption to B is a failure
+                    errors.append(str(e))
+                    return
+                time.sleep(0.005)
+        except Exception as e:  # noqa: BLE001
+            errors.append(str(e))
+
+    writer = threading.Thread(target=hammer_b)
+    writer.start()
+    try:
+        # Let B accumulate writes, then suspend + resume A repeatedly underneath the live B writer.
+        time.sleep(0.5)
+        for _ in range(3):
+            execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
+            assert dict((r[0], r[1]) for r in execute_and_fetch_all(main_cursor, "SHOW DATABASES;")).get("A") == "COLD"
+            time.sleep(0.2)
+            execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
+            time.sleep(0.2)
+    finally:
+        stop.set()
+        writer.join(timeout=30)
+
+    assert not errors, f"B was disrupted by A's suspend/resume: {errors[:3]}"
+    assert committed["n"] > 0, "writer made no progress — test is vacuous"
+
+    # B is HOT and holds exactly its initial 4 + every committed write. A round-trips with its data.
+    rows = dict((r[0], r[1]) for r in execute_and_fetch_all(main_cursor, "SHOW DATABASES;"))
+    assert rows.get("B") == "HOT", rows
+    assert tenant_probe(main_cursor, "B")() == 4 + committed["n"], "B lost or gained writes during A's churn"
+    assert tenant_probe(main_cursor, "A")() == 9, "A must round-trip its data through suspend/resume"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

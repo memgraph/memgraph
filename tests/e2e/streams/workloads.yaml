@@ -23,6 +23,23 @@ disk_cluster: &disk_cluster
         - "STORAGE MODE ON_DISK_TRANSACTIONAL"
       validation_queries: []
 
+hot_cold_stream_args: &hot_cold_stream_args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=DEBUG"
+  - "--kafka-bootstrap-servers=localhost:9092"
+  - "--query-execution-timeout-sec=0"
+  - "--pulsar-service-url=pulsar://127.0.0.1:6650"
+  - "--experimental-enabled=hot-cold-databases"
+
+hot_cold_cluster: &hot_cold_cluster
+  cluster:
+    main:
+      args: *hot_cold_stream_args
+      log_file: "streams-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
 
 workloads:
   - name: "Kafka streams start, stop and show"
@@ -47,3 +64,9 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/streams/transformations/"
     args: ["streams/sso_streams_tests.py"]
+
+  - name: "Hot/cold database stream stop on suspend, restore on resume"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/streams/transformations/"
+    args: ["streams/hot_cold_streams_tests.py"]
+    <<: *hot_cold_cluster
