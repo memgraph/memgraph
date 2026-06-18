@@ -1,0 +1,1 @@
+MERGE (a) -[:r]- (b) ON MATCH SET a.x = b.x ON CREATE SET b :label ON MATCH SET b = a
