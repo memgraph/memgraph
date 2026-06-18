@@ -121,31 +121,18 @@ struct Durability {
   // storage::ToJson (a lossy SHOW-presentation form): this stores every field by struct name so the
   // exact StorageInfo survives a restart. Enums are persisted as their underlying integer (the data
   // is self-produced by the same binary version, so a direct read-back is safe).
+  // F3: serialize via the single StorageInfoForEachField field list (storage.hpp) so adding a field
+  // updates this path AND the V3 SLK wire at once. Enums are stored as their underlying integer.
   static nlohmann::json StatsToJson(const storage::StorageInfo &s) {
     nlohmann::json j;
-    j["vertex_count"] = s.vertex_count;
-    j["edge_count"] = s.edge_count;
-    j["average_degree"] = s.average_degree;
-    j["memory_res"] = s.memory_res;
-    j["peak_memory_res"] = s.peak_memory_res;
-    j["unreleased_delta_objects"] = s.unreleased_delta_objects;
-    j["disk_usage"] = s.disk_usage;
-    j["label_indices"] = s.label_indices;
-    j["label_property_indices"] = s.label_property_indices;
-    j["text_indices"] = s.text_indices;
-    j["vector_indices"] = s.vector_indices;
-    j["vector_edge_indices"] = s.vector_edge_indices;
-    j["existence_constraints"] = s.existence_constraints;
-    j["unique_constraints"] = s.unique_constraints;
-    j["type_constraints"] = s.type_constraints;
-    j["storage_mode"] = std::to_underlying(s.storage_mode);
-    j["isolation_level"] = std::to_underlying(s.isolation_level);
-    j["durability_snapshot_enabled"] = s.durability_snapshot_enabled;
-    j["durability_wal_enabled"] = s.durability_wal_enabled;
-    j["property_store_compression_enabled"] = s.property_store_compression_enabled;
-    j["property_store_compression_level"] = std::to_underlying(s.property_store_compression_level);
-    j["schema_vertex_count"] = s.schema_vertex_count;
-    j["schema_edge_count"] = s.schema_edge_count;
+    storage::StorageInfoForEachField(s, [&](const char *key, const auto &v) {
+      using T = std::remove_cvref_t<decltype(v)>;
+      if constexpr (std::is_enum_v<T>) {
+        j[key] = std::to_underlying(v);
+      } else {
+        j[key] = v;
+      }
+    });
     return j;
   }
 
@@ -153,34 +140,21 @@ struct Durability {
   // never existed, but a forward-compatible read of a partial object must not throw (R15).
   static storage::StorageInfo StatsFromJson(const nlohmann::json &j) {
     storage::StorageInfo s{};
-    s.vertex_count = j.value("vertex_count", uint64_t{0});
-    s.edge_count = j.value("edge_count", uint64_t{0});
-    s.average_degree = j.value("average_degree", 0.0);
-    s.memory_res = j.value("memory_res", uint64_t{0});
-    s.peak_memory_res = j.value("peak_memory_res", uint64_t{0});
-    s.unreleased_delta_objects = j.value("unreleased_delta_objects", uint64_t{0});
-    s.disk_usage = j.value("disk_usage", uint64_t{0});
-    s.label_indices = j.value("label_indices", uint64_t{0});
-    s.label_property_indices = j.value("label_property_indices", uint64_t{0});
-    s.text_indices = j.value("text_indices", uint64_t{0});
-    s.vector_indices = j.value("vector_indices", uint64_t{0});
-    s.vector_edge_indices = j.value("vector_edge_indices", uint64_t{0});
-    s.existence_constraints = j.value("existence_constraints", uint64_t{0});
-    s.unique_constraints = j.value("unique_constraints", uint64_t{0});
-    s.type_constraints = j.value("type_constraints", uint64_t{0});
-    // storage_mode has an Enum::N sentinel (NumToEnum-validatable); isolation/compression do not, so
-    // direct-cast their underlying integer (mirrors the StorageInfo SLK Load in system_rpc.cpp).
-    if (!utils::NumToEnum(j.value("storage_mode", uint8_t{0}), s.storage_mode)) {
-      s.storage_mode = storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
-    }
-    s.isolation_level = static_cast<storage::IsolationLevel>(j.value("isolation_level", uint8_t{0}));
-    s.durability_snapshot_enabled = j.value("durability_snapshot_enabled", false);
-    s.durability_wal_enabled = j.value("durability_wal_enabled", false);
-    s.property_store_compression_enabled = j.value("property_store_compression_enabled", false);
-    s.property_store_compression_level =
-        static_cast<utils::CompressionLevel>(j.value("property_store_compression_level", uint8_t{0}));
-    s.schema_vertex_count = j.value("schema_vertex_count", uint64_t{0});
-    s.schema_edge_count = j.value("schema_edge_count", uint64_t{0});
+    storage::StorageInfoForEachField(s, [&](const char *key, auto &v) {
+      using T = std::remove_cvref_t<decltype(v)>;
+      if constexpr (std::is_enum_v<T>) {
+        const auto raw = j.value(key, std::underlying_type_t<T>{0});
+        // storage_mode has an Enum::N sentinel (NumToEnum-validatable); isolation/compression do not, so
+        // direct-cast their underlying integer (mirrors the StorageInfo SLK Load in system_rpc.cpp).
+        if constexpr (std::is_same_v<T, storage::StorageMode>) {
+          if (!utils::NumToEnum(raw, v)) v = storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+        } else {
+          v = static_cast<T>(raw);
+        }
+      } else {
+        v = j.value(key, T{});
+      }
+    });
     return s;
   }
 

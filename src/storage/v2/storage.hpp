@@ -134,6 +134,40 @@ struct StorageInfo {
   uint64_t schema_edge_count;
 };
 
+// F3: the single ordered list of StorageInfo's (de)serializable fields. Every persistence/wire path —
+// the durability cold_stats JSON (Durability::StatsToJson/StatsFromJson) and the V3 SystemRecovery SLK
+// (system_rpc.cpp Save/Load) — drives serialization through this one visitor, so adding a field to
+// StorageInfo extends all of them at once instead of silently drifting (the field-drift hazard flagged
+// in the C9/C16 reviews). `visit(key, ref)` is invoked once per field in declaration order; the caller's
+// visitor handles scalars directly and enums via `if constexpr (std::is_enum_v<T>)`. Templated on Self so
+// the SAME field list serves a const StorageInfo (save) and a mutable one (load).
+template <typename Self, typename Visit>
+void StorageInfoForEachField(Self &s, Visit &&visit) {
+  visit("vertex_count", s.vertex_count);
+  visit("edge_count", s.edge_count);
+  visit("average_degree", s.average_degree);
+  visit("memory_res", s.memory_res);
+  visit("peak_memory_res", s.peak_memory_res);
+  visit("unreleased_delta_objects", s.unreleased_delta_objects);
+  visit("disk_usage", s.disk_usage);
+  visit("label_indices", s.label_indices);
+  visit("label_property_indices", s.label_property_indices);
+  visit("text_indices", s.text_indices);
+  visit("vector_indices", s.vector_indices);
+  visit("vector_edge_indices", s.vector_edge_indices);
+  visit("existence_constraints", s.existence_constraints);
+  visit("unique_constraints", s.unique_constraints);
+  visit("type_constraints", s.type_constraints);
+  visit("storage_mode", s.storage_mode);
+  visit("isolation_level", s.isolation_level);
+  visit("durability_snapshot_enabled", s.durability_snapshot_enabled);
+  visit("durability_wal_enabled", s.durability_wal_enabled);
+  visit("property_store_compression_enabled", s.property_store_compression_enabled);
+  visit("property_store_compression_level", s.property_store_compression_level);
+  visit("schema_vertex_count", s.schema_vertex_count);
+  visit("schema_edge_count", s.schema_edge_count);
+}
+
 // Hot/cold (C16): the per-COLD-tenant recovery payload carried in SystemRecoveryReq V3 so a
 // reconnecting/lagging replica converges to MAIN's authoritative {HOT ∪ COLD} set WITH the correct
 // epoch. Replaces the earlier two parallel (salient, stats) vectors; bundling them keeps the 1:1
