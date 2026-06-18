@@ -69,6 +69,11 @@ struct ReplicationStorageState {
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
   EpochHistory history;
+
+  // The epoch id of the last epoch that has a commit, for a given last-durable-timestamp `ldt`.
+  // Returns the current epoch id if ldt belongs to the current epoch; returns the prior epoch
+  // if the last commit belongs to the previous epoch (i.e., no commit in the current epoch yet).
+  std::string LastEpochWithCommit(uint64_t ldt) const;
   mutable std::atomic<CommitTsInfo> commit_ts_info_{
       CommitTsInfo{.ldt_ = kTimestampInitialId, .num_committed_txns_ = 0}};
 

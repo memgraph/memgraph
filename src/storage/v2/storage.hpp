@@ -249,6 +249,26 @@ class Storage {
 
   StorageMode GetStorageMode() const noexcept;
 
+  // True iff this storage's durability mode keeps BOTH periodic snapshots AND a WAL
+  // chain — the precondition for hot/cold suspend (suspend tears down RAM and relies
+  // on {snapshot + WAL} on disk to recover). PERIODIC_SNAPSHOT-only or DISABLED is
+  // NOT suspendable.
+  [[nodiscard]] bool IsDurabilityCompleteForSuspend() const {
+    return config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  }
+
+  // True iff this storage is currently a replication participant on the MAIN side
+  // (has at least one registered replica). Hot/cold suspend is gated on this being
+  // false (cold tenants are never replicated — a per-instance, MAIN-local memory
+  // optimization). NOTE: this does NOT detect the REPLICA role; the dbms layer gates
+  // the replica-role case separately via an injected predicate.
+  [[nodiscard]] bool IsReplicationParticipant() const;
+
+  // Called by DbmsHandler::Suspend_ after a consolidating snapshot has been written, so that
+  // the InMemoryStorage destructor (triggered by finish_suspend()) does NOT write another
+  // snapshot-on-exit and therefore does NOT corrupt the consolidated snapshot's WAL position.
+  virtual void DisableExitSnapshot() {}
+
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
 
   void FreeMemory() { FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, false); }

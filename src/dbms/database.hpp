@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -236,7 +237,15 @@ class Database {
 
   metrics::DatabaseMetricHandles *metric_handles() { return &metrics_.handles(); }
 
+  /// Used by hot/cold idle detection and SHOW DATABASES. Relaxed atomics: a coarse stat, not a fence.
+  void MarkUsed() noexcept {
+    last_used_ns_.store(std::chrono::steady_clock::now().time_since_epoch().count(), std::memory_order_relaxed);
+  }
+
+  int64_t LastUsedNs() const noexcept { return last_used_ns_.load(std::memory_order_relaxed); }
+
  private:
+  std::atomic<int64_t> last_used_ns_{0};  //!< steady_clock ns of last transaction setup; 0 if never used
   // Enforcement-only: caps total per-DB memory (tenant profile limit).
   // No parent — does not roll up to any global. Per-DB domain trackers list this
   // as their second parent so every allocation is counted here AND in the domain global.

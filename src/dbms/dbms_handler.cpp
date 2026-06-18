@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <shared_mutex>
+#include <thread>
 
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
@@ -22,8 +23,10 @@
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/inmemory/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
@@ -672,4 +675,136 @@ void DbmsHandler::RestoreTriggers(query::InterpreterContext *ic) {
     }
   }
 }
+
+#ifdef MG_ENTERPRISE
+DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
+  if (name == kDefaultDB) return std::unexpected{SuspendError::DEFAULT_DB};
+
+  SuspendedEntry entry;
+  utils::Gatekeeper<Database> *gk = nullptr;
+  std::optional<DatabaseAccess> acc;
+  {
+    // PHASE A — eligibility check + metadata capture + freeze, all under the shared lock_.
+    //
+    // SU-1 / BUG #1 FIX: try_begin_suspend() is called INSIDE this shared_lock scope (not after).
+    // Rationale: between releasing the shared lock and try_begin_suspend(), a concurrent
+    // DROP DATABASE (Delete -> DeferDelete) sees state HOT, moves `gk` out of the map, and
+    // erases it -> gk dangling -> heap-UAF on try_begin_suspend(). By calling
+    // try_begin_suspend() under the shared lock, the state transitions to SUSPENDING while
+    // lock_ is held; a concurrent Drop then acquires the exclusive lock_ (mutually exclusive
+    // with our shared lock), sees SUSPENDING, and returns DeleteError::USING without touching
+    // `gk` — so `gk` remains valid through the lock-free Phase B/C below.
+    //
+    // NOTE: try_begin_suspend() waits up to 100ms for count==1. Holding the shared lock_
+    // during that wait is acceptable: suspend is rare/background; accessor release and
+    // access() use the gatekeeper's own mutex, not lock_, so count can still drain; only
+    // exclusive-lock writers (Drop/New) briefly wait on lock_.
+    auto rd = std::shared_lock{lock_};
+    auto a = db_handler_.Get(name);  // nullopt if absent OR not HOT (already cold)
+    if (!a) return std::unexpected{SuspendError::NON_EXISTENT};
+    auto *db = a->get();
+    auto *st = db->storage();
+    // SU-3: Suspend requires {periodic snapshot + WAL} durability AND a RUNTIME
+    // storage mode of IN_MEMORY_TRANSACTIONAL. The runtime-mode check is load-bearing and must NOT
+    // be replaced by the config: a tenant switched to IN_MEMORY_ANALYTICAL at runtime suppresses WAL
+    // (InitializeWalFile() returns false for analytical) and pauses the snapshot runner, yet
+    // IsDurabilityCompleteForSuspend() only inspects the creation-time config.
+    // Rejecting anything not in-memory transactional covers both ON_DISK_TRANSACTIONAL and
+    // IN_MEMORY_ANALYTICAL.
+    if (st->GetStorageMode() != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      return std::unexpected{SuspendError::NOT_IN_MEMORY};
+    }
+    if (!st->IsDurabilityCompleteForSuspend()) return std::unexpected{SuspendError::DURABILITY_INCOMPLETE};
+    if (st->IsReplicationParticipant()) return std::unexpected{SuspendError::REPLICATING};
+
+    entry.salient = db->config().salient;
+    entry.rel_dir = std::filesystem::relative(db->config().durability.storage_directory,
+                                              default_config_.durability.storage_directory);
+    entry.last_used_ns = db->LastUsedNs();
+
+    gk = db_handler_.GetGatekeeper(name);  // stable pointer to the in-map gatekeeper
+    acc = std::move(*a);                   // hold the accessor across phases (count includes it)
+
+    // SU-1 / BUG #1 FIX: transition HOT -> SUSPENDING under the shared lock (LAST step in Phase A).
+    if (!gk->try_begin_suspend()) return std::unexpected{SuspendError::ACTIVE_CONNECTIONS};
+  }
+  // State is now SUSPENDING. Concurrent Drop sees SUSPENDING and returns USING without
+  // erasing gk, so gk is valid for the rest of this function (lock-free Phase B/C).
+
+  // SU-2 / BUG #5 FIX: RAII rollback guard. If anything in the SUSPENDING window throws (or we
+  // return early on the repl re-check path below), abort_suspend() restores HOT so the
+  // gatekeeper is not permanently stuck SUSPENDING (which would hang ~Gatekeeper).
+  auto rollback = utils::OnScopeExit{[&] { gk->abort_suspend(); }};
+
+  // PHASE B — post-freeze checks (lock-free; gk is SUSPENDING so Drop is rejected).
+
+  // SU-3 continued: Post-freeze replication re-check (a RegisterReplica may have committed
+  // in the A->freeze window). On REPLICATING the rollback guard runs abort_suspend() automatically.
+  if ((*acc)->storage()->IsReplicationParticipant()) {
+    return std::unexpected{SuspendError::REPLICATING};
+  }
+
+  // SU-4 / A7: Consolidating snapshot at suspend. The tenant is frozen (no in-flight txns), so
+  // this captures the full committed state. On resume, recovery loads this snapshot and skips WAL
+  // files at/below its durable timestamp -> near-zero WAL replay (fast reheat).
+  if (auto *inmem = dynamic_cast<storage::InMemoryStorage *>((*acc)->storage())) {
+    using CreateSnapshotError = storage::InMemoryStorage::CreateSnapshotError;
+    // A7: the periodic snapshot scheduler is NOT paused by the freeze, so a periodic
+    // snapshot can be mid-flight -> CreateSnapshot returns AlreadyRunning. Briefly wait it out:
+    // once it finishes our call writes the small frozen-state delta or returns NothingNewToWrite.
+    constexpr auto kSnapPollStep = std::chrono::milliseconds(10);
+    constexpr auto kSnapWaitTimeout = std::chrono::seconds(10);
+    auto snap = inmem->CreateSnapshot(/*force=*/false, "suspend");
+    if (!snap.has_value() && snap.error() == CreateSnapshotError::AlreadyRunning) {
+      const auto snap_deadline = std::chrono::steady_clock::now() + kSnapWaitTimeout;
+      while (!snap.has_value() && snap.error() == CreateSnapshotError::AlreadyRunning &&
+             std::chrono::steady_clock::now() < snap_deadline) {
+        std::this_thread::sleep_for(kSnapPollStep);
+        snap = inmem->CreateSnapshot(/*force=*/false, "suspend");
+      }
+    }
+    if (!snap.has_value() && snap.error() != CreateSnapshotError::NothingNewToWrite) {
+      spdlog::warn(
+          "hot/cold suspend: consolidating snapshot for '{}' was not written ({}); durability "
+          "intact via WAL, resume will replay the WAL delta.",
+          name,
+          storage::InMemoryStorage::CreateSnapshotErrorToString(snap.error()));
+    }
+    // Disable exit snapshot: we just took the consolidating one; dtor must NOT take another.
+    inmem->DisableExitSnapshot();
+  }
+
+  // SU-5: Capture heartbeat metadata POST-freeze (count==1, no concurrent commit can advance
+  // ldt/epoch between this read and teardown).
+  {
+    auto *st = (*acc)->storage();
+    auto const commit_info = st->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
+    entry.last_durable_timestamp = commit_info.ldt_;
+    entry.num_committed_txns = commit_info.num_committed_txns_;
+    entry.last_epoch = st->repl_storage_state_.LastEpochWithCommit(commit_info.ldt_);
+    // P4 — last-hot stats snapshot (for C7 replication / coordinator history).
+    entry.cold_stats = st->GetBaseInfo();
+  }
+
+  // PHASE C — record metadata (lock_), then heavy teardown OUTSIDE lock_.
+  acc.reset();  // drop our accessor -> count == 0 (state still SUSPENDING)
+  {
+    auto wr = std::lock_guard{lock_};
+    suspended_.insert_or_assign(std::string{name}, std::move(entry));
+    // NOTE: durable COLD marker persisted in C9 (cross-restart durability commit).
+  }
+
+  // SU-2: Disable the rollback guard BEFORE calling finish_suspend(). finish_suspend() transitions
+  // SUSPENDING -> COLD; if the guard fired afterwards it would abort_suspend() on a non-SUSPENDING
+  // state and trip the debug assert.
+  rollback.Disable();
+
+  // OUTSIDE lock_: value_.reset() -> ~Database (stop threads, FinalizeWal, NO exit snapshot).
+  // The COLD shell stays in db_handler_ so a later resume can move-assign a fresh gatekeeper.
+  gk->finish_suspend();
+  spdlog::info("hot/cold: tenant '{}' suspended (HOT -> COLD)", name);
+  return {};
+}
+#endif  // MG_ENTERPRISE
+
 }  // namespace memgraph::dbms

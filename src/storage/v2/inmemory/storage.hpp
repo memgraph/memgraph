@@ -804,6 +804,11 @@ class InMemoryStorage final : public Storage {
     Storage::StopAllBackgroundTasks();
   }
 
+  // Hot/cold suspend: called by DbmsHandler::Suspend_ after the consolidating snapshot is written.
+  // Prevents the destructor from writing a second snapshot-on-exit (which would advance the WAL
+  // position past the consolidated snapshot, breaking fast resume).
+  void DisableExitSnapshot() override;
+
   std::unordered_map<LabelId, uint64_t> GetLabelCounts() const override {
     auto locked = label_counts_.Lock();
     return std::unordered_map<LabelId, uint64_t>(locked->begin(), locked->end());
@@ -911,6 +916,12 @@ class InMemoryStorage final : public Storage {
 
   std::filesystem::path lock_file_path_;
   std::unique_ptr<utils::OutputFile> lock_file_handle_ = std::make_unique<utils::OutputFile>();
+
+  // Hot/cold suspend: when Suspend_ takes a consolidating snapshot before teardown, it calls
+  // DisableExitSnapshot() so the destructor (triggered by finish_suspend()) does NOT write a
+  // second snapshot-on-exit that would push the WAL position past the consolidated snapshot's
+  // durable timestamp and break fast resume (WAL replay must start from after the snapshot).
+  bool exit_snapshot_enabled_{true};
 
   utils::Scheduler snapshot_runner_;
   utils::ResourceLock snapshot_lock_;

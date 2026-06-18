@@ -816,4 +816,12 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
   return {};
 }
 
+bool Storage::IsReplicationParticipant() const {
+  // A registered replica means there is at least one ReplicationStorageClient in
+  // the synchronized list. Read under the list's shared lock to match existing
+  // access patterns (e.g. GetReplicaState).
+  return repl_storage_state_.replication_storage_clients_.WithReadLock(
+      [](auto const &clients) { return !clients.empty(); });
+}
+
 }  // namespace memgraph::storage

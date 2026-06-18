@@ -96,6 +96,29 @@ class Handler {
   }
 
   /**
+   * @brief Get a raw (non-owning) pointer to the in-map gatekeeper by name.
+   *
+   * The pointer is stable across insert/erase of OTHER entries (std::unordered_map
+   * node stability) and is used to drive suspend/resume state transitions on an
+   * in-map (possibly COLD) gatekeeper. Caller must ensure the entry is not erased
+   * while using the pointer.
+   *
+   * @param name Name associated with the wanted Gatekeeper
+   * @return utils::Gatekeeper<T> * (nullptr if absent)
+   */
+  utils::Gatekeeper<T> *GetGatekeeper(std::string_view name) {
+    auto itr = items_.find(name);
+    if (itr == items_.end()) return nullptr;
+    return &itr->second;
+  }
+
+  const utils::Gatekeeper<T> *GetGatekeeper(std::string_view name) const {
+    auto itr = items_.find(name);
+    if (itr == items_.end()) return nullptr;
+    return &itr->second;
+  }
+
+  /**
    * @brief Delete the context associated with the name.
    *
    * @param name Name associated with the context to delete

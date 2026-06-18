@@ -14,13 +14,18 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
+#include <string>
 #include <system_error>
 #include <type_traits>
 #include <utility>
@@ -124,6 +129,17 @@ class DbmsHandler {
   using NewResultT = std::expected<DatabaseAccess, NewError>;
   using DeleteResult = std::expected<void, DeleteError>;
   using RenameResult = std::expected<void, RenameError>;
+
+  // Hot/cold suspend: reasons a tenant cannot be suspended (moved HOT -> COLD).
+  enum class SuspendError : uint8_t {
+    DEFAULT_DB,             //!< the default database is never suspendable
+    NON_EXISTENT,           //!< no such tenant (or already cold)
+    NOT_IN_MEMORY,          //!< on-disk storage mode is not suspendable
+    DURABILITY_INCOMPLETE,  //!< durability mode is not {periodic snapshot + WAL}
+    REPLICATING,            //!< MAIN-side replication participant (has registered replicas)
+    ACTIVE_CONNECTIONS,     //!< another accessor is live; could not reach sole-accessor state
+  };
+  using SuspendResult = std::expected<void, SuspendError>;
 
   /**
    * @brief Initialize the handler.
@@ -306,6 +322,17 @@ class DbmsHandler {
    * @return RenameResult error on failure
    */
   RenameResult Rename(std::string_view old_name, std::string_view new_name, system::Transaction *txn = nullptr);
+
+  /**
+   * @brief Suspend (move HOT -> COLD) the named tenant, tearing down its in-memory storage.
+   *
+   * The tenant's durability dir remains intact; a later Resume() reheats it from the
+   * {snapshot + WAL} artifacts. This is a blocking call (waits for sole-accessor state).
+   *
+   * @param name tenant database name
+   * @return SuspendResult — error describing why the tenant is not suspendable
+   */
+  SuspendResult Suspend(std::string_view name) { return Suspend_(name); }
 #endif
 
   /**
@@ -526,6 +553,22 @@ class DbmsHandler {
 
  private:
 #ifdef MG_ENTERPRISE
+  // Hot/cold: rebuild metadata for a suspended (COLD) tenant. The gatekeeper stays in
+  // db_handler_ as a COLD shell (value_ == nullopt); this holds what a later resume needs.
+  struct SuspendedEntry {
+    storage::SalientConfig salient;  //!< salient config to recreate the storage
+    std::filesystem::path rel_dir;   //!< durability dir relative to the instance root
+    int64_t last_used_ns;            //!< last-used stamp captured at suspend time
+    // Heartbeat metadata captured at suspend time (P4 — for C7 replication).
+    uint64_t last_durable_timestamp{0};  //!< repl_storage_state_.commit_ts_info_.ldt_ at suspend
+    uint64_t num_committed_txns{0};      //!< repl_storage_state_.commit_ts_info_.num_committed_txns_
+    std::string last_epoch;              //!< the "last epoch with a commit" string
+    storage::StorageInfo cold_stats;     //!< P4 — last-hot stats snapshot
+  };
+
+  /// @brief Implementation of Suspend. See Suspend() for semantics.
+  SuspendResult Suspend_(std::string_view name);
+
   /**
    * @brief return the storage directory of the associated database
    *
@@ -709,6 +752,7 @@ class DbmsHandler {
   mutable LockT lock_{utils::RWLock::Priority::READ};  //!< protective lock
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
+  std::map<std::string, SuspendedEntry, std::less<>> suspended_;  //!< COLD tenant rebuild metadata; guarded by lock_
   // TODO: move to be common
   std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
   std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)

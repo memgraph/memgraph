@@ -7996,18 +7996,62 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .rw_type = RWType::W,
           .db = query->db_name_};
     }
-    case MultiDatabaseQuery::Action::SUSPEND:
-    case MultiDatabaseQuery::Action::RESUME: {
-      // Hot/cold tenants (experiment-gated). This commit (C3) wires the grammar,
-      // AST and dispatch; the suspend/resume engine (C4/C5) and its
-      // system-transaction routing (C6) land in later commits. Until then the
-      // command parses and is privilege-checked but is not yet operational.
+    case MultiDatabaseQuery::Action::SUSPEND: {
       if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
         throw QueryRuntimeException(
-            "SUSPEND/RESUME DATABASE requires the hot-cold-tenants experiment "
+            "SUSPEND DATABASE requires the hot-cold-tenants experiment "
             "(--experimental-enabled=hot-cold-tenants).");
       }
-      throw utils::NotYetImplemented("SUSPEND/RESUME DATABASE");
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler =
+              [db_name = query->db_name_, db_handler](AnyStream *stream,
+                                                       std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            auto result = db_handler->Suspend(db_name);
+            if (!result) {
+              switch (result.error()) {
+                case dbms::DbmsHandler::SuspendError::DEFAULT_DB:
+                  throw QueryRuntimeException("Cannot suspend the default database.");
+                case dbms::DbmsHandler::SuspendError::NON_EXISTENT:
+                  throw QueryRuntimeException("Database {} does not exist or is already cold.", db_name);
+                case dbms::DbmsHandler::SuspendError::NOT_IN_MEMORY:
+                  throw QueryRuntimeException(
+                      "Database {} is not in-memory mode; only in-memory databases can be suspended.", db_name);
+                case dbms::DbmsHandler::SuspendError::DURABILITY_INCOMPLETE:
+                  throw QueryRuntimeException(
+                      "Database {} does not have periodic snapshot+WAL durability enabled; cannot suspend safely.",
+                      db_name);
+                case dbms::DbmsHandler::SuspendError::REPLICATING:
+                  throw QueryRuntimeException(
+                      "Database {} has active replication replicas; cannot suspend while replicating.", db_name);
+                case dbms::DbmsHandler::SuspendError::ACTIVE_CONNECTIONS:
+                  throw QueryRuntimeException(
+                      "Database {} has active connections; cannot suspend while in use.", db_name);
+              }
+            }
+            std::vector<std::vector<TypedValue>> status;
+            status.emplace_back(
+                std::vector<TypedValue>{TypedValue("Successfully suspended database " + std::string(db_name))});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::NONE,
+          .db = query->db_name_};
+    }
+    case MultiDatabaseQuery::Action::RESUME: {
+      if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+        throw QueryRuntimeException(
+            "RESUME DATABASE requires the hot-cold-tenants experiment "
+            "(--experimental-enabled=hot-cold-tenants).");
+      }
+      throw utils::NotYetImplemented("RESUME DATABASE");
     }
   }
 #else

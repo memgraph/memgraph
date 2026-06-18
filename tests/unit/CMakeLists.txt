@@ -420,6 +420,12 @@ add_unit_test(hot_cold_gatekeeper
     LINK_TARGETS mg-utils
 )
 
+# Hot/cold tenants: node-local suspend engine (HOT -> COLD teardown)
+add_unit_test(hot_cold_suspend
+    SOURCES hot_cold_suspend.cpp
+    LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+)
+
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
