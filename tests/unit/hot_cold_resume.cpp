@@ -40,6 +40,8 @@
 
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "flags/experimental.hpp"
+#include "kvstore/kvstore.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -63,12 +65,19 @@ class HotColdResume : public ::testing::Test {
     conf_.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     conf_.durability.recover_on_startup = true;
+    // The supported runtime config has the experiment ON. The engine (Suspend_/Resume_) does NOT gate on
+    // the flag, but C14's restore loop does: with the flag OFF a durable COLD marker is reheated HOT.
+    // Enable it here so the cross-restart tests exercise the COLD-stays-COLD path; the C14 flag-off
+    // reheat test toggles it off explicitly.
+    memgraph::flags::SetExperimental(memgraph::flags::Experiments::HOT_COLD_TENANTS);
     handler_ = std::make_unique<DbmsHandler>(conf_);
   }
 
   void TearDown() override {
     handler_.reset();
     fs::remove_all(test_dir_);
+    // Reset the global so a flag toggle in one test cannot leak into the next.
+    memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
   }
 
   // Simulate a process restart: tear down the handler (closes durability + storage) and reconstruct
@@ -549,6 +558,81 @@ TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
 
   // Querying DATA on the cold (recovery-failed) tenant still errors (cold access is an error).
   EXPECT_THROW(handler_->Get(bad), std::exception);
+}
+
+// C14 (HIGH): a tenant durably SUSPENDED (cold) under the experiment must NOT silently vanish if the
+// instance later restarts with the experiment DISABLED. The restore loop reheats it HOT from its intact
+// data dir, flips the durable marker to HOT (sticky), and re-enabling the experiment does not re-suspend
+// it (suspension is explicit-only).
+TEST_F(HotColdResume, FlagOffRestartReheatsColdTenantHot) {
+  constexpr int kNodes = 4;
+  auto t = CreateAndPopulate("reheat_me", kNodes);
+  ASSERT_TRUE(handler_->Suspend(t).has_value());
+  ASSERT_FALSE(InAll(t)) << "tenant must be COLD before the flag-off restart";
+
+  // Disable the experiment, then restart over the same data dir.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+  Restart();
+
+  // Reheated HOT (not a cold shell): in All(), Get() returns an accessor, data intact.
+  ASSERT_TRUE(InAll(t)) << "a cold tenant must be reheated HOT when the experiment is disabled";
+  EXPECT_FALSE(handler_->IsSuspended(t)) << "the reheated tenant must not be in the suspended registry";
+  {
+    // Scope the accessor: a DatabaseAccess pins the gatekeeper, and the next Restart()'s handler
+    // teardown blocks until every accessor is released. Holding it across Restart() would deadlock.
+    auto acc = handler_->Get(t);
+    EXPECT_EQ(CountNodes(acc), kNodes) << "reheated data must survive";
+  }
+
+  // Sticky: a second flag-off restart keeps it HOT (the durable marker was flipped to HOT).
+  Restart();
+  EXPECT_TRUE(InAll(t)) << "the durable marker must have been flipped HOT, so it stays HOT";
+
+  // Re-enabling the experiment + restart does NOT re-suspend it (suspension is explicit-only).
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::HOT_COLD_TENANTS);
+  Restart();
+  EXPECT_TRUE(InAll(t)) << "re-enabling the experiment must not auto-re-suspend a reheated tenant";
+  EXPECT_FALSE(handler_->IsSuspended(t));
+}
+
+// C14 (F1): a corrupt/truncated durable entry must leave the instance starting DEGRADED — the entry is
+// skipped, the rest of the tenants recover, and (crucially) NO data directory is deleted, because a
+// corrupt entry whose rel_dir we cannot read would otherwise be reaped by the unused-directory cleanup.
+TEST_F(HotColdResume, CorruptDurableEntrySkippedAndDataPreserved) {
+  constexpr int kGoodNodes = 3;
+  constexpr int kVictimNodes = 5;
+  auto good = CreateAndPopulate("good_tenant", kGoodNodes);
+  auto victim = CreateAndPopulate("victim_tenant", kVictimNodes);
+
+  // Capture the victim's on-disk data dir before we corrupt its durable entry.
+  std::string victim_uuid;
+  {
+    auto acc = handler_->Get(victim);
+    victim_uuid = static_cast<std::string>(acc->storage()->uuid());
+  }
+  const auto victim_dir = test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / victim_uuid;
+  ASSERT_TRUE(fs::exists(victim_dir));
+
+  // Tear down, then clobber the victim's durability VALUE (valid key, non-JSON value) so the next boot's
+  // restore loop trips json::parse — a different failure class than C12's data-dir corruption.
+  handler_.reset();
+  {
+    memgraph::kvstore::KVStore kv(test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / ".durability");
+    ASSERT_TRUE(kv.Put(std::string("database:") + victim, "NOT-VALID-JSON{{{"));
+  }
+
+  handler_ = std::make_unique<DbmsHandler>(conf_);
+
+  // The instance booted (did not abort). The good tenant recovered HOT; the corrupt entry was skipped.
+  EXPECT_TRUE(InAll(good)) << "an intact tenant must recover HOT despite a sibling's corrupt durable entry";
+  auto good_acc = handler_->Get(good);
+  EXPECT_EQ(CountNodes(good_acc), kGoodNodes);
+  EXPECT_FALSE(InAll(victim)) << "the corrupt entry is skipped, so its tenant is not recovered";
+  EXPECT_FALSE(handler_->IsSuspended(victim));
+
+  // CRUCIAL: the victim's data dir must NOT have been deleted — cleanup is skipped when the durable view
+  // is incomplete, so a parse glitch never escalates to data loss.
+  EXPECT_TRUE(fs::exists(victim_dir)) << "a corrupt entry's data dir must be preserved, not reaped by cleanup";
 }
 
 #else

@@ -23,6 +23,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "dbms/rpc.hpp"
+#include "flags/experimental.hpp"  // C14: AreExperimentsEnabled(HOT_COLD_TENANTS) for flag-off cold reheat
 #include "license/license.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -309,26 +310,65 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
   // carries `cold:true`, in which case only a no-value COLD shell + suspended_ metadata is restored
   // (no storage build). A HOT recovery that fails is left COLD rather than aborting the process (R4):
   // C12 adds OOM-specific detection/metrics on top of this leave-cold infrastructure.
+  // C14 (F1): if a durable entry fails to parse we cannot learn its data directory, so we must NOT run
+  // the cleanup pass below (it would delete every dir not in the keep-set, including the one this corrupt
+  // entry owned). Track that the durable view is incomplete and skip cleanup for this boot.
+  bool durability_view_incomplete = false;
+  // C14: a COLD marker is honored only while the experiment is enabled. With it disabled, a cold tenant
+  // is reheated HOT (see below) instead of becoming an invisible, unrecoverable shell.
+  const bool hot_cold_enabled = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS);
   auto it = durability_->begin(std::string(kDBPrefix));
   auto end = durability_->end(std::string(kDBPrefix));
   for (; it != end; ++it) {
     const auto &[key, config_json] = *it;
     const auto name = key.substr(kDBPrefix.size());
-    auto json = nlohmann::json::parse(config_json);
-    const auto uuid = json.at("uuid").get<utils::UUID>();
-    const auto rel_dir = json.at("rel_dir").get<std::filesystem::path>();
+    // C14 (F1): parse defensively. A corrupt/truncated entry must leave the instance starting DEGRADED
+    // (skip the entry, keep the data on disk) rather than throwing out of the ctor and bricking boot.
+    nlohmann::json json;
+    utils::UUID uuid;
+    std::filesystem::path rel_dir;
+    try {
+      json = nlohmann::json::parse(config_json);
+      uuid = json.at("uuid").get<utils::UUID>();
+      rel_dir = json.at("rel_dir").get<std::filesystem::path>();
+    } catch (const nlohmann::json::exception &e) {
+      // Catch ONLY JSON parse/type/missing-key errors (genuine corruption). A non-JSON exception
+      // (e.g. std::bad_alloc under boot memory pressure) must propagate, not be mislabeled corruption
+      // and silently skip a valid tenant — mirrors the OOM-aware classification of the HOT path below.
+      durability_view_incomplete = true;
+      spdlog::error(
+          "Corrupt durable database entry '{}' ({}); skipping it. Its on-disk data is left untouched and "
+          "directory cleanup is SKIPPED this boot so no data is deleted while the durable view is incomplete.",
+          key,
+          e.what());
+      continue;
+    }
     // The on-disk directory must survive the cleanup pass below for BOTH hot and cold tenants — a
     // COLD shell's data dir is exactly what a later resume rebuilds from.
     directories.emplace(rel_dir.filename());
 
     const bool is_cold = json.value("cold", false);
+    bool reheat_cold = false;  // C14: a cold marker recovered HOT because the experiment is off
     if (is_cold) {
-      // COLD: metadata-only shell, no storage build.
-      spdlog::info("Restoring suspended (cold) database {} at {}.", name, rel_dir);
-      db_handler_.EmplaceColdShell(name);
-      suspended_.insert_or_assign(std::string{name}, make_cold_entry(name, uuid, rel_dir, json));
-      spdlog::info("Suspended (cold) database {} restored.", name);
-      continue;
+      if (hot_cold_enabled) {
+        // COLD: metadata-only shell, no storage build.
+        spdlog::info("Restoring suspended (cold) database {} at {}.", name, rel_dir);
+        db_handler_.EmplaceColdShell(name);
+        suspended_.insert_or_assign(std::string{name}, make_cold_entry(name, uuid, rel_dir, json));
+        spdlog::info("Suspended (cold) database {} restored.", name);
+        continue;
+      }
+      // C14 (HIGH): the tenant is durably COLD but the hot-cold-tenants experiment is now disabled.
+      // Recover it HOT from its (intact) cold data dir so it does not silently vanish and become
+      // unrecoverable (RESUME is flag-gated). Suspension is explicit-only (product point 1), so the
+      // durable marker is flipped to HOT below on success — re-enabling the experiment will NOT
+      // re-suspend it.
+      spdlog::warn(
+          "Database {} was SUSPENDED (cold) under the hot-cold-tenants experiment, which is now disabled; "
+          "recovering it HOT. Re-enabling the experiment will not re-suspend it.",
+          name);
+      reheat_cold = true;
+      // fall through to the HOT path
     }
 
     // HOT: build + recover the storage. On failure, leave the tenant COLD instead of aborting.
@@ -366,6 +406,9 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
     }
     if (recovered) {
       spdlog::info("Database {} restored.", name);
+      // C14: the reheat is sticky for free — a successful New_ already rewrote the durable entry HOT
+      // (New_ -> UpdateDurability -> GenVal, no cold key), so a future restart recovers HOT directly.
+      // Idempotent: a crash before that Put just re-enters the reheat path next boot (same snapshot).
     } else {
       // Leave-cold: emplace a COLD shell so the process stays up and the tenant is resumable later.
       // The durable entry is left HOT (no cold marker) so a future restart retries HOT recovery; the
@@ -381,16 +424,24 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
   /*
    * DATABASES CLEAN UP
    */
-  // Clean the unused directories
-  for (const auto &entry : std::filesystem::directory_iterator(db_dir)) {
-    const auto &name = entry.path().filename().string();
-    if (entry.is_directory() && !name.empty() && name.front() != '.') {
-      auto itr = directories.find(name);
-      if (itr == directories.end()) {
-        std::error_code dummy;
-        std::filesystem::remove_all(entry, dummy);
-      } else {
-        directories.erase(itr);
+  // Clean the unused directories. C14 (F1): if any durable entry failed to parse, the keep-set is
+  // incomplete — skip cleanup entirely so we never delete the data dir of a tenant we could not read.
+  // The orphan dirs are merely disk overhead and get reclaimed on the next clean boot.
+  if (durability_view_incomplete) {
+    spdlog::warn(
+        "Skipping unused-directory cleanup: a durable database entry failed to parse, so the set of live "
+        "directories is incomplete and no data directory will be removed this boot.");
+  } else {
+    for (const auto &entry : std::filesystem::directory_iterator(db_dir)) {
+      const auto &name = entry.path().filename().string();
+      if (entry.is_directory() && !name.empty() && name.front() != '.') {
+        auto itr = directories.find(name);
+        if (itr == directories.end()) {
+          std::error_code dummy;
+          std::filesystem::remove_all(entry, dummy);
+        } else {
+          directories.erase(itr);
+        }
       }
     }
   }
