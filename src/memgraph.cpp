@@ -936,6 +936,26 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
+  // Hot/cold suspend/resume arms (multi-tenant). Wired unconditionally (not gated on recover_on_startup):
+  //  - on_suspend_: before the freeze, stop the per-db stream consumers (each pins the tenant HOT via a
+  //    captured DatabaseAccess), preserving their durable metadata so resume rebuilds them;
+  //  - restore_streams_: undo that stop if a suspend does not commit (preserving each stream's run/stop state);
+  //  - on_resume_: after a COLD tenant's storage is rebuilt, re-arm its triggers AND streams from durable
+  //    metadata (BuildDetached does not auto-arm either). Triggers must come first (streams use modules).
+  if (dbms_handler.has_value()) {
+    auto *dh = &*dbms_handler;
+    auto *ic = &interpreter_context_;
+    dh->SetOnSuspend(
+        [](memgraph::dbms::DatabaseAccess db_acc) { memgraph::dbms::DbmsHandler::StopStreamsFor(db_acc); });
+    dh->SetRestoreStreams([dh, ic](memgraph::dbms::DatabaseAccess db_acc) { dh->RestoreStreamsFor(db_acc, ic); });
+    dh->SetOnResume([dh, ic](memgraph::dbms::DatabaseAccess db_acc) {
+      dh->RestoreTriggersFor(db_acc, ic);
+      dh->RestoreStreamsFor(db_acc, ic);
+    });
+  }
+#endif
+
+#ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
   // Needs to start after dbms_handler.RestoreTriggers has been run. Otherwise we have a deadlock:
   // This thread takes unique lock on dbms handler and waits for storage write access

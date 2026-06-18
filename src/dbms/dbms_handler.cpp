@@ -903,6 +903,16 @@ void DbmsHandler::RestoreTriggers(query::InterpreterContext *ic) {
   }
 }
 
+void DbmsHandler::RestoreTriggersFor(DatabaseAccess db_acc, query::InterpreterContext *ic) {
+  // Single-db trigger restore for the hot/cold resume arm (mirrors the per-db body of RestoreTriggers but
+  // on a caller-held accessor, with no lock_). The resumed Database's TriggerStore is constructed empty by
+  // BuildDetached (the ctor does not auto-arm), so this re-parses + arms the durably-persisted triggers.
+  auto storage_accessor = db_acc->Access(memgraph::storage::WRITE);
+  auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
+  db_acc->trigger_store()->RestoreTriggers(
+      &ic->ast_cache, &dba, ic->config.query, ic->auth_checker, db_acc->name(), ic->parameters);
+}
+
 #ifdef MG_ENTERPRISE
 // Hot/cold SUSPEND as a system action. Recording it makes SUSPEND participate in the system
 // transaction — serialized + system-timestamped exactly like CREATE/DROP DATABASE. DoReplication
@@ -963,6 +973,40 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   SuspendedEntry entry;
   utils::Gatekeeper<Database> *gk = nullptr;
   std::optional<DatabaseAccess> acc;
+
+  // SU-STREAMS — PHASE A-pre (OFF-lock): stop the per-database features that keep the tenant pinned HOT.
+  // Each Kafka/Pulsar stream consumer captures a shared_ptr<Interpreter> that owns a DatabaseAccess, so
+  // the freeze in Phase A could never reach sole-accessor (count==1) while any stream exists -> suspend
+  // would always fail ACTIVE_CONNECTIONS. on_suspend_ runs Streams::Shutdown() which stops the consumers
+  // and releases those accessors WITHOUT deleting the durable stream metadata (resume rebuilds it).
+  //
+  // This MUST run with lock_ NOT held: Shutdown() joins consumer threads, and a consumer's in-flight batch
+  // can re-enter db_handler_.Get() (a shared lock_) — joining while we hold lock_ would deadlock (and on a
+  // replica's single-threaded apply thread it would stall all replication). We take a brief shared lock_
+  // only to mint the accessor, then release it before joining.
+  bool streams_stopped = false;
+  {
+    std::optional<DatabaseAccess> sacc;
+    {
+      auto rd = std::shared_lock{lock_};
+      auto a = db_handler_.Get(name);
+      if (!a) return std::unexpected{SuspendError::NON_EXISTENT};
+      sacc = std::move(*a);
+    }  // release lock_ BEFORE joining consumer threads
+    if (on_suspend_) {
+      on_suspend_(*sacc);
+      streams_stopped = true;
+    }
+  }  // sacc released -> its count contribution is gone before Phase A mints the freeze accessor
+  // UNDO guard: a failed/aborted suspend must NOT silently leave the streams stopped. Fires on every path
+  // that does not commit the suspend (early return below, or a post-freeze throw after the abort_suspend
+  // rollback restores HOT). Declared BEFORE the abort_suspend rollback so it fires AFTER it (LIFO) -> the
+  // tenant is HOT again by the time we restore streams. Disabled once finish_suspend() commits the COLD.
+  auto stream_restore = utils::OnScopeExit{[&] {
+    if (!streams_stopped || !restore_streams_) return;
+    auto rd = std::shared_lock{lock_};
+    if (auto a = db_handler_.Get(name)) restore_streams_(*a);
+  }};
   {
     // PHASE A — eligibility check + metadata capture + freeze, all under the shared lock_.
     //
@@ -1149,6 +1193,16 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // OUTSIDE lock_: value_.reset() -> ~Database (stop threads, FinalizeWal, NO exit snapshot).
   // The COLD shell stays in db_handler_ so a later resume can move-assign a fresh gatekeeper.
   gk->finish_suspend();
+
+  // SU-STREAMS: the suspend is committed (tenant is COLD, in-memory storage and stream consumers dropped;
+  // durable stream metadata persists for resume). Keep the streams stopped — do NOT run the undo guard.
+  //
+  // On the gap between rollback.Disable() above and this Disable(): finish_suspend() CANNOT throw-and-unwind
+  // into it — its only fallible step is value_.reset() (~Database -> ~InMemoryStorage), and destructors are
+  // noexcept by default, so a throwing teardown calls std::terminate rather than unwinding. The hypothetical
+  // "stuck SUSPENDING + streams left stopped" state is therefore not exception-reachable here (and a throwing
+  // storage destructor is already a terminate-level invariant violation, independent of this arm).
+  stream_restore.Disable();
 
   // Record the system action so the suspend is ordered + replicated like CREATE/DROP DATABASE.
   // Done only after the local teardown commits; the replica wire is filled in C7.

@@ -351,6 +351,23 @@ class DbmsHandler {
   void SetOnResume(std::function<void(DatabaseAccess)> cb) { on_resume_ = std::move(cb); }
 
   /**
+   * @brief Set the pre-teardown suspend arm: stop the per-database features that pin the tenant HOT
+   *        (Kafka/Pulsar stream consumers each hold a DatabaseAccess via their captured Interpreter, so
+   *        the suspend freeze could never reach sole-accessor while a stream exists). Runs OFF-lock in
+   *        Suspend_ (it joins consumer threads) and must NOT delete durable stream metadata, so the
+   *        resume arm can rebuild the consumers. Default empty (no-op when hot/cold is not wired).
+   */
+  void SetOnSuspend(std::function<void(DatabaseAccess)> cb) { on_suspend_ = std::move(cb); }
+
+  /**
+   * @brief Set the streams-only restore arm, used to UNDO SetOnSuspend's stream shutdown when a suspend
+   *        does not commit (e.g. a foreign connection keeps the tenant busy -> ACTIVE_CONNECTIONS, or a
+   *        post-freeze step throws). Restores from durable metadata, preserving each stream's persisted
+   *        running/stopped state. Triggers are NOT restored here (suspend never stops them). Default empty.
+   */
+  void SetRestoreStreams(std::function<void(DatabaseAccess)> cb) { restore_streams_ = std::move(cb); }
+
+  /**
    * @brief Set the post-publish resume arm (runs AFTER the fresh gatekeeper is published).
    *        Used for replication wiring. Default empty. Wired in a later (replication) commit.
    */
@@ -362,6 +379,13 @@ class DbmsHandler {
    * Synchronous: recovery runs on the calling thread. Single-flight via the gatekeeper — concurrent
    * callers poll until the winner publishes HOT, then share the published accessor. No make-room /
    * no budget: the caller blocks for the full recovery.
+   *
+   * TODO(hot-cold): for the MVP this is intentionally synchronous — the bolt worker that runs
+   * `RESUME DATABASE` (or first touches a COLD tenant) blocks for the entire WAL/snapshot rebuild,
+   * which can be minutes for a large tenant and consumes a finite bolt worker. Move recovery onto a
+   * dedicated resume thread pool and return immediately: access() already returns nullopt during the
+   * RESUMING state (a clean retriable "database not available"), and the single-flight loser-poll loop
+   * in Resume_ is the scaffolding a non-blocking caller would reuse to surface "still resuming, retry".
    *
    * @param name tenant database name
    * @param txn  originating system transaction; the resume is recorded as a system action so it is
@@ -713,6 +737,20 @@ class DbmsHandler {
   void RestoreTriggers(query::InterpreterContext *ic);
 
   /**
+   * @brief Per-database variants of RestoreTriggers/RestoreStreams + the suspend-time stream stop, used by
+   *        the hot/cold suspend/resume arms (SetOnResume / SetOnSuspend / SetRestoreStreams). Unlike the
+   *        bulk Restore* above, these operate on ONE already-held DatabaseAccess and take no lock_, so they
+   *        are safe to run inside Resume_/Suspend_ (which already hold the gatekeeper freeze / publish).
+   */
+  void RestoreTriggersFor(DatabaseAccess db_acc, query::InterpreterContext *ic);
+
+  void RestoreStreamsFor(DatabaseAccess db_acc, query::InterpreterContext *ic) {
+    db_acc->streams()->RestoreStreams(db_acc, ic);
+  }
+
+  static void StopStreamsFor(DatabaseAccess db_acc) { db_acc->streams()->Shutdown(); }
+
+  /**
    * @brief Restore streams of all currently defined databases.
    * @note: Stream transformations are using modules, they have to be restored after the query modules are loaded.
    *
@@ -1061,6 +1099,9 @@ class DbmsHandler {
   std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
   std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
   std::function<void(DatabaseAccess)> on_resume_;    //!< pre-publish resume arm (triggers/streams/TTL); empty default
+  std::function<void(DatabaseAccess)> on_suspend_;   //!< pre-teardown suspend arm (stop streams); empty default
+  std::function<void(DatabaseAccess)>
+      restore_streams_;  //!< streams-only restore (undo a stopped suspend); empty default
   std::function<void(DatabaseAccess)> on_resume_repl_;  //!< post-publish resume arm (replication); empty default
 #endif
 #ifndef MG_ENTERPRISE

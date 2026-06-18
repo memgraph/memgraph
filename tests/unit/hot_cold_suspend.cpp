@@ -204,6 +204,64 @@ TEST_F(HotColdSuspend, SuspendSuccessMakesColdShellInaccessible) {
   EXPECT_THROW(handler_->Get(name), std::exception) << "Get() on a COLD tenant must fail";
 }
 
+// SU-STREAMS: the pre-teardown suspend arm (SetOnSuspend) runs BEFORE the freeze and can release the
+// accessors that pin the tenant HOT, so a tenant that would otherwise be ACTIVE_CONNECTIONS becomes
+// suspendable. A live stream consumer holds a DatabaseAccess via its captured Interpreter; here a plain
+// held accessor stands in for it, and the arm releases it exactly as Streams::Shutdown() does for real.
+TEST_F(HotColdSuspend, OnSuspendArmUnpinsTenantThenSuspendSucceeds) {
+  auto name = CreateTenant("pinned_db");
+
+  // A pinning accessor (count > 1) — without the arm this makes Suspend() fail ACTIVE_CONNECTIONS.
+  auto pin = std::make_shared<std::optional<memgraph::dbms::DatabaseAccess>>(handler_->Get(name));
+  ASSERT_TRUE(pin->has_value());
+
+  // The arm releases the pin before the freeze (what stopping the stream consumers achieves for real).
+  handler_->SetOnSuspend([pin](memgraph::dbms::DatabaseAccess) { pin->reset(); });
+
+  auto result = handler_->Suspend(name);
+  ASSERT_TRUE(result.has_value()) << "suspend must succeed once the arm unpins the tenant";
+  EXPECT_FALSE(InAll(name)) << "the tenant must be COLD after the successful suspend";
+}
+
+// SU-STREAMS: a suspend that does NOT commit (a foreign accessor the arm cannot release -> sole-accessor
+// is never reached -> ACTIVE_CONNECTIONS) must run the streams-restore UNDO, so a failed SUSPEND never
+// silently leaves the stream consumers stopped. The tenant also stays HOT.
+TEST_F(HotColdSuspend, FailedSuspendRunsStreamRestoreUndo) {
+  auto name = CreateTenant("undo_db");
+
+  auto foreign = handler_->Get(name);  // a real foreign connection the arm does not (cannot) release
+  ASSERT_TRUE(foreign);
+
+  bool stopped = false;
+  bool restored = false;
+  handler_->SetOnSuspend([&](memgraph::dbms::DatabaseAccess) { stopped = true; });        // "stop streams"
+  handler_->SetRestoreStreams([&](memgraph::dbms::DatabaseAccess) { restored = true; });  // undo
+
+  auto result = handler_->Suspend(name);
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), DbmsHandler::SuspendError::ACTIVE_CONNECTIONS);
+  EXPECT_TRUE(stopped) << "the suspend arm must run (off-lock) before the freeze";
+  EXPECT_TRUE(restored) << "a failed suspend must run the streams-restore undo";
+  EXPECT_TRUE(InAll(name)) << "the tenant must stay HOT after a failed (rolled-back) suspend";
+}
+
+// SU-STREAMS: resume must invoke the on_resume_ arm (which re-arms triggers + streams from durable
+// metadata). This locks in the wiring: pre-fix the arm was never set, so a resumed tenant silently lost
+// its streams/triggers.
+TEST_F(HotColdSuspend, ResumeInvokesOnResumeArm) {
+  auto name = CreateTenant("resume_arm_db");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  bool armed = false;
+  handler_->SetOnResume([&](memgraph::dbms::DatabaseAccess) { armed = true; });
+
+  {
+    auto r = handler_->Resume(name);
+    ASSERT_TRUE(r.has_value()) << "resume must succeed";
+    EXPECT_TRUE(armed) << "resume must invoke the on_resume_ arm (triggers/streams restore)";
+  }  // release the resumed accessor before TearDown resets the handler (~Gatekeeper waits for count==0)
+}
+
 // Two independent tenants can be suspended; each goes COLD without affecting the
 // other or the default DB.
 TEST_F(HotColdSuspend, SuspendMultipleTenants) {
