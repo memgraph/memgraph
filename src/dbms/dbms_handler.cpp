@@ -974,7 +974,7 @@ struct ResumeDatabase : memgraph::system::ISystemAction {
   utils::UUID uuid_;
 };
 
-DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::Transaction *txn) {
+DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::Transaction *txn, bool for_recovery) {
   if (name == kDefaultDB) return std::unexpected{SuspendError::DEFAULT_DB};
 
   SuspendedEntry entry;
@@ -1011,7 +1011,22 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     if (st->GetStorageMode() != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       return std::unexpected{SuspendError::NOT_IN_MEMORY};
     }
-    if (!st->IsDurabilityCompleteForSuspend()) return std::unexpected{SuspendError::DURABILITY_INCOMPLETE};
+    if (!st->IsDurabilityCompleteForSuspend()) {
+      if (!for_recovery) return std::unexpected{SuspendError::DURABILITY_INCOMPLETE};
+      // HOLE-1 (C15): in recovery the replica converges to MAIN's AUTHORITATIVE cold set. The
+      // durability-complete gate protects a USER-initiated SUSPEND from creating an unrecoverable cold
+      // tenant; in recovery the tenant is already COLD on MAIN, and the consolidating snapshot at
+      // suspend is written unconditionally and read back on resume, so the tenant stays recoverable.
+      // Reachable only when this replica's durability differs from MAIN's (e.g. the hot-cold-tenants
+      // flag/WAL config is inconsistent across the cluster) — bypass with a loud warning rather than
+      // failing recovery and stalling the replica in a BEHIND retry loop.
+      spdlog::warn(
+          "Force-suspending tenant {} during recovery although its local durability is incomplete "
+          "(periodic snapshot + WAL not enabled here). It remains recoverable (the consolidating "
+          "snapshot is still written), but this usually means the durability/experiment config differs "
+          "from MAIN — align hot-cold-tenants and durability flags across the cluster.",
+          name);
+    }
     // SU-REPL-1: NO IsReplicationParticipant() guard. Hot/cold is a system-replicated operation
     // (sibling of CREATE/DROP DATABASE): suspending a tenant that has replicas is the SUPPORTED flow
     // — the SuspendDatabase system action streams a SuspendDatabaseRpc so each replica tears down its
@@ -1064,11 +1079,23 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
       }
     }
     if (!snap.has_value() && snap.error() != CreateSnapshotError::NothingNewToWrite) {
-      spdlog::warn(
-          "hot/cold suspend: consolidating snapshot for '{}' was not written ({}); durability "
-          "intact via WAL, resume will replay the WAL delta.",
-          name,
-          storage::InMemoryStorage::CreateSnapshotErrorToString(snap.error()));
+      if (inmem->IsDurabilityCompleteForSuspend()) {
+        spdlog::warn(
+            "hot/cold suspend: consolidating snapshot for '{}' was not written ({}); durability "
+            "intact via WAL, resume will replay the WAL delta.",
+            name,
+            storage::InMemoryStorage::CreateSnapshotErrorToString(snap.error()));
+      } else {
+        // C15/HOLE-1: on the recovery bypass path durability is incomplete (no WAL), so a failed
+        // consolidating snapshot leaves NOTHING to recover from — do not claim a WAL fallback. The
+        // cold shell may be unrecoverable; the replica re-syncs from MAIN on the next recovery round.
+        spdlog::error(
+            "hot/cold suspend (recovery): consolidating snapshot for '{}' was not written ({}) and "
+            "durability is incomplete (no WAL fallback); the cold shell may be unrecoverable — the "
+            "replica will re-sync from MAIN.",
+            name,
+            storage::InMemoryStorage::CreateSnapshotErrorToString(snap.error()));
+      }
     }
     // Disable exit snapshot: we just took the consolidating one; dtor must NOT take another.
     inmem->DisableExitSnapshot();

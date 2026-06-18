@@ -140,6 +140,56 @@ TEST(HotColdSuspendNoDurability, SuspendDurabilityIncompleteRejected) {
   fs::remove_all(dir);
 }
 
+// HOLE-1 (C15): a USER suspend of a durability-incomplete tenant is rejected (DURABILITY_INCOMPLETE),
+// but SuspendForRecovery() BYPASSES that gate so a replica converging to MAIN's authoritative cold set
+// is not stuck in a BEHIND retry loop. The consolidating snapshot is written unconditionally, so the
+// forced cold shell stays recoverable.
+TEST(HotColdSuspendNoDurability, SuspendForRecoveryBypassesDurabilityGate) {
+  fs::path dir{g_storage_root / "no_durability_recovery_test"};
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+
+  memgraph::storage::Config conf;
+  memgraph::storage::UpdatePaths(conf, dir);
+  conf.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
+
+  auto handler = std::make_unique<DbmsHandler>(conf);
+  std::string uuid_str;
+  {
+    // Release the New() accessor before suspending: a held accessor pins the gatekeeper and the
+    // suspend freeze would never reach sole-accessor (count == 1).
+    auto result = handler->New("no_wal_db");
+    ASSERT_TRUE(result.has_value()) << "Failed to create no-durability tenant";
+    uuid_str = static_cast<std::string>(result.value()->storage()->uuid());
+  }
+
+  // A user-initiated suspend is rejected — the gate protects against an unrecoverable cold tenant.
+  {
+    auto suspend = handler->Suspend("no_wal_db");
+    ASSERT_FALSE(suspend.has_value());
+    EXPECT_EQ(suspend.error(), DbmsHandler::SuspendError::DURABILITY_INCOMPLETE);
+  }
+
+  // Recovery bypasses the gate and succeeds.
+  {
+    auto recovery = handler->SuspendForRecovery("no_wal_db");
+    ASSERT_TRUE(recovery.has_value()) << "SuspendForRecovery must bypass the durability-complete gate";
+  }
+  EXPECT_TRUE(handler->IsSuspended("no_wal_db")) << "the recovery-forced tenant must be COLD";
+  EXPECT_THROW(handler->Get("no_wal_db"), std::exception) << "a COLD tenant's Get() must fail";
+
+  // The bypass's whole safety argument is that the consolidating snapshot is written UNCONDITIONALLY
+  // (even with WAL disabled), so the forced cold shell stays recoverable. Lock that invariant in: the
+  // tenant's snapshot directory must hold a snapshot after SuspendForRecovery — otherwise a future
+  // regression that skipped the snapshot on the no-WAL path would silently make the shell unrecoverable.
+  const auto snap_dir = dir / std::string(memgraph::dbms::kMultiTenantDir) / uuid_str / "snapshots";
+  EXPECT_TRUE(fs::exists(snap_dir) && !fs::is_empty(snap_dir))
+      << "the consolidating snapshot must be written so the recovery-forced cold shell is recoverable: " << snap_dir;
+
+  handler.reset();
+  fs::remove_all(dir);
+}
+
 // Happy path: a successful Suspend() leaves a COLD shell that is no longer HOT,
 // so the tenant drops out of the HOT set (All()) and Get() throws.
 TEST_F(HotColdSuspend, SuspendSuccessMakesColdShellInaccessible) {
@@ -176,8 +226,6 @@ TEST_F(HotColdSuspend, SuspendMultipleTenants) {
 // Community build: the entire suspend feature is enterprise-only.
 #include <gtest/gtest.h>
 
-TEST(HotColdSuspend, NotApplicableInCommunity) {
-  GTEST_SKIP() << "hot/cold suspend is an enterprise-only feature";
-}
+TEST(HotColdSuspend, NotApplicableInCommunity) { GTEST_SKIP() << "hot/cold suspend is an enterprise-only feature"; }
 
 #endif  // MG_ENTERPRISE

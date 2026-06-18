@@ -492,6 +492,17 @@ class DbmsHandler {
   ResumeResult ResumeForRecovery(std::string_view name) { return Resume_(name, /*rewire_replication=*/false); }
 
   /**
+   * @brief Force-suspend a tenant during replica recovery (SR-1′(2)), bypassing the
+   * durability-complete gate. The gate protects a USER-initiated SUSPEND; in recovery the tenant is
+   * already COLD on MAIN (authoritative) and suspend's consolidating snapshot is written
+   * unconditionally, so it stays recoverable. Bypassing avoids a BEHIND retry loop on a replica whose
+   * durability config differs from MAIN's (see HOLE-1).
+   */
+  SuspendResult SuspendForRecovery(std::string_view name) {
+    return Suspend_(name, /*txn=*/nullptr, /*for_recovery=*/true);
+  }
+
+  /**
    * @brief Overwrite a suspended tenant's cold_stats with MAIN's as-of-suspend snapshot (R11).
    *
    * After a replica force-suspends/creates a COLD shell during recovery it captures its own stats;
@@ -786,7 +797,7 @@ class DbmsHandler {
 
   /// @brief Implementation of Suspend. See Suspend() for semantics.
   /// On success records a SuspendDatabase system action on @p txn (if non-null) for ordered replication.
-  SuspendResult Suspend_(std::string_view name, system::Transaction *txn = nullptr);
+  SuspendResult Suspend_(std::string_view name, system::Transaction *txn = nullptr, bool for_recovery = false);
 
   /**
    * @brief Implementation of Resume. See Resume() for semantics.

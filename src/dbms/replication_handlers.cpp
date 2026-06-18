@@ -12,11 +12,13 @@
 #include "dbms/replication_handlers.hpp"
 
 #include <chrono>
+#include <mutex>
 #include <thread>
 
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/rpc.hpp"
+#include "flags/experimental.hpp"  // MED1: warn when following MAIN's hot/cold with the flag off locally
 #include "license/license.hpp"
 #include "system/state.hpp"
 
@@ -29,6 +31,23 @@ class FileReplicationHandler;
 namespace memgraph::dbms {
 
 #ifdef MG_ENTERPRISE
+
+namespace {
+// MED1 (C15): a replica applies MAIN's hot/cold SUSPEND/RESUME RPCs unconditionally (replicas mirror
+// MAIN's authoritative {HOT ∪ COLD} set; gating the apply on the local flag would break convergence).
+// But following a feature whose experiment flag is OFF locally is almost certainly a misconfiguration,
+// so surface it once. The flag must be set consistently across the cluster.
+void WarnHotColdFlagMismatchOnce() {
+  if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) return;
+  static std::once_flag warned;
+  std::call_once(warned, [] {
+    spdlog::warn(
+        "Received a hot/cold SUSPEND/RESUME replication message from MAIN, but the hot-cold-tenants "
+        "experiment is DISABLED on this instance. Following MAIN's hot/cold state regardless (a replica "
+        "mirrors MAIN). Set --experimental-enabled=hot-cold-tenants consistently across the cluster.");
+  });
+}
+}  // namespace
 
 void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
@@ -232,6 +251,10 @@ void SuspendDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &syste
     return;
   }
 
+  // MED1: warn (once) only when we are actually about to APPLY MAIN's suspend — past the main-uuid and
+  // timestamp guards — so a wrong-main / stale-timestamp RPC does not consume the warn slot spuriously.
+  WarnHotColdFlagMismatchOnce();
+
   try {
     // TD-3': drop any cached 2PC accessor belonging to THIS tenant before teardown. The accessor is
     // storage-level (not gatekeeper-counted), so the suspend freeze would not drain it, and tearing
@@ -295,6 +318,9 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     return;
   }
 
+  // MED1: warn (once) only when actually applying MAIN's resume — past the main-uuid/timestamp guards.
+  WarnHotColdFlagMismatchOnce();
+
   try {
     // SY-1: ResumeByUUID -> Resume_(rewire_replication=false). The apply thread holds no repl_state
     // lock, so the post-publish replication arm (which would take a repl_state write lock) is skipped.
@@ -334,7 +360,11 @@ bool ForceSuspendForRecovery(DbmsHandler &dbms_handler, std::string_view name) {
   constexpr auto kTimeout = std::chrono::seconds(2);
   const auto deadline = std::chrono::steady_clock::now() + kTimeout;
   while (true) {
-    auto res = dbms_handler.Suspend(name);
+    // HOLE-1 (C15): recovery bypasses the durability-complete gate (the tenant is already COLD on
+    // MAIN; the consolidating snapshot is written unconditionally and read back on resume). Without
+    // the bypass a replica whose durability config differs from MAIN's would fail here with
+    // DURABILITY_INCOMPLETE and spin forever in the BEHIND->reconcile loop.
+    auto res = dbms_handler.SuspendForRecovery(name);
     if (res.has_value()) return true;
     if (res.error() != DbmsHandler::SuspendError::ACTIVE_CONNECTIONS) {
       spdlog::debug("SystemRecoveryHandler: suspend of \"{}\" failed (non-transient).", name);
