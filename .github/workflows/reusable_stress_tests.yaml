@@ -113,17 +113,6 @@ jobs:
           --conan-username ${{ secrets.CONAN_USERNAME }} \
           --conan-password ${{ secrets.CONAN_PASSWORD }}
 
-      # TEMPORARY: validates the core-dump capture/analysis/upload/ping pipeline.
-      # Crashes memgraph and exits 1, so the job jumps to "Collect core dumps".
-      # Remove (or gate) before merge.
-      - name: Trigger core dump (CI pipeline validation)
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          trigger-dump
-
       - name: Initialize tests
         run: |
           ./release/package/mgbuild.sh \
@@ -252,17 +241,6 @@ jobs:
           --conan-username ${{ secrets.CONAN_USERNAME }} \
           --conan-password ${{ secrets.CONAN_PASSWORD }}
 
-      # TEMPORARY: validates the core-dump capture/analysis/upload/ping pipeline.
-      # Crashes memgraph and exits 1, so the job jumps to "Collect core dumps".
-      # Remove (or gate) before merge.
-      - name: Trigger core dump (CI pipeline validation)
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          trigger-dump
-
       - name: Initialize tests
         run: |
           ./release/package/mgbuild.sh \
@@ -390,39 +368,6 @@ jobs:
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: '3.11'
-
-      # TEMPORARY: validates the docker-HA core-dump pipeline. Start a memgraph
-      # from the image (the debug image is assumed) with the core dir bind-mounted
-      # to the host so the core survives the container exit, then crash it with a
-      # pathologically nested query via mgconsole (in-image). The crash must come
-      # from WITHIN the process — an external SIGSEGV to PID 1 is ignored by the
-      # kernel's init protection. Exits 1 so the job jumps to "Collect core dumps".
-      # Remove (or gate) before merge.
-      - name: Trigger core dump (CI pipeline validation)
-        if: ${{ inputs.memgraph_image != '' }}
-        run: |
-          echo "host kernel.core_pattern: $(cat /proc/sys/kernel/core_pattern 2>/dev/null)"
-          mkdir -p /tmp/mg-cores && chmod 1777 /tmp/mg-cores 2>/dev/null || true
-          docker rm -f mg-core-trigger >/dev/null 2>&1 || true
-          docker run -d --name mg-core-trigger \
-            --ulimit core=-1 \
-            -v /tmp/mg-cores:/tmp/mg-cores \
-            -e MEMGRAPH_ENTERPRISE_LICENSE="$MEMGRAPH_ENTERPRISE_LICENSE" \
-            -e MEMGRAPH_ORGANIZATION_NAME="$MEMGRAPH_ORGANIZATION_NAME" \
-            "$MEMGRAPH_IMAGE" --telemetry-enabled=false
-          # Wait for Bolt, then crash the parser (genuine in-process SIGSEGV).
-          for _ in $(seq 1 30); do
-            echo "RETURN 1;" | docker exec -i mg-core-trigger mgconsole >/dev/null 2>&1 && break
-            sleep 1
-          done
-          python3 -c "n=200000; print('RETURN '+'('*n+'1'+')'*n+';')" \
-            | docker exec -i mg-core-trigger mgconsole || true
-          sleep 5
-          echo "Cores on host:"; ls -l /tmp/mg-cores/ 2>/dev/null || true
-          docker logs mg-core-trigger 2>&1 | tail -n 20 || true
-          docker rm -f mg-core-trigger >/dev/null 2>&1 || true
-          echo "Exiting 1 so the job proceeds to core-dump collection."
-          exit 1
 
       - name: Run stress tests (docker HA)
         run: |

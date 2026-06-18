@@ -102,7 +102,6 @@ print_help () {
   echo -e "  stop [OPTIONS]                     Stop mgbuild container"
   echo -e "  test-memgraph TEST                 Run a selected test TEST (see supported tests below) inside mgbuild container"
   echo -e "  check-core-dumps                   Check the runner is configured to produce Memgraph core dumps (warn-only)"
-  echo -e "  trigger-dump [OPTIONS]             Crash a throwaway Memgraph in the container to validate the core dump pipeline (exits 1)"
   echo -e "  test-mage TEST                     Run a selected test TEST (see supported tests below) inside MAGE docker image"
   echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
   echo -e "  generate-mage-image-sbom [OPTIONS] Generate MAGE image SBOM"
@@ -2585,37 +2584,6 @@ check_core_dumps() {
   return 0
 }
 
-trigger_dump() {
-  # Validate the CI core-dump pipeline: start the freshly-built Memgraph inside
-  # the build container and, in parallel, crash it with a pathologically deep
-  # query so a core dump is produced in /tmp/mg-cores. Always exits 1 on
-  # completion so the surrounding CI job fails and proceeds straight to the
-  # core-dump analysis steps. Assumes Memgraph was already built in the container.
-  local depth="200000"
-  local bolt_port="7687"
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --depth)     depth="$2"; shift 2 ;;
-      --bolt-port) bolt_port="$2"; shift 2 ;;
-      *) echo "Error: Unknown trigger-dump option '$1'" >&2; print_help; exit 1 ;;
-    esac
-  done
-
-  if ! docker inspect "$build_container" >/dev/null 2>&1; then
-    echo -e "${RED_BOLD}Error: container $build_container is not running. Spin it up and build Memgraph first.${RESET}" >&2
-    exit 1
-  fi
-
-  local script="$MGBUILD_ROOT_DIR/tools/ci/core-dumps/trigger_dump.sh"
-  echo -e "${GREEN_BOLD}Triggering a core dump inside ${build_container} to validate the CI pipeline...${RESET}"
-  docker exec -u mg "$build_container" bash -c \
-    "bash '$script' --toolchain '$toolchain_version' --depth '$depth' --bolt-port '$bolt_port'" \
-    || echo "trigger-dump helper exited non-zero (continuing to the intentional failure)."
-
-  echo -e "${RED_BOLD}trigger-dump finished; exiting 1 so the job proceeds straight to core-dump analysis.${RESET}"
-  exit 1
-}
-
 start_monitoring() {
   local metrics_targets="${MEMGRAPH_METRICS_TARGETS:-$build_container:9091}"
   local log_ws_targets="${MEMGRAPH_LOG_WS_TARGETS:-$build_container:7444}"
@@ -3078,9 +3046,6 @@ case $command in
     ;;
     check-core-dumps)
       check_core_dumps $@
-    ;;
-    trigger-dump)
-      trigger_dump $@
     ;;
     copy)
       copy_memgraph $@
