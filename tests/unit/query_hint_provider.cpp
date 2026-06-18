@@ -167,3 +167,59 @@ TEST_F(HintProviderSuite, DoubleHintWhenCartesianInFilters) {
 
   VerifyHintMessages(cartesian.get(), expected_messages, true);
 }
+
+TEST_F(HintProviderSuite, DontHintOrCountWhenFilteringByPropertyOnlyOnSequentialScan) {
+  // A label-less property filter cannot be served by any node index (node indices require a
+  // label), so there is nothing to suggest and nothing to count.
+  auto scan_all = MakeScanAll(storage, symbol_table, "n");
+  auto *filter_expr = EQ(PROPERTY_LOOKUP(*dba, scan_all.node_->identifier_, property), LITERAL(42));
+  auto filter = std::make_shared<Filter>(scan_all.op_, pattern_filters_, filter_expr);
+
+  const std::vector<std::string> expected_messages{};
+
+  VerifyHintMessages(filter.get(), expected_messages, false);
+}
+
+// Builds the operator chain produced by the parallel-execution rewrite for a scan whose
+// output is `node_symbol`: Filter -> ScanChunk -> ParallelMerge -> `parallel_scan`.
+std::shared_ptr<LogicalOperator> WrapInParallelChunk(std::shared_ptr<ScanParallel> parallel_scan, Symbol node_symbol,
+                                                     Symbol state_symbol, View view) {
+  auto parallel_merge = std::make_shared<ParallelMerge>(std::move(parallel_scan));
+  return std::make_shared<ScanChunk>(parallel_merge, node_symbol, view, state_symbol);
+}
+
+TEST_F(HintProviderSuite, HintWhenFilteringByLabelOnParallelScan) {
+  // Parallel-execution rewrite of an unindexed `ScanAll`: the counter must still fire.
+  auto scan_all = MakeScanAll(storage, symbol_table, "n");
+  auto state_symbol = NextSymbol();
+  auto parallel_scan = std::make_shared<ScanParallel>(std::make_shared<Once>(), view, 2, state_symbol);
+  auto scan_chunk = WrapInParallelChunk(parallel_scan, scan_all.sym_, state_symbol, view);
+
+  auto *filter_expr = storage.template Create<LabelsTest>(scan_all.node_->identifier_, GetLabelIx({label}));
+  auto filter = std::make_shared<Filter>(scan_chunk, pattern_filters_, filter_expr);
+
+  const std::vector<std::string> expected_messages{
+      "Sequential scan will be used on symbol `n` although there is a filter on labels :label. Consider "
+      "creating a label index."};
+
+  VerifyHintMessages(filter.get(), expected_messages, true);
+}
+
+TEST_F(HintProviderSuite, DontCountParallelLabelScanWithPropertyFilter) {
+  // Parallel-execution rewrite of a `ScanAllByLabel`: a label index is already used, so this
+  // is a suboptimal-index hint, not a missing-index scan -> no count.
+  auto scan_all = MakeScanAll(storage, symbol_table, "n");
+  auto state_symbol = NextSymbol();
+  auto parallel_scan = std::make_shared<ScanParallelByLabel>(std::make_shared<Once>(), view, 2, state_symbol, label);
+  auto scan_chunk = WrapInParallelChunk(parallel_scan, scan_all.sym_, state_symbol, view);
+
+  auto *filter_expr = EQ(PROPERTY_LOOKUP(*dba, scan_all.node_->identifier_, property), LITERAL(42));
+  auto filter = std::make_shared<Filter>(scan_chunk, pattern_filters_, filter_expr);
+
+  const std::vector<std::string> expected_messages{
+      "Label index will be used on symbol `n` although there is also a filter on properties property. "
+      "Consider "
+      "creating a label-property index."};
+
+  VerifyHintMessages(filter.get(), expected_messages, false);
+}

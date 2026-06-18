@@ -249,6 +249,8 @@ struct DatabaseMetricHandles {
   CounterHandle read_write_query;
 
   // Planner
+  // OpenMetrics / SHOW METRICS INFO only — intentionally not aggregated into the deprecated
+  // global JSON endpoint (see GetGlobalMetricsInfoForJson).
   CounterHandle unindexed_scan_queries;
 
   // TTL

@@ -37,12 +37,12 @@ struct PlanHintsResult {
 PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
 
 class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
+  // Result accessors are only valid after a full traversal; expose them solely through
+  // ProvidePlanHints, which owns the construct -> Accept -> read lifecycle.
+  friend PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
+
  public:
   explicit PlanHintsProvider(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
-
-  std::vector<std::string> take_hints() { return std::move(hints_); }
-
-  bool has_unindexed_scan() const { return has_unindexed_scan_; }
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -382,15 +382,43 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   std::vector<std::string> hints_;
   bool has_unindexed_scan_{false};
 
+  [[nodiscard]] std::vector<std::string> take_hints() { return std::move(hints_); }
+
+  [[nodiscard]] bool has_unindexed_scan() const { return has_unindexed_scan_; }
+
   bool DefaultPreVisit() override { LOG_FATAL("Operator not implemented for providing plan hints!"); }
 
+  // Resolves the logical scan type to reason about. Parallel-execution plans rewrite a
+  // `Filter -> Scan*` into `Filter -> ScanChunk -> ParallelMerge -> ScanParallel*`, so the
+  // real scan semantics live in the `ScanParallel*` below the chunk. Map those back to the
+  // equivalent sequential scan type so the hint logic below treats both plan shapes alike.
+  // For non-parallel plans this is just the scan's own type.
+  static const utils::TypeInfo &EffectiveScanType(const ScanAll &scan) {
+    const auto &type = scan.GetTypeInfo();
+    if (type != ScanChunk::kType) {
+      return type;
+    }
+    const auto *parallel_merge = scan.input().get();
+    if (parallel_merge == nullptr) return type;
+    const auto *parallel_scan = parallel_merge->input().get();
+    if (parallel_scan == nullptr) return type;
+
+    const auto &parallel_type = parallel_scan->GetTypeInfo();
+    if (parallel_type == ScanParallel::kType) return ScanAll::kType;
+    if (parallel_type == ScanParallelByLabel::kType) return ScanAllByLabel::kType;
+    // Index-backed parallel scans (label-properties, edge variants) already use an index;
+    // leave their type as-is so no missing-index hint or count fires.
+    return parallel_type;
+  }
+
   void HintIndexUsage(Filter &op) {
-    if (auto *maybe_scan_operator = dynamic_cast<ScanAll *>(op.input().get()); !maybe_scan_operator) {
+    auto *scan_operator = dynamic_cast<ScanAll *>(op.input().get());
+    if (scan_operator == nullptr) {
       return;
     }
 
-    auto const scan_symbol = dynamic_cast<ScanAll *>(op.input().get())->output_symbol_;
-    auto const scan_type = op.input()->GetTypeInfo();
+    auto const scan_symbol = scan_operator->output_symbol_;
+    auto const &scan_type = EffectiveScanType(*scan_operator);
 
     Filters filters;
     filters.CollectFilterExpression(op.expression_, symbol_table_);
@@ -424,10 +452,13 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
         has_unindexed_scan_ = true;
         return;
       }
+      // Property-only filter with no label: no node index can serve a label-less filter,
+      // so there is nothing to suggest and nothing to count.
       return;
     }
 
-    // Label index already used; suboptimal-index hint, not a missing-index scan -> no count.
+    // Label index already used; suboptimal-index hint, not a missing-index scan -> does not
+    // increment the unindexed-scan counter.
     if (scan_type == ScanAllByLabel::kType && !filtered_properties.empty()) {
       hints_.push_back(fmt::format(
           "Label index will be used on symbol `{0}` although there is also a filter on properties {1}. Consider "

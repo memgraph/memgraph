@@ -338,6 +338,19 @@ def test_unindexed_scan_queries_counter():
     )
     assert counter() == baseline + 3
 
+    # Parallel execution rewrites the scan into ScanChunk -> ParallelMerge -> ScanParallel;
+    # an unindexed parallel scan must still be counted (+1).
+    execute(cursor, "USING PARALLEL EXECUTION MATCH (n:Unindexed) WHERE n.name = 'x' RETURN count(n)")
+    assert counter() == baseline + 4
+
+    # The same parallel query backed by an index must NOT advance the counter.
+    execute(cursor, "CREATE INDEX ON :Unindexed(name)")
+    try:
+        execute(cursor, "USING PARALLEL EXECUTION MATCH (n:Unindexed) WHERE n.name = 'x' RETURN count(n)")
+        assert counter() == baseline + 4
+    finally:
+        execute(cursor, "DROP INDEX ON :Unindexed(name)")
+
     conn.close()
 
 
