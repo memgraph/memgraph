@@ -1055,5 +1055,85 @@ def test_tenant_churn_under_memory_pressure_replicated(connection, test_name):
         mg_sleep_and_assert(expected, tenant_probe(replica_cursor, t), max_duration=90)
 
 
+def count_ttl_nodes(cursor, db_name):
+    """Count :TTL nodes on db_name; resets the session to the default db afterwards so it
+    does not pin the tenant HOT (which would block SUSPEND)."""
+
+    def func():
+        try:
+            execute_and_fetch_all(cursor, f"USE DATABASE {db_name};")
+            return execute_and_fetch_all(cursor, "MATCH (n:TTL) RETURN count(n);")[0][0]
+        finally:
+            try:
+                execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
+            except mgclient.DatabaseError:
+                pass
+
+    return func
+
+
+def test_ttl_restarts_after_resume(connection, test_name):
+    """Regression: TTL scheduler must restart after RESUME; the on_resume_ arm re-installs the TTL
+    user-check (IsMainWriteable). Pre-fix, TTL nodes created after a RESUME were never deleted because
+    the scheduler's per-tenant user-check was not re-installed when the tenant came back HOT. Post-fix,
+    the scheduler fires again within the configured interval and clears them.
+
+    Note: the replica-side invariant "TTL must NOT delete on a REPLICA" is guaranteed by construction:
+    the re-installed user-check is IsMainWriteable, which is false on a replica, so a replica that
+    mirrors MAIN's already-deleted state via replication can never double-delete. That property is not
+    separately asserted here because a single-MAIN test has no replica.
+    """
+    # Single MAIN, no cross-restart recovery needed for this regression path.
+    instances = {"main": main_args(test_name)}
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # Create tenant A with 3 permanent (non-TTL) nodes that serve as a data-integrity witness:
+    # TTL must never touch nodes without a ttl property, and the 3 must be present at every
+    # HOT checkpoint below.
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    for _ in range(3):
+        execute_and_fetch_all(main_cursor, "CREATE ();")
+    # Enable TTL with a 1-second tick so the scheduler runs frequently enough for the test.
+    execute_and_fetch_all(main_cursor, 'ENABLE TTL EVERY "1s";')
+    # Leave the session on the default DB so the tenant is not pinned for SUSPEND later.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+
+    # --- PHASE 1: TTL works while the tenant is HOT ---
+    # Write 10 expired :TTL nodes (ttl:0 = epoch 0 = already expired).
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0});")
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    # Poll until TTL has reaped all 10 expired nodes; the 3 permanent nodes are untouched (no ttl prop).
+    mg_sleep_and_assert(0, count_ttl_nodes(main_cursor, "A"))
+
+    # --- SUSPEND ---
+    # Session is already on memgraph (count_ttl_nodes resets it in finally), so SUSPEND can proceed.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
+    assert tenant_probe(main_cursor, "A")() == "COLD"
+
+    # --- RESUME ---
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
+    # Wait for the tenant to come back HOT; the 3 permanent nodes must be intact.
+    mg_sleep_and_assert(3, tenant_probe(main_cursor, "A"))
+
+    # --- PHASE 2: THE REGRESSION TEETH ---
+    # Write fresh expired :TTL nodes AFTER the RESUME and assert the TTL scheduler deletes them.
+    # PRE-FIX: mg_sleep_and_assert times out here because the on_resume_ arm did not re-install the
+    # user-check, so the TTL scheduler never fires on the resumed tenant and the count stays at 10.
+    # POST-FIX: the scheduler re-starts within the 1s tick and clears all 10 nodes; this passes.
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0});")
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    mg_sleep_and_assert(0, count_ttl_nodes(main_cursor, "A"))
+
+    # Final integrity check: only the 3 permanent nodes remain; TTL did not over-delete.
+    assert tenant_probe(main_cursor, "A")() == 3, "permanent nodes must survive after TTL reaping post-resume"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
