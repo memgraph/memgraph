@@ -1,0 +1,1 @@
+CREATE (n {name: 'John', age: 30})

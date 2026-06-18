@@ -1,0 +1,1 @@
+MATCH (n) CALL { MATCH (m) RETURN m } RETURN n, m

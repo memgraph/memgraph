@@ -1,0 +1,1 @@
+RETURN all(x IN [1,2,3] WHERE x = 2)
