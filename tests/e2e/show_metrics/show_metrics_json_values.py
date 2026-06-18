@@ -274,6 +274,13 @@ EXPECTED_JSON_METRICS = {
         "ShowStorageInfoOnDatabase",
         "ShowStorageInfo",
     },
+    "HotCold": {
+        "DatabaseSuspends",
+        "DatabaseResumes",
+        "ColdDatabases",
+        "DatabaseBootRecoveryFailures",
+        "DatabaseBootRecoveryOomFailures",
+    },
 }
 
 
