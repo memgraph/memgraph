@@ -273,6 +273,12 @@ class SkipListGc final {
   // Allocate a new head block if the caller's snapshot of head_ still matches.
   // Otherwise another thread already extended the chain; return that new head.
   Block *AllocateBlock(Block *expected_head) {
+    // Block allocation is internal GC bookkeeping called exclusively from
+    // ReleaseId, which is invoked from noexcept Accessor/ConstAccessor
+    // destructors and move-assignment operators. A tracked allocation that
+    // throws OutOfMemoryException out of a destructor causes std::terminate.
+    // Suppress OOM exceptions here for the same reason Run() does at line ~374.
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
     auto guard = std::lock_guard{lock_};
     Block *curr_head = head_.load(std::memory_order_acquire);
     if (curr_head != expected_head) return curr_head;
