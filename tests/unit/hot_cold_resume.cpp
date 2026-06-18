@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <atomic>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -105,6 +106,24 @@ class HotColdResume : public ::testing::Test {
   bool InAll(std::string_view name) {
     auto all = handler_->All();
     return std::find(all.begin(), all.end(), name) != all.end();
+  }
+
+  // C12: clobber every durability file under a tenant's data dir with garbage, so the next boot's
+  // recovery trips a RecoveryFailure (bad magic) instead of recovering — exercising the leave-cold
+  // path deterministically. Call between handler_.reset() and reconstruction (NOT via Restart()): a
+  // live storage holds the WAL open and its dtor would rewrite it.
+  void CorruptTenantDurability(const std::string &uuid_str) {
+    auto dir = test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / uuid_str;
+    ASSERT_TRUE(fs::exists(dir)) << "expected a data dir for the tenant at " << dir;
+    size_t clobbered = 0;
+    for (const auto &f : fs::recursive_directory_iterator(dir)) {
+      if (f.is_regular_file()) {
+        std::ofstream out(f.path(), std::ios::binary | std::ios::trunc);
+        out << "CORRUPTED-BY-TEST-NOT-A-VALID-DURABILITY-MAGIC";
+        ++clobbered;
+      }
+    }
+    ASSERT_GT(clobbered, 0U) << "no durability files to corrupt under " << dir;
   }
 
   fs::path test_dir_;
@@ -484,6 +503,52 @@ TEST_F(HotColdResume, PromotionDuringResumeAppliesPromotedEpoch) {
       << "a promotion racing the resume's build window must win (epoch re-read under the publish lock)";
   ASSERT_FALSE(rss.history.empty());
   EXPECT_EQ(rss.history.back().first, e1) << "the promotion boundary must still carry the pre-promotion epoch";
+}
+
+// C12: a tenant whose HOT recovery FAILS at boot must be left COLD (not abort the process) and marked
+// with a 'recovery failed' status in the cold-aware SHOW surface — degraded-but-alive. An intact
+// tenant in the same boot must recover HOT with its data. (The OOM-specific branch shares this exact
+// plumbing, differing only in the caught exception type → status string; real OOM is exercised under
+// the C13 memory-ceiling stress, not deterministically injectable here.)
+TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
+  constexpr int kBadNodes = 5;
+  constexpr int kGoodNodes = 3;
+  auto bad = CreateAndPopulate("recover_fail", kBadNodes);
+  auto good = CreateAndPopulate("recover_ok", kGoodNodes);
+
+  // Both are HOT (durable cold:false). Capture the bad tenant's uuid to locate its on-disk data.
+  std::string bad_uuid;
+  {
+    auto acc = handler_->Get(bad);
+    bad_uuid = static_cast<std::string>(acc->storage()->uuid());
+  }
+
+  // Tear down (flush + close), corrupt the bad tenant's durability, then reconstruct so its recovery
+  // throws while the good tenant recovers cleanly.
+  handler_.reset();
+  CorruptTenantDurability(bad_uuid);
+  handler_ = std::make_unique<DbmsHandler>(conf_);
+
+  // The corrupt tenant is left COLD (process did not abort) with a 'recovery failed' SHOW marker.
+  EXPECT_TRUE(handler_->IsSuspended(bad)) << "a tenant whose recovery fails must be left COLD, not dropped";
+  EXPECT_FALSE(InAll(bad)) << "a recovery-failed tenant is COLD, so excluded from All()";
+  bool found = false;
+  for (const auto &[n, st] : handler_->AllWithHotColdStatus()) {
+    if (n == bad) {
+      EXPECT_THAT(st, ::testing::HasSubstr("recovery failed"))
+          << "SHOW DATABASES must mark the failed tenant degraded, got: " << st;
+      found = true;
+    }
+  }
+  EXPECT_TRUE(found) << "the recovery-failed tenant must still appear in the cold-aware listing";
+
+  // The intact tenant recovered HOT with its data.
+  ASSERT_TRUE(InAll(good)) << "an intact tenant must recover HOT in the same (degraded) boot";
+  auto good_acc = handler_->Get(good);
+  EXPECT_EQ(CountNodes(good_acc), kGoodNodes);
+
+  // Querying DATA on the cold (recovery-failed) tenant still errors (cold access is an error).
+  EXPECT_THROW(handler_->Get(bad), std::exception);
 }
 
 #else

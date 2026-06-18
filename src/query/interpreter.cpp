@@ -7319,7 +7319,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             const std::vector<std::vector<TypedValue>> results{
                 {TypedValue("name"), TypedValue(db_name)},
                 {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(cold.uuid))},
-                {TypedValue("status"), TypedValue("COLD (as-of-suspend snapshot)")},
+                {TypedValue("status"), TypedValue(cold.status)},
                 {TypedValue("storage_mode"), TypedValue(StorageModeToString(s.storage_mode))},
                 {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(s.vertex_count))},
                 {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(s.edge_count))},
@@ -8256,11 +8256,11 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     // allowed-list) both derive from this single snapshot — no per-row locks, and no duplicate row for
     // a tenant caught mid-suspend (AllWithHotColdStatus de-dups: suspended_ wins).
     std::vector<std::string> all_names;
-    std::unordered_map<std::string, bool> is_cold;
+    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD" | "COLD (recovery failed...)"
     if (hot_cold) {
-      for (auto &[name, cold] : db_handler->AllWithHotColdStatus()) {
+      for (auto &[name, st] : db_handler->AllWithHotColdStatus()) {
         all_names.push_back(name);
-        is_cold.emplace(std::move(name), cold);
+        status_of.emplace(std::move(name), std::move(st));
       }
     } else {
       all_names = db_handler->All();
@@ -8274,8 +8274,10 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
         // `name` is a std::string (all_names) or a TypedValue (auth allowed-list); normalize.
         const std::string ns{TypedValue(name).ValueString()};
         if (hot_cold) {
-          auto it = is_cold.find(ns);
-          status.push_back({TypedValue(ns), TypedValue(it != is_cold.end() && it->second ? "COLD" : "HOT")});
+          // C12: status_of carries the full HOT/COLD(/recovery-failed) string. A granted name not in
+          // the snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
+          auto it = status_of.find(ns);
+          status.push_back({TypedValue(ns), TypedValue(it != status_of.end() ? it->second : std::string{"HOT"})});
         } else {
           status.push_back({TypedValue(ns)});
         }

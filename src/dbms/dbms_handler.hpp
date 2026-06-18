@@ -419,21 +419,39 @@ class DbmsHandler {
    * releasing the lock. suspended_ takes precedence (the tenant is on its way COLD), so it is listed
    * once, as COLD — never duplicated.
    */
-  std::vector<std::pair<std::string, bool>> AllWithHotColdStatus() const {
+  std::vector<std::pair<std::string, std::string>> AllWithHotColdStatus() const {
     auto rd = std::shared_lock{lock_};
-    std::vector<std::pair<std::string, bool>> out;
+    std::vector<std::pair<std::string, std::string>> out;
     out.reserve(suspended_.size() + db_handler_.size());
-    for (const auto &[name, entry] : suspended_) out.emplace_back(name, /*is_cold=*/true);
+    // C12: the COLD status string distinguishes a user-suspended tenant ("COLD") from one left cold by
+    // a failed boot recovery ("COLD (recovery failed[: out of memory])") — the degraded-but-alive
+    // marker so the instance never silently drops a tenant.
+    for (const auto &[name, entry] : suspended_) {
+      std::string_view st = "COLD";
+      switch (entry.cold_reason) {
+        case SuspendedEntry::ColdReason::kRecoveryFailed:
+          st = "COLD (recovery failed)";
+          break;
+        case SuspendedEntry::ColdReason::kRecoveryFailedOom:
+          st = "COLD (recovery failed: out of memory)";
+          break;
+        case SuspendedEntry::ColdReason::kSuspended:
+          st = "COLD";
+          break;
+      }
+      out.emplace_back(name, std::string{st});
+    }
     for (auto &name : db_handler_.All()) {  // HOT names only (Handler::All() skips no-value shells)
-      if (!suspended_.contains(name)) out.emplace_back(std::move(name), /*is_cold=*/false);
+      if (!suspended_.contains(name)) out.emplace_back(std::move(name), "HOT");
     }
     return out;
   }
 
-  /// C11: minimal projection of a COLD tenant for SHOW STORAGE INFO ON <cold> (reverses HC-5).
+  /// C11/C12: minimal projection of a COLD tenant for SHOW STORAGE INFO ON <cold> (reverses HC-5).
   struct ColdShowInfo {
     utils::UUID uuid;
     storage::StorageInfo stats;  //!< as-of-suspend snapshot (on MAIN); physical fields are MAIN-relative (R11)
+    std::string status;          //!< C12 marker: "COLD (as-of-suspend snapshot)" or "COLD (recovery failed[...])"
   };
 
   /**
@@ -441,11 +459,25 @@ class DbmsHandler {
    *
    * Lets SHOW STORAGE INFO ON <cold> serve the durable cold_stats instead of tripping the Get_ cold
    * seam (HC-5). The numbers are MAIN's as-of-suspend snapshot, labeled as such by the caller (R11).
+   * C12: for a tenant left cold by a failed recovery the stats are defaults (no snapshot was captured),
+   * so `status` reports the failure instead of an "as-of-suspend" label.
    */
   std::optional<ColdShowInfo> GetColdShowInfo(std::string_view name) const {
     auto rd = std::shared_lock{lock_};
     if (auto it = suspended_.find(name); it != suspended_.end()) {
-      return ColdShowInfo{.uuid = it->second.salient.uuid, .stats = it->second.cold_stats};
+      std::string_view st = "COLD (as-of-suspend snapshot)";
+      switch (it->second.cold_reason) {
+        case SuspendedEntry::ColdReason::kRecoveryFailed:
+          st = "COLD (recovery failed); stats unavailable";
+          break;
+        case SuspendedEntry::ColdReason::kRecoveryFailedOom:
+          st = "COLD (recovery failed: out of memory); stats unavailable";
+          break;
+        case SuspendedEntry::ColdReason::kSuspended:
+          st = "COLD (as-of-suspend snapshot)";
+          break;
+      }
+      return ColdShowInfo{.uuid = it->second.salient.uuid, .stats = it->second.cold_stats, .status = std::string{st}};
     }
     return std::nullopt;
   }
@@ -744,6 +776,12 @@ class DbmsHandler {
     storage::EpochHistory epoch_history;  //!< copy of repl_storage_state_.history at suspend
     bool has_epoch_meta{false};           //!< false for pre-C10 V2 cold entries (no epoch fields) — skip override
     storage::StorageInfo cold_stats;      //!< P4 — last-hot stats snapshot
+    // C12: why this tenant is COLD. RUNTIME-ONLY (never serialized): a tenant left cold by a failed boot
+    // recovery keeps its durable entry HOT, so the next restart retries; this only drives the SHOW
+    // marker + log for the current (degraded) process lifetime. A user SUSPEND / restored cold entry is
+    // kSuspended.
+    enum class ColdReason : uint8_t { kSuspended, kRecoveryFailed, kRecoveryFailedOom };
+    ColdReason cold_reason{ColdReason::kSuspended};
   };
 
   /// @brief Implementation of Suspend. See Suspend() for semantics.

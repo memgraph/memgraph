@@ -31,6 +31,7 @@
 #include "utils/enum.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"  // C12: utils::OutOfMemoryException (boot-OOM detection)
 #include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
@@ -333,6 +334,10 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
     // HOT: build + recover the storage. On failure, leave the tenant COLD instead of aborting.
     spdlog::info("Restoring database {} at {}.", name, rel_dir);
     bool recovered = false;
+    // C12: classify the failure. OOM (out-of-memory during recovery — bad_alloc or the tracker's
+    // OutOfMemoryException) is the case the boot-OOM safety valve exists for: the instance comes up
+    // DEGRADED with the tenant left cold + loudly logged + marked in SHOW, rather than bricking.
+    auto reason = SuspendedEntry::ColdReason::kRecoveryFailed;
     try {
       auto new_db = New_(name, uuid, nullptr, rel_dir);
       recovered = new_db.has_value();
@@ -341,6 +346,21 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
                       name,
                       static_cast<int>(new_db.error()));
       }
+    } catch (const utils::OutOfMemoryException &e) {
+      reason = SuspendedEntry::ColdReason::kRecoveryFailedOom;
+      spdlog::error(
+          "OUT OF MEMORY while recovering database {} ({}). Leaving it SUSPENDED (cold): the instance is "
+          "starting DEGRADED — this tenant is unavailable until memory is freed and it is RESUMEd (or the "
+          "instance is restarted with more memory). SHOW DATABASES marks it 'recovery failed: out of memory'.",
+          name,
+          e.what());
+    } catch (const std::bad_alloc &e) {
+      reason = SuspendedEntry::ColdReason::kRecoveryFailedOom;
+      spdlog::error(
+          "OUT OF MEMORY (bad_alloc) while recovering database {} ({}). Leaving it SUSPENDED (cold); the "
+          "instance is starting DEGRADED and this tenant is resumable once memory frees up.",
+          name,
+          e.what());
     } catch (const std::exception &e) {
       spdlog::error("Exception while recovering database {} ({}); leaving it suspended (cold).", name, e.what());
     }
@@ -350,8 +370,11 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
       // Leave-cold: emplace a COLD shell so the process stays up and the tenant is resumable later.
       // The durable entry is left HOT (no cold marker) so a future restart retries HOT recovery; the
       // metadata is rebuilt from defaults (no heartbeat/cold_stats available for a failed recovery).
+      // C12: tag the in-memory entry with WHY it is cold so SHOW surfaces the degraded marker.
       db_handler_.EmplaceColdShell(name);
-      suspended_.insert_or_assign(std::string{name}, make_cold_entry(name, uuid, rel_dir, json));
+      auto entry = make_cold_entry(name, uuid, rel_dir, json);
+      entry.cold_reason = reason;
+      suspended_.insert_or_assign(std::string{name}, std::move(entry));
     }
   }
 
