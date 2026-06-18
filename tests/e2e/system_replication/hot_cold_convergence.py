@@ -84,7 +84,7 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def main_args(test_name, recovery: bool = False):
+def main_args(test_name, recovery: bool = False, restore_replication: bool = False):
     args = [
         "--bolt-port",
         f"{BOLT_PORTS['main']}",
@@ -95,6 +95,10 @@ def main_args(test_name, recovery: bool = False):
         # Cross-restart durability test: on restart MAIN must recover its tenants from its own disk
         # (HOT tenants rebuilt, COLD tenants restored as metadata-only shells).
         args += ["--data-recovery-on-startup=true"]
+    if restore_replication:
+        # MAIN-crash-recovery test: on restart MAIN must restore its MAIN role + registered replicas and
+        # auto-reconnect (driving SystemRecovery), as a real crashed MAIN does.
+        args += ["--replication-restore-state-on-startup=true"]
     return {
         "args": args,
         "log_file": f"{get_logs_path(file, test_name)}/main.log",
@@ -1244,6 +1248,89 @@ def test_drop_cold_tenant_while_replica_down_converges(connection, test_name):
     # COLD copy of B (it was dropped), so B is in the leftover set, and the replica reaps the cold ghost.
     # Pre-fix: the ghost survived as "COLD" forever because the leftover-delete only walked the HOT set.
     mg_sleep_and_assert("MISSING", tenant_probe(replica_cursor, "B"))
+
+
+def test_main_crash_in_suspend_gap_converges(connection, test_name):
+    # T4 / L4 (crash window between finish_suspend() and the SuspendDatabase replication action):
+    #   Suspend_ flips the tenant durably COLD (finish_suspend writes the cold marker) BEFORE the
+    #   SuspendDatabase action is appended to the replication stream. If MAIN crashes in that gap, the
+    #   suspend is durable locally but was NEVER replicated as an action — neither delivered to the
+    #   replica nor recorded in MAIN's stream. Convergence must then come SOLELY from the durable COLD
+    #   marker surfacing through the V3 SystemRecovery payload on (re)connect (the BEHIND -> reconcile
+    #   path), NOT from replaying the action. The synthesis adjudicated this self-healing; this is the
+    #   explicit coverage e2e it asked for.
+    #
+    #   We cannot hook the exact in-process gap from e2e, but we reproduce its OBSERVABLE end-state
+    #   precisely — MAIN durably COLD, replica never saw a suspend action, MAIN itself crashed+recovered
+    #   mid-flight — by taking the replica down, suspending on MAIN, then crashing+restarting MAIN. The
+    #   suspend therefore reaches the replica only via SystemRecovery, after a MAIN restart.
+    #
+    # Sequence:
+    #   1. main + replica, tenant A replicated HOT; replica ASYNC (SUSPEND must not block on it). Both
+    #      recover state on restart; MAIN also restores its replica registration + role and auto-reconnects.
+    #   2. Kill the replica (keep its dir so it recovers A HOT on restart).
+    #   3. SUSPEND A on MAIN -> A COLD durably on MAIN; the SuspendDatabaseRpc is lost (replica down).
+    #   4. Kill MAIN (the crash) keeping its dir.
+    #   5. Restart the replica FIRST, while MAIN is still down -> it recovers its STALE A HOT copy from its
+    #      own disk and restores its REPLICA role. Asserted HOT here: with no MAIN up nothing can converge
+    #      it yet, so this deterministically witnesses the divergent copy SystemRecovery must later fix.
+    #   6. Restart MAIN -> it recovers A COLD from its durable marker and (restore-state) restores its
+    #      registration of replica_1, auto-reconnecting to the already-up replica. The suspend now exists
+    #      ONLY as durable state on MAIN — never as a streamed/recorded action.
+    #   7. On reconnect MAIN runs SystemRecovery (V3); A is in MAIN's COLD set, so the replica force-
+    #      suspends its HOT A to COLD (SR-1'(2)) driven purely by the recovery payload, not an action.
+    #      tenant_probe must converge the replica to "COLD".
+    #   8. A subsequent RESUME on MAIN still converges the replica back to HOT with data intact.
+    instances = {
+        "replica_1": replica_args(test_name, recovery=True),
+        "main": main_args(test_name, recovery=True, restore_replication=True),
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    set_replica_role(replica_cursor)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    register_replica(main_cursor, sync=False)  # ASYNC: SUSPEND must not block on the (soon) down replica
+
+    create_and_populate(main_cursor, "A", 7)
+    mg_sleep_and_assert(7, tenant_probe(replica_cursor, "A"))
+
+    # Take the replica down BEFORE the suspend (keep its dir so it recovers A HOT on restart).
+    interactive_mg_runner.kill(instances, "replica_1", keep_directories=True)
+
+    # SUSPEND A on MAIN while the replica is offline -> A COLD durably on MAIN; action not delivered.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
+    assert tenant_probe(main_cursor, "A")() == "COLD"
+
+    # Crash MAIN (keep its dir).
+    interactive_mg_runner.kill(instances, "main", keep_directories=True)
+
+    # Bring the replica back FIRST, while MAIN is still down: it recovers its STALE HOT copy of A from
+    # disk and restores its REPLICA role. With no MAIN up, nothing can converge it yet, so the HOT
+    # assertion is stable and witnesses the divergence SystemRecovery must repair.
+    interactive_mg_runner.start(instances, "replica_1")
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    assert tenant_probe(replica_cursor, "A")() == 7, "the replica must recover its pre-crash HOT copy of A"
+
+    # Restart MAIN: it recovers A COLD from its durable marker and restores its replica registration,
+    # auto-reconnecting to the already-up replica (the real crash-recovery path). The suspend now exists
+    # ONLY as durable state on MAIN, never as a streamed action.
+    interactive_mg_runner.start(instances, "main")
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    assert (
+        tenant_probe(main_cursor, "A")() == "COLD"
+    ), "MAIN must recover A COLD from its durable marker after the crash"
+
+    # On reconnect, SystemRecovery (V3) reconciles A to COLD on the replica purely from the recovery
+    # payload (no suspend action was ever streamed).
+    mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "A"))
+
+    # And a subsequent RESUME on MAIN still converges the replica back to HOT with data intact.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
+    mg_sleep_and_assert(7, tenant_probe(replica_cursor, "A"))
 
 
 if __name__ == "__main__":

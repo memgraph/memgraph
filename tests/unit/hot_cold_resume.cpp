@@ -663,6 +663,41 @@ TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
   EXPECT_THROW(handler_->Get(bad), std::exception);
 }
 
+// T3 / H3 (R1 byte-identical): the C12 boot-OOM leave-cold valve is INTENTIONALLY flag-gated. With the
+// hot-cold-tenants experiment DISABLED, a HOT tenant whose boot recovery FAILS must ABORT the process
+// (MG_ASSERT) exactly like non-experimental master, NOT silently boot degraded by leaving the tenant
+// cold. This is the negative control for BootRecoveryFailureLeavesTenantColdWithMarker (which proves the
+// flag-ON survival): identical corruption, opposite outcome, gated solely on the experiment flag. Without
+// this gate the flag-off boot would diverge from master on a recovery failure (R1 violation).
+TEST_F(HotColdResume, FlagOffBootRecoveryFailureAborts) {
+  constexpr int kBadNodes = 5;
+  auto bad = CreateAndPopulate("recover_fail_flagoff", kBadNodes);
+
+  // Capture the tenant's uuid (locates its on-disk data) while it is still HOT under the flag.
+  std::string bad_uuid;
+  {
+    auto acc = handler_->Get(bad);
+    bad_uuid = static_cast<std::string>(acc->storage()->uuid());
+  }
+
+  // Tear down (flush + close), then corrupt the tenant's durability so its next HOT recovery throws.
+  handler_.reset();
+  CorruptTenantDurability(bad_uuid);
+
+  // Disable the experiment: the leave-cold valve is now unavailable, so the failed recovery must abort.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+
+  // Reconstructing the handler over the corrupt data dir must TERMINATE the process (MG_ASSERT ->
+  // std::terminate), matching non-experimental master's abort-on-recovery-failure. (Flag-ON the identical
+  // corruption is survived and the tenant left COLD — see BootRecoveryFailureLeavesTenantColdWithMarker.)
+  // Empty regex: the AssertFailed message is routed through spdlog, whose sink is not reliably the
+  // gtest-captured stderr in this binary (the storage_v2 durability death tests match "" for the same
+  // reason); the abort itself is the assertion under test.
+  ASSERT_DEATH(  // NOLINT(cppcoreguidelines-avoid-goto)
+      ([&]() { [[maybe_unused]] auto h = std::make_unique<DbmsHandler>(conf_); }()),
+      "");
+}
+
 // C14 (HIGH): a tenant durably SUSPENDED (cold) under the experiment must NOT silently vanish if the
 // instance later restarts with the experiment DISABLED. The restore loop reheats it HOT from its intact
 // data dir, flips the durable marker to HOT (sticky), and re-enabling the experiment does not re-suspend
