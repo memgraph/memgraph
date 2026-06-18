@@ -32,6 +32,7 @@ namespace memgraph::flags {
 enum class Experiments : uint8_t {
   NONE = 0,
   PLANNER_V2 = 1 << 0,
+  HOT_COLD_TENANTS = 1 << 1,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);
