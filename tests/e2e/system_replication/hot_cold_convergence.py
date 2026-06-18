@@ -9,7 +9,8 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# End-to-end coverage for hot/cold tenants over replication (feature v2, commits C7 + C8).
+# End-to-end coverage for hot/cold tenants over replication (feature v2, commits C7 + C8) plus the
+# node-local cross-restart durability path (C9).
 #
 #   C7 — SUSPEND/RESUME DATABASE is system-replicated: a SUSPEND on MAIN streams a SuspendDatabaseRpc
 #        so each connected replica tears its own copy down to a COLD shell; RESUME rebuilds it. This
@@ -20,6 +21,11 @@
 #        test_lagging_replica_convergence: the replica is DOWN across the SUSPEND, so the
 #        SuspendDatabaseRpc never reaches it; on reconnect SystemRecovery must force-suspend the
 #        tenant the replica still holds HOT (SR-1 exempt-from-delete + SR-1'(2) force-suspend).
+#
+#   C9 — hot/cold is durable: a tenant suspended before a restart recovers COLD (metadata-only shell,
+#        durable cold marker), a HOT tenant recovers HOT with its data, and the COLD tenant still
+#        resumes with all data intact. This is a single-instance test (no replication) exercised by
+#        test_cross_restart_hot_only_recovery.
 #
 # COLD is observed without relying on the (later, C11) cold-aware SHOW: accessing a COLD tenant
 # trips the query seam in DbmsHandler::Get_, which raises "... is suspended (cold); run RESUME ...".
@@ -59,14 +65,19 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def main_args(test_name):
+def main_args(test_name, recovery: bool = False):
+    args = [
+        "--bolt-port",
+        f"{BOLT_PORTS['main']}",
+        "--log-level=TRACE",
+        HOT_COLD_FLAG,
+    ]
+    if recovery:
+        # Cross-restart durability test: on restart MAIN must recover its tenants from its own disk
+        # (HOT tenants rebuilt, COLD tenants restored as metadata-only shells).
+        args += ["--data-recovery-on-startup=true"]
     return {
-        "args": [
-            "--bolt-port",
-            f"{BOLT_PORTS['main']}",
-            "--log-level=TRACE",
-            HOT_COLD_FLAG,
-        ],
+        "args": args,
         "log_file": f"{get_logs_path(file, test_name)}/main.log",
         "data_directory": f"{get_data_path(file, test_name)}/main",
         "setup_queries": [],
@@ -215,6 +226,39 @@ def test_lagging_replica_convergence(connection, test_name):
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
     mg_sleep_and_assert(7, tenant_probe(replica_cursor, "A"))
+
+
+def test_cross_restart_hot_only_recovery(connection, test_name):
+    # C9: a single MAIN, no replication. A tenant suspended before a restart must recover COLD (durable
+    # cold marker), a HOT tenant must recover HOT with its data, and the COLD tenant must still resume
+    # with all its data — proving the durable cold marker round-trips and the restore loop branches on
+    # it (and preserves both data directories).
+    instances = {"main": main_args(test_name, recovery=True)}
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    create_and_populate(main_cursor, "A", 7)
+    create_and_populate(main_cursor, "B", 4)
+
+    # Suspend A; B stays HOT.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
+    assert tenant_probe(main_cursor, "A")() == "COLD"
+    assert tenant_probe(main_cursor, "B")() == 4
+
+    # Restart MAIN, keeping its data directory.
+    interactive_mg_runner.kill(instances, "main", keep_directories=True)
+    interactive_mg_runner.start(instances, "main")
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # A recovers COLD (durable cold marker), B recovers HOT with its data intact.
+    assert tenant_probe(main_cursor, "A")() == "COLD", "a tenant suspended before restart must recover COLD"
+    assert tenant_probe(main_cursor, "B")() == 4, "a HOT tenant must recover HOT with its data"
+
+    # A still resumes from its preserved data directory with all data intact.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
+    assert tenant_probe(main_cursor, "A")() == 7, "the cold tenant must resume with all data after a restart"
 
 
 if __name__ == "__main__":

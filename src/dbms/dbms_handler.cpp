@@ -18,6 +18,7 @@
 #include <ranges>
 #include <shared_mutex>
 #include <thread>
+#include <utility>
 
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
@@ -27,6 +28,7 @@
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/inmemory/storage.hpp"
+#include "utils/enum.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -75,6 +77,7 @@ struct Durability {
   enum class DurabilityVersion : uint8_t {
     V0 = 0,
     V1,
+    V2,  //!< hot/cold: COLD entries gain a `cold` marker + heartbeat metadata + cold_stats (C9)
   };
 
   struct VersionException : public utils::BasicException {
@@ -96,6 +99,9 @@ struct Durability {
     if (val == "V1") {
       return DurabilityVersion::V1;
     }
+    if (val == "V2") {
+      return DurabilityVersion::V2;
+    }
     throw UnknownVersionException();
   };
 
@@ -106,6 +112,91 @@ struct Durability {
     json["uuid"] = uuid;
     json["rel_dir"] = rel_dir;
     // TODO: Serialize the configuration
+    return json.dump();
+  }
+
+  // Round-trippable JSON for a captured StorageInfo (hot/cold cold_stats). Distinct from
+  // storage::ToJson (a lossy SHOW-presentation form): this stores every field by struct name so the
+  // exact StorageInfo survives a restart. Enums are persisted as their underlying integer (the data
+  // is self-produced by the same binary version, so a direct read-back is safe).
+  static nlohmann::json StatsToJson(const storage::StorageInfo &s) {
+    nlohmann::json j;
+    j["vertex_count"] = s.vertex_count;
+    j["edge_count"] = s.edge_count;
+    j["average_degree"] = s.average_degree;
+    j["memory_res"] = s.memory_res;
+    j["peak_memory_res"] = s.peak_memory_res;
+    j["unreleased_delta_objects"] = s.unreleased_delta_objects;
+    j["disk_usage"] = s.disk_usage;
+    j["label_indices"] = s.label_indices;
+    j["label_property_indices"] = s.label_property_indices;
+    j["text_indices"] = s.text_indices;
+    j["vector_indices"] = s.vector_indices;
+    j["vector_edge_indices"] = s.vector_edge_indices;
+    j["existence_constraints"] = s.existence_constraints;
+    j["unique_constraints"] = s.unique_constraints;
+    j["type_constraints"] = s.type_constraints;
+    j["storage_mode"] = std::to_underlying(s.storage_mode);
+    j["isolation_level"] = std::to_underlying(s.isolation_level);
+    j["durability_snapshot_enabled"] = s.durability_snapshot_enabled;
+    j["durability_wal_enabled"] = s.durability_wal_enabled;
+    j["property_store_compression_enabled"] = s.property_store_compression_enabled;
+    j["property_store_compression_level"] = std::to_underlying(s.property_store_compression_level);
+    j["schema_vertex_count"] = s.schema_vertex_count;
+    j["schema_edge_count"] = s.schema_edge_count;
+    return j;
+  }
+
+  // Reads back a StatsToJson object. Tolerant of missing keys (defaults to 0/false): a V1 COLD entry
+  // never existed, but a forward-compatible read of a partial object must not throw (R15).
+  static storage::StorageInfo StatsFromJson(const nlohmann::json &j) {
+    storage::StorageInfo s{};
+    s.vertex_count = j.value("vertex_count", uint64_t{0});
+    s.edge_count = j.value("edge_count", uint64_t{0});
+    s.average_degree = j.value("average_degree", 0.0);
+    s.memory_res = j.value("memory_res", uint64_t{0});
+    s.peak_memory_res = j.value("peak_memory_res", uint64_t{0});
+    s.unreleased_delta_objects = j.value("unreleased_delta_objects", uint64_t{0});
+    s.disk_usage = j.value("disk_usage", uint64_t{0});
+    s.label_indices = j.value("label_indices", uint64_t{0});
+    s.label_property_indices = j.value("label_property_indices", uint64_t{0});
+    s.text_indices = j.value("text_indices", uint64_t{0});
+    s.vector_indices = j.value("vector_indices", uint64_t{0});
+    s.vector_edge_indices = j.value("vector_edge_indices", uint64_t{0});
+    s.existence_constraints = j.value("existence_constraints", uint64_t{0});
+    s.unique_constraints = j.value("unique_constraints", uint64_t{0});
+    s.type_constraints = j.value("type_constraints", uint64_t{0});
+    // storage_mode has an Enum::N sentinel (NumToEnum-validatable); isolation/compression do not, so
+    // direct-cast their underlying integer (mirrors the StorageInfo SLK Load in system_rpc.cpp).
+    if (!utils::NumToEnum(j.value("storage_mode", uint8_t{0}), s.storage_mode)) {
+      s.storage_mode = storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+    }
+    s.isolation_level = static_cast<storage::IsolationLevel>(j.value("isolation_level", uint8_t{0}));
+    s.durability_snapshot_enabled = j.value("durability_snapshot_enabled", false);
+    s.durability_wal_enabled = j.value("durability_wal_enabled", false);
+    s.property_store_compression_enabled = j.value("property_store_compression_enabled", false);
+    s.property_store_compression_level =
+        static_cast<utils::CompressionLevel>(j.value("property_store_compression_level", uint8_t{0}));
+    s.schema_vertex_count = j.value("schema_vertex_count", uint64_t{0});
+    s.schema_edge_count = j.value("schema_edge_count", uint64_t{0});
+    return s;
+  }
+
+  // Durable entry for a COLD (suspended) tenant. Carries the HOT entry's identity (uuid, rel_dir)
+  // plus the cold marker, the suspend-time heartbeat metadata, and the as-of-suspend cold_stats.
+  // On restart a `cold:true` entry is restored as a no-value COLD shell (no storage build) — see the
+  // restore loop in the DbmsHandler ctor.
+  static auto GenColdVal(utils::UUID uuid, std::filesystem::path rel_dir, uint64_t last_durable_timestamp,
+                         uint64_t num_committed_txns, std::string_view last_epoch,
+                         const storage::StorageInfo &cold_stats) -> std::string {
+    nlohmann::json json;
+    json["uuid"] = uuid;
+    json["rel_dir"] = rel_dir;
+    json["cold"] = true;
+    json["last_durable_timestamp"] = last_durable_timestamp;
+    json["num_committed_txns"] = num_committed_txns;
+    json["last_epoch"] = last_epoch;
+    json["cold_stats"] = StatsToJson(cold_stats);
     return json.dump();
   }
 
@@ -140,8 +231,12 @@ struct Durability {
       }
     }
 
-    // Set version
-    durability->Put("version", "V1");
+    // V1 -> V2 is purely additive: V1 entries are all HOT ({uuid, rel_dir}) and remain valid as-is;
+    // V2 only ADDS optional COLD entries (written by SUSPEND). Reads default `cold` to false and
+    // `cold_stats` to zeros, so an unmigrated V1 entry is read correctly with no data movement (R15).
+
+    // Set version to the current schema (V2).
+    durability->Put("version", "V2");
     // Update to the new key-value pairs
     if (!durability->PutAndDeleteMultiple(to_put, to_delete)) {
       throw MigrationException();
@@ -172,7 +267,28 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
   Durability::Migrate(durability_.get(), root);
   auto directories = std::set{std::string{kDefaultDB}};
 
-  // Restore databases
+  // Reconstruct a COLD tenant's rebuild metadata from a durable entry. The salient is rebuilt from
+  // the instance defaults (per-tenant salient persistence is out of scope, D10) with the durable name
+  // + uuid overlaid — identical to how New_(name, uuid, ...) builds it for a HOT tenant.
+  auto make_cold_entry =
+      [&](std::string_view nm, utils::UUID id, std::filesystem::path rel_dir, const nlohmann::json &json) {
+        SuspendedEntry entry;
+        entry.salient = default_config_.salient;
+        entry.salient.name = nm;
+        entry.salient.uuid = id;
+        entry.rel_dir = std::move(rel_dir);
+        entry.last_used_ns = 0;  // not persisted; resume does not depend on it
+        entry.last_durable_timestamp = json.value("last_durable_timestamp", uint64_t{0});
+        entry.num_committed_txns = json.value("num_committed_txns", uint64_t{0});
+        entry.last_epoch = json.value("last_epoch", std::string{});
+        if (json.contains("cold_stats")) entry.cold_stats = Durability::StatsFromJson(json.at("cold_stats"));
+        return entry;
+      };
+
+  // Restore databases. A tenant is restored HOT (storage built + recovered) unless its durable entry
+  // carries `cold:true`, in which case only a no-value COLD shell + suspended_ metadata is restored
+  // (no storage build). A HOT recovery that fails is left COLD rather than aborting the process (R4):
+  // C12 adds OOM-specific detection/metrics on top of this leave-cold infrastructure.
   auto it = durability_->begin(std::string(kDBPrefix));
   auto end = durability_->end(std::string(kDBPrefix));
   for (; it != end; ++it) {
@@ -181,11 +297,43 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
     auto json = nlohmann::json::parse(config_json);
     const auto uuid = json.at("uuid").get<utils::UUID>();
     const auto rel_dir = json.at("rel_dir").get<std::filesystem::path>();
-    spdlog::info("Restoring database {} at {}.", name, rel_dir);
-    auto new_db = New_(name, uuid, nullptr, rel_dir);
-    MG_ASSERT(new_db.has_value(), "Failed while creating database {}.", name);
+    // The on-disk directory must survive the cleanup pass below for BOTH hot and cold tenants — a
+    // COLD shell's data dir is exactly what a later resume rebuilds from.
     directories.emplace(rel_dir.filename());
-    spdlog::info("Database {} restored.", name);
+
+    const bool is_cold = json.value("cold", false);
+    if (is_cold) {
+      // COLD: metadata-only shell, no storage build.
+      spdlog::info("Restoring suspended (cold) database {} at {}.", name, rel_dir);
+      db_handler_.EmplaceColdShell(name);
+      suspended_.insert_or_assign(std::string{name}, make_cold_entry(name, uuid, rel_dir, json));
+      spdlog::info("Suspended (cold) database {} restored.", name);
+      continue;
+    }
+
+    // HOT: build + recover the storage. On failure, leave the tenant COLD instead of aborting.
+    spdlog::info("Restoring database {} at {}.", name, rel_dir);
+    bool recovered = false;
+    try {
+      auto new_db = New_(name, uuid, nullptr, rel_dir);
+      recovered = new_db.has_value();
+      if (!recovered) {
+        spdlog::error("Failed while recovering database {} (error {}); leaving it suspended (cold).",
+                      name,
+                      static_cast<int>(new_db.error()));
+      }
+    } catch (const std::exception &e) {
+      spdlog::error("Exception while recovering database {} ({}); leaving it suspended (cold).", name, e.what());
+    }
+    if (recovered) {
+      spdlog::info("Database {} restored.", name);
+    } else {
+      // Leave-cold: emplace a COLD shell so the process stays up and the tenant is resumable later.
+      // The durable entry is left HOT (no cold marker) so a future restart retries HOT recovery; the
+      // metadata is rebuilt from defaults (no heartbeat/cold_stats available for a failed recovery).
+      db_handler_.EmplaceColdShell(name);
+      suspended_.insert_or_assign(std::string{name}, make_cold_entry(name, uuid, rel_dir, json));
+    }
   }
 
   /*
@@ -847,11 +995,34 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
 
   // PHASE C — record metadata (lock_), then heavy teardown OUTSIDE lock_.
   const auto tenant_uuid = entry.salient.uuid;  // capture before `entry` is moved into suspended_
-  acc.reset();                                  // drop our accessor -> count == 0 (state still SUSPENDING)
+  // C9: serialize the durable COLD marker from `entry` BEFORE it is moved into suspended_.
+  std::string cold_val;
+  if (durability_) {
+    cold_val = Durability::GenColdVal(entry.salient.uuid,
+                                      entry.rel_dir,
+                                      entry.last_durable_timestamp,
+                                      entry.num_committed_txns,
+                                      entry.last_epoch,
+                                      entry.cold_stats);
+  }
+  acc.reset();  // drop our accessor -> count == 0 (state still SUSPENDING)
   {
     auto wr = std::lock_guard{lock_};
     suspended_.insert_or_assign(std::string{name}, std::move(entry));
-    // NOTE: durable COLD marker persisted in C9 (cross-restart durability commit).
+    // SU-6 / C9: persist the durable COLD marker under the SAME lock_ as the suspended_ insert so a
+    // concurrent Resume_ cannot observe a half state. A Put failure degrades to a warning and never
+    // rolls back or throws (the in-memory teardown still proceeds; MAIN's data stays durable on disk).
+    if (durability_) {
+      try {
+        durability_->Put(Durability::GenKey(name), cold_val);
+      } catch (const std::exception &e) {
+        spdlog::warn(
+            "hot/cold suspend: failed to persist the cold durability marker for '{}' ({}); the tenant is "
+            "suspended in memory but will recover HOT on restart.",
+            name,
+            e.what());
+      }
+    }
   }
 
   // SU-2: Disable the rollback guard BEFORE calling finish_suspend(). finish_suspend() transitions
@@ -966,6 +1137,27 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         acc.reset();
         gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
         return std::unexpected{ResumeError::RECOVERY_FAILED};
+      }
+
+      // C9: flip the durable entry back to HOT (drop the cold marker) so a restart recovers it HOT.
+      // Done in a SEPARATE short lock_ scope AFTER the publish — NOT inside the publish block, whose
+      // noexcept guarantee a throwing Put would violate. The write is guarded by !suspended_.contains:
+      // if a SUSPEND raced in after our publish-erase and re-suspended the tenant, its under-lock COLD
+      // marker must stand. A Put failure degrades to a warning (the tenant is live HOT regardless; on
+      // the next restart a stale cold marker only makes it recover COLD, and it is resumable again).
+      if (durability_) {
+        auto wr = std::lock_guard{lock_};
+        if (!suspended_.contains(name)) {
+          try {
+            durability_->Put(Durability::GenKey(name), Durability::GenVal(entry.salient.uuid, entry.rel_dir));
+          } catch (const std::exception &e) {
+            spdlog::warn(
+                "hot/cold resume: failed to clear the cold durability marker for '{}' ({}); the tenant is live "
+                "(HOT) but may recover COLD on restart (resumable).",
+                name,
+                e.what());
+          }
+        }
       }
       // POST-PUBLISH arm (replication). The tenant is ALREADY published HOT and erased from
       // suspended_; we must NOT abort_resume() here (the gatekeeper is no longer RESUMING). The arm

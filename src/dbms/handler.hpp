@@ -83,6 +83,24 @@ class Handler {
   }
 
   /**
+   * @brief Emplace a no-value COLD shell gatekeeper for @p name.
+   *
+   * Hot/cold restart recovery: a COLD (suspended) tenant has a durable metadata entry but no
+   * in-memory storage. This inserts the no-value shell (state COLD) so a later resume can
+   * move-assign a fresh HOT gatekeeper over it, exactly as a runtime SUSPEND leaves the in-map
+   * gatekeeper. The cold_shell_t ctor builds the shell with no value (access() == nullopt).
+   *
+   * @param name Name to associate with the COLD shell
+   * @return the in-map gatekeeper pointer, or nullptr if @p name is already present
+   */
+  utils::Gatekeeper<T> *EmplaceColdShell(std::string_view name) {
+    if (Has(name)) return nullptr;
+    auto [itr, _] =
+        items_.emplace(std::piecewise_construct, std::forward_as_tuple(name), std::forward_as_tuple(utils::cold_shell));
+    return &itr->second;
+  }
+
+  /**
    * @brief Get pointer to context.
    *
    * @param name Name associated with the wanted context

@@ -58,17 +58,24 @@ class HotColdResume : public ::testing::Test {
     fs::remove_all(test_dir_);
     fs::create_directories(test_dir_);
 
-    memgraph::storage::Config conf;
-    memgraph::storage::UpdatePaths(conf, test_dir_);
-    conf.durability.snapshot_wal_mode =
+    memgraph::storage::UpdatePaths(conf_, test_dir_);
+    conf_.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-    conf.durability.recover_on_startup = true;
-    handler_ = std::make_unique<DbmsHandler>(conf);
+    conf_.durability.recover_on_startup = true;
+    handler_ = std::make_unique<DbmsHandler>(conf_);
   }
 
   void TearDown() override {
     handler_.reset();
     fs::remove_all(test_dir_);
+  }
+
+  // Simulate a process restart: tear down the handler (closes durability + storage) and reconstruct
+  // it over the SAME data directory, so the new handler runs its restore loop against what the old
+  // one persisted. Used by the cross-restart (C9) tests.
+  void Restart() {
+    handler_.reset();
+    handler_ = std::make_unique<DbmsHandler>(conf_);
   }
 
   std::string CreateTenant(std::string name) {
@@ -101,6 +108,7 @@ class HotColdResume : public ::testing::Test {
   }
 
   fs::path test_dir_;
+  memgraph::storage::Config conf_;
   std::unique_ptr<DbmsHandler> handler_;
 };
 
@@ -310,6 +318,80 @@ TEST_F(HotColdResume, CreateTenantWhileAnotherSuspended) {
   auto resumed = handler_->Resume(cold);
   ASSERT_TRUE(resumed.has_value());
   EXPECT_EQ(CountNodes(resumed.value()), 3);
+}
+
+// C9 cross-restart: a tenant suspended before a restart must come back COLD (durable cold marker),
+// not HOT, and must still resume with all its data. A HOT tenant present across the same restart must
+// recover HOT and unchanged — proving the restore loop branches on the marker and the cleanup pass
+// preserves both tenants' data directories.
+TEST_F(HotColdResume, CrossRestartColdTenantStaysColdHotTenantRecovers) {
+  constexpr int kColdNodes = 7;
+  constexpr int kHotNodes = 4;
+  auto cold = CreateAndPopulate("cold_persist", kColdNodes);
+  auto hot = CreateAndPopulate("hot_persist", kHotNodes);
+
+  ASSERT_TRUE(handler_->Suspend(cold).has_value());
+  EXPECT_FALSE(InAll(cold)) << "tenant must be COLD before the restart";
+
+  Restart();
+
+  // The cold tenant is restored as a COLD shell: not in All(), and Get() trips the cold seam.
+  EXPECT_FALSE(InAll(cold)) << "a tenant suspended before restart must recover COLD";
+  EXPECT_THROW(
+      {
+        try {
+          handler_->Get(cold);
+        } catch (const std::exception &e) {
+          EXPECT_THAT(e.what(), ::testing::HasSubstr("suspended"));
+          throw;
+        }
+      },
+      std::exception);
+
+  // The hot tenant is restored HOT with its data intact.
+  ASSERT_TRUE(InAll(hot)) << "a HOT tenant must recover HOT across a restart";
+  auto hot_acc = handler_->Get(hot);
+  EXPECT_EQ(CountNodes(hot_acc), kHotNodes);
+
+  // The durable cold_stats round-trips: the COLD tenant's restored StorageInfo (read back through
+  // the public recovery snapshot) carries the as-of-suspend vertex_count. This exercises the 23-field
+  // StatsToJson/StatsFromJson path end-to-end across the restart.
+  {
+    auto [configs, stats] = handler_->SuspendedConfigsForRecovery();
+    ASSERT_EQ(configs.size(), stats.size());
+    bool found_cold_stats = false;
+    for (size_t i = 0; i < configs.size(); ++i) {
+      if (configs[i].name.str() == cold) {
+        EXPECT_EQ(stats[i].vertex_count, static_cast<uint64_t>(kColdNodes))
+            << "the durably-restored cold_stats must carry the as-of-suspend vertex_count";
+        found_cold_stats = true;
+      }
+    }
+    EXPECT_TRUE(found_cold_stats) << "the cold tenant must appear in the recovery snapshot after restart";
+  }
+
+  // The cold tenant resumes from its preserved data directory with all data intact.
+  auto resumed = handler_->Resume(cold);
+  ASSERT_TRUE(resumed.has_value()) << "a COLD tenant restored from disk must resume";
+  EXPECT_TRUE(InAll(cold));
+  EXPECT_EQ(CountNodes(resumed.value()), kColdNodes) << "all data must survive suspend -> restart -> resume";
+}
+
+// C9: a RESUME clears the durable cold marker, so a tenant that was resumed before a restart recovers
+// HOT (not COLD) on the next boot — the inverse of the test above.
+TEST_F(HotColdResume, CrossRestartResumedTenantRecoversHot) {
+  constexpr int kNodes = 5;
+  auto name = CreateAndPopulate("resumed_persist", kNodes);
+
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+  ASSERT_TRUE(handler_->Resume(name).has_value());
+  EXPECT_TRUE(InAll(name)) << "tenant must be HOT after resume";
+
+  Restart();
+
+  ASSERT_TRUE(InAll(name)) << "a resumed tenant must recover HOT across a restart (cold marker cleared)";
+  auto acc = handler_->Get(name);
+  EXPECT_EQ(CountNodes(acc), kNodes);
 }
 
 #else
