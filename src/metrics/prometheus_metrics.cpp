@@ -165,9 +165,9 @@ PrometheusMetrics::PrometheusMetrics()
                                    .Name("memgraph_read_write_queries_total")
                                    .Help("Total number of read-write queries")
                                    .Register(registry_)},
-      query_no_index_lookup_family_{
+      unindexed_scan_queries_family_{
           prometheus::BuildCounter()
-              .Name("memgraph_query_no_index_lookup_total")
+              .Name("memgraph_unindexed_scan_queries_total")
               .Help("Query executions whose plan had a ScanAll+Filter an index could have served (counts once "
                     "per query)")
               .Register(registry_)},
@@ -1026,7 +1026,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .read_query = {&read_query_family_.Add(labels)},
                   .write_query = {&write_query_family_.Add(labels)},
                   .read_write_query = {&read_write_query_family_.Add(labels)},
-                  .query_no_index_lookup = {&query_no_index_lookup_family_.Add(labels)},
+                  .unindexed_scan_queries = {&unindexed_scan_queries_family_.Add(labels)},
                   .deleted_nodes = {&deleted_nodes_family_.Add(labels)},
                   .deleted_edges = {&deleted_edges_family_.Add(labels)},
                   .show_schema = {&show_schema_family_.Add(labels)},
@@ -1140,7 +1140,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   read_query_family_.Remove(h.read_query.get());
   write_query_family_.Remove(h.write_query.get());
   read_write_query_family_.Remove(h.read_write_query.get());
-  query_no_index_lookup_family_.Remove(h.query_no_index_lookup.get());
+  unindexed_scan_queries_family_.Remove(h.unindexed_scan_queries.get());
   deleted_nodes_family_.Remove(h.deleted_nodes.get());
   deleted_edges_family_.Remove(h.deleted_edges.get());
   show_schema_family_.Remove(h.show_schema.get());
@@ -1579,7 +1579,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back({"ReadWriteQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_write_query.Value())});
 
   // Query (planner-level signals)
-  out.push_back({"QueryNoIndexLookup", "Query", "Counter", static_cast<int64_t>(h.query_no_index_lookup.Value())});
+  out.push_back({"UnindexedScanQueries", "Query", "Counter", static_cast<int64_t>(h.unindexed_scan_queries.Value())});
 
   // TTL
   out.push_back({"DeletedNodes", "TTL", "Counter", static_cast<int64_t>(h.deleted_nodes.Value())});
@@ -1965,7 +1965,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"ShowStorageInfoOnDatabase", "StorageInfo", "Counter", total_show_storage_info});
 
   // Query
-  // QueryNoIndexLookup is OpenMetrics / SHOW METRICS INFO only; not aggregated into the deprecated JSON endpoint.
+  // UnindexedScanQueries is OpenMetrics / SHOW METRICS INFO only; not aggregated into the deprecated JSON endpoint.
   AppendMergedHistogramPercentiles(out, "QueryExecutionLatency", "Query", query_exec_hdatas);
 
   // Snapshot

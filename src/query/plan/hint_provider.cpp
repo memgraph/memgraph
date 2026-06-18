@@ -20,7 +20,7 @@ PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolT
 
   return PlanHintsResult{
       .hints = plan_hinter.take_hints(),
-      .has_no_index_lookup = plan_hinter.has_no_index_lookup(),
+      .has_unindexed_scan = plan_hinter.has_unindexed_scan(),
   };
 }
 

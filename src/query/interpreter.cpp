@@ -3595,8 +3595,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     memgraph::logging::EmitSessionTraceEvent(hint);
   }
   // Per-query signal: count once even if the plan has several qualifying scans.
-  if (hints.has_no_index_lookup) {
-    (*current_db.db_acc_)->metric_handles()->query_no_index_lookup.Increment(1.0);
+  if (hints.has_unindexed_scan) {
+    (*current_db.db_acc_)->metric_handles()->unindexed_scan_queries.Increment(1.0);
   }
 
   if (memgraph::logging::IsSessionTraceEnabled()) {

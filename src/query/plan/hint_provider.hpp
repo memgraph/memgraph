@@ -31,7 +31,7 @@ namespace memgraph::query::plan {
 struct PlanHintsResult {
   std::vector<std::string> hints;
   // True if the plan has any ScanAll+Filter an index could have served.
-  bool has_no_index_lookup{false};
+  bool has_unindexed_scan{false};
 };
 
 PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
@@ -42,7 +42,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   std::vector<std::string> take_hints() { return std::move(hints_); }
 
-  bool has_no_index_lookup() const { return has_no_index_lookup_; }
+  bool has_unindexed_scan() const { return has_unindexed_scan_; }
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -380,7 +380,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
  private:
   const SymbolTable &symbol_table_;
   std::vector<std::string> hints_;
-  bool has_no_index_lookup_{false};
+  bool has_unindexed_scan_{false};
 
   bool DefaultPreVisit() override { LOG_FATAL("Operator not implemented for providing plan hints!"); }
 
@@ -411,7 +411,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
                         scan_symbol.name(),
                         filtered_labels,
                         filtered_properties));
-        has_no_index_lookup_ = true;
+        has_unindexed_scan_ = true;
         return;
       }
 
@@ -421,7 +421,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
             "creating a label index.",
             scan_symbol.name(),
             filtered_labels));
-        has_no_index_lookup_ = true;
+        has_unindexed_scan_ = true;
         return;
       }
       return;

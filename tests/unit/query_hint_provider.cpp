@@ -46,12 +46,12 @@ class HintProviderSuite : public ::testing::Test {
   Symbol NextSymbol() { return symbol_table.CreateSymbol("Symbol" + std::to_string(symbol_count++), true); }
 
   void VerifyHintMessages(LogicalOperator *plan, const std::vector<std::string> &expected_messages,
-                          bool expected_has_no_index_lookup) {
+                          bool expected_has_unindexed_scan) {
     auto const result = ProvidePlanHints(plan, symbol_table);
     auto const &messages = result.hints;
 
     ASSERT_EQ(expected_messages.size(), messages.size());
-    ASSERT_EQ(expected_has_no_index_lookup, result.has_no_index_lookup);
+    ASSERT_EQ(expected_has_unindexed_scan, result.has_unindexed_scan);
 
     for (size_t i = 0; i < messages.size(); i++) {
       const auto &expected_message = expected_messages[i];

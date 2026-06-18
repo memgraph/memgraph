@@ -212,7 +212,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "UnionOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "UnwindOperator", "type": "Operator", "metric type": "Counter"},
         # Query
-        {"name": "QueryNoIndexLookup", "type": "Query", "metric type": "Counter"},
+        {"name": "UnindexedScanQueries", "type": "Query", "metric type": "Counter"},
         {"name": "QueryExecutionLatency_us_50p", "type": "Query", "metric type": "Histogram"},
         {"name": "QueryExecutionLatency_us_90p", "type": "Query", "metric type": "Histogram"},
         {"name": "QueryExecutionLatency_us_99p", "type": "Query", "metric type": "Histogram"},

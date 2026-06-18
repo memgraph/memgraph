@@ -249,7 +249,7 @@ struct DatabaseMetricHandles {
   CounterHandle read_write_query;
 
   // Planner
-  CounterHandle query_no_index_lookup;
+  CounterHandle unindexed_scan_queries;
 
   // TTL
   CounterHandle deleted_nodes;
@@ -449,7 +449,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &read_write_query_family_;
 
   // Per-database metric families — planner
-  prometheus::Family<prometheus::Counter> &query_no_index_lookup_family_;
+  prometheus::Family<prometheus::Counter> &unindexed_scan_queries_family_;
 
   // Per-database metric families — operators
   prometheus::Family<prometheus::Counter> &once_operator_family_;

@@ -118,7 +118,7 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "write_queries_total",
     "read_write_queries_total",
     # Query / planner signals
-    "query_no_index_lookup_total",
+    "unindexed_scan_queries_total",
     # TTL
     "deleted_nodes_total",
     "deleted_edges_total",
@@ -292,7 +292,7 @@ def test_openmetrics_per_db_transaction_counters(populated_databases):
     assert om_get(m, "memgraph_committed_transactions_total", "db2") > 0
 
 
-def test_query_no_index_lookup_counter():
+def test_unindexed_scan_queries_counter():
     """Task 2: count queries whose plan did a ScanAll+Filter an index could have served.
 
     Uses a fresh label (Unindexed) so populated_databases' indexes don't apply.
@@ -305,7 +305,7 @@ def test_query_no_index_lookup_counter():
     execute(cursor, "USE DATABASE memgraph")
 
     def counter():
-        return om_get(parse_openmetrics(scrape_openmetrics()), "memgraph_query_no_index_lookup_total", "memgraph") or 0
+        return om_get(parse_openmetrics(scrape_openmetrics()), "memgraph_unindexed_scan_queries_total", "memgraph") or 0
 
     baseline = counter()
 
