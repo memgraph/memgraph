@@ -216,9 +216,10 @@ jobs:
           # run.sh gathered the nodes' cores into tests/jepsen/cores as
           # jepsen-n<i>_<date>_core.<...>. The mgbuild container is still up and
           # has the toolchain gdb + the matching unstripped binary, so copy the
-          # cores in and produce stack traces + a monitoring ping. Raw cores are
-          # uploaded separately by the next step. CLUSTER_ID/CLUSTER_ENV and the
-          # MONITORING_* vars come from the workflow-level env.
+          # cores in, produce stack traces, upload the cores + binary, and ping
+          # monitoring — all into the shared ci-stack-traces/ layout.
+          # CLUSTER_ID/CLUSTER_ENV and the MONITORING_* vars come from the
+          # workflow-level env.
           cores_dir="tests/jepsen/cores"
           if [ ! -d "$cores_dir" ] || [ -z "$(ls -A "$cores_dir" 2>/dev/null)" ]; then
             echo "No core dumps collected — skipping analysis."
@@ -232,28 +233,9 @@ jobs:
           --os $OS \
           --exec-user root \
           --core-glob '*core.*' \
-          --upload-core false \
+          --upload-core true \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
-
-      - name: Upload Jepsen core dumps to S3
-        if: always()
-        continue-on-error: true
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: eu-west-1
-        run: |
-          cores_dir="tests/jepsen/cores"
-          if [ ! -d "$cores_dir" ] || [ -z "$(ls -A "$cores_dir" 2>/dev/null)" ]; then
-            echo "No core dumps collected — skipping S3 upload."
-            exit 0
-          fi
-          cp build/memgraph "$cores_dir/memgraph"
-          ts="$(date -u +%Y%m%dT%H%M%SZ)"
-          s3_prefix="s3://deps.memgraph.io/jepsen_core_dumps/${ts}_run${{ github.run_id }}-attempt${{ github.run_attempt }}/"
-          echo "Uploading $(ls "$cores_dir" | wc -l) file(s) to $s3_prefix"
-          aws s3 sync "$cores_dir" "$s3_prefix"
           rm -rf "$cores_dir"
 
       - name: Save Jepsen report
