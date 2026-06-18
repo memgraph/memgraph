@@ -216,7 +216,7 @@ struct PreparedQuery {
   // apply. Pull invokes it past the duration gate, while the plan's DbAccessor is alive.
   std::function<std::string()> slow_query_plan_renderer{};
   // Optional action run exactly once, after a successful autocommit Commit() (not on abort/failure).
-  // Used by e.g. MERGE VERSION to delete the merged version only after its data is durably committed.
+  // Used by e.g. MERGE BRANCH to delete the merged version only after its data is durably committed.
   std::function<void()> after_commit{};
 };
 
@@ -319,9 +319,9 @@ class Interpreter final {
   std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
   std::optional<storage::ExternalPropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
 
-  // Session's active graph version (std::nullopt == master/base graph). Set by `USE VERSION`,
-  // governs which version's overlay reads/writes resolve against. Read by SHOW CHANGES and the
-  // (forthcoming) Cypher replay->query->rollback path.
+  // Session's active graph version (std::nullopt == master/base graph). Set by `CHECKOUT BRANCH`,
+  // governs which version's overlay reads/writes resolve against. Read by SHOW BRANCH DIFF and the
+  // Cypher replay->query->rollback path.
   std::optional<std::string> active_version_{};
 
 #ifdef MG_ENTERPRISE

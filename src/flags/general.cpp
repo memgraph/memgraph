@@ -101,7 +101,8 @@ DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed i
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(versioning_enabled, false,
-            "Enable graph versioning mode (CREATE/USE/SHOW/DROP VERSION, SHOW VERSION BRANCH/DIFF, USING VERSION). "
+            "Enable graph versioning mode (CHECKOUT BRANCH, SHOW BRANCH, SHOW BRANCHES, SHOW BRANCH DIFF, "
+            "SHOW VERSIONING GRAPH, MERGE BRANCH, REVERT BRANCH COMMIT, DROP BRANCH, USING VERSION). "
             "Startup-only: it intentionally cannot be changed at runtime.");
 
 // Storage flags.

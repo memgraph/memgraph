@@ -40,10 +40,12 @@ memgraphCypherKeyword : cypherKeyword
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
                       | BRANCH
+                      | BRANCHES
                       | BUILD
                       | CALL
                       | CALLABLE
                       | CHECK
+                      | CHECKOUT
                       | CLEAR
                       | CLUSTER
                       | COMMIT
@@ -93,6 +95,7 @@ memgraphCypherKeyword : cypherKeyword
                       | FOR
                       | FORCE
                       | FOREACH
+                      | FORMAT
                       | FREE
                       | FREE_MEMORY
                       | FROM
@@ -210,6 +213,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STRICT_SYNC
                       | STRING
                       | SYNC
+                      | TABLE
                       | TERMINATE
                       | TEXT
                       | TIMEOUT
@@ -793,8 +797,7 @@ showQueryCallableMappingsQuery : SHOW QUERY CALLABLE MAPPINGS ;
 
 versionQuery : SHOW VERSION ;
 
-versionManagementQuery : createVersionQuery
-                       | useVersionQuery
+versionManagementQuery : checkoutVersionQuery
                        | showVersionsQuery
                        | showVersionBranchQuery
                        | showChangesQuery
@@ -804,23 +807,23 @@ versionManagementQuery : createVersionQuery
                        | dropVersionQuery
                        ;
 
-createVersionQuery : CREATE VERSION childVersion=versionName ( WITH DESCRIPTION versionDescription=literal )? BRANCH FROM parentVersion=versionName ;
+// CHECKOUT BRANCH x positions the session on version x. With FROM y it first creates x
+// (forking from the named parent) and then positions onto it — a combined create-and-checkout.
+checkoutVersionQuery : CHECKOUT BRANCH targetVersion=versionName ( WITH DESCRIPTION versionDescription=literal )? ( FROM parentVersion=versionName )? ;
 
-useVersionQuery : USE VERSION versionName ;
+showVersionsQuery : SHOW BRANCHES ( FOR DATABASE db=symbolicName )? ;
 
-showVersionsQuery : SHOW VERSIONS ( FOR DATABASE db=symbolicName )? ;
+showVersionBranchQuery : SHOW BRANCH ;
 
-showVersionBranchQuery : SHOW VERSION BRANCH ;
+showChangesQuery : SHOW BRANCH DIFF ( FORMAT ( TABLE | GRAPH ) )? ;
 
-showChangesQuery : SHOW VERSION DIFF ;
+showVersioningGraphQuery : SHOW VERSIONING GRAPH ( FOR ( DATABASE db=symbolicName | ALL DATABASES ) )? ;
 
-showVersioningGraphQuery : SHOW VERSIONING GRAPH ;
+mergeVersionQuery : MERGE BRANCH versionName ;
 
-mergeVersionQuery : MERGE VERSION versionName ;
+revertVersionQuery : REVERT BRANCH COMMIT WITH TIMESTAMP commitTimestamp=literal ;
 
-revertVersionQuery : REVERT VERSION COMMIT WITH TIMESTAMP commitTimestamp=literal ;
-
-dropVersionQuery : DROP VERSION versionName ;
+dropVersionQuery : DROP BRANCH versionName ;
 
 // A version name can be given as a string literal ("my-branch") or a bare symbolic name (my_branch).
 versionName : literal | symbolicName ;

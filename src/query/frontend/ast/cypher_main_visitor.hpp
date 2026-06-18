@@ -562,14 +562,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitVersionName(MemgraphCypher::VersionNameContext *ctx) override;
 
   /**
-   * @return CreateVersionQuery*
+   * @return CheckoutVersionQuery*
    */
-  antlrcpp::Any visitCreateVersionQuery(MemgraphCypher::CreateVersionQueryContext *ctx) override;
-
-  /**
-   * @return UseVersionQuery*
-   */
-  antlrcpp::Any visitUseVersionQuery(MemgraphCypher::UseVersionQueryContext *ctx) override;
+  antlrcpp::Any visitCheckoutVersionQuery(MemgraphCypher::CheckoutVersionQueryContext *ctx) override;
 
   /**
    * @return ShowVersionsQuery*

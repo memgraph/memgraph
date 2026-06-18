@@ -27,7 +27,7 @@ class TriggerContextCollector;
 //
 // When `strict` is true, a delta whose target object is missing (e.g. a SetProperty/AddLabel/Delete
 // on a vertex/edge that was never created in the replayed set) is treated as a conflict and throws,
-// rather than being silently skipped. Used by REVERT VERSION to dry-run-validate that pruning a
+// rather than being silently skipped. Used by REVERT BRANCH COMMIT to dry-run-validate that pruning a
 // commit does not orphan surviving deltas; the normal read path uses the lenient default.
 void ApplyVersionOverlay(DbAccessor *dba, const std::vector<storage::OverlayDelta> &deltas, bool strict = false);
 
