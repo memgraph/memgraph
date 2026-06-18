@@ -8008,9 +8008,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler =
-              [db_name = query->db_name_, db_handler](AnyStream *stream,
-                                                       std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          .query_handler = [db_name = query->db_name_, db_handler](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             auto result = db_handler->Suspend(db_name);
             if (!result) {
               switch (result.error()) {
@@ -8029,8 +8028,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   throw QueryRuntimeException(
                       "Database {} has active replication replicas; cannot suspend while replicating.", db_name);
                 case dbms::DbmsHandler::SuspendError::ACTIVE_CONNECTIONS:
-                  throw QueryRuntimeException(
-                      "Database {} has active connections; cannot suspend while in use.", db_name);
+                  throw QueryRuntimeException("Database {} has active connections; cannot suspend while in use.",
+                                              db_name);
               }
             }
             std::vector<std::vector<TypedValue>> status;
@@ -8051,7 +8050,37 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             "RESUME DATABASE requires the hot-cold-tenants experiment "
             "(--experimental-enabled=hot-cold-tenants).");
       }
-      throw utils::NotYetImplemented("RESUME DATABASE");
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [db_name = query->db_name_, db_handler](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            auto result = db_handler->Resume(db_name);
+            if (!result) {
+              switch (result.error()) {
+                case dbms::DbmsHandler::ResumeError::NON_EXISTENT:
+                  throw QueryRuntimeException("Database {} does not exist or is not suspended.", db_name);
+                case dbms::DbmsHandler::ResumeError::RECOVERY_FAILED:
+                  throw QueryRuntimeException(
+                      "Database {} failed to recover while resuming; it remains suspended (cold) and the resume can "
+                      "be retried.",
+                      db_name);
+              }
+            }
+            std::vector<std::vector<TypedValue>> status;
+            status.emplace_back(
+                std::vector<TypedValue>{TypedValue("Successfully resumed database " + std::string(db_name))});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::NONE,
+          .db = query->db_name_};
     }
   }
 #else

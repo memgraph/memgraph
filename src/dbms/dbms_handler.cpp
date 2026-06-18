@@ -11,6 +11,7 @@
 
 #include "dbms/dbms_handler.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <shared_mutex>
@@ -804,6 +805,125 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name) {
   gk->finish_suspend();
   spdlog::info("hot/cold: tenant '{}' suspended (HOT -> COLD)", name);
   return {};
+}
+
+DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewire_replication) {
+  // Outer loop: a loser that observes a COLD-fallback (the winner aborted) restarts the whole
+  // attempt from Phase A. Every restart re-initializes gk/entry/won_resume from the map under a
+  // fresh shared lock. All early-exit paths (NON_EXISTENT, already-HOT, timeout, build failure)
+  // are `return`s; only the COLD-fallback path `continue`s.
+  while (true) {
+    utils::Gatekeeper<Database> *gk = nullptr;
+    SuspendedEntry entry;
+    bool won_resume = false;
+    {
+      // PHASE A — decide + acquire the single-flight token, all under the shared lock_.
+      //
+      // begin_resume() is called INSIDE this shared-lock scope (not after): between releasing the
+      // lock and begin_resume(), a concurrent DROP of a COLD tenant (under exclusive lock_) could
+      // erase the COLD shell, leaving `gk` dangling -> begin_resume() would be a UAF. By transitioning
+      // COLD -> RESUMING while lock_ is held, a concurrent Drop then takes the exclusive lock, sees
+      // RESUMING, and refuses to erase — so `gk` stays valid through the slow off-lock build/publish.
+      auto rd = std::shared_lock{lock_};
+      if (auto a = db_handler_.Get(name)) return std::move(*a);  // already HOT (raced) — share its accessor
+      gk = db_handler_.GetGatekeeper(name);                      // stable pointer to the in-map gatekeeper
+      if (!gk) return std::unexpected{ResumeError::NON_EXISTENT};
+      auto it = suspended_.find(name);
+      if (it == suspended_.end()) return std::unexpected{ResumeError::NON_EXISTENT};
+      entry = it->second;               // copy rebuild metadata (salient + rel_dir) for the off-lock build
+      won_resume = gk->begin_resume();  // COLD -> RESUMING (LAST step in Phase A)
+    }
+
+    // SINGLE-FLIGHT — loser path: someone else holds RESUMING. Poll Get(name) until HOT, bounded.
+    if (!won_resume) {
+      constexpr auto kPollStep = std::chrono::milliseconds(5);
+      constexpr auto kPollTimeout = std::chrono::seconds(10);
+      const auto deadline = std::chrono::steady_clock::now() + kPollTimeout;
+      while (std::chrono::steady_clock::now() < deadline) {
+        bool retry_after_cold_fallback = false;
+        {
+          auto rd = std::shared_lock{lock_};
+          if (auto a = db_handler_.Get(name)) return std::move(*a);  // winner published HOT
+          // Re-fetch the gatekeeper by name under THIS shared lock rather than dereferencing the raw
+          // `gk` captured in Phase A: a concurrent DROP of the (now-COLD) tenant during a sleep window
+          // can free the GKInternals `gk` points at. nullptr (dropped) or COLD => treat as a fallback
+          // and restart Phase A (which then observes NON_EXISTENT and returns cleanly). We must NOT
+          // restart while holding this shared lock (the winner path takes the exclusive lock_ on the
+          // same thread -> self-deadlock on the PREFER_READER rwlock): set a flag, drop the lock, then
+          // continue the outer loop.
+          auto *live_gk = db_handler_.GetGatekeeper(name);
+          if (!live_gk || live_gk->state() == utils::GatekeeperState::COLD) retry_after_cold_fallback = true;
+        }
+        if (retry_after_cold_fallback) break;  // exit poll loop; outer `continue` restarts Phase A
+        std::this_thread::sleep_for(kPollStep);
+      }
+      {
+        auto rd = std::shared_lock{lock_};
+        auto *live_gk = db_handler_.GetGatekeeper(name);
+        if (!live_gk) return std::unexpected{ResumeError::NON_EXISTENT};  // dropped mid-resume
+        if (live_gk->state() != utils::GatekeeperState::COLD) {
+          // Still RESUMING (timed out) or now HOT (raced just now — check once more).
+          if (auto a = db_handler_.Get(name)) return std::move(*a);
+          return std::unexpected{ResumeError::RECOVERY_FAILED};
+        }
+      }
+      continue;  // COLD-fallback confirmed (lock released): restart Phase A
+    }
+
+    // WE are the winner (state RESUMING). Build OFF the map and recover (SLOW, NO lock_ held).
+    // `fresh` lives in this scope so that, on the throw path, the catch can release `acc` BEFORE
+    // `fresh` destructs: ~Gatekeeper waits for count == 0, so an outstanding `acc` would self-deadlock
+    // the fresh gatekeeper's destruction.
+    try {
+      storage::Config cfg = default_config_;
+      cfg.salient = entry.salient;
+      cfg.durability.recover_on_startup = true;
+      storage::UpdatePaths(cfg, default_config_.durability.storage_directory / entry.rel_dir);
+      auto fresh = db_handler_.BuildDetached(std::move(cfg));  // Database ctor recovers from disk
+      DatabaseAccess acc = fresh.access().value();             // fresh gk is HOT => has_value
+      try {
+        if (on_resume_) on_resume_(acc);  // PRE-PUBLISH arm (triggers/streams/TTL re-arm)
+        {
+          // PUBLISH — move-assign the fresh HOT gatekeeper over the RESUMING shell, under lock_.
+          // `acc` survives the move (it points at fresh's pimpl, which the unique_ptr move transfers
+          // into the shell). The shell is RESUMING (access() refuses) and we hold lock_, so no
+          // concurrent accessor observes the half-moved state. The erase uses a transparent find +
+          // erase(iterator) — both nothrow — so the publish block cannot throw after the noexcept
+          // move commits the gatekeeper to HOT.
+          auto wr = std::unique_lock{lock_};
+          *gk = std::move(fresh);
+          if (auto it = suspended_.find(name); it != suspended_.end()) suspended_.erase(it);
+        }
+      } catch (...) {
+        // PRE-PUBLISH failure: on_resume_ threw and the publish has NOT happened — `fresh` is still
+        // local and HOT. Release `acc` BEFORE `fresh` unwinds so fresh's ~Gatekeeper sees count == 0
+        // instead of self-deadlocking on the outstanding accessor, then roll back to COLD.
+        acc.reset();
+        gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
+        return std::unexpected{ResumeError::RECOVERY_FAILED};
+      }
+      // POST-PUBLISH arm (replication). The tenant is ALREADY published HOT and erased from
+      // suspended_; we must NOT abort_resume() here (the gatekeeper is no longer RESUMING). The arm
+      // is independently retriable, so on failure we log and return the live accessor. Skipped when
+      // rewire_replication == false (the replica replication-apply caller holds the repl_state read
+      // lock and on_resume_repl_ would re-take it as a write lock -> self-deadlock). Wired in a later
+      // (replication) commit; on_resume_repl_ is empty by default here, so this is a no-op.
+      try {
+        if (rewire_replication && on_resume_repl_) on_resume_repl_(acc);
+      } catch (...) {
+        spdlog::warn(
+            "hot/cold resume: replication re-wiring for tenant '{}' threw; tenant is live (HOT) and data is "
+            "intact, but it may run un-replicated until replication is re-established.",
+            name);
+      }
+      spdlog::info("hot/cold: tenant '{}' resumed (COLD -> HOT)", name);
+      return acc;
+    } catch (...) {
+      // Recovery (BuildDetached) threw before `acc`/`fresh` existed. No live accessor to release.
+      gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
+      return std::unexpected{ResumeError::RECOVERY_FAILED};
+    }
+  }  // end outer while(true) — all winner exits are `return`, so falling out is unreachable
 }
 #endif  // MG_ENTERPRISE
 

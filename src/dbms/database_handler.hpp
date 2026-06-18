@@ -90,6 +90,31 @@ class DatabaseHandler : public Handler<Database> {
   }
 
   /**
+   * @brief Build a Database gatekeeper OFF the map (no insert), recovering it if the config asks for
+   *        it. Used by the hot/cold resume engine: the winner rebuilds the storage on its own thread
+   *        without holding the handler under lock, then move-assigns the returned (HOT) gatekeeper
+   *        over the in-map COLD shell. The database-protector factory resolves the gatekeeper by name
+   *        via this->Get(db_name); after the caller publishes it at `name`, that lookup finds the
+   *        (now HOT) in-map gatekeeper.
+   *
+   * @param config Storage configuration (already path-resolved by the caller)
+   * @return a HOT utils::Gatekeeper<Database> by value (move)
+   */
+  utils::Gatekeeper<Database> BuildDetached(storage::Config config) {
+    auto database_protector_factory = [this, db_name = config.salient.name.str()]() -> storage::DatabaseProtectorPtr {
+      if (auto db_gatekeeper_opt = this->Get(db_name)) {
+        return std::make_unique<DatabaseProtector>(*db_gatekeeper_opt);
+      }
+      // Fallback: return null if database not found (shouldn't happen in normal operation)
+      return nullptr;
+    };
+
+    // Build OFF the map (no insert). The Database ctor recovers when
+    // config.durability.recover_on_startup == true. Returned by value (move).
+    return utils::Gatekeeper<Database>{std::move(config), std::move(database_protector_factory)};
+  }
+
+  /**
    * @brief All currently active storage.
    *
    * @return std::vector<std::string>

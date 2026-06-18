@@ -141,6 +141,13 @@ class DbmsHandler {
   };
   using SuspendResult = std::expected<void, SuspendError>;
 
+  // Hot/cold resume: reasons a tenant cannot be resumed (moved COLD -> HOT).
+  enum class ResumeError : uint8_t {
+    NON_EXISTENT,     //!< no such tenant in the map / suspended registry
+    RECOVERY_FAILED,  //!< recovery (or a pre-publish arm) threw; tenant stays COLD and retriable
+  };
+  using ResumeResult = std::expected<DatabaseAccess, ResumeError>;
+
   /**
    * @brief Initialize the handler.
    *
@@ -333,6 +340,31 @@ class DbmsHandler {
    * @return SuspendResult — error describing why the tenant is not suspendable
    */
   SuspendResult Suspend(std::string_view name) { return Suspend_(name); }
+
+  /**
+   * @brief Set the pre-publish resume arm (runs on the recovered DatabaseAccess BEFORE the fresh
+   *        gatekeeper is published into the map). Used for triggers/streams/TTL re-arm. Default empty.
+   *        If it throws, the resume is aborted (RESUMING -> COLD) and the tenant stays retriable.
+   */
+  void SetOnResume(std::function<void(DatabaseAccess)> cb) { on_resume_ = std::move(cb); }
+
+  /**
+   * @brief Set the post-publish resume arm (runs AFTER the fresh gatekeeper is published).
+   *        Used for replication wiring. Default empty. Wired in a later (replication) commit.
+   */
+  void SetOnResumeRepl(std::function<void(DatabaseAccess)> cb) { on_resume_repl_ = std::move(cb); }
+
+  /**
+   * @brief Resume (move COLD -> HOT) the named tenant, recovering its in-memory storage inline.
+   *
+   * Synchronous: recovery runs on the calling thread. Single-flight via the gatekeeper — concurrent
+   * callers poll until the winner publishes HOT, then share the published accessor. No make-room /
+   * no budget: the caller blocks for the full recovery.
+   *
+   * @param name tenant database name
+   * @return ResumeResult — the HOT DatabaseAccess on success, or an error
+   */
+  ResumeResult Resume(std::string_view name) { return Resume_(name); }
 #endif
 
   /**
@@ -570,6 +602,17 @@ class DbmsHandler {
   SuspendResult Suspend_(std::string_view name);
 
   /**
+   * @brief Implementation of Resume. See Resume() for semantics.
+   *
+   * rewire_replication: run the post-publish on_resume_repl_ arm (re-wire MAIN-side replication).
+   * MUST be false when called from the replica replication-apply path (added in a later commit):
+   * that caller already holds the repl_state read lock and on_resume_repl_ would re-take it as a
+   * write lock -> self-deadlock on the non-recursive RWSpinLock. Default true keeps the node-local
+   * (test + query-seam) callers unchanged.
+   */
+  ResumeResult Resume_(std::string_view name, bool rewire_replication = true);
+
+  /**
    * @brief return the storage directory of the associated database
    *
    * @param name Database name
@@ -726,6 +769,15 @@ class DbmsHandler {
     if (db) {
       return *db;
     }
+    // Cold-access query seam: a suspended (COLD) tenant still has an in-map gatekeeper, but
+    // access() refuses (it is not HOT), so db_handler_.Get returned nullopt. Distinguish "exists
+    // but suspended" from "truly unknown" with a clear, actionable message. We reuse
+    // UnknownDatabaseException so existing fallback catch sites (SetupDefault_, RestoreTenantProfiles_)
+    // keep treating a COLD tenant as not-currently-usable; the message is what the user sees.
+    if (suspended_.contains(name)) {
+      throw UnknownDatabaseException(
+          "Database \"{}\" is suspended (cold); run RESUME DATABASE {} before using it.", name, name);
+    }
     throw UnknownDatabaseException("Tried to retrieve an unknown database \"{}\".", name);
   }
 
@@ -756,6 +808,8 @@ class DbmsHandler {
   // TODO: move to be common
   std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
   std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
+  std::function<void(DatabaseAccess)> on_resume_;    //!< pre-publish resume arm (triggers/streams/TTL); empty default
+  std::function<void(DatabaseAccess)> on_resume_repl_;  //!< post-publish resume arm (replication); empty default
 #endif
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper

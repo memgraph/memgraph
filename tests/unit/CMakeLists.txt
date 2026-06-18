@@ -426,6 +426,12 @@ add_unit_test(hot_cold_suspend
     LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
 )
 
+# Hot/cold tenants: node-local resume engine (COLD -> HOT, single-flight)
+add_unit_test(hot_cold_resume
+    SOURCES hot_cold_resume.cpp
+    LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+)
+
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
