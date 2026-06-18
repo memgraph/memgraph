@@ -52,6 +52,7 @@ Options:
   --core-size-limit N   auto threshold in GiB (default: $CORE_SIZE_LIMIT)
   -h, --help            Show this help
 EOF
+  return 0
 }
 
 while [[ $# -gt 0 ]]; do

@@ -2597,12 +2597,12 @@ trigger_dump() {
     case "$1" in
       --depth)     depth="$2"; shift 2 ;;
       --bolt-port) bolt_port="$2"; shift 2 ;;
-      *) echo "Error: Unknown trigger-dump option '$1'"; print_help; exit 1 ;;
+      *) echo "Error: Unknown trigger-dump option '$1'" >&2; print_help; exit 1 ;;
     esac
   done
 
   if ! docker inspect "$build_container" >/dev/null 2>&1; then
-    echo -e "${RED_BOLD}Error: container $build_container is not running. Spin it up and build Memgraph first.${RESET}"
+    echo -e "${RED_BOLD}Error: container $build_container is not running. Spin it up and build Memgraph first.${RESET}" >&2
     exit 1
   fi
 

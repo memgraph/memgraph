@@ -45,15 +45,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Activate the toolchain so gdb is available, unless gdb is already on PATH.
-if ! command -v gdb >/dev/null 2>&1; then
-  if [[ -n "$TOOLCHAIN" && -f "/opt/toolchain-${TOOLCHAIN}/activate" ]]; then
-    # The toolchain activate script references zsh-only vars (e.g. $ZSH_NAME),
-    # which trips our `set -u`. Drop nounset just for the source, then restore.
-    set +u
-    # shellcheck disable=SC1090
-    source "/opt/toolchain-${TOOLCHAIN}/activate"
-    set -u
-  fi
+if ! command -v gdb >/dev/null 2>&1 && [[ -n "$TOOLCHAIN" && -f "/opt/toolchain-${TOOLCHAIN}/activate" ]]; then
+  # The toolchain activate script references zsh-only vars (e.g. $ZSH_NAME),
+  # which trips our `set -u`. Drop nounset just for the source, then restore.
+  set +u
+  # shellcheck disable=SC1090
+  source "/opt/toolchain-${TOOLCHAIN}/activate"
+  set -u
 fi
 
 if ! command -v gdb >/dev/null 2>&1; then
