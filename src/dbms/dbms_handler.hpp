@@ -741,7 +741,7 @@ class DbmsHandler {
    *        bulk Restore* above, these operate on ONE already-held DatabaseAccess and take no lock_, so they
    *        are safe to run inside Resume_/Suspend_ (which already hold the gatekeeper freeze / publish).
    */
-  void RestoreTriggersFor(DatabaseAccess db_acc, query::InterpreterContext *ic);
+  static void RestoreTriggersFor(DatabaseAccess db_acc, query::InterpreterContext *ic);
 
   void RestoreStreamsFor(DatabaseAccess db_acc, query::InterpreterContext *ic) {
     db_acc->streams()->RestoreStreams(db_acc, ic);

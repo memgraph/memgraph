@@ -178,7 +178,8 @@ void StorageInfoForEachField(Self &s, Visit &&visit) {
 // replica then leaves its disk-recovered epoch intact (R15 tolerant).
 struct ColdTenantRecovery {
   SalientConfig salient;
-  StorageInfo stats;
+  StorageInfo stats{};                 // value-init: a default-constructed recovery must not carry
+                                       // indeterminate bool fields (UB when serialized to the cold marker)
   bool has_epoch_meta{false};          // placed before the string/deque members to avoid tail padding
   uint64_t last_durable_timestamp{0};  // MAIN's as-of-suspend LDT; the promotion-boundary ts a converged
                                        // replica must use (NOT its own local LDT) — see PromoteColdTenants
