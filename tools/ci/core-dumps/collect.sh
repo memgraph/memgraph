@@ -112,11 +112,15 @@ docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
   "bash /tmp/analyze_core_dumps.sh --cores-dir '$CORES_DIR' --binary '$BINARY' --out-dir '$container_out' --toolchain '$TOOLCHAIN' --core-glob '$CORE_GLOB'" \
   || echo "Warning: analyze step exited non-zero (continuing)." >&2
 
-# Copy the produced stack traces out to a host temp dir.
+# Copy the produced stack traces out to a host temp dir. Chown them to the
+# invoking (non-root) user first — analyze may have run as root (--exec-user
+# root), and docker cp preserves ownership, which would make the host temp dir
+# unremovable by this script otherwise.
+docker exec -u root "$BUILD_CONTAINER" chown -R "$(id -u):$(id -g)" "$container_out" >/dev/null 2>&1 || true
 host_out="$(mktemp -d)"
 if ! docker cp "${BUILD_CONTAINER}:${container_out}/." "$host_out" 2>/dev/null; then
   echo "Warning: no stack traces to copy from the container." >&2
-  rm -rf "$host_out"
+  rm -rf "$host_out" 2>/dev/null || true
   exit 0
 fi
 
@@ -163,4 +167,4 @@ stack_args=(--traces-dir "$host_out" --s3-prefix "$s3_prefix" --bucket "$bucket"
 "$SCRIPT_DIR/upload_stack_trace.sh" "${stack_args[@]}" \
   || echo "Warning: upload step exited non-zero (continuing)." >&2
 
-rm -rf "$host_out"
+rm -rf "$host_out" 2>/dev/null || true

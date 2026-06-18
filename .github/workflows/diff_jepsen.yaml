@@ -111,8 +111,10 @@ jobs:
         run: |
           set -uo pipefail
           node="jepsen-n1"
+          # memgraph runtime deps: libpython3.11.so.1.0 (via python3-dev, what the
+          # Jepsen DB setup installs before a real test) and libatomic.so.1.
           docker exec -u root "$node" bash -c '
-            apt-get update -qq && apt-get install -y -qq python3 || true
+            apt-get update -qq && apt-get install -y -qq python3 python3-dev libatomic1 || true
             rm -rf /opt/memgraph && mkdir -p /opt/memgraph
             mkdir -p /tmp/mg-cores && chmod 1777 /tmp/mg-cores'
           # Deploy the binary + its libs into the node (same layout run.sh uses).

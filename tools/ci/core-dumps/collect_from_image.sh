@@ -110,5 +110,9 @@ fi
   --core-size-limit "$CORE_SIZE_LIMIT" \
   || echo "Warning: collect.sh exited non-zero (continuing)." >&2
 
+# collect.sh ran as root in the analyzer, so the cores + stack traces in the
+# bind-mounted host dir are root-owned. Chown them back (via the still-running
+# analyzer) so this non-root script can remove the host temp dir.
+docker exec -u root "$ANALYZER_CONTAINER" chown -R "$(id -u):$(id -g)" "$CORES_DIR" >/dev/null 2>&1 || true
 docker rm -f "$ANALYZER_CONTAINER" >/dev/null 2>&1 || true
-rm -rf "$host_cores"
+rm -rf "$host_cores" 2>/dev/null || true
