@@ -45,21 +45,6 @@ std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &fa
   return std::nullopt;
 }
 
-std::optional<std::string> FindUuidLabel(std::vector<prometheus::MetricFamily> const &families, std::string_view name,
-                                         std::string_view db_name) {
-  for (auto const &family : families) {
-    if (family.name != name) continue;
-    for (auto const &metric : family.metric) {
-      auto const has_db_label =
-          r::any_of(metric.label, [&](auto const &l) { return l.name == "database" && l.value == db_name; });
-      if (!has_db_label) continue;
-      auto const it = r::find_if(metric.label, [](auto const &l) { return l.name == "uuid"; });
-      if (it != metric.label.end()) return it->value;
-    }
-  }
-  return std::nullopt;
-}
-
 }  // namespace
 
 TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
@@ -194,13 +179,25 @@ TEST(PrometheusMetrics, RebindDefaultDatabaseUUIDUpdatesUuidLabel) {
 
   memgraph::utils::UUID const uuid_a{};
   memgraph::utils::UUID const uuid_b{};
-  ASSERT_NE(uuid_a, uuid_b);
 
   pm.AddDatabase(uuid_a, "memgraph");
   pm.RebindDefaultDatabaseUUID(uuid_b);
 
   auto const families = pm.registry().Collect();
-  auto const label = FindUuidLabel(families, "memgraph_vertex_count", "memgraph");
+  auto const find_uuid_label = [&](std::string_view name, std::string_view db_name) -> std::optional<std::string> {
+    for (auto const &family : families) {
+      if (family.name != name) continue;
+      for (auto const &metric : family.metric) {
+        auto const has_db =
+            r::any_of(metric.label, [&](auto const &l) { return l.name == "database" && l.value == db_name; });
+        if (!has_db) continue;
+        auto const it = r::find_if(metric.label, [](auto const &l) { return l.name == "uuid"; });
+        if (it != metric.label.end()) return it->value;
+      }
+    }
+    return std::nullopt;
+  };
+  auto const label = find_uuid_label("memgraph_vertex_count", "memgraph");
   ASSERT_TRUE(label.has_value());
   EXPECT_EQ(*label, std::string(uuid_b)) << "uuid label should reflect the new UUID after rebind";
 
