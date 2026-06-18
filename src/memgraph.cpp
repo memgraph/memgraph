@@ -948,9 +948,13 @@ int main(int argc, char **argv) {
     dh->SetOnSuspend(
         [](memgraph::dbms::DatabaseAccess db_acc) { memgraph::dbms::DbmsHandler::StopStreamsFor(db_acc); });
     dh->SetRestoreStreams([dh, ic](memgraph::dbms::DatabaseAccess db_acc) { dh->RestoreStreamsFor(db_acc, ic); });
-    dh->SetOnResume([dh, ic](memgraph::dbms::DatabaseAccess db_acc) {
+    dh->SetOnResume([dh, ic, &repl_state](memgraph::dbms::DatabaseAccess db_acc) {
       dh->RestoreTriggersFor(db_acc, ic);
       dh->RestoreStreamsFor(db_acc, ic);
+      db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
+        const auto locked_repl_state = repl_state->ReadLock();
+        return locked_repl_state->IsMainWriteable();
+      });
     });
   }
 #endif
