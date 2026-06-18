@@ -30,8 +30,8 @@ namespace memgraph::query::plan {
 
 struct PlanHintsResult {
   std::vector<std::string> hints;
-  // Number of ScanAll+Filter pairs where an index could have served the scan
-  // (per-operator, not per-query — a plan with N qualifying pairs increments by N).
+  // Per-operator count of ScanAll+Filter pairs an index could have served; the
+  // query metric counts once when this is > 0.
   std::size_t no_index_lookup_count{0};
 };
 
@@ -41,7 +41,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
  public:
   explicit PlanHintsProvider(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
-  std::vector<std::string> &hints() { return hints_; }
+  std::vector<std::string> take_hints() { return std::move(hints_); }
 
   std::size_t no_index_lookup_count() const { return no_index_lookup_count_; }
 
@@ -428,6 +428,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
       return;
     }
 
+    // Label index already used; suboptimal-index hint, not a missing-index scan -> no count.
     if (scan_type == ScanAllByLabel::kType && !filtered_properties.empty()) {
       hints_.push_back(fmt::format(
           "Label index will be used on symbol `{0}` although there is also a filter on properties {1}. Consider "

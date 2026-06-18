@@ -19,7 +19,7 @@ PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolT
   const_cast<LogicalOperator *>(plan_root)->Accept(plan_hinter);
 
   return PlanHintsResult{
-      .hints = std::move(plan_hinter.hints()),
+      .hints = plan_hinter.take_hints(),
       .no_index_lookup_count = plan_hinter.no_index_lookup_count(),
   };
 }

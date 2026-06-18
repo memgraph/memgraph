@@ -293,11 +293,11 @@ def test_openmetrics_per_db_transaction_counters(populated_databases):
 
 
 def test_query_no_index_lookup_counter():
-    """Task 2: count ScanAll+Filter queries that could have used an index.
+    """Task 2: count queries whose plan did a ScanAll+Filter an index could have served.
 
     Uses a fresh label (Unindexed) so populated_databases' indexes don't apply.
-    EXPLAIN must not advance the counter; per-operator counting means a query with
-    N qualifying ScanAll+Filter pairs bumps by N.
+    EXPLAIN/PROFILE must not advance the counter; counting is per-query, so a query
+    with several qualifying ScanAll+Filter pairs bumps by 1.
     """
     conn = mgclient.connect(host="localhost", port=7687)
     conn.autocommit = True
@@ -315,8 +315,10 @@ def test_query_no_index_lookup_counter():
     execute(cursor, "MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
     assert counter() == baseline + 2
 
-    # EXPLAIN must not advance the counter.
+    # EXPLAIN/PROFILE must not advance the counter.
     execute(cursor, "EXPLAIN MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
+    assert counter() == baseline + 2
+    execute(cursor, "PROFILE MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
     assert counter() == baseline + 2
 
     # Creating the matching index stops further increments.
@@ -327,14 +329,14 @@ def test_query_no_index_lookup_counter():
     finally:
         execute(cursor, "DROP INDEX ON :Unindexed(name)")
 
-    # Two qualifying ScanAll+Filter pairs via UNION → +2 (per-operator).
+    # Two qualifying ScanAll+Filter pairs in one query (UNION) → +1 (per-query).
     execute(
         cursor,
         "MATCH (n:UnindexedA) WHERE n.v = 1 RETURN n.v AS v "
         "UNION ALL "
         "MATCH (m:UnindexedB) WHERE m.v = 1 RETURN m.v AS v",
     )
-    assert counter() == baseline + 4
+    assert counter() == baseline + 3
 
     conn.close()
 

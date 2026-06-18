@@ -168,7 +168,8 @@ PrometheusMetrics::PrometheusMetrics()
       query_no_index_lookup_family_{
           prometheus::BuildCounter()
               .Name("memgraph_query_no_index_lookup_total")
-              .Help("Queries planned with ScanAll+Filter where an index could have served them")
+              .Help("Query executions whose plan had a ScanAll+Filter an index could have served (counts once "
+                    "per query)")
               .Register(registry_)},
       // Operators
       once_operator_family_{prometheus::BuildCounter()
@@ -1964,6 +1965,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"ShowStorageInfoOnDatabase", "StorageInfo", "Counter", total_show_storage_info});
 
   // Query
+  // QueryNoIndexLookup is OpenMetrics / SHOW METRICS INFO only; not aggregated into the deprecated JSON endpoint.
   AppendMergedHistogramPercentiles(out, "QueryExecutionLatency", "Query", query_exec_hdatas);
 
   // Snapshot

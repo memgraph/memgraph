@@ -45,11 +45,13 @@ class HintProviderSuite : public ::testing::Test {
 
   Symbol NextSymbol() { return symbol_table.CreateSymbol("Symbol" + std::to_string(symbol_count++), true); }
 
-  void VerifyHintMessages(LogicalOperator *plan, const std::vector<std::string> &expected_messages) {
+  void VerifyHintMessages(LogicalOperator *plan, const std::vector<std::string> &expected_messages,
+                          std::size_t expected_no_index_lookup_count) {
     auto const result = ProvidePlanHints(plan, symbol_table);
     auto const &messages = result.hints;
 
     ASSERT_EQ(expected_messages.size(), messages.size());
+    ASSERT_EQ(expected_no_index_lookup_count, result.no_index_lookup_count);
 
     for (size_t i = 0; i < messages.size(); i++) {
       const auto &expected_message = expected_messages[i];
@@ -79,7 +81,7 @@ TEST_F(HintProviderSuite, HintWhenFilteringByLabel) {
       "Sequential scan will be used on symbol `n` although there is a filter on labels :label. Consider "
       "creating a label index."};
 
-  VerifyHintMessages(filter.get(), expected_messages);
+  VerifyHintMessages(filter.get(), expected_messages, 1);
 }
 
 TEST_F(HintProviderSuite, DontHintWhenLabelOperatorPresent) {
@@ -88,7 +90,7 @@ TEST_F(HintProviderSuite, DontHintWhenLabelOperatorPresent) {
 
   const std::vector<std::string> expected_messages{};
 
-  VerifyHintMessages(produce.get(), expected_messages);
+  VerifyHintMessages(produce.get(), expected_messages, 0);
 }
 
 TEST_F(HintProviderSuite, HintWhenFilteringByLabelAndProperty) {
@@ -104,7 +106,7 @@ TEST_F(HintProviderSuite, HintWhenFilteringByLabelAndProperty) {
       "Consider "
       "creating a label-property index."};
 
-  VerifyHintMessages(filter.get(), expected_messages);
+  VerifyHintMessages(filter.get(), expected_messages, 1);
 }
 
 TEST_F(HintProviderSuite, DontHintWhenLabelPropertyOperatorPresent) {
@@ -114,7 +116,7 @@ TEST_F(HintProviderSuite, DontHintWhenLabelPropertyOperatorPresent) {
 
   const std::vector<std::string> expected_messages{};
 
-  VerifyHintMessages(produce.get(), expected_messages);
+  VerifyHintMessages(produce.get(), expected_messages, 0);
 }
 
 TEST_F(HintProviderSuite, DontHintWhenLabelPropertyOperatorPresentAndAdditionalPropertyFilterPresent) {
@@ -126,7 +128,7 @@ TEST_F(HintProviderSuite, DontHintWhenLabelPropertyOperatorPresentAndAdditionalP
   auto filter = std::make_shared<Filter>(scan_all_by_label_prop_value.op_, pattern_filters_, filter_expr);
   const std::vector<std::string> expected_messages{};
 
-  VerifyHintMessages(filter.get(), expected_messages);
+  VerifyHintMessages(filter.get(), expected_messages, 0);
 }
 
 TEST_F(HintProviderSuite, HintWhenLabelOperatorPresentButFilteringAlsoByProperty) {
@@ -140,7 +142,7 @@ TEST_F(HintProviderSuite, HintWhenLabelOperatorPresentButFilteringAlsoByProperty
       "Consider "
       "creating a label-property index."};
 
-  VerifyHintMessages(filter.get(), expected_messages);
+  VerifyHintMessages(filter.get(), expected_messages, 0);
 }
 
 TEST_F(HintProviderSuite, DoubleHintWhenCartesianInFilters) {
@@ -163,5 +165,5 @@ TEST_F(HintProviderSuite, DoubleHintWhenCartesianInFilters) {
       "Sequential scan will be used on symbol `m` although there is a filter on labels :label. Consider "
       "creating a label index."};
 
-  VerifyHintMessages(cartesian.get(), expected_messages);
+  VerifyHintMessages(cartesian.get(), expected_messages, 2);
 }
