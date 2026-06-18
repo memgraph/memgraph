@@ -8622,6 +8622,58 @@ TEST_P(CypherMainVisitorTest, CreateDatabaseStillWorks) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, SuspendResumeDatabase) {
+  auto &ast_generator = *GetParam();
+
+  // SUSPEND DATABASE
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("SUSPEND DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::SUSPEND);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_FALSE(query->force_);
+  }
+
+  // SUSPEND DATABASE with underscore name
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("SUSPEND DATABASE production_db"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::SUSPEND);
+    EXPECT_EQ(query->db_name_, "production_db");
+  }
+
+  // RESUME DATABASE
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("RESUME DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::RESUME);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_FALSE(query->force_);
+  }
+
+  // RESUME DATABASE with underscore name
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("RESUME DATABASE production_db"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::RESUME);
+    EXPECT_EQ(query->db_name_, "production_db");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, SuspendResumeDatabaseInvalidSyntax) {
+  auto &ast_generator = *GetParam();
+
+  // SUSPEND does not accept FORCE
+  TestInvalidQuery("SUSPEND DATABASE testdb FORCE", ast_generator);
+
+  // RESUME does not accept FORCE
+  TestInvalidQuery("RESUME DATABASE testdb FORCE", ast_generator);
+
+  // Missing database name
+  TestInvalidQuery("SUSPEND DATABASE", ast_generator);
+  TestInvalidQuery("RESUME DATABASE", ast_generator);
+}
+
 TEST_P(CypherMainVisitorTest, UseHintWithCompositeIndices) {
   auto &ast_generator = *GetParam();
   auto *query =

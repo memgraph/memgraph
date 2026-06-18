@@ -7996,6 +7996,19 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .rw_type = RWType::W,
           .db = query->db_name_};
     }
+    case MultiDatabaseQuery::Action::SUSPEND:
+    case MultiDatabaseQuery::Action::RESUME: {
+      // Hot/cold tenants (experiment-gated). This commit (C3) wires the grammar,
+      // AST and dispatch; the suspend/resume engine (C4/C5) and its
+      // system-transaction routing (C6) land in later commits. Until then the
+      // command parses and is privilege-checked but is not yet operational.
+      if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_TENANTS)) {
+        throw QueryRuntimeException(
+            "SUSPEND/RESUME DATABASE requires the hot-cold-tenants experiment "
+            "(--experimental-enabled=hot-cold-tenants).");
+      }
+      throw utils::NotYetImplemented("SUSPEND/RESUME DATABASE");
+    }
   }
 #else
   // here to satisfy clang-tidy
