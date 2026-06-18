@@ -72,8 +72,14 @@ start_data_container() {
     local flags="${DEFAULT_DATA_FLAGS[*]} ${extra_flags}"
 
     echo "Starting data container: $container_name"
+    # Capture core dumps: ensure the host dir exists (kernel.core_pattern points
+    # here), allow unlimited core size, and bind-mount it so a crashing
+    # memgraph's core survives the container being removed at teardown.
+    mkdir -p /tmp/mg-cores && chmod 1777 /tmp/mg-cores 2>/dev/null || true
     docker run -d --name "$container_name" \
         --network host \
+        --ulimit core=-1 \
+        -v /tmp/mg-cores:/tmp/mg-cores \
         -e MEMGRAPH_ENTERPRISE_LICENSE="$MEMGRAPH_ENTERPRISE_LICENSE" \
         -e MEMGRAPH_ORGANIZATION_NAME="$MEMGRAPH_ORGANIZATION_NAME" \
         "$MEMGRAPH_IMAGE" \
@@ -104,8 +110,13 @@ start_coord_container() {
     local flags="${DEFAULT_COORD_FLAGS[*]} ${extra_flags}"
 
     echo "Starting coordinator container: $container_name"
+    # Capture core dumps (see start_data_container) — bind-mount so a crashing
+    # memgraph's core survives teardown.
+    mkdir -p /tmp/mg-cores && chmod 1777 /tmp/mg-cores 2>/dev/null || true
     docker run -d --name "$container_name" \
         --network host \
+        --ulimit core=-1 \
+        -v /tmp/mg-cores:/tmp/mg-cores \
         -e MEMGRAPH_ENTERPRISE_LICENSE="$MEMGRAPH_ENTERPRISE_LICENSE" \
         -e MEMGRAPH_ORGANIZATION_NAME="$MEMGRAPH_ORGANIZATION_NAME" \
         "$MEMGRAPH_IMAGE" \
