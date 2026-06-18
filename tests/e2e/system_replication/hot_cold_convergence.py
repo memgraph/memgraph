@@ -1383,6 +1383,27 @@ def test_suspend_resume_requires_multi_database_edit(connection, test_name):
     assert tenant_probe(admin_cursor, "A")() == 5, "RESUME must rebuild A with its data once privileged"
 
 
+def test_default_database_cannot_be_suspended(connection, test_name):
+    # The default database "memgraph" is a system database (it backs auth, multi-tenancy metadata, etc.,
+    # not just a user graph) and must never be suspendable. The engine rejects it (SuspendError::DEFAULT_DB);
+    # this asserts the query layer surfaces that as a clean error and leaves the database HOT.
+    instances = {"main": main_args(test_name)}
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    # Create some data so we can prove the default DB is fully usable before and after the rejected SUSPEND.
+    execute_and_fetch_all(main_cursor, "CREATE (), (), ();")
+
+    with pytest.raises(mgclient.DatabaseError) as exc:
+        execute_and_fetch_all(main_cursor, "SUSPEND DATABASE memgraph;")
+    assert "default database" in str(exc.value).lower(), f"expected a default-db rejection: {exc.value}"
+
+    # memgraph stays HOT and fully usable — the rejected SUSPEND was a no-op.
+    rows = dict((r[0], r[1]) for r in execute_and_fetch_all(main_cursor, "SHOW DATABASES;"))
+    assert rows.get("memgraph") == "HOT", f"the default database must remain HOT after a rejected SUSPEND: {rows}"
+    assert execute_and_fetch_all(main_cursor, "MATCH (n) RETURN count(*);")[0][0] == 3
+
+
 def test_suspend_is_isolated_from_other_databases(connection, test_name):
     # R7: suspending database A must not disturb a concurrently-active database B. A live writer hammers
     # B with committed transactions while A is suspended (and resumed) underneath it; B must see zero
