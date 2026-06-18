@@ -1,0 +1,55 @@
+# Hot/Cold Index Stress Workload
+#
+# Verifies that Memgraph's index subsystem survives hot/cold tenant
+# suspend/resume churn without metadata loss, data corruption, or crashes.
+#
+# Three correctness axes:
+#   (a) INDEX PERSISTENCE    — baseline indexes (:Data, :Data(key)) must
+#       survive suspend → COLD → resume rebuild (MetadataDelta WAL recovery).
+#   (b) INDEX-BACKED QUERIES — after resume, MATCH (n:Data) WHERE n.key = 7
+#       must return exactly the committed node count (proves AsyncIndexer
+#       reconstruction produces a consistent index).
+#   (c) ASYNC-INDEXER × SUSPEND INTERACTION — index-churner thread creates
+#       and drops :Data(churn_prop) concurrently with the suspender/resumer
+#       to exercise the race window between async-indexer background work
+#       and suspend/resume state transitions.
+#
+# NOTE: v2 re-scoped the feature to MANUAL suspend/resume only.  All
+# auto-eviction machinery was deleted.  Only --experimental-enabled=hot-cold-tenants
+# enables the feature.
+
+memgraph:
+  deployment:
+    externally_managed: false
+  args:
+    - "--experimental-enabled=hot-cold-tenants"
+    - "--storage-wal-enabled=true"
+    - "--storage-snapshot-interval-sec=300"
+    - "--data-recovery-on-startup=true"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: hot-cold-indexes-stress
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/hot_cold_indexes/workload.py
+      script_args:
+        - "--endpoint"
+        - "127.0.0.1:7687"
+        - "--parallelism"
+        - "4"
+        - "--num-tenants"
+        - "3"
+        - "--duration-sec"
+        - "90"
+      timeout_min: 12

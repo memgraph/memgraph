@@ -1,0 +1,53 @@
+# Hot/Cold TTL Stress Workload
+#
+# Exercises Memgraph's TTL feature under hot/cold tenant suspend/resume churn.
+# Verifies that:
+#   - The per-DB TTL scheduler STOPS on SUSPEND and RESTARTS on RESUME
+#     (TTL enabled-state is durable via WAL/snapshot).
+#   - No permanent (:Perm) node data is lost across SUSPEND / RESUME cycles
+#     even with the TTL scheduler running concurrently with writers.
+#   - All hot/cold contention errors surface as known retriable markers.
+#
+# Non-vacuity gates (hard FAIL if either is zero):
+#   - suspends_ok > 0   (churn exercised at least one SUSPEND)
+#   - ttl_deletions_observed > 0  (TTL scheduler confirmed active post-resume)
+#
+# NOTE: v2 re-scoped the feature to MANUAL suspend/resume only.  All
+# auto-eviction machinery was deleted.  Only --experimental-enabled=hot-cold-tenants
+# enables the feature.  No --memory-limit is needed — this is not an OOM test.
+
+memgraph:
+  deployment:
+    externally_managed: false
+  args:
+    - "--experimental-enabled=hot-cold-tenants"
+    - "--storage-wal-enabled=true"
+    - "--storage-snapshot-interval-sec=300"
+    - "--data-recovery-on-startup=true"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: hot-cold-ttl-stress
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/hot_cold_ttl/workload.py
+      script_args:
+        - "--endpoint"
+        - "127.0.0.1:7687"
+        - "--parallelism"
+        - "4"
+        - "--num-tenants"
+        - "3"
+        - "--duration-sec"
+        - "90"
+      timeout_min: 12

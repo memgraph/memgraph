@@ -1,0 +1,52 @@
+# Hot/Cold Trigger Durability Stress Workload
+#
+# Exercises Memgraph's TRIGGERS feature under hot/cold tenant suspend/resume
+# churn to verify:
+#   - TRIGGER DURABILITY: a BEFORE COMMIT trigger created on a tenant survives
+#     SUSPEND -> COLD -> RESUME and is correctly restored each time the tenant
+#     is brought HOT (via the on_resume_ / RestoreTriggers path).
+#   - TRIGGER FIRES AFTER RESUME: the restored trigger actually fires — not
+#     just a stale catalog entry.  Every :Data node written after a resume
+#     MUST have .stamped != null.
+#   - GLOBAL INTEGRITY: across the full churn window, every :Data node
+#     committed to any tenant MUST have .stamped set.  Zero unstamped nodes.
+#
+# NOTE: v2 re-scoped the feature to MANUAL suspend/resume only.  All
+# auto-eviction machinery was deleted.  Only --experimental-enabled=hot-cold-tenants
+# enables the feature.
+
+memgraph:
+  deployment:
+    externally_managed: false
+  args:
+    - "--experimental-enabled=hot-cold-tenants"
+    - "--storage-wal-enabled=true"
+    - "--storage-snapshot-interval-sec=300"
+    - "--data-recovery-on-startup=true"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: hot-cold-triggers-stress
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/hot_cold_triggers/workload.py
+      script_args:
+        - "--endpoint"
+        - "127.0.0.1:7687"
+        - "--parallelism"
+        - "4"
+        - "--num-tenants"
+        - "3"
+        - "--duration-sec"
+        - "90"
+      timeout_min: 12
