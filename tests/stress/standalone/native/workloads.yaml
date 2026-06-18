@@ -15,9 +15,8 @@ workloads:
   - config: workloads/ring/workload.yaml
     enabled: true
 
-  # Hot/cold databases (--experimental-enabled=hot-cold-databases). Each
-  # workload starts memgraph with its own args (flag + memory ceiling), so
-  # flag-off deployments are unaffected.
+  # Hot/cold databases (SUSPEND/RESUME). Each workload starts memgraph with its
+  # own args (e.g. memory ceiling) appropriate to what it stresses.
   - config: workloads/hot_cold/workload.yaml
     enabled: true
 

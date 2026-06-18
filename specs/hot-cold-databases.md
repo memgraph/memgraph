@@ -1,6 +1,6 @@
 # Hot/Cold Databases
 
-**Status:** Experimental (behind `--experimental-enabled=hot-cold-databases`)
+**Status:** Enterprise feature (on by default; no flag)
 **Author:** Andreja Tonev (https://github.com/andrejtonev)
 **Last updated:** 2026-06-18
 
@@ -41,10 +41,11 @@ Resuming reconstructs the identical graph from durable storage. If any decision 
 document seems surprising, check it against this principle: it is almost always the
 reason.
 
-A second, equally hard principle governs how the feature ships:
-
-> **With the experiment flag off, behavior is byte-identical to a build without the
-> feature.** Opting in is the *only* way to change any observable behavior.
+The feature is part of enterprise multi-tenancy and is on by default in enterprise
+builds — there is no opt-in flag. (It originally shipped behind an
+`--experimental-enabled=hot-cold-databases` flag; once it stabilized the flag was
+removed, which also deleted the cross-cluster flag-consistency safety machinery that
+only existed to handle a flag being toggled while durable cold state existed.)
 
 ---
 
@@ -294,7 +295,6 @@ In addition, `SHOW DATABASES` shows each database's `HOT`/`COLD` state, and
 **Guarantees**
 
 - No data is lost by suspending and resuming (§2).
-- With the flag off, behavior is byte-identical to a build without the feature (§2).
 - The default `memgraph` database can never be suspended (§4).
 - A failed resume rolls back to cold and is retriable; it never crashes the instance or
   leaves a half-built database (D8).
@@ -323,17 +323,13 @@ In addition, `SHOW DATABASES` shows each database's `HOT`/`COLD` state, and
   settings are not preserved across a restart. This is a pre-existing multi-tenancy
   limitation, not specific to hot/cold.
 - **Cross-version safety.** The on-disk and replication wire formats were extended to
-  carry hot/cold state; this is not downgrade-safe, which is an accepted trade-off for an
-  experimental feature.
+  carry hot/cold state; this is not downgrade-safe, which is an accepted trade-off.
 
 ---
 
-## 11. Enabling the feature
-
-```
---experimental-enabled=hot-cold-databases
-```
+## 11. Availability
 
 The feature is part of enterprise multi-tenancy and is compiled only into enterprise
-builds. With the flag absent, none of the above applies and Memgraph behaves exactly as a
-build without the feature.
+builds. In a community build the `SUSPEND`/`RESUME DATABASE` commands are unavailable
+(enterprise-only), and no database can be suspended. There is no runtime flag to enable
+or disable it within an enterprise build.

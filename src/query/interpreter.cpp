@@ -7302,11 +7302,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
 #endif
       auto *dbms_handler = interpreter_context->dbms_handler;
 #ifdef MG_ENTERPRISE
-      // C11: SHOW STORAGE INFO ON <cold> serves the durable as-of-suspend snapshot instead of tripping
+      // SHOW STORAGE INFO ON <cold> serves the durable as-of-suspend snapshot instead of tripping
       // the Get_ cold seam (reverses HC-5). The numbers are MAIN's as-of-suspend snapshot; physical
-      // fields (memory/disk) are MAIN-relative and labelled COLD (R11). Gated on the experiment so
-      // behavior is unchanged for users who have not opted in.
-      if (flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_DATABASES) && info_query->database_) {
+      // fields (memory/disk) are MAIN-relative and labelled COLD (R11).
+      if (info_query->database_) {
         if (auto cold = dbms_handler->GetColdShowInfo(*info_query->database_)) {
           const auto &db_name = *info_query->database_;
           if (!license::global_license_checker.IsEnterpriseValidFast() && db_name != dbms::kDefaultDB) {
@@ -8037,11 +8036,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .db = query->db_name_};
     }
     case MultiDatabaseQuery::Action::SUSPEND: {
-      if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_DATABASES)) {
-        throw QueryRuntimeException(
-            "SUSPEND DATABASE requires the hot-cold-databases experiment "
-            "(--experimental-enabled=hot-cold-databases).");
-      }
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
@@ -8085,11 +8079,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .db = query->db_name_};
     }
     case MultiDatabaseQuery::Action::RESUME: {
-      if (!flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_DATABASES)) {
-        throw QueryRuntimeException(
-            "RESUME DATABASE requires the hot-cold-databases experiment "
-            "(--experimental-enabled=hot-cold-databases).");
-      }
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
@@ -8239,31 +8228,22 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  // C11: with the hot-cold-databases experiment ENABLED, SHOW DATABASES gains a "status" column
-  // (HOT/COLD) and lists COLD tenants (which are excluded from All() as no-value shells, so they would
-  // otherwise vanish). Gated on the flag so output is byte-identical to before for users who have not
-  // opted into the experiment (no tenant can be COLD without the flag anyway — SUSPEND is gated).
-  const bool hot_cold = flags::AreExperimentsEnabled(flags::Experiments::HOT_COLD_DATABASES);
-  callback.header = hot_cold ? std::vector<std::string>{"Name", "status"} : std::vector<std::string>{"Name"};
-  callback.fn = [auth,
-                 db_handler,
-                 hot_cold,
-                 user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
+  // SHOW DATABASES carries a "status" column (HOT/COLD) and lists COLD tenants (which are excluded from
+  // All() as no-value shells, so they would otherwise vanish).
+  callback.header = std::vector<std::string>{"Name", "status"};
+  callback.fn =
+      [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
 
-    // C11: one atomic, de-duplicated read of the HOT ∪ COLD set (only when the experiment is on). The
-    // name list (unrestricted paths) and the name->COLD map (tagging any path, incl. the auth
-    // allowed-list) both derive from this single snapshot — no per-row locks, and no duplicate row for
-    // a tenant caught mid-suspend (AllWithHotColdStatus de-dups: suspended_ wins).
+    // One atomic, de-duplicated read of the HOT ∪ COLD set. The name list (unrestricted paths) and the
+    // name->status map (tagging any path, incl. the auth allowed-list) both derive from this single
+    // snapshot — no per-row locks, and no duplicate row for a tenant caught mid-suspend
+    // (AllWithHotColdStatus de-dups: suspended_ wins).
     std::vector<std::string> all_names;
     std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD" | "COLD (recovery failed...)"
-    if (hot_cold) {
-      for (auto &[name, st] : db_handler->AllWithHotColdStatus()) {
-        all_names.push_back(name);
-        status_of.emplace(std::move(name), std::move(st));
-      }
-    } else {
-      all_names = db_handler->All();
+    for (auto &[name, st] : db_handler->AllWithHotColdStatus()) {
+      all_names.push_back(name);
+      status_of.emplace(std::move(name), std::move(st));
     }
 
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
@@ -8273,14 +8253,10 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       for (const auto &name : all) {
         // `name` is a std::string (all_names) or a TypedValue (auth allowed-list); normalize.
         const std::string ns{TypedValue(name).ValueString()};
-        if (hot_cold) {
-          // C12: status_of carries the full HOT/COLD(/recovery-failed) string. A granted name not in
-          // the snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
-          auto it = status_of.find(ns);
-          status.push_back({TypedValue(ns), TypedValue(it != status_of.end() ? it->second : std::string{"HOT"})});
-        } else {
-          status.push_back({TypedValue(ns)});
-        }
+        // status_of carries the full HOT/COLD(/recovery-failed) string. A granted name not in the
+        // snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
+        auto it = status_of.find(ns);
+        status.push_back({TypedValue(ns), TypedValue(it != status_of.end() ? it->second : std::string{"HOT"})});
       }
 
       std::erase_if(status, [&](auto const &row) {

@@ -13,14 +13,13 @@
 #   - ttl_deletions_observed > 0  (TTL scheduler confirmed active post-resume)
 #
 # NOTE: v2 re-scoped the feature to MANUAL suspend/resume only.  All
-# auto-eviction machinery was deleted.  Only --experimental-enabled=hot-cold-databases
+# auto-eviction machinery was deleted. The feature is always on (no flag).
 # enables the feature.  No --memory-limit is needed — this is not an OOM test.
 
 memgraph:
   deployment:
     externally_managed: false
   args:
-    - "--experimental-enabled=hot-cold-databases"
     - "--storage-wal-enabled=true"
     - "--storage-snapshot-interval-sec=300"
     - "--data-recovery-on-startup=true"

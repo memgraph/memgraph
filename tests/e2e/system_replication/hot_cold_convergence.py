@@ -69,8 +69,6 @@ BOLT_PORTS = {"main": 7687, "replica_1": 7688}
 REPLICATION_PORTS = {"replica_1": 10001, "main": 10002}
 file = "hot_cold_convergence"
 
-HOT_COLD_FLAG = "--experimental-enabled=hot-cold-databases"
-
 
 @pytest.fixture
 def test_name(request):
@@ -89,7 +87,6 @@ def main_args(test_name, recovery: bool = False, restore_replication: bool = Fal
         "--bolt-port",
         f"{BOLT_PORTS['main']}",
         "--log-level=TRACE",
-        HOT_COLD_FLAG,
     ]
     if recovery:
         # Cross-restart durability test: on restart MAIN must recover its tenants from its own disk
@@ -112,7 +109,6 @@ def replica_args(test_name, recovery: bool):
         "--bolt-port",
         f"{BOLT_PORTS['replica_1']}",
         "--log-level=TRACE",
-        HOT_COLD_FLAG,
     ]
     if recovery:
         # Needed for the lagging-replica test: on restart the replica must recover its tenant from
@@ -467,7 +463,6 @@ def test_concurrent_suspend_resume_under_memory_ceiling(connection, test_name):
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
-                HOT_COLD_FLAG,
                 # Hard ceiling (MiB): low enough that the concurrent transient allocators below trip it,
                 # high enough that all tenants boot and stay HOT at their (small, counted) final size.
                 "--memory-limit=512",
@@ -622,7 +617,6 @@ def test_tenant_query_memory_pressure_with_churn(connection, test_name):
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
-                HOT_COLD_FLAG,
                 "--memory-limit=512",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/main.log",
@@ -778,7 +772,6 @@ def test_suspend_reclaims_memory_under_ceiling(connection, test_name):
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
-                HOT_COLD_FLAG,
                 # 1024 MiB: memgraph's base resident is ~100-150 MiB. A wide ceiling gives a comfortable
                 # window — base + Q sit well under it, while a few hundred MiB of tenant data tips Q over —
                 # so the proof is margin-based, not a knife-edge that flakes on allocator jitter.
@@ -912,7 +905,6 @@ def test_tenant_churn_under_memory_pressure_replicated(connection, test_name):
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
-                HOT_COLD_FLAG,
                 "--memory-limit=512",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
@@ -924,7 +916,6 @@ def test_tenant_churn_under_memory_pressure_replicated(connection, test_name):
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
-                HOT_COLD_FLAG,
                 "--memory-limit=512",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/main.log",

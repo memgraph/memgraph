@@ -11,7 +11,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# Live-consumer coverage for hot/cold databases (--experimental-enabled=hot-cold-databases) over a real
+# Live-consumer coverage for hot/cold databases over a real
 # Kafka broker. The hot/cold v2 design stops a database's stream consumers on SUSPEND (Streams::Shutdown,
 # without touching the durable is_running flag) and rebuilds them on RESUME (Streams::RestoreStreams,
 # which re-Start()s any stream that was running). This test proves that end to end:
