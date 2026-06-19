@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 use log::debug;
-use serde_json::{to_string, Value};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::io::{Error, ErrorKind};
 use std::num::NonZeroUsize;
@@ -20,9 +20,10 @@ use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::AggregationCollector;
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
-use tantivy::query::{QueryParser, RegexQuery};
+use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser, RegexQuery};
 use tantivy::schema::*;
-use tantivy::{DocSet, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, TERMINATED};
+use tantivy::tokenizer::{TextAnalyzer, TokenStream};
+use tantivy::{DocSet, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term, TERMINATED};
 use tantivy_fst::Regex;
 
 // NOTE: Result<T> == Result<T,std::io::Error>.
@@ -140,6 +141,18 @@ mod ffi {
             searcher: &SearcherContext,
             input: &SearchInput,
         ) -> Result<EdgeGidScoreOutput>;
+        // Ordered, adjacent fuzzy term-sequence search (last term a prefix). search_query is
+        // `data.<property>:<terms>`; fuzzy_distance/transpositions carry the user's exact values.
+        fn search_sequence_gids_pinned(
+            context: &Context,
+            searcher: &SearcherContext,
+            input: &SearchInput,
+        ) -> Result<GidScoreOutput>;
+        fn search_sequence_edge_gids_pinned(
+            context: &Context,
+            searcher: &SearcherContext,
+            input: &SearchInput,
+        ) -> Result<EdgeGidScoreOutput>;
         fn regex_search_edge_gids_pinned(
             context: &Context,
             searcher: &SearcherContext,
@@ -234,6 +247,90 @@ mod tests {
             owned_value_to_json(doc),
             json!({"name": "test", "count": -3, "tags": [true, 42u64], "nested": {"x": 1.5}, "empty": null})
         );
+    }
+
+    fn chars(s: &str) -> Vec<char> {
+        s.chars().collect()
+    }
+    fn toks(words: &[&str]) -> Vec<Vec<char>> {
+        words.iter().map(|w| chars(w)).collect()
+    }
+
+    #[test]
+    fn split_property_and_terms_accepts_single_property_form() {
+        assert_eq!(
+            split_property_and_terms("data.title:big bad wo").unwrap(),
+            ("title".to_string(), "big bad wo".to_string())
+        );
+        assert_eq!(
+            split_property_and_terms("data.a.b:x").unwrap(),
+            ("a.b".to_string(), "x".to_string())
+        );
+        assert_eq!(
+            split_property_and_terms("  data.title :big bad wo").unwrap(),
+            ("title".to_string(), "big bad wo".to_string())
+        );
+    }
+
+    #[test]
+    fn split_property_and_terms_rejects_other_forms() {
+        for q in ["big bad wo", "all:foo", "data.:foo", "data. :foo", "nocolon"] {
+            assert!(split_property_and_terms(q).is_err(), "expected error for {:?}", q);
+        }
+    }
+
+    #[test]
+    fn word_and_prefix_distance() {
+        assert_eq!(word_distance(&chars("bad"), &chars("bad"), true), 0);
+        assert_eq!(word_distance(&chars("bd"), &chars("bad"), true), 1); // one insertion
+        assert_eq!(word_distance(&chars("ba"), &chars("ab"), true), 1); // transposition
+        assert_eq!(word_distance(&chars("ba"), &chars("ab"), false), 2); // without transposition
+        assert_eq!(prefix_distance(&chars("wo"), &chars("wolf"), true), 0); // wo prefixes wolf
+        assert_eq!(prefix_distance(&chars("wolf"), &chars("wolf"), true), 0);
+        assert_eq!(prefix_distance(&chars("wolf"), &chars("world"), true), 2); // wolf is not a prefix
+        assert_eq!(prefix_distance(&chars("xo"), &chars("wolf"), true), 1); // wo within 1 of xo
+    }
+
+    #[test]
+    fn sequence_matches_enforces_order_adjacency_and_prefix() {
+        let value = toks(&["big", "bad", "wolf"]);
+        assert!(sequence_matches(&value, &toks(&["big", "bad", "wo"]), 0, true));
+        assert!(!sequence_matches(&value, &toks(&["bad", "big", "wo"]), 0, true)); // order
+        assert!(!sequence_matches(&value, &toks(&["big", "wolf"]), 0, true)); // adjacency
+        assert!(sequence_matches(&toks(&["the", "big", "bad", "wolf"]), &toks(&["big", "bad", "wo"]), 0, true));
+        let world = toks(&["big", "bad", "world"]);
+        assert!(sequence_matches(&world, &toks(&["big", "bad", "wo"]), 0, true)); // wo prefixes world
+        assert!(!sequence_matches(&world, &toks(&["big", "bad", "wolf"]), 0, true)); // wolf does not
+        assert!(!sequence_matches(&toks(&["big"]), &toks(&["big", "bad"]), 0, true)); // too few tokens
+    }
+
+    #[test]
+    fn sequence_matches_budget_is_per_whole_input_not_per_term() {
+        let value = toks(&["big", "bad", "wolf"]);
+        assert!(sequence_matches(&value, &toks(&["big", "bd", "wo"]), 1, true)); // 1 total edit
+        assert!(!sequence_matches(&value, &toks(&["big", "bd", "wo"]), 0, true));
+        // two single-term typos = 2 total edits: rejected at distance 1 (would pass a per-term budget),
+        // accepted at distance 2.
+        assert!(!sequence_matches(&value, &toks(&["bg", "bd", "wo"]), 1, true));
+        assert!(sequence_matches(&value, &toks(&["bg", "bd", "wo"]), 2, true));
+        // transposition counts as one edit only when enabled.
+        assert!(sequence_matches(&value, &toks(&["big", "abd", "wo"]), 1, true));
+        assert!(!sequence_matches(&value, &toks(&["big", "abd", "wo"]), 1, false));
+        // the shared budget is NOT spent on word boundaries: words stay aligned to tokens, so a query
+        // does not fuzzy-merge across a space. This keeps the post-filter a subset of the candidate net.
+        assert!(!sequence_matches(&toks(&["newyork", "city"]), &toks(&["new", "york"]), 1, true));
+    }
+
+    #[test]
+    fn analyzer_tokenize_matches_default_tokenizer() {
+        let mut analyzer = tantivy::tokenizer::TokenizerManager::default().get("default").unwrap();
+        assert_eq!(analyzer_tokenize(&mut analyzer, "Big Bad Wolf"), toks(&["big", "bad", "wolf"]));
+        // Unicode is segmented and lowercased correctly (the previous ASCII tokenizer would split this).
+        assert_eq!(analyzer_tokenize(&mut analyzer, "Café"), toks(&["café"]));
+        // RemoveLongFilter drops tokens of 40+ bytes.
+        let long = "a".repeat(40);
+        assert!(analyzer_tokenize(&mut analyzer, &long).is_empty());
+        assert_eq!(analyzer_tokenize(&mut analyzer, &"a".repeat(39)).len(), 1);
     }
 
     #[test]
@@ -365,6 +462,58 @@ mod tests {
         let full = canonical("al.*");
         assert_eq!(capped.len(), 2);
         assert!(capped.iter().all(|g| full.contains(g)));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Adaptive candidate paging: 300 real matches exceed SEQUENCE_BASE_PAGE (256), so returning all of
+    // them forces a second page regardless of score order -- exercising the widening + and_offset
+    // boundary. Returning exactly the 300 (no more, no fewer) proves no boundary drop or duplicate; the
+    // interleaved decoys carry every query term in the wrong order, so they must be rejected across
+    // pages by the order/adjacency post-filter.
+    #[test]
+    fn search_sequence_pages_past_the_first_candidate_page() {
+        let dir = std::env::temp_dir().join(format!("mgcxx_seq_paging_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.to_str().unwrap().to_string();
+        let mappings = r#"{"properties":{
+            "data":{"type":"json","fast":true,"stored":true,"text":true},
+            "all":{"type":"text","fast":true,"stored":true,"text":true},
+            "gid":{"type":"u64","fast":true,"stored":true,"indexed":true}}}"#
+            .to_string();
+        let mut ctx = create_index(&path, &ffi::IndexConfig { mappings }).unwrap();
+
+        let real: Vec<u64> = (1u64..=300).collect();
+        for &gid in &real {
+            let data = format!(r#"{{"data":{{"name":"big bad wolf"}},"all":"big bad wolf","gid":{gid}}}"#);
+            add_document(&mut ctx, &ffi::DocumentInput { data }, true).unwrap();
+        }
+        for gid in 1000u64..=1049 {
+            let data = format!(r#"{{"data":{{"name":"wolf bad big"}},"all":"wolf bad big","gid":{gid}}}"#);
+            add_document(&mut ctx, &ffi::DocumentInput { data }, true).unwrap();
+        }
+        commit(&mut ctx).unwrap();
+
+        let searcher = acquire_searcher(&ctx).unwrap();
+        let input = ffi::SearchInput {
+            search_fields: vec![],
+            search_query: "data.name:big bad wo".to_string(),
+            return_fields: vec![],
+            aggregation_query: String::new(),
+            limit: 0, // unlimited -> first page is SEQUENCE_BASE_PAGE, must widen to reach all matches
+            fuzzy_distance: 0,
+            fuzzy_prefix: true,
+            fuzzy_transpositions: false,
+            fuzzy_field: String::new(),
+        };
+        let mut gids: Vec<u64> = search_sequence_gids_pinned(&ctx, &searcher, &input)
+            .unwrap()
+            .docs
+            .iter()
+            .map(|d| d.gid)
+            .collect();
+        gids.sort_unstable();
+        assert_eq!(gids, real);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -808,6 +957,129 @@ fn search_get_fields(
     Ok(result)
 }
 
+// Adaptive candidate paging for search_sequence. The post-filter discards candidates, so we over-fetch
+// the requested limit, then page wider only when starved. SEQUENCE_BASE_PAGE is the first page for an
+// unlimited query; finite limits start at limit * SEQUENCE_OVERFETCH_FACTOR; pages double each round.
+// SEQUENCE_MAX_CANDIDATES caps how many score-ranked candidates one query will ever scan.
+// (Future scalability lever: a str/bytes fast field + columnar collector would filter without the store.)
+const SEQUENCE_BASE_PAGE: usize = 256;
+const SEQUENCE_OVERFETCH_FACTOR: usize = 8;
+const SEQUENCE_MAX_CANDIDATES: usize = 50_000;
+
+// Parses `data.<property>:<terms>` into (property, terms); the field side is trimmed. search_sequence
+// is single-property only, so any other form (no colon, non-`data` prefix, or blank property) is rejected.
+fn split_property_and_terms(query: &str) -> Result<(String, String), std::io::Error> {
+    query
+        .split_once(':')
+        .and_then(|(lhs, terms)| {
+            let property = lhs.trim().strip_prefix("data.")?.trim();
+            (!property.is_empty()).then(|| (property.to_string(), terms.to_string()))
+        })
+        .ok_or_else(|| {
+            Error::new(ErrorKind::Other, format!("search_sequence expects 'data.<property>:<terms>', got: {}", query))
+        })
+}
+
+// Runs the field's own analyzer over `text`, yielding the exact tokens tantivy indexed (Unicode
+// segmentation, RemoveLongFilter, lowercasing -- no approximation).
+fn analyzer_tokenize(analyzer: &mut TextAnalyzer, text: &str) -> Vec<Vec<char>> {
+    let mut tokens = Vec::new();
+    let mut stream = analyzer.token_stream(text);
+    while stream.advance() {
+        tokens.push(stream.token().text.chars().collect());
+    }
+    tokens
+}
+
+// Optimal-string-alignment DP over chars. Returns the final row M[term.len()][*], so the full edit
+// distance is row[token.len()] and the min over prefixes of `token` is min(row).
+fn edit_row(term: &[char], token: &[char], transpositions: bool) -> Vec<usize> {
+    let lk = token.len();
+    let mut transposition_row = vec![0usize; lk + 1];
+    let mut prev_row = (0..=lk).collect::<Vec<_>>();
+    let mut curr_row = vec![0usize; lk + 1];
+    for i in 1..=term.len() {
+        curr_row[0] = i;
+        for j in 1..=lk {
+            let cost = (term[i - 1] != token[j - 1]) as usize;
+            let mut best = (prev_row[j] + 1).min(curr_row[j - 1] + 1).min(prev_row[j - 1] + cost);
+            if transpositions && i > 1 && j > 1 && term[i - 1] == token[j - 2] && term[i - 2] == token[j - 1] {
+                best = best.min(transposition_row[j - 2] + 1);
+            }
+            curr_row[j] = best;
+        }
+        std::mem::swap(&mut transposition_row, &mut prev_row);
+        std::mem::swap(&mut prev_row, &mut curr_row);
+    }
+    prev_row
+}
+
+// Whole-word edit distance between `term` and the full `token` (the final DP cell).
+fn word_distance(term: &[char], token: &[char], transpositions: bool) -> usize {
+    *edit_row(term, token, transpositions).last().expect("row has token.len()+1 cells")
+}
+
+// Smallest edit distance between `term` and any prefix of `token` (min over the DP row).
+fn prefix_distance(term: &[char], token: &[char], transpositions: bool) -> usize {
+    edit_row(term, token, transpositions).into_iter().min().expect("row is non-empty")
+}
+
+// True if `terms` appear as an adjacent, in-order window in `value` (leading terms whole-word, last
+// term a prefix). The per-word distances share one budget: their sum must stay within `distance`.
+fn sequence_matches(value: &[Vec<char>], terms: &[Vec<char>], distance: u8, transpositions: bool) -> bool {
+    let n = terms.len();
+    if n == 0 || value.len() < n {
+        return false;
+    }
+    let last = n - 1;
+    let budget = distance as usize;
+    (0..=value.len() - n).any(|start| {
+        let mut total = 0usize;
+        for (j, term) in terms.iter().enumerate() {
+            let token = &value[start + j];
+            total += if j == last {
+                prefix_distance(term, token, transpositions)
+            } else {
+                word_distance(term, token, transpositions)
+            };
+            if total > budget {
+                return false;
+            }
+        }
+        true
+    })
+}
+
+// Reads the string value of `property` from a hit's stored `data` JSON object, if present.
+fn extract_property_string(doc: &TantivyDocument, data_field: Field, property: &str) -> Option<String> {
+    match doc.get_first(data_field)?.into() {
+        OwnedValue::Object(entries) => entries.into_iter().find_map(|(k, v)| match v {
+            OwnedValue::Str(s) if k == property => Some(s),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+// Reads a stored u64 field (gid / edge gids) from a sequence-search hit's document.
+fn extract_u64_field(
+    doc: &TantivyDocument,
+    field: Field,
+    field_name: &str,
+    index_path: &std::path::PathBuf,
+) -> Result<u64, std::io::Error> {
+    let value = doc.get_first(field).ok_or_else(|| {
+        Error::new(ErrorKind::Other, format!("Document missing {} field in {:?}", field_name, index_path))
+    })?;
+    match value.into() {
+        OwnedValue::U64(n) => Ok(n),
+        other => Err(Error::new(
+            ErrorKind::Other,
+            format!("{} field has unexpected type {:?} in {:?}", field_name, other, index_path),
+        )),
+    }
+}
+
 pub struct SearcherContext {
     searcher: tantivy::Searcher,
 }
@@ -1017,6 +1289,148 @@ fn search_edge_gids_pinned(
         let edge_gid = read_gid(&edge_gid_columns, &doc_address, "edge_gid")?;
         let from_gid = read_gid(&from_gid_columns, &doc_address, "from_vertex_gid")?;
         let to_gid = read_gid(&to_gid_columns, &doc_address, "to_vertex_gid")?;
+        docs.push(ffi::EdgeGidScore { edge_gid, from_gid, to_gid, score });
+    }
+    Ok(ffi::EdgeGidScoreOutput { docs })
+}
+
+// Runs the candidate query for a sequence search and post-filters to the docs whose `data.<property>`
+// value contains the term sequence (adjacent, in order, last term a prefix), up to the result limit.
+fn sequence_matched_docs(
+    context: &ffi::Context,
+    searcher_ctx: &SearcherContext,
+    input: &ffi::SearchInput,
+) -> Result<Vec<(f32, TantivyDocument)>, std::io::Error> {
+    let index_path = &context.tantivyContext.index_path;
+    let index = &context.tantivyContext.index;
+    let schema = &context.tantivyContext.schema;
+
+    let (property, terms_text) = split_property_and_terms(&input.search_query)?;
+    let data_field = schema.get_field("data").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("data field not found in {:?} -> {}", index_path, e))
+    })?;
+    let mut analyzer = index.tokenizer_for_field(data_field).map_err(|e| {
+        Error::new(ErrorKind::Other, format!("no tokenizer for data field in {:?} -> {}", index_path, e))
+    })?;
+    let terms = analyzer_tokenize(&mut analyzer, &terms_text);
+    if terms.is_empty() {
+        return Err(Error::new(
+            ErrorKind::Other,
+            "search_sequence query produced no searchable terms.".to_string(),
+        ));
+    }
+
+    // Candidate net built directly (not via the query parser) so numeric/boolean-looking tokens match
+    // as string terms rather than failing tantivy's JSON fast-value conversion. Every term is required:
+    // last a fuzzy prefix, leading ones whole-word fuzzy. A genuine superset of the post-filter below
+    // (a window whose summed distances are <= d has every term individually <= d).
+    let last = terms.len() - 1;
+    let subqueries: Vec<(Occur, Box<dyn Query>)> = terms
+        .iter()
+        .enumerate()
+        .map(|(i, token)| {
+            let mut term = Term::from_field_json_path(data_field, &property, false);
+            term.append_type_and_str(&token.iter().collect::<String>());
+            let fuzzy = if i == last {
+                FuzzyTermQuery::new_prefix(term, input.fuzzy_distance, input.fuzzy_transpositions)
+            } else {
+                FuzzyTermQuery::new(term, input.fuzzy_distance, input.fuzzy_transpositions)
+            };
+            (Occur::Must, Box::new(fuzzy) as Box<dyn Query>)
+        })
+        .collect();
+    let query = BooleanQuery::new(subqueries);
+
+    // Page through score-ranked candidates, post-filtering each page, until we've collected
+    // `result_limit` matches or the candidate stream runs out. Selective queries fill the first page;
+    // we widen only when the post-filter is starved, capped at SEQUENCE_MAX_CANDIDATES.
+    let result_limit = if input.limit == 0 { usize::MAX } else { input.limit };
+    let mut matched: Vec<(f32, TantivyDocument)> = Vec::new();
+    let mut scanned = 0usize;
+    let mut page = match input.limit {
+        0 => SEQUENCE_BASE_PAGE,
+        n => n.saturating_mul(SEQUENCE_OVERFETCH_FACTOR).min(SEQUENCE_MAX_CANDIDATES),
+    };
+    while matched.len() < result_limit && scanned < SEQUENCE_MAX_CANDIDATES {
+        let page_limit = page.min(SEQUENCE_MAX_CANDIDATES - scanned);
+        let top_docs = searcher_ctx
+            .searcher
+            .search(&query, &TopDocs::with_limit(page_limit).and_offset(scanned))
+            .map_err(|e| {
+                Error::new(ErrorKind::Other, format!("Unable to perform sequence search under {:?} -> {}", index_path, e))
+            })?;
+        let fetched = top_docs.len();
+        for (score, doc_address) in top_docs {
+            let doc: TantivyDocument = searcher_ctx.searcher.doc(doc_address).map_err(|e| {
+                Error::new(ErrorKind::Other, format!("Unable to find document inside {:?} -> {}", index_path, e))
+            })?;
+            let Some(value) = extract_property_string(&doc, data_field, &property) else {
+                continue;
+            };
+            let value_tokens = analyzer_tokenize(&mut analyzer, &value);
+            if sequence_matches(&value_tokens, &terms, input.fuzzy_distance, input.fuzzy_transpositions) {
+                matched.push((score, doc));
+                if matched.len() >= result_limit {
+                    break;
+                }
+            }
+        }
+        scanned += fetched;
+        if fetched < page_limit {
+            break; // candidate stream exhausted -- no more docs to page into
+        }
+        page = page.saturating_mul(2);
+    }
+    if matched.len() < result_limit && scanned >= SEQUENCE_MAX_CANDIDATES {
+        log::warn!(
+            "search_sequence hit the {} candidate scan cap in {:?}; results may be truncated",
+            SEQUENCE_MAX_CANDIDATES,
+            index_path
+        );
+    }
+    Ok(matched)
+}
+
+fn search_sequence_gids_pinned(
+    context: &ffi::Context,
+    searcher_ctx: &SearcherContext,
+    input: &ffi::SearchInput,
+) -> Result<ffi::GidScoreOutput, std::io::Error> {
+    let matched = sequence_matched_docs(context, searcher_ctx, input)?;
+    let index_path = &context.tantivyContext.index_path;
+    let gid_field = context.tantivyContext.schema.get_field("gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("gid field not found in {:?} -> {}", index_path, e))
+    })?;
+    let mut docs: Vec<ffi::GidScore> = Vec::with_capacity(matched.len());
+    for (score, doc) in matched {
+        let gid = extract_u64_field(&doc, gid_field, "gid", index_path)?;
+        docs.push(ffi::GidScore { gid, score });
+    }
+    Ok(ffi::GidScoreOutput { docs })
+}
+
+fn search_sequence_edge_gids_pinned(
+    context: &ffi::Context,
+    searcher_ctx: &SearcherContext,
+    input: &ffi::SearchInput,
+) -> Result<ffi::EdgeGidScoreOutput, std::io::Error> {
+    let matched = sequence_matched_docs(context, searcher_ctx, input)?;
+    let index_path = &context.tantivyContext.index_path;
+    let schema = &context.tantivyContext.schema;
+    let edge_gid_field = schema.get_field("edge_gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("edge_gid not found in {:?} -> {}", index_path, e))
+    })?;
+    let from_gid_field = schema.get_field("from_vertex_gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("from_vertex_gid not found in {:?} -> {}", index_path, e))
+    })?;
+    let to_gid_field = schema.get_field("to_vertex_gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("to_vertex_gid not found in {:?} -> {}", index_path, e))
+    })?;
+    let mut docs: Vec<ffi::EdgeGidScore> = Vec::with_capacity(matched.len());
+    for (score, doc) in matched {
+        let edge_gid = extract_u64_field(&doc, edge_gid_field, "edge_gid", index_path)?;
+        let from_gid = extract_u64_field(&doc, from_gid_field, "from_vertex_gid", index_path)?;
+        let to_gid = extract_u64_field(&doc, to_gid_field, "to_vertex_gid", index_path)?;
         docs.push(ffi::EdgeGidScore { edge_gid, from_gid, to_gid, score });
     }
     Ok(ffi::EdgeGidScoreOutput { docs })
